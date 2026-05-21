@@ -1,0 +1,55 @@
+:root {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #e6edf7;
+  background: radial-gradient(circle at top, #16243d, #0a101b 62%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.card {
+  width: min(760px, 100%);
+  border-radius: 18px;
+  border: 1px solid #35507a;
+  background: rgba(9, 16, 30, 0.75);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  padding: 2rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: #79b1ff;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 0.8rem;
+  font-size: 2rem;
+}
+
+p {
+  margin: 0;
+  line-height: 1.5;
+}
