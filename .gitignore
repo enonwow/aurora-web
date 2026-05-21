@@ -28,6 +28,11 @@ pnpm-debug.log*
 .turbo/
 .parcel-cache/
 *.tsbuildinfo
+cache/
+caches/
+local-cache/
+runtime-cache/
+.aurora-cache/
 
 # Editor/IDE
 .vscode/
