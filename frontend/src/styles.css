@@ -1,7 +1,7 @@
 :root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  color: #e6edf7;
-  background: radial-gradient(circle at top, #16243d, #0a101b 62%);
+  color: #dce6f5;
+  background: #0d121a;
 }
 
 * {
@@ -18,29 +18,31 @@ body,
 
 body {
   min-height: 100vh;
+  background: #0d121a;
 }
 
 .app-shell {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   min-height: 100vh;
-  padding: 2rem 2rem 3rem;
+  width: 100%;
+  padding: 0;
   gap: 1rem;
-  position: relative;
 }
 
 .card {
-  width: min(760px, 100%);
-  border-radius: 18px;
-  border: 1px solid #35507a;
-  background: rgba(9, 16, 30, 0.75);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-  padding: 2rem;
+  width: min(860px, 100%);
+  border-radius: 14px;
+  border: 1px solid #2b374a;
+  background: #121a25;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.3);
+  padding: 1.6rem 1.8rem;
 }
 
 .eyebrow {
   margin: 0 0 0.5rem;
-  color: #79b1ff;
+  color: #8fa3c0;
   font-size: 0.85rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -54,6 +56,62 @@ h1 {
 p {
   margin: 0;
   line-height: 1.5;
+  color: #becee6;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+  border-bottom: 1px solid #263142;
+  background: #0f1722;
+  padding: 0.65rem 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.topbar-brand {
+  margin: 0;
+  color: #d8e4f8;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.topbar-nav-btn {
+  border: 1px solid #314158;
+  border-radius: 8px;
+  background: #151f2d;
+  color: #c5d4ea;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.topbar-nav-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .form-grid {
@@ -76,12 +134,12 @@ input {
 }
 
 .primary-btn,
-.debug-toggle {
-  border: 1px solid #4a79be;
-  border-radius: 10px;
-  background: #15315a;
+.topbar-btn {
+  border: 1px solid #355074;
+  border-radius: 8px;
+  background: #1a2a3f;
   color: #e9f1ff;
-  padding: 0.65rem 0.85rem;
+  padding: 0.5rem 0.8rem;
   cursor: pointer;
 }
 
@@ -89,18 +147,13 @@ input {
   margin-top: 0.6rem;
 }
 
-.debug-toggle {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-}
-
 .debug-card {
-  width: min(760px, 100%);
-  border-radius: 16px;
-  border: 1px solid #2f4567;
-  background: rgba(9, 16, 30, 0.9);
+  width: min(860px, 100%);
+  border-radius: 12px;
+  border: 1px solid #2f3e53;
+  background: #111926;
   padding: 1rem 1.25rem;
+  margin-bottom: 1.2rem;
 }
 
 .debug-card h2 {
@@ -111,4 +164,16 @@ input {
 .event-list {
   margin: 0.65rem 0 0;
   padding-left: 1.2rem;
+}
+
+.page-content {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 1.2rem 1rem 0.2rem;
+}
+
+.error-text {
+  margin-top: 0.4rem;
+  color: #f2adad;
 }
