@@ -24,7 +24,9 @@ body {
   display: grid;
   place-items: center;
   min-height: 100vh;
-  padding: 2rem;
+  padding: 2rem 2rem 3rem;
+  gap: 1rem;
+  position: relative;
 }
 
 .card {
@@ -52,4 +54,61 @@ h1 {
 p {
   margin: 0;
   line-height: 1.5;
+}
+
+.form-grid {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.2rem;
+}
+
+label {
+  color: #8ab9ff;
+  font-size: 0.92rem;
+}
+
+input {
+  border: 1px solid #35507a;
+  border-radius: 10px;
+  background: #0a1222;
+  color: #e6edf7;
+  padding: 0.65rem 0.75rem;
+}
+
+.primary-btn,
+.debug-toggle {
+  border: 1px solid #4a79be;
+  border-radius: 10px;
+  background: #15315a;
+  color: #e9f1ff;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+}
+
+.primary-btn {
+  margin-top: 0.6rem;
+}
+
+.debug-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
+
+.debug-card {
+  width: min(760px, 100%);
+  border-radius: 16px;
+  border: 1px solid #2f4567;
+  background: rgba(9, 16, 30, 0.9);
+  padding: 1rem 1.25rem;
+}
+
+.debug-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.event-list {
+  margin: 0.65rem 0 0;
+  padding-left: 1.2rem;
 }
