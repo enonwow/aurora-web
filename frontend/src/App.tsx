@@ -15,6 +15,18 @@ import {
 } from "./modules/telemetry/telemetryStore";
 import type { TelemetryEvent } from "./modules/telemetry/telemetryStore";
 import { WorkspaceTopbar } from "./modules/layout/components/WorkspaceTopbar";
+import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLayout";
+import {
+  applyToolbarAction,
+  createDefaultToolbarState,
+  type ToolbarActionKey
+} from "./modules/layout/roleTopbarPolicy";
+import {
+  applyLayoutThemeToDocument,
+  loadLayoutThemeFromStorage,
+  persistLayoutThemeToStorage,
+  type LayoutThemeId
+} from "./modules/layout/themeSettings";
 
 type AppRoute = "/login" | "/app";
 
@@ -47,7 +59,13 @@ export default function App({
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [toolbarState, setToolbarState] = useState(() =>
+    createDefaultToolbarState()
+  );
   const [events, setEvents] = useState<TelemetryEvent[]>(() => getTelemetryEvents());
+  const [layoutTheme, setLayoutTheme] = useState<LayoutThemeId>(() =>
+    loadLayoutThemeFromStorage(window.localStorage)
+  );
 
   const navigate = useCallback((nextRoute: AppRoute) => {
     window.history.pushState({}, "", nextRoute);
@@ -61,6 +79,26 @@ export default function App({
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    persistLayoutThemeToStorage(layoutTheme, window.localStorage);
+    applyLayoutThemeToDocument(layoutTheme, document.documentElement);
+  }, [layoutTheme]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowDebugPanel(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [showDebugPanel]);
 
   useEffect(() => {
     const normalized = resolveRoute(window.location.pathname);
@@ -123,6 +161,7 @@ export default function App({
         const authz = await authFacade.authorize(authResult.session);
         setSession(authResult.session);
         setAuthorization(authz);
+        setToolbarState(createDefaultToolbarState());
         trackTelemetry("ui.auth.login_success", { role: authz.role });
         navigate("/app");
       } finally {
@@ -144,9 +183,21 @@ export default function App({
     setPassword("");
     setIsSigningIn(false);
     setAuthError(null);
+    setToolbarState(createDefaultToolbarState());
     trackTelemetry("ui.auth.logout", { route });
     navigate("/login");
   }, [authFacade, navigate, route, session]);
+
+  const handleToolbarAction = useCallback(
+    (actionKey: ToolbarActionKey) => {
+      setToolbarState((current) => applyToolbarAction(current, actionKey));
+      trackTelemetry("ui.workspace.toolbar_action", {
+        actionKey,
+        role: currentRole ?? "anonymous"
+      });
+    },
+    [currentRole]
+  );
 
   const benchmarkSamples = getAuthBenchmarks();
   const authDurations = benchmarkSamples
@@ -155,32 +206,32 @@ export default function App({
   const authzDurations = benchmarkSamples
     .filter((sample) => sample.operation === "authorize")
     .map((sample) => sample.durationMs);
+  const pageContentClassName = isMainView
+    ? "page-content page-content-workspace"
+    : "page-content page-content-auth";
 
   return (
     <main className="app-shell">
       <WorkspaceTopbar
         isAuthenticated={isMainView}
         role={currentRole}
+        toolbarState={toolbarState}
+        layoutTheme={layoutTheme}
+        onLayoutThemeChange={setLayoutTheme}
+        onAction={handleToolbarAction}
         showDebugPanel={showDebugPanel}
         onToggleDebug={() => setShowDebugPanel((current) => !current)}
         onSignOut={handleSignOut}
       />
 
-      <section className="page-content">
+      <section className={pageContentClassName}>
         {isMainView ? (
-          <section className="card">
-            <h1>Aurora Web Workspace</h1>
-            <p>
-              Logged as <strong>{session?.user.displayName}</strong> (
-              {authorization?.role}).
-            </p>
-            <p>Permissions:</p>
-            <ul>
-              {authorization?.permissions.map((permission) => (
-                <li key={permission}>{permission}</li>
-              ))}
-            </ul>
-          </section>
+          <WorkspaceMockLayout
+            role={authorization!.role}
+            displayName={session!.user.displayName}
+            permissions={authorization!.permissions}
+            toolbarState={toolbarState}
+          />
         ) : (
           <section className="card">
             <p className="eyebrow">Authentication</p>
@@ -216,18 +267,32 @@ export default function App({
       </section>
 
       {isMainView && showDebugPanel ? (
-        <section className="debug-card" aria-label="debug panel">
-          <h2>Debug telemetry</h2>
-          <p>Route: {route}</p>
-          <p>Auth benchmark avg: {averageDurationMs(authDurations)}</p>
-          <p>Authorize benchmark avg: {averageDurationMs(authzDurations)}</p>
-          <ul className="event-list">
-            {events.map((entry) => (
-              <li key={entry.id}>
-                <strong>{entry.name}</strong> {JSON.stringify(entry.payload)}
-              </li>
-            ))}
-          </ul>
+        <section
+          className="debug-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowDebugPanel(false);
+            }
+          }}
+        >
+          <article className="debug-dialog" role="dialog" aria-modal="true" aria-label="debug panel">
+            <header className="debug-dialog-header">
+              <h2>Debug telemetry</h2>
+              <button className="topbar-btn" type="button" onClick={() => setShowDebugPanel(false)}>
+                Close
+              </button>
+            </header>
+            <p>Route: {route}</p>
+            <p>Auth benchmark avg: {averageDurationMs(authDurations)}</p>
+            <p>Authorize benchmark avg: {averageDurationMs(authzDurations)}</p>
+            <ul className="event-list">
+              {events.map((entry) => (
+                <li key={entry.id}>
+                  <strong>{entry.name}</strong> {JSON.stringify(entry.payload)}
+                </li>
+              ))}
+            </ul>
+          </article>
         </section>
       ) : null}
     </main>

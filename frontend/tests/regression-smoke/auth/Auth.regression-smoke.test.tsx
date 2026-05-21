@@ -32,9 +32,9 @@ describe("Regression smoke: auth shell behavior", () => {
       screen.getByRole("heading", { name: /sign in to aurora web/i })
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^area$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^assets$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^render$/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /save \(local draft\)/i })
+    ).not.toBeInTheDocument();
   });
 
   it("guards direct /app route for anonymous users", async () => {
@@ -52,11 +52,12 @@ describe("Regression smoke: auth shell behavior", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    expect(screen.getByRole("button", { name: /^area$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^assets$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^render$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^admin$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^dm$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
+    expect(screen.getByRole("button", { name: /save \(local draft\)/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^selection$/i }));
+    expect(screen.getByRole("button", { name: /select terrain/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /select object/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /spawn creature/i })).not.toBeInTheDocument();
   });
 
   it("returns to clean login state after logout", async () => {
@@ -73,7 +74,7 @@ describe("Regression smoke: auth shell behavior", () => {
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/debug panel/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^dm$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /spawn creature/i })).not.toBeInTheDocument();
   });
 
   it("keeps rejected credentials on login with an explicit error", async () => {
