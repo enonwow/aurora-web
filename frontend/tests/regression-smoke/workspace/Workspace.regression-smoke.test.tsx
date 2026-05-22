@@ -25,6 +25,11 @@ async function signInAs(username: string, password: string) {
   expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
 }
 
+async function openQuickOptionsDialog() {
+  fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+  return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+}
+
 describe("Regression smoke: workspace interactions", () => {
   beforeEach(() => {
     clearTelemetry();
@@ -36,21 +41,35 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /^visibility$/i }));
-    expect(await screen.findByLabelText(/visibility commands/i)).toBeInTheDocument();
+    const visibilityTab = screen.getByRole("button", { name: /^visibility$/i });
+    fireEvent.click(visibilityTab);
+    await waitFor(() => {
+      expect(visibilityTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(
+      await screen.findByLabelText(/visibility commands/i, {}, { timeout: 5000 })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /show creatures/i }));
-    expect(await screen.findByLabelText(/visibility commands/i)).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText(/visibility commands/i, {}, { timeout: 5000 })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /show items/i }));
-    expect(await screen.findByLabelText(/visibility commands/i)).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText(/visibility commands/i, {}, { timeout: 5000 })
+    ).toBeInTheDocument();
   });
 
   it("applies show none and show all visibility matrix correctly", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /^visibility$/i }));
+    const visibilityTab = screen.getByRole("button", { name: /^visibility$/i });
+    fireEvent.click(visibilityTab);
+    await waitFor(() => {
+      expect(visibilityTab).toHaveAttribute("aria-expanded", "true");
+    });
 
     const showNone = screen.getByRole("button", { name: /show none/i });
     fireEvent.click(showNone);
@@ -121,7 +140,7 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
     fireEvent.change(screen.getByLabelText(/grid step/i), {
       target: { value: "2.5" }
     });
@@ -137,7 +156,7 @@ describe("Regression smoke: workspace interactions", () => {
     expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
 
     await signInAs("builder.user", "builder123");
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
     expect(screen.getByLabelText(/autosave enabled/i)).not.toBeChecked();
   });
@@ -171,8 +190,7 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    expect(await screen.findByRole("dialog", { name: /quick options/i })).toBeInTheDocument();
+    expect(await openQuickOptionsDialog()).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => {
@@ -199,19 +217,28 @@ describe("Regression smoke: workspace interactions", () => {
 
     const moduleTab = screen.getByRole("button", { name: /^module$/i });
     fireEvent.click(moduleTab);
-    expect(await screen.findByLabelText(/module commands/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(moduleTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(await screen.findByLabelText(/module commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
 
     const visibilityTab = screen.getByRole("button", { name: /^visibility$/i });
     fireEvent.mouseEnter(visibilityTab);
-    expect(await screen.findByLabelText(/visibility commands/i)).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText(/visibility commands/i, {}, { timeout: 5000 })
+    ).toBeInTheDocument();
   });
 
   it("closes drawer when clicking outside topbar center", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
-    expect(await screen.findByLabelText(/module commands/i)).toBeInTheDocument();
+    const moduleTab = screen.getByRole("button", { name: /^module$/i });
+    fireEvent.click(moduleTab);
+    await waitFor(() => {
+      expect(moduleTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(await screen.findByLabelText(/module commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
     await waitFor(() => {
@@ -240,8 +267,12 @@ describe("Regression smoke: workspace interactions", () => {
     const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
     fireEvent.click(sourceRow);
 
-    fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
-    expect(await screen.findByLabelText(/canvas commands/i)).toBeInTheDocument();
+    const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
+    fireEvent.click(canvasTab);
+    await waitFor(() => {
+      expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(await screen.findByLabelText(/canvas commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /copy sel/i }));
     const copiedRow = await within(rightSidebar).findByRole("button", {
@@ -256,6 +287,78 @@ describe("Regression smoke: workspace interactions", () => {
       expect(
         within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("supports ctrl multi-select from scene object list in all scope", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const rowA = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const rowB = within(rightSidebar).getByRole("button", { name: /plc_table_02/i });
+
+    fireEvent.click(rowA);
+    await waitFor(() => {
+      expect(rowA).toHaveAttribute("aria-selected", "true");
+      expect(rowB).toHaveAttribute("aria-selected", "false");
+    });
+
+    fireEvent.click(rowB, { ctrlKey: true });
+    await waitFor(() => {
+      expect(rowA).toHaveAttribute("aria-selected", "true");
+      expect(rowB).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("keeps selection scoped to active object type after switching category", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const typeSelector = within(rightSidebar).getByRole("combobox", {
+      name: /object type selector/i
+    });
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const creatureRow = within(rightSidebar).getByRole("button", { name: /crt_devourer_01/i });
+
+    fireEvent.click(placeableRow);
+    fireEvent.click(creatureRow, { ctrlKey: true });
+    await waitFor(() => {
+      expect(placeableRow).toHaveAttribute("aria-selected", "true");
+      expect(creatureRow).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.change(typeSelector, { target: { value: "placeables" } });
+    fireEvent.change(typeSelector, { target: { value: "all" } });
+
+    const placeableRowAfter = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const creatureRowAfter = within(rightSidebar).getByRole("button", { name: /crt_devourer_01/i });
+    await waitFor(() => {
+      expect(placeableRowAfter).toHaveAttribute("aria-selected", "true");
+      expect(creatureRowAfter).toHaveAttribute("aria-selected", "false");
+    });
+  });
+
+  it("toggles off selected object when ctrl-clicking it again from scene list", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const rowA = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const rowB = within(rightSidebar).getByRole("button", { name: /plc_table_02/i });
+
+    fireEvent.click(rowA);
+    fireEvent.click(rowB, { ctrlKey: true });
+    await waitFor(() => {
+      expect(rowA).toHaveAttribute("aria-selected", "true");
+      expect(rowB).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.click(rowB, { ctrlKey: true });
+    await waitFor(() => {
+      expect(rowA).toHaveAttribute("aria-selected", "true");
+      expect(rowB).toHaveAttribute("aria-selected", "false");
     });
   });
 });

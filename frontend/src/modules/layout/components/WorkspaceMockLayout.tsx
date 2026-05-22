@@ -9,6 +9,7 @@ import type {
 } from "../roleTopbarPolicy";
 import { getRoleWorkspacePanels } from "../roleSidebarPolicy";
 import { SceneObjectListPanel } from "./SceneObjectListPanel";
+import type { SceneObjectCatalogType } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
 import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
 
@@ -30,6 +31,9 @@ const SIDEBAR_COLLAPSED_WIDTH_PX = 44;
 interface SidebarSelectSignal {
   revision: number;
   objectId: string;
+  additive: boolean;
+  sourceType: SceneObjectCatalogType;
+  allowedObjectIds: string[];
 }
 
 interface SidebarContextMenuSignal {
@@ -38,6 +42,11 @@ interface SidebarContextMenuSignal {
   objectKind: SceneObjectKind;
   clientX: number;
   clientY: number;
+}
+
+interface SceneObjectCatalogScope {
+  sourceType: SceneObjectCatalogType;
+  allowedObjectIds: string[];
 }
 
 function SidebarColumn({
@@ -150,11 +159,17 @@ export function WorkspaceMockLayout({
   const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
     () => createSeedAreaScene().objects
   );
+  const [selectedObjectIdsSnapshot, setSelectedObjectIdsSnapshot] = useState<string[]>([]);
   const [sidebarSelectSignal, setSidebarSelectSignal] = useState<SidebarSelectSignal | null>(
     null
   );
   const [sidebarContextMenuSignal, setSidebarContextMenuSignal] =
     useState<SidebarContextMenuSignal | null>(null);
+  const [sceneObjectCatalogScope, setSceneObjectCatalogScope] =
+    useState<SceneObjectCatalogScope>({
+      sourceType: "all",
+      allowedObjectIds: sceneObjectsSnapshot.map((object) => object.id)
+    });
   const sidebarSignalRevisionRef = useRef(0);
   const leftPanelWidthPx = leftCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH_PX
@@ -167,13 +182,26 @@ export function WorkspaceMockLayout({
   const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
     setSceneObjectsSnapshot(objects);
   }, []);
-  const handleSceneObjectSelect = useCallback((object: SceneObject) => {
-    sidebarSignalRevisionRef.current += 1;
-    setSidebarSelectSignal({
-      revision: sidebarSignalRevisionRef.current,
-      objectId: object.id
-    });
-  }, []);
+  const handleSceneObjectSelect = useCallback(
+    (
+      object: SceneObject,
+      options?: {
+        additive: boolean;
+        sourceType: SceneObjectCatalogType;
+        allowedObjectIds: string[];
+      }
+    ) => {
+      sidebarSignalRevisionRef.current += 1;
+      setSidebarSelectSignal({
+        revision: sidebarSignalRevisionRef.current,
+        objectId: object.id,
+        additive: Boolean(options?.additive),
+        sourceType: options?.sourceType ?? "all",
+        allowedObjectIds: options?.allowedObjectIds ?? [object.id]
+      });
+    },
+    []
+  );
   const handleSceneObjectContextMenu = useCallback(
     (object: SceneObject, clientX: number, clientY: number) => {
       sidebarSignalRevisionRef.current += 1;
@@ -197,10 +225,12 @@ export function WorkspaceMockLayout({
           commandSignal={commandSignal}
           sidebarSelectSignal={sidebarSelectSignal}
           sidebarContextMenuSignal={sidebarContextMenuSignal}
+          catalogScope={sceneObjectCatalogScope}
           workspaceOptions={workspaceOptions}
           leftPanelWidthPx={leftPanelWidthPx}
           rightPanelWidthPx={rightPanelWidthPx}
           onSceneObjectsSnapshotChange={handleSceneObjectsSnapshotChange}
+          onSelectionSnapshotChange={setSelectedObjectIdsSnapshot}
         />
       </section>
 
@@ -221,6 +251,8 @@ export function WorkspaceMockLayout({
             <SceneObjectListPanel
               userId={userId}
               objects={sceneObjectsSnapshot}
+              selectedObjectIds={selectedObjectIdsSnapshot}
+              onCatalogScopeChange={setSceneObjectCatalogScope}
               onObjectSelect={handleSceneObjectSelect}
               onObjectContextMenu={handleSceneObjectContextMenu}
             />

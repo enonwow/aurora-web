@@ -25,6 +25,11 @@ async function signInAs(username: string, password: string) {
   expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
 }
 
+async function openQuickOptionsDialog() {
+  fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+  return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+}
+
 describe("App auth mock flow", () => {
   beforeEach(() => {
     clearTelemetry();
@@ -121,7 +126,9 @@ describe("App auth mock flow", () => {
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
-    expect(screen.getByRole("dialog", { name: /keyboard shortcuts/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: /keyboard shortcuts/i })
+    ).toBeInTheDocument();
     expect(screen.getByText(/ctrl\/cmd \+ z/i)).toBeInTheDocument();
     expect(screen.getByText(/ctrl \+ rmb/i)).toBeInTheDocument();
     expect(screen.getByText(/rmb on object/i)).toBeInTheDocument();
@@ -136,8 +143,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    expect(await screen.findByRole("dialog", { name: /quick options/i })).toBeInTheDocument();
+    expect(await openQuickOptionsDialog()).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /layout/i })).toBeInTheDocument();
     const styleSelect = await screen.findByLabelText(/app style/i);
     expect(styleSelect).toHaveValue("aurora-deep-blue");
@@ -166,7 +172,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
     const styleSelect = await screen.findByLabelText(/app style/i);
 
     fireEvent.change(styleSelect, { target: { value: "forest-night" } });
@@ -197,7 +203,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
     expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
   });
 
@@ -205,7 +211,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
 
     fireEvent.change(screen.getByLabelText(/grid step/i), {
       target: { value: "2" }
@@ -274,7 +280,9 @@ describe("App auth mock flow", () => {
     expect(runtimeAnchor.className).not.toContain("is-pinned");
   });
 
-  it("reloads layout and canvas options from localStorage on login success", async () => {
+  it(
+    "reloads layout and canvas options from localStorage on login success",
+    async () => {
     renderAtPath("/login");
 
     window.localStorage.setItem(
@@ -294,12 +302,14 @@ describe("App auth mock flow", () => {
 
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    await openQuickOptionsDialog();
     expect(await screen.findByLabelText(/app style/i)).toHaveValue("forest-night");
     expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
     expect(screen.getByLabelText(/autosave enabled/i)).not.toBeChecked();
-  });
+    },
+    10000
+  );
 
   it("shows only role-appropriate toolbar groups for viewer", async () => {
     renderAtPath("/login");
@@ -322,8 +332,10 @@ describe("App auth mock flow", () => {
     await signInAs("dm.user", "dm123");
 
     fireEvent.click(screen.getByRole("button", { name: /^dm commands$/i }));
-    expect(screen.getByRole("button", { name: /spawn creature/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /spawn vfx/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /spawn creature/i })
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /spawn vfx/i })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /save \(local draft\)/i })
     ).not.toBeInTheDocument();

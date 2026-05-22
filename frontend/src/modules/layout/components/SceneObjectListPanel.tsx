@@ -1,11 +1,23 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
 import { trackTelemetry } from "../../telemetry/telemetryStore";
 
 interface SceneObjectListPanelProps {
   userId: string;
   objects: SceneObject[];
-  onObjectSelect?: (object: SceneObject) => void;
+  selectedObjectIds?: string[];
+  onCatalogScopeChange?: (scope: {
+    sourceType: SceneObjectCatalogType;
+    allowedObjectIds: string[];
+  }) => void;
+  onObjectSelect?: (
+    object: SceneObject,
+    options?: {
+      additive: boolean;
+      sourceType: SceneObjectCatalogType;
+      allowedObjectIds: string[];
+    }
+  ) => void;
   onObjectContextMenu?: (
     object: SceneObject,
     clientX: number,
@@ -13,7 +25,8 @@ interface SceneObjectListPanelProps {
   ) => void;
 }
 
-type SceneObjectCatalogType =
+export type SceneObjectCatalogType =
+  | "all"
   | "placeables"
   | "creatures"
   | "doors"
@@ -33,6 +46,11 @@ interface SceneObjectCatalogDefinition {
 }
 
 const CATALOG_TYPES: SceneObjectCatalogDefinition[] = [
+  {
+    key: "all",
+    label: "All",
+    tier: "mvp"
+  },
   {
     key: "placeables",
     label: "Placeables",
@@ -151,15 +169,18 @@ function trimTagForPreview(tag: string): string {
 export function SceneObjectListPanel({
   userId,
   objects,
+  selectedObjectIds = [],
+  onCatalogScopeChange,
   onObjectSelect,
   onObjectContextMenu
 }: SceneObjectListPanelProps) {
-  const [activeType, setActiveType] = useState<SceneObjectCatalogType>("placeables");
+  const [activeType, setActiveType] = useState<SceneObjectCatalogType>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
 
   const grouped = useMemo(() => {
     const rows: Record<SceneObjectCatalogType, SceneObject[]> = {
+      all: [],
       placeables: [],
       creatures: [],
       doors: [],
@@ -174,6 +195,7 @@ export function SceneObjectListPanel({
     };
 
     objects.forEach((object) => {
+      rows.all.push(object);
       rows[normalizeKind(object.kind)].push(object);
     });
 
@@ -197,10 +219,18 @@ export function SceneObjectListPanel({
     CATALOG_TYPES.find((entry) => entry.key === activeType) ?? CATALOG_TYPES[0];
   const mvpTypes = CATALOG_TYPES.filter((entry) => entry.tier === "mvp");
   const postMvpTypes = CATALOG_TYPES.filter((entry) => entry.tier === "post_mvp");
-  const totalCount = CATALOG_TYPES.reduce(
-    (count, entry) => count + (grouped[entry.key]?.length ?? 0),
-    0
+  const totalCount = objects.length;
+  const allowedObjectIds = useMemo(
+    () => activeRows.map((object) => object.id),
+    [activeRows]
   );
+
+  useEffect(() => {
+    onCatalogScopeChange?.({
+      sourceType: activeType,
+      allowedObjectIds
+    });
+  }, [activeType, allowedObjectIds, onCatalogScopeChange]);
 
   return (
     <article className="sidebar-section scene-objects-section" aria-label="scene objects section">
@@ -277,20 +307,24 @@ export function SceneObjectListPanel({
             <li key={object.id}>
               <button
                 type="button"
-                className={`scene-object-row ${selectedObjectId === object.id ? "is-selected" : ""}`}
-                aria-selected={selectedObjectId === object.id}
-                onClick={() => {
-                  setSelectedObjectId(object.id);
-                  onObjectSelect?.(object);
+                className={`scene-object-row ${selectedSet.has(object.id) ? "is-selected" : ""}`}
+                aria-selected={selectedSet.has(object.id)}
+                onClick={(event) => {
+                  const additive = event.ctrlKey || event.metaKey;
+                  onObjectSelect?.(object, {
+                    additive,
+                    sourceType: activeType,
+                    allowedObjectIds
+                  });
                   trackTelemetry("ui.workspace.scene_objects.row_clicked", {
                     userId,
                     objectId: object.id,
-                    objectKind: object.kind
+                    objectKind: object.kind,
+                    additive
                   });
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  setSelectedObjectId(object.id);
                   onObjectContextMenu?.(object, event.clientX, event.clientY);
                   trackTelemetry("ui.workspace.scene_objects.row_context_menu", {
                     userId,

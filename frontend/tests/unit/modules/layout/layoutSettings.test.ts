@@ -26,10 +26,15 @@ describe("layoutSettings", () => {
       rightSidebarCollapsed: false
     };
 
+    window.localStorage.setItem(LAYOUT_THEME_STORAGE_KEY, "dawn-steel");
+    window.localStorage.setItem("aurora_web.viewport_control_preset", "aurora-classic");
+
     persistLayoutSettingsToStorage(next, window.localStorage);
     const raw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
     expect(raw).not.toBeNull();
     expect(window.localStorage.getItem(LEGACY_LAYOUT_SETTINGS_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LAYOUT_THEME_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem("aurora_web.viewport_control_preset")).toBeNull();
     expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual(next);
   });
 

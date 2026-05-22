@@ -45,4 +45,28 @@ describe("localDraftStore", () => {
     expect(autosaves[0]?.areaName).toBe("C");
     expect(autosaves[1]?.areaName).toBe("B");
   });
+
+  it("keeps drafts isolated per user", () => {
+    const scene = createSeedAreaScene();
+    saveLocalSceneDraft("u_a", { ...scene, areaName: "Area A" }, window.localStorage);
+    saveLocalSceneDraft("u_b", { ...scene, areaName: "Area B" }, window.localStorage);
+
+    const draftA = loadLocalSceneDraft("u_a", window.localStorage);
+    const draftB = loadLocalSceneDraft("u_b", window.localStorage);
+
+    expect(draftA?.areaName).toBe("Area A");
+    expect(draftB?.areaName).toBe("Area B");
+  });
+
+  it("returns autosave clones so consumer mutation does not corrupt storage", () => {
+    const scene = createSeedAreaScene();
+    saveLocalSceneAutosave(userId, { ...scene, areaName: "Snapshot A" }, window.localStorage, 3);
+
+    const autosaves = loadLocalSceneAutosaves(userId, window.localStorage);
+    expect(autosaves).toHaveLength(1);
+    autosaves[0]!.areaName = "MUTATED";
+
+    const reloaded = loadLocalSceneAutosaves(userId, window.localStorage);
+    expect(reloaded[0]?.areaName).toBe("Snapshot A");
+  });
 });

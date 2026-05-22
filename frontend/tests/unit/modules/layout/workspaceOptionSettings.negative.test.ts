@@ -45,5 +45,22 @@ describe("workspaceOptionSettings - negative cases", () => {
       persistWorkspaceOptionSettingsToStorage(DEFAULT_WORKSPACE_OPTION_SETTINGS, null)
     ).not.toThrow();
   });
-});
 
+  it("coerces numeric and string boolean values for autosave flag", () => {
+    window.localStorage.setItem(
+      WORKSPACE_OPTIONS_STORAGE_KEY,
+      JSON.stringify({
+        autosaveEnabled: 0
+      })
+    );
+    expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage).autosaveEnabled).toBe(false);
+
+    window.localStorage.setItem(
+      WORKSPACE_OPTIONS_STORAGE_KEY,
+      JSON.stringify({
+        autosaveEnabled: "1"
+      })
+    );
+    expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage).autosaveEnabled).toBe(true);
+  });
+});

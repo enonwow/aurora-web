@@ -51,6 +51,9 @@ interface WorkspaceCanvasViewportProps {
   sidebarSelectSignal?: {
     revision: number;
     objectId: string;
+    additive: boolean;
+    sourceType: string;
+    allowedObjectIds: string[];
   } | null;
   sidebarContextMenuSignal?: {
     revision: number;
@@ -59,10 +62,15 @@ interface WorkspaceCanvasViewportProps {
     clientX: number;
     clientY: number;
   } | null;
+  catalogScope?: {
+    sourceType: string;
+    allowedObjectIds: string[];
+  } | null;
   workspaceOptions: WorkspaceOptionSettings;
   leftPanelWidthPx: number;
   rightPanelWidthPx: number;
   onSceneObjectsSnapshotChange?: (objects: SceneObject[]) => void;
+  onSelectionSnapshotChange?: (selectedIds: string[]) => void;
 }
 
 interface SelectionBoxState {
@@ -212,6 +220,18 @@ function isObjectSelectableByScope(
     return true;
   }
   return OBJECT_KIND_BY_SCOPE[selectionScope] === object.kind;
+}
+
+function isObjectSelectableByCatalogScope(
+  object: SceneObject,
+  catalogScope: { sourceType: string; allowedObjectIds: string[] } | null | undefined,
+  allowedIdsSet: Set<string>
+): boolean {
+  if (!catalogScope || catalogScope.sourceType === "all") {
+    return true;
+  }
+
+  return allowedIdsSet.has(object.id);
 }
 
 function findTileAtWorld(scene: AreaScene, worldX: number, worldY: number): SceneTile | null {
@@ -810,10 +830,12 @@ export function WorkspaceCanvasViewport({
   commandSignal,
   sidebarSelectSignal,
   sidebarContextMenuSignal,
+  catalogScope,
   workspaceOptions,
   leftPanelWidthPx,
   rightPanelWidthPx,
-  onSceneObjectsSnapshotChange
+  onSceneObjectsSnapshotChange,
+  onSelectionSnapshotChange
 }: WorkspaceCanvasViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
@@ -860,6 +882,10 @@ export function WorkspaceCanvasViewport({
   }, [onSceneObjectsSnapshotChange, scene.objects]);
 
   useEffect(() => {
+    onSelectionSnapshotChange?.(selectedObjectIds);
+  }, [onSelectionSnapshotChange, selectedObjectIds]);
+
+  useEffect(() => {
     if (!sidebarSelectSignal) {
       return;
     }
@@ -872,13 +898,27 @@ export function WorkspaceCanvasViewport({
     }
 
     setSelectedTileId(null);
-    setSelectedObjectIds([selectedObject.id]);
+    setSelectedObjectIds((current) => {
+      if (!sidebarSelectSignal.additive) {
+        return [selectedObject.id];
+      }
+
+      const allowedSet = new Set(sidebarSelectSignal.allowedObjectIds);
+      const scopedCurrent = current.filter((id) => allowedSet.has(id));
+      if (scopedCurrent.includes(selectedObject.id)) {
+        return scopedCurrent.filter((id) => id !== selectedObject.id);
+      }
+
+      return [...scopedCurrent, selectedObject.id];
+    });
     setContextMenu(null);
     trackTelemetry("scene.selection.from_scene_object_list", {
       userId,
       objectId: selectedObject.id,
       objectKind: selectedObject.kind,
-      revision: sidebarSelectSignal.revision
+      revision: sidebarSelectSignal.revision,
+      additive: sidebarSelectSignal.additive,
+      sourceType: sidebarSelectSignal.sourceType
     });
   }, [scene.objects, sidebarSelectSignal, userId]);
 
@@ -934,6 +974,23 @@ export function WorkspaceCanvasViewport({
           isKindVisibleWithIsolation(toolbarState.canvasDebug, object.kind)
       ),
     [scene.objects, toolbarState]
+  );
+
+  const objectById = useMemo(
+    () => new Map(scene.objects.map((object) => [object.id, object])),
+    [scene.objects]
+  );
+
+  const catalogAllowedIdsSet = useMemo(
+    () => new Set(catalogScope?.allowedObjectIds ?? scene.objects.map((object) => object.id)),
+    [catalogScope?.allowedObjectIds, scene.objects]
+  );
+
+  const isSelectableByActiveFilters = useCallback(
+    (object: SceneObject) =>
+      isObjectSelectableByScope(object, toolbarState.selectionScope) &&
+      isObjectSelectableByCatalogScope(object, catalogScope, catalogAllowedIdsSet),
+    [catalogAllowedIdsSet, catalogScope, toolbarState.selectionScope]
   );
 
   const visibleObjectIdsSet = useMemo(
@@ -1276,9 +1333,18 @@ export function WorkspaceCanvasViewport({
 
   useEffect(() => {
     setSelectedObjectIds((current) =>
-      current.filter((selectedId) => visibleObjectIdsSet.has(selectedId))
+      current.filter((selectedId) => {
+        if (!visibleObjectIdsSet.has(selectedId)) {
+          return false;
+        }
+        const object = objectById.get(selectedId);
+        if (!object) {
+          return false;
+        }
+        return isSelectableByActiveFilters(object);
+      })
     );
-  }, [visibleObjectIdsSet]);
+  }, [isSelectableByActiveFilters, objectById, visibleObjectIdsSet]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -1394,7 +1460,7 @@ export function WorkspaceCanvasViewport({
           .filter(
             (object) =>
               object.resRef === anchor.resRef &&
-              isObjectSelectableByScope(object, toolbarState.selectionScope) &&
+              isSelectableByActiveFilters(object) &&
               !isKindLocked(toolbarState.canvasDebug, object.kind)
           )
           .map((object) => object.id);
@@ -1413,7 +1479,7 @@ export function WorkspaceCanvasViewport({
       const selectable = visibleObjects
         .filter(
           (object) =>
-            isObjectSelectableByScope(object, toolbarState.selectionScope) &&
+            isSelectableByActiveFilters(object) &&
             !isKindLocked(toolbarState.canvasDebug, object.kind)
         )
         .map((object) => object.id);
@@ -1436,7 +1502,10 @@ export function WorkspaceCanvasViewport({
         const radius = 3.6;
         const nextIds = visibleObjects
           .filter((object) => {
-            if (isKindLocked(toolbarState.canvasDebug, object.kind)) {
+            if (
+              isKindLocked(toolbarState.canvasDebug, object.kind) ||
+              !isSelectableByActiveFilters(object)
+            ) {
               return false;
             }
             const dx = object.x - centerX;
@@ -1542,6 +1611,7 @@ export function WorkspaceCanvasViewport({
     commandSignal,
     deleteSelectedObjects,
     duplicateObjects,
+    isSelectableByActiveFilters,
     scene,
     selectedObjectIds,
     toolbarState.canvasDebug,
@@ -1644,7 +1714,7 @@ export function WorkspaceCanvasViewport({
       const idsInBox = visibleObjects
         .filter(
           (object) =>
-            isObjectSelectableByScope(object, toolbarState.selectionScope) &&
+            isSelectableByActiveFilters(object) &&
             !isKindLocked(toolbarState.canvasDebug, object.kind)
         )
         .filter((object) => {
@@ -1683,7 +1753,13 @@ export function WorkspaceCanvasViewport({
         selectedInBox: idsInBox.length
       });
     },
-    [toolbarState.canvasDebug, toolbarState.selectionScope, userId, visibleObjects, workspaceOptions.selectionBoxMode]
+    [
+      isSelectableByActiveFilters,
+      toolbarState.canvasDebug,
+      userId,
+      visibleObjects,
+      workspaceOptions.selectionBoxMode
+    ]
   );
 
   const handleMouseDown = useCallback(
@@ -1703,6 +1779,7 @@ export function WorkspaceCanvasViewport({
       }
       const findHitObjectId = (): string | null => {
         const meshCandidates = visibleObjects
+          .filter((object) => isSelectableByActiveFilters(object))
           .map((object) => runtime.objectMeshById.get(object.id))
           .filter((mesh): mesh is THREE.Mesh => Boolean(mesh));
 
@@ -1806,7 +1883,7 @@ export function WorkspaceCanvasViewport({
         const hitObject = visibleObjects.find((object) => object.id === hitObjectId) ?? null;
         if (
           hitObject &&
-          isObjectSelectableByScope(hitObject, toolbarState.selectionScope) &&
+          isSelectableByActiveFilters(hitObject) &&
           !isKindLocked(toolbarState.canvasDebug, hitObject.kind)
         ) {
           setSelectedTileId(null);
@@ -1887,6 +1964,7 @@ export function WorkspaceCanvasViewport({
       setSelectedTileId(tile?.id ?? null);
     },
     [
+      isSelectableByActiveFilters,
       objectBrush,
       scene,
       setContextMenu,
