@@ -19,14 +19,22 @@ import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLa
 import {
   applyToolbarAction,
   createDefaultToolbarState,
-  type ToolbarActionKey
+  type ToolbarActionKey,
+  type WorkspaceCommandSignal
 } from "./modules/layout/roleTopbarPolicy";
 import {
-  applyLayoutThemeToDocument,
-  loadLayoutThemeFromStorage,
-  persistLayoutThemeToStorage,
-  type LayoutThemeId
+  applyLayoutThemeToDocument
 } from "./modules/layout/themeSettings";
+import {
+  type LayoutSettings,
+  loadLayoutSettingsFromStorage,
+  persistLayoutSettingsToStorage
+} from "./modules/layout/layoutSettings";
+import {
+  loadWorkspaceOptionSettingsFromStorage,
+  persistWorkspaceOptionSettingsToStorage,
+  type WorkspaceOptionSettings
+} from "./modules/layout/workspaceOptionSettings";
 
 type AppRoute = "/login" | "/app";
 
@@ -62,9 +70,13 @@ export default function App({
   const [toolbarState, setToolbarState] = useState(() =>
     createDefaultToolbarState()
   );
+  const [commandSignal, setCommandSignal] = useState<WorkspaceCommandSignal | null>(null);
   const [events, setEvents] = useState<TelemetryEvent[]>(() => getTelemetryEvents());
-  const [layoutTheme, setLayoutTheme] = useState<LayoutThemeId>(() =>
-    loadLayoutThemeFromStorage(window.localStorage)
+  const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(() =>
+    loadLayoutSettingsFromStorage(window.localStorage)
+  );
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOptionSettings>(() =>
+    loadWorkspaceOptionSettingsFromStorage(window.localStorage)
   );
 
   const navigate = useCallback((nextRoute: AppRoute) => {
@@ -81,9 +93,13 @@ export default function App({
   }, []);
 
   useEffect(() => {
-    persistLayoutThemeToStorage(layoutTheme, window.localStorage);
-    applyLayoutThemeToDocument(layoutTheme, document.documentElement);
-  }, [layoutTheme]);
+    persistLayoutSettingsToStorage(layoutSettings, window.localStorage);
+    applyLayoutThemeToDocument(layoutSettings.theme, document.documentElement);
+  }, [layoutSettings]);
+
+  useEffect(() => {
+    persistWorkspaceOptionSettingsToStorage(workspaceOptions, window.localStorage);
+  }, [workspaceOptions]);
 
   useEffect(() => {
     if (!showDebugPanel) {
@@ -159,9 +175,15 @@ export default function App({
         }
 
         const authz = await authFacade.authorize(authResult.session);
+        const reloadedLayoutSettings = loadLayoutSettingsFromStorage(window.localStorage);
+        const reloadedWorkspaceOptions =
+          loadWorkspaceOptionSettingsFromStorage(window.localStorage);
+        setLayoutSettings(reloadedLayoutSettings);
+        setWorkspaceOptions(reloadedWorkspaceOptions);
         setSession(authResult.session);
         setAuthorization(authz);
         setToolbarState(createDefaultToolbarState());
+        setCommandSignal(null);
         trackTelemetry("ui.auth.login_success", { role: authz.role });
         navigate("/app");
       } finally {
@@ -184,6 +206,7 @@ export default function App({
     setIsSigningIn(false);
     setAuthError(null);
     setToolbarState(createDefaultToolbarState());
+    setCommandSignal(null);
     trackTelemetry("ui.auth.logout", { route });
     navigate("/login");
   }, [authFacade, navigate, route, session]);
@@ -191,6 +214,11 @@ export default function App({
   const handleToolbarAction = useCallback(
     (actionKey: ToolbarActionKey) => {
       setToolbarState((current) => applyToolbarAction(current, actionKey));
+      setCommandSignal((current) => ({
+        actionKey,
+        revision: (current?.revision ?? 0) + 1,
+        issuedAtUnixMs: Date.now()
+      }));
       trackTelemetry("ui.workspace.toolbar_action", {
         actionKey,
         role: currentRole ?? "anonymous"
@@ -216,8 +244,28 @@ export default function App({
         isAuthenticated={isMainView}
         role={currentRole}
         toolbarState={toolbarState}
-        layoutTheme={layoutTheme}
-        onLayoutThemeChange={setLayoutTheme}
+        layoutTheme={layoutSettings.theme}
+        onLayoutThemeChange={(theme) =>
+          setLayoutSettings((current) => ({ ...current, theme }))
+        }
+        viewportControlPreset={layoutSettings.viewportControlPreset}
+        onViewportControlPresetChange={(nextPreset) => {
+          setLayoutSettings((current) => ({
+            ...current,
+            viewportControlPreset: nextPreset
+          }));
+          trackTelemetry("ui.workspace.viewport_control_preset_changed", {
+            preset: nextPreset
+          });
+        }}
+        workspaceOptions={workspaceOptions}
+        onWorkspaceOptionsChange={(patch) => {
+          setWorkspaceOptions((current) => {
+            const next = { ...current, ...patch };
+            trackTelemetry("ui.workspace.options.changed", patch);
+            return next;
+          });
+        }}
         onAction={handleToolbarAction}
         showDebugPanel={showDebugPanel}
         onToggleDebug={() => setShowDebugPanel((current) => !current)}
@@ -228,10 +276,38 @@ export default function App({
         {isMainView ? (
           <WorkspaceMockLayout
             role={authorization!.role}
-            displayName={session!.user.displayName}
-            permissions={authorization!.permissions}
+            userId={session!.user.id}
             toolbarState={toolbarState}
-          />
+            commandSignal={commandSignal}
+        viewportControlPreset={layoutSettings.viewportControlPreset}
+        workspaceOptions={workspaceOptions}
+        leftCollapsed={layoutSettings.leftSidebarCollapsed}
+        rightCollapsed={layoutSettings.rightSidebarCollapsed}
+        onToggleLeftCollapsed={() =>
+          setLayoutSettings((current) => {
+            const nextCollapsed = !current.leftSidebarCollapsed;
+            trackTelemetry("ui.workspace.sidebar.left_toggle", {
+              collapsed: nextCollapsed
+            });
+            return {
+              ...current,
+              leftSidebarCollapsed: nextCollapsed
+            };
+          })
+        }
+        onToggleRightCollapsed={() =>
+          setLayoutSettings((current) => {
+            const nextCollapsed = !current.rightSidebarCollapsed;
+            trackTelemetry("ui.workspace.sidebar.right_toggle", {
+              collapsed: nextCollapsed
+            });
+            return {
+              ...current,
+              rightSidebarCollapsed: nextCollapsed
+            };
+          })
+        }
+      />
         ) : (
           <section className="card">
             <p className="eyebrow">Authentication</p>

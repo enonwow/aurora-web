@@ -11,3 +11,7 @@
 5. Coverage scope excludes non-behavior files:
    - entrypoints (for example `src/main.tsx`)
    - type-only declaration/contract files (for example `src/modules/**/contracts.ts`, `*.d.ts`)
+6. Active design review is required:
+   - do not auto-agree with product or UX assumptions
+   - raise logical risks early and propose alternatives with trade-offs
+   - prefer short design discussions before implementation when architecture/UX impact is non-trivial

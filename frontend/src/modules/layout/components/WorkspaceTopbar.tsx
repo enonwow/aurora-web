@@ -1,5 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UserRole } from "../../auth/contracts";
 import type {
   KeyboardShortcut,
@@ -13,6 +12,14 @@ import {
   type LayoutThemeId
 } from "../themeSettings";
 import {
+  VIEWPORT_CONTROL_OPTIONS,
+  type ViewportControlPresetId
+} from "../viewportControlSettings";
+import type {
+  WorkspaceOptionSettings,
+  SelectionBoxMode
+} from "../workspaceOptionSettings";
+import {
   getRoleKeyboardShortcuts,
   getRoleQuickActions,
   getRoleToolbarGroups
@@ -24,6 +31,12 @@ interface WorkspaceTopbarProps {
   toolbarState: WorkspaceToolbarState;
   layoutTheme: LayoutThemeId;
   onLayoutThemeChange: (theme: LayoutThemeId) => void;
+  viewportControlPreset: ViewportControlPresetId;
+  onViewportControlPresetChange: (
+    preset: ViewportControlPresetId
+  ) => void;
+  workspaceOptions: WorkspaceOptionSettings;
+  onWorkspaceOptionsChange: (patch: Partial<WorkspaceOptionSettings>) => void;
   onAction: (actionKey: ToolbarActionKey) => void;
   showDebugPanel: boolean;
   onToggleDebug: () => void;
@@ -76,6 +89,126 @@ function isActionActive(
     return true;
   }
 
+  if (
+    actionKey === "show_none" &&
+    !toolbarState.visibility.creatures &&
+    !toolbarState.visibility.doors &&
+    !toolbarState.visibility.items &&
+    !toolbarState.visibility.placeables &&
+    !toolbarState.visibility.sounds
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "debug_wireframe" && toolbarState.canvasDebug.wireframe) ||
+    (actionKey === "debug_textures" && toolbarState.canvasDebug.textures) ||
+    (actionKey === "debug_grid" && toolbarState.canvasDebug.grid) ||
+    (actionKey === "debug_axes" && toolbarState.canvasDebug.axes) ||
+    (actionKey === "debug_bounds" && toolbarState.canvasDebug.bounds) ||
+    (actionKey === "debug_hidden_meshes" && toolbarState.canvasDebug.hiddenMeshes) ||
+    (actionKey === "debug_show_non_render_meshes" &&
+      toolbarState.canvasDebug.showNonRenderMeshes)
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "debug_status_map_off" && toolbarState.canvasDebug.statusMap === "off") ||
+    (actionKey === "debug_status_map_placeables" &&
+      toolbarState.canvasDebug.statusMap === "placeables") ||
+    (actionKey === "debug_status_map_doors" &&
+      toolbarState.canvasDebug.statusMap === "doors") ||
+    (actionKey === "debug_status_map_creatures" &&
+      toolbarState.canvasDebug.statusMap === "creatures") ||
+    (actionKey === "debug_status_map_items" &&
+      toolbarState.canvasDebug.statusMap === "items") ||
+    (actionKey === "debug_status_map_sounds" &&
+      toolbarState.canvasDebug.statusMap === "sounds") ||
+    (actionKey === "debug_status_map_all" && toolbarState.canvasDebug.statusMap === "all")
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "debug_texture_compression_none" &&
+      toolbarState.canvasDebug.textureCompression === "none") ||
+    (actionKey === "debug_texture_compression_etc1s" &&
+      toolbarState.canvasDebug.textureCompression === "etc1s") ||
+    (actionKey === "debug_texture_compression_uastc" &&
+      toolbarState.canvasDebug.textureCompression === "uastc")
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "canvas_gizmo_translate" &&
+      toolbarState.canvasDebug.gizmoMode === "translate") ||
+    (actionKey === "canvas_gizmo_rotate" &&
+      toolbarState.canvasDebug.gizmoMode === "rotate") ||
+    (actionKey === "canvas_gizmo_scale" &&
+      toolbarState.canvasDebug.gizmoMode === "scale")
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "snap_grid_toggle" && toolbarState.canvasDebug.snapGrid) ||
+    (actionKey === "snap_angle_toggle" && toolbarState.canvasDebug.snapAngle) ||
+    (actionKey === "snap_height_toggle" && toolbarState.canvasDebug.snapHeight)
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "lock_creatures" && toolbarState.canvasDebug.lockedKinds.creatures) ||
+    (actionKey === "lock_doors" && toolbarState.canvasDebug.lockedKinds.doors) ||
+    (actionKey === "lock_items" && toolbarState.canvasDebug.lockedKinds.items) ||
+    (actionKey === "lock_placeables" && toolbarState.canvasDebug.lockedKinds.placeables) ||
+    (actionKey === "lock_sounds" && toolbarState.canvasDebug.lockedKinds.sounds)
+  ) {
+    return true;
+  }
+
+  if (
+    (actionKey === "isolate_creatures" && toolbarState.canvasDebug.isolateKind === "creatures") ||
+    (actionKey === "isolate_doors" && toolbarState.canvasDebug.isolateKind === "doors") ||
+    (actionKey === "isolate_items" && toolbarState.canvasDebug.isolateKind === "items") ||
+    (actionKey === "isolate_placeables" && toolbarState.canvasDebug.isolateKind === "placeables") ||
+    (actionKey === "isolate_sounds" && toolbarState.canvasDebug.isolateKind === "sounds")
+  ) {
+    return true;
+  }
+
+  if (
+    actionKey === "unlock_all_layers" &&
+    !toolbarState.canvasDebug.lockedKinds.creatures &&
+    !toolbarState.canvasDebug.lockedKinds.doors &&
+    !toolbarState.canvasDebug.lockedKinds.items &&
+    !toolbarState.canvasDebug.lockedKinds.placeables &&
+    !toolbarState.canvasDebug.lockedKinds.sounds
+  ) {
+    return true;
+  }
+
+  if (actionKey === "clear_isolation" && toolbarState.canvasDebug.isolateKind === "none") {
+    return true;
+  }
+
+  if (
+    (actionKey === "debug_chunks" && toolbarState.canvasDebug.chunkBounds) ||
+    (actionKey === "debug_object_labels" && toolbarState.canvasDebug.objectLabels) ||
+    (actionKey === "debug_perf_hud" && toolbarState.canvasDebug.perfHud) ||
+    (actionKey === "debug_controls_hint" && toolbarState.canvasDebug.controlsHint) ||
+    (actionKey === "debug_runtime_hud" && toolbarState.canvasDebug.runtimeHud) ||
+    (actionKey === "debug_walkmesh_overlay" &&
+      toolbarState.canvasDebug.walkmeshOverlay) ||
+    (actionKey === "debug_collision_overlay" &&
+      toolbarState.canvasDebug.collisionOverlay)
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -105,6 +238,10 @@ export function WorkspaceTopbar({
   toolbarState,
   layoutTheme,
   onLayoutThemeChange,
+  viewportControlPreset,
+  onViewportControlPresetChange,
+  workspaceOptions,
+  onWorkspaceOptionsChange,
   onAction,
   showDebugPanel,
   onToggleDebug,
@@ -112,7 +249,36 @@ export function WorkspaceTopbar({
 }: WorkspaceTopbarProps) {
   const sectionGroups = isAuthenticated && role ? getRoleToolbarGroups(role) : [];
   const quickActions = isAuthenticated && role ? getRoleQuickActions(role) : [];
-  const shortcuts = isAuthenticated && role ? getRoleKeyboardShortcuts(role) : [];
+  const baseShortcuts = isAuthenticated && role ? getRoleKeyboardShortcuts(role) : [];
+  const shortcuts = useMemo(() => {
+    if (!isAuthenticated || !role) {
+      return [];
+    }
+
+    const viewportShortcuts: KeyboardShortcut[] = [
+      { key: "MMB", description: "Rotate camera." },
+      { key: "Ctrl + RMB", description: "Pan camera." },
+      { key: "RMB on object", description: "Open object context menu." },
+      { key: "Wheel", description: "Zoom camera." }
+    ];
+    const canvasWorkflowShortcuts: KeyboardShortcut[] = [
+      { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
+      { key: "Del / Backspace", description: "Delete selected objects (unlocked layers only)." }
+    ];
+
+    if (viewportControlPreset !== "blender-viewport") {
+      return [...baseShortcuts, ...viewportShortcuts, ...canvasWorkflowShortcuts];
+    }
+
+    return [
+      ...baseShortcuts,
+      ...viewportShortcuts,
+      ...canvasWorkflowShortcuts,
+      { key: "Shift + A", description: "Arm add-object placement on canvas." },
+      { key: "F", description: "Focus camera on selected object/tile." },
+      { key: "Esc", description: "Cancel add-object placement mode." }
+    ];
+  }, [baseShortcuts, isAuthenticated, role, viewportControlPreset]);
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(
     resolveInitialGroup(sectionGroups)
   );
@@ -253,6 +419,17 @@ export function WorkspaceTopbar({
     setIsDrawerOpen(true);
   };
 
+  const updateNumberOption = useCallback(
+    (key: keyof WorkspaceOptionSettings, rawValue: string) => {
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed)) {
+        return;
+      }
+      onWorkspaceOptionsChange({ [key]: parsed } as Partial<WorkspaceOptionSettings>);
+    },
+    [onWorkspaceOptionsChange]
+  );
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -280,21 +457,25 @@ export function WorkspaceTopbar({
           <div className="topbar-center">
           <nav className="topbar-nav" aria-label="workspace sections">
             {sectionGroups.map((group) => (
-              <button
-                key={group.key}
-                type="button"
-                className={`topbar-group-tab ${activeGroup?.key === group.key ? "is-active" : ""}`}
-                onClick={() => handleGroupToggle(group.key)}
-                onMouseEnter={() => {
-                  if (isDrawerOpen) {
-                    setActiveGroupKey(group.key);
-                  }
-                }}
-                aria-expanded={activeGroup?.key === group.key && isDrawerOpen}
-                aria-controls="workspace-toolbar-drawer"
-              >
-                {group.label}
-              </button>
+              <span key={group.key} className="topbar-nav-entry">
+                {group.key === "canvas" ? (
+                  <span className="topbar-nav-separator" aria-hidden="true" />
+                ) : null}
+                <button
+                  type="button"
+                  className={`topbar-group-tab ${activeGroup?.key === group.key ? "is-active" : ""}`}
+                  onClick={() => handleGroupToggle(group.key)}
+                  onMouseEnter={() => {
+                    if (isDrawerOpen) {
+                      setActiveGroupKey(group.key);
+                    }
+                  }}
+                  aria-expanded={activeGroup?.key === group.key && isDrawerOpen}
+                  aria-controls="workspace-toolbar-drawer"
+                >
+                  {group.label}
+                </button>
+              </span>
             ))}
           </nav>
           {activeGroup && isDrawerOpen ? (
@@ -312,10 +493,7 @@ export function WorkspaceTopbar({
                     className={`topbar-nav-btn ${isActionActive(action.key, toolbarState) ? "is-active" : ""}`}
                     type="button"
                     key={action.key}
-                    onClick={() => {
-                      onAction(action.key);
-                      setIsDrawerOpen(false);
-                    }}
+                    onClick={() => onAction(action.key)}
                     disabled={!action.supported}
                     title={`${action.label} (${statusLabel(action.status)})`}
                   >
@@ -432,6 +610,204 @@ export function WorkspaceTopbar({
                 </select>
               </div>
             </details>
+
+            <details className="topbar-options-section" open role="group" aria-label="Viewport controls">
+              <summary className="topbar-options-summary">
+                <span>Viewport Controls</span>
+              </summary>
+              <div className="topbar-options-content">
+                <label className="topbar-options-label" htmlFor="viewport-control-select">
+                  Control scheme
+                </label>
+                <select
+                  id="viewport-control-select"
+                  className="topbar-options-select"
+                  value={viewportControlPreset}
+                  onChange={(event) =>
+                    onViewportControlPresetChange(
+                      event.target.value as ViewportControlPresetId
+                    )
+                  }
+                >
+                  {VIEWPORT_CONTROL_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="topbar-options-label" htmlFor="camera-rotate-speed">
+                  Camera rotate speed
+                </label>
+                <input
+                  id="camera-rotate-speed"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="4"
+                  className="topbar-options-select"
+                  value={workspaceOptions.cameraRotateSpeed}
+                  onChange={(event) => updateNumberOption("cameraRotateSpeed", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="camera-zoom-speed">
+                  Camera zoom speed
+                </label>
+                <input
+                  id="camera-zoom-speed"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="4"
+                  className="topbar-options-select"
+                  value={workspaceOptions.cameraZoomSpeed}
+                  onChange={(event) => updateNumberOption("cameraZoomSpeed", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="camera-pan-speed">
+                  Camera pan speed
+                </label>
+                <input
+                  id="camera-pan-speed"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="4"
+                  className="topbar-options-select"
+                  value={workspaceOptions.cameraPanSpeed}
+                  onChange={(event) => updateNumberOption("cameraPanSpeed", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="camera-damping-factor">
+                  Camera damping
+                </label>
+                <input
+                  id="camera-damping-factor"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="0.35"
+                  className="topbar-options-select"
+                  value={workspaceOptions.cameraDampingFactor}
+                  onChange={(event) => updateNumberOption("cameraDampingFactor", event.target.value)}
+                />
+              </div>
+            </details>
+
+            <details className="topbar-options-section" open role="group" aria-label="Snap and selection">
+              <summary className="topbar-options-summary">
+                <span>Snap & Selection</span>
+              </summary>
+              <div className="topbar-options-content">
+                <label className="topbar-options-label" htmlFor="snap-grid-step">
+                  Grid step
+                </label>
+                <input
+                  id="snap-grid-step"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="8"
+                  className="topbar-options-select"
+                  value={workspaceOptions.snapGridStep}
+                  onChange={(event) => updateNumberOption("snapGridStep", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="snap-angle-step">
+                  Angle step
+                </label>
+                <input
+                  id="snap-angle-step"
+                  type="number"
+                  step="1"
+                  min="1"
+                  max="180"
+                  className="topbar-options-select"
+                  value={workspaceOptions.snapAngleStepDeg}
+                  onChange={(event) => updateNumberOption("snapAngleStepDeg", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="snap-height-step">
+                  Height step
+                </label>
+                <input
+                  id="snap-height-step"
+                  type="number"
+                  step="0.05"
+                  min="0.05"
+                  max="8"
+                  className="topbar-options-select"
+                  value={workspaceOptions.snapHeightStep}
+                  onChange={(event) => updateNumberOption("snapHeightStep", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="selection-box-mode">
+                  Selection box mode
+                </label>
+                <select
+                  id="selection-box-mode"
+                  className="topbar-options-select"
+                  value={workspaceOptions.selectionBoxMode}
+                  onChange={(event) =>
+                    onWorkspaceOptionsChange({
+                      selectionBoxMode: event.target.value as SelectionBoxMode
+                    })
+                  }
+                >
+                  <option value="replace">replace</option>
+                  <option value="add">add</option>
+                  <option value="subtract">subtract</option>
+                  <option value="intersect">intersect</option>
+                </select>
+              </div>
+            </details>
+
+            <details className="topbar-options-section" open role="group" aria-label="Autosave">
+              <summary className="topbar-options-summary">
+                <span>Local Autosave</span>
+              </summary>
+              <div className="topbar-options-content">
+                <label className="topbar-options-checkbox" htmlFor="autosave-enabled">
+                  <input
+                    id="autosave-enabled"
+                    type="checkbox"
+                    checked={workspaceOptions.autosaveEnabled}
+                    onChange={(event) =>
+                      onWorkspaceOptionsChange({ autosaveEnabled: event.target.checked })
+                    }
+                  />
+                  Autosave enabled
+                </label>
+
+                <label className="topbar-options-label" htmlFor="autosave-interval-sec">
+                  Autosave interval
+                </label>
+                <input
+                  id="autosave-interval-sec"
+                  type="number"
+                  step="1"
+                  min="10"
+                  max="600"
+                  className="topbar-options-select"
+                  value={workspaceOptions.autosaveIntervalSec}
+                  onChange={(event) => updateNumberOption("autosaveIntervalSec", event.target.value)}
+                />
+
+                <label className="topbar-options-label" htmlFor="autosave-max-entries">
+                  Autosave max entries
+                </label>
+                <input
+                  id="autosave-max-entries"
+                  type="number"
+                  step="1"
+                  min="1"
+                  max="100"
+                  className="topbar-options-select"
+                  value={workspaceOptions.autosaveMaxEntries}
+                  onChange={(event) => updateNumberOption("autosaveMaxEntries", event.target.value)}
+                />
+              </div>
+            </details>
           </article>
         </section>
       ) : null}
@@ -477,4 +853,5 @@ export function WorkspaceTopbar({
     </header>
   );
 }
+
 

@@ -1,7 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
-import { LAYOUT_THEME_STORAGE_KEY } from "../../../src/modules/layout/themeSettings";
+import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
+import {
+  DEFAULT_WORKSPACE_OPTION_SETTINGS,
+  WORKSPACE_OPTIONS_STORAGE_KEY
+} from "../../../src/modules/layout/workspaceOptionSettings";
+import { loadLocalSceneDraft } from "../../../src/modules/scene/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -17,7 +22,7 @@ async function signInAs(username: string, password: string) {
     target: { value: password }
   });
   fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
-  expect(await screen.findByText(/logged as/i)).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
 }
 
 describe("App auth mock flow", () => {
@@ -45,10 +50,10 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
     expect(window.location.pathname).toBe("/app");
+    expect(screen.getByLabelText(/workspace render canvas/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /aurora web workspace/i })
+      screen.getByRole("heading", { name: /^tile catalog$/i })
     ).toBeInTheDocument();
-    expect(screen.getByText(/scene\.edit/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
 
@@ -74,7 +79,38 @@ describe("App auth mock flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^visibility$/i }));
     const showNoneButton = screen.getByRole("button", { name: /show none/i });
-    expect(showNoneButton).toBeDisabled();
+    expect(showNoneButton).toBeEnabled();
+    fireEvent.click(showNoneButton);
+
+    const showCreaturesButton = screen.getByRole("button", { name: /show creatures/i });
+    expect(showCreaturesButton.className).not.toContain("is-active");
+    expect(screen.getByRole("button", { name: /show doors/i }).className).not.toContain(
+      "is-active"
+    );
+    expect(screen.getByRole("button", { name: /show items/i }).className).not.toContain(
+      "is-active"
+    );
+    expect(screen.getByRole("button", { name: /show placeables/i }).className).not.toContain(
+      "is-active"
+    );
+    expect(screen.getByRole("button", { name: /show sounds/i }).className).not.toContain(
+      "is-active"
+    );
+
+    expect(screen.getByRole("button", { name: /show none/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: /^canvas$/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
+    expect(screen.getByLabelText(/canvas runtime/i)).toBeInTheDocument();
+    expect(screen.getByRole("note", { name: /controls hint/i })).toBeInTheDocument();
+    const wireframeButton = screen.getByRole("button", { name: /wireframe/i });
+    fireEvent.click(wireframeButton);
+    expect(screen.getByRole("button", { name: /wireframe/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /controls hint/i }));
+    expect(screen.queryByRole("note", { name: /controls hint/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /runtime popup/i }));
+    expect(screen.queryByLabelText(/canvas runtime/i)).not.toBeInTheDocument();
   });
 
   it("opens and closes keyboard shortcuts modal", async () => {
@@ -96,11 +132,25 @@ describe("App auth mock flow", () => {
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    expect(screen.getByRole("dialog", { name: /quick options/i })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /quick options/i })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /layout/i })).toBeInTheDocument();
-    const styleSelect = screen.getByLabelText(/app style/i);
+    const styleSelect = await screen.findByLabelText(/app style/i);
+    const controlSchemeSelect = await screen.findByLabelText(/control scheme/i);
     expect(styleSelect).toHaveValue("aurora-deep-blue");
-    expect(screen.getAllByRole("option")).toHaveLength(4);
+    expect(within(styleSelect).getAllByRole("option")).toHaveLength(4);
+    expect(controlSchemeSelect).toHaveValue("aurora-classic");
+    expect(within(controlSchemeSelect).getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByLabelText(/grid step/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/angle step/i)).toHaveValue(15);
+    expect(screen.getByLabelText(/height step/i)).toHaveValue(0.5);
+    expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("replace");
+    expect(screen.getByLabelText(/camera rotate speed/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/camera zoom speed/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/camera pan speed/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/camera damping/i)).toHaveValue(0.08);
+    expect(screen.getByLabelText(/autosave enabled/i)).toBeChecked();
+    expect(screen.getByLabelText(/autosave interval/i)).toHaveValue(45);
+    expect(screen.getByLabelText(/autosave max entries/i)).toHaveValue(10);
     expect(screen.getByText(/expanded/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
@@ -114,22 +164,162 @@ describe("App auth mock flow", () => {
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    const styleSelect = screen.getByLabelText(/app style/i);
+    const styleSelect = await screen.findByLabelText(/app style/i);
 
     fireEvent.change(styleSelect, { target: { value: "forest-night" } });
     expect(styleSelect).toHaveValue("forest-night");
-    expect(window.localStorage.getItem(LAYOUT_THEME_STORAGE_KEY)).toBe("forest-night");
+    const storedRaw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
+    expect(storedRaw).not.toBeNull();
+    const stored = JSON.parse(storedRaw ?? "{}");
+    expect(stored.theme).toBe("forest-night");
     expect(document.documentElement.getAttribute("data-layout-theme")).toBe("forest-night");
   });
 
   it("loads saved layout style from localStorage on first render", async () => {
-    window.localStorage.setItem(LAYOUT_THEME_STORAGE_KEY, "obsidian-slate");
+    window.localStorage.setItem(
+      LAYOUT_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        theme: "obsidian-slate",
+        viewportControlPreset: "aurora-classic"
+      })
+    );
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    expect(screen.getByLabelText(/app style/i)).toHaveValue("obsidian-slate");
+    expect(await screen.findByLabelText(/app style/i)).toHaveValue("obsidian-slate");
     expect(document.documentElement.getAttribute("data-layout-theme")).toBe("obsidian-slate");
+  });
+
+  it("persists viewport control preset in localStorage", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    const controlSchemeSelect = await screen.findByLabelText(/control scheme/i);
+
+    fireEvent.change(controlSchemeSelect, { target: { value: "blender-viewport" } });
+    expect(controlSchemeSelect).toHaveValue("blender-viewport");
+    const storedRaw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
+    expect(storedRaw).not.toBeNull();
+    const stored = JSON.parse(storedRaw ?? "{}");
+    expect(stored.viewportControlPreset).toBe("blender-viewport");
+  });
+
+  it("persists workspace options in localStorage", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+
+    fireEvent.change(screen.getByLabelText(/grid step/i), {
+      target: { value: "2" }
+    });
+    fireEvent.change(screen.getByLabelText(/angle step/i), {
+      target: { value: "30" }
+    });
+    fireEvent.change(screen.getByLabelText(/height step/i), {
+      target: { value: "1" }
+    });
+    fireEvent.change(screen.getByLabelText(/selection box mode/i), {
+      target: { value: "intersect" }
+    });
+    fireEvent.change(screen.getByLabelText(/camera rotate speed/i), {
+      target: { value: "1.5" }
+    });
+    fireEvent.change(screen.getByLabelText(/camera zoom speed/i), {
+      target: { value: "1.4" }
+    });
+    fireEvent.change(screen.getByLabelText(/camera pan speed/i), {
+      target: { value: "1.3" }
+    });
+    fireEvent.change(screen.getByLabelText(/camera damping/i), {
+      target: { value: "0.12" }
+    });
+    fireEvent.click(screen.getByLabelText(/autosave enabled/i));
+    fireEvent.change(screen.getByLabelText(/autosave interval/i), {
+      target: { value: "120" }
+    });
+    fireEvent.change(screen.getByLabelText(/autosave max entries/i), {
+      target: { value: "20" }
+    });
+
+    const stored = window.localStorage.getItem(WORKSPACE_OPTIONS_STORAGE_KEY);
+    expect(stored).not.toBeNull();
+    const parsed = JSON.parse(stored ?? "{}");
+
+    expect(parsed.snapGridStep).toBe(2);
+    expect(parsed.snapAngleStepDeg).toBe(30);
+    expect(parsed.snapHeightStep).toBe(1);
+    expect(parsed.selectionBoxMode).toBe("intersect");
+    expect(parsed.cameraRotateSpeed).toBe(1.5);
+    expect(parsed.cameraZoomSpeed).toBe(1.4);
+    expect(parsed.cameraPanSpeed).toBe(1.3);
+    expect(parsed.cameraDampingFactor).toBe(0.12);
+    expect(parsed.autosaveEnabled).toBe(false);
+    expect(parsed.autosaveIntervalSec).toBe(120);
+    expect(parsed.autosaveMaxEntries).toBe(20);
+  });
+
+  it("pins and unpins runtime popup on repeated click", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const runtimeAnchor = screen.getByLabelText(/canvas runtime/i);
+    const runtimeButton = screen.getByRole("button", { name: /runtime diagnostics/i });
+    expect(runtimeButton).toHaveAttribute("aria-pressed", "false");
+    expect(runtimeAnchor.className).not.toContain("is-pinned");
+
+    fireEvent.click(runtimeButton);
+    expect(runtimeButton).toHaveAttribute("aria-pressed", "true");
+    expect(runtimeAnchor.className).toContain("is-pinned");
+
+    fireEvent.click(runtimeButton);
+    expect(runtimeButton).toHaveAttribute("aria-pressed", "false");
+    expect(runtimeAnchor.className).not.toContain("is-pinned");
+  });
+
+  it("loads saved viewport control preset from localStorage", async () => {
+    window.localStorage.setItem(
+      LAYOUT_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        theme: "aurora-deep-blue",
+        viewportControlPreset: "blender-viewport"
+      })
+    );
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    expect(await screen.findByLabelText(/control scheme/i)).toHaveValue("blender-viewport");
+  });
+
+  it("reloads layout and canvas options from localStorage on login success", async () => {
+    renderAtPath("/login");
+
+    window.localStorage.setItem(
+      LAYOUT_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        theme: "forest-night",
+        viewportControlPreset: "blender-viewport"
+      })
+    );
+    window.localStorage.setItem(
+      WORKSPACE_OPTIONS_STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_WORKSPACE_OPTION_SETTINGS,
+        snapGridStep: 2.5,
+        autosaveEnabled: false
+      })
+    );
+
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    expect(await screen.findByLabelText(/app style/i)).toHaveValue("forest-night");
+    expect(await screen.findByLabelText(/control scheme/i)).toHaveValue("blender-viewport");
+    expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
+    expect(screen.getByLabelText(/autosave enabled/i)).not.toBeChecked();
   });
 
   it("shows only role-appropriate toolbar groups for viewer", async () => {
@@ -188,6 +378,19 @@ describe("App auth mock flow", () => {
     expect(screen.getByText(/auth\.authorize\.completed/i)).toBeInTheDocument();
     expect(screen.getByText(/auth benchmark avg:/i)).toBeInTheDocument();
     expect(screen.getByText(/authorize benchmark avg:/i)).toBeInTheDocument();
+  });
+
+  it("saves local scene draft from module actions", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save \(local draft\)/i }));
+
+    const draft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(draft).not.toBeNull();
+    expect(draft?.source).toBe("local_draft");
+    expect(draft?.tiles.length).toBeGreaterThan(0);
   });
 
   it("hides workspace controls after sign out", async () => {

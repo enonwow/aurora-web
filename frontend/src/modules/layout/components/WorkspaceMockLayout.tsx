@@ -1,14 +1,28 @@
-import { useState } from "react";
 import type { UserRole } from "../../auth/contracts";
-import type { WorkspaceToolbarState } from "../roleTopbarPolicy";
+import type {
+  WorkspaceCommandSignal,
+  WorkspaceToolbarState
+} from "../roleTopbarPolicy";
 import { getRoleWorkspacePanels } from "../roleSidebarPolicy";
+import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
+import type { ViewportControlPresetId } from "../viewportControlSettings";
+import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
 
 interface WorkspaceMockLayoutProps {
   role: UserRole;
-  displayName: string;
-  permissions: string[];
+  userId: string;
   toolbarState: WorkspaceToolbarState;
+  commandSignal: WorkspaceCommandSignal | null;
+  viewportControlPreset: ViewportControlPresetId;
+  workspaceOptions: WorkspaceOptionSettings;
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  onToggleLeftCollapsed: () => void;
+  onToggleRightCollapsed: () => void;
 }
+
+const SIDEBAR_EXPANDED_WIDTH_PX = 320;
+const SIDEBAR_COLLAPSED_WIDTH_PX = 44;
 
 function SidebarColumn({
   side,
@@ -104,54 +118,36 @@ function SidebarColumn({
 
 export function WorkspaceMockLayout({
   role,
-  displayName,
-  permissions,
-  toolbarState
+  userId,
+  toolbarState,
+  commandSignal,
+  viewportControlPreset,
+  workspaceOptions,
+  leftCollapsed,
+  rightCollapsed,
+  onToggleLeftCollapsed,
+  onToggleRightCollapsed
 }: WorkspaceMockLayoutProps) {
   const panels = getRoleWorkspacePanels(role);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const leftPanelWidthPx = leftCollapsed
+    ? SIDEBAR_COLLAPSED_WIDTH_PX
+    : SIDEBAR_EXPANDED_WIDTH_PX;
+  const rightPanelWidthPx = rightCollapsed
+    ? SIDEBAR_COLLAPSED_WIDTH_PX
+    : SIDEBAR_EXPANDED_WIDTH_PX;
 
   return (
     <section className="workspace-layout" aria-label="workspace layout">
       <section className="workspace-canvas-layer" aria-label="workspace canvas">
-        <section className="workspace-canvas-overlay">
-          <header className="canvas-header">
-            <h1>Aurora Web Workspace</h1>
-            <p>
-              Logged as <strong>{displayName}</strong> ({role})
-            </p>
-            <p>
-              Selection mode: <strong>{toolbarState.selectionMode}</strong>
-            </p>
-            <p>
-              Selection scope: <strong>{toolbarState.selectionScope}</strong>
-            </p>
-          </header>
-
-          <section className="canvas-meta">
-            <h2>Permissions</h2>
-            <ul>
-              {permissions.map((permission) => (
-                <li key={permission}>{permission}</li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="canvas-meta">
-            <h2>Visible Layers</h2>
-            <ul>
-              {Object.entries(toolbarState.visibility).map(([layer, visible]) => (
-                <li key={layer}>
-                  {layer}: {visible ? "on" : "off"}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </section>
-        <section className="canvas-stage">
-          <p>Canvas mock: area/objects render surface goes here.</p>
-        </section>
+        <WorkspaceCanvasViewport
+          toolbarState={toolbarState}
+          userId={userId}
+          commandSignal={commandSignal}
+          viewportControlPreset={viewportControlPreset}
+          workspaceOptions={workspaceOptions}
+          leftPanelWidthPx={leftPanelWidthPx}
+          rightPanelWidthPx={rightPanelWidthPx}
+        />
       </section>
 
       <SidebarColumn
@@ -159,7 +155,7 @@ export function WorkspaceMockLayout({
         title="left sidebar"
         sections={panels.left}
         collapsed={leftCollapsed}
-        onToggle={() => setLeftCollapsed((current) => !current)}
+        onToggle={onToggleLeftCollapsed}
       />
 
       <SidebarColumn
@@ -167,7 +163,7 @@ export function WorkspaceMockLayout({
         title="right sidebar"
         sections={panels.right}
         collapsed={rightCollapsed}
-        onToggle={() => setRightCollapsed((current) => !current)}
+        onToggle={onToggleRightCollapsed}
       />
     </section>
   );
