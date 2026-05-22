@@ -11,10 +11,6 @@ import {
   LAYOUT_THEME_OPTIONS,
   type LayoutThemeId
 } from "../themeSettings";
-import {
-  VIEWPORT_CONTROL_OPTIONS,
-  type ViewportControlPresetId
-} from "../viewportControlSettings";
 import type {
   WorkspaceOptionSettings,
   SelectionBoxMode
@@ -31,10 +27,6 @@ interface WorkspaceTopbarProps {
   toolbarState: WorkspaceToolbarState;
   layoutTheme: LayoutThemeId;
   onLayoutThemeChange: (theme: LayoutThemeId) => void;
-  viewportControlPreset: ViewportControlPresetId;
-  onViewportControlPresetChange: (
-    preset: ViewportControlPresetId
-  ) => void;
   workspaceOptions: WorkspaceOptionSettings;
   onWorkspaceOptionsChange: (patch: Partial<WorkspaceOptionSettings>) => void;
   onAction: (actionKey: ToolbarActionKey) => void;
@@ -57,10 +49,6 @@ function isActionActive(
   actionKey: ToolbarActionKey,
   toolbarState: WorkspaceToolbarState
 ): boolean {
-  if (toolbarState.lastCommand === actionKey) {
-    return true;
-  }
-
   if (
     (toolbarState.selectionMode === "terrain" && actionKey === "select_terrain") ||
     (toolbarState.selectionMode === "object" && actionKey === "select_object")
@@ -232,14 +220,36 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
+const CANVAS_STATUS_OPTIONS: Array<{
+  value: WorkspaceToolbarState["canvasDebug"]["statusMap"];
+  label: string;
+  actionKey: ToolbarActionKey;
+}> = [
+  { value: "off", label: "Off", actionKey: "debug_status_map_off" },
+  { value: "placeables", label: "Placeables", actionKey: "debug_status_map_placeables" },
+  { value: "doors", label: "Doors", actionKey: "debug_status_map_doors" },
+  { value: "creatures", label: "Creatures", actionKey: "debug_status_map_creatures" },
+  { value: "items", label: "Items", actionKey: "debug_status_map_items" },
+  { value: "sounds", label: "Sounds", actionKey: "debug_status_map_sounds" },
+  { value: "all", label: "All", actionKey: "debug_status_map_all" }
+];
+
+const CANVAS_TEXTURE_OPTIONS: Array<{
+  value: WorkspaceToolbarState["canvasDebug"]["textureCompression"];
+  label: string;
+  actionKey: ToolbarActionKey;
+}> = [
+  { value: "none", label: "None", actionKey: "debug_texture_compression_none" },
+  { value: "etc1s", label: "ETC1S", actionKey: "debug_texture_compression_etc1s" },
+  { value: "uastc", label: "UASTC", actionKey: "debug_texture_compression_uastc" }
+];
+
 export function WorkspaceTopbar({
   isAuthenticated,
   role,
   toolbarState,
   layoutTheme,
   onLayoutThemeChange,
-  viewportControlPreset,
-  onViewportControlPresetChange,
   workspaceOptions,
   onWorkspaceOptionsChange,
   onAction,
@@ -263,22 +273,16 @@ export function WorkspaceTopbar({
     ];
     const canvasWorkflowShortcuts: KeyboardShortcut[] = [
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
+      { key: "Ctrl/Cmd + C then Ctrl/Cmd + V", description: "Copy selected object(s)." },
       { key: "Del / Backspace", description: "Delete selected objects (unlocked layers only)." }
     ];
-
-    if (viewportControlPreset !== "blender-viewport") {
-      return [...baseShortcuts, ...viewportShortcuts, ...canvasWorkflowShortcuts];
-    }
 
     return [
       ...baseShortcuts,
       ...viewportShortcuts,
-      ...canvasWorkflowShortcuts,
-      { key: "Shift + A", description: "Arm add-object placement on canvas." },
-      { key: "F", description: "Focus camera on selected object/tile." },
-      { key: "Esc", description: "Cancel add-object placement mode." }
+      ...canvasWorkflowShortcuts
     ];
-  }, [baseShortcuts, isAuthenticated, role, viewportControlPreset]);
+  }, [baseShortcuts, isAuthenticated, role]);
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(
     resolveInitialGroup(sectionGroups)
   );
@@ -430,6 +434,160 @@ export function WorkspaceTopbar({
     [onWorkspaceOptionsChange]
   );
 
+  const canvasActionMap = useMemo(() => {
+    if (!activeGroup || activeGroup.key !== "canvas") {
+      return null;
+    }
+    return new Map(activeGroup.actions.map((action) => [action.key, action]));
+  }, [activeGroup]);
+
+  const renderCanvasActionButton = useCallback(
+    (actionKey: ToolbarActionKey, shortLabel?: string) => {
+      const action = canvasActionMap?.get(actionKey);
+      if (!action) {
+        return null;
+      }
+
+      return (
+        <button
+          className={`topbar-nav-btn topbar-nav-btn-compact ${
+            isActionActive(action.key, toolbarState) ? "is-active" : ""
+          }`}
+          type="button"
+          key={action.key}
+          onClick={() => onAction(action.key)}
+          disabled={!action.supported}
+          title={action.label}
+        >
+          <span>{shortLabel ?? action.label}</span>
+        </button>
+      );
+    },
+    [canvasActionMap, onAction, toolbarState]
+  );
+
+  const renderCanvasDrawer = () => (
+    <section className="canvas-drawer-layout" aria-label="canvas compact commands">
+      <section className="canvas-drawer-group">
+        <h3>Transform</h3>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("canvas_gizmo_translate", "Move (W)")}
+          {renderCanvasActionButton("canvas_gizmo_rotate", "Rotate (E)")}
+          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (R)")}
+          {renderCanvasActionButton("snap_grid_toggle", "Snap Grid")}
+          {renderCanvasActionButton("snap_angle_toggle", "Snap Angle")}
+          {renderCanvasActionButton("snap_height_toggle", "Snap Height")}
+        </div>
+      </section>
+
+      <section className="canvas-drawer-group">
+        <h3>Layers</h3>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("lock_placeables", "Lock PLC")}
+          {renderCanvasActionButton("lock_creatures", "Lock CRT")}
+          {renderCanvasActionButton("lock_doors", "Lock DOR")}
+          {renderCanvasActionButton("lock_items", "Lock ITM")}
+          {renderCanvasActionButton("lock_sounds", "Lock SND")}
+          {renderCanvasActionButton("unlock_all_layers", "Unlock All")}
+        </div>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("isolate_placeables", "Iso PLC")}
+          {renderCanvasActionButton("isolate_creatures", "Iso CRT")}
+          {renderCanvasActionButton("isolate_doors", "Iso DOR")}
+          {renderCanvasActionButton("isolate_items", "Iso ITM")}
+          {renderCanvasActionButton("isolate_sounds", "Iso SND")}
+          {renderCanvasActionButton("clear_isolation", "Clear Iso")}
+        </div>
+      </section>
+
+      <section className="canvas-drawer-group">
+        <h3>Selection</h3>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("select_same_resref", "Same ResRef")}
+          {renderCanvasActionButton("select_invert", "Invert")}
+          {renderCanvasActionButton("select_radius", "In Radius")}
+          {renderCanvasActionButton("copy_selected_objects", "Copy Sel")}
+          {renderCanvasActionButton("delete_selected_objects", "Delete Sel")}
+          {renderCanvasActionButton("camera_bookmark_save_1", "Save #1")}
+          {renderCanvasActionButton("camera_bookmark_load_1", "Load #1")}
+        </div>
+      </section>
+
+      <section className="canvas-drawer-group">
+        <h3>Display</h3>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("debug_wireframe", "Wireframe")}
+          {renderCanvasActionButton("debug_textures", "Textures")}
+          {renderCanvasActionButton("debug_grid", "Grid")}
+          {renderCanvasActionButton("debug_axes", "Axes")}
+          {renderCanvasActionButton("debug_bounds", "Bounds")}
+          {renderCanvasActionButton("debug_hidden_meshes", "Hidden")}
+          {renderCanvasActionButton("debug_show_non_render_meshes", "Non-render")}
+        </div>
+      </section>
+
+      <section className="canvas-drawer-group canvas-drawer-group-inline">
+        <h3>Status Map</h3>
+        <select
+          className="topbar-nav-select"
+          aria-label="Status map"
+          value={toolbarState.canvasDebug.statusMap}
+          onChange={(event) => {
+            const option = CANVAS_STATUS_OPTIONS.find(
+              (entry) => entry.value === event.target.value
+            );
+            if (option) {
+              onAction(option.actionKey);
+            }
+          }}
+        >
+          {CANVAS_STATUS_OPTIONS.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </section>
+
+      <section className="canvas-drawer-group canvas-drawer-group-inline">
+        <h3>Texture Mode</h3>
+        <select
+          className="topbar-nav-select"
+          aria-label="Texture mode"
+          value={toolbarState.canvasDebug.textureCompression}
+          onChange={(event) => {
+            const option = CANVAS_TEXTURE_OPTIONS.find(
+              (entry) => entry.value === event.target.value
+            );
+            if (option) {
+              onAction(option.actionKey);
+            }
+          }}
+        >
+          {CANVAS_TEXTURE_OPTIONS.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </section>
+
+      <details className="canvas-drawer-advanced">
+        <summary>Advanced Debug</summary>
+        <div className="topbar-nav-buttons topbar-nav-buttons-compact">
+          {renderCanvasActionButton("debug_chunks", "Chunk Bounds")}
+          {renderCanvasActionButton("debug_object_labels", "Object Labels")}
+          {renderCanvasActionButton("debug_perf_hud", "Perf HUD")}
+          {renderCanvasActionButton("debug_walkmesh_overlay", "Walkmesh")}
+          {renderCanvasActionButton("debug_collision_overlay", "Collision")}
+          {renderCanvasActionButton("debug_controls_hint", "Controls Hint")}
+          {renderCanvasActionButton("debug_runtime_hud", "Runtime Popup")}
+          {renderCanvasActionButton("debug_export_status_report", "Export Report")}
+        </div>
+      </details>
+    </section>
+  );
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -487,23 +645,27 @@ export function WorkspaceTopbar({
               <header className="topbar-drawer-header">
                 <span>{activeGroup.label} Commands</span>
               </header>
-              <div className="topbar-nav-buttons">
-                {activeGroup.actions.map((action) => (
-                  <button
-                    className={`topbar-nav-btn ${isActionActive(action.key, toolbarState) ? "is-active" : ""}`}
-                    type="button"
-                    key={action.key}
-                    onClick={() => onAction(action.key)}
-                    disabled={!action.supported}
-                    title={`${action.label} (${statusLabel(action.status)})`}
-                  >
-                    <span>{action.label}</span>
-                    <span className={`toolbar-status toolbar-status-${action.status}`}>
-                      {statusLabel(action.status)}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {activeGroup.key === "canvas" ? (
+                renderCanvasDrawer()
+              ) : (
+                <div className="topbar-nav-buttons">
+                  {activeGroup.actions.map((action) => (
+                    <button
+                      className={`topbar-nav-btn ${isActionActive(action.key, toolbarState) ? "is-active" : ""}`}
+                      type="button"
+                      key={action.key}
+                      onClick={() => onAction(action.key)}
+                      disabled={!action.supported}
+                      title={`${action.label} (${statusLabel(action.status)})`}
+                    >
+                      <span>{action.label}</span>
+                      <span className={`toolbar-status toolbar-status-${action.status}`}>
+                        {statusLabel(action.status)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </section>
           ) : null}
           </div>
@@ -613,29 +775,9 @@ export function WorkspaceTopbar({
 
             <details className="topbar-options-section" open role="group" aria-label="Viewport controls">
               <summary className="topbar-options-summary">
-                <span>Viewport Controls</span>
+                <span>Viewport</span>
               </summary>
               <div className="topbar-options-content">
-                <label className="topbar-options-label" htmlFor="viewport-control-select">
-                  Control scheme
-                </label>
-                <select
-                  id="viewport-control-select"
-                  className="topbar-options-select"
-                  value={viewportControlPreset}
-                  onChange={(event) =>
-                    onViewportControlPresetChange(
-                      event.target.value as ViewportControlPresetId
-                    )
-                  }
-                >
-                  {VIEWPORT_CONTROL_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
                 <label className="topbar-options-label" htmlFor="camera-rotate-speed">
                   Camera rotate speed
                 </label>

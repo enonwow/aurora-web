@@ -7,7 +7,6 @@ import {
   persistLayoutSettingsToStorage
 } from "../../../../src/modules/layout/layoutSettings";
 import { LAYOUT_THEME_STORAGE_KEY } from "../../../../src/modules/layout/themeSettings";
-import { VIEWPORT_CONTROL_STORAGE_KEY } from "../../../../src/modules/layout/viewportControlSettings";
 
 describe("layoutSettings", () => {
   beforeEach(() => {
@@ -23,7 +22,6 @@ describe("layoutSettings", () => {
   it("persists and loads single layout model", () => {
     const next = {
       theme: "forest-night" as const,
-      viewportControlPreset: "blender-viewport" as const,
       leftSidebarCollapsed: true,
       rightSidebarCollapsed: false
     };
@@ -37,11 +35,9 @@ describe("layoutSettings", () => {
 
   it("loads legacy split keys when unified model is missing", () => {
     window.localStorage.setItem(LAYOUT_THEME_STORAGE_KEY, "obsidian-slate");
-    window.localStorage.setItem(VIEWPORT_CONTROL_STORAGE_KEY, "blender-viewport");
 
     expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual({
       theme: "obsidian-slate",
-      viewportControlPreset: "blender-viewport",
       leftSidebarCollapsed: false,
       rightSidebarCollapsed: false
     });
@@ -52,7 +48,6 @@ describe("layoutSettings", () => {
       LEGACY_LAYOUT_SETTINGS_STORAGE_KEY,
       JSON.stringify({
         theme: "dawn-steel",
-        viewportControlPreset: "blender-viewport",
         leftSidebarCollapsed: true,
         rightSidebarCollapsed: true
       })
@@ -60,7 +55,6 @@ describe("layoutSettings", () => {
 
     expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual({
       theme: "dawn-steel",
-      viewportControlPreset: "blender-viewport",
       leftSidebarCollapsed: true,
       rightSidebarCollapsed: true
     });
@@ -71,7 +65,6 @@ describe("layoutSettings", () => {
       LAYOUT_SETTINGS_STORAGE_KEY,
       JSON.stringify({
         theme: "aurora-deep-blue",
-        viewportControlPreset: "aurora-classic",
         leftSidebarCollapsed: "yes",
         rightSidebarCollapsed: 1
       })
@@ -79,7 +72,6 @@ describe("layoutSettings", () => {
 
     expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual({
       theme: "aurora-deep-blue",
-      viewportControlPreset: "aurora-classic",
       leftSidebarCollapsed: false,
       rightSidebarCollapsed: false
     });

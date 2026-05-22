@@ -26,9 +26,10 @@ export function commitSceneHistory(
   nextPresent: AreaScene,
   historyLimit = DEFAULT_HISTORY_LIMIT
 ): SceneHistoryState {
+  const normalizedLimit = Math.max(0, Math.floor(historyLimit));
   const nextPast = [...history.past, cloneScene(history.present)];
-  if (nextPast.length > historyLimit) {
-    nextPast.splice(0, nextPast.length - historyLimit);
+  if (nextPast.length > normalizedLimit) {
+    nextPast.splice(0, nextPast.length - normalizedLimit);
   }
 
   return {

@@ -107,4 +107,13 @@ describe("roleTopbarPolicy canvas tools", () => {
     const exportReport = applyToolbarAction(loadBookmark, "debug_export_status_report");
     expect(exportReport.lastCommand).toBe("debug_export_status_report");
   });
+
+  it("keeps command semantics for copy and delete selection actions", () => {
+    const initial = createDefaultToolbarState();
+    const copySelection = applyToolbarAction(initial, "copy_selected_objects");
+    expect(copySelection.lastCommand).toBe("copy_selected_objects");
+
+    const deleteSelection = applyToolbarAction(copySelection, "delete_selected_objects");
+    expect(deleteSelection.lastCommand).toBe("delete_selected_objects");
+  });
 });

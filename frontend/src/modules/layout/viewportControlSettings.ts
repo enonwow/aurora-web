@@ -1,4 +1,4 @@
-export type ViewportControlPresetId = "aurora-classic" | "blender-viewport";
+export type ViewportControlPresetId = "aurora-classic";
 
 export interface ViewportControlPresetOption {
   id: ViewportControlPresetId;
@@ -10,8 +10,7 @@ export const VIEWPORT_CONTROL_STORAGE_KEY = "aurora_web.viewport_control_preset"
 export const DEFAULT_VIEWPORT_CONTROL_PRESET: ViewportControlPresetId = "aurora-classic";
 
 export const VIEWPORT_CONTROL_OPTIONS: ViewportControlPresetOption[] = [
-  { id: "aurora-classic", label: "Aurora Classic" },
-  { id: "blender-viewport", label: "Blender Viewport" }
+  { id: "aurora-classic", label: "Aurora Classic" }
 ];
 
 export function isViewportControlPresetId(

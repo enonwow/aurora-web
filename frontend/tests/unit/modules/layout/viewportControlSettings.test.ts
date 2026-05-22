@@ -14,7 +14,7 @@ describe("viewportControlSettings", () => {
 
   it("validates preset ids", () => {
     expect(isViewportControlPresetId("aurora-classic")).toBe(true);
-    expect(isViewportControlPresetId("blender-viewport")).toBe(true);
+    expect(isViewportControlPresetId("blender-viewport")).toBe(false);
     expect(isViewportControlPresetId("unknown")).toBe(false);
   });
 
@@ -25,12 +25,12 @@ describe("viewportControlSettings", () => {
   });
 
   it("persists and loads selected preset", () => {
-    persistViewportControlPresetToStorage("blender-viewport", window.localStorage);
+    persistViewportControlPresetToStorage("aurora-classic", window.localStorage);
     expect(window.localStorage.getItem(VIEWPORT_CONTROL_STORAGE_KEY)).toBe(
-      "blender-viewport"
+      "aurora-classic"
     );
     expect(loadViewportControlPresetFromStorage(window.localStorage)).toBe(
-      "blender-viewport"
+      "aurora-classic"
     );
   });
 });

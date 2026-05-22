@@ -101,6 +101,8 @@ export type ToolbarActionKey =
   | "select_same_resref"
   | "select_invert"
   | "select_radius"
+  | "copy_selected_objects"
+  | "delete_selected_objects"
   | "camera_bookmark_save_1"
   | "camera_bookmark_load_1"
   | "dm_spawn_creature"
@@ -295,6 +297,8 @@ const builderAndAdminGroups: ToolbarGroup[] = [
       action("select_same_resref", "Select Same ResRef", "mvp"),
       action("select_invert", "Invert Selection", "mvp"),
       action("select_radius", "Select In Radius", "mvp"),
+      action("copy_selected_objects", "Copy Selected", "mvp"),
+      action("delete_selected_objects", "Delete Selected", "mvp"),
       action("camera_bookmark_save_1", "Save Bookmark #1", "mvp"),
       action("camera_bookmark_load_1", "Load Bookmark #1", "mvp"),
       action("debug_wireframe", "Wireframe", "mvp"),

@@ -15,3 +15,7 @@
    - do not auto-agree with product or UX assumptions
    - raise logical risks early and propose alternatives with trade-offs
    - prefer short design discussions before implementation when architecture/UX impact is non-trivial
+7. Mutation tests are mandatory for logic changes:
+   - run `npm run test:mutation` for feature branches that modify business logic, state handling, auth, scene, or layout behavior
+   - do not merge if mutation quality regresses (mutation score must be >= current baseline or improved)
+   - for survived mutants in changed modules: add/adjust tests before merge (no "known survivors" without explicit documented exception)

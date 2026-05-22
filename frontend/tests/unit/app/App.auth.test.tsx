@@ -105,8 +105,11 @@ describe("App auth mock flow", () => {
     expect(screen.getByLabelText(/canvas runtime/i)).toBeInTheDocument();
     expect(screen.getByRole("note", { name: /controls hint/i })).toBeInTheDocument();
     const wireframeButton = screen.getByRole("button", { name: /wireframe/i });
+    expect(wireframeButton.className).not.toContain("is-active");
     fireEvent.click(wireframeButton);
-    expect(screen.getByRole("button", { name: /wireframe/i })).toBeInTheDocument();
+    expect(wireframeButton.className).toContain("is-active");
+    fireEvent.click(wireframeButton);
+    expect(wireframeButton.className).not.toContain("is-active");
     fireEvent.click(screen.getByRole("button", { name: /controls hint/i }));
     expect(screen.queryByRole("note", { name: /controls hint/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /runtime popup/i }));
@@ -120,6 +123,8 @@ describe("App auth mock flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
     expect(screen.getByRole("dialog", { name: /keyboard shortcuts/i })).toBeInTheDocument();
     expect(screen.getByText(/ctrl\/cmd \+ z/i)).toBeInTheDocument();
+    expect(screen.getByText(/ctrl \+ rmb/i)).toBeInTheDocument();
+    expect(screen.getByText(/rmb on object/i)).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(
@@ -135,11 +140,9 @@ describe("App auth mock flow", () => {
     expect(await screen.findByRole("dialog", { name: /quick options/i })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /layout/i })).toBeInTheDocument();
     const styleSelect = await screen.findByLabelText(/app style/i);
-    const controlSchemeSelect = await screen.findByLabelText(/control scheme/i);
     expect(styleSelect).toHaveValue("aurora-deep-blue");
     expect(within(styleSelect).getAllByRole("option")).toHaveLength(4);
-    expect(controlSchemeSelect).toHaveValue("aurora-classic");
-    expect(within(controlSchemeSelect).getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/grid step/i)).toHaveValue(1);
     expect(screen.getByLabelText(/angle step/i)).toHaveValue(15);
     expect(screen.getByLabelText(/height step/i)).toHaveValue(0.5);
@@ -179,8 +182,7 @@ describe("App auth mock flow", () => {
     window.localStorage.setItem(
       LAYOUT_SETTINGS_STORAGE_KEY,
       JSON.stringify({
-        theme: "obsidian-slate",
-        viewportControlPreset: "aurora-classic"
+        theme: "obsidian-slate"
       })
     );
     renderAtPath("/login");
@@ -191,19 +193,12 @@ describe("App auth mock flow", () => {
     expect(document.documentElement.getAttribute("data-layout-theme")).toBe("obsidian-slate");
   });
 
-  it("persists viewport control preset in localStorage", async () => {
+  it("does not expose control scheme selector in quick options", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    const controlSchemeSelect = await screen.findByLabelText(/control scheme/i);
-
-    fireEvent.change(controlSchemeSelect, { target: { value: "blender-viewport" } });
-    expect(controlSchemeSelect).toHaveValue("blender-viewport");
-    const storedRaw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
-    expect(storedRaw).not.toBeNull();
-    const stored = JSON.parse(storedRaw ?? "{}");
-    expect(stored.viewportControlPreset).toBe("blender-viewport");
+    expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
   });
 
   it("persists workspace options in localStorage", async () => {
@@ -279,29 +274,13 @@ describe("App auth mock flow", () => {
     expect(runtimeAnchor.className).not.toContain("is-pinned");
   });
 
-  it("loads saved viewport control preset from localStorage", async () => {
-    window.localStorage.setItem(
-      LAYOUT_SETTINGS_STORAGE_KEY,
-      JSON.stringify({
-        theme: "aurora-deep-blue",
-        viewportControlPreset: "blender-viewport"
-      })
-    );
-    renderAtPath("/login");
-    await signInAs("builder.user", "builder123");
-
-    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-    expect(await screen.findByLabelText(/control scheme/i)).toHaveValue("blender-viewport");
-  });
-
   it("reloads layout and canvas options from localStorage on login success", async () => {
     renderAtPath("/login");
 
     window.localStorage.setItem(
       LAYOUT_SETTINGS_STORAGE_KEY,
       JSON.stringify({
-        theme: "forest-night",
-        viewportControlPreset: "blender-viewport"
+        theme: "forest-night"
       })
     );
     window.localStorage.setItem(
@@ -317,7 +296,7 @@ describe("App auth mock flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
     expect(await screen.findByLabelText(/app style/i)).toHaveValue("forest-night");
-    expect(await screen.findByLabelText(/control scheme/i)).toHaveValue("blender-viewport");
+    expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
     expect(screen.getByLabelText(/autosave enabled/i)).not.toBeChecked();
   });

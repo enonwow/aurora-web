@@ -11,6 +11,9 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:regression": "vitest run tests/regression-smoke",
+    "test:unit:coverage": "vitest run tests/unit --coverage",
+    "test:regression:coverage": "vitest run tests/regression-smoke --coverage --coverage.include=src/App.tsx --coverage.include=src/modules/layout/components/WorkspaceTopbar.tsx --coverage.include=src/modules/layout/components/WorkspaceMockLayout.tsx --coverage.include=src/modules/layout/components/SceneObjectListPanel.tsx",
+    "test:mutation": "stryker run",
     "test:all": "npm run test:unit && npm run test:regression"
   },
   "dependencies": {
@@ -22,6 +25,9 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
     "@types/node": "^22.13.5",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",

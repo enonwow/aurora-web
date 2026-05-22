@@ -63,23 +63,7 @@ const rolePanels: Record<UserRole, RoleWorkspacePanels> = {
         items: ["Placeables", "Creatures", "Doors", "Items", "Sounds"]
       }
     ],
-    right: [
-      {
-        key: "builder-properties",
-        title: "Properties",
-        items: ["Basic", "Lock", "Trap", "Scripts", "Advanced", "Description", "Comments"]
-      },
-      {
-        key: "builder-transform",
-        title: "Transform",
-        items: ["Adjust location", "Bearing", "Visual transform", "Reset"]
-      },
-      {
-        key: "builder-telemetry",
-        title: "Render Telemetry",
-        items: ["TTFR", "Full-ready", "Chunk load rate", "Memory usage"]
-      }
-    ]
+    right: []
   },
   dm: {
     left: [

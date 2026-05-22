@@ -10,7 +10,6 @@ import type {
   WorkspaceCommandSignal,
   WorkspaceToolbarState
 } from "../roleTopbarPolicy";
-import type { ViewportControlPresetId } from "../viewportControlSettings";
 import type {
   AreaScene,
   SceneHistoryState,
@@ -27,6 +26,10 @@ import {
   createNewSceneObject,
   createSeedAreaScene
 } from "../../scene/sceneFactory";
+import {
+  computeCopyTranslationVector,
+  resolveCopyAnchorPoint
+} from "../../scene/copyPlacement";
 import {
   commitSceneHistory,
   createSceneHistory,
@@ -45,10 +48,21 @@ interface WorkspaceCanvasViewportProps {
   toolbarState: WorkspaceToolbarState;
   userId: string;
   commandSignal: WorkspaceCommandSignal | null;
-  viewportControlPreset: ViewportControlPresetId;
+  sidebarSelectSignal?: {
+    revision: number;
+    objectId: string;
+  } | null;
+  sidebarContextMenuSignal?: {
+    revision: number;
+    objectId: string;
+    objectKind: SceneObjectKind;
+    clientX: number;
+    clientY: number;
+  } | null;
   workspaceOptions: WorkspaceOptionSettings;
   leftPanelWidthPx: number;
   rightPanelWidthPx: number;
+  onSceneObjectsSnapshotChange?: (objects: SceneObject[]) => void;
 }
 
 interface SelectionBoxState {
@@ -794,15 +808,19 @@ export function WorkspaceCanvasViewport({
   toolbarState,
   userId,
   commandSignal,
-  viewportControlPreset,
+  sidebarSelectSignal,
+  sidebarContextMenuSignal,
   workspaceOptions,
   leftPanelWidthPx,
-  rightPanelWidthPx
+  rightPanelWidthPx,
+  onSceneObjectsSnapshotChange
 }: WorkspaceCanvasViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
   const commandRevisionRef = useRef(0);
   const nextObjectSequenceRef = useRef(1);
+  const clipboardObjectsRef = useRef<SceneObject[]>([]);
+  const lastPointerWorldRef = useRef<{ x: number; y: number } | null>(null);
   const bookmark1Ref = useRef<CameraBookmark | null>(null);
   const perfFrameRef = useRef({
     frameCount: 0,
@@ -816,7 +834,6 @@ export function WorkspaceCanvasViewport({
   const [terrainBrush, setTerrainBrush] = useState<TerrainBrushKind>("corridor");
   const [objectBrush, setObjectBrush] = useState<SceneObjectKind>("placeables");
   const [lastSavedAtUnixMs, setLastSavedAtUnixMs] = useState<number | null>(null);
-  const [isAddPlacementArmed, setIsAddPlacementArmed] = useState(false);
   const [webglReady, setWebglReady] = useState(false);
   const [webglFallbackReason, setWebglFallbackReason] = useState<string | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBoxState>({
@@ -837,7 +854,77 @@ export function WorkspaceCanvasViewport({
   });
 
   const scene = sceneHistory.present;
-  const isBlenderPreset = viewportControlPreset === "blender-viewport";
+
+  useEffect(() => {
+    onSceneObjectsSnapshotChange?.(scene.objects);
+  }, [onSceneObjectsSnapshotChange, scene.objects]);
+
+  useEffect(() => {
+    if (!sidebarSelectSignal) {
+      return;
+    }
+
+    const selectedObject = scene.objects.find(
+      (object) => object.id === sidebarSelectSignal.objectId
+    );
+    if (!selectedObject) {
+      return;
+    }
+
+    setSelectedTileId(null);
+    setSelectedObjectIds([selectedObject.id]);
+    setContextMenu(null);
+    trackTelemetry("scene.selection.from_scene_object_list", {
+      userId,
+      objectId: selectedObject.id,
+      objectKind: selectedObject.kind,
+      revision: sidebarSelectSignal.revision
+    });
+  }, [scene.objects, sidebarSelectSignal, userId]);
+
+  useEffect(() => {
+    if (!sidebarContextMenuSignal) {
+      return;
+    }
+
+    const selectedObject = scene.objects.find(
+      (object) => object.id === sidebarContextMenuSignal.objectId
+    );
+    if (!selectedObject) {
+      return;
+    }
+
+    const runtime = runtimeRef.current;
+    let localX = 24;
+    let localY = 24;
+
+    if (runtime) {
+      const rect = runtime.container.getBoundingClientRect();
+      localX = Math.max(
+        12,
+        Math.min(rect.width - 12, sidebarContextMenuSignal.clientX - rect.left)
+      );
+      localY = Math.max(
+        12,
+        Math.min(rect.height - 12, sidebarContextMenuSignal.clientY - rect.top)
+      );
+    }
+
+    setSelectedTileId(null);
+    setSelectedObjectIds([selectedObject.id]);
+    setContextMenu({
+      x: localX,
+      y: localY,
+      objectId: selectedObject.id,
+      objectKind: selectedObject.kind
+    });
+    trackTelemetry("scene.context_menu.open_from_scene_object_list", {
+      userId,
+      objectId: selectedObject.id,
+      objectKind: selectedObject.kind,
+      revision: sidebarContextMenuSignal.revision
+    });
+  }, [scene.objects, sidebarContextMenuSignal, userId]);
 
   const visibleObjects = useMemo(
     () =>
@@ -852,6 +939,193 @@ export function WorkspaceCanvasViewport({
   const visibleObjectIdsSet = useMemo(
     () => new Set(visibleObjects.map((object) => object.id)),
     [visibleObjects]
+  );
+
+  const cloneSceneObject = useCallback((object: SceneObject): SceneObject => {
+    return {
+      ...object,
+      visualTransform: { ...object.visualTransform }
+    };
+  }, []);
+
+  const getUnlockedSelectedObjects = useCallback(
+    (objects: SceneObject[]): SceneObject[] =>
+      objects.filter(
+        (object) =>
+          selectedObjectIds.includes(object.id) &&
+          !isKindLocked(toolbarState.canvasDebug, object.kind)
+      ),
+    [selectedObjectIds, toolbarState.canvasDebug]
+  );
+
+  const resolveCopyAnchor = useCallback(
+    (sourceObjects: SceneObject[]): { x: number; y: number } | null => {
+      const fallbackOffset = toolbarState.canvasDebug.snapGrid
+        ? Math.max(0.1, workspaceOptions.snapGridStep)
+        : 0.35;
+      return resolveCopyAnchorPoint({
+        cursorAnchor: lastPointerWorldRef.current,
+        sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
+        fallbackOffset
+      });
+    },
+    [toolbarState.canvasDebug.snapGrid, workspaceOptions.snapGridStep]
+  );
+
+  const duplicateObjects = useCallback(
+    (
+      sourceObjects: SceneObject[],
+      source: string,
+      anchorOverride?: { x: number; y: number }
+    ): SceneObject[] => {
+      if (sourceObjects.length === 0) {
+        trackTelemetry("scene.objects.copy_skipped", {
+          userId,
+          source,
+          reason: "empty_source"
+        });
+        return [];
+      }
+
+      const anchor = anchorOverride ?? resolveCopyAnchor(sourceObjects);
+      const translation = anchor
+        ? computeCopyTranslationVector({
+            sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
+            anchor,
+            snapGrid: toolbarState.canvasDebug.snapGrid,
+            snapGridStep: workspaceOptions.snapGridStep
+          })
+        : null;
+      if (!anchor || !translation) {
+        trackTelemetry("scene.objects.copy_skipped", {
+          userId,
+          source,
+          reason: "anchor_unresolved"
+        });
+        return [];
+      }
+
+      const copies = sourceObjects.map((sourceObject) => {
+        const nextSequence = nextObjectSequenceRef.current;
+        nextObjectSequenceRef.current += 1;
+
+        const copy = createNewSceneObject(
+          sourceObject.kind,
+          sourceObject.x + translation.x,
+          sourceObject.y + translation.y,
+          nextSequence
+        );
+        copy.resRef = sourceObject.resRef;
+        copy.tag = `${sourceObject.tag}_COPY`;
+        copy.visualTransform = {
+          ...sourceObject.visualTransform,
+          offsetZ: toolbarState.canvasDebug.snapHeight
+            ? snapHeightValue(sourceObject.visualTransform.offsetZ, workspaceOptions.snapHeightStep)
+            : sourceObject.visualTransform.offsetZ
+        };
+        copy.bearing = toolbarState.canvasDebug.snapAngle
+          ? snapAngleRadians(sourceObject.bearing, workspaceOptions.snapAngleStepDeg)
+          : sourceObject.bearing;
+        return copy;
+      });
+
+      setSceneHistory((current) =>
+        commitSceneHistory(current, {
+          ...current.present,
+          objects: [...current.present.objects, ...copies]
+        })
+      );
+      setSelectedObjectIds(copies.map((object) => object.id));
+      setSelectedTileId(null);
+      trackTelemetry("scene.objects.copy_created", {
+        userId,
+        source,
+        copiedCount: copies.length,
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        preservedGeometry: true
+      });
+      return copies;
+    },
+    [
+      resolveCopyAnchor,
+      toolbarState.canvasDebug.snapAngle,
+      toolbarState.canvasDebug.snapHeight,
+      userId,
+      workspaceOptions.snapAngleStepDeg,
+      workspaceOptions.snapHeightStep
+    ]
+  );
+
+  const copySelectedObjectsToClipboard = useCallback(
+    (source: string): SceneObject[] => {
+      const selected = getUnlockedSelectedObjects(scene.objects);
+      clipboardObjectsRef.current = selected.map((object) => cloneSceneObject(object));
+      trackTelemetry("scene.clipboard.copied", {
+        userId,
+        source,
+        copiedCount: selected.length
+      });
+      return selected;
+    },
+    [cloneSceneObject, getUnlockedSelectedObjects, scene.objects, userId]
+  );
+
+  const pasteClipboardObjects = useCallback(
+    (source: string): SceneObject[] => {
+      const clipboardObjects = clipboardObjectsRef.current
+        .map((object) => cloneSceneObject(object))
+        .filter((object) => !isKindLocked(toolbarState.canvasDebug, object.kind));
+
+      if (clipboardObjects.length === 0) {
+        trackTelemetry("scene.clipboard.paste_skipped", {
+          userId,
+          source,
+          reason: "clipboard_empty_or_locked"
+        });
+        return [];
+      }
+
+      return duplicateObjects(clipboardObjects, source, resolveCopyAnchor(clipboardObjects) ?? undefined);
+    },
+    [
+      cloneSceneObject,
+      duplicateObjects,
+      resolveCopyAnchor,
+      toolbarState.canvasDebug,
+      userId
+    ]
+  );
+
+  const deleteSelectedObjects = useCallback(
+    (source: string): number => {
+      const deletableIds = getUnlockedSelectedObjects(scene.objects).map((object) => object.id);
+      if (deletableIds.length === 0) {
+        trackTelemetry("scene.objects.delete_skipped", {
+          userId,
+          source,
+          reason: "selection_empty_or_locked"
+        });
+        return 0;
+      }
+
+      const idSet = new Set(deletableIds);
+      setSceneHistory((current) =>
+        commitSceneHistory(current, {
+          ...current.present,
+          objects: current.present.objects.filter((object) => !idSet.has(object.id))
+        })
+      );
+      setSelectedObjectIds((current) => current.filter((id) => !idSet.has(id)));
+      setSelectedTileId(null);
+      trackTelemetry("scene.objects.delete", {
+        userId,
+        source,
+        deleted: deletableIds.length
+      });
+      return deletableIds.length;
+    },
+    [getUnlockedSelectedObjects, scene.objects, userId]
   );
 
   useEffect(() => {
@@ -961,7 +1235,7 @@ export function WorkspaceCanvasViewport({
       window.removeEventListener("blur", handleWindowBlur);
       setCtrlPan(false);
     };
-  }, [isBlenderPreset]);
+  }, []);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -986,7 +1260,6 @@ export function WorkspaceCanvasViewport({
     setSceneHistory(initialSceneHistory(userId));
     setSelectedObjectIds([]);
     setSelectedTileId(null);
-    setIsAddPlacementArmed(false);
     commandRevisionRef.current = 0;
   }, [userId]);
 
@@ -1098,6 +1371,19 @@ export function WorkspaceCanvasViewport({
           sceneId: scene.sceneId
         });
       }
+      return;
+    }
+
+    if (commandSignal.actionKey === "copy_selected_objects") {
+      const copied = copySelectedObjectsToClipboard("toolbar_canvas");
+      if (copied.length > 0) {
+        duplicateObjects(copied, "toolbar_canvas");
+      }
+      return;
+    }
+
+    if (commandSignal.actionKey === "delete_selected_objects") {
+      deleteSelectedObjects("toolbar_canvas");
       return;
     }
 
@@ -1252,7 +1538,10 @@ export function WorkspaceCanvasViewport({
       return;
     }
   }, [
+    copySelectedObjectsToClipboard,
     commandSignal,
+    deleteSelectedObjects,
+    duplicateObjects,
     scene,
     selectedObjectIds,
     toolbarState.canvasDebug,
@@ -1303,8 +1592,23 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
-    const handleDelete = (event: KeyboardEvent) => {
+    const handleKeyboardObjectActions = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      const isMeta = event.ctrlKey || event.metaKey;
+      const lowerKey = event.key.toLowerCase();
+
+      if (isMeta && lowerKey === "c") {
+        event.preventDefault();
+        copySelectedObjectsToClipboard("keyboard_shortcut");
+        return;
+      }
+
+      if (isMeta && lowerKey === "v") {
+        event.preventDefault();
+        pasteClipboardObjects("keyboard_shortcut");
         return;
       }
 
@@ -1313,111 +1617,16 @@ export function WorkspaceCanvasViewport({
       }
 
       event.preventDefault();
-      setSceneHistory((current) => {
-        const deletableIds = new Set(
-          current.present.objects
-            .filter(
-              (object) =>
-                selectedObjectIds.includes(object.id) &&
-                !isKindLocked(toolbarState.canvasDebug, object.kind)
-            )
-            .map((object) => object.id)
-        );
-        const nextObjects = current.present.objects.filter(
-          (object) => !deletableIds.has(object.id)
-        );
-        if (nextObjects.length === current.present.objects.length) {
-          return current;
-        }
-
-        trackTelemetry("scene.objects.delete", {
-          userId,
-          deleted: current.present.objects.length - nextObjects.length
-        });
-
-        return commitSceneHistory(current, {
-          ...current.present,
-          objects: nextObjects
-        });
-      });
-      setSelectedObjectIds([]);
+      deleteSelectedObjects("keyboard_shortcut");
     };
 
-    window.addEventListener("keydown", handleDelete);
-    return () => window.removeEventListener("keydown", handleDelete);
-  }, [selectedObjectIds, toolbarState.canvasDebug, userId]);
-
-  useEffect(() => {
-    if (!isBlenderPreset) {
-      setIsAddPlacementArmed(false);
-      return;
-    }
-
-    const handleBlenderShortcuts = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-
-      const lowerKey = event.key.toLowerCase();
-
-      if (event.key === "Escape") {
-        setIsAddPlacementArmed(false);
-        return;
-      }
-
-      if (event.shiftKey && lowerKey === "a") {
-        event.preventDefault();
-        setIsAddPlacementArmed(true);
-        trackTelemetry("scene.blender.add_mode_armed", { userId });
-        return;
-      }
-
-      if (lowerKey === "f") {
-        event.preventDefault();
-        const selectedObjects = scene.objects.filter((object) =>
-          selectedObjectIds.includes(object.id)
-        );
-        if (selectedObjects.length > 0) {
-          const centerX =
-            selectedObjects.reduce((sum, object) => sum + object.x, 0) /
-            selectedObjects.length;
-          const centerY =
-            selectedObjects.reduce((sum, object) => sum + object.y, 0) /
-            selectedObjects.length;
-          focusCameraOnWorldPoint(centerX, centerY);
-          trackTelemetry("scene.blender.focus_selected", {
-            userId,
-            selectedObjects: selectedObjects.length
-          });
-          return;
-        }
-
-        if (selectedTileId) {
-          const selectedTile = scene.tiles.find((tile) => tile.id === selectedTileId);
-          if (selectedTile) {
-            focusCameraOnWorldPoint(selectedTile.col + 0.5, selectedTile.row + 0.5);
-            trackTelemetry("scene.blender.focus_tile", {
-              userId,
-              tileId: selectedTileId
-            });
-            return;
-          }
-        }
-
-        focusCameraOnWorldPoint(scene.width / 2, scene.height / 2);
-        trackTelemetry("scene.blender.focus_scene", { userId });
-      }
-    };
-
-    window.addEventListener("keydown", handleBlenderShortcuts);
-    return () => window.removeEventListener("keydown", handleBlenderShortcuts);
+    window.addEventListener("keydown", handleKeyboardObjectActions);
+    return () => window.removeEventListener("keydown", handleKeyboardObjectActions);
   }, [
-    focusCameraOnWorldPoint,
-    isBlenderPreset,
-    scene,
-    selectedObjectIds,
-    selectedTileId,
-    userId
+    copySelectedObjectsToClipboard,
+    deleteSelectedObjects,
+    pasteClipboardObjects,
+    selectedObjectIds.length
   ]);
 
   const commitBoxSelection = useCallback(
@@ -1486,6 +1695,12 @@ export function WorkspaceCanvasViewport({
 
       const local = pointerToLocal(runtime, event);
       const ndc = pointerToNdc(runtime, event);
+      const groundHit = intersectionOnGround(runtime, ndc);
+      if (groundHit) {
+        lastPointerWorldRef.current = { x: groundHit.x, y: groundHit.z };
+      } else {
+        lastPointerWorldRef.current = null;
+      }
       const findHitObjectId = (): string | null => {
         const meshCandidates = visibleObjects
           .map((object) => runtime.objectMeshById.get(object.id))
@@ -1550,8 +1765,6 @@ export function WorkspaceCanvasViewport({
         });
         return;
       }
-
-      const groundHit = intersectionOnGround(runtime, ndc);
       const tile = groundHit ? findTileAtWorld(scene, groundHit.x, groundHit.z) : null;
 
       if (toolbarState.selectionMode === "terrain") {
@@ -1610,9 +1823,7 @@ export function WorkspaceCanvasViewport({
         }
       }
 
-      const wantsAddByClassic = !isBlenderPreset && event.altKey;
-      const wantsAddByBlender = isBlenderPreset && isAddPlacementArmed;
-      if ((wantsAddByClassic || wantsAddByBlender) && tile) {
+      if (event.altKey && tile) {
         const newObjectSequence = nextObjectSequenceRef.current;
         nextObjectSequenceRef.current += 1;
 
@@ -1662,12 +1873,10 @@ export function WorkspaceCanvasViewport({
 
         setSelectedObjectIds([created.id]);
         setSelectedTileId(tile.id);
-        setIsAddPlacementArmed(false);
         trackTelemetry("scene.objects.add", {
           userId,
           kind,
-          objectId: created.id,
-          preset: viewportControlPreset
+          objectId: created.id
         });
         return;
       }
@@ -1678,8 +1887,6 @@ export function WorkspaceCanvasViewport({
       setSelectedTileId(tile?.id ?? null);
     },
     [
-      isAddPlacementArmed,
-      isBlenderPreset,
       objectBrush,
       scene,
       setContextMenu,
@@ -1688,7 +1895,6 @@ export function WorkspaceCanvasViewport({
       toolbarState.selectionScope,
       toolbarState.canvasDebug,
       userId,
-      viewportControlPreset,
       visibleObjects,
       workspaceOptions
     ]
@@ -1696,9 +1902,22 @@ export function WorkspaceCanvasViewport({
 
   const handleMouseMove = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const runtime = runtimeRef.current;
-    if (!runtime || !selectionBox.active) {
+    if (!runtime) {
       return;
     }
+
+    const ndc = pointerToNdc(runtime, event);
+    const groundHit = intersectionOnGround(runtime, ndc);
+    if (groundHit) {
+      lastPointerWorldRef.current = { x: groundHit.x, y: groundHit.z };
+    } else {
+      lastPointerWorldRef.current = null;
+    }
+
+    if (!selectionBox.active) {
+      return;
+    }
+
     const local = pointerToLocal(runtime, event);
     setSelectionBox((current) => ({
       ...current,
@@ -1805,33 +2024,7 @@ export function WorkspaceCanvasViewport({
           action
         });
       } else if (action === "duplicate") {
-        const nextSequence = nextObjectSequenceRef.current;
-        nextObjectSequenceRef.current += 1;
-        const copy = createNewSceneObject(
-          contextObj.kind,
-          contextObj.x + (toolbarState.canvasDebug.snapGrid ? workspaceOptions.snapGridStep : 0.35),
-          contextObj.y + (toolbarState.canvasDebug.snapGrid ? workspaceOptions.snapGridStep : 0.35),
-          nextSequence
-        );
-        copy.resRef = contextObj.resRef;
-        copy.tag = `${contextObj.tag}_COPY`;
-        copy.visualTransform = {
-          ...contextObj.visualTransform,
-          offsetZ: toolbarState.canvasDebug.snapHeight
-            ? snapHeightValue(contextObj.visualTransform.offsetZ, workspaceOptions.snapHeightStep)
-            : contextObj.visualTransform.offsetZ
-        };
-        copy.bearing = toolbarState.canvasDebug.snapAngle
-          ? snapAngleRadians(contextObj.bearing, workspaceOptions.snapAngleStepDeg)
-          : contextObj.bearing;
-
-        setSceneHistory((current) =>
-          commitSceneHistory(current, {
-            ...current.present,
-            objects: [...current.present.objects, copy]
-          })
-        );
-        setSelectedObjectIds([copy.id]);
+        duplicateObjects([contextObj], "context_menu");
         trackTelemetry("scene.context_menu.action", {
           userId,
           objectId: contextObj.id,
@@ -1911,11 +2104,11 @@ export function WorkspaceCanvasViewport({
     [
       closeContextMenu,
       contextMenu,
+      duplicateObjects,
       focusCameraOnWorldPoint,
       scene.objects,
       toolbarState.canvasDebug,
-      userId,
-      workspaceOptions
+      userId
     ]
   );
 
@@ -1964,14 +2157,9 @@ export function WorkspaceCanvasViewport({
   const saveStatus = lastSavedAtUnixMs
     ? `Saved ${new Date(lastSavedAtUnixMs).toLocaleTimeString()}`
     : "Not saved yet";
-  const controlPresetLabel =
-    viewportControlPreset === "blender-viewport"
-      ? "Blender Viewport"
-      : "Aurora Classic";
+  const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    viewportControlPreset === "blender-viewport"
-      ? "LMB select/paint | Shift+A arm add | LMB place | F focus | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Canvas menu: gizmo/snap/layers/debug"
-      : "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Ctrl/Cmd+C copy | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;
@@ -2087,52 +2275,6 @@ export function WorkspaceCanvasViewport({
         </article>
       ) : null}
 
-      <aside
-        className="canvas-editor-hud"
-        aria-label="canvas editor controls"
-        style={{ left: `${hudLeftPx}px`, maxWidth: hudMaxWidth }}
-      >
-        <label>
-          Terrain brush
-          <select
-            aria-label="terrain brush"
-            value={terrainBrush}
-            onChange={(event) => setTerrainBrush(event.target.value as TerrainBrushKind)}
-          >
-            {TERRAIN_BRUSH_OPTIONS.map((option) => (
-              <option value={option} key={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Object brush
-          <select
-            aria-label="object brush"
-            value={objectBrush}
-            onChange={(event) => setObjectBrush(event.target.value as SceneObjectKind)}
-          >
-            {OBJECT_BRUSH_OPTIONS.map((option) => (
-              <option value={option} key={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedObjectIds([]);
-            setSelectedTileId(null);
-          }}
-        >
-          Clear selection
-        </button>
-      </aside>
-
       {toolbarState.canvasDebug.runtimeHud ? (
         <aside
           className={`canvas-runtime-anchor ${runtimePopupPinned ? "is-pinned" : ""}`}
@@ -2224,11 +2366,6 @@ export function WorkspaceCanvasViewport({
                   : "off"}
               </strong>
             </p>
-            {isBlenderPreset ? (
-              <p>
-                Add mode: <strong>{isAddPlacementArmed ? "armed" : "idle"}</strong>
-              </p>
-            ) : null}
             {toolbarState.canvasDebug.perfHud ? (
               <>
                 <p>

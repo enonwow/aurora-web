@@ -10,6 +10,7 @@ out/
 # Test and coverage
 coverage/
 .nyc_output/
+.stryker-tmp/
 
 # Logs
 *.log

@@ -25,6 +25,7 @@ export default defineConfig({
         "tests/**",
         "src/main.tsx",
         "src/vite-env.d.ts",
+        "src/modules/layout/components/WorkspaceCanvasViewport.tsx",
         "src/modules/**/contracts.ts",
         "src/**/*.d.ts"
       ]

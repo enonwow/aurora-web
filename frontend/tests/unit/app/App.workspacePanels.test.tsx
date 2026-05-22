@@ -33,7 +33,7 @@ const rolePanelExpectations = [
     username: "builder.user",
     password: "builder123",
     left: ["Tile Catalog", "Paint Tools", "Asset Browser"],
-    right: ["Properties", "Transform", "Render Telemetry"]
+    right: ["Scene Objects"]
   },
   {
     label: "dm",
@@ -136,6 +136,73 @@ describe("App workspace side panels", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows builder object lists grouped by type with 2d previews", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    expect(
+      within(rightSidebar).getByRole("heading", { name: /^scene objects$/i })
+    ).toBeInTheDocument();
+
+    const typeSelector = within(rightSidebar).getByRole("combobox", {
+      name: /object type selector/i
+    });
+    expect(typeSelector).toBeInTheDocument();
+    expect(
+      within(rightSidebar).getByRole("img", {
+        name: /plc_barrel_01 2d preview/i
+      })
+    ).toBeInTheDocument();
+    expect(within(rightSidebar).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+    expect(within(rightSidebar).getByText(/plc_a01/i)).toBeInTheDocument();
+
+    fireEvent.change(typeSelector, { target: { value: "doors" } });
+
+    expect(within(rightSidebar).getByText(/door_west_01/i)).toBeInTheDocument();
+    expect(
+      within(rightSidebar).getByRole("img", { name: /door_west_01 2d preview/i })
+    ).toBeInTheDocument();
+    expect(within(rightSidebar).queryByText(/plc_barrel_01/i)).not.toBeInTheDocument();
+
+    fireEvent.change(typeSelector, { target: { value: "vfx" } });
+    expect(within(rightSidebar).getByText(/no vfx objects in current area/i)).toBeInTheDocument();
+  });
+
+  it("filters builder scene objects by tag or resref", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const filterInput = within(rightSidebar).getByRole("searchbox", {
+      name: /filter objects/i
+    });
+
+    fireEvent.change(filterInput, { target: { value: "chair" } });
+    expect(within(rightSidebar).getByText(/plc_chair_03/i)).toBeInTheDocument();
+    expect(within(rightSidebar).queryByText(/plc_barrel_01/i)).not.toBeInTheDocument();
+
+    fireEvent.change(filterInput, { target: { value: "plc_a03" } });
+    expect(within(rightSidebar).getByText(/plc_crate_04/i)).toBeInTheDocument();
+    expect(within(rightSidebar).queryByText(/plc_chair_03/i)).not.toBeInTheDocument();
+  });
+
+  it("selects object on left click and opens context menu on right click from scene object list", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const targetRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.click(targetRow);
+    expect(targetRow.className).toContain("is-selected");
+    expect(targetRow).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.contextMenu(targetRow, { clientX: 220, clientY: 180 });
+    expect(screen.getByRole("menu", { name: /object context menu/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^delete$/i })).toBeInTheDocument();
+  });
+
   it("restores collapsed sidebars after logout and next login", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -168,5 +235,29 @@ describe("App workspace side panels", () => {
     stored = JSON.parse(storedRaw ?? "{}");
     expect(stored.leftSidebarCollapsed).toBe(true);
     expect(stored.rightSidebarCollapsed).toBe(true);
+  });
+
+  it("copies selected object via keyboard and deletes copied selection", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+
+    const copiedRow = await within(rightSidebar).findByRole("button", {
+      name: /plc_barrel_01_copy/i
+    });
+    expect(copiedRow).toBeInTheDocument();
+
+    fireEvent.click(copiedRow);
+    fireEvent.keyDown(window, { key: "Delete" });
+
+    expect(
+      within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,10 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
 import { vi } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
 
 const mockCanvasContext2d: Partial<CanvasRenderingContext2D> = {
   clearRect: vi.fn(),

@@ -28,6 +28,30 @@ function cloneScene(scene: AreaScene): AreaScene {
   return JSON.parse(JSON.stringify(scene)) as AreaScene;
 }
 
+function isAreaSceneLike(value: unknown): value is AreaScene {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Partial<AreaScene>;
+  return (
+    typeof candidate.sceneId === "string" &&
+    typeof candidate.areaName === "string" &&
+    typeof candidate.width === "number" &&
+    typeof candidate.height === "number" &&
+    typeof candidate.updatedAtUnixMs === "number" &&
+    (candidate.source === "seed" || candidate.source === "local_draft") &&
+    Array.isArray(candidate.tiles) &&
+    Array.isArray(candidate.objects)
+  );
+}
+
+function sanitizeAutosaveEntries(value: unknown): AreaScene[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is AreaScene => isAreaSceneLike(entry));
+}
+
 function draftKey(userId: string): string {
   return `user:${userId}`;
 }
@@ -54,7 +78,10 @@ export function loadLocalSceneDraft(
 ): AreaScene | null {
   const collection = safeParseCollection(storage.getItem(DRAFT_STORAGE_KEY));
   const found = collection[draftKey(userId)];
-  return found ? cloneScene(found) : null;
+  if (!isAreaSceneLike(found)) {
+    return null;
+  }
+  return cloneScene(found);
 }
 
 export function saveLocalSceneDraft(
@@ -85,7 +112,7 @@ export function loadLocalSceneAutosaves(
   storage: Storage
 ): AreaScene[] {
   const collection = safeParseAutosaves(storage.getItem(AUTOSAVE_STORAGE_KEY));
-  const autosaves = collection[draftKey(userId)] ?? [];
+  const autosaves = sanitizeAutosaveEntries(collection[draftKey(userId)] ?? []);
   return autosaves.map((entry) => cloneScene(entry));
 }
 
@@ -96,7 +123,7 @@ export function saveLocalSceneAutosave(
   maxEntries: number
 ): AreaScene[] {
   const collection = safeParseAutosaves(storage.getItem(AUTOSAVE_STORAGE_KEY));
-  const currentAutosaves = collection[draftKey(userId)] ?? [];
+  const currentAutosaves = sanitizeAutosaveEntries(collection[draftKey(userId)] ?? []);
   const nextAutosave: AreaScene = {
     ...cloneScene(scene),
     source: "local_draft",

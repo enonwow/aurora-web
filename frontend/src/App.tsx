@@ -248,16 +248,6 @@ export default function App({
         onLayoutThemeChange={(theme) =>
           setLayoutSettings((current) => ({ ...current, theme }))
         }
-        viewportControlPreset={layoutSettings.viewportControlPreset}
-        onViewportControlPresetChange={(nextPreset) => {
-          setLayoutSettings((current) => ({
-            ...current,
-            viewportControlPreset: nextPreset
-          }));
-          trackTelemetry("ui.workspace.viewport_control_preset_changed", {
-            preset: nextPreset
-          });
-        }}
         workspaceOptions={workspaceOptions}
         onWorkspaceOptionsChange={(patch) => {
           setWorkspaceOptions((current) => {
@@ -279,35 +269,34 @@ export default function App({
             userId={session!.user.id}
             toolbarState={toolbarState}
             commandSignal={commandSignal}
-        viewportControlPreset={layoutSettings.viewportControlPreset}
-        workspaceOptions={workspaceOptions}
-        leftCollapsed={layoutSettings.leftSidebarCollapsed}
-        rightCollapsed={layoutSettings.rightSidebarCollapsed}
-        onToggleLeftCollapsed={() =>
-          setLayoutSettings((current) => {
-            const nextCollapsed = !current.leftSidebarCollapsed;
-            trackTelemetry("ui.workspace.sidebar.left_toggle", {
-              collapsed: nextCollapsed
-            });
-            return {
-              ...current,
-              leftSidebarCollapsed: nextCollapsed
-            };
-          })
-        }
-        onToggleRightCollapsed={() =>
-          setLayoutSettings((current) => {
-            const nextCollapsed = !current.rightSidebarCollapsed;
-            trackTelemetry("ui.workspace.sidebar.right_toggle", {
-              collapsed: nextCollapsed
-            });
-            return {
-              ...current,
-              rightSidebarCollapsed: nextCollapsed
-            };
-          })
-        }
-      />
+            workspaceOptions={workspaceOptions}
+            leftCollapsed={layoutSettings.leftSidebarCollapsed}
+            rightCollapsed={layoutSettings.rightSidebarCollapsed}
+            onToggleLeftCollapsed={() =>
+              setLayoutSettings((current) => {
+                const nextCollapsed = !current.leftSidebarCollapsed;
+                trackTelemetry("ui.workspace.sidebar.left_toggle", {
+                  collapsed: nextCollapsed
+                });
+                return {
+                  ...current,
+                  leftSidebarCollapsed: nextCollapsed
+                };
+              })
+            }
+            onToggleRightCollapsed={() =>
+              setLayoutSettings((current) => {
+                const nextCollapsed = !current.rightSidebarCollapsed;
+                trackTelemetry("ui.workspace.sidebar.right_toggle", {
+                  collapsed: nextCollapsed
+                });
+                return {
+                  ...current,
+                  rightSidebarCollapsed: nextCollapsed
+                };
+              })
+            }
+          />
         ) : (
           <section className="card">
             <p className="eyebrow">Authentication</p>

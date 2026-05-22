@@ -1,11 +1,15 @@
+import { useCallback, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { UserRole } from "../../auth/contracts";
+import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
+import { createSeedAreaScene } from "../../scene/sceneFactory";
 import type {
   WorkspaceCommandSignal,
   WorkspaceToolbarState
 } from "../roleTopbarPolicy";
 import { getRoleWorkspacePanels } from "../roleSidebarPolicy";
+import { SceneObjectListPanel } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
-import type { ViewportControlPresetId } from "../viewportControlSettings";
 import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
 
 interface WorkspaceMockLayoutProps {
@@ -13,7 +17,6 @@ interface WorkspaceMockLayoutProps {
   userId: string;
   toolbarState: WorkspaceToolbarState;
   commandSignal: WorkspaceCommandSignal | null;
-  viewportControlPreset: ViewportControlPresetId;
   workspaceOptions: WorkspaceOptionSettings;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
@@ -24,16 +27,31 @@ interface WorkspaceMockLayoutProps {
 const SIDEBAR_EXPANDED_WIDTH_PX = 320;
 const SIDEBAR_COLLAPSED_WIDTH_PX = 44;
 
+interface SidebarSelectSignal {
+  revision: number;
+  objectId: string;
+}
+
+interface SidebarContextMenuSignal {
+  revision: number;
+  objectId: string;
+  objectKind: SceneObjectKind;
+  clientX: number;
+  clientY: number;
+}
+
 function SidebarColumn({
   side,
   title,
   sections,
+  customContent,
   collapsed,
   onToggle
 }: {
   side: "left" | "right";
   title: string;
   sections: { key: string; title: string; items: string[] }[];
+  customContent?: ReactNode;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -100,6 +118,7 @@ function SidebarColumn({
 
       {collapsed ? null : (
         <div className="workspace-sidebar-content">
+          {customContent}
           {sections.map((section) => (
             <article className="sidebar-section" key={section.key}>
               <h2>{section.title}</h2>
@@ -121,7 +140,6 @@ export function WorkspaceMockLayout({
   userId,
   toolbarState,
   commandSignal,
-  viewportControlPreset,
   workspaceOptions,
   leftCollapsed,
   rightCollapsed,
@@ -129,12 +147,46 @@ export function WorkspaceMockLayout({
   onToggleRightCollapsed
 }: WorkspaceMockLayoutProps) {
   const panels = getRoleWorkspacePanels(role);
+  const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
+    () => createSeedAreaScene().objects
+  );
+  const [sidebarSelectSignal, setSidebarSelectSignal] = useState<SidebarSelectSignal | null>(
+    null
+  );
+  const [sidebarContextMenuSignal, setSidebarContextMenuSignal] =
+    useState<SidebarContextMenuSignal | null>(null);
+  const sidebarSignalRevisionRef = useRef(0);
   const leftPanelWidthPx = leftCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH_PX
     : SIDEBAR_EXPANDED_WIDTH_PX;
   const rightPanelWidthPx = rightCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH_PX
     : SIDEBAR_EXPANDED_WIDTH_PX;
+
+  const shouldRenderSceneObjectsPanel = role === "builder";
+  const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
+    setSceneObjectsSnapshot(objects);
+  }, []);
+  const handleSceneObjectSelect = useCallback((object: SceneObject) => {
+    sidebarSignalRevisionRef.current += 1;
+    setSidebarSelectSignal({
+      revision: sidebarSignalRevisionRef.current,
+      objectId: object.id
+    });
+  }, []);
+  const handleSceneObjectContextMenu = useCallback(
+    (object: SceneObject, clientX: number, clientY: number) => {
+      sidebarSignalRevisionRef.current += 1;
+      setSidebarContextMenuSignal({
+        revision: sidebarSignalRevisionRef.current,
+        objectId: object.id,
+        objectKind: object.kind,
+        clientX,
+        clientY
+      });
+    },
+    []
+  );
 
   return (
     <section className="workspace-layout" aria-label="workspace layout">
@@ -143,10 +195,12 @@ export function WorkspaceMockLayout({
           toolbarState={toolbarState}
           userId={userId}
           commandSignal={commandSignal}
-          viewportControlPreset={viewportControlPreset}
+          sidebarSelectSignal={sidebarSelectSignal}
+          sidebarContextMenuSignal={sidebarContextMenuSignal}
           workspaceOptions={workspaceOptions}
           leftPanelWidthPx={leftPanelWidthPx}
           rightPanelWidthPx={rightPanelWidthPx}
+          onSceneObjectsSnapshotChange={handleSceneObjectsSnapshotChange}
         />
       </section>
 
@@ -162,6 +216,16 @@ export function WorkspaceMockLayout({
         side="right"
         title="right sidebar"
         sections={panels.right}
+        customContent={
+          shouldRenderSceneObjectsPanel ? (
+            <SceneObjectListPanel
+              userId={userId}
+              objects={sceneObjectsSnapshot}
+              onObjectSelect={handleSceneObjectSelect}
+              onObjectContextMenu={handleSceneObjectContextMenu}
+            />
+          ) : undefined
+        }
         collapsed={rightCollapsed}
         onToggle={onToggleRightCollapsed}
       />

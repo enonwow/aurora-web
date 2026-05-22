@@ -151,7 +151,12 @@ function loadRawSettings(storage: Storage): Partial<WorkspaceOptionSettings> | n
     if (!raw) {
       continue;
     }
-    const parsed = JSON.parse(raw) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      continue;
+    }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       continue;
     }
