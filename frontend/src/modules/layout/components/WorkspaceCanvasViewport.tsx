@@ -27,28 +27,21 @@ import {
   MASTER_CELLS_PER_TILE
 } from "../canvasGrid";
 import {
-  DEFAULT_SEED_SCENE_HEIGHT_TILES,
-  DEFAULT_SEED_SCENE_WIDTH_TILES,
-  LEGACY_SEED_SCENE_HEIGHT_TILES,
   LEGACY_SEED_SCENE_WIDTH_TILES,
-  createNewSceneObject,
-  createSeedAreaScene,
-  rescaleSceneObjectsToSize
+  LEGACY_SEED_SCENE_HEIGHT_TILES,
+  createNewSceneObject
 } from "../../scene/sceneFactory";
+import { createSceneCanvasFacade } from "../../scene/application/sceneCanvasFacade";
+import { createLocalStorageSceneDraftPort } from "../../scene/adapters/localStorageSceneDraftPort";
 import {
   computeCopyTranslationVector,
   resolveCopyAnchorPoint
 } from "../../scene/copyPlacement";
 import {
   commitSceneHistory,
-  createSceneHistory,
   redoSceneHistory,
   undoSceneHistory
 } from "../../scene/sceneHistory";
-import {
-  loadLocalSceneDraft,
-  saveLocalSceneDraft
-} from "../../scene/localDraftStore";
 import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
 
 interface WorkspaceCanvasViewportProps {
@@ -235,43 +228,16 @@ function findTileAtWorld(scene: AreaScene, worldX: number, worldY: number): Scen
   return scene.tiles.find((tile) => tile.col === col && tile.row === row) ?? null;
 }
 
+function createBrowserSceneCanvasFacade() {
+  const storage = typeof window === "undefined" ? null : window.localStorage;
+  return createSceneCanvasFacade({
+    draftPort: createLocalStorageSceneDraftPort(storage),
+    now: () => Date.now()
+  });
+}
+
 function initialSceneHistory(userId: string): SceneHistoryState {
-  const fallback = createSeedAreaScene();
-  try {
-    const draft = loadLocalSceneDraft(userId, window.localStorage);
-    if (!draft) {
-      return createSceneHistory(fallback);
-    }
-
-    if (
-      draft.sceneId === fallback.sceneId &&
-      draft.width === LEGACY_SEED_SCENE_WIDTH_TILES &&
-      draft.height === LEGACY_SEED_SCENE_HEIGHT_TILES
-    ) {
-      const migratedSeed = createSeedAreaScene(
-        DEFAULT_SEED_SCENE_WIDTH_TILES,
-        DEFAULT_SEED_SCENE_HEIGHT_TILES
-      );
-      return createSceneHistory({
-        ...draft,
-        width: migratedSeed.width,
-        height: migratedSeed.height,
-        tiles: migratedSeed.tiles,
-        objects: rescaleSceneObjectsToSize(
-          draft.objects,
-          draft.width,
-          draft.height,
-          migratedSeed.width,
-          migratedSeed.height
-        ),
-        updatedAtUnixMs: Date.now()
-      });
-    }
-
-    return createSceneHistory(draft);
-  } catch {
-    return createSceneHistory(fallback);
-  }
+  return createBrowserSceneCanvasFacade().createInitialHistory(userId);
 }
 
 function resolveMockRenderStatus(object: SceneObject): MockRenderStatus {
@@ -1000,6 +966,7 @@ export function WorkspaceCanvasViewport({
     textures: 0
   });
 
+  const sceneCanvasFacade = useMemo(() => createBrowserSceneCanvasFacade(), []);
   const scene = sceneHistory.present;
 
   useEffect(() => {
@@ -1542,7 +1509,7 @@ export function WorkspaceCanvasViewport({
 
     if (commandSignal.actionKey === "save_local_draft") {
       try {
-        saveLocalSceneDraft(userId, scene, window.localStorage);
+        sceneCanvasFacade.saveLocalDraft(userId, scene);
         const savedAt = Date.now();
         setLastSavedAtUnixMs(savedAt);
         trackTelemetry("scene.save_local_draft", {
@@ -1733,6 +1700,7 @@ export function WorkspaceCanvasViewport({
     duplicateObjects,
     isSelectableByActiveFilters,
     scene,
+    sceneCanvasFacade,
     selectedObjectIds,
     toolbarState.canvasDebug,
     toolbarState.selectionScope,

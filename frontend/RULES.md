@@ -19,3 +19,11 @@
    - run `npm run test:mutation` for feature branches that modify business logic, state handling, auth, scene, or layout behavior
    - do not merge if mutation quality regresses (mutation score must be >= current baseline or improved)
    - for survived mutants in changed modules: add/adjust tests before merge (no "known survivors" without explicit documented exception)
+8. Frontend architecture is hexagonal per context (`frontend/ARCHITECTURE.md`):
+   - use `domain`, `application`, `ports`, `adapters`, `ui/components` layering
+   - React components must call facades from `application` and must not import adapters directly
+9. New external dependencies for business flows must be introduced via ports:
+   - define interface in `src/modules/<context>/ports/**`
+   - implement in `adapters/**`
+   - compose/select adapter near the UI boundary
+10. Cross-context access must go through explicit public contracts/facades, not internal file reach-through imports.
