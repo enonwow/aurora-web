@@ -32,6 +32,15 @@ interface WorkspaceTopbarProps {
   onSignOut: () => void;
 }
 
+type NumericWorkspaceOptionKey =
+  | "snapGridStep"
+  | "snapAngleStepDeg"
+  | "snapHeightStep"
+  | "cameraRotateSpeed"
+  | "cameraZoomSpeed"
+  | "cameraPanSpeed"
+  | "cameraDampingFactor";
+
 function statusLabel(status: "mvp" | "post_mvp" | "pending_estimate"): string {
   if (status === "mvp") {
     return "MVP";
@@ -274,7 +283,7 @@ export function WorkspaceTopbar({
   };
 
   const updateNumberOption = useCallback(
-    (key: keyof WorkspaceOptionSettings, rawValue: string) => {
+    (key: NumericWorkspaceOptionKey, rawValue: string) => {
       const parsed = Number(rawValue);
       if (!Number.isFinite(parsed)) {
         return;
@@ -761,6 +770,20 @@ export function WorkspaceTopbar({
                   <option value="subtract">subtract</option>
                   <option value="intersect">intersect</option>
                 </select>
+
+                <label className="topbar-options-checkbox" htmlFor="show-per-object-gizmo-hints">
+                  <input
+                    id="show-per-object-gizmo-hints"
+                    type="checkbox"
+                    checked={workspaceOptions.showPerObjectGizmoHints}
+                    onChange={(event) =>
+                      onWorkspaceOptionsChange({
+                        showPerObjectGizmoHints: event.target.checked
+                      })
+                    }
+                  />
+                  Show per-object gizmo hints (multi-select)
+                </label>
               </div>
             </details>
 

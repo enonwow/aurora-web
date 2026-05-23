@@ -5,6 +5,7 @@ export interface WorkspaceOptionSettings {
   snapAngleStepDeg: number;
   snapHeightStep: number;
   selectionBoxMode: SelectionBoxMode;
+  showPerObjectGizmoHints: boolean;
   cameraRotateSpeed: number;
   cameraZoomSpeed: number;
   cameraPanSpeed: number;
@@ -19,6 +20,7 @@ export const DEFAULT_WORKSPACE_OPTION_SETTINGS: WorkspaceOptionSettings = {
   snapAngleStepDeg: 15,
   snapHeightStep: 0.5,
   selectionBoxMode: "replace",
+  showPerObjectGizmoHints: true,
   cameraRotateSpeed: 1,
   cameraZoomSpeed: 1,
   cameraPanSpeed: 1,
@@ -47,6 +49,13 @@ function isSelectionBoxMode(value: unknown): value is SelectionBoxMode {
   return value === "replace" || value === "add" || value === "subtract" || value === "intersect";
 }
 
+function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return fallback;
+}
+
 function sanitizeSettings(value: Partial<WorkspaceOptionSettings>): WorkspaceOptionSettings {
   return {
     snapGridStep: clampNumber(
@@ -67,6 +76,10 @@ function sanitizeSettings(value: Partial<WorkspaceOptionSettings>): WorkspaceOpt
     selectionBoxMode: isSelectionBoxMode(value.selectionBoxMode)
       ? value.selectionBoxMode
       : DEFAULT_WORKSPACE_OPTION_SETTINGS.selectionBoxMode,
+    showPerObjectGizmoHints: coerceBoolean(
+      value.showPerObjectGizmoHints,
+      DEFAULT_WORKSPACE_OPTION_SETTINGS.showPerObjectGizmoHints
+    ),
     cameraRotateSpeed: clampNumber(
       coerceNumber(value.cameraRotateSpeed, DEFAULT_WORKSPACE_OPTION_SETTINGS.cameraRotateSpeed),
       0.1,

@@ -4,6 +4,7 @@ import type {
 } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type {
   SelectionScope,
   WorkspaceCommandSignal,
@@ -98,11 +99,22 @@ interface DragMoveState {
   objectIds: string[];
 }
 
+interface TransformGestureState {
+  active: boolean;
+  mode: "translate" | "rotate" | "scale" | null;
+  axis: string | null;
+  objectIds: string[];
+  lastAnchorPosition: THREE.Vector3;
+  lastAnchorRotationX: number;
+}
+
 interface RuntimeState {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
+  transformControls: TransformControls;
+  transformAnchor: THREE.Object3D;
   raycaster: THREE.Raycaster;
   groundPlane: THREE.Plane;
   container: HTMLDivElement;
@@ -288,6 +300,74 @@ function snapGridValue(value: number, step: number): number {
   return Math.round(value / normalizedStep) * normalizedStep;
 }
 
+const SCENE_COORDINATE_MIN = 0;
+const SCENE_COORDINATE_EPSILON = 1e-4;
+
+function resolveSceneCoordinateMax(size: number): number {
+  if (!Number.isFinite(size)) {
+    return SCENE_COORDINATE_MIN;
+  }
+  return Math.max(SCENE_COORDINATE_MIN, size - SCENE_COORDINATE_EPSILON);
+}
+
+function clampDeltaToBounds(delta: number, minDelta: number, maxDelta: number): number {
+  if (delta > 0) {
+    if (maxDelta <= 0) {
+      return 0;
+    }
+    return Math.min(delta, maxDelta);
+  }
+  if (delta < 0) {
+    if (minDelta >= 0) {
+      return 0;
+    }
+    return Math.max(delta, minDelta);
+  }
+  return 0;
+}
+
+function clampTranslationDeltaToSceneBounds(
+  scene: AreaScene,
+  objects: SceneObject[],
+  delta: { x: number; y: number }
+): { x: number; y: number } {
+  if (objects.length === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const maxX = resolveSceneCoordinateMax(scene.width);
+  const maxY = resolveSceneCoordinateMax(scene.height);
+  let minDeltaX = Number.NEGATIVE_INFINITY;
+  let maxDeltaX = Number.POSITIVE_INFINITY;
+  let minDeltaY = Number.NEGATIVE_INFINITY;
+  let maxDeltaY = Number.POSITIVE_INFINITY;
+
+  objects.forEach((object) => {
+    minDeltaX = Math.max(minDeltaX, SCENE_COORDINATE_MIN - object.x);
+    maxDeltaX = Math.min(maxDeltaX, maxX - object.x);
+    minDeltaY = Math.max(minDeltaY, SCENE_COORDINATE_MIN - object.y);
+    maxDeltaY = Math.min(maxDeltaY, maxY - object.y);
+  });
+
+  return {
+    x: clampDeltaToBounds(delta.x, minDeltaX, maxDeltaX),
+    y: clampDeltaToBounds(delta.y, minDeltaY, maxDeltaY)
+  };
+}
+
+function clampHeightDeltaToSurface(objects: SceneObject[], deltaZ: number): number {
+  if (objects.length === 0 || deltaZ >= 0) {
+    return deltaZ;
+  }
+
+  const minDeltaZ = objects.reduce(
+    (bound, object) => Math.max(bound, -object.visualTransform.offsetZ),
+    Number.NEGATIVE_INFINITY
+  );
+
+  return clampDeltaToBounds(deltaZ, minDeltaZ, Number.POSITIVE_INFINITY);
+}
+
 function createTextSprite(text: string, scaleFactor = 1): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -417,6 +497,16 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
   controls.maxDistance = MAX_ZOOM_DISTANCE;
   applyOrbitPointerBindings(controls, { ctrlPanEnabled: false });
 
+  const transformAnchor = new THREE.Object3D();
+  transformAnchor.name = "transform-anchor";
+  transformAnchor.visible = false;
+  scene.add(transformAnchor);
+
+  const transformControls = new TransformControls(camera, renderer.domElement);
+  transformControls.setSpace("world");
+  transformControls.setSize(0.82);
+  scene.add(transformControls.getHelper());
+
   const ambient = new THREE.AmbientLight(LIGHT_COLOR, 0.68);
   const directional = new THREE.DirectionalLight(LIGHT_COLOR, 0.78);
   directional.position.set(16, 26, 10);
@@ -452,6 +542,8 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
     scene,
     camera,
     controls,
+    transformControls,
+    transformAnchor,
     raycaster: new THREE.Raycaster(),
     groundPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     container,
@@ -527,6 +619,11 @@ function disposeRuntime(runtime: RuntimeState): void {
     }
   });
   runtime.gizmoLayer.clear();
+
+  runtime.transformControls.detach();
+  runtime.transformControls.dispose();
+  runtime.scene.remove(runtime.transformControls.getHelper());
+  runtime.scene.remove(runtime.transformAnchor);
 
   runtime.controls.dispose();
   runtime.renderer.dispose();
@@ -706,7 +803,11 @@ function rebuildObjectMeshes(
       objectBaseY + object.visualTransform.offsetZ,
       object.y + object.visualTransform.offsetY
     );
-    mesh.rotation.y = object.bearing + object.visualTransform.yaw;
+    mesh.rotation.set(
+      object.visualTransform.pitch,
+      object.bearing + object.visualTransform.yaw,
+      object.visualTransform.roll
+    );
 
     if (selectedSet.has(object.id)) {
       material.emissive = new THREE.Color("#ffd87f");
@@ -796,6 +897,7 @@ function rebuildChunkBounds(runtime: RuntimeState, sceneData: AreaScene, enabled
 function rebuildGizmoOverlay(
   runtime: RuntimeState,
   selectedObjectIds: string[],
+  objectById: Map<string, SceneObject>,
   debugState: DebugState,
   sceneScale: number
 ): void {
@@ -814,21 +916,62 @@ function rebuildGizmoOverlay(
   });
   runtime.gizmoLayer.clear();
 
-  const anchorId = selectedObjectIds[0];
-  if (!anchorId) {
+  if (selectedObjectIds.length === 0) {
     return;
   }
 
-  const anchorMesh = runtime.objectMeshById.get(anchorId);
-  if (!anchorMesh) {
+  const selectedEntries = selectedObjectIds
+    .map((id) => {
+      const object = objectById.get(id);
+      const mesh = runtime.objectMeshById.get(id);
+      if (!object || !mesh) {
+        return null;
+      }
+      return { object, mesh };
+    })
+    .filter((entry): entry is { object: SceneObject; mesh: THREE.Mesh } => Boolean(entry));
+
+  if (selectedEntries.length === 0) {
     return;
   }
+
+  // Aurora parity: doors are anchor-bound and block generic move gizmos.
+  if (selectedEntries.some((entry) => entry.object.kind === "doors")) {
+    return;
+  }
+
+  const movableEntries = selectedEntries.filter(
+    (entry) =>
+      MOVE_ALLOWED_KINDS.has(entry.object.kind) &&
+      !isKindLocked(debugState, entry.object.kind)
+  );
+  if (movableEntries.length === 0) {
+    return;
+  }
+
+  const usesInteractiveTransformControls =
+    runtime.transformControls.enabled &&
+    Boolean(runtime.transformControls.object) &&
+    (debugState.gizmoMode === "translate" || debugState.gizmoMode === "rotate");
+  if (usesInteractiveTransformControls) {
+    return;
+  }
+
+  // For multi-selection we keep only the interactive gizmo, no legacy overlay.
+  if (selectedEntries.length > 1) {
+    return;
+  }
+
+  const anchorPosition = new THREE.Vector3();
+  movableEntries.forEach((entry) => {
+    anchorPosition.add(entry.mesh.position);
+  });
+  anchorPosition.divideScalar(movableEntries.length);
 
   const gizmoScale = Math.max(0.08, sceneScale);
-
   if (debugState.gizmoMode === "translate") {
     const gizmoAxes = new THREE.AxesHelper(1.4 * gizmoScale);
-    gizmoAxes.position.copy(anchorMesh.position);
+    gizmoAxes.position.copy(anchorPosition);
     runtime.gizmoLayer.add(gizmoAxes);
     return;
   }
@@ -846,7 +989,7 @@ function rebuildGizmoOverlay(
       opacity: 0.85
     });
     const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-    ring.position.copy(anchorMesh.position);
+    ring.position.copy(anchorPosition);
     ring.rotation.x = Math.PI / 2;
     runtime.gizmoLayer.add(ring);
     return;
@@ -862,7 +1005,7 @@ function rebuildGizmoOverlay(
     wireframe: true
   });
   const scaleBox = new THREE.Mesh(scaleGeometry, scaleMaterial);
-  scaleBox.position.copy(anchorMesh.position);
+  scaleBox.position.copy(anchorPosition);
   runtime.gizmoLayer.add(scaleBox);
 }
 
@@ -927,6 +1070,14 @@ export function WorkspaceCanvasViewport({
     active: false,
     lastWorld: null,
     objectIds: []
+  });
+  const transformGestureRef = useRef<TransformGestureState>({
+    active: false,
+    mode: null,
+    axis: null,
+    objectIds: [],
+    lastAnchorPosition: new THREE.Vector3(),
+    lastAnchorRotationX: 0
   });
   const bookmark1Ref = useRef<CameraBookmark | null>(null);
   const perfFrameRef = useRef({
@@ -1293,6 +1444,35 @@ export function WorkspaceCanvasViewport({
     [copySelectedObjectsToClipboard, deleteSelectedObjects]
   );
 
+  const resolveMovableSelectionIds = useCallback(
+    (targetObjectIds?: string[]): { ids: string[]; reason?: string } => {
+      const targetIds = targetObjectIds ?? selectedObjectIds;
+      const selectedObjects = scene.objects.filter((object) =>
+        targetIds.includes(object.id)
+      );
+      if (selectedObjects.length === 0) {
+        return { ids: [], reason: "selection_empty" };
+      }
+
+      // Aurora First parity: doors are anchor-bound and block generic move operations.
+      if (selectedObjects.some((object) => object.kind === "doors")) {
+        return { ids: [], reason: "selection_contains_doors" };
+      }
+
+      const unlockedMovableIds = selectedObjects
+        .filter((object) => MOVE_ALLOWED_KINDS.has(object.kind))
+        .filter((object) => !isKindLocked(toolbarState.canvasDebug, object.kind))
+        .map((object) => object.id);
+
+      if (unlockedMovableIds.length === 0) {
+        return { ids: [], reason: "selection_locked_or_immovable" };
+      }
+
+      return { ids: unlockedMovableIds };
+    },
+    [scene.objects, selectedObjectIds, toolbarState.canvasDebug]
+  );
+
   const moveSelectedObjectsByDelta = useCallback(
     (
       delta: { x: number; y: number },
@@ -1303,39 +1483,24 @@ export function WorkspaceCanvasViewport({
         return 0;
       }
 
-      const targetIds = targetObjectIds ?? selectedObjectIds;
-      const selectedObjects = scene.objects.filter((object) =>
-        targetIds.includes(object.id)
-      );
-      if (selectedObjects.length === 0) {
+      const resolved = resolveMovableSelectionIds(targetObjectIds);
+      if (resolved.ids.length === 0) {
         trackTelemetry("scene.objects.move_skipped", {
           userId,
           source,
-          reason: "selection_empty"
+          reason: resolved.reason ?? "selection_unavailable"
         });
         return 0;
       }
 
-      // Aurora First parity: doors are anchor-bound and block generic move operations.
-      if (selectedObjects.some((object) => object.kind === "doors")) {
+      const movableIds = new Set(resolved.ids);
+      const movableObjects = scene.objects.filter((object) => movableIds.has(object.id));
+      const boundedDelta = clampTranslationDeltaToSceneBounds(scene, movableObjects, delta);
+      if (boundedDelta.x === 0 && boundedDelta.y === 0) {
         trackTelemetry("scene.objects.move_skipped", {
           userId,
           source,
-          reason: "selection_contains_doors"
-        });
-        return 0;
-      }
-
-      const unlockedMovableIds = selectedObjects
-        .filter((object) => MOVE_ALLOWED_KINDS.has(object.kind))
-        .filter((object) => !isKindLocked(toolbarState.canvasDebug, object.kind))
-        .map((object) => object.id);
-
-      if (unlockedMovableIds.length === 0) {
-        trackTelemetry("scene.objects.move_skipped", {
-          userId,
-          source,
-          reason: "selection_locked_or_immovable"
+          reason: "scene_bounds"
         });
         return 0;
       }
@@ -1345,8 +1510,8 @@ export function WorkspaceCanvasViewport({
           current,
           sceneViewportPort.translateObjectsByIds(
             current.present,
-            unlockedMovableIds,
-            delta
+            resolved.ids,
+            boundedDelta
           )
         )
       );
@@ -1354,19 +1519,102 @@ export function WorkspaceCanvasViewport({
       trackTelemetry("scene.objects.move", {
         userId,
         source,
-        movedCount: unlockedMovableIds.length,
-        deltaX: delta.x,
-        deltaY: delta.y
+        movedCount: resolved.ids.length,
+        deltaX: boundedDelta.x,
+        deltaY: boundedDelta.y
       });
-      return unlockedMovableIds.length;
+      return resolved.ids.length;
     },
     [
-      scene.objects,
+      resolveMovableSelectionIds,
+      scene,
       sceneViewportPort,
-      selectedObjectIds,
-      toolbarState.canvasDebug,
       userId
     ]
+  );
+
+  const moveSelectedObjectsByHeight = useCallback(
+    (deltaZ: number, source: string, targetObjectIds?: string[]): number => {
+      if (deltaZ === 0) {
+        return 0;
+      }
+
+      const resolved = resolveMovableSelectionIds(targetObjectIds);
+      if (resolved.ids.length === 0) {
+        trackTelemetry("scene.objects.move_skipped", {
+          userId,
+          source,
+          reason: resolved.reason ?? "selection_unavailable"
+        });
+        return 0;
+      }
+
+      const movableIds = new Set(resolved.ids);
+      const movableObjects = scene.objects.filter((object) => movableIds.has(object.id));
+      const boundedDeltaZ = clampHeightDeltaToSurface(movableObjects, deltaZ);
+      if (boundedDeltaZ === 0) {
+        trackTelemetry("scene.objects.move_skipped", {
+          userId,
+          source,
+          reason: "surface_floor_reached"
+        });
+        return 0;
+      }
+
+      setSceneHistory((current) =>
+        sceneViewportPort.commitHistory(
+          current,
+          sceneViewportPort.adjustObjectsHeightByIds(current.present, resolved.ids, boundedDeltaZ)
+        )
+      );
+      setSelectedTileId(null);
+      trackTelemetry("scene.objects.move", {
+        userId,
+        source,
+        movedCount: resolved.ids.length,
+        deltaZ: boundedDeltaZ
+      });
+      return resolved.ids.length;
+    },
+    [resolveMovableSelectionIds, scene, sceneViewportPort, userId]
+  );
+
+  const rotateSelectedObjectsPitch = useCallback(
+    (deltaPitchRad: number, source: string, targetObjectIds?: string[]): number => {
+      if (deltaPitchRad === 0) {
+        return 0;
+      }
+
+      const resolved = resolveMovableSelectionIds(targetObjectIds);
+      if (resolved.ids.length === 0) {
+        trackTelemetry("scene.objects.rotate_skipped", {
+          userId,
+          source,
+          reason: resolved.reason ?? "selection_unavailable"
+        });
+        return 0;
+      }
+
+      setSceneHistory((current) =>
+        sceneViewportPort.commitHistory(
+          current,
+          sceneViewportPort.rotateObjectsPitchByIds(
+            current.present,
+            resolved.ids,
+            deltaPitchRad
+          )
+        )
+      );
+      setSelectedTileId(null);
+      trackTelemetry("scene.objects.rotate_pitch", {
+        userId,
+        source,
+        rotatedCount: resolved.ids.length,
+        deltaPitchRad
+      });
+      return resolved.ids.length;
+    },
+    [resolveMovableSelectionIds, sceneViewportPort, userId]
   );
 
   useEffect(() => {
@@ -1550,10 +1798,17 @@ export function WorkspaceCanvasViewport({
       sceneScale
     );
     rebuildChunkBounds(runtime, scene, toolbarState.canvasDebug.chunkBounds);
-    rebuildGizmoOverlay(runtime, selectedObjectIds, toolbarState.canvasDebug, sceneScale);
+    rebuildGizmoOverlay(
+      runtime,
+      selectedObjectIds,
+      objectById,
+      toolbarState.canvasDebug,
+      sceneScale
+    );
     rebuildGridLayer(runtime, scene, viewportFacade);
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
   }, [
+    objectById,
     sceneViewportPort,
     scene,
     selectedObjectIds,
@@ -1561,6 +1816,237 @@ export function WorkspaceCanvasViewport({
     toolbarState.canvasDebug,
     viewportFacade,
     visibleObjects
+  ]);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const transformControls = runtime.transformControls;
+    const gizmoMode = toolbarState.canvasDebug.gizmoMode;
+    const supportsTransformControls = gizmoMode === "translate" || gizmoMode === "rotate";
+
+    if (transformControls.dragging && transformGestureRef.current.active) {
+      return;
+    }
+
+    if (!supportsTransformControls) {
+      transformGestureRef.current = {
+        active: false,
+        mode: null,
+        axis: null,
+        objectIds: [],
+        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
+        lastAnchorRotationX: 0
+      };
+      transformControls.detach();
+      transformControls.enabled = false;
+      return;
+    }
+
+    const selectedObjects = selectedObjectIds
+      .map((id) => objectById.get(id))
+      .filter((object): object is SceneObject => Boolean(object));
+    if (
+      selectedObjects.length === 0 ||
+      selectedObjects.some((object) => object.kind === "doors")
+    ) {
+      transformGestureRef.current = {
+        active: false,
+        mode: null,
+        axis: null,
+        objectIds: [],
+        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
+        lastAnchorRotationX: 0
+      };
+      transformControls.detach();
+      transformControls.enabled = false;
+      return;
+    }
+
+    const movableObjects = selectedObjects.filter(
+      (object) =>
+        MOVE_ALLOWED_KINDS.has(object.kind) &&
+        !isKindLocked(toolbarState.canvasDebug, object.kind)
+    );
+    if (movableObjects.length === 0) {
+      transformGestureRef.current = {
+        active: false,
+        mode: null,
+        axis: null,
+        objectIds: [],
+        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
+        lastAnchorRotationX: 0
+      };
+      transformControls.detach();
+      transformControls.enabled = false;
+      return;
+    }
+
+    const movableIdsSet = new Set(movableObjects.map((object) => object.id));
+    const movableMeshes = selectedObjectIds
+      .filter((id) => movableIdsSet.has(id))
+      .map((id) => runtime.objectMeshById.get(id))
+      .filter((mesh): mesh is THREE.Mesh => Boolean(mesh));
+    if (movableMeshes.length === 0) {
+      transformControls.detach();
+      transformControls.enabled = false;
+      return;
+    }
+
+    const center = new THREE.Vector3();
+    movableMeshes.forEach((mesh) => {
+      center.add(mesh.position);
+    });
+    center.divideScalar(movableMeshes.length);
+    runtime.transformAnchor.position.copy(center);
+    runtime.transformAnchor.rotation.set(0, 0, 0);
+    runtime.transformAnchor.updateMatrixWorld();
+
+    transformControls.enabled = true;
+    transformControls.setSpace("world");
+    transformControls.setMode(gizmoMode);
+    transformControls.showX = true;
+    transformControls.showY = gizmoMode === "translate";
+    transformControls.showZ = gizmoMode === "translate";
+    // Keep gizmo interaction continuous/predictable; keyboard nudges still use snap rules.
+    transformControls.setTranslationSnap(null);
+    transformControls.setRotationSnap(null);
+    transformControls.attach(runtime.transformAnchor);
+  }, [
+    objectById,
+    selectedObjectIds,
+    toolbarState.canvasDebug
+  ]);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const transformControls = runtime.transformControls;
+
+    const handleDraggingChanged = (event: { value?: boolean }) => {
+      const isDragging = Boolean(event.value);
+      runtime.controls.enabled = !isDragging;
+      if (!isDragging) {
+        transformGestureRef.current.active = false;
+        transformGestureRef.current.axis = null;
+      }
+    };
+
+    const handleMouseDown = () => {
+      const mode = transformControls.getMode() as "translate" | "rotate" | "scale";
+      const objectIds = selectedObjectIds.filter((id) => {
+        const object = objectById.get(id);
+        if (!object) {
+          return false;
+        }
+        return (
+          MOVE_ALLOWED_KINDS.has(object.kind) &&
+          !isKindLocked(toolbarState.canvasDebug, object.kind)
+        );
+      });
+      if (objectIds.length === 0) {
+        transformGestureRef.current.active = false;
+        transformGestureRef.current.axis = null;
+        return;
+      }
+
+      transformGestureRef.current = {
+        active: true,
+        mode,
+        axis: transformControls.axis,
+        objectIds,
+        lastAnchorPosition: runtime.transformAnchor.position.clone(),
+        lastAnchorRotationX: runtime.transformAnchor.rotation.x
+      };
+    };
+
+    const handleMouseUp = () => {
+      transformGestureRef.current.active = false;
+      transformGestureRef.current.axis = null;
+    };
+
+    const handleObjectChange = () => {
+      const gesture = transformGestureRef.current;
+      if (!gesture.active || gesture.objectIds.length === 0) {
+        return;
+      }
+
+      if (gesture.mode === "translate") {
+        const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
+        const rawDeltaX = runtime.transformAnchor.position.x - gesture.lastAnchorPosition.x;
+        const rawDeltaY = runtime.transformAnchor.position.z - gesture.lastAnchorPosition.z;
+        const rawDeltaZ = runtime.transformAnchor.position.y - gesture.lastAnchorPosition.y;
+        const epsilon = 1e-5;
+        const deltaX =
+          axis.includes("X") && Math.abs(rawDeltaX) > epsilon ? rawDeltaX : 0;
+        const deltaY =
+          axis.includes("Z") && Math.abs(rawDeltaY) > epsilon ? rawDeltaY : 0;
+        const deltaZ =
+          axis.includes("Y") && Math.abs(rawDeltaZ) > epsilon ? rawDeltaZ : 0;
+
+        if (deltaX !== 0 || deltaY !== 0) {
+          const moved = moveSelectedObjectsByDelta(
+            { x: deltaX, y: deltaY },
+            "gizmo_translate",
+            gesture.objectIds
+          );
+          if (moved > 0) {
+            gesture.lastAnchorPosition.x = runtime.transformAnchor.position.x;
+            gesture.lastAnchorPosition.z = runtime.transformAnchor.position.z;
+          }
+        }
+
+        if (deltaZ !== 0) {
+          const lifted = moveSelectedObjectsByHeight(deltaZ, "gizmo_translate", gesture.objectIds);
+          if (lifted > 0) {
+            gesture.lastAnchorPosition.y = runtime.transformAnchor.position.y;
+          }
+        }
+        return;
+      }
+
+      if (gesture.mode === "rotate") {
+        const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
+        const rawDeltaPitch = runtime.transformAnchor.rotation.x - gesture.lastAnchorRotationX;
+        const deltaPitchRad =
+          axis.includes("X") && Math.abs(rawDeltaPitch) > 1e-5 ? rawDeltaPitch : 0;
+        if (deltaPitchRad !== 0) {
+          const rotated = rotateSelectedObjectsPitch(
+            deltaPitchRad,
+            "gizmo_rotate_pitch_x",
+            gesture.objectIds
+          );
+          if (rotated > 0) {
+            gesture.lastAnchorRotationX = runtime.transformAnchor.rotation.x;
+          }
+        }
+      }
+    };
+
+    transformControls.addEventListener("dragging-changed", handleDraggingChanged);
+    transformControls.addEventListener("mouseDown", handleMouseDown);
+    transformControls.addEventListener("mouseUp", handleMouseUp);
+    transformControls.addEventListener("objectChange", handleObjectChange);
+
+    return () => {
+      transformControls.removeEventListener("dragging-changed", handleDraggingChanged);
+      transformControls.removeEventListener("mouseDown", handleMouseDown);
+      transformControls.removeEventListener("mouseUp", handleMouseUp);
+      transformControls.removeEventListener("objectChange", handleObjectChange);
+    };
+  }, [
+    moveSelectedObjectsByDelta,
+    moveSelectedObjectsByHeight,
+    objectById,
+    rotateSelectedObjectsPitch,
+    selectedObjectIds,
+    toolbarState.canvasDebug
   ]);
 
   const focusCameraOnWorldPoint = useCallback((worldX: number, worldY: number) => {
@@ -1949,6 +2435,12 @@ export function WorkspaceCanvasViewport({
       if (!runtime) {
         return;
       }
+      if (
+        runtime.transformControls.enabled &&
+        (runtime.transformControls.dragging || runtime.transformControls.axis !== null)
+      ) {
+        return;
+      }
 
       const local = pointerToLocal(runtime, event);
       const ndc = pointerToNdc(runtime, event);
@@ -2085,7 +2577,7 @@ export function WorkspaceCanvasViewport({
             : [hitObject.id];
           setSelectedObjectIds(nextSelectionIds);
 
-          if (groundHit && !event.altKey) {
+          if (groundHit && !event.altKey && !runtime.transformControls.enabled) {
             const selectedForDrag = scene.objects.filter((object) =>
               nextSelectionIds.includes(object.id)
             );
@@ -2229,6 +2721,10 @@ export function WorkspaceCanvasViewport({
           dragMoveRef.current.lastWorld = { x: groundHit.x, y: groundHit.z };
         }
       }
+      return;
+    }
+
+    if (runtime.transformControls.dragging) {
       return;
     }
 
@@ -2476,7 +2972,7 @@ export function WorkspaceCanvasViewport({
     : "Not saved yet";
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: translate XYZ / rotate X | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;
@@ -2659,6 +3155,10 @@ export function WorkspaceCanvasViewport({
             </p>
             <p>
               Box mode: <strong>{workspaceOptions.selectionBoxMode}</strong>
+            </p>
+            <p>
+              Per-object gizmo hints:{" "}
+              <strong>{workspaceOptions.showPerObjectGizmoHints ? "on" : "off"}</strong>
             </p>
             <p>
               Isolate: <strong>{isolateSummary}</strong>

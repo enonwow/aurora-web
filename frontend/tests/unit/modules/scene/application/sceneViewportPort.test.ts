@@ -30,6 +30,8 @@ describe("sceneViewportPort", () => {
         deleteObjectsByIds: vi.fn(() => nextScene),
         deleteObjectById: vi.fn(() => nextScene),
         translateObjectsByIds: vi.fn(() => nextScene),
+        adjustObjectsHeightByIds: vi.fn(() => nextScene),
+        rotateObjectsPitchByIds: vi.fn(() => nextScene),
         updateTileTerrain: vi.fn(() => nextScene),
         resetObjectTransform: vi.fn(() => nextScene)
       },
@@ -53,6 +55,8 @@ describe("sceneViewportPort", () => {
     const deletedMany = port.deleteObjectsByIds(seed, [seed.objects[0].id]);
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
     const translated = port.translateObjectsByIds(seed, [seed.objects[0].id], { x: 0.5, y: -0.25 });
+    const adjustedHeight = port.adjustObjectsHeightByIds(seed, [seed.objects[0].id], 0.4);
+    const rotatedPitch = port.rotateObjectsPitchByIds(seed, [seed.objects[0].id], 0.2);
     const retiled = port.updateTileTerrain(seed, seed.tiles[0].id, "wall");
     const reset = port.resetObjectTransform(seed, seed.objects[0].id);
     const created = port.createObject("items", 1, 2, 7);
@@ -77,6 +81,8 @@ describe("sceneViewportPort", () => {
     expect(deletedMany).toBe(nextScene);
     expect(deletedOne).toBe(nextScene);
     expect(translated).toBe(nextScene);
+    expect(adjustedHeight).toBe(nextScene);
+    expect(rotatedPitch).toBe(nextScene);
     expect(retiled).toBe(nextScene);
     expect(reset).toBe(nextScene);
     expect(created).toBe(createdObject);
@@ -96,6 +102,16 @@ describe("sceneViewportPort", () => {
       seed,
       [seed.objects[0].id],
       { x: 0.5, y: -0.25 }
+    );
+    expect(bundle.mutations.adjustObjectsHeightByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      0.4
+    );
+    expect(bundle.mutations.rotateObjectsPitchByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      0.2
     );
     expect(bundle.mutations.updateTileTerrain).toHaveBeenCalledWith(seed, seed.tiles[0].id, "wall");
     expect(bundle.mutations.resetObjectTransform).toHaveBeenCalledWith(seed, seed.objects[0].id);

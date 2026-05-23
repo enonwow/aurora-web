@@ -23,6 +23,21 @@ describe("sceneMutationsFacade", () => {
     expect(nextScene).toBe(scene);
   });
 
+  it("clamps appended objects to scene bounds and surface floor", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const created = createNewSceneObject("placeables", -5, 20, 902);
+    created.visualTransform.offsetZ = -1.4;
+
+    const nextScene = facade.appendObjects(scene, [created]);
+    const appended = nextScene.objects.at(-1);
+
+    expect(appended?.x).toBe(0);
+    expect(appended?.y).toBeLessThan(scene.height);
+    expect(appended?.y).toBeGreaterThan(scene.height - 0.01);
+    expect(appended?.visualTransform.offsetZ).toBe(0);
+  });
+
   it("deletes objects by id set", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
@@ -142,5 +157,138 @@ describe("sceneMutationsFacade", () => {
     );
 
     expect(nextScene).toBe(scene);
+  });
+
+  it("clamps group translation at scene bounds while preserving relative offset", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "plc_table_02");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const boundedScene = {
+      ...scene,
+      objects: scene.objects.map((object) => {
+        if (object.id === first!.id) {
+          return { ...object, x: 1.8, y: 1.9 };
+        }
+        if (object.id === second!.id) {
+          return { ...object, x: 1.6, y: 0.4 };
+        }
+        return object;
+      })
+    };
+
+    const nextScene = facade.translateObjectsByIds(
+      boundedScene,
+      [first!.id, second!.id],
+      { x: 0.8, y: 0.6 }
+    );
+
+    const movedFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const movedSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(movedFirst).toBeDefined();
+    expect(movedSecond).toBeDefined();
+
+    const deltaXFirst = (movedFirst?.x ?? 0) - 1.8;
+    const deltaXSecond = (movedSecond?.x ?? 0) - 1.6;
+    const deltaYFirst = (movedFirst?.y ?? 0) - 1.9;
+    const deltaYSecond = (movedSecond?.y ?? 0) - 0.4;
+
+    expect(deltaXFirst).toBeCloseTo(deltaXSecond, 6);
+    expect(deltaYFirst).toBeCloseTo(deltaYSecond, 6);
+    expect(movedFirst?.x).toBeLessThan(scene.width);
+    expect(movedFirst?.y).toBeLessThan(scene.height);
+  });
+
+  it("adjusts movable object height via visual transform offsetZ", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const movable = scene.objects.find((object) => object.kind === "placeables");
+    expect(movable).toBeDefined();
+
+    const nextScene = facade.adjustObjectsHeightByIds(scene, [movable!.id], 0.65);
+    const changed = nextScene.objects.find((object) => object.id === movable!.id);
+
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(
+      (movable?.visualTransform.offsetZ ?? 0) + 0.65
+    );
+  });
+
+  it("prevents lowering selected objects below surface while keeping shared delta", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "plc_table_02");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const liftedScene = {
+      ...scene,
+      objects: scene.objects.map((object) => {
+        if (object.id === first!.id) {
+          return {
+            ...object,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 0.2
+            }
+          };
+        }
+        if (object.id === second!.id) {
+          return {
+            ...object,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 1.0
+            }
+          };
+        }
+        return object;
+      })
+    };
+
+    const nextScene = facade.adjustObjectsHeightByIds(
+      liftedScene,
+      [first!.id, second!.id],
+      -0.7
+    );
+    const nextFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const nextSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(nextFirst).toBeDefined();
+    expect(nextSecond).toBeDefined();
+
+    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
+    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(0.8);
+  });
+
+  it("rotates movable object pitch around X axis", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const movable = scene.objects.find((object) => object.kind === "creatures");
+    expect(movable).toBeDefined();
+
+    const nextScene = facade.rotateObjectsPitchByIds(scene, [movable!.id], 0.3);
+    const changed = nextScene.objects.find((object) => object.id === movable!.id);
+
+    expect(changed?.visualTransform.pitch).toBeCloseTo(
+      (movable?.visualTransform.pitch ?? 0) + 0.3
+    );
+  });
+
+  it("blocks height and pitch changes when selection contains doors", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const door = scene.objects.find((object) => object.kind === "doors");
+    const placeable = scene.objects.find((object) => object.kind === "placeables");
+    expect(door).toBeDefined();
+    expect(placeable).toBeDefined();
+
+    const heightAdjusted = facade.adjustObjectsHeightByIds(scene, [door!.id, placeable!.id], 0.2);
+    const pitchRotated = facade.rotateObjectsPitchByIds(scene, [door!.id, placeable!.id], 0.1);
+
+    expect(heightAdjusted).toBe(scene);
+    expect(pitchRotated).toBe(scene);
   });
 });

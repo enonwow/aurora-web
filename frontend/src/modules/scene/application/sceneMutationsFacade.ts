@@ -22,6 +22,8 @@ export interface SceneMutationsFacade {
     objectIds: string[],
     delta: SceneObjectTranslationDelta
   ): AreaScene;
+  adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene;
+  rotateObjectsPitchByIds(scene: AreaScene, objectIds: string[], deltaPitchRad: number): AreaScene;
 }
 
 const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
@@ -30,6 +32,96 @@ const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
   "items",
   "sounds"
 ]);
+
+const SCENE_COORDINATE_MIN = 0;
+const SCENE_COORDINATE_EPSILON = 1e-4;
+const SCENE_OBJECT_MIN_OFFSET_Z = 0;
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (min > max) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function resolveSceneCoordinateMax(size: number): number {
+  if (!Number.isFinite(size)) {
+    return SCENE_COORDINATE_MIN;
+  }
+  return Math.max(SCENE_COORDINATE_MIN, size - SCENE_COORDINATE_EPSILON);
+}
+
+function clampDeltaToBounds(delta: number, minDelta: number, maxDelta: number): number {
+  if (delta > 0) {
+    if (maxDelta <= 0) {
+      return 0;
+    }
+    return Math.min(delta, maxDelta);
+  }
+
+  if (delta < 0) {
+    if (minDelta >= 0) {
+      return 0;
+    }
+    return Math.max(delta, minDelta);
+  }
+
+  return 0;
+}
+
+function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneObject {
+  const maxX = resolveSceneCoordinateMax(scene.width);
+  const maxY = resolveSceneCoordinateMax(scene.height);
+  const nextX = clampNumber(object.x, SCENE_COORDINATE_MIN, maxX);
+  const nextY = clampNumber(object.y, SCENE_COORDINATE_MIN, maxY);
+  const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, object.visualTransform.offsetZ);
+
+  if (
+    nextX === object.x &&
+    nextY === object.y &&
+    nextOffsetZ === object.visualTransform.offsetZ
+  ) {
+    return object;
+  }
+
+  return {
+    ...object,
+    x: nextX,
+    y: nextY,
+    visualTransform: {
+      ...object.visualTransform,
+      offsetZ: nextOffsetZ
+    }
+  };
+}
+
+function resolveTranslationBounds(scene: AreaScene, targets: SceneObject[]): {
+  minDeltaX: number;
+  maxDeltaX: number;
+  minDeltaY: number;
+  maxDeltaY: number;
+} {
+  const maxX = resolveSceneCoordinateMax(scene.width);
+  const maxY = resolveSceneCoordinateMax(scene.height);
+  let minDeltaX = Number.NEGATIVE_INFINITY;
+  let maxDeltaX = Number.POSITIVE_INFINITY;
+  let minDeltaY = Number.NEGATIVE_INFINITY;
+  let maxDeltaY = Number.POSITIVE_INFINITY;
+
+  targets.forEach((object) => {
+    minDeltaX = Math.max(minDeltaX, SCENE_COORDINATE_MIN - object.x);
+    maxDeltaX = Math.min(maxDeltaX, maxX - object.x);
+    minDeltaY = Math.max(minDeltaY, SCENE_COORDINATE_MIN - object.y);
+    maxDeltaY = Math.min(maxDeltaY, maxY - object.y);
+  });
+
+  return {
+    minDeltaX,
+    maxDeltaX,
+    minDeltaY,
+    maxDeltaY
+  };
+}
 
 function replaceSceneTiles(scene: AreaScene, nextTiles: SceneTile[]): AreaScene {
   if (nextTiles === scene.tiles) {
@@ -51,13 +143,37 @@ function replaceSceneObjects(scene: AreaScene, nextObjects: SceneObject[]): Area
   };
 }
 
+function resolveMovableTargets(scene: AreaScene, objectIds: string[]): SceneObject[] {
+  if (objectIds.length === 0) {
+    return [];
+  }
+
+  const idSet = new Set(objectIds);
+  const targets = scene.objects.filter((object) => idSet.has(object.id));
+  if (targets.length === 0) {
+    return [];
+  }
+
+  // Aurora First: doors are anchor-bound and cannot be moved with generic object transforms.
+  if (targets.some((object) => object.kind === "doors")) {
+    return [];
+  }
+
+  if (targets.some((object) => !MOVABLE_OBJECT_KINDS.has(object.kind))) {
+    return [];
+  }
+
+  return targets;
+}
+
 export function createSceneMutationsFacade(): SceneMutationsFacade {
   return {
     appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene {
       if (objects.length === 0) {
         return scene;
       }
-      return replaceSceneObjects(scene, [...scene.objects, ...objects]);
+      const normalizedObjects = objects.map((object) => normalizeObjectPlacement(scene, object));
+      return replaceSceneObjects(scene, [...scene.objects, ...normalizedObjects]);
     },
     deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene {
       if (objectIds.length === 0) {
@@ -145,29 +261,118 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const idSet = new Set(objectIds);
-      const targets = scene.objects.filter((object) => idSet.has(object.id));
+      const targets = resolveMovableTargets(scene, objectIds);
       if (targets.length === 0) {
         return scene;
       }
 
-      // Aurora First: doors are anchor-bound and cannot be moved with generic object transforms.
-      if (targets.some((object) => object.kind === "doors")) {
+      const bounded = resolveTranslationBounds(scene, targets);
+      const clampedDeltaX = clampDeltaToBounds(delta.x, bounded.minDeltaX, bounded.maxDeltaX);
+      const clampedDeltaY = clampDeltaToBounds(delta.y, bounded.minDeltaY, bounded.maxDeltaY);
+      if (clampedDeltaX === 0 && clampedDeltaY === 0) {
         return scene;
       }
 
-      if (targets.some((object) => !MOVABLE_OBJECT_KINDS.has(object.kind))) {
+      const idSet = new Set(targets.map((object) => object.id));
+      const maxX = resolveSceneCoordinateMax(scene.width);
+      const maxY = resolveSceneCoordinateMax(scene.height);
+      let changed = false;
+
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id)) {
+          return object;
+        }
+        const nextX = clampNumber(object.x + clampedDeltaX, SCENE_COORDINATE_MIN, maxX);
+        const nextY = clampNumber(object.y + clampedDeltaY, SCENE_COORDINATE_MIN, maxY);
+        if (nextX === object.x && nextY === object.y) {
+          return object;
+        }
+        changed = true;
+        return {
+          ...object,
+          x: nextX,
+          y: nextY
+        };
+      });
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene {
+      if (objectIds.length === 0 || deltaZ === 0) {
         return scene;
       }
 
+      const targets = resolveMovableTargets(scene, objectIds);
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      const minDeltaZ = targets.reduce(
+        (bound, object) => Math.max(bound, SCENE_OBJECT_MIN_OFFSET_Z - object.visualTransform.offsetZ),
+        Number.NEGATIVE_INFINITY
+      );
+      const clampedDeltaZ =
+        deltaZ < 0
+          ? clampDeltaToBounds(deltaZ, minDeltaZ, Number.POSITIVE_INFINITY)
+          : deltaZ;
+      if (clampedDeltaZ === 0) {
+        return scene;
+      }
+
+      const idSet = new Set(targets.map((object) => object.id));
+      let changed = false;
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id)) {
+          return object;
+        }
+        const nextOffsetZ = Math.max(
+          SCENE_OBJECT_MIN_OFFSET_Z,
+          object.visualTransform.offsetZ + clampedDeltaZ
+        );
+        if (nextOffsetZ === object.visualTransform.offsetZ) {
+          return object;
+        }
+        changed = true;
+        return {
+          ...object,
+          visualTransform: {
+            ...object.visualTransform,
+            offsetZ: nextOffsetZ
+          }
+        };
+      });
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    rotateObjectsPitchByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      deltaPitchRad: number
+    ): AreaScene {
+      if (objectIds.length === 0 || deltaPitchRad === 0) {
+        return scene;
+      }
+
+      const targets = resolveMovableTargets(scene, objectIds);
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      const idSet = new Set(targets.map((object) => object.id));
       const nextObjects = scene.objects.map((object) => {
         if (!idSet.has(object.id)) {
           return object;
         }
         return {
           ...object,
-          x: object.x + delta.x,
-          y: object.y + delta.y
+          visualTransform: {
+            ...object.visualTransform,
+            pitch: object.visualTransform.pitch + deltaPitchRad
+          }
         };
       });
       return replaceSceneObjects(scene, nextObjects);

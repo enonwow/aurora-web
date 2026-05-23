@@ -154,11 +154,13 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.change(screen.getByLabelText(/grid step/i), {
       target: { value: "2.5" }
     });
+    fireEvent.click(screen.getByLabelText(/show per-object gizmo hints/i));
 
     let raw = window.localStorage.getItem(WORKSPACE_OPTIONS_STORAGE_KEY);
     expect(raw).not.toBeNull();
     let parsed = JSON.parse(raw ?? "{}");
     expect(parsed.snapGridStep).toBe(2.5);
+    expect(parsed.showPerObjectGizmoHints).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
     expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
@@ -166,6 +168,7 @@ describe("Regression smoke: workspace interactions", () => {
     await signInAs("builder.user", "builder123");
     await openQuickOptionsDialog();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
+    expect(screen.getByLabelText(/show per-object gizmo hints/i)).not.toBeChecked();
   });
 
   it("supports collapsing sidebars and restoring them by clicking collapsed strips", async () => {

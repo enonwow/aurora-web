@@ -44,6 +44,12 @@ export interface SceneViewportPort {
     objectIds: string[],
     delta: SceneViewportTranslationDelta
   ): AreaScene;
+  adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene;
+  rotateObjectsPitchByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    deltaPitchRad: number
+  ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject;
@@ -86,6 +92,16 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
       delta: SceneViewportTranslationDelta
     ): AreaScene {
       return bundle.mutations.translateObjectsByIds(scene, objectIds, delta);
+    },
+    adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene {
+      return bundle.mutations.adjustObjectsHeightByIds(scene, objectIds, deltaZ);
+    },
+    rotateObjectsPitchByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      deltaPitchRad: number
+    ): AreaScene {
+      return bundle.mutations.rotateObjectsPitchByIds(scene, objectIds, deltaPitchRad);
     },
     updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene {
       return bundle.mutations.updateTileTerrain(scene, tileId, terrain);

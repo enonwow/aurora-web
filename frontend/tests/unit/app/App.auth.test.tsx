@@ -154,6 +154,7 @@ describe("App auth mock flow", () => {
     expect(screen.getByLabelText(/angle step/i)).toHaveValue(15);
     expect(screen.getByLabelText(/height step/i)).toHaveValue(0.5);
     expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("replace");
+    expect(screen.getByLabelText(/show per-object gizmo hints/i)).toBeChecked();
     expect(screen.getByLabelText(/camera rotate speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera zoom speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera pan speed/i)).toHaveValue(1);
@@ -223,6 +224,7 @@ describe("App auth mock flow", () => {
     fireEvent.change(screen.getByLabelText(/selection box mode/i), {
       target: { value: "intersect" }
     });
+    fireEvent.click(screen.getByLabelText(/show per-object gizmo hints/i));
     fireEvent.change(screen.getByLabelText(/camera rotate speed/i), {
       target: { value: "1.5" }
     });
@@ -244,6 +246,7 @@ describe("App auth mock flow", () => {
     expect(parsed.snapAngleStepDeg).toBe(30);
     expect(parsed.snapHeightStep).toBe(1);
     expect(parsed.selectionBoxMode).toBe("intersect");
+    expect(parsed.showPerObjectGizmoHints).toBe(false);
     expect(parsed.cameraRotateSpeed).toBe(1.5);
     expect(parsed.cameraZoomSpeed).toBe(1.4);
     expect(parsed.cameraPanSpeed).toBe(1.3);
@@ -283,7 +286,8 @@ describe("App auth mock flow", () => {
       WORKSPACE_OPTIONS_STORAGE_KEY,
       JSON.stringify({
         ...DEFAULT_WORKSPACE_OPTION_SETTINGS,
-        snapGridStep: 2.5
+        snapGridStep: 2.5,
+        showPerObjectGizmoHints: false
       })
     );
 
@@ -293,6 +297,7 @@ describe("App auth mock flow", () => {
     expect(await screen.findByLabelText(/app style/i)).toHaveValue("forest-night");
     expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
+    expect(screen.getByLabelText(/show per-object gizmo hints/i)).not.toBeChecked();
     },
     10000
   );
