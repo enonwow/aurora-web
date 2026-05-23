@@ -92,6 +92,12 @@ interface ContextMenuState {
   objectKind: SceneObjectKind;
 }
 
+interface DragMoveState {
+  active: boolean;
+  lastWorld: { x: number; y: number } | null;
+  objectIds: string[];
+}
+
 interface RuntimeState {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -169,6 +175,13 @@ const OBJECT_LABELS: Record<SceneObjectKind, string> = {
   items: "ITM",
   sounds: "SND"
 };
+
+const MOVE_ALLOWED_KINDS = new Set<SceneObjectKind>([
+  "placeables",
+  "creatures",
+  "items",
+  "sounds"
+]);
 
 type DebugState = WorkspaceToolbarState["canvasDebug"];
 type MockRenderStatus = "ok" | "warning" | "error" | "non_render";
@@ -910,6 +923,11 @@ export function WorkspaceCanvasViewport({
   const nextObjectSequenceRef = useRef(1);
   const clipboardObjectsRef = useRef<SceneObject[]>([]);
   const lastPointerWorldRef = useRef<{ x: number; y: number } | null>(null);
+  const dragMoveRef = useRef<DragMoveState>({
+    active: false,
+    lastWorld: null,
+    objectIds: []
+  });
   const bookmark1Ref = useRef<CameraBookmark | null>(null);
   const perfFrameRef = useRef({
     frameCount: 0,
@@ -1273,6 +1291,82 @@ export function WorkspaceCanvasViewport({
       return deleteSelectedObjects(source);
     },
     [copySelectedObjectsToClipboard, deleteSelectedObjects]
+  );
+
+  const moveSelectedObjectsByDelta = useCallback(
+    (
+      delta: { x: number; y: number },
+      source: string,
+      targetObjectIds?: string[]
+    ): number => {
+      if (delta.x === 0 && delta.y === 0) {
+        return 0;
+      }
+
+      const targetIds = targetObjectIds ?? selectedObjectIds;
+      const selectedObjects = scene.objects.filter((object) =>
+        targetIds.includes(object.id)
+      );
+      if (selectedObjects.length === 0) {
+        trackTelemetry("scene.objects.move_skipped", {
+          userId,
+          source,
+          reason: "selection_empty"
+        });
+        return 0;
+      }
+
+      // Aurora First parity: doors are anchor-bound and block generic move operations.
+      if (selectedObjects.some((object) => object.kind === "doors")) {
+        trackTelemetry("scene.objects.move_skipped", {
+          userId,
+          source,
+          reason: "selection_contains_doors"
+        });
+        return 0;
+      }
+
+      const unlockedMovableIds = selectedObjects
+        .filter((object) => MOVE_ALLOWED_KINDS.has(object.kind))
+        .filter((object) => !isKindLocked(toolbarState.canvasDebug, object.kind))
+        .map((object) => object.id);
+
+      if (unlockedMovableIds.length === 0) {
+        trackTelemetry("scene.objects.move_skipped", {
+          userId,
+          source,
+          reason: "selection_locked_or_immovable"
+        });
+        return 0;
+      }
+
+      setSceneHistory((current) =>
+        sceneViewportPort.commitHistory(
+          current,
+          sceneViewportPort.translateObjectsByIds(
+            current.present,
+            unlockedMovableIds,
+            delta
+          )
+        )
+      );
+      setSelectedTileId(null);
+      trackTelemetry("scene.objects.move", {
+        userId,
+        source,
+        movedCount: unlockedMovableIds.length,
+        deltaX: delta.x,
+        deltaY: delta.y
+      });
+      return unlockedMovableIds.length;
+    },
+    [
+      scene.objects,
+      sceneViewportPort,
+      selectedObjectIds,
+      toolbarState.canvasDebug,
+      userId
+    ]
   );
 
   useEffect(() => {
@@ -1736,6 +1830,35 @@ export function WorkspaceCanvasViewport({
         return;
       }
 
+      if (
+        (event.key === "ArrowUp" ||
+          event.key === "ArrowDown" ||
+          event.key === "ArrowLeft" ||
+          event.key === "ArrowRight") &&
+        selectedObjectIds.length > 0
+      ) {
+        const baseStep = toolbarState.canvasDebug.snapGrid
+          ? Math.max(0.1, workspaceOptions.snapGridStep)
+          : 0.1;
+        const step = event.shiftKey ? baseStep * 2 : baseStep;
+        let deltaX = 0;
+        let deltaY = 0;
+
+        if (event.key === "ArrowUp") {
+          deltaY = step;
+        } else if (event.key === "ArrowDown") {
+          deltaY = -step;
+        } else if (event.key === "ArrowLeft") {
+          deltaX = -step;
+        } else if (event.key === "ArrowRight") {
+          deltaX = step;
+        }
+
+        event.preventDefault();
+        moveSelectedObjectsByDelta({ x: deltaX, y: deltaY }, "keyboard_shortcut_nudge");
+        return;
+      }
+
       if ((event.key !== "Delete" && event.key !== "Backspace") || selectedObjectIds.length === 0) {
         return;
       }
@@ -1750,8 +1873,11 @@ export function WorkspaceCanvasViewport({
     copySelectedObjectsToClipboard,
     cutSelectedObjectsToClipboard,
     deleteSelectedObjects,
+    moveSelectedObjectsByDelta,
     pasteClipboardObjects,
-    selectedObjectIds.length
+    selectedObjectIds.length,
+    toolbarState.canvasDebug.snapGrid,
+    workspaceOptions.snapGridStep
   ]);
 
   const commitBoxSelection = useCallback(
@@ -1944,15 +2070,43 @@ export function WorkspaceCanvasViewport({
           !isKindLocked(toolbarState.canvasDebug, hitObject.kind)
         ) {
           setSelectedTileId(null);
-          setSelectedObjectIds((current) => {
-            if (event.ctrlKey) {
+          if (event.ctrlKey) {
+            setSelectedObjectIds((current) => {
               if (current.includes(hitObject.id)) {
                 return current.filter((id) => id !== hitObject.id);
               }
               return [...current, hitObject.id];
+            });
+            return;
+          }
+
+          const nextSelectionIds = selectedObjectIds.includes(hitObject.id)
+            ? selectedObjectIds
+            : [hitObject.id];
+          setSelectedObjectIds(nextSelectionIds);
+
+          if (groundHit && !event.altKey) {
+            const selectedForDrag = scene.objects.filter((object) =>
+              nextSelectionIds.includes(object.id)
+            );
+            const hasDoorInSelection = selectedForDrag.some(
+              (object) => object.kind === "doors"
+            );
+            const hasUnlockedMovable = selectedForDrag.some(
+              (object) =>
+                MOVE_ALLOWED_KINDS.has(object.kind) &&
+                !isKindLocked(toolbarState.canvasDebug, object.kind)
+            );
+
+            if (!hasDoorInSelection && hasUnlockedMovable) {
+              dragMoveRef.current = {
+                active: true,
+                lastWorld: { x: groundHit.x, y: groundHit.z },
+                objectIds: nextSelectionIds
+              };
+              runtime.controls.enabled = false;
             }
-            return [hitObject.id];
-          });
+          }
           return;
         }
       }
@@ -2031,6 +2185,7 @@ export function WorkspaceCanvasViewport({
       toolbarState.canvasDebug,
       userId,
       visibleObjects,
+      selectedObjectIds,
       workspaceOptions,
       sceneViewportPort
     ]
@@ -2050,6 +2205,33 @@ export function WorkspaceCanvasViewport({
       lastPointerWorldRef.current = null;
     }
 
+    if (dragMoveRef.current.active) {
+      if (!(event.buttons & 1)) {
+        dragMoveRef.current = {
+          active: false,
+          lastWorld: null,
+          objectIds: []
+        };
+        runtime.controls.enabled = true;
+        return;
+      }
+
+      const lastWorld = dragMoveRef.current.lastWorld;
+      if (groundHit && lastWorld) {
+        const deltaX = groundHit.x - lastWorld.x;
+        const deltaY = groundHit.z - lastWorld.y;
+        const moved = moveSelectedObjectsByDelta(
+          { x: deltaX, y: deltaY },
+          "mouse_drag",
+          dragMoveRef.current.objectIds
+        );
+        if (moved > 0) {
+          dragMoveRef.current.lastWorld = { x: groundHit.x, y: groundHit.z };
+        }
+      }
+      return;
+    }
+
     if (!selectionBox.active) {
       return;
     }
@@ -2060,10 +2242,22 @@ export function WorkspaceCanvasViewport({
       currentX: local.x,
       currentY: local.y
     }));
-  }, [selectionBox.active]);
+  }, [moveSelectedObjectsByDelta, selectionBox.active]);
 
   const handleMouseUp = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (dragMoveRef.current.active) {
+        dragMoveRef.current = {
+          active: false,
+          lastWorld: null,
+          objectIds: []
+        };
+        const runtime = runtimeRef.current;
+        if (runtime) {
+          runtime.controls.enabled = true;
+        }
+      }
+
       if (!selectionBox.active) {
         return;
       }
@@ -2282,7 +2476,7 @@ export function WorkspaceCanvasViewport({
     : "Not saved yet";
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;

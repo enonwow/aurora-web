@@ -12,6 +12,11 @@ export interface SceneViewportPoint {
   y: number;
 }
 
+export interface SceneViewportTranslationDelta {
+  x: number;
+  y: number;
+}
+
 export interface SceneViewportCopyAnchorParams {
   cursorAnchor: SceneViewportPoint | null;
   sourcePoints: SceneViewportPoint[];
@@ -34,6 +39,11 @@ export interface SceneViewportPort {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
   deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene;
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
+  translateObjectsByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    delta: SceneViewportTranslationDelta
+  ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject;
@@ -69,6 +79,13 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     deleteObjectById(scene: AreaScene, objectId: string): AreaScene {
       return bundle.mutations.deleteObjectById(scene, objectId);
+    },
+    translateObjectsByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      delta: SceneViewportTranslationDelta
+    ): AreaScene {
+      return bundle.mutations.translateObjectsByIds(scene, objectIds, delta);
     },
     updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene {
       return bundle.mutations.updateTileTerrain(scene, tileId, terrain);

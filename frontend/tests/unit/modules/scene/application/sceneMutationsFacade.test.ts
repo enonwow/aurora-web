@@ -105,4 +105,42 @@ describe("sceneMutationsFacade", () => {
 
     expect(nextScene).toBe(scene);
   });
+
+  it("translates movable objects by delta", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const movable = scene.objects.find((object) => object.kind === "placeables");
+    expect(movable).toBeDefined();
+    const other = scene.objects.find((object) => object.id !== movable?.id);
+    expect(other).toBeDefined();
+
+    const nextScene = facade.translateObjectsByIds(
+      scene,
+      [movable!.id],
+      { x: 0.25, y: -0.4 }
+    );
+
+    const movedObject = nextScene.objects.find((object) => object.id === movable!.id);
+    const untouchedObject = nextScene.objects.find((object) => object.id === other!.id);
+    expect(movedObject?.x).toBeCloseTo((movable?.x ?? 0) + 0.25);
+    expect(movedObject?.y).toBeCloseTo((movable?.y ?? 0) - 0.4);
+    expect(untouchedObject).toEqual(other);
+  });
+
+  it("blocks translation when selection contains doors", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const door = scene.objects.find((object) => object.kind === "doors");
+    const placeable = scene.objects.find((object) => object.kind === "placeables");
+    expect(door).toBeDefined();
+    expect(placeable).toBeDefined();
+
+    const nextScene = facade.translateObjectsByIds(
+      scene,
+      [door!.id, placeable!.id],
+      { x: 0.3, y: 0.1 }
+    );
+
+    expect(nextScene).toBe(scene);
+  });
 });

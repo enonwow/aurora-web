@@ -27,3 +27,8 @@
    - implement in `adapters/**`
    - compose/select adapter near the UI boundary
 10. Cross-context access must go through explicit public contracts/facades, not internal file reach-through imports.
+11. Aurora reverse-engineering parity rules must be codified as domain constraints plus tests:
+   - `doors` are not movable via generic transform flows
+   - `doors` do not participate in generic `visualTransform` editing
+   - multi-selection transform must be blocked if selection contains `doors`
+   - add unit + regression coverage for these constraints before merge

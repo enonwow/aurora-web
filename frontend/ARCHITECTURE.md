@@ -63,3 +63,12 @@ For each context in `src/modules/<context>` use:
    - unit tests for application facades and domain logic,
    - targeted tests for adapters,
    - regression-smoke unchanged baseline must stay green.
+
+## Aurora Reverse-Engineering Constraints (Object Transforms)
+These constraints are part of `Aurora First` parity and are not optional UI preferences.
+
+1. `doors` are anchor-bound objects. They cannot be freely translated with generic object move flows.
+2. `doors` must not accept generic `visualTransform` editing (`offset*`, `pitch/roll/yaw`) in editor transform flows.
+3. Multi-selection transform is blocked when selection contains at least one `door`.
+4. Bulk move/transform operations apply only to movable kinds (`placeables`, `creatures`, `items`, `sounds`) and still respect layer locks.
+5. If future work requires moving a door, it must go through a dedicated door-anchor workflow (not shared transform tools).

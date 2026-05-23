@@ -531,6 +531,50 @@ describe("Regression smoke: workspace interactions", () => {
     ).toBeInTheDocument();
   });
 
+  it("moves selected placeable with arrows and blocks movement for mixed selection with doors", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
+
+    fireEvent.click(placeableRow);
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const beforeSingleMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const beforePlaceable = beforeSingleMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(beforePlaceable).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const afterSingleMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const afterPlaceable = afterSingleMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect((afterPlaceable?.x ?? 0) - (beforePlaceable?.x ?? 0)).toBeGreaterThan(0);
+
+    fireEvent.click(doorRow, { ctrlKey: true });
+    await waitFor(() => {
+      expect(placeableRow).toHaveAttribute("aria-selected", "true");
+      expect(doorRow).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const beforeBlockedMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const beforeBlockedPlaceable = beforeBlockedMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const beforeBlockedDoor = beforeBlockedMove?.objects.find((object) => object.tag === "DOOR_WEST_01");
+    expect(beforeBlockedPlaceable).toBeDefined();
+    expect(beforeBlockedDoor).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const afterBlockedMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const afterBlockedPlaceable = afterBlockedMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const afterBlockedDoor = afterBlockedMove?.objects.find((object) => object.tag === "DOOR_WEST_01");
+    expect(afterBlockedPlaceable?.x).toBe(beforeBlockedPlaceable?.x);
+    expect(afterBlockedPlaceable?.y).toBe(beforeBlockedPlaceable?.y);
+    expect(afterBlockedDoor?.x).toBe(beforeBlockedDoor?.x);
+    expect(afterBlockedDoor?.y).toBe(beforeBlockedDoor?.y);
+  });
+
   it("duplicates and deletes an object from context menu actions", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");

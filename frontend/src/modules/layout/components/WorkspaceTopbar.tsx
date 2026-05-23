@@ -120,6 +120,7 @@ export function WorkspaceTopbar({
     ];
     const canvasWorkflowShortcuts: KeyboardShortcut[] = [
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
+      { key: "Arrow keys / Shift + Arrow", description: "Move selected object(s) in scene." },
       { key: "Ctrl/Cmd + C", description: "Copy selected object(s)." },
       { key: "Ctrl/Cmd + X", description: "Cut selected object(s)." },
       { key: "Ctrl/Cmd + V", description: "Paste copied or cut object(s)." },

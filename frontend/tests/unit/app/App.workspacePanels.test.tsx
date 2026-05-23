@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
+import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -280,5 +281,65 @@ describe("App workspace side panels", () => {
     expect(
       await within(rightSidebar).findByRole("button", { name: /plc_barrel_01/i })
     ).toBeInTheDocument();
+  });
+
+  it("moves selected placeable with arrow keys", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(placeableRow);
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const beforeMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(beforeMove).not.toBeNull();
+    const beforeObject = beforeMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(beforeObject).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    const afterMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(afterMove).not.toBeNull();
+    const afterObject = afterMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(afterObject).toBeDefined();
+    expect((afterObject?.x ?? 0) - (beforeObject?.x ?? 0)).toBeGreaterThan(0);
+    expect(afterObject?.y).toBe(beforeObject?.y);
+  });
+
+  it("blocks group move when selection contains a door", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
+    fireEvent.click(placeableRow);
+    fireEvent.click(doorRow, { ctrlKey: true });
+    await waitFor(() => {
+      expect(placeableRow).toHaveAttribute("aria-selected", "true");
+      expect(doorRow).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const beforeMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(beforeMove).not.toBeNull();
+    const beforePlaceable = beforeMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const beforeDoor = beforeMove?.objects.find((object) => object.tag === "DOOR_WEST_01");
+    expect(beforePlaceable).toBeDefined();
+    expect(beforeDoor).toBeDefined();
+
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    const afterMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(afterMove).not.toBeNull();
+    const afterPlaceable = afterMove?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const afterDoor = afterMove?.objects.find((object) => object.tag === "DOOR_WEST_01");
+    expect(afterPlaceable?.x).toBe(beforePlaceable?.x);
+    expect(afterPlaceable?.y).toBe(beforePlaceable?.y);
+    expect(afterDoor?.x).toBe(beforeDoor?.x);
+    expect(afterDoor?.y).toBe(beforeDoor?.y);
   });
 });

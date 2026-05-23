@@ -29,6 +29,7 @@ describe("sceneViewportPort", () => {
         appendObjects: vi.fn(() => nextScene),
         deleteObjectsByIds: vi.fn(() => nextScene),
         deleteObjectById: vi.fn(() => nextScene),
+        translateObjectsByIds: vi.fn(() => nextScene),
         updateTileTerrain: vi.fn(() => nextScene),
         resetObjectTransform: vi.fn(() => nextScene)
       },
@@ -51,6 +52,7 @@ describe("sceneViewportPort", () => {
     const appended = port.appendObjects(seed, []);
     const deletedMany = port.deleteObjectsByIds(seed, [seed.objects[0].id]);
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
+    const translated = port.translateObjectsByIds(seed, [seed.objects[0].id], { x: 0.5, y: -0.25 });
     const retiled = port.updateTileTerrain(seed, seed.tiles[0].id, "wall");
     const reset = port.resetObjectTransform(seed, seed.objects[0].id);
     const created = port.createObject("items", 1, 2, 7);
@@ -74,6 +76,7 @@ describe("sceneViewportPort", () => {
     expect(appended).toBe(nextScene);
     expect(deletedMany).toBe(nextScene);
     expect(deletedOne).toBe(nextScene);
+    expect(translated).toBe(nextScene);
     expect(retiled).toBe(nextScene);
     expect(reset).toBe(nextScene);
     expect(created).toBe(createdObject);
@@ -89,6 +92,11 @@ describe("sceneViewportPort", () => {
     expect(bundle.mutations.appendObjects).toHaveBeenCalledWith(seed, []);
     expect(bundle.mutations.deleteObjectsByIds).toHaveBeenCalledWith(seed, [seed.objects[0].id]);
     expect(bundle.mutations.deleteObjectById).toHaveBeenCalledWith(seed, seed.objects[0].id);
+    expect(bundle.mutations.translateObjectsByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      { x: 0.5, y: -0.25 }
+    );
     expect(bundle.mutations.updateTileTerrain).toHaveBeenCalledWith(seed, seed.tiles[0].id, "wall");
     expect(bundle.mutations.resetObjectTransform).toHaveBeenCalledWith(seed, seed.objects[0].id);
     expect(bundle.authoring.createObject).toHaveBeenCalledWith("items", 1, 2, 7);

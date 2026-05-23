@@ -1,9 +1,15 @@
 import type {
   AreaScene,
   SceneObject,
+  SceneObjectKind,
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
+
+export interface SceneObjectTranslationDelta {
+  x: number;
+  y: number;
+}
 
 export interface SceneMutationsFacade {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
@@ -11,7 +17,19 @@ export interface SceneMutationsFacade {
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
+  translateObjectsByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    delta: SceneObjectTranslationDelta
+  ): AreaScene;
 }
+
+const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
+  "placeables",
+  "creatures",
+  "items",
+  "sounds"
+]);
 
 function replaceSceneTiles(scene: AreaScene, nextTiles: SceneTile[]): AreaScene {
   if (nextTiles === scene.tiles) {
@@ -113,6 +131,45 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       if (!changed) {
         return scene;
       }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    translateObjectsByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      delta: SceneObjectTranslationDelta
+    ): AreaScene {
+      if (
+        objectIds.length === 0 ||
+        (delta.x === 0 && delta.y === 0)
+      ) {
+        return scene;
+      }
+
+      const idSet = new Set(objectIds);
+      const targets = scene.objects.filter((object) => idSet.has(object.id));
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      // Aurora First: doors are anchor-bound and cannot be moved with generic object transforms.
+      if (targets.some((object) => object.kind === "doors")) {
+        return scene;
+      }
+
+      if (targets.some((object) => !MOVABLE_OBJECT_KINDS.has(object.kind))) {
+        return scene;
+      }
+
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id)) {
+          return object;
+        }
+        return {
+          ...object,
+          x: object.x + delta.x,
+          y: object.y + delta.y
+        };
+      });
       return replaceSceneObjects(scene, nextObjects);
     }
   };
