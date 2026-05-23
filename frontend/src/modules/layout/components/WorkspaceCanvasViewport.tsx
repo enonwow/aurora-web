@@ -38,8 +38,6 @@ import {
 } from "../../scene/sceneHistory";
 import {
   loadLocalSceneDraft,
-  loadLocalSceneAutosaves,
-  saveLocalSceneAutosave,
   saveLocalSceneDraft
 } from "../../scene/localDraftStore";
 import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
@@ -139,24 +137,6 @@ const OBJECT_KIND_BY_SCOPE: Partial<Record<SelectionScope, SceneObjectKind>> = {
   sounds: "sounds"
 };
 
-const TERRAIN_BRUSH_OPTIONS: TerrainBrushKind[] = [
-  "corridor",
-  "doorway",
-  "inn",
-  "kitchen",
-  "livingroom",
-  "shop",
-  "wall"
-];
-
-const OBJECT_BRUSH_OPTIONS: SceneObjectKind[] = [
-  "placeables",
-  "creatures",
-  "doors",
-  "items",
-  "sounds"
-];
-
 const TERRAIN_COLORS: Record<TerrainBrushKind, string> = {
   corridor: "#4f7fb7",
   doorway: "#5a8ec8",
@@ -248,10 +228,6 @@ function findTileAtWorld(scene: AreaScene, worldX: number, worldY: number): Scen
 function initialSceneHistory(userId: string): SceneHistoryState {
   const fallback = createSeedAreaScene();
   try {
-    const autosaves = loadLocalSceneAutosaves(userId, window.localStorage);
-    if (autosaves.length > 0) {
-      return createSceneHistory(autosaves[0]);
-    }
     const draft = loadLocalSceneDraft(userId, window.localStorage);
     return createSceneHistory(draft ?? fallback);
   } catch {
@@ -853,7 +829,7 @@ export function WorkspaceCanvasViewport({
   );
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
-  const [terrainBrush, setTerrainBrush] = useState<TerrainBrushKind>("corridor");
+  const terrainBrush: TerrainBrushKind = "corridor";
   const [objectBrush, setObjectBrush] = useState<SceneObjectKind>("placeables");
   const [lastSavedAtUnixMs, setLastSavedAtUnixMs] = useState<number | null>(null);
   const [webglReady, setWebglReady] = useState(false);
@@ -1618,47 +1594,6 @@ export function WorkspaceCanvasViewport({
     toolbarState.selectionScope,
     userId,
     visibleObjects
-  ]);
-
-  useEffect(() => {
-    if (!workspaceOptions.autosaveEnabled) {
-      return;
-    }
-
-    const intervalMs = Math.max(10, workspaceOptions.autosaveIntervalSec) * 1000;
-    const handle = window.setInterval(() => {
-      try {
-        const autosaves = saveLocalSceneAutosave(
-          userId,
-          scene,
-          window.localStorage,
-          workspaceOptions.autosaveMaxEntries
-        );
-        const savedAt = Date.now();
-        setLastSavedAtUnixMs(savedAt);
-        trackTelemetry("scene.autosave.saved", {
-          userId,
-          sceneId: scene.sceneId,
-          objectCount: scene.objects.length,
-          tileCount: scene.tiles.length,
-          intervalSec: workspaceOptions.autosaveIntervalSec,
-          retainedEntries: autosaves.length
-        });
-      } catch {
-        trackTelemetry("scene.autosave.failed", {
-          userId,
-          sceneId: scene.sceneId
-        });
-      }
-    }, intervalMs);
-
-    return () => window.clearInterval(handle);
-  }, [
-    scene,
-    userId,
-    workspaceOptions.autosaveEnabled,
-    workspaceOptions.autosaveIntervalSec,
-    workspaceOptions.autosaveMaxEntries
   ]);
 
   useEffect(() => {
@@ -2435,14 +2370,6 @@ export function WorkspaceCanvasViewport({
             </p>
             <p>
               Draft: <strong>{saveStatus}</strong>
-            </p>
-            <p>
-              Autosave:{" "}
-              <strong>
-                {workspaceOptions.autosaveEnabled
-                  ? `on / ${workspaceOptions.autosaveIntervalSec}s / max ${workspaceOptions.autosaveMaxEntries}`
-                  : "off"}
-              </strong>
             </p>
             {toolbarState.canvasDebug.perfHud ? (
               <>

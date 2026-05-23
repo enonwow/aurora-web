@@ -157,9 +157,6 @@ describe("App auth mock flow", () => {
     expect(screen.getByLabelText(/camera zoom speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera pan speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera damping/i)).toHaveValue(0.08);
-    expect(screen.getByLabelText(/autosave enabled/i)).toBeChecked();
-    expect(screen.getByLabelText(/autosave interval/i)).toHaveValue(45);
-    expect(screen.getByLabelText(/autosave max entries/i)).toHaveValue(10);
     expect(screen.getByText(/expanded/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
@@ -237,13 +234,6 @@ describe("App auth mock flow", () => {
     fireEvent.change(screen.getByLabelText(/camera damping/i), {
       target: { value: "0.12" }
     });
-    fireEvent.click(screen.getByLabelText(/autosave enabled/i));
-    fireEvent.change(screen.getByLabelText(/autosave interval/i), {
-      target: { value: "120" }
-    });
-    fireEvent.change(screen.getByLabelText(/autosave max entries/i), {
-      target: { value: "20" }
-    });
 
     const stored = window.localStorage.getItem(WORKSPACE_OPTIONS_STORAGE_KEY);
     expect(stored).not.toBeNull();
@@ -257,9 +247,6 @@ describe("App auth mock flow", () => {
     expect(parsed.cameraZoomSpeed).toBe(1.4);
     expect(parsed.cameraPanSpeed).toBe(1.3);
     expect(parsed.cameraDampingFactor).toBe(0.12);
-    expect(parsed.autosaveEnabled).toBe(false);
-    expect(parsed.autosaveIntervalSec).toBe(120);
-    expect(parsed.autosaveMaxEntries).toBe(20);
   });
 
   it("pins and unpins runtime popup on repeated click", async () => {
@@ -295,8 +282,7 @@ describe("App auth mock flow", () => {
       WORKSPACE_OPTIONS_STORAGE_KEY,
       JSON.stringify({
         ...DEFAULT_WORKSPACE_OPTION_SETTINGS,
-        snapGridStep: 2.5,
-        autosaveEnabled: false
+        snapGridStep: 2.5
       })
     );
 
@@ -306,7 +292,6 @@ describe("App auth mock flow", () => {
     expect(await screen.findByLabelText(/app style/i)).toHaveValue("forest-night");
     expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
-    expect(screen.getByLabelText(/autosave enabled/i)).not.toBeChecked();
     },
     10000
   );

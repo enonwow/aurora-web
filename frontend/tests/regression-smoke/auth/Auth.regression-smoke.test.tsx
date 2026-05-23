@@ -131,6 +131,7 @@ describe("Regression smoke: auth shell behavior", () => {
     expect(screen.getByRole("note", { name: /controls hint/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/canvas runtime/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
+    fireEvent.click(screen.getByText(/advanced debug/i));
     fireEvent.click(screen.getByRole("button", { name: /controls hint/i }));
     fireEvent.click(screen.getByRole("button", { name: /runtime popup/i }));
     expect(screen.queryByRole("note", { name: /controls hint/i })).not.toBeInTheDocument();

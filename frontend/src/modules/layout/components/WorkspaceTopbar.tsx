@@ -904,52 +904,6 @@ export function WorkspaceTopbar({
               </div>
             </details>
 
-            <details className="topbar-options-section" open role="group" aria-label="Autosave">
-              <summary className="topbar-options-summary">
-                <span>Local Autosave</span>
-              </summary>
-              <div className="topbar-options-content">
-                <label className="topbar-options-checkbox" htmlFor="autosave-enabled">
-                  <input
-                    id="autosave-enabled"
-                    type="checkbox"
-                    checked={workspaceOptions.autosaveEnabled}
-                    onChange={(event) =>
-                      onWorkspaceOptionsChange({ autosaveEnabled: event.target.checked })
-                    }
-                  />
-                  Autosave enabled
-                </label>
-
-                <label className="topbar-options-label" htmlFor="autosave-interval-sec">
-                  Autosave interval
-                </label>
-                <input
-                  id="autosave-interval-sec"
-                  type="number"
-                  step="1"
-                  min="10"
-                  max="600"
-                  className="topbar-options-select"
-                  value={workspaceOptions.autosaveIntervalSec}
-                  onChange={(event) => updateNumberOption("autosaveIntervalSec", event.target.value)}
-                />
-
-                <label className="topbar-options-label" htmlFor="autosave-max-entries">
-                  Autosave max entries
-                </label>
-                <input
-                  id="autosave-max-entries"
-                  type="number"
-                  step="1"
-                  min="1"
-                  max="100"
-                  className="topbar-options-select"
-                  value={workspaceOptions.autosaveMaxEntries}
-                  onChange={(event) => updateNumberOption("autosaveMaxEntries", event.target.value)}
-                />
-              </div>
-            </details>
           </article>
         </section>
       ) : null}

@@ -9,9 +9,6 @@ export interface WorkspaceOptionSettings {
   cameraZoomSpeed: number;
   cameraPanSpeed: number;
   cameraDampingFactor: number;
-  autosaveEnabled: boolean;
-  autosaveIntervalSec: number;
-  autosaveMaxEntries: number;
 }
 
 export const WORKSPACE_OPTIONS_STORAGE_KEY = "aurora_web.workspace_options";
@@ -25,10 +22,7 @@ export const DEFAULT_WORKSPACE_OPTION_SETTINGS: WorkspaceOptionSettings = {
   cameraRotateSpeed: 1,
   cameraZoomSpeed: 1,
   cameraPanSpeed: 1,
-  cameraDampingFactor: 0.08,
-  autosaveEnabled: true,
-  autosaveIntervalSec: 45,
-  autosaveMaxEntries: 10
+  cameraDampingFactor: 0.08
 };
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -45,30 +39,6 @@ function coerceNumber(value: unknown, fallback: number): number {
   if (typeof value === "string" && value.trim().length > 0) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
-}
-
-function coerceBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "true" || normalized === "1") {
-      return true;
-    }
-    if (normalized === "false" || normalized === "0") {
-      return false;
-    }
-  }
-  if (typeof value === "number") {
-    if (value === 1) {
-      return true;
-    }
-    if (value === 0) {
-      return false;
-    }
   }
   return fallback;
 }
@@ -119,26 +89,6 @@ function sanitizeSettings(value: Partial<WorkspaceOptionSettings>): WorkspaceOpt
       ),
       0.01,
       0.35
-    ),
-    autosaveEnabled: coerceBoolean(
-      value.autosaveEnabled,
-      DEFAULT_WORKSPACE_OPTION_SETTINGS.autosaveEnabled
-    ),
-    autosaveIntervalSec: clampNumber(
-      coerceNumber(
-        value.autosaveIntervalSec,
-        DEFAULT_WORKSPACE_OPTION_SETTINGS.autosaveIntervalSec
-      ),
-      10,
-      600
-    ),
-    autosaveMaxEntries: clampNumber(
-      coerceNumber(
-        value.autosaveMaxEntries,
-        DEFAULT_WORKSPACE_OPTION_SETTINGS.autosaveMaxEntries
-      ),
-      1,
-      100
     )
   };
 }

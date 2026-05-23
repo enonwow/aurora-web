@@ -28,10 +28,7 @@ describe("workspaceOptionSettings", () => {
       cameraRotateSpeed: 1.4,
       cameraZoomSpeed: 1.3,
       cameraPanSpeed: 1.2,
-      cameraDampingFactor: 0.12,
-      autosaveEnabled: false,
-      autosaveIntervalSec: 90,
-      autosaveMaxEntries: 12
+      cameraDampingFactor: 0.12
     };
 
     persistWorkspaceOptionSettingsToStorage(next, window.localStorage);
@@ -52,10 +49,7 @@ describe("workspaceOptionSettings", () => {
         cameraRotateSpeed: 0,
         cameraZoomSpeed: 9,
         cameraPanSpeed: -5,
-        cameraDampingFactor: 99,
-        autosaveEnabled: "yes",
-        autosaveIntervalSec: 1,
-        autosaveMaxEntries: 999
+        cameraDampingFactor: 99
       })
     );
 
@@ -69,9 +63,6 @@ describe("workspaceOptionSettings", () => {
     expect(loaded.cameraZoomSpeed).toBe(4);
     expect(loaded.cameraPanSpeed).toBe(0.1);
     expect(loaded.cameraDampingFactor).toBe(0.35);
-    expect(loaded.autosaveEnabled).toBe(true);
-    expect(loaded.autosaveIntervalSec).toBe(10);
-    expect(loaded.autosaveMaxEntries).toBe(100);
   });
 
   it("loads legacy key and coerces string payload types", () => {
@@ -85,10 +76,7 @@ describe("workspaceOptionSettings", () => {
         cameraRotateSpeed: "1.2",
         cameraZoomSpeed: "1.3",
         cameraPanSpeed: "1.4",
-        cameraDampingFactor: "0.11",
-        autosaveEnabled: "false",
-        autosaveIntervalSec: "120",
-        autosaveMaxEntries: "9"
+        cameraDampingFactor: "0.11"
       })
     );
 
@@ -101,9 +89,6 @@ describe("workspaceOptionSettings", () => {
     expect(loaded.cameraZoomSpeed).toBe(1.3);
     expect(loaded.cameraPanSpeed).toBe(1.4);
     expect(loaded.cameraDampingFactor).toBe(0.11);
-    expect(loaded.autosaveEnabled).toBe(false);
-    expect(loaded.autosaveIntervalSec).toBe(120);
-    expect(loaded.autosaveMaxEntries).toBe(9);
   });
 
   it("prefers active key when both active and legacy keys exist", () => {

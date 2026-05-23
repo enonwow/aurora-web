@@ -46,21 +46,16 @@ describe("workspaceOptionSettings - negative cases", () => {
     ).not.toThrow();
   });
 
-  it("coerces numeric and string boolean values for autosave flag", () => {
+  it("ignores unknown legacy fields gracefully", () => {
     window.localStorage.setItem(
       WORKSPACE_OPTIONS_STORAGE_KEY,
       JSON.stringify({
-        autosaveEnabled: 0
+        legacyFoo: "bar",
+        legacyNumber: 123
       })
     );
-    expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage).autosaveEnabled).toBe(false);
-
-    window.localStorage.setItem(
-      WORKSPACE_OPTIONS_STORAGE_KEY,
-      JSON.stringify({
-        autosaveEnabled: "1"
-      })
+    expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage)).toEqual(
+      DEFAULT_WORKSPACE_OPTION_SETTINGS
     );
-    expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage).autosaveEnabled).toBe(true);
   });
 });

@@ -3,8 +3,6 @@ import { createSeedAreaScene } from "../../../../src/modules/scene/sceneFactory"
 import {
   clearLocalSceneDraft,
   loadLocalSceneDraft,
-  loadLocalSceneAutosaves,
-  saveLocalSceneAutosave,
   saveLocalSceneDraft
 } from "../../../../src/modules/scene/localDraftStore";
 
@@ -34,18 +32,6 @@ describe("localDraftStore", () => {
     expect(loaded).toBeNull();
   });
 
-  it("stores autosave snapshots with max-entries eviction", () => {
-    const scene = createSeedAreaScene();
-    saveLocalSceneAutosave(userId, { ...scene, areaName: "A" }, window.localStorage, 2);
-    saveLocalSceneAutosave(userId, { ...scene, areaName: "B" }, window.localStorage, 2);
-    saveLocalSceneAutosave(userId, { ...scene, areaName: "C" }, window.localStorage, 2);
-
-    const autosaves = loadLocalSceneAutosaves(userId, window.localStorage);
-    expect(autosaves).toHaveLength(2);
-    expect(autosaves[0]?.areaName).toBe("C");
-    expect(autosaves[1]?.areaName).toBe("B");
-  });
-
   it("keeps drafts isolated per user", () => {
     const scene = createSeedAreaScene();
     saveLocalSceneDraft("u_a", { ...scene, areaName: "Area A" }, window.localStorage);
@@ -58,15 +44,4 @@ describe("localDraftStore", () => {
     expect(draftB?.areaName).toBe("Area B");
   });
 
-  it("returns autosave clones so consumer mutation does not corrupt storage", () => {
-    const scene = createSeedAreaScene();
-    saveLocalSceneAutosave(userId, { ...scene, areaName: "Snapshot A" }, window.localStorage, 3);
-
-    const autosaves = loadLocalSceneAutosaves(userId, window.localStorage);
-    expect(autosaves).toHaveLength(1);
-    autosaves[0]!.areaName = "MUTATED";
-
-    const reloaded = loadLocalSceneAutosaves(userId, window.localStorage);
-    expect(reloaded[0]?.areaName).toBe("Snapshot A");
-  });
 });
