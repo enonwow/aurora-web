@@ -15,8 +15,14 @@
     "src/modules/layout/workspaceOptionSettings.ts",
     "src/modules/layout/viewportPointerPolicy.ts",
     "src/modules/scene/adapters/localDraftStore.ts",
+    "src/modules/scene/adapters/localStorageSceneDraftPort.ts",
     "src/modules/scene/domain/sceneHistory.ts",
-    "src/modules/scene/application/sceneAuthoringFacade.ts"
+    "src/modules/scene/application/sceneAuthoringFacade.ts",
+    "src/modules/scene/application/sceneCanvasFacade.ts",
+    "src/modules/scene/application/sceneFacadeBundle.ts",
+    "src/modules/scene/application/sceneViewportPort.ts",
+    "src/modules/scene/composition/createBrowserSceneFacadeBundle.ts",
+    "src/modules/scene/composition/createBrowserSceneViewportPort.ts"
   ],
   "ignorePatterns": ["dist/**", "coverage/**"],
   "timeoutMS": 10000

@@ -1,54 +1,28 @@
-export type TelemetryPayload = Record<
-  string,
-  string | number | boolean | null | undefined
->;
+import { browserTelemetryFacade } from "./composition/browserTelemetrySingleton";
+import type {
+  TelemetryEvent,
+  TelemetryListener,
+  TelemetryPayload
+} from "./domain/telemetryEvent";
 
-export interface TelemetryEvent {
-  id: number;
-  name: string;
-  timestamp: string;
-  payload: TelemetryPayload;
-}
-
-type TelemetryListener = (events: TelemetryEvent[]) => void;
-
-let nextId = 1;
-let events: TelemetryEvent[] = [];
-const listeners = new Set<TelemetryListener>();
-
-function notifyListeners() {
-  const snapshot = [...events];
-  listeners.forEach((listener) => listener(snapshot));
-}
+export type { TelemetryEvent, TelemetryListener, TelemetryPayload };
+export { browserTelemetryFacade as telemetryFacade };
 
 export function trackTelemetry(
   name: string,
   payload: TelemetryPayload = {}
 ): TelemetryEvent {
-  const event: TelemetryEvent = {
-    id: nextId++,
-    name,
-    timestamp: new Date().toISOString(),
-    payload
-  };
-
-  events = [event, ...events];
-  notifyListeners();
-  return event;
+  return browserTelemetryFacade.track(name, payload);
 }
 
 export function getTelemetryEvents(): TelemetryEvent[] {
-  return [...events];
+  return browserTelemetryFacade.getEvents();
 }
 
 export function clearTelemetry() {
-  nextId = 1;
-  events = [];
-  notifyListeners();
+  browserTelemetryFacade.clear();
 }
 
 export function subscribeTelemetry(listener: TelemetryListener): () => void {
-  listeners.add(listener);
-  listener([...events]);
-  return () => listeners.delete(listener);
+  return browserTelemetryFacade.subscribe(listener);
 }

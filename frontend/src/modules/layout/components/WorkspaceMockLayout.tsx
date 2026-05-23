@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { UserRole } from "../../auth/contracts";
 import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
 import { createSceneAuthoringFacade } from "../../scene/application/sceneAuthoringFacade";
+import { createBrowserSceneViewportPort } from "../../scene/composition/createBrowserSceneViewportPort";
 import type {
   WorkspaceCommandSignal,
   WorkspaceToolbarState
@@ -159,6 +160,7 @@ export function WorkspaceMockLayout({
 }: WorkspaceMockLayoutProps) {
   const panels = workspaceChromeFacade.getRoleWorkspacePanels(role);
   const sceneAuthoringFacade = useMemo(() => createSceneAuthoringFacade(), []);
+  const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
   const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
     () => sceneAuthoringFacade.createSeedObjectsSnapshot()
   );
@@ -225,6 +227,7 @@ export function WorkspaceMockLayout({
         <WorkspaceCanvasViewport
           toolbarState={toolbarState}
           userId={userId}
+          sceneViewportPort={sceneViewportPort}
           commandSignal={commandSignal}
           sidebarSelectSignal={sidebarSelectSignal}
           sidebarContextMenuSignal={sidebarContextMenuSignal}

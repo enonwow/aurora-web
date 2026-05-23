@@ -146,6 +146,35 @@ describe("SceneObjectListPanel", () => {
     expect(onObjectSelect.mock.calls[0][1]?.allowedObjectIds.length).toBe(2);
   });
 
+  it("keeps category scope ids even when filtered rows are narrower", () => {
+    const onObjectSelect = vi.fn();
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        onObjectSelect={onObjectSelect}
+      />
+    );
+
+    const selector = screen.getByRole("combobox", { name: /object type selector/i });
+    const input = screen.getByRole("searchbox", { name: /filter objects/i });
+
+    fireEvent.change(selector, { target: { value: "sounds" } });
+    fireEvent.change(input, { target: { value: "caves" } });
+
+    const list = screen.getByRole("list", { name: /sounds list/i });
+    fireEvent.click(within(list).getByRole("button", { name: /sound_caves_02/i }));
+
+    expect(onObjectSelect).toHaveBeenCalledTimes(1);
+    expect(onObjectSelect.mock.calls[0][1]).toMatchObject({
+      sourceType: "sounds"
+    });
+    expect(onObjectSelect.mock.calls[0][1]?.allowedObjectIds.length).toBe(2);
+    expect(onObjectSelect.mock.calls[0][1]?.allowedObjectIds).toEqual(
+      expect.arrayContaining(["snd_amb_01", "snd_amb_02"])
+    );
+  });
+
   it("emits catalog scope updates for all and selected category", () => {
     const onCatalogScopeChange = vi.fn();
     render(

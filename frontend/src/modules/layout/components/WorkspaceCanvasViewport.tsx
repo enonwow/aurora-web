@@ -19,7 +19,7 @@ import type {
   TerrainBrushKind
 } from "../../scene/contracts";
 import { createViewportFacade } from "../application/viewportFacade";
-import { createBrowserSceneFacadeBundle } from "../../scene/composition/createBrowserSceneFacadeBundle";
+import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
 
 const viewportFacade = createViewportFacade();
@@ -27,6 +27,7 @@ const viewportFacade = createViewportFacade();
 interface WorkspaceCanvasViewportProps {
   toolbarState: WorkspaceToolbarState;
   userId: string;
+  sceneViewportPort: SceneViewportPort;
   commandSignal: WorkspaceCommandSignal | null;
   sidebarSelectSignal?: {
     revision: number;
@@ -863,6 +864,7 @@ function intersectionOnGround(runtime: RuntimeState, ndc: THREE.Vector2): THREE.
 export function WorkspaceCanvasViewport({
   toolbarState,
   userId,
+  sceneViewportPort,
   commandSignal,
   sidebarSelectSignal,
   sidebarContextMenuSignal,
@@ -884,13 +886,8 @@ export function WorkspaceCanvasViewport({
     frameCount: 0,
     lastTick: 0
   });
-  const sceneFacades = useMemo(() => createBrowserSceneFacadeBundle(), []);
-  const sceneCanvasFacade = sceneFacades.canvas;
-  const sceneHistoryFacade = sceneFacades.history;
-  const sceneMutationsFacade = sceneFacades.mutations;
-  const sceneAuthoringFacade = sceneFacades.authoring;
   const [sceneHistory, setSceneHistory] = useState<SceneHistoryState>(() =>
-    sceneCanvasFacade.createInitialHistory(userId)
+    sceneViewportPort.createInitialHistory(userId)
   );
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
@@ -1060,14 +1057,14 @@ export function WorkspaceCanvasViewport({
       const fallbackOffset = toolbarState.canvasDebug.snapGrid
         ? Math.max(0.1, workspaceOptions.snapGridStep)
         : 0.35;
-      return sceneAuthoringFacade.resolveCopyAnchor({
+      return sceneViewportPort.resolveCopyAnchor({
         cursorAnchor: lastPointerWorldRef.current,
         sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
         fallbackOffset
       });
     },
     [
-      sceneAuthoringFacade,
+      sceneViewportPort,
       toolbarState.canvasDebug.snapGrid,
       workspaceOptions.snapGridStep
     ]
@@ -1090,7 +1087,7 @@ export function WorkspaceCanvasViewport({
 
       const anchor = anchorOverride ?? resolveCopyAnchor(sourceObjects);
       const translation = anchor
-        ? sceneAuthoringFacade.computeCopyTranslation({
+        ? sceneViewportPort.computeCopyTranslation({
             sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
             anchor,
             snapGrid: toolbarState.canvasDebug.snapGrid,
@@ -1110,7 +1107,7 @@ export function WorkspaceCanvasViewport({
         const nextSequence = nextObjectSequenceRef.current;
         nextObjectSequenceRef.current += 1;
 
-        const copy = sceneAuthoringFacade.createObject(
+        const copy = sceneViewportPort.createObject(
           sourceObject.kind,
           sourceObject.x + translation.x,
           sourceObject.y + translation.y,
@@ -1131,9 +1128,9 @@ export function WorkspaceCanvasViewport({
       });
 
       setSceneHistory((current) =>
-        sceneHistoryFacade.commit(
+        sceneViewportPort.commitHistory(
           current,
-          sceneMutationsFacade.appendObjects(current.present, copies)
+          sceneViewportPort.appendObjects(current.present, copies)
         )
       );
       setSelectedObjectIds(copies.map((object) => object.id));
@@ -1150,9 +1147,7 @@ export function WorkspaceCanvasViewport({
     },
     [
       resolveCopyAnchor,
-      sceneAuthoringFacade,
-      sceneHistoryFacade,
-      sceneMutationsFacade,
+      sceneViewportPort,
       toolbarState.canvasDebug.snapAngle,
       toolbarState.canvasDebug.snapHeight,
       userId,
@@ -1216,9 +1211,9 @@ export function WorkspaceCanvasViewport({
 
       const idSet = new Set(deletableIds);
       setSceneHistory((current) =>
-        sceneHistoryFacade.commit(
+        sceneViewportPort.commitHistory(
           current,
-          sceneMutationsFacade.deleteObjectsByIds(current.present, deletableIds)
+          sceneViewportPort.deleteObjectsByIds(current.present, deletableIds)
         )
       );
       setSelectedObjectIds((current) => current.filter((id) => !idSet.has(id)));
@@ -1233,8 +1228,7 @@ export function WorkspaceCanvasViewport({
     [
       getUnlockedSelectedObjects,
       scene.objects,
-      sceneHistoryFacade,
-      sceneMutationsFacade,
+      sceneViewportPort,
       userId
     ]
   );
@@ -1368,11 +1362,11 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
-    setSceneHistory(sceneCanvasFacade.createInitialHistory(userId));
+    setSceneHistory(sceneViewportPort.createInitialHistory(userId));
     setSelectedObjectIds([]);
     setSelectedTileId(null);
     commandRevisionRef.current = 0;
-  }, [sceneCanvasFacade, userId]);
+  }, [sceneViewportPort, userId]);
 
   useEffect(() => {
     nextObjectSequenceRef.current = scene.objects.length + 1;
@@ -1405,7 +1399,7 @@ export function WorkspaceCanvasViewport({
     if (!runtime) {
       return;
     }
-    const sceneScale = sceneAuthoringFacade.getSceneScale(scene.width, scene.height);
+    const sceneScale = sceneViewportPort.getSceneScale(scene.width, scene.height);
 
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
     runtime.axesHelper.visible = toolbarState.canvasDebug.axes;
@@ -1424,7 +1418,7 @@ export function WorkspaceCanvasViewport({
     rebuildGridLayer(runtime, scene);
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
   }, [
-    sceneAuthoringFacade,
+    sceneViewportPort,
     scene,
     selectedObjectIds,
     selectedTileId,
@@ -1448,13 +1442,13 @@ export function WorkspaceCanvasViewport({
     commandRevisionRef.current = commandSignal.revision;
 
     if (commandSignal.actionKey === "undo") {
-      setSceneHistory((current) => sceneHistoryFacade.undo(current));
+      setSceneHistory((current) => sceneViewportPort.undoHistory(current));
       trackTelemetry("scene.undo", { userId });
       return;
     }
 
     if (commandSignal.actionKey === "redo") {
-      setSceneHistory((current) => sceneHistoryFacade.redo(current));
+      setSceneHistory((current) => sceneViewportPort.redoHistory(current));
       trackTelemetry("scene.redo", { userId });
       return;
     }
@@ -1473,7 +1467,7 @@ export function WorkspaceCanvasViewport({
 
     if (commandSignal.actionKey === "save_local_draft") {
       try {
-        sceneCanvasFacade.saveLocalDraft(userId, scene);
+        sceneViewportPort.saveLocalDraft(userId, scene);
         const savedAt = Date.now();
         setLastSavedAtUnixMs(savedAt);
         trackTelemetry("scene.save_local_draft", {
@@ -1664,8 +1658,7 @@ export function WorkspaceCanvasViewport({
     duplicateObjects,
     isSelectableByActiveFilters,
     scene,
-    sceneCanvasFacade,
-    sceneHistoryFacade,
+    sceneViewportPort,
     selectedObjectIds,
     toolbarState.canvasDebug,
     toolbarState.selectionScope,
@@ -1871,7 +1864,7 @@ export function WorkspaceCanvasViewport({
         setSelectedObjectIds([]);
 
         setSceneHistory((current) => {
-          const nextScene = sceneMutationsFacade.updateTileTerrain(
+          const nextScene = sceneViewportPort.updateTileTerrain(
             current.present,
             tile.id,
             terrainBrush
@@ -1886,7 +1879,7 @@ export function WorkspaceCanvasViewport({
             terrain: terrainBrush
           });
 
-          return sceneHistoryFacade.commit(current, nextScene);
+          return sceneViewportPort.commitHistory(current, nextScene);
         });
         return;
       }
@@ -1939,7 +1932,7 @@ export function WorkspaceCanvasViewport({
           ? snapGridValue(rawPlacementY, workspaceOptions.snapGridStep)
           : rawPlacementY;
 
-        const created = sceneAuthoringFacade.createObject(
+        const created = sceneViewportPort.createObject(
           kind,
           placementX,
           placementY,
@@ -1956,9 +1949,9 @@ export function WorkspaceCanvasViewport({
         }
 
         setSceneHistory((current) =>
-          sceneHistoryFacade.commit(
+          sceneViewportPort.commitHistory(
             current,
-            sceneMutationsFacade.appendObjects(current.present, [created])
+            sceneViewportPort.appendObjects(current.present, [created])
           )
         );
 
@@ -1989,9 +1982,7 @@ export function WorkspaceCanvasViewport({
       userId,
       visibleObjects,
       workspaceOptions,
-      sceneAuthoringFacade,
-      sceneHistoryFacade,
-      sceneMutationsFacade
+      sceneViewportPort
     ]
   );
 
@@ -2091,7 +2082,7 @@ export function WorkspaceCanvasViewport({
 
       if (action === "delete") {
         setSceneHistory((current) => {
-          const nextScene = sceneMutationsFacade.deleteObjectById(
+          const nextScene = sceneViewportPort.deleteObjectById(
             current.present,
             contextMenu.objectId
           );
@@ -2105,7 +2096,7 @@ export function WorkspaceCanvasViewport({
             objectKind: contextMenu.objectKind
           });
 
-          return sceneHistoryFacade.commit(current, nextScene);
+          return sceneViewportPort.commitHistory(current, nextScene);
         });
         setSelectedObjectIds((current) =>
           current.filter((selectedId) => selectedId !== contextMenu.objectId)
@@ -2156,14 +2147,14 @@ export function WorkspaceCanvasViewport({
         }
       } else if (action === "reset_transform") {
         setSceneHistory((current) => {
-          const nextScene = sceneMutationsFacade.resetObjectTransform(
+          const nextScene = sceneViewportPort.resetObjectTransform(
             current.present,
             contextObj.id
           );
           if (nextScene === current.present) {
             return current;
           }
-          return sceneHistoryFacade.commit(current, nextScene);
+          return sceneViewportPort.commitHistory(current, nextScene);
         });
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -2188,8 +2179,7 @@ export function WorkspaceCanvasViewport({
       duplicateObjects,
       focusCameraOnWorldPoint,
       scene.objects,
-      sceneHistoryFacade,
-      sceneMutationsFacade,
+      sceneViewportPort,
       toolbarState.canvasDebug,
       userId
     ]

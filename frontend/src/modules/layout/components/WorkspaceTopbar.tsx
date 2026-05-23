@@ -14,8 +14,10 @@ import {
   type WorkspaceOptionSettings
 } from "../application/layoutPreferencesFacade";
 import { createWorkspaceChromeFacade } from "../application/workspaceChromeFacade";
+import { createWorkspaceTopbarActionStateFacade } from "../application/workspaceTopbarActionStateFacade";
 
 const workspaceChromeFacade = createWorkspaceChromeFacade();
+const workspaceTopbarActionStateFacade = createWorkspaceTopbarActionStateFacade();
 
 interface WorkspaceTopbarProps {
   isAuthenticated: boolean;
@@ -39,161 +41,6 @@ function statusLabel(status: "mvp" | "post_mvp" | "pending_estimate"): string {
     return "Post-MVP";
   }
   return "Pending";
-}
-
-function isActionActive(
-  actionKey: ToolbarActionKey,
-  toolbarState: WorkspaceToolbarState
-): boolean {
-  if (
-    (toolbarState.selectionMode === "terrain" && actionKey === "select_terrain") ||
-    (toolbarState.selectionMode === "object" && actionKey === "select_object")
-  ) {
-    return true;
-  }
-
-  if (
-    (toolbarState.selectionScope === "all" && actionKey === "scope_all") ||
-    (toolbarState.selectionScope === "creatures" && actionKey === "scope_creatures") ||
-    (toolbarState.selectionScope === "doors" && actionKey === "scope_doors") ||
-    (toolbarState.selectionScope === "items" && actionKey === "scope_items") ||
-    (toolbarState.selectionScope === "placeables" && actionKey === "scope_placeables") ||
-    (toolbarState.selectionScope === "sounds" && actionKey === "scope_sounds")
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "show_creatures" && toolbarState.visibility.creatures) ||
-    (actionKey === "show_doors" && toolbarState.visibility.doors) ||
-    (actionKey === "show_items" && toolbarState.visibility.items) ||
-    (actionKey === "show_placeables" && toolbarState.visibility.placeables) ||
-    (actionKey === "show_sounds" && toolbarState.visibility.sounds)
-  ) {
-    return true;
-  }
-
-  if (
-    actionKey === "show_none" &&
-    !toolbarState.visibility.creatures &&
-    !toolbarState.visibility.doors &&
-    !toolbarState.visibility.items &&
-    !toolbarState.visibility.placeables &&
-    !toolbarState.visibility.sounds
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "debug_wireframe" && toolbarState.canvasDebug.wireframe) ||
-    (actionKey === "debug_textures" && toolbarState.canvasDebug.textures) ||
-    (actionKey === "debug_grid" && toolbarState.canvasDebug.grid) ||
-    (actionKey === "debug_axes" && toolbarState.canvasDebug.axes) ||
-    (actionKey === "debug_bounds" && toolbarState.canvasDebug.bounds) ||
-    (actionKey === "debug_hidden_meshes" && toolbarState.canvasDebug.hiddenMeshes) ||
-    (actionKey === "debug_show_non_render_meshes" &&
-      toolbarState.canvasDebug.showNonRenderMeshes)
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "debug_status_map_off" && toolbarState.canvasDebug.statusMap === "off") ||
-    (actionKey === "debug_status_map_placeables" &&
-      toolbarState.canvasDebug.statusMap === "placeables") ||
-    (actionKey === "debug_status_map_doors" &&
-      toolbarState.canvasDebug.statusMap === "doors") ||
-    (actionKey === "debug_status_map_creatures" &&
-      toolbarState.canvasDebug.statusMap === "creatures") ||
-    (actionKey === "debug_status_map_items" &&
-      toolbarState.canvasDebug.statusMap === "items") ||
-    (actionKey === "debug_status_map_sounds" &&
-      toolbarState.canvasDebug.statusMap === "sounds") ||
-    (actionKey === "debug_status_map_all" && toolbarState.canvasDebug.statusMap === "all")
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "debug_texture_compression_none" &&
-      toolbarState.canvasDebug.textureCompression === "none") ||
-    (actionKey === "debug_texture_compression_etc1s" &&
-      toolbarState.canvasDebug.textureCompression === "etc1s") ||
-    (actionKey === "debug_texture_compression_uastc" &&
-      toolbarState.canvasDebug.textureCompression === "uastc")
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "canvas_gizmo_translate" &&
-      toolbarState.canvasDebug.gizmoMode === "translate") ||
-    (actionKey === "canvas_gizmo_rotate" &&
-      toolbarState.canvasDebug.gizmoMode === "rotate") ||
-    (actionKey === "canvas_gizmo_scale" &&
-      toolbarState.canvasDebug.gizmoMode === "scale")
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "snap_grid_toggle" && toolbarState.canvasDebug.snapGrid) ||
-    (actionKey === "snap_angle_toggle" && toolbarState.canvasDebug.snapAngle) ||
-    (actionKey === "snap_height_toggle" && toolbarState.canvasDebug.snapHeight)
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "lock_creatures" && toolbarState.canvasDebug.lockedKinds.creatures) ||
-    (actionKey === "lock_doors" && toolbarState.canvasDebug.lockedKinds.doors) ||
-    (actionKey === "lock_items" && toolbarState.canvasDebug.lockedKinds.items) ||
-    (actionKey === "lock_placeables" && toolbarState.canvasDebug.lockedKinds.placeables) ||
-    (actionKey === "lock_sounds" && toolbarState.canvasDebug.lockedKinds.sounds)
-  ) {
-    return true;
-  }
-
-  if (
-    (actionKey === "isolate_creatures" && toolbarState.canvasDebug.isolateKind === "creatures") ||
-    (actionKey === "isolate_doors" && toolbarState.canvasDebug.isolateKind === "doors") ||
-    (actionKey === "isolate_items" && toolbarState.canvasDebug.isolateKind === "items") ||
-    (actionKey === "isolate_placeables" && toolbarState.canvasDebug.isolateKind === "placeables") ||
-    (actionKey === "isolate_sounds" && toolbarState.canvasDebug.isolateKind === "sounds")
-  ) {
-    return true;
-  }
-
-  if (
-    actionKey === "unlock_all_layers" &&
-    !toolbarState.canvasDebug.lockedKinds.creatures &&
-    !toolbarState.canvasDebug.lockedKinds.doors &&
-    !toolbarState.canvasDebug.lockedKinds.items &&
-    !toolbarState.canvasDebug.lockedKinds.placeables &&
-    !toolbarState.canvasDebug.lockedKinds.sounds
-  ) {
-    return true;
-  }
-
-  if (actionKey === "clear_isolation" && toolbarState.canvasDebug.isolateKind === "none") {
-    return true;
-  }
-
-  if (
-    (actionKey === "debug_chunks" && toolbarState.canvasDebug.chunkBounds) ||
-    (actionKey === "debug_object_labels" && toolbarState.canvasDebug.objectLabels) ||
-    (actionKey === "debug_perf_hud" && toolbarState.canvasDebug.perfHud) ||
-    (actionKey === "debug_controls_hint" && toolbarState.canvasDebug.controlsHint) ||
-    (actionKey === "debug_runtime_hud" && toolbarState.canvasDebug.runtimeHud) ||
-    (actionKey === "debug_walkmesh_overlay" &&
-      toolbarState.canvasDebug.walkmeshOverlay) ||
-    (actionKey === "debug_collision_overlay" &&
-      toolbarState.canvasDebug.collisionOverlay)
-  ) {
-    return true;
-  }
-
-  return false;
 }
 
 function resolveInitialGroup(groups: ToolbarGroup[]): string | null {
@@ -450,7 +297,9 @@ export function WorkspaceTopbar({
       return (
         <button
           className={`topbar-nav-btn topbar-nav-btn-compact ${
-            isActionActive(action.key, toolbarState) ? "is-active" : ""
+            workspaceTopbarActionStateFacade.isActionActive(action.key, toolbarState)
+              ? "is-active"
+              : ""
           }`}
           type="button"
           key={action.key}
@@ -597,7 +446,11 @@ export function WorkspaceTopbar({
               <button
                 key={action.key}
                 type="button"
-                className={`topbar-btn ${isActionActive(action.key, toolbarState) ? "is-active" : ""}`}
+                className={`topbar-btn ${
+                  workspaceTopbarActionStateFacade.isActionActive(action.key, toolbarState)
+                    ? "is-active"
+                    : ""
+                }`}
                 onClick={() => onAction(action.key)}
                 title={`${action.label} (${statusLabel(action.status)})`}
               >
@@ -650,7 +503,11 @@ export function WorkspaceTopbar({
                 <div className="topbar-nav-buttons">
                   {activeGroup.actions.map((action) => (
                     <button
-                      className={`topbar-nav-btn ${isActionActive(action.key, toolbarState) ? "is-active" : ""}`}
+                      className={`topbar-nav-btn ${
+                        workspaceTopbarActionStateFacade.isActionActive(action.key, toolbarState)
+                          ? "is-active"
+                          : ""
+                      }`}
                       type="button"
                       key={action.key}
                       onClick={() => onAction(action.key)}

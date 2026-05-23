@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
 import { trackTelemetry } from "../../telemetry/telemetryStore";
+import {
+  createSceneObjectCatalogQueryFacade,
+  type SceneObjectCatalogType
+} from "../application/sceneObjectCatalogQueryFacade";
+
+const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
 
 interface SceneObjectListPanelProps {
   userId: string;
@@ -25,96 +31,7 @@ interface SceneObjectListPanelProps {
   ) => void;
 }
 
-export type SceneObjectCatalogType =
-  | "all"
-  | "placeables"
-  | "creatures"
-  | "doors"
-  | "items"
-  | "sounds"
-  | "vfx"
-  | "encounters"
-  | "triggers"
-  | "waypoints"
-  | "stores"
-  | "ground_items";
-
-interface SceneObjectCatalogDefinition {
-  key: SceneObjectCatalogType;
-  label: string;
-  tier: "mvp" | "post_mvp";
-}
-
-const CATALOG_TYPES: SceneObjectCatalogDefinition[] = [
-  {
-    key: "all",
-    label: "All",
-    tier: "mvp"
-  },
-  {
-    key: "placeables",
-    label: "Placeables",
-    tier: "mvp"
-  },
-  {
-    key: "creatures",
-    label: "Creatures",
-    tier: "mvp"
-  },
-  {
-    key: "doors",
-    label: "Doors",
-    tier: "mvp"
-  },
-  {
-    key: "items",
-    label: "Items",
-    tier: "mvp"
-  },
-  {
-    key: "sounds",
-    label: "Sounds",
-    tier: "mvp"
-  },
-  {
-    key: "vfx",
-    label: "VFX",
-    tier: "post_mvp"
-  },
-  {
-    key: "encounters",
-    label: "Encounters",
-    tier: "post_mvp"
-  },
-  {
-    key: "triggers",
-    label: "Triggers",
-    tier: "post_mvp"
-  },
-  {
-    key: "waypoints",
-    label: "Waypoints",
-    tier: "post_mvp"
-  },
-  {
-    key: "stores",
-    label: "Stores",
-    tier: "post_mvp"
-  },
-  {
-    key: "ground_items",
-    label: "Ground Items",
-    tier: "post_mvp"
-  }
-];
-
-const SUPPORTED_KIND_SET = new Set<SceneObjectKind>([
-  "placeables",
-  "creatures",
-  "doors",
-  "items",
-  "sounds"
-]);
+export type { SceneObjectCatalogType };
 
 const KIND_BADGE: Record<SceneObjectKind, string> = {
   placeables: "PLC",
@@ -158,10 +75,6 @@ function createPreviewDataUrl(kind: SceneObjectKind, label: string): string {
   return `data:image/svg+xml,${encodeSvg(svg)}`;
 }
 
-function normalizeKind(kind: SceneObjectKind): SceneObjectCatalogType {
-  return SUPPORTED_KIND_SET.has(kind) ? kind : "vfx";
-}
-
 function trimTagForPreview(tag: string): string {
   return tag.slice(0, 8).toUpperCase();
 }
@@ -177,53 +90,24 @@ export function SceneObjectListPanel({
   const [activeType, setActiveType] = useState<SceneObjectCatalogType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
-
-  const grouped = useMemo(() => {
-    const rows: Record<SceneObjectCatalogType, SceneObject[]> = {
-      all: [],
-      placeables: [],
-      creatures: [],
-      doors: [],
-      items: [],
-      sounds: [],
-      vfx: [],
-      encounters: [],
-      triggers: [],
-      waypoints: [],
-      stores: [],
-      ground_items: []
-    };
-
-    objects.forEach((object) => {
-      rows.all.push(object);
-      rows[normalizeKind(object.kind)].push(object);
-    });
-
-    return rows;
-  }, [objects]);
-
-  const activeRows = grouped[activeType] ?? [];
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredRows = useMemo(() => {
-    if (!normalizedQuery) {
-      return activeRows;
-    }
-    return activeRows.filter((object) => {
-      const tag = object.tag.toLowerCase();
-      const resRef = object.resRef.toLowerCase();
-      return tag.includes(normalizedQuery) || resRef.includes(normalizedQuery);
-    });
-  }, [activeRows, normalizedQuery]);
-
-  const activeDefinition =
-    CATALOG_TYPES.find((entry) => entry.key === activeType) ?? CATALOG_TYPES[0];
-  const mvpTypes = CATALOG_TYPES.filter((entry) => entry.tier === "mvp");
-  const postMvpTypes = CATALOG_TYPES.filter((entry) => entry.tier === "post_mvp");
-  const totalCount = objects.length;
-  const allowedObjectIds = useMemo(
-    () => activeRows.map((object) => object.id),
-    [activeRows]
+  const catalogViewModel = useMemo(
+    () =>
+      sceneObjectCatalogQueryFacade.query({
+        objects,
+        activeType,
+        searchQuery
+      }),
+    [activeType, objects, searchQuery]
   );
+  const {
+    groupedRows,
+    filteredRows,
+    allowedObjectIds,
+    activeDefinition,
+    mvpTypes,
+    postMvpTypes,
+    totalCount
+  } = catalogViewModel;
 
   useEffect(() => {
     onCatalogScopeChange?.({
@@ -246,7 +130,7 @@ export function SceneObjectListPanel({
           value={activeType}
           onChange={(event) => {
             const nextType = event.target.value as SceneObjectCatalogType;
-            const count = grouped[nextType]?.length ?? 0;
+            const count = groupedRows[nextType]?.length ?? 0;
             setActiveType(nextType);
             trackTelemetry("ui.workspace.scene_objects.type_changed", {
               userId,
@@ -258,7 +142,7 @@ export function SceneObjectListPanel({
         >
           <optgroup label="MVP">
             {mvpTypes.map((entry) => {
-              const count = grouped[entry.key]?.length ?? 0;
+              const count = groupedRows[entry.key]?.length ?? 0;
               return (
                 <option value={entry.key} key={entry.key}>
                   {entry.label} ({count})
@@ -268,7 +152,7 @@ export function SceneObjectListPanel({
           </optgroup>
           <optgroup label="Post-MVP">
             {postMvpTypes.map((entry) => {
-              const count = grouped[entry.key]?.length ?? 0;
+              const count = groupedRows[entry.key]?.length ?? 0;
               return (
                 <option value={entry.key} key={entry.key}>
                   {entry.label} ({count})

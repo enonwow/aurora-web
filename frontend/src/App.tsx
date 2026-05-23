@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { getAuthBenchmarks } from "./modules/auth/authBenchmarks";
+import { browserAppDependencies } from "./modules/auth/composition/createBrowserAppDependencies";
 import type {
   AuthSession,
   AuthorizationResponse,
   UserRole,
   IAuthFacade
 } from "./modules/auth/contracts";
-import { mockAuthFacade } from "./modules/auth/mockAuthFacade";
-import {
-  getTelemetryEvents,
-  subscribeTelemetry,
-  trackTelemetry
-} from "./modules/telemetry/telemetryStore";
-import type { TelemetryEvent } from "./modules/telemetry/telemetryStore";
+import type { TelemetryFacade } from "./modules/telemetry/application/telemetryFacade";
+import type { TelemetryEvent } from "./modules/telemetry/domain/telemetryEvent";
 import { WorkspaceTopbar } from "./modules/layout/components/WorkspaceTopbar";
 import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLayout";
 import {
@@ -41,9 +37,11 @@ function averageDurationMs(values: number[]): string {
 }
 
 export default function App({
-  authFacade = mockAuthFacade
+  authFacade = browserAppDependencies.authFacade,
+  telemetryFacade = browserAppDependencies.telemetryFacade
 }: {
   authFacade?: IAuthFacade;
+  telemetryFacade?: TelemetryFacade;
 }) {
   const layoutFacades = useMemo(
     () =>
@@ -69,7 +67,9 @@ export default function App({
     layoutFacades.chrome.createDefaultToolbarState()
   );
   const [commandSignal, setCommandSignal] = useState<WorkspaceCommandSignal | null>(null);
-  const [events, setEvents] = useState<TelemetryEvent[]>(() => getTelemetryEvents());
+  const [events, setEvents] = useState<TelemetryEvent[]>(() =>
+    telemetryFacade.getEvents()
+  );
   const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(() =>
     layoutFacades.preferences.loadLayoutSettings()
   );
@@ -80,15 +80,15 @@ export default function App({
   const navigate = useCallback((nextRoute: AppRoute) => {
     window.history.pushState({}, "", nextRoute);
     setRoute(nextRoute);
-    trackTelemetry("route.changed", { route: nextRoute });
-  }, []);
+    telemetryFacade.track("route.changed", { route: nextRoute });
+  }, [telemetryFacade]);
 
   useEffect(() => {
-    const unsubscribe = subscribeTelemetry((incomingEvents) => {
+    const unsubscribe = telemetryFacade.subscribe((incomingEvents) => {
       setEvents(incomingEvents);
     });
     return unsubscribe;
-  }, []);
+  }, [telemetryFacade]);
 
   useEffect(() => {
     layoutFacades.preferences.persistLayoutSettings(layoutSettings);
@@ -120,17 +120,17 @@ export default function App({
       window.history.replaceState({}, "", normalized);
     }
     setRoute(normalized);
-    trackTelemetry("route.changed", { route: normalized });
+    telemetryFacade.track("route.changed", { route: normalized });
 
     const onPopState = () => {
       const next = resolveRoute(window.location.pathname);
       setRoute(next);
-      trackTelemetry("route.changed.popstate", { route: next });
+      telemetryFacade.track("route.changed.popstate", { route: next });
     };
 
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [telemetryFacade]);
 
   const isMainView = Boolean(session) && Boolean(authorization) && route === "/app";
   const currentRole: UserRole | undefined = authorization?.role;
@@ -139,21 +139,23 @@ export default function App({
     if (route === "/app" && !isMainView) {
       window.history.replaceState({}, "", "/login");
       setRoute("/login");
-      trackTelemetry("route.guard.redirect_anonymous", {
+      telemetryFacade.track("route.guard.redirect_anonymous", {
         from: "/app",
         to: "/login"
       });
     }
-  }, [isMainView, route]);
+  }, [isMainView, route, telemetryFacade]);
 
   const handleSignIn = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      trackTelemetry("ui.auth.login_submit", { route });
+      telemetryFacade.track("ui.auth.login_submit", { route });
 
       if (!username.trim() || !password.trim()) {
         setAuthError("Username and password are required.");
-        trackTelemetry("ui.auth.login_blocked", { reason: "EMPTY_CREDENTIALS" });
+        telemetryFacade.track("ui.auth.login_blocked", {
+          reason: "EMPTY_CREDENTIALS"
+        });
         return;
       }
 
@@ -168,7 +170,9 @@ export default function App({
 
         if (!authResult.ok) {
           setAuthError(authResult.error.message);
-          trackTelemetry("ui.auth.login_failed", { code: authResult.error.code });
+          telemetryFacade.track("ui.auth.login_failed", {
+            code: authResult.error.code
+          });
           return;
         }
 
@@ -183,13 +187,21 @@ export default function App({
         setAuthorization(authz);
         setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
         setCommandSignal(null);
-        trackTelemetry("ui.auth.login_success", { role: authz.role });
+        telemetryFacade.track("ui.auth.login_success", { role: authz.role });
         navigate("/app");
       } finally {
         setIsSigningIn(false);
       }
     },
-    [authFacade, layoutFacades, navigate, password, route, username]
+    [
+      authFacade,
+      layoutFacades,
+      navigate,
+      password,
+      route,
+      telemetryFacade,
+      username
+    ]
   );
 
   const handleSignOut = useCallback(async () => {
@@ -206,9 +218,9 @@ export default function App({
     setAuthError(null);
     setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
     setCommandSignal(null);
-    trackTelemetry("ui.auth.logout", { route });
+    telemetryFacade.track("ui.auth.logout", { route });
     navigate("/login");
-  }, [authFacade, layoutFacades, navigate, route, session]);
+  }, [authFacade, layoutFacades, navigate, route, session, telemetryFacade]);
 
   const handleToolbarAction = useCallback(
     (actionKey: ToolbarActionKey) => {
@@ -220,12 +232,12 @@ export default function App({
         revision: (current?.revision ?? 0) + 1,
         issuedAtUnixMs: Date.now()
       }));
-      trackTelemetry("ui.workspace.toolbar_action", {
+      telemetryFacade.track("ui.workspace.toolbar_action", {
         actionKey,
         role: currentRole ?? "anonymous"
       });
     },
-    [currentRole, layoutFacades]
+    [currentRole, layoutFacades, telemetryFacade]
   );
 
   const benchmarkSamples = getAuthBenchmarks();
@@ -253,7 +265,7 @@ export default function App({
         onWorkspaceOptionsChange={(patch) => {
           setWorkspaceOptions((current) => {
             const next = { ...current, ...patch };
-            trackTelemetry("ui.workspace.options.changed", patch);
+            telemetryFacade.track("ui.workspace.options.changed", patch);
             return next;
           });
         }}
@@ -276,7 +288,7 @@ export default function App({
             onToggleLeftCollapsed={() =>
               setLayoutSettings((current) => {
                 const nextCollapsed = !current.leftSidebarCollapsed;
-                trackTelemetry("ui.workspace.sidebar.left_toggle", {
+                telemetryFacade.track("ui.workspace.sidebar.left_toggle", {
                   collapsed: nextCollapsed
                 });
                 return {
@@ -288,7 +300,7 @@ export default function App({
             onToggleRightCollapsed={() =>
               setLayoutSettings((current) => {
                 const nextCollapsed = !current.rightSidebarCollapsed;
-                trackTelemetry("ui.workspace.sidebar.right_toggle", {
+                telemetryFacade.track("ui.workspace.sidebar.right_toggle", {
                   collapsed: nextCollapsed
                 });
                 return {

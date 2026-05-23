@@ -40,4 +40,14 @@ describe("createBrowserSceneFacadeBundle", () => {
     expect(history.present.objects).toHaveLength(scene.objects.length);
     expect(authored.id).toBe("sou_009");
   });
+
+  it("falls back to seed history when storage is unavailable", () => {
+    const bundle = createBrowserSceneFacadeBundle(null, () => 1700000000000);
+
+    const history = bundle.canvas.createInitialHistory("u_builder_001");
+
+    expect(history.present.source).toBe("seed");
+    expect(history.present.width).toBe(2);
+    expect(history.present.height).toBe(2);
+  });
 });
