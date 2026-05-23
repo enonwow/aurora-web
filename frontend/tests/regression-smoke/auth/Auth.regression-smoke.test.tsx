@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
@@ -130,8 +130,14 @@ describe("Regression smoke: auth shell behavior", () => {
 
     expect(screen.getByRole("note", { name: /controls hint/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/canvas runtime/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
-    fireEvent.click(screen.getByText(/advanced debug/i));
+    const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
+    fireEvent.click(canvasTab);
+    await waitFor(() => {
+      expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(await screen.findByLabelText(/canvas commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
+    const compactCommands = screen.getByLabelText(/canvas compact commands/i);
+    fireEvent.click(within(compactCommands).getByText(/advanced debug/i, { selector: "summary" }));
     fireEvent.click(screen.getByRole("button", { name: /controls hint/i }));
     fireEvent.click(screen.getByRole("button", { name: /runtime popup/i }));
     expect(screen.queryByRole("note", { name: /controls hint/i })).not.toBeInTheDocument();

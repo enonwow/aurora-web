@@ -32,16 +32,12 @@ import {
   createNewSceneObject
 } from "../../scene/sceneFactory";
 import { createSceneCanvasFacade } from "../../scene/application/sceneCanvasFacade";
+import { createSceneHistoryFacade } from "../../scene/application/sceneHistoryFacade";
 import { createLocalStorageSceneDraftPort } from "../../scene/adapters/localStorageSceneDraftPort";
 import {
   computeCopyTranslationVector,
   resolveCopyAnchorPoint
 } from "../../scene/copyPlacement";
-import {
-  commitSceneHistory,
-  redoSceneHistory,
-  undoSceneHistory
-} from "../../scene/sceneHistory";
 import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
 
 interface WorkspaceCanvasViewportProps {
@@ -967,6 +963,7 @@ export function WorkspaceCanvasViewport({
   });
 
   const sceneCanvasFacade = useMemo(() => createBrowserSceneCanvasFacade(), []);
+  const sceneHistoryFacade = useMemo(() => createSceneHistoryFacade(), []);
   const scene = sceneHistory.present;
 
   useEffect(() => {
@@ -1179,7 +1176,7 @@ export function WorkspaceCanvasViewport({
       });
 
       setSceneHistory((current) =>
-        commitSceneHistory(current, {
+        sceneHistoryFacade.commit(current, {
           ...current.present,
           objects: [...current.present.objects, ...copies]
         })
@@ -1198,6 +1195,7 @@ export function WorkspaceCanvasViewport({
     },
     [
       resolveCopyAnchor,
+      sceneHistoryFacade,
       toolbarState.canvasDebug.snapAngle,
       toolbarState.canvasDebug.snapHeight,
       userId,
@@ -1260,7 +1258,7 @@ export function WorkspaceCanvasViewport({
 
       const idSet = new Set(deletableIds);
       setSceneHistory((current) =>
-        commitSceneHistory(current, {
+        sceneHistoryFacade.commit(current, {
           ...current.present,
           objects: current.present.objects.filter((object) => !idSet.has(object.id))
         })
@@ -1274,7 +1272,7 @@ export function WorkspaceCanvasViewport({
       });
       return deletableIds.length;
     },
-    [getUnlockedSelectedObjects, scene.objects, userId]
+    [getUnlockedSelectedObjects, scene.objects, sceneHistoryFacade, userId]
   );
 
   useEffect(() => {
@@ -1484,13 +1482,13 @@ export function WorkspaceCanvasViewport({
     commandRevisionRef.current = commandSignal.revision;
 
     if (commandSignal.actionKey === "undo") {
-      setSceneHistory((current) => undoSceneHistory(current));
+      setSceneHistory((current) => sceneHistoryFacade.undo(current));
       trackTelemetry("scene.undo", { userId });
       return;
     }
 
     if (commandSignal.actionKey === "redo") {
-      setSceneHistory((current) => redoSceneHistory(current));
+      setSceneHistory((current) => sceneHistoryFacade.redo(current));
       trackTelemetry("scene.redo", { userId });
       return;
     }
@@ -1701,6 +1699,7 @@ export function WorkspaceCanvasViewport({
     isSelectableByActiveFilters,
     scene,
     sceneCanvasFacade,
+    sceneHistoryFacade,
     selectedObjectIds,
     toolbarState.canvasDebug,
     toolbarState.selectionScope,
@@ -1916,7 +1915,7 @@ export function WorkspaceCanvasViewport({
             terrain: terrainBrush
           });
 
-          return commitSceneHistory(current, {
+          return sceneHistoryFacade.commit(current, {
             ...current.present,
             tiles: nextTiles
           });
@@ -1989,7 +1988,7 @@ export function WorkspaceCanvasViewport({
         }
 
         setSceneHistory((current) =>
-          commitSceneHistory(current, {
+          sceneHistoryFacade.commit(current, {
             ...current.present,
             objects: [...current.present.objects, created]
           })
@@ -2021,7 +2020,8 @@ export function WorkspaceCanvasViewport({
       toolbarState.canvasDebug,
       userId,
       visibleObjects,
-      workspaceOptions
+      workspaceOptions,
+      sceneHistoryFacade
     ]
   );
 
@@ -2134,7 +2134,7 @@ export function WorkspaceCanvasViewport({
             objectKind: contextMenu.objectKind
           });
 
-          return commitSceneHistory(current, {
+          return sceneHistoryFacade.commit(current, {
             ...current.present,
             objects: nextObjects
           });
@@ -2204,7 +2204,7 @@ export function WorkspaceCanvasViewport({
                 }
               : object
           );
-          return commitSceneHistory(current, {
+          return sceneHistoryFacade.commit(current, {
             ...current.present,
             objects: nextObjects
           });
@@ -2232,6 +2232,7 @@ export function WorkspaceCanvasViewport({
       duplicateObjects,
       focusCameraOnWorldPoint,
       scene.objects,
+      sceneHistoryFacade,
       toolbarState.canvasDebug,
       userId
     ]

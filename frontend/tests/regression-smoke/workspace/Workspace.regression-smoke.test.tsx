@@ -7,6 +7,7 @@ import {
 import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
+import { loadLocalSceneDraft } from "../../../src/modules/scene/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -286,6 +287,89 @@ describe("Regression smoke: workspace interactions", () => {
         within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("supports undo and redo for copied object from canvas commands", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
+    fireEvent.click(canvasTab);
+    await waitFor(() => {
+      expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+    });
+    expect(await screen.findByLabelText(/canvas commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /copy sel/i }));
+
+    expect(
+      await within(rightSidebar).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
+
+    const quickActions = screen.getByLabelText(/quick actions/i);
+    fireEvent.click(within(quickActions).getByRole("button", { name: /^undo$/i }));
+    await waitFor(() => {
+      expect(
+        within(rightSidebar).queryByRole("button", {
+          name: /plc_barrel_01_copy/i
+        })
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(within(quickActions).getByRole("button", { name: /^redo$/i }));
+    expect(
+      await within(rightSidebar).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("saves local draft with copied object and restores it after relogin", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
+    fireEvent.click(canvasTab);
+    await waitFor(() => {
+      expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /copy sel/i }));
+    expect(
+      await within(rightSidebar).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
+    expect(
+      await screen.findByRole("button", { name: /save \(local draft\)/i }, { timeout: 5000 })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /save \(local draft\)/i }));
+
+    const draft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(draft).not.toBeNull();
+    expect(draft?.source).toBe("local_draft");
+    expect(draft?.objects.some((object) => object.tag.endsWith("_COPY"))).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
+
+    await signInAs("builder.user", "builder123");
+    const rightSidebarAfterRelog = screen.getByLabelText(/right sidebar/i);
+    expect(
+      await within(rightSidebarAfterRelog).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
   });
 
   it("supports ctrl multi-select from scene object list in all scope", async () => {
