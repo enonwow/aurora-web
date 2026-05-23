@@ -24,9 +24,13 @@ For each context in `src/modules/<context>` use:
 ## Current Migration Status
 1. `scene` started migration:
    - `application/sceneCanvasFacade.ts`
+   - `application/sceneHistoryFacade.ts`
+   - `application/sceneMutationsFacade.ts`
+   - `application/sceneFacadeBundle.ts`
    - `ports/sceneDraftPort.ts`
    - `adapters/localStorageSceneDraftPort.ts`
-2. `WorkspaceCanvasViewport` now uses scene facade for draft load/save flow.
+   - `composition/createBrowserSceneFacadeBundle.ts`
+2. `WorkspaceCanvasViewport` now consumes composed scene facades (canvas/history/mutations) and no longer imports adapters directly.
 
 ## Delivery Rules for New Changes
 1. Every new UI flow should start with/update a facade in `application/`.
@@ -36,4 +40,3 @@ For each context in `src/modules/<context>` use:
    - unit tests for application facades and domain logic,
    - targeted tests for adapters,
    - regression-smoke unchanged baseline must stay green.
-

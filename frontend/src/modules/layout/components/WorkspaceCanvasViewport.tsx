@@ -31,9 +31,7 @@ import {
   LEGACY_SEED_SCENE_HEIGHT_TILES,
   createNewSceneObject
 } from "../../scene/sceneFactory";
-import { createSceneCanvasFacade } from "../../scene/application/sceneCanvasFacade";
-import { createSceneHistoryFacade } from "../../scene/application/sceneHistoryFacade";
-import { createLocalStorageSceneDraftPort } from "../../scene/adapters/localStorageSceneDraftPort";
+import { createBrowserSceneFacadeBundle } from "../../scene/composition/createBrowserSceneFacadeBundle";
 import {
   computeCopyTranslationVector,
   resolveCopyAnchorPoint
@@ -222,18 +220,6 @@ function findTileAtWorld(scene: AreaScene, worldX: number, worldY: number): Scen
   }
 
   return scene.tiles.find((tile) => tile.col === col && tile.row === row) ?? null;
-}
-
-function createBrowserSceneCanvasFacade() {
-  const storage = typeof window === "undefined" ? null : window.localStorage;
-  return createSceneCanvasFacade({
-    draftPort: createLocalStorageSceneDraftPort(storage),
-    now: () => Date.now()
-  });
-}
-
-function initialSceneHistory(userId: string): SceneHistoryState {
-  return createBrowserSceneCanvasFacade().createInitialHistory(userId);
 }
 
 function resolveMockRenderStatus(object: SceneObject): MockRenderStatus {
@@ -935,8 +921,12 @@ export function WorkspaceCanvasViewport({
     frameCount: 0,
     lastTick: 0
   });
+  const sceneFacades = useMemo(() => createBrowserSceneFacadeBundle(), []);
+  const sceneCanvasFacade = sceneFacades.canvas;
+  const sceneHistoryFacade = sceneFacades.history;
+  const sceneMutationsFacade = sceneFacades.mutations;
   const [sceneHistory, setSceneHistory] = useState<SceneHistoryState>(() =>
-    initialSceneHistory(userId)
+    sceneCanvasFacade.createInitialHistory(userId)
   );
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
@@ -961,9 +951,6 @@ export function WorkspaceCanvasViewport({
     geometries: 0,
     textures: 0
   });
-
-  const sceneCanvasFacade = useMemo(() => createBrowserSceneCanvasFacade(), []);
-  const sceneHistoryFacade = useMemo(() => createSceneHistoryFacade(), []);
   const scene = sceneHistory.present;
 
   useEffect(() => {
@@ -1176,10 +1163,10 @@ export function WorkspaceCanvasViewport({
       });
 
       setSceneHistory((current) =>
-        sceneHistoryFacade.commit(current, {
-          ...current.present,
-          objects: [...current.present.objects, ...copies]
-        })
+        sceneHistoryFacade.commit(
+          current,
+          sceneMutationsFacade.appendObjects(current.present, copies)
+        )
       );
       setSelectedObjectIds(copies.map((object) => object.id));
       setSelectedTileId(null);
@@ -1196,6 +1183,7 @@ export function WorkspaceCanvasViewport({
     [
       resolveCopyAnchor,
       sceneHistoryFacade,
+      sceneMutationsFacade,
       toolbarState.canvasDebug.snapAngle,
       toolbarState.canvasDebug.snapHeight,
       userId,
@@ -1258,10 +1246,10 @@ export function WorkspaceCanvasViewport({
 
       const idSet = new Set(deletableIds);
       setSceneHistory((current) =>
-        sceneHistoryFacade.commit(current, {
-          ...current.present,
-          objects: current.present.objects.filter((object) => !idSet.has(object.id))
-        })
+        sceneHistoryFacade.commit(
+          current,
+          sceneMutationsFacade.deleteObjectsByIds(current.present, deletableIds)
+        )
       );
       setSelectedObjectIds((current) => current.filter((id) => !idSet.has(id)));
       setSelectedTileId(null);
@@ -1272,7 +1260,13 @@ export function WorkspaceCanvasViewport({
       });
       return deletableIds.length;
     },
-    [getUnlockedSelectedObjects, scene.objects, sceneHistoryFacade, userId]
+    [
+      getUnlockedSelectedObjects,
+      scene.objects,
+      sceneHistoryFacade,
+      sceneMutationsFacade,
+      userId
+    ]
   );
 
   useEffect(() => {
@@ -1404,11 +1398,11 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
-    setSceneHistory(initialSceneHistory(userId));
+    setSceneHistory(sceneCanvasFacade.createInitialHistory(userId));
     setSelectedObjectIds([]);
     setSelectedTileId(null);
     commandRevisionRef.current = 0;
-  }, [userId]);
+  }, [sceneCanvasFacade, userId]);
 
   useEffect(() => {
     nextObjectSequenceRef.current = scene.objects.length + 1;
@@ -1900,14 +1894,14 @@ export function WorkspaceCanvasViewport({
         setSelectedObjectIds([]);
 
         setSceneHistory((current) => {
-          const existing = current.present.tiles.find((entry) => entry.id === tile.id);
-          if (!existing || existing.terrain === terrainBrush) {
+          const nextScene = sceneMutationsFacade.updateTileTerrain(
+            current.present,
+            tile.id,
+            terrainBrush
+          );
+          if (nextScene === current.present) {
             return current;
           }
-
-          const nextTiles = current.present.tiles.map((entry) =>
-            entry.id === tile.id ? { ...entry, terrain: terrainBrush } : entry
-          );
 
           trackTelemetry("scene.tiles.paint", {
             userId,
@@ -1915,10 +1909,7 @@ export function WorkspaceCanvasViewport({
             terrain: terrainBrush
           });
 
-          return sceneHistoryFacade.commit(current, {
-            ...current.present,
-            tiles: nextTiles
-          });
+          return sceneHistoryFacade.commit(current, nextScene);
         });
         return;
       }
@@ -1988,10 +1979,10 @@ export function WorkspaceCanvasViewport({
         }
 
         setSceneHistory((current) =>
-          sceneHistoryFacade.commit(current, {
-            ...current.present,
-            objects: [...current.present.objects, created]
-          })
+          sceneHistoryFacade.commit(
+            current,
+            sceneMutationsFacade.appendObjects(current.present, [created])
+          )
         );
 
         setSelectedObjectIds([created.id]);
@@ -2021,7 +2012,8 @@ export function WorkspaceCanvasViewport({
       userId,
       visibleObjects,
       workspaceOptions,
-      sceneHistoryFacade
+      sceneHistoryFacade,
+      sceneMutationsFacade
     ]
   );
 
@@ -2121,10 +2113,11 @@ export function WorkspaceCanvasViewport({
 
       if (action === "delete") {
         setSceneHistory((current) => {
-          const nextObjects = current.present.objects.filter(
-            (object) => object.id !== contextMenu.objectId
+          const nextScene = sceneMutationsFacade.deleteObjectById(
+            current.present,
+            contextMenu.objectId
           );
-          if (nextObjects.length === current.present.objects.length) {
+          if (nextScene === current.present) {
             return current;
           }
 
@@ -2134,10 +2127,7 @@ export function WorkspaceCanvasViewport({
             objectKind: contextMenu.objectKind
           });
 
-          return sceneHistoryFacade.commit(current, {
-            ...current.present,
-            objects: nextObjects
-          });
+          return sceneHistoryFacade.commit(current, nextScene);
         });
         setSelectedObjectIds((current) =>
           current.filter((selectedId) => selectedId !== contextMenu.objectId)
@@ -2188,26 +2178,14 @@ export function WorkspaceCanvasViewport({
         }
       } else if (action === "reset_transform") {
         setSceneHistory((current) => {
-          const nextObjects = current.present.objects.map((object) =>
-            object.id === contextObj.id
-              ? {
-                  ...object,
-                  bearing: 0,
-                  visualTransform: {
-                    offsetX: 0,
-                    offsetY: 0,
-                    offsetZ: 0,
-                    pitch: 0,
-                    roll: 0,
-                    yaw: 0
-                  }
-                }
-              : object
+          const nextScene = sceneMutationsFacade.resetObjectTransform(
+            current.present,
+            contextObj.id
           );
-          return sceneHistoryFacade.commit(current, {
-            ...current.present,
-            objects: nextObjects
-          });
+          if (nextScene === current.present) {
+            return current;
+          }
+          return sceneHistoryFacade.commit(current, nextScene);
         });
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -2233,6 +2211,7 @@ export function WorkspaceCanvasViewport({
       focusCameraOnWorldPoint,
       scene.objects,
       sceneHistoryFacade,
+      sceneMutationsFacade,
       toolbarState.canvasDebug,
       userId
     ]
