@@ -16,6 +16,11 @@ const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "wall"
 ];
 
+export const LEGACY_SEED_SCENE_WIDTH_TILES = 18;
+export const LEGACY_SEED_SCENE_HEIGHT_TILES = 18;
+export const DEFAULT_SEED_SCENE_WIDTH_TILES = 2;
+export const DEFAULT_SEED_SCENE_HEIGHT_TILES = 2;
+
 function terrainByIndex(index: number): TerrainBrushKind {
   return TERRAIN_SEQUENCE[index % TERRAIN_SEQUENCE.length];
 }
@@ -34,7 +39,28 @@ function createTile(row: number, col: number): SceneTile {
   };
 }
 
-function createSeedObjects(): SceneObject[] {
+function scaleCoordinate(value: number, from: number, to: number): number {
+  if (from <= 0) {
+    return value;
+  }
+  return (value / from) * to;
+}
+
+export function rescaleSceneObjectsToSize(
+  objects: SceneObject[],
+  fromWidth: number,
+  fromHeight: number,
+  toWidth: number,
+  toHeight: number
+): SceneObject[] {
+  return objects.map((object) => ({
+    ...object,
+    x: scaleCoordinate(object.x, fromWidth, toWidth),
+    y: scaleCoordinate(object.y, fromHeight, toHeight)
+  }));
+}
+
+function createSeedObjects(width: number, height: number): SceneObject[] {
   const seedObjects: Array<
     Omit<SceneObject, "visualTransform" | "bearing" | "tag" | "resRef"> & {
       resRef: string;
@@ -58,6 +84,8 @@ function createSeedObjects(): SceneObject[] {
 
   return seedObjects.map((entry) => ({
     ...entry,
+    x: scaleCoordinate(entry.x, LEGACY_SEED_SCENE_WIDTH_TILES, width),
+    y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
     bearing: entry.bearing ?? 0,
     visualTransform: {
       offsetX: 0,
@@ -70,7 +98,10 @@ function createSeedObjects(): SceneObject[] {
   }));
 }
 
-export function createSeedAreaScene(width = 18, height = 18): AreaScene {
+export function createSeedAreaScene(
+  width = DEFAULT_SEED_SCENE_WIDTH_TILES,
+  height = DEFAULT_SEED_SCENE_HEIGHT_TILES
+): AreaScene {
   const tiles: SceneTile[] = [];
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
@@ -84,7 +115,7 @@ export function createSeedAreaScene(width = 18, height = 18): AreaScene {
     width,
     height,
     tiles,
-    objects: createSeedObjects(),
+    objects: createSeedObjects(width, height),
     updatedAtUnixMs: Date.now(),
     source: "seed"
   };

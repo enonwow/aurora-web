@@ -23,8 +23,17 @@ import {
   isCtrlPanGesture
 } from "../viewportPointerPolicy";
 import {
+  buildCanvasGridSegments,
+  MASTER_CELLS_PER_TILE
+} from "../canvasGrid";
+import {
+  DEFAULT_SEED_SCENE_HEIGHT_TILES,
+  DEFAULT_SEED_SCENE_WIDTH_TILES,
+  LEGACY_SEED_SCENE_HEIGHT_TILES,
+  LEGACY_SEED_SCENE_WIDTH_TILES,
   createNewSceneObject,
-  createSeedAreaScene
+  createSeedAreaScene,
+  rescaleSceneObjectsToSize
 } from "../../scene/sceneFactory";
 import {
   computeCopyTranslationVector,
@@ -102,7 +111,7 @@ interface RuntimeState {
   boundsHelpers: THREE.BoxHelper[];
   chunkLayer: THREE.Group;
   gizmoLayer: THREE.Group;
-  gridHelper: THREE.GridHelper;
+  gridLayer: THREE.Group;
   axesHelper: THREE.AxesHelper;
   frameId: number | null;
   resizeObserver: ResizeObserver | null;
@@ -121,13 +130,14 @@ interface CameraBookmark {
   target: THREE.Vector3;
 }
 
-const MIN_ZOOM_DISTANCE = 6;
-const MAX_ZOOM_DISTANCE = 120;
-const WORLD_OBJECT_Y = 0.33;
+const MIN_ZOOM_DISTANCE = 1.2;
+const MAX_ZOOM_DISTANCE = 220;
+const WORLD_OBJECT_Y = 0.2;
 const TILE_GEOMETRY_Y = 0;
 const LIGHT_COLOR = 0xffffff;
 const BACKGROUND_COLOR = 0x0c1420;
 const ORBIT_MOUSE_DISABLED = -1 as unknown as THREE.MOUSE;
+const BASE_AXES_HELPER_SIZE = 4.2;
 
 const OBJECT_KIND_BY_SCOPE: Partial<Record<SelectionScope, SceneObjectKind>> = {
   creatures: "creatures",
@@ -229,7 +239,36 @@ function initialSceneHistory(userId: string): SceneHistoryState {
   const fallback = createSeedAreaScene();
   try {
     const draft = loadLocalSceneDraft(userId, window.localStorage);
-    return createSceneHistory(draft ?? fallback);
+    if (!draft) {
+      return createSceneHistory(fallback);
+    }
+
+    if (
+      draft.sceneId === fallback.sceneId &&
+      draft.width === LEGACY_SEED_SCENE_WIDTH_TILES &&
+      draft.height === LEGACY_SEED_SCENE_HEIGHT_TILES
+    ) {
+      const migratedSeed = createSeedAreaScene(
+        DEFAULT_SEED_SCENE_WIDTH_TILES,
+        DEFAULT_SEED_SCENE_HEIGHT_TILES
+      );
+      return createSceneHistory({
+        ...draft,
+        width: migratedSeed.width,
+        height: migratedSeed.height,
+        tiles: migratedSeed.tiles,
+        objects: rescaleSceneObjectsToSize(
+          draft.objects,
+          draft.width,
+          draft.height,
+          migratedSeed.width,
+          migratedSeed.height
+        ),
+        updatedAtUnixMs: Date.now()
+      });
+    }
+
+    return createSceneHistory(draft);
   } catch {
     return createSceneHistory(fallback);
   }
@@ -278,7 +317,7 @@ function snapGridValue(value: number, step: number): number {
   return Math.round(value / normalizedStep) * normalizedStep;
 }
 
-function createTextSprite(text: string): THREE.Sprite {
+function createTextSprite(text: string, scaleFactor = 1): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 96;
@@ -305,7 +344,7 @@ function createTextSprite(text: string): THREE.Sprite {
     depthTest: false
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.6, 0.6, 1);
+  sprite.scale.set(1.6 * scaleFactor, 0.6 * scaleFactor, 1);
   sprite.renderOrder = 1000;
   return sprite;
 }
@@ -318,6 +357,61 @@ function applyOrbitPointerBindings(
   controls.mouseButtons.LEFT = ORBIT_MOUSE_DISABLED;
   controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
   controls.mouseButtons.RIGHT = options.ctrlPanEnabled ? THREE.MOUSE.PAN : ORBIT_MOUSE_DISABLED;
+}
+
+function disposeGridLayer(gridLayer: THREE.Group): void {
+  gridLayer.children.forEach((child) => {
+    if (child instanceof THREE.LineSegments) {
+      child.geometry.dispose();
+      const material = child.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+    }
+  });
+  gridLayer.clear();
+}
+
+function rebuildGridLayer(runtime: RuntimeState, sceneData: AreaScene): void {
+  disposeGridLayer(runtime.gridLayer);
+
+  const segments = buildCanvasGridSegments(
+    sceneData.width,
+    sceneData.height,
+    MASTER_CELLS_PER_TILE
+  );
+
+  const majorPoints: number[] = [];
+  const minorPoints: number[] = [];
+
+  segments.forEach((segment) => {
+    const target = segment.kind === "major" ? majorPoints : minorPoints;
+    target.push(...segment.start, ...segment.end);
+  });
+
+  const minorGeometry = new THREE.BufferGeometry();
+  minorGeometry.setAttribute("position", new THREE.Float32BufferAttribute(minorPoints, 3));
+  const minorMaterial = new THREE.LineBasicMaterial({
+    color: 0x1e3551,
+    transparent: true,
+    opacity: 0.86
+  });
+  const minorLines = new THREE.LineSegments(minorGeometry, minorMaterial);
+  minorLines.position.set(0, -0.003, 0);
+  runtime.gridLayer.add(minorLines);
+
+  const majorGeometry = new THREE.BufferGeometry();
+  majorGeometry.setAttribute("position", new THREE.Float32BufferAttribute(majorPoints, 3));
+  const majorMaterial = new THREE.LineBasicMaterial({
+    color: 0x2a4c73,
+    transparent: true,
+    opacity: 0.96
+  });
+  const majorLines = new THREE.LineSegments(majorGeometry, majorMaterial);
+  majorLines.position.set(0, -0.002, 0);
+  runtime.gridLayer.add(majorLines);
 }
 
 function createRuntime(container: HTMLDivElement): RuntimeState {
@@ -354,11 +448,11 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
   scene.add(ambient);
   scene.add(directional);
 
-  const gridHelper = new THREE.GridHelper(120, 120, 0x2a4c73, 0x1e3551);
-  gridHelper.position.set(0, -0.002, 0);
-  scene.add(gridHelper);
+  const gridLayer = new THREE.Group();
+  gridLayer.name = "scene-grid";
+  scene.add(gridLayer);
 
-  const axesHelper = new THREE.AxesHelper(4.2);
+  const axesHelper = new THREE.AxesHelper(BASE_AXES_HELPER_SIZE);
   axesHelper.position.set(0, 0.02, 0);
   scene.add(axesHelper);
 
@@ -394,7 +488,7 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
     boundsHelpers: [],
     chunkLayer,
     gizmoLayer,
-    gridHelper,
+    gridLayer,
     axesHelper,
     frameId: null,
     resizeObserver: null
@@ -443,6 +537,7 @@ function disposeRuntime(runtime: RuntimeState): void {
     }
   });
   runtime.chunkLayer.clear();
+  disposeGridLayer(runtime.gridLayer);
   runtime.gizmoLayer.children.forEach((child) => {
     if ("geometry" in child && (child as THREE.Mesh).geometry) {
       (child as THREE.Mesh).geometry.dispose();
@@ -475,7 +570,10 @@ function centerCameraForScene(runtime: RuntimeState, sceneData: AreaScene): void
   const centerX = sceneData.width / 2;
   const centerY = sceneData.height / 2;
   const span = Math.max(sceneData.width, sceneData.height);
-  const distance = Math.max(16, span * 1.55);
+  const distance = Math.max(3.2, span * 1.55);
+
+  runtime.controls.minDistance = Math.max(0.75, span * 0.32);
+  runtime.controls.maxDistance = Math.max(36, span * 12);
 
   runtime.controls.target.set(centerX, 0, centerY);
   runtime.camera.position.set(centerX + distance * 0.78, distance * 0.92, centerY + distance * 0.78);
@@ -577,12 +675,27 @@ function rebuildTerrainMesh(
 
 function rebuildObjectMeshes(
   runtime: RuntimeState,
+  sceneData: AreaScene,
   objects: SceneObject[],
   selectedObjectIds: string[],
   debugState: DebugState
 ): void {
   clearObjectLayer(runtime);
   const selectedSet = new Set(selectedObjectIds);
+  const markerScale = THREE.MathUtils.clamp(
+    Math.min(
+      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
+      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
+    ),
+    0.08,
+    1
+  );
+  const objectRadius = 0.24 * markerScale;
+  const collisionRadius = 0.33 * markerScale;
+  const collisionThickness = Math.max(0.014, 0.04 * markerScale);
+  const labelScale = markerScale;
+  const labelHeight = objectRadius + 0.08 * markerScale;
+  const objectBaseY = objectRadius + 0.012;
 
   objects.forEach((object) => {
     const renderStatus = resolveMockRenderStatus(object);
@@ -595,7 +708,7 @@ function rebuildObjectMeshes(
       return;
     }
 
-    const geometry = new THREE.SphereGeometry(0.26, 22, 22);
+    const geometry = new THREE.SphereGeometry(objectRadius, 22, 22);
     let colorHex = OBJECT_COLORS[object.kind];
     const isStatusMapped =
       debugState.statusMap !== "off" &&
@@ -622,7 +735,7 @@ function rebuildObjectMeshes(
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(
       object.x + object.visualTransform.offsetX,
-      WORLD_OBJECT_Y + object.visualTransform.offsetZ,
+      objectBaseY + object.visualTransform.offsetZ,
       object.y + object.visualTransform.offsetY
     );
     mesh.rotation.y = object.bearing + object.visualTransform.yaw;
@@ -639,7 +752,7 @@ function rebuildObjectMeshes(
     };
 
     if (debugState.collisionOverlay) {
-      const collisionGeometry = new THREE.TorusGeometry(0.36, 0.04, 8, 24);
+      const collisionGeometry = new THREE.TorusGeometry(collisionRadius, collisionThickness, 8, 24);
       const collisionMaterial = new THREE.MeshBasicMaterial({
         color: new THREE.Color("#ff8c4d"),
         transparent: true,
@@ -655,8 +768,8 @@ function rebuildObjectMeshes(
     runtime.objectMeshById.set(object.id, mesh);
 
     if (debugState.objectLabels) {
-      const labelSprite = createTextSprite(OBJECT_LABELS[object.kind]);
-      labelSprite.position.set(0, 0.56, 0);
+      const labelSprite = createTextSprite(OBJECT_LABELS[object.kind], labelScale);
+      labelSprite.position.set(0, labelHeight, 0);
       mesh.add(labelSprite);
     }
 
@@ -667,6 +780,22 @@ function rebuildObjectMeshes(
       runtime.boundsHelpers.push(boundsHelper);
     }
   });
+}
+
+function updateAxesHelperForScene(runtime: RuntimeState, sceneData: AreaScene): void {
+  const sceneScale = THREE.MathUtils.clamp(
+    Math.min(
+      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
+      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
+    ),
+    0.08,
+    1
+  );
+  const axesSize = THREE.MathUtils.clamp(BASE_AXES_HELPER_SIZE * sceneScale, 0.34, BASE_AXES_HELPER_SIZE);
+  const axesScale = axesSize / BASE_AXES_HELPER_SIZE;
+
+  runtime.axesHelper.position.set(sceneData.width / 2, 0.02, sceneData.height / 2);
+  runtime.axesHelper.scale.setScalar(axesScale);
 }
 
 function rebuildChunkBounds(runtime: RuntimeState, sceneData: AreaScene, enabled: boolean): void {
@@ -706,6 +835,7 @@ function rebuildChunkBounds(runtime: RuntimeState, sceneData: AreaScene, enabled
 
 function rebuildGizmoOverlay(
   runtime: RuntimeState,
+  sceneData: AreaScene,
   selectedObjectIds: string[],
   debugState: DebugState
 ): void {
@@ -734,15 +864,30 @@ function rebuildGizmoOverlay(
     return;
   }
 
+  const sceneScale = THREE.MathUtils.clamp(
+    Math.min(
+      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
+      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
+    ),
+    0.08,
+    1
+  );
+  const gizmoScale = Math.max(0.08, sceneScale);
+
   if (debugState.gizmoMode === "translate") {
-    const gizmoAxes = new THREE.AxesHelper(1.4);
+    const gizmoAxes = new THREE.AxesHelper(1.4 * gizmoScale);
     gizmoAxes.position.copy(anchorMesh.position);
     runtime.gizmoLayer.add(gizmoAxes);
     return;
   }
 
   if (debugState.gizmoMode === "rotate") {
-    const ringGeometry = new THREE.TorusGeometry(0.58, 0.02, 12, 64);
+    const ringGeometry = new THREE.TorusGeometry(
+      0.58 * gizmoScale,
+      Math.max(0.008, 0.02 * gizmoScale),
+      12,
+      64
+    );
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: new THREE.Color("#8dbdff"),
       transparent: true,
@@ -755,7 +900,11 @@ function rebuildGizmoOverlay(
     return;
   }
 
-  const scaleGeometry = new THREE.BoxGeometry(0.95, 0.95, 0.95);
+  const scaleGeometry = new THREE.BoxGeometry(
+    0.95 * gizmoScale,
+    0.95 * gizmoScale,
+    0.95 * gizmoScale
+  );
   const scaleMaterial = new THREE.MeshBasicMaterial({
     color: new THREE.Color("#98efad"),
     wireframe: true
@@ -1328,27 +1477,22 @@ export function WorkspaceCanvasViewport({
       return;
     }
 
-    runtime.gridHelper.visible = toolbarState.canvasDebug.grid;
+    runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
     runtime.axesHelper.visible = toolbarState.canvasDebug.axes;
+    updateAxesHelperForScene(runtime, scene);
 
     rebuildTerrainMesh(runtime, scene, selectedTileId, toolbarState.canvasDebug);
     rebuildObjectMeshes(
       runtime,
+      scene,
       visibleObjects,
       selectedObjectIds,
       toolbarState.canvasDebug
     );
     rebuildChunkBounds(runtime, scene, toolbarState.canvasDebug.chunkBounds);
-    rebuildGizmoOverlay(runtime, selectedObjectIds, toolbarState.canvasDebug);
-
-    const helperSize = Math.max(scene.width, scene.height) * 2;
-    runtime.gridHelper.geometry.dispose();
-    runtime.scene.remove(runtime.gridHelper);
-    runtime.gridHelper = new THREE.GridHelper(helperSize, helperSize, 0x2a4c73, 0x1e3551);
-    runtime.gridHelper.position.set(0, -0.002, 0);
-    runtime.gridHelper.visible = toolbarState.canvasDebug.grid;
-    runtime.scene.add(runtime.gridHelper);
-    runtime.axesHelper.visible = toolbarState.canvasDebug.axes;
+    rebuildGizmoOverlay(runtime, scene, selectedObjectIds, toolbarState.canvasDebug);
+    rebuildGridLayer(runtime, scene);
+    runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
   }, [
     scene,
     selectedObjectIds,
