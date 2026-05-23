@@ -120,7 +120,9 @@ export function WorkspaceTopbar({
     ];
     const canvasWorkflowShortcuts: KeyboardShortcut[] = [
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
-      { key: "Ctrl/Cmd + C then Ctrl/Cmd + V", description: "Copy selected object(s)." },
+      { key: "Ctrl/Cmd + C", description: "Copy selected object(s)." },
+      { key: "Ctrl/Cmd + X", description: "Cut selected object(s)." },
+      { key: "Ctrl/Cmd + V", description: "Paste copied or cut object(s)." },
       { key: "Del / Backspace", description: "Delete selected objects (unlocked layers only)." }
     ];
 

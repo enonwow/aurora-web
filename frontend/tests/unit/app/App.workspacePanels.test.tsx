@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
@@ -259,5 +259,26 @@ describe("App workspace side panels", () => {
     expect(
       within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("cuts selected object via keyboard and pastes it back from clipboard", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+    await waitFor(() => {
+      expect(
+        within(rightSidebar).queryByRole("button", { name: /plc_barrel_01/i })
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    expect(
+      await within(rightSidebar).findByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
   });
 });

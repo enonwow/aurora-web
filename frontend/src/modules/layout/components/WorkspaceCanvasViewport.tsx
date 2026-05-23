@@ -1263,6 +1263,18 @@ export function WorkspaceCanvasViewport({
     ]
   );
 
+  const cutSelectedObjectsToClipboard = useCallback(
+    (source: string): number => {
+      const copied = copySelectedObjectsToClipboard(source);
+      if (copied.length === 0) {
+        return 0;
+      }
+
+      return deleteSelectedObjects(source);
+    },
+    [copySelectedObjectsToClipboard, deleteSelectedObjects]
+  );
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) {
@@ -1712,6 +1724,12 @@ export function WorkspaceCanvasViewport({
         return;
       }
 
+      if (isMeta && lowerKey === "x") {
+        event.preventDefault();
+        cutSelectedObjectsToClipboard("keyboard_shortcut");
+        return;
+      }
+
       if (isMeta && lowerKey === "v") {
         event.preventDefault();
         pasteClipboardObjects("keyboard_shortcut");
@@ -1730,6 +1748,7 @@ export function WorkspaceCanvasViewport({
     return () => window.removeEventListener("keydown", handleKeyboardObjectActions);
   }, [
     copySelectedObjectsToClipboard,
+    cutSelectedObjectsToClipboard,
     deleteSelectedObjects,
     pasteClipboardObjects,
     selectedObjectIds.length
@@ -2263,7 +2282,7 @@ export function WorkspaceCanvasViewport({
     : "Not saved yet";
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Ctrl/Cmd+C copy | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;

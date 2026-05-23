@@ -510,6 +510,27 @@ describe("Regression smoke: workspace interactions", () => {
     ).toBeInTheDocument();
   });
 
+  it("cuts selected object with Ctrl+X and pastes it back with Ctrl+V", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+    await waitFor(() => {
+      expect(
+        within(rightSidebar).queryByRole("button", { name: /plc_barrel_01/i })
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    expect(
+      await within(rightSidebar).findByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
+  });
+
   it("duplicates and deletes an object from context menu actions", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");

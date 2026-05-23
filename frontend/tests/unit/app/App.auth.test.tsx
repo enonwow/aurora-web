@@ -130,6 +130,7 @@ describe("App auth mock flow", () => {
       await screen.findByRole("dialog", { name: /keyboard shortcuts/i })
     ).toBeInTheDocument();
     expect(screen.getByText(/ctrl\/cmd \+ z/i)).toBeInTheDocument();
+    expect(screen.getByText(/ctrl\/cmd \+ x/i)).toBeInTheDocument();
     expect(screen.getByText(/ctrl \+ rmb/i)).toBeInTheDocument();
     expect(screen.getByText(/rmb on object/i)).toBeInTheDocument();
 
