@@ -54,3 +54,4 @@ To jest backendowy odpowiednik ustawien z PoC:
   - `hakProfileId` -> lista z `hakProfiles`,
   - brak listy i profilu -> tryb `none`.
 - Lokalne sciezki `exports` / `cache` nie sa juz utrzymywane w runtime settings; dane robocze i cache trzymamy w blob storage.
+- W docker-compose domyslny endpoint bloba to `http://seaweedfs:8333` (nazwa uslugi compose).

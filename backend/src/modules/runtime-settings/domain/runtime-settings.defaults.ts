@@ -17,7 +17,7 @@ export function buildDefaultRuntimeSettings(
       tlkCustomPath: ""
     },
     blobStorage: {
-      endpoint: "http://localhost:8333",
+      endpoint: "http://seaweedfs:8333",
       region: "us-east-1",
       bucket: "aurora-module-assets",
       modulePrefix: "modules/current",

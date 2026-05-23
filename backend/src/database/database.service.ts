@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import postgres from "postgres";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { AppConfigService } from "../common/config/app-config.service";
 import * as schema from "./schema";
+const postgres = require("postgres") as typeof import("postgres");
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -68,4 +68,3 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `;
   }
 }
-

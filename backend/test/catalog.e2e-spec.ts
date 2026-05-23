@@ -93,15 +93,32 @@ describe("Catalog API v1 (e2e)", () => {
     }
   });
 
-  it("GET /api/v1/catalog/placeables rejects unknown subtype", async () => {
+  it("GET /api/v1/catalog/placeables accepts vvx alias for vfx subtype", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 
     const response = await supertest(httpServer)
       .get("/api/v1/catalog/placeables?subtype=vvx")
       .set("Authorization", `Bearer ${token}`)
-      .expect(422);
+      .expect(200);
 
-    expect(response.body.error.code).toBe("VALIDATION_FAILED");
+    expect(response.body.data.items.length).toBeGreaterThan(0);
+    for (const item of response.body.data.items as Array<{ placeableSubtype: string }>) {
+      expect(item.placeableSubtype).toBe("vfx");
+    }
+  });
+
+  it("GET /api/v1/catalog/placeables supports benchmark filter", async () => {
+    const token = await loginAndGetToken("viewer.user", "viewer123");
+
+    const response = await supertest(httpServer)
+      .get("/api/v1/catalog/placeables?benchmark=true")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.items.length).toBeGreaterThan(0);
+    for (const item of response.body.data.items as Array<{ benchmarkCandidate?: boolean }>) {
+      expect(item.benchmarkCandidate).toBe(true);
+    }
   });
 
   it("GET /api/v1/catalog/placeables/:id/preview includes placeable subtype", async () => {
@@ -114,6 +131,7 @@ describe("Catalog API v1 (e2e)", () => {
 
     expect(response.body.data.kind).toBe("placeable");
     expect(response.body.data.placeableSubtype).toBe("door");
+    expect(response.body.data.benchmarkCandidate).toBe(false);
   });
 
   it("GET /api/v1/catalog/creatures/:id/preview returns preview payload", async () => {

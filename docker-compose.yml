@@ -1,4 +1,19 @@
 services:
+  seaweedfs:
+    container_name: aurora-seaweedfs-dev
+    image: chrislusf/seaweedfs:latest
+    environment:
+      AWS_ACCESS_KEY_ID: seaweedfs
+      AWS_SECRET_ACCESS_KEY: seaweedfs-secret
+      S3_BUCKET: aurora-module-assets
+    ports:
+      - "8333:8333"
+      - "9333:9333"
+      - "8888:8888"
+    volumes:
+      - seaweedfs_data:/data
+    restart: unless-stopped
+
   postgres:
     container_name: aurora-postgres-dev
     image: postgres:16-alpine
@@ -57,11 +72,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      seaweedfs:
+        condition: service_started
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -72,3 +89,4 @@ volumes:
   frontend_node_modules:
   backend_node_modules:
   postgres_data:
+  seaweedfs_data:

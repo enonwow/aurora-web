@@ -35,8 +35,18 @@ export class PlaceablesController {
   @ApiQuery({
     name: "subtype",
     required: false,
-    enum: ["generic", "door", "vfx", "container", "light_source", "trigger_proxy"]
+    enum: [
+      "generic",
+      "door",
+      "vfx",
+      "vvx",
+      "container",
+      "light_source",
+      "trigger_proxy"
+    ],
+    description: "Filter by placeable subtype. `vvx` is treated as alias of `vfx`."
   })
+  @ApiQuery({ name: "benchmark", required: false, enum: ["true", "false"] })
   @ApiQuery({ name: "limit", required: false })
   @ApiQuery({ name: "offset", required: false })
   @ApiResponse({ status: 200, description: "Placeable templates list." })

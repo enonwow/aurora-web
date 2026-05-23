@@ -54,6 +54,8 @@ export class CatalogApplicationService {
       templateId: template.templateId,
       kind: template.kind,
       placeableSubtype: template.placeableSubtype,
+      benchmarkCandidate: template.benchmarkCandidate ?? false,
+      benchmarkBucket: template.benchmarkBucket,
       resref: template.resref,
       name: template.name,
       category: template.category,

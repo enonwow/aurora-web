@@ -69,6 +69,99 @@ const TEMPLATES: TemplateRecord[] = [
     }
   },
   {
+    templateId: "plc_bench_c_wingsmeph_001",
+    kind: "placeable",
+    placeableSubtype: "generic",
+    benchmarkCandidate: true,
+    benchmarkBucket: "placeable_heavy_no_vfx",
+    resref: "c_wingsmeph",
+    name: "Wings Mephit (Benchmark)",
+    category: "benchmark",
+    tags: ["benchmark", "heavy", "no-vfx"],
+    previewImageUrl: "/assets/previews/placeables/c-wingsmeph.webp",
+    metadata: {
+      triangles: 659,
+      meshes: 16,
+      emitters: 0,
+      source: "scene.json"
+    }
+  },
+  {
+    templateId: "plc_bench_ad_top_lion_1_001",
+    kind: "placeable",
+    placeableSubtype: "vfx",
+    benchmarkCandidate: true,
+    benchmarkBucket: "placeable_heavy_vfx",
+    resref: "ad_top_lion_1",
+    name: "Top Lion VFX Anchor (Benchmark)",
+    category: "benchmark",
+    tags: ["benchmark", "heavy", "vfx"],
+    previewImageUrl: "/assets/previews/placeables/ad-top-lion-1.webp",
+    metadata: {
+      triangles: 798,
+      meshes: 28,
+      emitters: 1,
+      source: "scene.json"
+    }
+  },
+  {
+    templateId: "plc_bench_plc_x02_001",
+    kind: "placeable",
+    placeableSubtype: "vfx",
+    benchmarkCandidate: true,
+    benchmarkBucket: "placeable_vfx_plc_alt",
+    resref: "plc_x02",
+    name: "PLC X02 VFX Alternative (Benchmark)",
+    category: "benchmark",
+    tags: ["benchmark", "vfx", "plc"],
+    previewImageUrl: "/assets/previews/placeables/plc-x02.webp",
+    metadata: {
+      triangles: 112,
+      meshes: 5,
+      emitters: 3,
+      source: "scene.json"
+    }
+  },
+  {
+    templateId: "plc_bench_tn_sdoor_14_001",
+    kind: "placeable",
+    placeableSubtype: "door",
+    benchmarkCandidate: true,
+    benchmarkBucket: "door_heavy_instance",
+    resref: "tn_sdoor_14",
+    name: "Swamp Door 14 (Benchmark)",
+    category: "benchmark",
+    tags: ["benchmark", "door", "heavy-instance"],
+    previewImageUrl: "/assets/previews/placeables/tn-sdoor-14.webp",
+    metadata: {
+      triangles: 250,
+      meshes: 10,
+      emitters: 0,
+      areaResref: "wnd_slms_swamp__with_placeables",
+      doorIndex: 12
+    }
+  },
+  {
+    templateId: "plc_bench_tn_gdoor_05_001",
+    kind: "placeable",
+    placeableSubtype: "door",
+    benchmarkCandidate: true,
+    benchmarkBucket: "door_heavy_single_mesh",
+    resref: "tn_gdoor_05",
+    name: "Gate Door 05 (Benchmark)",
+    category: "benchmark",
+    tags: ["benchmark", "door", "single-mesh"],
+    previewImageUrl: "/assets/previews/placeables/tn-gdoor-05.webp",
+    metadata: {
+      triangles: 190,
+      meshes: 6,
+      emitters: 0,
+      maxSingleMeshTriangles: 102,
+      areaResref: "wnd_slms_swamp__with_placeables",
+      doorIndex: 8
+    }
+  },
+  {
     templateId: "cre_guard_human_001",
     kind: "creature",
     resref: "cre_guard_human",
@@ -154,6 +247,12 @@ export class StaticTemplateCatalogRepository implements TemplateCatalogRepositor
           return true;
         }
         return item.placeableSubtype === query.subtype;
+      })
+      .filter((item) => {
+        if (kind !== "placeable" || typeof query.benchmark !== "boolean") {
+          return true;
+        }
+        return Boolean(item.benchmarkCandidate) === query.benchmark;
       });
 
     const items = filtered.slice(query.offset, query.offset + query.limit);

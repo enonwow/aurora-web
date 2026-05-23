@@ -32,8 +32,5 @@ export function hasRequiredPermissions(
   granted: Permission[],
   required: Permission[]
 ): boolean {
-  if (required.length === 0) {
-    return true;
-  }
   return required.every((permission) => granted.includes(permission));
 }

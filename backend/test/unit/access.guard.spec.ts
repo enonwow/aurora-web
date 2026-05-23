@@ -53,6 +53,20 @@ describe("AccessGuard", () => {
     });
   });
 
+  it("rejects request when session is invalid or expired", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false
+    });
+    authService.resolveSession.mockResolvedValue(null);
+    const { context } = createContext("Bearer stale-token");
+
+    await expectException(guard.canActivate(context), {
+      status: 401,
+      code: "INVALID_SESSION",
+      message: "Session is invalid or expired."
+    });
+  });
+
   it("rejects request when authorization scheme is not Bearer", async () => {
     setupReflector(reflector, {
       [IS_PUBLIC_KEY]: false
@@ -66,11 +80,37 @@ describe("AccessGuard", () => {
     });
   });
 
+  it("rejects request when Bearer token value is empty", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false
+    });
+    const { context } = createContext("Bearer     ");
+
+    await expectException(guard.canActivate(context), {
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Missing or invalid bearer token."
+    });
+  });
+
   it("rejects request when Bearer token is prefixed with other text", async () => {
     setupReflector(reflector, {
       [IS_PUBLIC_KEY]: false
     });
     const { context } = createContext("Token Bearer abc");
+
+    await expectException(guard.canActivate(context), {
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Missing or invalid bearer token."
+    });
+  });
+
+  it("rejects request when Bearer token contains extra segments", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false
+    });
+    const { context } = createContext("Bearer abc extra");
 
     await expectException(guard.canActivate(context), {
       status: 401,

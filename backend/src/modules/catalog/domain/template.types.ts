@@ -11,6 +11,8 @@ export interface TemplateRecord {
   templateId: string;
   kind: TemplateKind;
   placeableSubtype?: PlaceableSubtype;
+  benchmarkCandidate?: boolean;
+  benchmarkBucket?: string;
   resref: string;
   name: string;
   category: string;
@@ -24,6 +26,7 @@ export interface TemplateListQuery {
   category?: string;
   tag?: string;
   subtype?: PlaceableSubtype;
+  benchmark?: boolean;
   limit: number;
   offset: number;
 }

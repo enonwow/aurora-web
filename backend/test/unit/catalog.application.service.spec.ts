@@ -57,6 +57,27 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("passes placeable benchmark filter to repository", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0
+    });
+
+    await service.listPlaceables({
+      benchmark: true,
+      limit: 20,
+      offset: 0
+    });
+
+    expect(repository.listByKind).toHaveBeenCalledWith("placeable", {
+      benchmark: true,
+      limit: 20,
+      offset: 0
+    });
+  });
+
   it("lists creatures through repository", async () => {
     repository.listByKind.mockResolvedValue({
       items: [],
@@ -90,7 +111,11 @@ describe("CatalogApplicationService", () => {
   });
 
   it("returns preview payload when template exists", async () => {
-    const template = buildTemplate("placeable", "plc_001");
+    const template = {
+      ...buildTemplate("placeable", "plc_001"),
+      benchmarkCandidate: true,
+      benchmarkBucket: "placeable_heavy_vfx"
+    };
     repository.findByKindAndId.mockResolvedValue(template);
 
     const preview = await service.getPlaceablePreview("plc_001");
@@ -98,6 +123,8 @@ describe("CatalogApplicationService", () => {
     expect(preview.templateId).toBe("plc_001");
     expect(preview.kind).toBe("placeable");
     expect(preview.placeableSubtype).toBe("generic");
+    expect(preview.benchmarkCandidate).toBe(true);
+    expect(preview.benchmarkBucket).toBe("placeable_heavy_vfx");
     expect(preview.resref).toBe(template.resref);
     expect(preview.previewImageUrl).toBe(template.previewImageUrl);
   });
@@ -105,10 +132,54 @@ describe("CatalogApplicationService", () => {
   it("throws TEMPLATE_NOT_FOUND when template is missing", async () => {
     repository.findByKindAndId.mockResolvedValue(null);
 
-    const promise = service.getPlaceablePreview("missing");
-    await expect(promise).rejects.toBeInstanceOf(AppException);
-    await expect(promise).rejects.toMatchObject({
-      code: "TEMPLATE_NOT_FOUND"
+    expect.assertions(4);
+    try {
+      await service.getPlaceablePreview("missing");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppException);
+      const appError = error as AppException;
+      expect(appError.code).toBe("TEMPLATE_NOT_FOUND");
+      expect(appError.getStatus()).toBe(404);
+      expect((appError.getResponse() as { message: string }).message).toBe(
+        "placeable template was not found."
+      );
+    }
+  });
+
+  it("returns kind-specific not-found message for creature preview", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+
+    expect.assertions(1);
+    try {
+      await service.getCreaturePreview("missing-creature");
+    } catch (error) {
+      expect((error as AppException).getResponse()).toMatchObject({
+        message: "creature template was not found."
+      });
+    }
+  });
+
+  it("returns kind-specific not-found message for item preview", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+
+    expect.assertions(1);
+    try {
+      await service.getItemPreview("missing-item");
+    } catch (error) {
+      expect((error as AppException).getResponse()).toMatchObject({
+        message: "item template was not found."
+      });
+    }
+  });
+
+  it("returns false benchmark marker for non-benchmark preview", async () => {
+    const template = buildTemplate("placeable", "plc_002");
+    repository.findByKindAndId.mockResolvedValue(template);
+
+    const preview = await service.getPlaceablePreview("plc_002");
+
+    expect(preview).toMatchObject({
+      benchmarkCandidate: false
     });
   });
 });
