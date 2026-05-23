@@ -44,6 +44,14 @@ describe("SceneObjectListPanel", () => {
 
     const selector = screen.getByRole("combobox", { name: /object type selector/i });
     fireEvent.change(selector, { target: { value: "doors" } });
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.type_changed",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectType: "doors",
+        source: "selector"
+      })
+    );
     expect(screen.getByText(/door_west_01/i)).toBeInTheDocument();
     expect(screen.queryByText(/plc_barrel_01/i)).not.toBeInTheDocument();
 
@@ -63,6 +71,14 @@ describe("SceneObjectListPanel", () => {
 
     const input = screen.getByRole("searchbox", { name: /filter objects/i });
     fireEvent.change(input, { target: { value: "caves" } });
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.filter_changed",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectType: "all",
+        query: "caves"
+      })
+    );
     expect(screen.getByText(/sound_caves_02/i)).toBeInTheDocument();
     expect(screen.queryByText(/sound_forest_01/i)).not.toBeInTheDocument();
 
@@ -116,12 +132,29 @@ describe("SceneObjectListPanel", () => {
       sourceType: "all"
     });
     expect(onObjectSelect.mock.calls[0][1]?.allowedObjectIds.length).toBe(12);
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.row_clicked",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectId: "plc_barrel_01",
+        objectKind: "placeables",
+        additive: false
+      })
+    );
 
     fireEvent.contextMenu(row, { clientX: 222, clientY: 144 });
     expect(onObjectContextMenu).toHaveBeenCalledTimes(1);
     expect(onObjectContextMenu.mock.calls[0][0].id).toBe("plc_barrel_01");
     expect(onObjectContextMenu.mock.calls[0][1]).toBe(222);
     expect(onObjectContextMenu.mock.calls[0][2]).toBe(144);
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.row_context_menu",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectId: "plc_barrel_01",
+        objectKind: "placeables"
+      })
+    );
   });
 
   it("marks rows selected from selectedObjectIds and supports ctrl multi-select intent", () => {
