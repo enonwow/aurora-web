@@ -5,22 +5,25 @@ import { browserAppDependencies } from "./modules/auth/composition/createBrowser
 import type {
   AuthSession,
   AuthorizationResponse,
-  UserRole,
   IAuthFacade
 } from "./modules/auth/contracts";
 import type { TelemetryFacade } from "./modules/telemetry/application/telemetryFacade";
-import type { TelemetryEvent } from "./modules/telemetry/domain/telemetryEvent";
+import type { TelemetryEvent, TelemetryPayload } from "./modules/telemetry/domain/telemetryEvent";
 import { WorkspaceTopbar } from "./modules/layout/components/WorkspaceTopbar";
 import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLayout";
 import {
+  type WorkspaceChromeFacade,
   type ToolbarActionKey,
   type WorkspaceCommandSignal
 } from "./modules/layout/application/workspaceChromeFacade";
+import { createWorkspaceTopbarActionStateFacade } from "./modules/layout/application/workspaceTopbarActionStateFacade";
+import { createSceneObjectCatalogQueryFacade } from "./modules/layout/application/sceneObjectCatalogQueryFacade";
 import {
   type LayoutSettings,
   type WorkspaceOptionSettings
 } from "./modules/layout/application/layoutPreferencesFacade";
 import { createBrowserLayoutFacadeBundle } from "./modules/layout/composition/createBrowserLayoutFacadeBundle";
+import { createBrowserSceneViewportPort } from "./modules/scene/composition/createBrowserSceneViewportPort";
 
 type AppRoute = "/login" | "/app";
 
@@ -51,6 +54,16 @@ export default function App({
       }),
     []
   );
+  const workspaceChromeFacade: WorkspaceChromeFacade = layoutFacades.chrome;
+  const workspaceTopbarActionStateFacade = useMemo(
+    () => createWorkspaceTopbarActionStateFacade(),
+    []
+  );
+  const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
+  const sceneObjectCatalogQueryFacade = useMemo(
+    () => createSceneObjectCatalogQueryFacade(),
+    []
+  );
   const [route, setRoute] = useState<AppRoute>(() =>
     resolveRoute(window.location.pathname)
   );
@@ -64,7 +77,7 @@ export default function App({
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [toolbarState, setToolbarState] = useState(() =>
-    layoutFacades.chrome.createDefaultToolbarState()
+    workspaceChromeFacade.createDefaultToolbarState()
   );
   const [commandSignal, setCommandSignal] = useState<WorkspaceCommandSignal | null>(null);
   const [events, setEvents] = useState<TelemetryEvent[]>(() =>
@@ -133,7 +146,13 @@ export default function App({
   }, [telemetryFacade]);
 
   const isMainView = Boolean(session) && Boolean(authorization) && route === "/app";
-  const currentRole: UserRole | undefined = authorization?.role;
+  const currentRole = authorization?.role;
+  const handleWorkspaceTelemetryEvent = useCallback(
+    (name: string, payload?: TelemetryPayload) => {
+      telemetryFacade.track(name, payload);
+    },
+    [telemetryFacade]
+  );
 
   useEffect(() => {
     if (route === "/app" && !isMainView) {
@@ -185,7 +204,7 @@ export default function App({
         setWorkspaceOptions(reloadedWorkspaceOptions);
         setSession(authResult.session);
         setAuthorization(authz);
-        setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
+        setToolbarState(workspaceChromeFacade.createDefaultToolbarState());
         setCommandSignal(null);
         telemetryFacade.track("ui.auth.login_success", { role: authz.role });
         navigate("/app");
@@ -200,7 +219,8 @@ export default function App({
       password,
       route,
       telemetryFacade,
-      username
+      username,
+      workspaceChromeFacade
     ]
   );
 
@@ -216,16 +236,16 @@ export default function App({
     setPassword("");
     setIsSigningIn(false);
     setAuthError(null);
-    setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
+    setToolbarState(workspaceChromeFacade.createDefaultToolbarState());
     setCommandSignal(null);
     telemetryFacade.track("ui.auth.logout", { route });
     navigate("/login");
-  }, [authFacade, layoutFacades, navigate, route, session, telemetryFacade]);
+  }, [authFacade, navigate, route, session, telemetryFacade, workspaceChromeFacade]);
 
   const handleToolbarAction = useCallback(
     (actionKey: ToolbarActionKey) => {
       setToolbarState((current) =>
-        layoutFacades.chrome.applyToolbarAction(current, actionKey)
+        workspaceChromeFacade.applyToolbarAction(current, actionKey)
       );
       setCommandSignal((current) => ({
         actionKey,
@@ -237,7 +257,7 @@ export default function App({
         role: currentRole ?? "anonymous"
       });
     },
-    [currentRole, layoutFacades, telemetryFacade]
+    [currentRole, telemetryFacade, workspaceChromeFacade]
   );
 
   const benchmarkSamples = getAuthBenchmarks();
@@ -256,6 +276,8 @@ export default function App({
       <WorkspaceTopbar
         isAuthenticated={isMainView}
         role={currentRole}
+        workspaceChromeFacade={workspaceChromeFacade}
+        workspaceTopbarActionStateFacade={workspaceTopbarActionStateFacade}
         toolbarState={toolbarState}
         layoutTheme={layoutSettings.theme}
         onLayoutThemeChange={(theme) =>
@@ -280,6 +302,10 @@ export default function App({
           <WorkspaceMockLayout
             role={authorization!.role}
             userId={session!.user.id}
+            workspaceChromeFacade={workspaceChromeFacade}
+            sceneViewportPort={sceneViewportPort}
+            sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+            trackTelemetryEvent={handleWorkspaceTelemetryEvent}
             toolbarState={toolbarState}
             commandSignal={commandSignal}
             workspaceOptions={workspaceOptions}

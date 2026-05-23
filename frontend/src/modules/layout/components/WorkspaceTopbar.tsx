@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UserRole } from "../../auth/contracts";
 import type {
   KeyboardShortcut,
+  WorkspaceChromeFacade,
+  WorkspaceUserRole,
   ToolbarActionKey,
   ToolbarAction,
   ToolbarGroup,
@@ -13,15 +14,13 @@ import {
   type SelectionBoxMode,
   type WorkspaceOptionSettings
 } from "../application/layoutPreferencesFacade";
-import { createWorkspaceChromeFacade } from "../application/workspaceChromeFacade";
-import { createWorkspaceTopbarActionStateFacade } from "../application/workspaceTopbarActionStateFacade";
-
-const workspaceChromeFacade = createWorkspaceChromeFacade();
-const workspaceTopbarActionStateFacade = createWorkspaceTopbarActionStateFacade();
+import type { WorkspaceTopbarActionStateFacade } from "../application/workspaceTopbarActionStateFacade";
 
 interface WorkspaceTopbarProps {
   isAuthenticated: boolean;
-  role?: UserRole;
+  role?: WorkspaceUserRole;
+  workspaceChromeFacade: WorkspaceChromeFacade;
+  workspaceTopbarActionStateFacade: WorkspaceTopbarActionStateFacade;
   toolbarState: WorkspaceToolbarState;
   layoutTheme: LayoutThemeId;
   onLayoutThemeChange: (theme: LayoutThemeId) => void;
@@ -90,6 +89,8 @@ const CANVAS_TEXTURE_OPTIONS: Array<{
 export function WorkspaceTopbar({
   isAuthenticated,
   role,
+  workspaceChromeFacade,
+  workspaceTopbarActionStateFacade,
   toolbarState,
   layoutTheme,
   onLayoutThemeChange,

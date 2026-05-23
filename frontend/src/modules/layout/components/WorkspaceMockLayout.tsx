@@ -1,24 +1,27 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { UserRole } from "../../auth/contracts";
-import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
-import { createSceneAuthoringFacade } from "../../scene/application/sceneAuthoringFacade";
-import { createBrowserSceneViewportPort } from "../../scene/composition/createBrowserSceneViewportPort";
+import type { SceneObject, SceneObjectKind } from "../contracts";
 import type {
+  WorkspaceChromeFacade,
   WorkspaceCommandSignal,
+  WorkspaceUserRole,
   WorkspaceToolbarState
 } from "../application/workspaceChromeFacade";
-import { createWorkspaceChromeFacade } from "../application/workspaceChromeFacade";
+import type { SceneObjectCatalogQueryFacade } from "../application/sceneObjectCatalogQueryFacade";
+import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import { SceneObjectListPanel } from "./SceneObjectListPanel";
 import type { SceneObjectCatalogType } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
-
-const workspaceChromeFacade = createWorkspaceChromeFacade();
+import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 
 interface WorkspaceMockLayoutProps {
-  role: UserRole;
+  role: WorkspaceUserRole;
   userId: string;
+  workspaceChromeFacade: WorkspaceChromeFacade;
+  sceneViewportPort: SceneViewportPort;
+  sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
+  trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
   toolbarState: WorkspaceToolbarState;
   commandSignal: WorkspaceCommandSignal | null;
   workspaceOptions: WorkspaceOptionSettings;
@@ -150,6 +153,10 @@ function SidebarColumn({
 export function WorkspaceMockLayout({
   role,
   userId,
+  workspaceChromeFacade,
+  sceneViewportPort,
+  sceneObjectCatalogQueryFacade,
+  trackTelemetryEvent,
   toolbarState,
   commandSignal,
   workspaceOptions,
@@ -159,10 +166,8 @@ export function WorkspaceMockLayout({
   onToggleRightCollapsed
 }: WorkspaceMockLayoutProps) {
   const panels = workspaceChromeFacade.getRoleWorkspacePanels(role);
-  const sceneAuthoringFacade = useMemo(() => createSceneAuthoringFacade(), []);
-  const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
   const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
-    () => sceneAuthoringFacade.createSeedObjectsSnapshot()
+    () => sceneViewportPort.createInitialHistory(userId).present.objects
   );
   const [selectedObjectIdsSnapshot, setSelectedObjectIdsSnapshot] = useState<string[]>([]);
   const [sidebarSelectSignal, setSidebarSelectSignal] = useState<SidebarSelectSignal | null>(
@@ -228,6 +233,7 @@ export function WorkspaceMockLayout({
           toolbarState={toolbarState}
           userId={userId}
           sceneViewportPort={sceneViewportPort}
+          trackTelemetryEvent={trackTelemetryEvent}
           commandSignal={commandSignal}
           sidebarSelectSignal={sidebarSelectSignal}
           sidebarContextMenuSignal={sidebarContextMenuSignal}
@@ -257,6 +263,8 @@ export function WorkspaceMockLayout({
             <SceneObjectListPanel
               userId={userId}
               objects={sceneObjectsSnapshot}
+              sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+              trackTelemetryEvent={trackTelemetryEvent}
               selectedObjectIds={selectedObjectIdsSnapshot}
               onCatalogScopeChange={setSceneObjectCatalogScope}
               onObjectSelect={handleSceneObjectSelect}

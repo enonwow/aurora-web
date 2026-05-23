@@ -1,8 +1,8 @@
 import { getRoleWorkspacePanels } from "../../../../src/modules/layout/roleSidebarPolicy";
-import type { UserRole } from "../../../../src/modules/auth/contracts";
+import type { WorkspaceUserRole } from "../../../../src/modules/layout/contracts";
 
 describe("roleSidebarPolicy", () => {
-  const roles: UserRole[] = ["viewer", "builder", "dm", "admin"];
+  const roles: WorkspaceUserRole[] = ["viewer", "builder", "dm", "admin"];
 
   it.each(roles)("returns unique section keys and non-empty semantic data for %s", (role) => {
     const panels = getRoleWorkspacePanels(role);

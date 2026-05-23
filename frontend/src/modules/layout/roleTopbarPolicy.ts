@@ -1,4 +1,4 @@
-import type { UserRole } from "../auth/contracts";
+import type { WorkspaceUserRole } from "./contracts";
 
 export type ToolbarStatus = "mvp" | "post_mvp" | "pending_estimate";
 
@@ -454,14 +454,14 @@ const viewerGroups: ToolbarGroup[] = [
   }
 ];
 
-const groupsByRole: Record<UserRole, ToolbarGroup[]> = {
+const groupsByRole: Record<WorkspaceUserRole, ToolbarGroup[]> = {
   viewer: viewerGroups,
   builder: builderAndAdminGroups,
   dm: dmGroups,
   admin: builderAndAdminGroups
 };
 
-const quickActionsByRole: Record<UserRole, ToolbarAction[]> = {
+const quickActionsByRole: Record<WorkspaceUserRole, ToolbarAction[]> = {
   viewer: [],
   builder: [action("undo", "Undo", "mvp"), action("redo", "Redo", "mvp")],
   dm: [],
@@ -473,7 +473,7 @@ const commonShortcuts: KeyboardShortcut[] = [
   { key: "Esc", description: "Close open popup panels." }
 ];
 
-const roleSpecificShortcuts: Record<UserRole, KeyboardShortcut[]> = {
+const roleSpecificShortcuts: Record<WorkspaceUserRole, KeyboardShortcut[]> = {
   viewer: [{ key: "Ctrl/Cmd + R", description: "Reorient camera." }],
   builder: [
     { key: "Ctrl/Cmd + Z", description: "Undo." },
@@ -488,15 +488,15 @@ const roleSpecificShortcuts: Record<UserRole, KeyboardShortcut[]> = {
   ]
 };
 
-export function getRoleToolbarGroups(role: UserRole): ToolbarGroup[] {
+export function getRoleToolbarGroups(role: WorkspaceUserRole): ToolbarGroup[] {
   return groupsByRole[role];
 }
 
-export function getRoleQuickActions(role: UserRole): ToolbarAction[] {
+export function getRoleQuickActions(role: WorkspaceUserRole): ToolbarAction[] {
   return quickActionsByRole[role];
 }
 
-export function getRoleKeyboardShortcuts(role: UserRole): KeyboardShortcut[] {
+export function getRoleKeyboardShortcuts(role: WorkspaceUserRole): KeyboardShortcut[] {
   return [...commonShortcuts, ...roleSpecificShortcuts[role]];
 }
 

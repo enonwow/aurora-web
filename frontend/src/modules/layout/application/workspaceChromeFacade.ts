@@ -1,4 +1,4 @@
-import type { UserRole } from "../../auth/contracts";
+import type { WorkspaceUserRole } from "../contracts";
 import {
   applyToolbarAction,
   createDefaultToolbarState,
@@ -20,15 +20,15 @@ import {
 } from "../roleSidebarPolicy";
 
 export interface WorkspaceChromeFacade {
-  getRoleToolbarGroups(role: UserRole): ToolbarGroup[];
-  getRoleQuickActions(role: UserRole): ToolbarAction[];
-  getRoleKeyboardShortcuts(role: UserRole): KeyboardShortcut[];
+  getRoleToolbarGroups(role: WorkspaceUserRole): ToolbarGroup[];
+  getRoleQuickActions(role: WorkspaceUserRole): ToolbarAction[];
+  getRoleKeyboardShortcuts(role: WorkspaceUserRole): KeyboardShortcut[];
   createDefaultToolbarState(): WorkspaceToolbarState;
   applyToolbarAction(
     current: WorkspaceToolbarState,
     actionKey: ToolbarActionKey
   ): WorkspaceToolbarState;
-  getRoleWorkspacePanels(role: UserRole): RoleWorkspacePanels;
+  getRoleWorkspacePanels(role: WorkspaceUserRole): RoleWorkspacePanels;
 }
 
 export function createWorkspaceChromeFacade(): WorkspaceChromeFacade {
@@ -59,6 +59,7 @@ export type {
   RoleWorkspacePanels,
   SelectionScope,
   SidebarSection,
+  WorkspaceUserRole,
   ToolbarAction,
   ToolbarActionKey,
   ToolbarGroup,

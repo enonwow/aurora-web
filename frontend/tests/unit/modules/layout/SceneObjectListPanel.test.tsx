@@ -1,13 +1,27 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
+import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
 import { SceneObjectListPanel } from "../../../../src/modules/layout/components/SceneObjectListPanel";
 import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("SceneObjectListPanel", () => {
   const objects = createSeedAreaScene().objects;
+  const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+  const trackTelemetryEvent = vi.fn();
+
+  beforeEach(() => {
+    trackTelemetryEvent.mockClear();
+  });
 
   it("renders total object count and defaults to all types", () => {
-    render(<SceneObjectListPanel userId="u_builder_001" objects={objects} />);
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
 
     expect(screen.getByRole("heading", { name: /^scene objects$/i })).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
@@ -19,7 +33,14 @@ describe("SceneObjectListPanel", () => {
   });
 
   it("switches type groups and shows empty state for post-mvp categories", () => {
-    render(<SceneObjectListPanel userId="u_builder_001" objects={objects} />);
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
 
     const selector = screen.getByRole("combobox", { name: /object type selector/i });
     fireEvent.change(selector, { target: { value: "doors" } });
@@ -31,7 +52,14 @@ describe("SceneObjectListPanel", () => {
   });
 
   it("filters rows by tag or resref", () => {
-    render(<SceneObjectListPanel userId="u_builder_001" objects={objects} />);
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
 
     const input = screen.getByRole("searchbox", { name: /filter objects/i });
     fireEvent.change(input, { target: { value: "caves" } });
@@ -52,6 +80,8 @@ describe("SceneObjectListPanel", () => {
         <SceneObjectListPanel
           userId="u_builder_001"
           objects={objects}
+          sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+          trackTelemetryEvent={trackTelemetryEvent}
           selectedObjectIds={selectedObjectIds}
           onObjectSelect={(object, options) => {
             onObjectSelect(object, options);
@@ -100,6 +130,8 @@ describe("SceneObjectListPanel", () => {
       <SceneObjectListPanel
         userId="u_builder_001"
         objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
         selectedObjectIds={["plc_barrel_01", "plc_table_02"]}
         onObjectSelect={onObjectSelect}
       />
@@ -127,6 +159,8 @@ describe("SceneObjectListPanel", () => {
       <SceneObjectListPanel
         userId="u_builder_001"
         objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
         onObjectSelect={onObjectSelect}
       />
     );
@@ -152,6 +186,8 @@ describe("SceneObjectListPanel", () => {
       <SceneObjectListPanel
         userId="u_builder_001"
         objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
         onObjectSelect={onObjectSelect}
       />
     );
@@ -181,6 +217,8 @@ describe("SceneObjectListPanel", () => {
       <SceneObjectListPanel
         userId="u_builder_001"
         objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
         onCatalogScopeChange={onCatalogScopeChange}
       />
     );

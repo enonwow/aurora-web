@@ -1,4 +1,4 @@
-import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
+import type { SceneObject, SceneObjectKind } from "../contracts";
 
 export type SceneObjectCatalogType =
   | "all"

@@ -1,4 +1,4 @@
-import type { UserRole } from "../auth/contracts";
+import type { WorkspaceUserRole } from "./contracts";
 
 export interface SidebarSection {
   key: string;
@@ -11,7 +11,7 @@ export interface RoleWorkspacePanels {
   right: SidebarSection[];
 }
 
-const rolePanels: Record<UserRole, RoleWorkspacePanels> = {
+const rolePanels: Record<WorkspaceUserRole, RoleWorkspacePanels> = {
   viewer: {
     left: [
       {
@@ -129,6 +129,6 @@ const rolePanels: Record<UserRole, RoleWorkspacePanels> = {
   }
 };
 
-export function getRoleWorkspacePanels(role: UserRole): RoleWorkspacePanels {
+export function getRoleWorkspacePanels(role: WorkspaceUserRole): RoleWorkspacePanels {
   return rolePanels[role];
 }

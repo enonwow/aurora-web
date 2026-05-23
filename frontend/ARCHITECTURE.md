@@ -19,7 +19,8 @@ For each context in `src/modules/<context>` use:
 2. `adapters -> ports` and may use infra/browser libs.
 3. `domain` must not depend on UI, adapters, or browser APIs.
 4. Components must not import adapters directly.
-5. Cross-context calls should go through public facades, not direct internal files.
+5. Cross-context calls should go through explicit public contracts/facades, not direct internal files.
+6. Facade/adapter construction belongs to composition roots (`App.tsx` or `composition/*`), not leaf UI components.
 
 ## Current Migration Status
 1. `scene` started migration:
@@ -36,19 +37,23 @@ For each context in `src/modules/<context>` use:
    - `adapters/localStorageSceneDraftPort.ts`
    - `composition/createBrowserSceneFacadeBundle.ts`
 2. `WorkspaceCanvasViewport` now consumes composed scene facades (canvas/history/mutations/authoring) and no longer imports scene domain internals directly.
-3. `layout` started facade-first migration:
+3. `layout` migrated to facade-first composition:
    - `application/layoutPreferencesFacade.ts`
    - `application/workspaceChromeFacade.ts`
    - `application/viewportFacade.ts`
+   - `application/workspaceTopbarActionStateFacade.ts`
+   - `application/sceneObjectCatalogQueryFacade.ts`
    - `application/layoutFacadeBundle.ts`
+   - `contracts.ts` (explicit layout boundary contract)
    - `ports/layoutPreferencesPort.ts`
    - `adapters/browserLayoutPreferencesPort.ts`
    - `composition/createBrowserLayoutFacadeBundle.ts`
-4. UI entrypoints now consume layout facades instead of direct policy/settings modules:
+4. UI entrypoints consume injected facades/ports instead of local singleton construction:
    - `App.tsx`
    - `WorkspaceTopbar.tsx`
    - `WorkspaceMockLayout.tsx`
    - `WorkspaceCanvasViewport.tsx`
+5. Layout now centralizes scene/auth boundary typing via `layout/contracts.ts`, so components and layout application no longer reach directly into other contexts' internal files.
 
 ## Delivery Rules for New Changes
 1. Every new UI flow should start with/update a facade in `application/`.

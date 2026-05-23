@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
-import { trackTelemetry } from "../../telemetry/telemetryStore";
+import type { SceneObject, SceneObjectKind } from "../contracts";
+import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import {
-  createSceneObjectCatalogQueryFacade,
+  type SceneObjectCatalogQueryFacade,
   type SceneObjectCatalogType
 } from "../application/sceneObjectCatalogQueryFacade";
-
-const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
 
 interface SceneObjectListPanelProps {
   userId: string;
   objects: SceneObject[];
+  sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
+  trackTelemetryEvent: (name: string, payload: TelemetryPayload) => void;
   selectedObjectIds?: string[];
   onCatalogScopeChange?: (scope: {
     sourceType: SceneObjectCatalogType;
@@ -82,6 +82,8 @@ function trimTagForPreview(tag: string): string {
 export function SceneObjectListPanel({
   userId,
   objects,
+  sceneObjectCatalogQueryFacade,
+  trackTelemetryEvent,
   selectedObjectIds = [],
   onCatalogScopeChange,
   onObjectSelect,
@@ -97,7 +99,7 @@ export function SceneObjectListPanel({
         activeType,
         searchQuery
       }),
-    [activeType, objects, searchQuery]
+    [activeType, objects, sceneObjectCatalogQueryFacade, searchQuery]
   );
   const {
     groupedRows,
@@ -132,7 +134,7 @@ export function SceneObjectListPanel({
             const nextType = event.target.value as SceneObjectCatalogType;
             const count = groupedRows[nextType]?.length ?? 0;
             setActiveType(nextType);
-            trackTelemetry("ui.workspace.scene_objects.type_changed", {
+            trackTelemetryEvent("ui.workspace.scene_objects.type_changed", {
               userId,
               objectType: nextType,
               count,
@@ -171,7 +173,7 @@ export function SceneObjectListPanel({
           onChange={(event) => {
             const nextValue = event.target.value;
             setSearchQuery(nextValue);
-            trackTelemetry("ui.workspace.scene_objects.filter_changed", {
+            trackTelemetryEvent("ui.workspace.scene_objects.filter_changed", {
               userId,
               objectType: activeType,
               query: nextValue
@@ -200,7 +202,7 @@ export function SceneObjectListPanel({
                     sourceType: activeType,
                     allowedObjectIds
                   });
-                  trackTelemetry("ui.workspace.scene_objects.row_clicked", {
+                  trackTelemetryEvent("ui.workspace.scene_objects.row_clicked", {
                     userId,
                     objectId: object.id,
                     objectKind: object.kind,
@@ -210,7 +212,7 @@ export function SceneObjectListPanel({
                 onContextMenu={(event) => {
                   event.preventDefault();
                   onObjectContextMenu?.(object, event.clientX, event.clientY);
-                  trackTelemetry("ui.workspace.scene_objects.row_context_menu", {
+                  trackTelemetryEvent("ui.workspace.scene_objects.row_context_menu", {
                     userId,
                     objectId: object.id,
                     objectKind: object.kind

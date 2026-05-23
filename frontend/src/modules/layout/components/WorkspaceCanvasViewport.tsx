@@ -4,7 +4,6 @@ import type {
 } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { trackTelemetry } from "../../telemetry/telemetryStore";
 import type {
   SelectionScope,
   WorkspaceCommandSignal,
@@ -17,17 +16,41 @@ import type {
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
-} from "../../scene/contracts";
-import { createViewportFacade } from "../application/viewportFacade";
+} from "../contracts";
+import { browserTelemetryFacade } from "../../telemetry/composition/browserTelemetrySingleton";
+import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
+import type { ViewportFacade } from "../application/viewportFacade";
+import { buildCanvasGridSegments, MASTER_CELLS_PER_TILE } from "../canvasGrid";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
+import { isContextMenuGesture, isCtrlPanGesture } from "../viewportPointerPolicy";
 
-const viewportFacade = createViewportFacade();
+type WorkspaceCanvasViewportFacade = Pick<
+  ViewportFacade,
+  "defaultMasterCellsPerTile" | "isContextMenuGesture" | "isCtrlPanGesture" | "buildGridSegments"
+>;
+
+type WorkspaceCanvasTelemetryTrack = (name: string, payload?: TelemetryPayload) => void;
+
+const defaultViewportFacade: WorkspaceCanvasViewportFacade = {
+  defaultMasterCellsPerTile: MASTER_CELLS_PER_TILE,
+  isContextMenuGesture,
+  isCtrlPanGesture,
+  buildGridSegments(widthTiles, heightTiles, masterCellsPerTile) {
+    return buildCanvasGridSegments(widthTiles, heightTiles, masterCellsPerTile);
+  }
+};
+
+const defaultTrackTelemetryEvent: WorkspaceCanvasTelemetryTrack = (name, payload) => {
+  browserTelemetryFacade.track(name, payload);
+};
 
 interface WorkspaceCanvasViewportProps {
   toolbarState: WorkspaceToolbarState;
   userId: string;
   sceneViewportPort: SceneViewportPort;
+  viewportFacade?: WorkspaceCanvasViewportFacade;
+  trackTelemetryEvent?: WorkspaceCanvasTelemetryTrack;
   commandSignal: WorkspaceCommandSignal | null;
   sidebarSelectSignal?: {
     revision: number;
@@ -309,7 +332,11 @@ function disposeGridLayer(gridLayer: THREE.Group): void {
   gridLayer.clear();
 }
 
-function rebuildGridLayer(runtime: RuntimeState, sceneData: AreaScene): void {
+function rebuildGridLayer(
+  runtime: RuntimeState,
+  sceneData: AreaScene,
+  viewportFacade: WorkspaceCanvasViewportFacade
+): void {
   disposeGridLayer(runtime.gridLayer);
 
   const segments = viewportFacade.buildGridSegments(
@@ -865,6 +892,8 @@ export function WorkspaceCanvasViewport({
   toolbarState,
   userId,
   sceneViewportPort,
+  viewportFacade = defaultViewportFacade,
+  trackTelemetryEvent = defaultTrackTelemetryEvent,
   commandSignal,
   sidebarSelectSignal,
   sidebarContextMenuSignal,
@@ -912,6 +941,7 @@ export function WorkspaceCanvasViewport({
     geometries: 0,
     textures: 0
   });
+  const trackTelemetry = trackTelemetryEvent;
   const scene = sceneHistory.present;
 
   useEffect(() => {
@@ -1415,7 +1445,7 @@ export function WorkspaceCanvasViewport({
     );
     rebuildChunkBounds(runtime, scene, toolbarState.canvasDebug.chunkBounds);
     rebuildGizmoOverlay(runtime, selectedObjectIds, toolbarState.canvasDebug, sceneScale);
-    rebuildGridLayer(runtime, scene);
+    rebuildGridLayer(runtime, scene, viewportFacade);
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
   }, [
     sceneViewportPort,
@@ -1423,6 +1453,7 @@ export function WorkspaceCanvasViewport({
     selectedObjectIds,
     selectedTileId,
     toolbarState.canvasDebug,
+    viewportFacade,
     visibleObjects
   ]);
 
