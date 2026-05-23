@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { SceneObjectListPanel } from "../../../../src/modules/layout/components/SceneObjectListPanel";
-import { createSeedAreaScene } from "../../../../src/modules/scene/sceneFactory";
+import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("SceneObjectListPanel", () => {
   const objects = createSeedAreaScene().objects;

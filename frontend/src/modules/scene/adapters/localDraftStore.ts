@@ -1,4 +1,4 @@
-import type { AreaScene } from "./contracts";
+import type { AreaScene } from "../contracts";
 
 const DRAFT_STORAGE_KEY = "aurora-web.local-area-drafts.v1";
 

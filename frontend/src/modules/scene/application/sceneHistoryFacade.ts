@@ -6,7 +6,7 @@ import {
   commitSceneHistory,
   redoSceneHistory,
   undoSceneHistory
-} from "../sceneHistory";
+} from "../domain/sceneHistory";
 
 export interface SceneHistoryFacade {
   commit(history: SceneHistoryState, nextScene: AreaScene): SceneHistoryState;
@@ -27,4 +27,3 @@ export function createSceneHistoryFacade(): SceneHistoryFacade {
     }
   };
 }
-

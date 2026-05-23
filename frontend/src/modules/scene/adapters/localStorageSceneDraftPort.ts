@@ -2,7 +2,7 @@ import type { AreaScene } from "../contracts";
 import {
   loadLocalSceneDraft,
   saveLocalSceneDraft
-} from "../localDraftStore";
+} from "./localDraftStore";
 import type { SceneDraftPort } from "../ports/sceneDraftPort";
 
 class NullSceneDraftPort implements SceneDraftPort {
@@ -33,4 +33,3 @@ export function createLocalStorageSceneDraftPort(storage: Storage | null): Scene
   }
   return new LocalStorageSceneDraftPort(storage);
 }
-

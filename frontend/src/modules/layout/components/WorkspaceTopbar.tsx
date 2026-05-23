@@ -6,20 +6,16 @@ import type {
   ToolbarAction,
   ToolbarGroup,
   WorkspaceToolbarState
-} from "../roleTopbarPolicy";
+} from "../application/workspaceChromeFacade";
 import {
   LAYOUT_THEME_OPTIONS,
-  type LayoutThemeId
-} from "../themeSettings";
-import type {
-  WorkspaceOptionSettings,
-  SelectionBoxMode
-} from "../workspaceOptionSettings";
-import {
-  getRoleKeyboardShortcuts,
-  getRoleQuickActions,
-  getRoleToolbarGroups
-} from "../roleTopbarPolicy";
+  type LayoutThemeId,
+  type SelectionBoxMode,
+  type WorkspaceOptionSettings
+} from "../application/layoutPreferencesFacade";
+import { createWorkspaceChromeFacade } from "../application/workspaceChromeFacade";
+
+const workspaceChromeFacade = createWorkspaceChromeFacade();
 
 interface WorkspaceTopbarProps {
   isAuthenticated: boolean;
@@ -257,9 +253,12 @@ export function WorkspaceTopbar({
   onToggleDebug,
   onSignOut
 }: WorkspaceTopbarProps) {
-  const sectionGroups = isAuthenticated && role ? getRoleToolbarGroups(role) : [];
-  const quickActions = isAuthenticated && role ? getRoleQuickActions(role) : [];
-  const baseShortcuts = isAuthenticated && role ? getRoleKeyboardShortcuts(role) : [];
+  const sectionGroups =
+    isAuthenticated && role ? workspaceChromeFacade.getRoleToolbarGroups(role) : [];
+  const quickActions =
+    isAuthenticated && role ? workspaceChromeFacade.getRoleQuickActions(role) : [];
+  const baseShortcuts =
+    isAuthenticated && role ? workspaceChromeFacade.getRoleKeyboardShortcuts(role) : [];
   const shortcuts = useMemo(() => {
     if (!isAuthenticated || !role) {
       return [];

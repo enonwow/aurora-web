@@ -11,6 +11,10 @@ import {
   createSceneMutationsFacade,
   type SceneMutationsFacade
 } from "./sceneMutationsFacade";
+import {
+  createSceneAuthoringFacade,
+  type SceneAuthoringFacade
+} from "./sceneAuthoringFacade";
 
 interface SceneFacadeBundleDependencies {
   draftPort: SceneDraftPort;
@@ -21,6 +25,7 @@ export interface SceneFacadeBundle {
   canvas: SceneCanvasFacade;
   history: SceneHistoryFacade;
   mutations: SceneMutationsFacade;
+  authoring: SceneAuthoringFacade;
 }
 
 export function createSceneFacadeBundle(
@@ -32,6 +37,7 @@ export function createSceneFacadeBundle(
       now: dependencies.now
     }),
     history: createSceneHistoryFacade(),
-    mutations: createSceneMutationsFacade()
+    mutations: createSceneMutationsFacade(),
+    authoring: createSceneAuthoringFacade()
   };
 }

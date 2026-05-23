@@ -23,14 +23,32 @@ For each context in `src/modules/<context>` use:
 
 ## Current Migration Status
 1. `scene` started migration:
+   - `domain/sceneFactory.ts`
+   - `domain/sceneHistory.ts`
+   - `domain/copyPlacement.ts`
    - `application/sceneCanvasFacade.ts`
    - `application/sceneHistoryFacade.ts`
    - `application/sceneMutationsFacade.ts`
+   - `application/sceneAuthoringFacade.ts`
    - `application/sceneFacadeBundle.ts`
    - `ports/sceneDraftPort.ts`
+   - `adapters/localDraftStore.ts`
    - `adapters/localStorageSceneDraftPort.ts`
    - `composition/createBrowserSceneFacadeBundle.ts`
-2. `WorkspaceCanvasViewport` now consumes composed scene facades (canvas/history/mutations) and no longer imports adapters directly.
+2. `WorkspaceCanvasViewport` now consumes composed scene facades (canvas/history/mutations/authoring) and no longer imports scene domain internals directly.
+3. `layout` started facade-first migration:
+   - `application/layoutPreferencesFacade.ts`
+   - `application/workspaceChromeFacade.ts`
+   - `application/viewportFacade.ts`
+   - `application/layoutFacadeBundle.ts`
+   - `ports/layoutPreferencesPort.ts`
+   - `adapters/browserLayoutPreferencesPort.ts`
+   - `composition/createBrowserLayoutFacadeBundle.ts`
+4. UI entrypoints now consume layout facades instead of direct policy/settings modules:
+   - `App.tsx`
+   - `WorkspaceTopbar.tsx`
+   - `WorkspaceMockLayout.tsx`
+   - `WorkspaceCanvasViewport.tsx`
 
 ## Delivery Rules for New Changes
 1. Every new UI flow should start with/update a facade in `application/`.

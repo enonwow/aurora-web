@@ -14,8 +14,9 @@
     "src/modules/layout/layoutSettings.ts",
     "src/modules/layout/workspaceOptionSettings.ts",
     "src/modules/layout/viewportPointerPolicy.ts",
-    "src/modules/scene/localDraftStore.ts",
-    "src/modules/scene/sceneHistory.ts"
+    "src/modules/scene/adapters/localDraftStore.ts",
+    "src/modules/scene/domain/sceneHistory.ts",
+    "src/modules/scene/application/sceneAuthoringFacade.ts"
   ],
   "ignorePatterns": ["dist/**", "coverage/**"],
   "timeoutMS": 10000

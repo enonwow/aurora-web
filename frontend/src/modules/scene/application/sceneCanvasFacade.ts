@@ -9,8 +9,8 @@ import {
   LEGACY_SEED_SCENE_HEIGHT_TILES,
   LEGACY_SEED_SCENE_WIDTH_TILES,
   rescaleSceneObjectsToSize
-} from "../sceneFactory";
-import { createSceneHistory } from "../sceneHistory";
+} from "../domain/sceneFactory";
+import { createSceneHistory } from "../domain/sceneHistory";
 import type { SceneDraftPort } from "../ports/sceneDraftPort";
 
 interface SceneCanvasFacadeDependencies {

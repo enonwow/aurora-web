@@ -1,4 +1,4 @@
-import type { AreaScene, SceneHistoryState } from "./contracts";
+import type { AreaScene, SceneHistoryState } from "../contracts";
 
 const DEFAULT_HISTORY_LIMIT = 120;
 

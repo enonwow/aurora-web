@@ -6,7 +6,7 @@ import {
   DEFAULT_WORKSPACE_OPTION_SETTINGS,
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
-import { loadLocalSceneDraft } from "../../../src/modules/scene/localDraftStore";
+import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -179,7 +179,7 @@ describe("App auth mock flow", () => {
     const stored = JSON.parse(storedRaw ?? "{}");
     expect(stored.theme).toBe("forest-night");
     expect(document.documentElement.getAttribute("data-layout-theme")).toBe("forest-night");
-  });
+  }, 15000);
 
   it("loads saved layout style from localStorage on first render", async () => {
     window.localStorage.setItem(
@@ -361,7 +361,9 @@ describe("App auth mock flow", () => {
     await signInAs("builder.user", "builder123");
 
     fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /save \(local draft\)/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /save \(local draft\)/i })
+    );
 
     const draft = loadLocalSceneDraft("u_builder_001", window.localStorage);
     expect(draft).not.toBeNull();

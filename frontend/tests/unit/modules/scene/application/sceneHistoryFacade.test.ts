@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSceneHistoryFacade } from "../../../../../src/modules/scene/application/sceneHistoryFacade";
-import { createSeedAreaScene } from "../../../../../src/modules/scene/sceneFactory";
-import { createSceneHistory } from "../../../../../src/modules/scene/sceneHistory";
+import { createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
+import { createSceneHistory } from "../../../../../src/modules/scene/domain/sceneHistory";
 
 describe("sceneHistoryFacade", () => {
   it("commits scene snapshots to history", () => {

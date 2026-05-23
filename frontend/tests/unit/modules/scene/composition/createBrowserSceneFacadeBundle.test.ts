@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBrowserSceneFacadeBundle } from "../../../../../src/modules/scene/composition/createBrowserSceneFacadeBundle";
-import { createSeedAreaScene } from "../../../../../src/modules/scene/sceneFactory";
+import { createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
 
 function createMemoryStorage(): Storage {
   const memory = new Map<string, string>();
@@ -34,8 +34,10 @@ describe("createBrowserSceneFacadeBundle", () => {
 
     bundle.canvas.saveLocalDraft("u_builder_001", scene);
     const history = bundle.canvas.createInitialHistory("u_builder_001");
+    const authored = bundle.authoring.createObject("sounds", 1, 1, 9);
 
     expect(history.present.sceneId).toBe(scene.sceneId);
     expect(history.present.objects).toHaveLength(scene.objects.length);
+    expect(authored.id).toBe("sou_009");
   });
 });

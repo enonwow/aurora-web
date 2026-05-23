@@ -2,7 +2,7 @@ import {
   computeCopyTranslationVector,
   getPointsCentroid,
   resolveCopyAnchorPoint
-} from "../../../../src/modules/scene/copyPlacement";
+} from "../../../../src/modules/scene/domain/copyPlacement";
 
 describe("copyPlacement", () => {
   it("computes centroid for source points", () => {

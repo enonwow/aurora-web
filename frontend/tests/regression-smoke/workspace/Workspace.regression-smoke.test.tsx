@@ -7,7 +7,7 @@ import {
 import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
-import { loadLocalSceneDraft } from "../../../src/modules/scene/localDraftStore";
+import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -29,6 +29,15 @@ async function signInAs(username: string, password: string) {
 async function openQuickOptionsDialog() {
   fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
   return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+}
+
+async function openCanvasCommands() {
+  const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
+  fireEvent.click(canvasTab);
+  await waitFor(() => {
+    expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+  });
+  expect(await screen.findByLabelText(/canvas commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
 }
 
 describe("Regression smoke: workspace interactions", () => {
@@ -442,5 +451,144 @@ describe("Regression smoke: workspace interactions", () => {
       expect(rowA).toHaveAttribute("aria-selected", "true");
       expect(rowB).toHaveAttribute("aria-selected", "false");
     });
+  });
+
+  it("opens keyboard shortcuts with '?' and closes with Escape", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.keyDown(window, { key: "?" });
+    expect(await screen.findByRole("dialog", { name: /keyboard shortcuts/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /keyboard shortcuts/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("saves local draft using Ctrl+S keyboard shortcut", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(loadLocalSceneDraft("u_builder_001", window.localStorage)).not.toBeNull();
+    });
+    expect(loadLocalSceneDraft("u_builder_001", window.localStorage)?.source).toBe("local_draft");
+  });
+
+  it("supports undo and redo through keyboard shortcuts after copy", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    await openCanvasCommands();
+    fireEvent.click(screen.getByRole("button", { name: /copy sel/i }));
+
+    expect(
+      await within(rightSidebar).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => {
+      expect(
+        within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    expect(
+      await within(rightSidebar).findByRole("button", {
+        name: /plc_barrel_01_copy/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("duplicates and deletes an object from context menu actions", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.contextMenu(sourceRow, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^duplicate$/i }));
+
+    const copiedRow = await within(rightSidebar).findByRole("button", {
+      name: /plc_barrel_01_copy/i
+    });
+    expect(copiedRow).toBeInTheDocument();
+
+    fireEvent.contextMenu(copiedRow, { clientX: 280, clientY: 220 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^delete$/i }));
+
+    await waitFor(() => {
+      expect(
+        within(rightSidebar).queryByRole("button", { name: /plc_barrel_01_copy/i })
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("blocks deleting selected placeable when placeables layer is locked", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const sourceRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(sourceRow);
+
+    await openCanvasCommands();
+    fireEvent.click(screen.getByRole("button", { name: /lock plc/i }));
+    fireEvent.click(screen.getByRole("button", { name: /delete sel/i }));
+
+    expect(
+      within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
+  });
+
+  it("persists app style theme across logout/login and reapplies document theme", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    await openQuickOptionsDialog();
+    fireEvent.change(screen.getByLabelText(/app style/i), {
+      target: { value: "forest-night" }
+    });
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-layout-theme")).toBe("forest-night");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
+
+    await signInAs("builder.user", "builder123");
+    await openQuickOptionsDialog();
+    expect(screen.getByLabelText(/app style/i)).toHaveValue("forest-night");
+    expect(document.documentElement.getAttribute("data-layout-theme")).toBe("forest-night");
+  });
+
+  it("persists selection box mode across logout/login", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    await openQuickOptionsDialog();
+    fireEvent.change(screen.getByLabelText(/selection box mode/i), {
+      target: { value: "add" }
+    });
+    expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("add");
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
+
+    await signInAs("builder.user", "builder123");
+    await openQuickOptionsDialog();
+    expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("add");
   });
 });

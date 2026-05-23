@@ -9,7 +9,7 @@ import type {
   SelectionScope,
   WorkspaceCommandSignal,
   WorkspaceToolbarState
-} from "../roleTopbarPolicy";
+} from "../application/workspaceChromeFacade";
 import type {
   AreaScene,
   SceneHistoryState,
@@ -18,25 +18,11 @@ import type {
   SceneTile,
   TerrainBrushKind
 } from "../../scene/contracts";
-import {
-  isContextMenuGesture,
-  isCtrlPanGesture
-} from "../viewportPointerPolicy";
-import {
-  buildCanvasGridSegments,
-  MASTER_CELLS_PER_TILE
-} from "../canvasGrid";
-import {
-  LEGACY_SEED_SCENE_WIDTH_TILES,
-  LEGACY_SEED_SCENE_HEIGHT_TILES,
-  createNewSceneObject
-} from "../../scene/sceneFactory";
+import { createViewportFacade } from "../application/viewportFacade";
 import { createBrowserSceneFacadeBundle } from "../../scene/composition/createBrowserSceneFacadeBundle";
-import {
-  computeCopyTranslationVector,
-  resolveCopyAnchorPoint
-} from "../../scene/copyPlacement";
-import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
+import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
+
+const viewportFacade = createViewportFacade();
 
 interface WorkspaceCanvasViewportProps {
   toolbarState: WorkspaceToolbarState;
@@ -325,10 +311,10 @@ function disposeGridLayer(gridLayer: THREE.Group): void {
 function rebuildGridLayer(runtime: RuntimeState, sceneData: AreaScene): void {
   disposeGridLayer(runtime.gridLayer);
 
-  const segments = buildCanvasGridSegments(
+  const segments = viewportFacade.buildGridSegments(
     sceneData.width,
     sceneData.height,
-    MASTER_CELLS_PER_TILE
+    viewportFacade.defaultMasterCellsPerTile
   );
 
   const majorPoints: number[] = [];
@@ -623,21 +609,14 @@ function rebuildTerrainMesh(
 
 function rebuildObjectMeshes(
   runtime: RuntimeState,
-  sceneData: AreaScene,
   objects: SceneObject[],
   selectedObjectIds: string[],
-  debugState: DebugState
+  debugState: DebugState,
+  sceneScale: number
 ): void {
   clearObjectLayer(runtime);
   const selectedSet = new Set(selectedObjectIds);
-  const markerScale = THREE.MathUtils.clamp(
-    Math.min(
-      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
-      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
-    ),
-    0.08,
-    1
-  );
+  const markerScale = sceneScale;
   const objectRadius = 0.24 * markerScale;
   const collisionRadius = 0.33 * markerScale;
   const collisionThickness = Math.max(0.014, 0.04 * markerScale);
@@ -730,15 +709,7 @@ function rebuildObjectMeshes(
   });
 }
 
-function updateAxesHelperForScene(runtime: RuntimeState, sceneData: AreaScene): void {
-  const sceneScale = THREE.MathUtils.clamp(
-    Math.min(
-      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
-      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
-    ),
-    0.08,
-    1
-  );
+function updateAxesHelperForScene(runtime: RuntimeState, sceneData: AreaScene, sceneScale: number): void {
   const axesSize = THREE.MathUtils.clamp(BASE_AXES_HELPER_SIZE * sceneScale, 0.34, BASE_AXES_HELPER_SIZE);
   const axesScale = axesSize / BASE_AXES_HELPER_SIZE;
 
@@ -783,9 +754,9 @@ function rebuildChunkBounds(runtime: RuntimeState, sceneData: AreaScene, enabled
 
 function rebuildGizmoOverlay(
   runtime: RuntimeState,
-  sceneData: AreaScene,
   selectedObjectIds: string[],
-  debugState: DebugState
+  debugState: DebugState,
+  sceneScale: number
 ): void {
   runtime.gizmoLayer.children.forEach((child) => {
     if ("geometry" in child && (child as THREE.Mesh).geometry) {
@@ -812,14 +783,6 @@ function rebuildGizmoOverlay(
     return;
   }
 
-  const sceneScale = THREE.MathUtils.clamp(
-    Math.min(
-      sceneData.width / LEGACY_SEED_SCENE_WIDTH_TILES,
-      sceneData.height / LEGACY_SEED_SCENE_HEIGHT_TILES
-    ),
-    0.08,
-    1
-  );
   const gizmoScale = Math.max(0.08, sceneScale);
 
   if (debugState.gizmoMode === "translate") {
@@ -925,6 +888,7 @@ export function WorkspaceCanvasViewport({
   const sceneCanvasFacade = sceneFacades.canvas;
   const sceneHistoryFacade = sceneFacades.history;
   const sceneMutationsFacade = sceneFacades.mutations;
+  const sceneAuthoringFacade = sceneFacades.authoring;
   const [sceneHistory, setSceneHistory] = useState<SceneHistoryState>(() =>
     sceneCanvasFacade.createInitialHistory(userId)
   );
@@ -1096,13 +1060,17 @@ export function WorkspaceCanvasViewport({
       const fallbackOffset = toolbarState.canvasDebug.snapGrid
         ? Math.max(0.1, workspaceOptions.snapGridStep)
         : 0.35;
-      return resolveCopyAnchorPoint({
+      return sceneAuthoringFacade.resolveCopyAnchor({
         cursorAnchor: lastPointerWorldRef.current,
         sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
         fallbackOffset
       });
     },
-    [toolbarState.canvasDebug.snapGrid, workspaceOptions.snapGridStep]
+    [
+      sceneAuthoringFacade,
+      toolbarState.canvasDebug.snapGrid,
+      workspaceOptions.snapGridStep
+    ]
   );
 
   const duplicateObjects = useCallback(
@@ -1122,7 +1090,7 @@ export function WorkspaceCanvasViewport({
 
       const anchor = anchorOverride ?? resolveCopyAnchor(sourceObjects);
       const translation = anchor
-        ? computeCopyTranslationVector({
+        ? sceneAuthoringFacade.computeCopyTranslation({
             sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
             anchor,
             snapGrid: toolbarState.canvasDebug.snapGrid,
@@ -1142,7 +1110,7 @@ export function WorkspaceCanvasViewport({
         const nextSequence = nextObjectSequenceRef.current;
         nextObjectSequenceRef.current += 1;
 
-        const copy = createNewSceneObject(
+        const copy = sceneAuthoringFacade.createObject(
           sourceObject.kind,
           sourceObject.x + translation.x,
           sourceObject.y + translation.y,
@@ -1182,12 +1150,14 @@ export function WorkspaceCanvasViewport({
     },
     [
       resolveCopyAnchor,
+      sceneAuthoringFacade,
       sceneHistoryFacade,
       sceneMutationsFacade,
       toolbarState.canvasDebug.snapAngle,
       toolbarState.canvasDebug.snapHeight,
       userId,
       workspaceOptions.snapAngleStepDeg,
+      workspaceOptions.snapGridStep,
       workspaceOptions.snapHeightStep
     ]
   );
@@ -1435,24 +1405,26 @@ export function WorkspaceCanvasViewport({
     if (!runtime) {
       return;
     }
+    const sceneScale = sceneAuthoringFacade.getSceneScale(scene.width, scene.height);
 
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
     runtime.axesHelper.visible = toolbarState.canvasDebug.axes;
-    updateAxesHelperForScene(runtime, scene);
+    updateAxesHelperForScene(runtime, scene, sceneScale);
 
     rebuildTerrainMesh(runtime, scene, selectedTileId, toolbarState.canvasDebug);
     rebuildObjectMeshes(
       runtime,
-      scene,
       visibleObjects,
       selectedObjectIds,
-      toolbarState.canvasDebug
+      toolbarState.canvasDebug,
+      sceneScale
     );
     rebuildChunkBounds(runtime, scene, toolbarState.canvasDebug.chunkBounds);
-    rebuildGizmoOverlay(runtime, scene, selectedObjectIds, toolbarState.canvasDebug);
+    rebuildGizmoOverlay(runtime, selectedObjectIds, toolbarState.canvasDebug, sceneScale);
     rebuildGridLayer(runtime, scene);
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
   }, [
+    sceneAuthoringFacade,
     scene,
     selectedObjectIds,
     selectedTileId,
@@ -1830,13 +1802,18 @@ export function WorkspaceCanvasViewport({
       };
 
       if (event.button === 2) {
-        if (isCtrlPanGesture({ button: event.button, ctrlKey: event.ctrlKey })) {
+        if (viewportFacade.isCtrlPanGesture({ button: event.button, ctrlKey: event.ctrlKey })) {
           setContextMenu(null);
           applyOrbitPointerBindings(runtime.controls, { ctrlPanEnabled: true });
           return;
         }
 
-        if (isContextMenuGesture({ button: event.button, ctrlKey: event.ctrlKey })) {
+        if (
+          viewportFacade.isContextMenuGesture({
+            button: event.button,
+            ctrlKey: event.ctrlKey
+          })
+        ) {
           const hitObjectId = findHitObjectId();
           if (!hitObjectId) {
             setContextMenu(null);
@@ -1962,7 +1939,7 @@ export function WorkspaceCanvasViewport({
           ? snapGridValue(rawPlacementY, workspaceOptions.snapGridStep)
           : rawPlacementY;
 
-        const created = createNewSceneObject(
+        const created = sceneAuthoringFacade.createObject(
           kind,
           placementX,
           placementY,
@@ -2012,6 +1989,7 @@ export function WorkspaceCanvasViewport({
       userId,
       visibleObjects,
       workspaceOptions,
+      sceneAuthoringFacade,
       sceneHistoryFacade,
       sceneMutationsFacade
     ]

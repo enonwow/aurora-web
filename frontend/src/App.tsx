@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { getAuthBenchmarks } from "./modules/auth/authBenchmarks";
 import type {
@@ -17,24 +17,14 @@ import type { TelemetryEvent } from "./modules/telemetry/telemetryStore";
 import { WorkspaceTopbar } from "./modules/layout/components/WorkspaceTopbar";
 import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLayout";
 import {
-  applyToolbarAction,
-  createDefaultToolbarState,
   type ToolbarActionKey,
   type WorkspaceCommandSignal
-} from "./modules/layout/roleTopbarPolicy";
-import {
-  applyLayoutThemeToDocument
-} from "./modules/layout/themeSettings";
+} from "./modules/layout/application/workspaceChromeFacade";
 import {
   type LayoutSettings,
-  loadLayoutSettingsFromStorage,
-  persistLayoutSettingsToStorage
-} from "./modules/layout/layoutSettings";
-import {
-  loadWorkspaceOptionSettingsFromStorage,
-  persistWorkspaceOptionSettingsToStorage,
   type WorkspaceOptionSettings
-} from "./modules/layout/workspaceOptionSettings";
+} from "./modules/layout/application/layoutPreferencesFacade";
+import { createBrowserLayoutFacadeBundle } from "./modules/layout/composition/createBrowserLayoutFacadeBundle";
 
 type AppRoute = "/login" | "/app";
 
@@ -55,6 +45,14 @@ export default function App({
 }: {
   authFacade?: IAuthFacade;
 }) {
+  const layoutFacades = useMemo(
+    () =>
+      createBrowserLayoutFacadeBundle({
+        storage: window.localStorage,
+        rootElement: document.documentElement
+      }),
+    []
+  );
   const [route, setRoute] = useState<AppRoute>(() =>
     resolveRoute(window.location.pathname)
   );
@@ -68,15 +66,15 @@ export default function App({
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [toolbarState, setToolbarState] = useState(() =>
-    createDefaultToolbarState()
+    layoutFacades.chrome.createDefaultToolbarState()
   );
   const [commandSignal, setCommandSignal] = useState<WorkspaceCommandSignal | null>(null);
   const [events, setEvents] = useState<TelemetryEvent[]>(() => getTelemetryEvents());
   const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(() =>
-    loadLayoutSettingsFromStorage(window.localStorage)
+    layoutFacades.preferences.loadLayoutSettings()
   );
   const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOptionSettings>(() =>
-    loadWorkspaceOptionSettingsFromStorage(window.localStorage)
+    layoutFacades.preferences.loadWorkspaceOptions()
   );
 
   const navigate = useCallback((nextRoute: AppRoute) => {
@@ -93,13 +91,13 @@ export default function App({
   }, []);
 
   useEffect(() => {
-    persistLayoutSettingsToStorage(layoutSettings, window.localStorage);
-    applyLayoutThemeToDocument(layoutSettings.theme, document.documentElement);
-  }, [layoutSettings]);
+    layoutFacades.preferences.persistLayoutSettings(layoutSettings);
+    layoutFacades.preferences.applyTheme(layoutSettings.theme);
+  }, [layoutFacades, layoutSettings]);
 
   useEffect(() => {
-    persistWorkspaceOptionSettingsToStorage(workspaceOptions, window.localStorage);
-  }, [workspaceOptions]);
+    layoutFacades.preferences.persistWorkspaceOptions(workspaceOptions);
+  }, [layoutFacades, workspaceOptions]);
 
   useEffect(() => {
     if (!showDebugPanel) {
@@ -175,14 +173,15 @@ export default function App({
         }
 
         const authz = await authFacade.authorize(authResult.session);
-        const reloadedLayoutSettings = loadLayoutSettingsFromStorage(window.localStorage);
+        const reloadedLayoutSettings =
+          layoutFacades.preferences.loadLayoutSettings();
         const reloadedWorkspaceOptions =
-          loadWorkspaceOptionSettingsFromStorage(window.localStorage);
+          layoutFacades.preferences.loadWorkspaceOptions();
         setLayoutSettings(reloadedLayoutSettings);
         setWorkspaceOptions(reloadedWorkspaceOptions);
         setSession(authResult.session);
         setAuthorization(authz);
-        setToolbarState(createDefaultToolbarState());
+        setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
         setCommandSignal(null);
         trackTelemetry("ui.auth.login_success", { role: authz.role });
         navigate("/app");
@@ -190,7 +189,7 @@ export default function App({
         setIsSigningIn(false);
       }
     },
-    [authFacade, navigate, password, route, username]
+    [authFacade, layoutFacades, navigate, password, route, username]
   );
 
   const handleSignOut = useCallback(async () => {
@@ -205,15 +204,17 @@ export default function App({
     setPassword("");
     setIsSigningIn(false);
     setAuthError(null);
-    setToolbarState(createDefaultToolbarState());
+    setToolbarState(layoutFacades.chrome.createDefaultToolbarState());
     setCommandSignal(null);
     trackTelemetry("ui.auth.logout", { route });
     navigate("/login");
-  }, [authFacade, navigate, route, session]);
+  }, [authFacade, layoutFacades, navigate, route, session]);
 
   const handleToolbarAction = useCallback(
     (actionKey: ToolbarActionKey) => {
-      setToolbarState((current) => applyToolbarAction(current, actionKey));
+      setToolbarState((current) =>
+        layoutFacades.chrome.applyToolbarAction(current, actionKey)
+      );
       setCommandSignal((current) => ({
         actionKey,
         revision: (current?.revision ?? 0) + 1,
@@ -224,7 +225,7 @@ export default function App({
         role: currentRole ?? "anonymous"
       });
     },
-    [currentRole]
+    [currentRole, layoutFacades]
   );
 
   const benchmarkSamples = getAuthBenchmarks();

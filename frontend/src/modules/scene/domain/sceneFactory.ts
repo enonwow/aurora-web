@@ -4,7 +4,7 @@ import type {
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
-} from "./contracts";
+} from "../contracts";
 
 const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "corridor",

@@ -143,4 +143,28 @@ describe("Regression smoke: auth shell behavior", () => {
     expect(screen.queryByRole("note", { name: /controls hint/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/canvas runtime/i)).not.toBeInTheDocument();
   });
+
+  it("shows DM command group for dm role and hides module save action", async () => {
+    renderAtPath("/login");
+    await signInAs("dm.user", "dm123");
+
+    const dmTab = screen.getByRole("button", { name: /dm commands/i });
+    fireEvent.click(dmTab);
+    await waitFor(() => {
+      expect(dmTab).toHaveAttribute("aria-expanded", "true");
+    });
+
+    expect(await screen.findByRole("button", { name: /spawn creature/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /save \(local draft\)/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps viewer role read-only toolbar surface", async () => {
+    renderAtPath("/login");
+    await signInAs("viewer.user", "viewer123");
+
+    expect(screen.queryByLabelText(/quick actions/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /dm commands/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^module$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^camera$/i })).toBeInTheDocument();
+  });
 });

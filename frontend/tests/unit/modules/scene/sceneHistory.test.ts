@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createSeedAreaScene } from "../../../../src/modules/scene/sceneFactory";
+import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
 import {
   commitSceneHistory,
   createSceneHistory,
   redoSceneHistory,
   undoSceneHistory
-} from "../../../../src/modules/scene/sceneHistory";
+} from "../../../../src/modules/scene/domain/sceneHistory";
 
 describe("sceneHistory", () => {
   it("commits scene mutations and supports undo/redo", () => {

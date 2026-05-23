@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createSeedAreaScene } from "../../../../src/modules/scene/sceneFactory";
+import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
 import {
   clearLocalSceneDraft,
   loadLocalSceneDraft,
   saveLocalSceneDraft
-} from "../../../../src/modules/scene/localDraftStore";
+} from "../../../../src/modules/scene/adapters/localDraftStore";
 
 describe("localDraftStore", () => {
   const userId = "u_builder_001";

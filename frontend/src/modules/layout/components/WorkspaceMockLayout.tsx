@@ -1,17 +1,19 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { UserRole } from "../../auth/contracts";
 import type { SceneObject, SceneObjectKind } from "../../scene/contracts";
-import { createSeedAreaScene } from "../../scene/sceneFactory";
+import { createSceneAuthoringFacade } from "../../scene/application/sceneAuthoringFacade";
 import type {
   WorkspaceCommandSignal,
   WorkspaceToolbarState
-} from "../roleTopbarPolicy";
-import { getRoleWorkspacePanels } from "../roleSidebarPolicy";
+} from "../application/workspaceChromeFacade";
+import { createWorkspaceChromeFacade } from "../application/workspaceChromeFacade";
 import { SceneObjectListPanel } from "./SceneObjectListPanel";
 import type { SceneObjectCatalogType } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
-import type { WorkspaceOptionSettings } from "../workspaceOptionSettings";
+import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
+
+const workspaceChromeFacade = createWorkspaceChromeFacade();
 
 interface WorkspaceMockLayoutProps {
   role: UserRole;
@@ -155,9 +157,10 @@ export function WorkspaceMockLayout({
   onToggleLeftCollapsed,
   onToggleRightCollapsed
 }: WorkspaceMockLayoutProps) {
-  const panels = getRoleWorkspacePanels(role);
+  const panels = workspaceChromeFacade.getRoleWorkspacePanels(role);
+  const sceneAuthoringFacade = useMemo(() => createSceneAuthoringFacade(), []);
   const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
-    () => createSeedAreaScene().objects
+    () => sceneAuthoringFacade.createSeedObjectsSnapshot()
   );
   const [selectedObjectIdsSnapshot, setSelectedObjectIdsSnapshot] = useState<string[]>([]);
   const [sidebarSelectSignal, setSidebarSelectSignal] = useState<SidebarSelectSignal | null>(

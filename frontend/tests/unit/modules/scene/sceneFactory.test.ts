@@ -3,7 +3,7 @@ import {
   createNewSceneObject,
   createSeedAreaScene,
   rescaleSceneObjectsToSize
-} from "../../../../src/modules/scene/sceneFactory";
+} from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("sceneFactory", () => {
   it("creates deterministic 2x2 seed area with tiles and objects by default", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSceneMutationsFacade } from "../../../../../src/modules/scene/application/sceneMutationsFacade";
-import { createNewSceneObject, createSeedAreaScene } from "../../../../../src/modules/scene/sceneFactory";
+import { createNewSceneObject, createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
 
 describe("sceneMutationsFacade", () => {
   it("appends objects to scene", () => {

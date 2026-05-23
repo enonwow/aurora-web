@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createSceneCanvasFacade } from "../../../../../src/modules/scene/application/sceneCanvasFacade";
 import type { AreaScene } from "../../../../../src/modules/scene/contracts";
 import type { SceneDraftPort } from "../../../../../src/modules/scene/ports/sceneDraftPort";
-import { createSeedAreaScene } from "../../../../../src/modules/scene/sceneFactory";
+import { createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
 
 describe("sceneCanvasFacade", () => {
   it("creates 2x2 seed history when draft is missing", () => {
