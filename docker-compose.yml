@@ -1,4 +1,23 @@
 services:
+  postgres:
+    container_name: aurora-postgres-dev
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aurora_web
+      POSTGRES_USER: aurora
+      POSTGRES_PASSWORD: aurora
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   frontend:
     container_name: aurora-frontend-dev
     build:
@@ -15,5 +34,40 @@ services:
       - frontend_node_modules:/app/node_modules
     restart: unless-stopped
 
+  backend:
+    container_name: aurora-backend-dev
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: sh -c "npm install && npm run start:dev"
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://aurora:aurora@postgres:5432/aurora_web
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      CONTRACT_VERSION: "1.0.0"
+      SWAGGER_ENABLED: "true"
+      SWAGGER_PATH: docs
+      SWAGGER_JSON_PATH: docs-json
+      AUTH_REPOSITORY_DRIVER: postgres
+      SESSION_TTL_SECONDS: "3600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   frontend_node_modules:
+  backend_node_modules:
+  postgres_data:
