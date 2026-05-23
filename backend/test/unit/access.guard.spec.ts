@@ -66,9 +66,37 @@ describe("AccessGuard", () => {
     });
   });
 
+  it("rejects request when Bearer token is prefixed with other text", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false
+    });
+    const { context } = createContext("Token Bearer abc");
+
+    await expectException(guard.canActivate(context), {
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Missing or invalid bearer token."
+    });
+  });
+
   it("rejects request when route has no explicit roles", async () => {
     setupReflector(reflector, {
       [IS_PUBLIC_KEY]: false
+    });
+    authService.resolveSession.mockResolvedValue(buildAuth("viewer", ["scene.read"]));
+    const { context } = createContext("Bearer abc");
+
+    await expectException(guard.canActivate(context), {
+      status: 403,
+      code: "FORBIDDEN_ROLE",
+      message: "Access denied by default policy."
+    });
+  });
+
+  it("rejects request when route roles are explicitly empty", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false,
+      [ROLES_KEY]: []
     });
     authService.resolveSession.mockResolvedValue(buildAuth("viewer", ["scene.read"]));
     const { context } = createContext("Bearer abc");
@@ -140,6 +168,22 @@ describe("AccessGuard", () => {
     });
 
     const { context } = createContext("Bearer token-ok   ");
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it("accepts bearer token with multiple spaces after scheme", async () => {
+    setupReflector(reflector, {
+      [IS_PUBLIC_KEY]: false,
+      [ROLES_KEY]: ["viewer"]
+    });
+    authService.resolveSession.mockImplementation(async (token) => {
+      if (token === "token-ok") {
+        return buildAuth("viewer", ["scene.read"]);
+      }
+      return null;
+    });
+
+    const { context } = createContext("Bearer     token-ok");
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 });

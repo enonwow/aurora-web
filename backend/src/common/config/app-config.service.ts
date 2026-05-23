@@ -55,4 +55,8 @@ export class AppConfigService {
   get sessionTtlSeconds() {
     return this.env.SESSION_TTL_SECONDS;
   }
+
+  get runtimeSettingsFile() {
+    return this.env.RUNTIME_SETTINGS_FILE;
+  }
 }

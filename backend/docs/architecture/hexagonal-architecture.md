@@ -196,13 +196,17 @@ backend/src/
 4. `modules/auth/adapters/outbound/**` -> adaptery infrastrukturalne (memory/postgres).
 5. `modules/auth/adapters/inbound/http/access.guard.ts` -> inbound policy enforcement.
 6. `common/http/cors.ts` -> inbound policy (granica sieciowa).
+7. `modules/areas/**` -> heksagonalny modul obszarow (lista, detail, preview) przez port `AreaRepositoryPort`.
+8. `modules/runtime-settings/**` -> heksagonalny modul ustawien runtime (paths/sources/benchmark candidates) z admin API.
 
 ## Kolejnosc wdrozenia (bez rewolucji)
 1. `DONE`: wydzielone porty i use case w module `auth`.
 2. `DONE`: `auth` przepiety na porty + adaptery outbound.
-3. Powtorzyc wzorzec dla `areas` i `assets`.
-4. Dodac `ImageProcessingPort` + adapter worker/queue.
-5. Dodac `EventPublisherPort` (Outbox) pod integracje Neverwinter.
+3. `DONE (areas)`: wzorzec powtorzony dla `areas` (domain/application/ports/adapters + testy).
+4. `DONE (runtime-settings)`: centralne ustawienia backendowe + admin override API.
+5. Powtorzyc wzorzec dla `assets`.
+6. Dodac `ImageProcessingPort` + adapter worker/queue.
+7. Dodac `EventPublisherPort` (Outbox) pod integracje Neverwinter.
 
 ## Definicja Done dla modulu heksagonalnego
 1. Domena i use case bez zaleznosci do NestJS.

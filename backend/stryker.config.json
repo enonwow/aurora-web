@@ -8,6 +8,8 @@
     "src/modules/auth/adapters/inbound/http/access.guard.ts",
     "src/modules/auth/domain/auth.policy.ts",
     "src/modules/auth/application/auth.application.service.ts",
+    "src/modules/catalog/application/catalog.application.service.ts",
+    "src/modules/areas/application/areas.application.service.ts",
     "src/common/http/cors.ts"
   ],
   "tsconfigFile": "tsconfig.json",

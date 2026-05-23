@@ -16,6 +16,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
     "@fastify/static": "^8.2.0",
     "@fastify/view": "^11.1.1",
     "@nestjs/common": "^11.1.8",

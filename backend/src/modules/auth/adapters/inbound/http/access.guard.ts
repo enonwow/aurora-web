@@ -92,9 +92,10 @@ function extractBearerToken(value: string | string[] | undefined): string | null
   if (!value || Array.isArray(value)) {
     return null;
   }
-  const [scheme, token] = value.split(" ");
-  if (scheme !== "Bearer" || !token) {
+  const match = /^Bearer\s+(.+)$/u.exec(value);
+  if (!match) {
     return null;
   }
-  return token.trim() || null;
+  const token = match[1].trim();
+  return token.length > 0 ? token : null;
 }
