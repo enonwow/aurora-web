@@ -19,6 +19,14 @@ describe("layoutSettings", () => {
     );
   });
 
+  it("uses stable unified storage key contract", () => {
+    expect(LAYOUT_SETTINGS_STORAGE_KEY).toBe("aurora_web.layout_settings");
+  });
+
+  it("uses stable legacy storage key contract", () => {
+    expect(LEGACY_LAYOUT_SETTINGS_STORAGE_KEY).toBe("aurora_web.layout_settings.v1");
+  });
+
   it("persists and loads single layout model", () => {
     const next = {
       theme: "forest-night" as const,

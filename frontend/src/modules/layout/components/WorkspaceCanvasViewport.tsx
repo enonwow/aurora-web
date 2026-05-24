@@ -356,16 +356,25 @@ function fromAdjustLocationCoordinate(
   return Math.min(sceneMax, Math.max(SCENE_COORDINATE_MIN, nextWorld));
 }
 
+function toAdjustLocationHeight(worldHeight: number, unitsPerTile: number): number {
+  return worldHeight * unitsPerTile;
+}
+
+function fromAdjustLocationHeight(adjustHeight: number, unitsPerTile: number): number {
+  return adjustHeight / unitsPerTile;
+}
+
 function buildAdjustLocationDraft(
   source: SceneObject,
   unitsPerTile: number,
   sceneWidth: number,
   sceneHeight: number
 ): AdjustLocationDraft {
+  const zInAdjustUnits = toAdjustLocationHeight(source.visualTransform.offsetZ, unitsPerTile);
   return {
     x: toAdjustLocationCoordinate(source.x, sceneWidth, unitsPerTile),
     y: toAdjustLocationCoordinate(source.y, sceneHeight, unitsPerTile),
-    z: source.visualTransform.offsetZ,
+    z: zInAdjustUnits,
     bearingDeg: toDegrees(source.bearing),
     scale: source.visualTransform.scale,
     xRotationDeg: toDegrees(source.visualTransform.pitch),
@@ -373,7 +382,7 @@ function buildAdjustLocationDraft(
     zRotationDeg: toDegrees(source.visualTransform.roll),
     xTranslation: source.visualTransform.offsetX,
     yTranslation: source.visualTransform.offsetY,
-    zTranslation: source.visualTransform.offsetZ
+    zTranslation: zInAdjustUnits
   };
 }
 
@@ -1046,7 +1055,8 @@ function rebuildObjectMeshes(
             scale: 1,
             offsetX: 0,
             offsetY: 0,
-            offsetZ: 0,
+            // Aurora-first parity: static placeables still keep base Z/elevation from Adjust Location.
+            offsetZ: object.visualTransform.offsetZ,
             pitch: 0,
             yaw: 0,
             roll: 0
@@ -1114,9 +1124,9 @@ function updateAxesHelperForScene(
 ): void {
   const transform = resolveAxesHelperTransform(sceneData.width, sceneData.height, sceneScale);
   runtime.axesHelper.position.set(
-    SCENE_COORDINATE_MIN,
+    transform.positionX,
     transform.positionY,
-    SCENE_COORDINATE_MIN
+    transform.positionZ
   );
   runtime.axesHelper.scale.setScalar(transform.scale);
 }
@@ -3305,6 +3315,7 @@ export function WorkspaceCanvasViewport({
       const draft = adjustLocationDialog.draft;
       const objectIds = adjustLocationDialog.objectIds;
       const includeVisualTransforms = adjustLocationDialog.showVisualTransforms;
+      const draftZWorld = fromAdjustLocationHeight(draft.z, adjustLocationUnitsPerTile);
 
       setSceneHistory((current) => {
         let nextScene = sceneViewportPort.setObjectsAbsoluteLocationByIds(
@@ -3313,7 +3324,7 @@ export function WorkspaceCanvasViewport({
           {
             x: fromAdjustLocationCoordinate(draft.x, scene.width, adjustLocationUnitsPerTile),
             y: fromAdjustLocationCoordinate(draft.y, scene.height, adjustLocationUnitsPerTile),
-            z: draft.z,
+            z: draftZWorld,
             bearing: toRadians(draft.bearingDeg)
           }
         );
@@ -3322,7 +3333,7 @@ export function WorkspaceCanvasViewport({
             scale: draft.scale,
             offsetX: draft.xTranslation,
             offsetY: draft.yTranslation,
-            offsetZ: draft.z,
+            offsetZ: draftZWorld,
             pitch: toRadians(draft.xRotationDeg),
             yaw: toRadians(draft.yRotationDeg),
             roll: toRadians(draft.zRotationDeg)
@@ -4529,7 +4540,8 @@ export function WorkspaceCanvasViewport({
               adjustLocationDialog.mixedStaticPlaceables ? (
                 <p className="canvas-adjust-location-note" role="note">
                   Mixed Static + non-Static selection: Visual Transforms are editable and saved
-                  for all selected objects, but runtime applies them only where Static is OFF.
+                  for all selected objects. Runtime applies scale/XY/rotation only where Static
+                  is OFF; Z height still follows Adjust Location.
                 </p>
               ) : null}
 

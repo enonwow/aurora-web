@@ -4,6 +4,7 @@ import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import {
   LAYOUT_SETTINGS_STORAGE_KEY
 } from "../../../src/modules/layout/layoutSettings";
+import { MASTER_CELLS_PER_TILE } from "../../../src/modules/layout/canvasGrid";
 import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
@@ -160,7 +161,9 @@ describe("Regression smoke: workspace interactions", () => {
       target: { value: String((beforeObject?.x ?? 0) * 10 + 4.5) }
     });
     fireEvent.change(zInput, {
-      target: { value: String((beforeObject?.visualTransform.offsetZ ?? 0) + 1.25) }
+      target: {
+        value: String((beforeObject?.visualTransform.offsetZ ?? 0) * MASTER_CELLS_PER_TILE + 12.5)
+      }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
 
@@ -281,7 +284,7 @@ describe("Regression smoke: workspace interactions", () => {
     const zTranslationInput = within(dialog).getByRole("spinbutton", {
       name: /^z translation$/i
     }) as HTMLInputElement;
-    const targetZ = Number.parseFloat(zInput.value) + 1.25;
+    const targetZ = Number.parseFloat(zInput.value) + 12.5;
 
     fireEvent.change(zTranslationInput, { target: { value: String(targetZ) } });
 
@@ -300,7 +303,10 @@ describe("Regression smoke: workspace interactions", () => {
     const savedDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
     const changed = savedDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
     expect(changed).toBeDefined();
-    expect(changed?.visualTransform.offsetZ ?? 0).toBeCloseTo(targetZ, 6);
+    expect(changed?.visualTransform.offsetZ ?? 0).toBeCloseTo(
+      targetZ / MASTER_CELLS_PER_TILE,
+      6
+    );
 
     fireEvent.contextMenu(row, { clientX: 272, clientY: 208 });
     fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
@@ -445,7 +451,7 @@ describe("Regression smoke: workspace interactions", () => {
       target: { value: "1.33" }
     });
     fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^z translation$/i }), {
-      target: { value: "2.2" }
+      target: { value: String(2.2 * MASTER_CELLS_PER_TILE) }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
 
@@ -484,7 +490,7 @@ describe("Regression smoke: workspace interactions", () => {
     const movedY = Number.parseFloat(
       (within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
     );
-    const targetZ = 1.9;
+    const targetZ = 1.9 * MASTER_CELLS_PER_TILE;
     const targetBearing = 137.5;
 
     fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^z translation$/i }), {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_LAYOUT_SETTINGS,
   LEGACY_LAYOUT_SETTINGS_STORAGE_KEY,
@@ -37,6 +37,42 @@ describe("layoutSettings - negative cases", () => {
     });
   });
 
+  it("skips empty unified payload and still reads legacy unified settings", () => {
+    window.localStorage.setItem(LAYOUT_SETTINGS_STORAGE_KEY, "");
+    window.localStorage.setItem(
+      LEGACY_LAYOUT_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        theme: "obsidian-slate",
+        leftSidebarCollapsed: true,
+        rightSidebarCollapsed: true
+      })
+    );
+
+    expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual({
+      theme: "obsidian-slate",
+      leftSidebarCollapsed: true,
+      rightSidebarCollapsed: true
+    });
+  });
+
+  it("skips primitive unified payload and still reads legacy unified settings", () => {
+    window.localStorage.setItem(LAYOUT_SETTINGS_STORAGE_KEY, "123");
+    window.localStorage.setItem(
+      LEGACY_LAYOUT_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        theme: "obsidian-slate",
+        leftSidebarCollapsed: true,
+        rightSidebarCollapsed: true
+      })
+    );
+
+    expect(loadLayoutSettingsFromStorage(window.localStorage)).toEqual({
+      theme: "obsidian-slate",
+      leftSidebarCollapsed: true,
+      rightSidebarCollapsed: true
+    });
+  });
+
   it("sanitizes invalid theme value to default theme", () => {
     window.localStorage.setItem(
       LAYOUT_SETTINGS_STORAGE_KEY,
@@ -57,6 +93,19 @@ describe("layoutSettings - negative cases", () => {
     expect(() =>
       persistLayoutSettingsToStorage(DEFAULT_LAYOUT_SETTINGS, null)
     ).not.toThrow();
+  });
+
+  it("returns defaults when loading settings from null storage", () => {
+    expect(loadLayoutSettingsFromStorage(null)).toEqual(DEFAULT_LAYOUT_SETTINGS);
+  });
+
+  it("does not serialize settings when storage is null", () => {
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+
+    persistLayoutSettingsToStorage(DEFAULT_LAYOUT_SETTINGS, null);
+
+    expect(stringifySpy).not.toHaveBeenCalled();
+    stringifySpy.mockRestore();
   });
 });
 

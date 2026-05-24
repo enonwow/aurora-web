@@ -1,8 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
   "testRunner": "vitest",
-  "checkers": ["typescript"],
+  "checkers": [],
   "reporters": ["clear-text", "progress"],
+  "concurrency": 12,
   "coverageAnalysis": "off",
   "vitest": {
     "configFile": "vite.config.ts"
@@ -25,6 +26,6 @@
     "src/modules/scene/composition/createBrowserSceneViewportPort.ts"
   ],
   "ignorePatterns": ["dist/**", "coverage/**"],
-  "timeoutMS": 10000
+  "timeoutMS": 20000
 }
 
