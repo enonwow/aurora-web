@@ -161,6 +161,84 @@ describe("Processing Graph API v1 (e2e)", () => {
     });
   });
 
+  it("POST /api/v1/processing/graphs/delta/rebuild denies dm role", async () => {
+    const token = await loginAndGetToken("dm.user", "dm123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/processing/graphs/delta/rebuild")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(403);
+
+    expect(response.body.error.code).toBe("FORBIDDEN_ROLE");
+  });
+
+  it("POST /api/v1/processing/graphs/delta/rebuild creates rebuild job for builder", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/processing/graphs/delta/rebuild")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.jobId).toEqual(expect.any(String));
+    expect(response.body.data.status).toBe("completed");
+    expect(response.body.data.delta.baseline).toBe("latest");
+    expect(Array.isArray(response.body.data.actions)).toBe(true);
+  });
+
+  it("GET /api/v1/processing/graphs/delta/jobs lists latest jobs", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .get("/api/v1/processing/graphs/delta/jobs?limit=5")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data.length).toBeGreaterThan(0);
+    expect(response.body.data[0].jobId).toEqual(expect.any(String));
+  });
+
+  it("GET /api/v1/processing/graphs/delta/jobs/:jobId returns selected job", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const list = await supertest(httpServer)
+      .get("/api/v1/processing/graphs/delta/jobs?limit=1")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const [latestJob] = list.body.data as Array<{ jobId: string }>;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/processing/graphs/delta/jobs/${latestJob.jobId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.jobId).toBe(latestJob.jobId);
+  });
+
+  it("GET /api/v1/processing/graphs/delta/jobs/:jobId validates job id format", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .get("/api/v1/processing/graphs/delta/jobs/not-a-uuid")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(422);
+
+    expect(response.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("GET /api/v1/processing/graphs/delta/jobs/:jobId returns 404 for unknown job", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const unknownJobId = "2f40a0df-4aa9-4f90-aeef-05ccf91f7fb7";
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/processing/graphs/delta/jobs/${unknownJobId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(404);
+
+    expect(response.body.error.code).toBe("PROCESSING_JOB_NOT_FOUND");
+  });
+
   async function loginAndGetToken(username: string, password: string): Promise<string> {
     const login = await supertest(httpServer)
       .post("/api/v1/auth/login")

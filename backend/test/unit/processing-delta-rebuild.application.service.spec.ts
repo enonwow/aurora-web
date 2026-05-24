@@ -128,6 +128,108 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
     expect(job.actions[0].error?.code).toBe("TEMPLATE_NOT_FOUND");
   });
 
+  it("maps unknown template kind to item projection and skips planned action", async () => {
+    graphService.checkpointLatestSnapshot.mockResolvedValue(
+      checkpointResult({
+        changed: true,
+        impacted: {
+          areas: [],
+          templates: ["tpl_unknown"],
+          areaObjects: []
+        }
+      })
+    );
+    graphService.getGraphSnapshot.mockResolvedValue({
+      ...snapshotWithTemplates([]),
+      resourceGraph: {
+        nodes: [
+          {
+            id: "object:abc",
+            kind: "texture_atlas",
+            label: "object",
+            hash: "h1",
+            metadata: {}
+          },
+          {
+            id: "invalid_template_id",
+            kind: "template",
+            label: "invalid",
+            hash: "h2",
+            metadata: {}
+          },
+          {
+            id: "template:",
+            kind: "template",
+            label: "empty",
+            hash: "h3",
+            metadata: {}
+          }
+        ],
+        edges: []
+      }
+    });
+
+    const job = await service.startDeltaRebuild("builder.user");
+
+    expect(job.status).toBe("completed");
+    expect(job.actions).toHaveLength(1);
+    expect(job.actions[0].type).toBe("rebuild_item_projection");
+    expect(job.actions[0].status).toBe("skipped");
+    expect(catalogService.processPlaceable).not.toHaveBeenCalled();
+  });
+
+  it("marks action failed with generic code when placeable throws Error", async () => {
+    graphService.checkpointLatestSnapshot.mockResolvedValue(
+      checkpointResult({
+        changed: true,
+        impacted: {
+          areas: [],
+          templates: ["tpl_placeable"],
+          areaObjects: []
+        }
+      })
+    );
+    graphService.getGraphSnapshot.mockResolvedValue(
+      snapshotWithTemplates([{ templateId: "tpl_placeable", kind: "placeable" }])
+    );
+    catalogService.processPlaceable.mockRejectedValue(new Error("generic failure"));
+
+    const job = await service.startDeltaRebuild("builder.user");
+
+    expect(job.status).toBe("failed");
+    expect(job.stats.failed).toBe(1);
+    expect(job.actions[0].error).toEqual({
+      code: "PROCESSING_ACTION_FAILED",
+      message: "generic failure"
+    });
+  });
+
+  it("marks action failed with unknown message when non-error value is thrown", async () => {
+    graphService.checkpointLatestSnapshot.mockResolvedValue(
+      checkpointResult({
+        changed: true,
+        impacted: {
+          areas: [],
+          templates: ["tpl_placeable"],
+          areaObjects: []
+        }
+      })
+    );
+    graphService.getGraphSnapshot.mockResolvedValue(
+      snapshotWithTemplates([{ templateId: "tpl_placeable", kind: "placeable" }])
+    );
+    catalogService.processPlaceable.mockRejectedValue("fatal");
+
+    const job = await service.startDeltaRebuild("builder.user");
+
+    expect(job.status).toBe("failed");
+    expect(job.stats.failed).toBe(1);
+    expect(job.actions[0].error).toEqual({
+      code: "PROCESSING_ACTION_FAILED",
+      message: "Unknown processing action failure."
+    });
+  });
+
   it("lists and fetches jobs", async () => {
     graphService.checkpointLatestSnapshot.mockResolvedValue(
       checkpointResult({
