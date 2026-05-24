@@ -1,5 +1,4 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import { AppException } from "../../../common/http/app-exception";
 import {
   AREA_PROCESSING_CACHE,
@@ -10,15 +9,29 @@ import {
   type AreaRepositoryPort
 } from "./ports/area-repository.port";
 import type {
-  AreaObjectCounts,
-  AreaObjectPlacement,
   AreaProcessQuery,
   AreaProcessingResult,
   AreaRecord
 } from "../domain/area.types";
+import {
+  buildAreaProcessCacheKey,
+  countAreaObjectsByKind
+} from "../domain/area-processing.builders";
+
+interface AreaProcessingEnvelope {
+  cache: {
+    key: string;
+    hit: boolean;
+    storedAt: string;
+    hits: number;
+  };
+  area: AreaProcessingResult;
+}
 
 @Injectable()
 export class AreasApplicationService {
+  private readonly inFlightAreaProcessing = new Map<string, Promise<AreaProcessingEnvelope>>();
+
   constructor(
     @Inject(AREA_REPOSITORY)
     private readonly repository: AreaRepositoryPort,
@@ -47,7 +60,8 @@ export class AreasApplicationService {
       });
     }
 
-    const counts = countObjectsByKind(area.objects);
+    const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
+    const counts = precomputed?.composition ?? countAreaObjectsByKind(area.objects);
     return {
       areaId: area.areaId,
       name: area.name,
@@ -78,6 +92,7 @@ export class AreasApplicationService {
       });
     }
 
+    const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
     return {
       areaId: area.areaId,
       name: area.name,
@@ -88,14 +103,15 @@ export class AreasApplicationService {
         height: area.height
       },
       textureAtlasId: area.textureAtlasId,
-      objectCounts: countObjectsByKind(area.objects),
+      objectCounts: precomputed?.composition ?? countAreaObjectsByKind(area.objects),
       updatedAt: area.updatedAt
     };
   }
 
   async processArea(query: AreaProcessQuery) {
     const area = await this.resolveAreaRecord(query.areaId);
-    const cacheKey = buildAreaCacheKey(area);
+    const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
+    const cacheKey = precomputed?.cacheKey ?? buildAreaProcessCacheKey(area);
 
     if (!query.bypassCache) {
       const cached = await this.processingCache.get(cacheKey);
@@ -112,38 +128,44 @@ export class AreasApplicationService {
       }
     }
 
-    const composition = countObjectsByKind(area.objects);
-    const textureAtlasCacheKey = `${area.textureAtlasId}:${area.width}x${area.height}`;
-    const processed: AreaProcessingResult = {
-      areaId: area.areaId,
-      name: area.name,
-      biome: area.biome,
-      width: area.width,
-      height: area.height,
-      tags: area.tags,
-      benchmark: area.benchmark,
-      previewImageUrl: area.previewImageUrl,
-      textureAtlas: {
-        atlasId: area.textureAtlasId,
-        cacheKey: textureAtlasCacheKey,
-        strategy: "blob-cache"
-      },
-      composition,
-      objects: area.objects,
-      updatedAt: area.updatedAt,
-      processedAt: new Date().toISOString()
+    const processMiss = async (): Promise<AreaProcessingEnvelope> => {
+      const composition = precomputed?.composition ?? countAreaObjectsByKind(area.objects);
+      const textureAtlasCacheKey = `${area.textureAtlasId}:${area.width}x${area.height}`;
+      const processed: AreaProcessingResult = {
+        areaId: area.areaId,
+        name: area.name,
+        biome: area.biome,
+        width: area.width,
+        height: area.height,
+        tags: area.tags,
+        benchmark: area.benchmark,
+        previewImageUrl: area.previewImageUrl,
+        textureAtlas: {
+          atlasId: area.textureAtlasId,
+          cacheKey: textureAtlasCacheKey,
+          strategy: "blob-cache"
+        },
+        composition,
+        objects: area.objects,
+        updatedAt: area.updatedAt,
+        processedAt: new Date().toISOString()
+      };
+
+      const stored = await this.processingCache.set(cacheKey, processed);
+      return {
+        cache: {
+          key: cacheKey,
+          hit: false,
+          storedAt: stored.storedAt,
+          hits: stored.hits
+        },
+        area: processed
+      };
     };
 
-    const stored = await this.processingCache.set(cacheKey, processed);
-    return {
-      cache: {
-        key: cacheKey,
-        hit: false,
-        storedAt: stored.storedAt,
-        hits: stored.hits
-      },
-      area: processed
-    };
+    return query.bypassCache
+      ? processMiss()
+      : this.executeInFlight(this.inFlightAreaProcessing, cacheKey, processMiss);
   }
 
   async getProcessedArea(cacheKey: string) {
@@ -178,43 +200,23 @@ export class AreasApplicationService {
     }
     return area;
   }
-}
 
-function countObjectsByKind(objects: AreaObjectPlacement[]): AreaObjectCounts {
-  const counts = {
-    placeables: 0,
-    creatures: 0,
-    items: 0,
-    total: 0
-  };
-
-  for (const object of objects) {
-    counts.total += 1;
-    if (object.kind === "placeable") {
-      counts.placeables += 1;
-      continue;
+  private executeInFlight<T>(
+    inFlight: Map<string, Promise<T>>,
+    key: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const existing = inFlight.get(key);
+    if (existing) {
+      return existing;
     }
-    if (object.kind === "creature") {
-      counts.creatures += 1;
-      continue;
-    }
-    counts.items += 1;
+
+    const pending = operation().finally(() => {
+      if (inFlight.get(key) === pending) {
+        inFlight.delete(key);
+      }
+    });
+    inFlight.set(key, pending);
+    return pending;
   }
-
-  return counts;
-}
-
-function buildAreaCacheKey(area: AreaRecord) {
-  const hash = createHash("sha256");
-  hash.update(
-    `area-process/v1|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}`
-  );
-
-  for (const object of area.objects) {
-    hash.update(
-      `|${object.objectId}|${object.kind}|${object.templateId}|${object.x}|${object.y}|${object.z}|${object.bearing}`
-    );
-  }
-
-  return hash.digest("hex");
 }

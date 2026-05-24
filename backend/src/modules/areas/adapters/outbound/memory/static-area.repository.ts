@@ -7,6 +7,20 @@ import type {
   AreaObjectCounts,
   AreaRecord
 } from "../../../domain/area.types";
+import {
+  buildAreaProcessCacheKey,
+  countAreaObjectsByKind
+} from "../../../domain/area-processing.builders";
+
+interface IndexedArea {
+  record: AreaRecord;
+  listItem: AreaListItem;
+  composition: AreaObjectCounts;
+  processingCacheKey: string;
+  searchable: string;
+  biomeLower: string;
+  tagsLower: Set<string>;
+}
 
 const AREAS: AreaRecord[] = [
   {
@@ -152,42 +166,70 @@ const AREAS: AreaRecord[] = [
   }
 ];
 
+const INDEXED_AREAS: IndexedArea[] = AREAS.map((area) => {
+  const composition = countAreaObjectsByKind(area.objects);
+  return {
+    composition,
+    processingCacheKey: buildAreaProcessCacheKey(area),
+    record: area,
+    listItem: mapAreaToListItem(area, composition),
+    searchable: buildAreaSearchableText(area),
+    biomeLower: area.biome.toLowerCase(),
+    tagsLower: new Set(area.tags.map((tag) => tag.toLowerCase()))
+  };
+});
+
+const AREAS_BY_ID = new Map<string, AreaRecord>(
+  INDEXED_AREAS.map((entry) => [entry.record.areaId, entry.record])
+);
+const AREAS_PROCESSING_BY_ID = new Map<
+  string,
+  { cacheKey: string; composition: AreaObjectCounts }
+>(
+  INDEXED_AREAS.map((entry) => [
+    entry.record.areaId,
+    {
+      cacheKey: entry.processingCacheKey,
+      composition: entry.composition
+    }
+  ])
+);
+
 @Injectable()
 export class StaticAreaRepository implements AreaRepositoryPort {
   async list(query: AreaListQuery): Promise<AreaListResult> {
-    const filtered = AREAS.filter((area) => {
+    const normalizedQuery = query.query?.toLowerCase().trim();
+    const normalizedBiome = query.biome?.toLowerCase().trim();
+    const normalizedTag = query.tag?.toLowerCase().trim();
+
+    const filtered = INDEXED_AREAS.filter((area) => {
       if (!query.query) {
         return true;
       }
-      const value = query.query.toLowerCase();
-      return (
-        area.name.toLowerCase().includes(value) ||
-        area.areaId.toLowerCase().includes(value) ||
-        area.tags.some((tag) => tag.toLowerCase().includes(value))
-      );
+      return area.searchable.includes(normalizedQuery ?? "");
     })
       .filter((area) => {
         if (!query.biome) {
           return true;
         }
-        return area.biome.toLowerCase() === query.biome.toLowerCase();
+        return area.biomeLower === normalizedBiome;
       })
       .filter((area) => {
         if (!query.tag) {
           return true;
         }
-        return area.tags.some((tag) => tag.toLowerCase() === query.tag!.toLowerCase());
+        return area.tagsLower.has(normalizedTag ?? "");
       })
       .filter((area) => {
         if (typeof query.benchmark !== "boolean") {
           return true;
         }
-        return area.benchmark === query.benchmark;
+        return area.record.benchmark === query.benchmark;
       });
 
     const items = filtered
-      .map((area) => mapAreaToListItem(area))
-      .slice(query.offset, query.offset + query.limit);
+      .slice(query.offset, query.offset + query.limit)
+      .map((area) => area.listItem);
 
     return {
       items,
@@ -198,11 +240,18 @@ export class StaticAreaRepository implements AreaRepositoryPort {
   }
 
   async findById(areaId: string): Promise<AreaRecord | null> {
-    return AREAS.find((area) => area.areaId === areaId) ?? null;
+    return AREAS_BY_ID.get(areaId) ?? null;
+  }
+
+  getPrecomputedAreaProcessing(areaId: string): {
+    cacheKey: string;
+    composition: AreaObjectCounts;
+  } | null {
+    return AREAS_PROCESSING_BY_ID.get(areaId) ?? null;
   }
 }
 
-function mapAreaToListItem(area: AreaRecord): AreaListItem {
+function mapAreaToListItem(area: AreaRecord, composition: AreaObjectCounts): AreaListItem {
   return {
     areaId: area.areaId,
     name: area.name,
@@ -213,31 +262,11 @@ function mapAreaToListItem(area: AreaRecord): AreaListItem {
     benchmark: area.benchmark,
     previewImageUrl: area.previewImageUrl,
     textureAtlasId: area.textureAtlasId,
-    objectCounts: countObjects(area),
+    objectCounts: composition,
     updatedAt: area.updatedAt
   };
 }
 
-function countObjects(area: AreaRecord): AreaObjectCounts {
-  const counts = {
-    placeables: 0,
-    creatures: 0,
-    items: 0,
-    total: 0
-  };
-
-  for (const object of area.objects) {
-    counts.total += 1;
-    if (object.kind === "placeable") {
-      counts.placeables += 1;
-      continue;
-    }
-    if (object.kind === "creature") {
-      counts.creatures += 1;
-      continue;
-    }
-    counts.items += 1;
-  }
-
-  return counts;
+function buildAreaSearchableText(area: AreaRecord): string {
+  return [area.name, area.areaId, ...area.tags].join("|").toLowerCase();
 }

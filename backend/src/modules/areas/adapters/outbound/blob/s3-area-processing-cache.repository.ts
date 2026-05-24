@@ -44,23 +44,12 @@ export class S3AreaProcessingCacheRepository
       );
       const bodyText = await readBodyAsString(response.Body);
       const parsed = JSON.parse(bodyText) as AreaProcessingCacheEntry;
-      const nextEntry: AreaProcessingCacheEntry = {
+      return {
         key: parsed.key,
         value: parsed.value,
         storedAt: parsed.storedAt,
         hits: parsed.hits + 1
       };
-
-      await client.send(
-        new PutObjectCommand({
-          Bucket: settings.bucket,
-          Key: objectKey,
-          Body: JSON.stringify(nextEntry),
-          ContentType: "application/json; charset=utf-8"
-        })
-      );
-
-      return nextEntry;
     } catch (error) {
       if (isMissingObjectError(error)) {
         return null;

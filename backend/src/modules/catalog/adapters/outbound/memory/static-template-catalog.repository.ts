@@ -3,11 +3,23 @@ import type {
   TemplateCatalogRepositoryPort
 } from "../../../application/ports/template-catalog-repository.port";
 import type {
+  PlaceableSubtype,
   TemplateKind,
   TemplateListQuery,
   TemplateListResult,
   TemplateRecord
 } from "../../../domain/template.types";
+import {
+  buildPlaceableProcessCacheKey,
+  buildTemplateProcessCacheKey
+} from "../../../domain/cache-key.builders";
+
+interface IndexedTemplate {
+  record: TemplateRecord;
+  searchable: string;
+  categoryLower: string;
+  tagsLower: Set<string>;
+}
 
 const TEMPLATES: TemplateRecord[] = [
   {
@@ -215,47 +227,107 @@ const TEMPLATES: TemplateRecord[] = [
   }
 ];
 
+const EMPTY_INDEXED_TEMPLATES: IndexedTemplate[] = [];
+const TEMPLATES_BY_KIND = new Map<TemplateKind, IndexedTemplate[]>();
+const TEMPLATES_BY_KIND_AND_ID = new Map<string, TemplateRecord>();
+const TEMPLATES_BY_KIND_AND_RESREF = new Map<string, TemplateRecord>();
+const PLACEABLE_CACHE_KEYS_BY_TEMPLATE_AND_SUBTYPE = new Map<string, string>();
+const TEMPLATE_CACHE_KEYS_BY_KIND_AND_TEMPLATE = new Map<string, string>();
+const PLACEABLE_SUBTYPES: PlaceableSubtype[] = [
+  "generic",
+  "door",
+  "vfx",
+  "container",
+  "light_source",
+  "trigger_proxy"
+];
+
+for (const template of TEMPLATES) {
+  const indexed: IndexedTemplate = {
+    record: template,
+    searchable: buildTemplateSearchableText(template),
+    categoryLower: template.category.toLowerCase(),
+    tagsLower: new Set(template.tags.map((tag) => tag.toLowerCase()))
+  };
+
+  const byKind = TEMPLATES_BY_KIND.get(template.kind);
+  if (byKind) {
+    byKind.push(indexed);
+  } else {
+    TEMPLATES_BY_KIND.set(template.kind, [indexed]);
+  }
+
+  TEMPLATES_BY_KIND_AND_ID.set(buildTemplateIdIndexKey(template.kind, template.templateId), template);
+  TEMPLATES_BY_KIND_AND_RESREF.set(
+    buildTemplateResrefIndexKey(template.kind, template.resref),
+    template
+  );
+
+  if (template.kind === "placeable") {
+    for (const subtype of PLACEABLE_SUBTYPES) {
+      const cacheKey = buildPlaceableProcessCacheKey(template.templateId, template.resref, subtype);
+      PLACEABLE_CACHE_KEYS_BY_TEMPLATE_AND_SUBTYPE.set(
+        buildPlaceableCacheIndexKey(template.templateId, subtype),
+        cacheKey
+      );
+    }
+    continue;
+  }
+
+  const cacheKey = buildTemplateProcessCacheKey(
+    template.kind,
+    template.templateId,
+    template.resref
+  );
+  TEMPLATE_CACHE_KEYS_BY_KIND_AND_TEMPLATE.set(
+    buildTemplateCacheIndexKey(template.kind, template.templateId),
+    cacheKey
+  );
+}
+
 @Injectable()
 export class StaticTemplateCatalogRepository implements TemplateCatalogRepositoryPort {
   async listByKind(kind: TemplateKind, query: TemplateListQuery): Promise<TemplateListResult> {
-    const filtered = TEMPLATES.filter((item) => item.kind === kind)
+    const indexedTemplates = TEMPLATES_BY_KIND.get(kind) ?? EMPTY_INDEXED_TEMPLATES;
+    const normalizedQuery = query.query?.toLowerCase().trim();
+    const normalizedCategory = query.category?.toLowerCase().trim();
+    const normalizedTag = query.tag?.toLowerCase().trim();
+
+    const filtered = indexedTemplates
       .filter((item) => {
         if (!query.query) {
           return true;
         }
-        const value = query.query.toLowerCase();
-        return (
-          item.name.toLowerCase().includes(value) ||
-          item.resref.toLowerCase().includes(value) ||
-          item.tags.some((tag) => tag.toLowerCase().includes(value))
-        );
+        return item.searchable.includes(normalizedQuery ?? "");
       })
       .filter((item) => {
         if (!query.category) {
           return true;
         }
-        return item.category.toLowerCase() === query.category.toLowerCase();
+        return item.categoryLower === normalizedCategory;
       })
       .filter((item) => {
         if (!query.tag) {
           return true;
         }
-        return item.tags.some((tag) => tag.toLowerCase() === query.tag!.toLowerCase());
+        return item.tagsLower.has(normalizedTag ?? "");
       })
       .filter((item) => {
         if (kind !== "placeable" || !query.subtype) {
           return true;
         }
-        return item.placeableSubtype === query.subtype;
+        return item.record.placeableSubtype === query.subtype;
       })
       .filter((item) => {
         if (kind !== "placeable" || typeof query.benchmark !== "boolean") {
           return true;
         }
-        return Boolean(item.benchmarkCandidate) === query.benchmark;
+        return Boolean(item.record.benchmarkCandidate) === query.benchmark;
       });
 
-    const items = filtered.slice(query.offset, query.offset + query.limit);
+    const items = filtered
+      .slice(query.offset, query.offset + query.limit)
+      .map((item) => item.record);
     return {
       items,
       total: filtered.length,
@@ -265,18 +337,48 @@ export class StaticTemplateCatalogRepository implements TemplateCatalogRepositor
   }
 
   async findByKindAndId(kind: TemplateKind, templateId: string): Promise<TemplateRecord | null> {
-    return (
-      TEMPLATES.find((item) => item.kind === kind && item.templateId === templateId) ??
-      null
-    );
+    return TEMPLATES_BY_KIND_AND_ID.get(buildTemplateIdIndexKey(kind, templateId)) ?? null;
   }
 
   async findByKindAndResref(kind: TemplateKind, resref: string): Promise<TemplateRecord | null> {
-    const normalized = resref.trim().toLowerCase();
+    return TEMPLATES_BY_KIND_AND_RESREF.get(buildTemplateResrefIndexKey(kind, resref)) ?? null;
+  }
+
+  getPrecomputedPlaceableCacheKey(templateId: string, subtype: PlaceableSubtype): string | null {
     return (
-      TEMPLATES.find(
-        (item) => item.kind === kind && item.resref.trim().toLowerCase() === normalized
+      PLACEABLE_CACHE_KEYS_BY_TEMPLATE_AND_SUBTYPE.get(
+        buildPlaceableCacheIndexKey(templateId, subtype)
       ) ?? null
     );
   }
+
+  getPrecomputedTemplateCacheKey(kind: "creature" | "item", templateId: string): string | null {
+    return (
+      TEMPLATE_CACHE_KEYS_BY_KIND_AND_TEMPLATE.get(
+        buildTemplateCacheIndexKey(kind, templateId)
+      ) ?? null
+    );
+  }
+}
+
+function buildTemplateSearchableText(template: TemplateRecord): string {
+  return [template.name, template.templateId, template.resref, ...template.tags]
+    .join("|")
+    .toLowerCase();
+}
+
+function buildTemplateIdIndexKey(kind: TemplateKind, templateId: string): string {
+  return `${kind}:${templateId}`;
+}
+
+function buildTemplateResrefIndexKey(kind: TemplateKind, resref: string): string {
+  return `${kind}:${resref.trim().toLowerCase()}`;
+}
+
+function buildPlaceableCacheIndexKey(templateId: string, subtype: PlaceableSubtype): string {
+  return `${templateId}:${subtype}`;
+}
+
+function buildTemplateCacheIndexKey(kind: "creature" | "item", templateId: string): string {
+  return `${kind}:${templateId}`;
 }

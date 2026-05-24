@@ -3,6 +3,7 @@ import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
 import { AreasController } from "./adapters/inbound/http/areas.controller";
 import { S3AreaProcessingCacheRepository } from "./adapters/outbound/blob/s3-area-processing-cache.repository";
+import { LayeredAreaProcessingCacheRepository } from "./adapters/outbound/layered/layered-area-processing-cache.repository";
 import { MemoryAreaProcessingCacheRepository } from "./adapters/outbound/memory/memory-area-processing-cache.repository";
 import { StaticAreaRepository } from "./adapters/outbound/memory/static-area.repository";
 import { AreasApplicationService } from "./application/areas.application.service";
@@ -17,6 +18,7 @@ import { AREA_REPOSITORY } from "./application/ports/area-repository.port";
     StaticAreaRepository,
     MemoryAreaProcessingCacheRepository,
     S3AreaProcessingCacheRepository,
+    LayeredAreaProcessingCacheRepository,
     {
       provide: AREA_REPOSITORY,
       useExisting: StaticAreaRepository
@@ -25,14 +27,14 @@ import { AREA_REPOSITORY } from "./application/ports/area-repository.port";
       provide: AREA_PROCESSING_CACHE,
       inject: [
         AppConfigService,
-        S3AreaProcessingCacheRepository,
+        LayeredAreaProcessingCacheRepository,
         MemoryAreaProcessingCacheRepository
       ],
       useFactory: (
         config: AppConfigService,
-        s3Cache: S3AreaProcessingCacheRepository,
+        layeredCache: LayeredAreaProcessingCacheRepository,
         memoryCache: MemoryAreaProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : s3Cache)
+      ) => (config.isTest ? memoryCache : layeredCache)
     }
   ],
   exports: [AREA_REPOSITORY, AreasApplicationService]

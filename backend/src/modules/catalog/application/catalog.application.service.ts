@@ -23,9 +23,40 @@ import type {
   TemplateRenderContract,
   TemplateListQuery
 } from "../domain/template.types";
+import {
+  buildPlaceableProcessCacheKey,
+  buildTemplateProcessCacheKey
+} from "../domain/cache-key.builders";
+
+export interface ProcessingCacheDescriptor {
+  key: string;
+  hit: boolean;
+  storedAt: string;
+  hits: number;
+}
+
+export interface PlaceableProcessingEnvelope {
+  cache: ProcessingCacheDescriptor;
+  placeable: PlaceableProcessingResult;
+}
+
+export interface TemplateProcessingEnvelope {
+  cache: ProcessingCacheDescriptor;
+  value: TemplateProcessingResult;
+}
 
 @Injectable()
 export class CatalogApplicationService {
+  private readonly inFlightPlaceableProcessing = new Map<
+    string,
+    Promise<PlaceableProcessingEnvelope>
+  >();
+
+  private readonly inFlightTemplateProcessing = new Map<
+    string,
+    Promise<TemplateProcessingEnvelope>
+  >();
+
   constructor(
     @Inject(TEMPLATE_CATALOG_REPOSITORY)
     private readonly repository: TemplateCatalogRepositoryPort,
@@ -63,7 +94,16 @@ export class CatalogApplicationService {
       template.placeableSubtype,
       query.subtypeHint
     );
-    const cacheKey = buildPlaceableCacheKey(template.templateId, template.resref, classification);
+    const cacheKey =
+      this.repository.getPrecomputedPlaceableCacheKey?.(
+        template.templateId,
+        classification.normalizedSubtype
+      ) ??
+      buildPlaceableProcessCacheKey(
+        template.templateId,
+        template.resref,
+        classification.normalizedSubtype
+      );
 
     if (!query.bypassCache) {
       const cached = await this.placeableCache.get<PlaceableProcessingResult>(cacheKey);
@@ -80,29 +120,47 @@ export class CatalogApplicationService {
       }
     }
 
-    const processed: PlaceableProcessingResult = {
-      templateId: template.templateId,
-      resref: template.resref,
-      name: template.name,
-      category: template.category,
-      placeableSubtype: classification.normalizedSubtype,
-      render: buildRenderContract(classification.normalizedSubtype),
-      benchmarkCandidate: template.benchmarkCandidate ?? false,
-      benchmarkBucket: template.benchmarkBucket,
-      metadata: template.metadata,
-      classification,
-      processedAt: new Date().toISOString()
+    const processMiss = async (): Promise<PlaceableProcessingEnvelope> => {
+      const processed: PlaceableProcessingResult = {
+        templateId: template.templateId,
+        resref: template.resref,
+        name: template.name,
+        category: template.category,
+        placeableSubtype: classification.normalizedSubtype,
+        render: buildRenderContract(classification.normalizedSubtype),
+        benchmarkCandidate: template.benchmarkCandidate ?? false,
+        benchmarkBucket: template.benchmarkBucket,
+        metadata: template.metadata,
+        classification,
+        processedAt: new Date().toISOString()
+      };
+
+      const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, processed);
+      return {
+        cache: {
+          key: cacheKey,
+          hit: false,
+          storedAt: stored.storedAt,
+          hits: stored.hits
+        },
+        placeable: processed
+      };
     };
 
-    const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, processed);
+    const result = query.bypassCache
+      ? await processMiss()
+      : await this.executeInFlight(
+          this.inFlightPlaceableProcessing,
+          cacheKey,
+          processMiss
+        );
+
     return {
-      cache: {
-        key: cacheKey,
-        hit: false,
-        storedAt: stored.storedAt,
-        hits: stored.hits
-      },
-      placeable: maybeStripBenchmarkMetadata(processed, query.includeBenchmarkMetadata)
+      cache: result.cache,
+      placeable: maybeStripBenchmarkMetadata(
+        result.placeable,
+        query.includeBenchmarkMetadata
+      )
     };
   }
 
@@ -313,17 +371,11 @@ export class CatalogApplicationService {
   private async processTemplateByKind(
     kind: "creature" | "item",
     query: TemplateProcessQuery
-  ): Promise<{
-    cache: {
-      key: string;
-      hit: boolean;
-      storedAt: string;
-      hits: number;
-    };
-    value: TemplateProcessingResult;
-  }> {
+  ): Promise<TemplateProcessingEnvelope> {
     const template = await this.resolveTemplateByKind(kind, query);
-    const cacheKey = buildTemplateCacheKey(kind, template.templateId, template.resref);
+    const cacheKey =
+      this.repository.getPrecomputedTemplateCacheKey?.(kind, template.templateId) ??
+      buildTemplateProcessCacheKey(kind, template.templateId, template.resref);
 
     if (!query.bypassCache) {
       const cached = await this.placeableCache.get<TemplateProcessingResult>(cacheKey);
@@ -343,32 +395,47 @@ export class CatalogApplicationService {
       }
     }
 
-    const processed: TemplateProcessingResult = {
-      templateId: template.templateId,
-      kind,
-      resref: template.resref,
-      name: template.name,
-      category: template.category,
-      benchmarkCandidate: template.benchmarkCandidate ?? false,
-      benchmarkBucket: template.benchmarkBucket,
-      metadata: template.metadata,
-      render: buildTemplateRenderContract(kind),
-      processedAt: new Date().toISOString()
+    const processMiss = async (): Promise<TemplateProcessingEnvelope> => {
+      const processed: TemplateProcessingResult = {
+        templateId: template.templateId,
+        kind,
+        resref: template.resref,
+        name: template.name,
+        category: template.category,
+        benchmarkCandidate: template.benchmarkCandidate ?? false,
+        benchmarkBucket: template.benchmarkBucket,
+        metadata: template.metadata,
+        render: buildTemplateRenderContract(kind),
+        processedAt: new Date().toISOString()
+      };
+
+      const stored = await this.placeableCache.set<TemplateProcessingResult>(
+        cacheKey,
+        processed
+      );
+      return {
+        cache: {
+          key: cacheKey,
+          hit: false,
+          storedAt: stored.storedAt,
+          hits: stored.hits
+        },
+        value: processed
+      };
     };
 
-    const stored = await this.placeableCache.set<TemplateProcessingResult>(
-      cacheKey,
-      processed
-    );
+    const result = query.bypassCache
+      ? await processMiss()
+      : await this.executeInFlight(
+          this.inFlightTemplateProcessing,
+          cacheKey,
+          processMiss
+        );
+
     return {
-      cache: {
-        key: cacheKey,
-        hit: false,
-        storedAt: stored.storedAt,
-        hits: stored.hits
-      },
+      cache: result.cache,
       value: maybeStripTemplateBenchmarkMetadata(
-        processed,
+        result.value,
         query.includeBenchmarkMetadata
       )
     };
@@ -419,6 +486,25 @@ export class CatalogApplicationService {
       message: `${kind} template was not found.`
     });
   }
+
+  private executeInFlight<T>(
+    inFlight: Map<string, Promise<T>>,
+    key: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const existing = inFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const pending = operation().finally(() => {
+      if (inFlight.get(key) === pending) {
+        inFlight.delete(key);
+      }
+    });
+    inFlight.set(key, pending);
+    return pending;
+  }
 }
 
 function resolvePlaceableClassification(
@@ -466,18 +552,6 @@ function normalizePlaceableSubtypeHint(hint: string | undefined): PlaceableSubty
   }
 
   return null;
-}
-
-function buildPlaceableCacheKey(
-  templateId: string,
-  resref: string,
-  classification: { normalizedSubtype: PlaceableSubtype }
-) {
-  return createHash("sha256")
-    .update(
-      `placeable-process/v1|${templateId}|${resref}|${classification.normalizedSubtype}`
-    )
-    .digest("hex");
 }
 
 function buildRenderContract(subtype: PlaceableSubtype): PlaceableRenderContract {
@@ -647,15 +721,5 @@ function buildBenchmarkFingerprint(
         }))
       })
     )
-    .digest("hex");
-}
-
-function buildTemplateCacheKey(
-  kind: "creature" | "item",
-  templateId: string,
-  resref: string
-) {
-  return createHash("sha256")
-    .update(`template-process/v1|${kind}|${templateId}|${resref}`)
     .digest("hex");
 }

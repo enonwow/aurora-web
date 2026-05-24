@@ -56,6 +56,38 @@ export class AppConfigService {
     return this.env.SESSION_TTL_SECONDS;
   }
 
+  get processingCacheL1MaxEntries() {
+    return this.env.PROCESSING_CACHE_L1_MAX_ENTRIES;
+  }
+
+  get processingCacheL1TtlSeconds() {
+    return this.env.PROCESSING_CACHE_L1_TTL_SECONDS;
+  }
+
+  get processingCacheL1CatalogMaxEntries() {
+    return this.env.PROCESSING_CACHE_L1_CATALOG_MAX_ENTRIES;
+  }
+
+  get processingCacheL1AreaMaxEntries() {
+    return this.env.PROCESSING_CACHE_L1_AREA_MAX_ENTRIES;
+  }
+
+  get processingCacheL1CatalogMaxEntryBytes() {
+    return this.env.PROCESSING_CACHE_L1_CATALOG_MAX_ENTRY_BYTES;
+  }
+
+  get processingCacheL1AreaMaxEntryBytes() {
+    return this.env.PROCESSING_CACHE_L1_AREA_MAX_ENTRY_BYTES;
+  }
+
+  get processingCacheL1AdmissionHits() {
+    return this.env.PROCESSING_CACHE_L1_ADMISSION_HITS;
+  }
+
+  get processingCacheL1AdmissionWindowSeconds() {
+    return this.env.PROCESSING_CACHE_L1_ADMISSION_WINDOW_SECONDS;
+  }
+
   get runtimeSettingsFile() {
     return this.env.RUNTIME_SETTINGS_FILE;
   }

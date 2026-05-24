@@ -12,6 +12,7 @@ import { CreaturesController } from "./adapters/inbound/http/creatures.controlle
 import { ItemsController } from "./adapters/inbound/http/items.controller";
 import { PlaceablesController } from "./adapters/inbound/http/placeables.controller";
 import { S3PlaceableProcessingCacheRepository } from "./adapters/outbound/blob/s3-placeable-processing-cache.repository";
+import { LayeredPlaceableProcessingCacheRepository } from "./adapters/outbound/layered/layered-placeable-processing-cache.repository";
 import { MemoryPlaceableProcessingCacheRepository } from "./adapters/outbound/memory/memory-placeable-processing-cache.repository";
 import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/static-template-catalog.repository";
 
@@ -23,6 +24,7 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
     StaticTemplateCatalogRepository,
     MemoryPlaceableProcessingCacheRepository,
     S3PlaceableProcessingCacheRepository,
+    LayeredPlaceableProcessingCacheRepository,
     {
       provide: TEMPLATE_CATALOG_REPOSITORY,
       useExisting: StaticTemplateCatalogRepository
@@ -31,14 +33,14 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
       provide: PLACEABLE_PROCESSING_CACHE,
       inject: [
         AppConfigService,
-        S3PlaceableProcessingCacheRepository,
+        LayeredPlaceableProcessingCacheRepository,
         MemoryPlaceableProcessingCacheRepository
       ],
       useFactory: (
         config: AppConfigService,
-        s3Cache: S3PlaceableProcessingCacheRepository,
+        layeredCache: LayeredPlaceableProcessingCacheRepository,
         memoryCache: MemoryPlaceableProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : s3Cache)
+      ) => (config.isTest ? memoryCache : layeredCache)
     }
   ],
   exports: [TEMPLATE_CATALOG_REPOSITORY, CatalogApplicationService]

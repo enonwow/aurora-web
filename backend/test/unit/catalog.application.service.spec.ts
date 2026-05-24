@@ -224,6 +224,42 @@ describe("CatalogApplicationService", () => {
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
   });
 
+  it("deduplicates concurrent placeable processing misses by cache key", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_vfx_001"),
+      resref: "plc_vfx_001",
+      placeableSubtype: "vfx"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        key,
+        value,
+        storedAt: "2026-05-24T10:00:00.000Z",
+        hits: 0
+      };
+    });
+
+    const firstPromise = service.processPlaceable({
+      templateId: "plc_vfx_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    const secondPromise = service.processPlaceable({
+      templateId: "plc_vfx_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(first.cache.key).toBe(second.cache.key);
+    expect(first.placeable.templateId).toBe("plc_vfx_001");
+    expect(second.placeable.templateId).toBe("plc_vfx_001");
+  });
+
   it("resolves placeable processing by resref", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("placeable", "plc_resref_001"),
@@ -321,6 +357,41 @@ describe("CatalogApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(result.creature.kind).toBe("creature");
     expect(result.creature.render.frontendType).toBe("creature");
+  });
+
+  it("deduplicates concurrent creature processing misses by cache key", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_guard_human_001"),
+      resref: "cre_guard_human_001"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        key,
+        value,
+        storedAt: "2026-05-24T10:20:00.000Z",
+        hits: 0
+      };
+    });
+
+    const firstPromise = service.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    const secondPromise = service.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(first.cache.key).toBe(second.cache.key);
+    expect(first.creature.templateId).toBe("cre_guard_human_001");
+    expect(second.creature.templateId).toBe("cre_guard_human_001");
   });
 
   it("processes item into cached contract", async () => {

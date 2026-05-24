@@ -1,4 +1,5 @@
 import type {
+  PlaceableSubtype,
   TemplateKind,
   TemplateListQuery,
   TemplateListResult,
@@ -11,4 +12,12 @@ export interface TemplateCatalogRepositoryPort {
   listByKind(kind: TemplateKind, query: TemplateListQuery): Promise<TemplateListResult>;
   findByKindAndId(kind: TemplateKind, templateId: string): Promise<TemplateRecord | null>;
   findByKindAndResref(kind: TemplateKind, resref: string): Promise<TemplateRecord | null>;
+  getPrecomputedPlaceableCacheKey?(
+    templateId: string,
+    subtype: PlaceableSubtype
+  ): string | null;
+  getPrecomputedTemplateCacheKey?(
+    kind: "creature" | "item",
+    templateId: string
+  ): string | null;
 }

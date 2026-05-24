@@ -131,6 +131,35 @@ describe("AreasApplicationService", () => {
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
+  it("deduplicates concurrent area processing misses by cache key", async () => {
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        key,
+        value,
+        storedAt: "2026-05-24T11:00:00.000Z",
+        hits: 0
+      };
+    });
+
+    const firstPromise = service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+    const secondPromise = service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+    expect(first.cache.key).toBe(second.cache.key);
+    expect(first.area.areaId).toBe("area_test_001");
+    expect(second.area.areaId).toBe("area_test_001");
+  });
+
   it("returns processed area cache hit", async () => {
     const value: AreaProcessingResult = {
       areaId: "area_test_001",

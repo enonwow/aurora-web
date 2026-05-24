@@ -43,24 +43,12 @@ export class S3PlaceableProcessingCacheRepository
       );
       const bodyText = await readBodyAsString(response.Body);
       const parsed = JSON.parse(bodyText) as ProcessingCacheEntry<TValue>;
-      const nextHits = parsed.hits + 1;
-      const nextEntry: ProcessingCacheEntry<TValue> = {
+      return {
         key: parsed.key,
         value: parsed.value,
         storedAt: parsed.storedAt,
-        hits: nextHits
+        hits: parsed.hits + 1
       };
-
-      await client.send(
-        new PutObjectCommand({
-          Bucket: settings.bucket,
-          Key: objectKey,
-          Body: JSON.stringify(nextEntry),
-          ContentType: "application/json; charset=utf-8"
-        })
-      );
-
-      return nextEntry;
     } catch (error) {
       if (isMissingObjectError(error)) {
         return null;

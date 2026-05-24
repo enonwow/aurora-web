@@ -14,6 +14,26 @@ export const envSchema = z.object({
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["postgres", "memory"]).default("postgres"),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  PROCESSING_CACHE_L1_MAX_ENTRIES: z.coerce.number().int().positive().default(2000),
+  PROCESSING_CACHE_L1_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  PROCESSING_CACHE_L1_CATALOG_MAX_ENTRIES: z.coerce.number().int().positive().default(1200),
+  PROCESSING_CACHE_L1_AREA_MAX_ENTRIES: z.coerce.number().int().positive().default(800),
+  PROCESSING_CACHE_L1_CATALOG_MAX_ENTRY_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(262144),
+  PROCESSING_CACHE_L1_AREA_MAX_ENTRY_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1048576),
+  PROCESSING_CACHE_L1_ADMISSION_HITS: z.coerce.number().int().positive().default(2),
+  PROCESSING_CACHE_L1_ADMISSION_WINDOW_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300),
   RUNTIME_SETTINGS_FILE: z.string().min(1).default("./config/runtime-settings.json"),
   PROCESSING_GRAPH_SNAPSHOT_FILE: z
     .string()
