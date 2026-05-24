@@ -8,28 +8,25 @@ import {
   ApiTags
 } from "@nestjs/swagger";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { CatalogApplicationService } from "../../../application/catalog.application.service";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
-import { parseCatalogListQuery } from "./catalog.schemas";
-import {
-  parseTemplateCacheKey,
-  parseTemplateProcessPayload
-} from "./template-processing.schemas";
+import { TemplateCatalogBaseController } from "./template-catalog.base-controller";
 
 @Controller("catalog/items")
 @ApiTags("catalog-items")
 @ApiBearerAuth("bearer")
 @Roles(...ALL_ROLES)
 @Permissions("scene.read")
-export class ItemsController {
+export class ItemsController extends TemplateCatalogBaseController {
   constructor(
-    private readonly service: CatalogApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+    service: CatalogApplicationService,
+    config: AppConfigService
+  ) {
+    super(service, config, "item");
+  }
 
   @Get()
   @ApiOperation({ summary: "List item templates for area composition." })
@@ -43,9 +40,7 @@ export class ItemsController {
   @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
-    const parsed = parseCatalogListQuery(query);
-    const data = await this.service.listItems(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleList(request, query);
   }
 
   @Get(":templateId/preview")
@@ -54,8 +49,7 @@ export class ItemsController {
   @ApiResponse({ status: 200, description: "Item preview." })
   @ApiResponse({ status: 404, description: "Template not found." })
   async preview(@Req() request: AppRequest, @Param("templateId") templateId: string) {
-    const data = await this.service.getItemPreview(templateId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handlePreview(request, templateId);
   }
 
   @Post("process")
@@ -69,9 +63,7 @@ export class ItemsController {
   @ApiResponse({ status: 404, description: "Template not found." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async process(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    const parsed = parseTemplateProcessPayload(body);
-    const data = await this.service.processItem(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleProcess(request, body);
   }
 
   @Get("cache/:cacheKey")
@@ -85,8 +77,6 @@ export class ItemsController {
     @Req() request: AppRequest,
     @Param("cacheKey") rawCacheKey: string
   ) {
-    const cacheKey = parseTemplateCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedItem(cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleGetCached(request, rawCacheKey);
   }
 }

@@ -61,6 +61,13 @@ export interface TemplateProcessingEnvelope {
   value: TemplateProcessingResult;
 }
 
+export type TemplateProcessingKind = "creature" | "item";
+
+export type TemplateProcessingResultByKind<TKind extends TemplateProcessingKind> =
+  TKind extends "creature"
+    ? { cache: ProcessingCacheDescriptor; creature: TemplateProcessingResult }
+    : { cache: ProcessingCacheDescriptor; item: TemplateProcessingResult };
+
 export interface PlaceableAssetBlobEnvelope {
   cacheKey: string;
   asset: PlaceableAssetEntry;
@@ -111,24 +118,38 @@ export class CatalogApplicationService {
     return this.repository.listByKind("placeable", query);
   }
 
+  listTemplateKind<TKind extends TemplateProcessingKind>(
+    kind: TKind,
+    query: TemplateListQuery
+  ) {
+    return this.repository.listByKind(kind, query);
+  }
+
   listCreatures(query: TemplateListQuery) {
-    return this.repository.listByKind("creature", query);
+    return this.listTemplateKind("creature", query);
   }
 
   listItems(query: TemplateListQuery) {
-    return this.repository.listByKind("item", query);
+    return this.listTemplateKind("item", query);
   }
 
   async getPlaceablePreview(templateId: string) {
     return this.getPreviewByKind("placeable", templateId);
   }
 
+  async getTemplateKindPreview<TKind extends TemplateProcessingKind>(
+    kind: TKind,
+    templateId: string
+  ) {
+    return this.getPreviewByKind(kind, templateId);
+  }
+
   async getCreaturePreview(templateId: string) {
-    return this.getPreviewByKind("creature", templateId);
+    return this.getTemplateKindPreview("creature", templateId);
   }
 
   async getItemPreview(templateId: string) {
-    return this.getPreviewByKind("item", templateId);
+    return this.getTemplateKindPreview("item", templateId);
   }
 
   async processPlaceable(query: PlaceableProcessQuery) {
@@ -283,35 +304,35 @@ export class CatalogApplicationService {
   }
 
   async processCreature(query: TemplateProcessQuery) {
-    const data = await this.processTemplateByKind("creature", query);
-    return {
-      cache: data.cache,
-      creature: data.value
-    };
+    return this.processTemplateKind("creature", query);
   }
 
   async getProcessedCreature(cacheKey: string) {
-    const data = await this.getProcessedTemplateByKind("creature", cacheKey);
-    return {
-      cache: data.cache,
-      creature: data.value
-    };
+    return this.getProcessedTemplateKind("creature", cacheKey);
   }
 
   async processItem(query: TemplateProcessQuery) {
-    const data = await this.processTemplateByKind("item", query);
-    return {
-      cache: data.cache,
-      item: data.value
-    };
+    return this.processTemplateKind("item", query);
   }
 
   async getProcessedItem(cacheKey: string) {
-    const data = await this.getProcessedTemplateByKind("item", cacheKey);
-    return {
-      cache: data.cache,
-      item: data.value
-    };
+    return this.getProcessedTemplateKind("item", cacheKey);
+  }
+
+  async processTemplateKind<TKind extends TemplateProcessingKind>(
+    kind: TKind,
+    query: TemplateProcessQuery
+  ): Promise<TemplateProcessingResultByKind<TKind>> {
+    const data = await this.processTemplateByKind(kind, query);
+    return this.mapTemplateResultByKind(kind, data);
+  }
+
+  async getProcessedTemplateKind<TKind extends TemplateProcessingKind>(
+    kind: TKind,
+    cacheKey: string
+  ): Promise<TemplateProcessingResultByKind<TKind>> {
+    const data = await this.getProcessedTemplateByKind(kind, cacheKey);
+    return this.mapTemplateResultByKind(kind, data);
   }
 
   async benchmarkPlaceables(
@@ -466,7 +487,7 @@ export class CatalogApplicationService {
   }
 
   private async processTemplateByKind(
-    kind: "creature" | "item",
+    kind: TemplateProcessingKind,
     query: TemplateProcessQuery
   ): Promise<TemplateProcessingEnvelope> {
     const template = await this.resolveTemplateByKind(kind, query);
@@ -538,7 +559,10 @@ export class CatalogApplicationService {
     };
   }
 
-  private async getProcessedTemplateByKind(kind: "creature" | "item", cacheKey: string) {
+  private async getProcessedTemplateByKind(
+    kind: TemplateProcessingKind,
+    cacheKey: string
+  ) {
     const cached = await this.placeableCache.get<TemplateProcessingResult>(cacheKey);
     if (!cached) {
       throw new AppException({
@@ -559,10 +583,7 @@ export class CatalogApplicationService {
     };
   }
 
-  private async resolveTemplateByKind(
-    kind: "creature" | "item",
-    query: TemplateProcessQuery
-  ) {
+  private async resolveTemplateByKind(kind: TemplateProcessingKind, query: TemplateProcessQuery) {
     if (query.templateId) {
       const byId = await this.repository.findByKindAndId(kind, query.templateId);
       if (byId) {
@@ -753,6 +774,23 @@ export class CatalogApplicationService {
     });
     inFlight.set(key, pending);
     return pending;
+  }
+
+  private mapTemplateResultByKind<TKind extends TemplateProcessingKind>(
+    kind: TKind,
+    data: TemplateProcessingEnvelope
+  ): TemplateProcessingResultByKind<TKind> {
+    if (kind === "creature") {
+      return {
+        cache: data.cache,
+        creature: data.value
+      } as TemplateProcessingResultByKind<TKind>;
+    }
+
+    return {
+      cache: data.cache,
+      item: data.value
+    } as TemplateProcessingResultByKind<TKind>;
   }
 }
 

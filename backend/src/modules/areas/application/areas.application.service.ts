@@ -18,7 +18,7 @@ import {
   countAreaObjectsByKind
 } from "../domain/area-processing.builders";
 
-interface AreaProcessingEnvelope {
+export interface AreaProcessingEnvelope {
   cache: {
     key: string;
     hit: boolean;

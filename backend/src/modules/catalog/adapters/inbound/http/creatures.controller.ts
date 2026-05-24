@@ -8,28 +8,25 @@ import {
   ApiTags
 } from "@nestjs/swagger";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { CatalogApplicationService } from "../../../application/catalog.application.service";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
-import { parseCatalogListQuery } from "./catalog.schemas";
-import {
-  parseTemplateCacheKey,
-  parseTemplateProcessPayload
-} from "./template-processing.schemas";
+import { TemplateCatalogBaseController } from "./template-catalog.base-controller";
 
 @Controller("catalog/creatures")
 @ApiTags("catalog-creatures")
 @ApiBearerAuth("bearer")
 @Roles(...ALL_ROLES)
 @Permissions("scene.read")
-export class CreaturesController {
+export class CreaturesController extends TemplateCatalogBaseController {
   constructor(
-    private readonly service: CatalogApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+    service: CatalogApplicationService,
+    config: AppConfigService
+  ) {
+    super(service, config, "creature");
+  }
 
   @Get()
   @ApiOperation({ summary: "List creature templates for area composition." })
@@ -43,9 +40,7 @@ export class CreaturesController {
   @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
-    const parsed = parseCatalogListQuery(query);
-    const data = await this.service.listCreatures(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleList(request, query);
   }
 
   @Get(":templateId/preview")
@@ -54,8 +49,7 @@ export class CreaturesController {
   @ApiResponse({ status: 200, description: "Creature preview." })
   @ApiResponse({ status: 404, description: "Template not found." })
   async preview(@Req() request: AppRequest, @Param("templateId") templateId: string) {
-    const data = await this.service.getCreaturePreview(templateId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handlePreview(request, templateId);
   }
 
   @Post("process")
@@ -70,9 +64,7 @@ export class CreaturesController {
   @ApiResponse({ status: 404, description: "Template not found." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async process(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    const parsed = parseTemplateProcessPayload(body);
-    const data = await this.service.processCreature(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleProcess(request, body);
   }
 
   @Get("cache/:cacheKey")
@@ -86,8 +78,6 @@ export class CreaturesController {
     @Req() request: AppRequest,
     @Param("cacheKey") rawCacheKey: string
   ) {
-    const cacheKey = parseTemplateCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedCreature(cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleGetCached(request, rawCacheKey);
   }
 }
