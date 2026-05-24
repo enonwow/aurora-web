@@ -298,6 +298,117 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("processes creature into cached contract", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_guard_human_001"),
+      resref: "cre_guard_human_001"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.creature.kind).toBe("creature");
+    expect(result.creature.render.frontendType).toBe("creature");
+  });
+
+  it("processes item into cached contract", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("item", "itm_health_potion_001"),
+      resref: "itm_health_potion_001"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:21:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processItem({
+      templateId: "itm_health_potion_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.item.kind).toBe("item");
+    expect(result.item.render.frontendType).toBe("item");
+  });
+
+  it("returns creature/item processed cache entries", async () => {
+    placeableCache.get
+      .mockResolvedValueOnce({
+        key: "c".repeat(64),
+        storedAt: "2026-05-24T10:22:00.000Z",
+        hits: 2,
+        value: {
+          templateId: "cre_guard_human_001",
+          kind: "creature",
+          resref: "cre_guard_human_001",
+          name: "guard",
+          category: "npc",
+          benchmarkCandidate: false,
+          metadata: {},
+          render: {
+            backendType: "creature",
+            frontendType: "creature",
+            rendererPreset: "creature-standard"
+          },
+          processedAt: "2026-05-24T10:20:00.000Z"
+        }
+      })
+      .mockResolvedValueOnce({
+        key: "d".repeat(64),
+        storedAt: "2026-05-24T10:23:00.000Z",
+        hits: 1,
+        value: {
+          templateId: "itm_health_potion_001",
+          kind: "item",
+          resref: "itm_health_potion_001",
+          name: "potion",
+          category: "consumable",
+          benchmarkCandidate: false,
+          metadata: {},
+          render: {
+            backendType: "item",
+            frontendType: "item",
+            rendererPreset: "item-standard"
+          },
+          processedAt: "2026-05-24T10:21:00.000Z"
+        }
+      });
+
+    const creature = await service.getProcessedCreature("c".repeat(64));
+    const item = await service.getProcessedItem("d".repeat(64));
+
+    expect(creature.creature.templateId).toBe("cre_guard_human_001");
+    expect(item.item.templateId).toBe("itm_health_potion_001");
+  });
+
+  it("throws creature/item cache not found errors", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedCreature("e".repeat(64))).rejects.toMatchObject({
+      code: "CREATURE_CACHE_NOT_FOUND"
+    });
+    await expect(service.getProcessedItem("f".repeat(64))).rejects.toMatchObject({
+      code: "ITEM_CACHE_NOT_FOUND"
+    });
+  });
+
   it("runs benchmark and returns deterministic metrics envelope", async () => {
     repository.listByKind.mockResolvedValue({
       items: [

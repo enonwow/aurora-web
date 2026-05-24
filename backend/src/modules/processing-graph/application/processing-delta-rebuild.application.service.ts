@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AppException } from "../../../common/http/app-exception";
+import { AreasApplicationService } from "../../areas/application/areas.application.service";
 import { CatalogApplicationService } from "../../catalog/application/catalog.application.service";
 import type {
   ProcessingDeltaActionType,
@@ -17,7 +18,8 @@ export class ProcessingDeltaRebuildApplicationService {
 
   constructor(
     private readonly graphService: ProcessingGraphApplicationService,
-    private readonly catalogService: CatalogApplicationService
+    private readonly catalogService: CatalogApplicationService,
+    private readonly areasService: AreasApplicationService
   ) {}
 
   async startDeltaRebuild(triggeredBy: string): Promise<ProcessingDeltaRebuildJob> {
@@ -114,11 +116,54 @@ export class ProcessingDeltaRebuildApplicationService {
         return;
       }
 
+      if (action.type === "rebuild_creature_projection") {
+        await this.catalogService.processCreature({
+          templateId: action.targetId,
+          bypassCache: true,
+          includeBenchmarkMetadata: true
+        });
+        action.status = "completed";
+        action.finishedAt = new Date().toISOString();
+        job.stats.completed += 1;
+        return;
+      }
+
+      if (action.type === "rebuild_item_projection") {
+        await this.catalogService.processItem({
+          templateId: action.targetId,
+          bypassCache: true,
+          includeBenchmarkMetadata: true
+        });
+        action.status = "completed";
+        action.finishedAt = new Date().toISOString();
+        job.stats.completed += 1;
+        return;
+      }
+
+      if (action.type === "rebuild_area_projection") {
+        await this.areasService.processArea({
+          areaId: action.targetId,
+          bypassCache: true
+        });
+        action.status = "completed";
+        action.finishedAt = new Date().toISOString();
+        job.stats.completed += 1;
+        return;
+      }
+
       action.status = "skipped";
-      action.note = "Action type planned, execution will be implemented in next slice.";
+      action.note = "Unknown action type.";
       action.finishedAt = new Date().toISOString();
       job.stats.skipped += 1;
     } catch (error) {
+      if (shouldSkipMissingTarget(error)) {
+        action.status = "skipped";
+        action.note = "Target missing in current dataset, nothing to rebuild.";
+        action.finishedAt = new Date().toISOString();
+        job.stats.skipped += 1;
+        return;
+      }
+
       action.status = "failed";
       action.finishedAt = new Date().toISOString();
       action.error = extractError(error);
@@ -217,6 +262,14 @@ function extractError(error: unknown): { code: string; message: string } {
     code: "PROCESSING_ACTION_FAILED",
     message: "Unknown processing action failure."
   };
+}
+
+function shouldSkipMissingTarget(error: unknown): boolean {
+  if (!(error instanceof AppException)) {
+    return false;
+  }
+
+  return error.code === "TEMPLATE_NOT_FOUND" || error.code === "AREA_NOT_FOUND";
 }
 
 function cloneJob(job: ProcessingDeltaRebuildJob): ProcessingDeltaRebuildJob {

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -14,7 +14,7 @@ import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { AreasApplicationService } from "../../../application/areas.application.service";
-import { parseAreaListQuery } from "./areas.schemas";
+import { parseAreaCacheKey, parseAreaListQuery, parseAreaProcessPayload } from "./areas.schemas";
 
 @Controller("areas")
 @ApiTags("areas")
@@ -66,6 +66,43 @@ export class AreasController {
   @ApiResponse({ status: 404, description: "Area not found." })
   async preview(@Req() request: AppRequest, @Param("areaId") areaId: string) {
     const data = await this.service.getAreaPreview(areaId);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post(":areaId/process")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary: "Process area payload and store/read cached contract."
+  })
+  @ApiParam({ name: "areaId" })
+  @ApiResponse({ status: 200, description: "Processed area payload." })
+  @ApiResponse({ status: 404, description: "Area not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async process(
+    @Req() request: AppRequest,
+    @Param("areaId") areaId: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    const parsed = parseAreaProcessPayload(body);
+    const data = await this.service.processArea({
+      areaId,
+      bypassCache: parsed.bypassCache
+    });
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("cache/:cacheKey")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({ summary: "Get processed area payload from cache by cache key." })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiResponse({ status: 200, description: "Cached area payload." })
+  @ApiResponse({ status: 404, description: "Cache entry not found." })
+  async getCached(@Req() request: AppRequest, @Param("cacheKey") rawCacheKey: string) {
+    const cacheKey = parseAreaCacheKey(rawCacheKey);
+    const data = await this.service.getProcessedArea(cacheKey);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 }

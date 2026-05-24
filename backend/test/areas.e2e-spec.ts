@@ -112,6 +112,49 @@ describe("Areas API v1 (e2e)", () => {
     expect(response.body.data.objectCounts.items).toBeGreaterThanOrEqual(0);
   });
 
+  it("POST /api/v1/areas/:areaId/process denies viewer role", async () => {
+    const token = await loginAndGetToken("viewer.user", "viewer123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(403);
+
+    expect(response.body.error.code).toBe("FORBIDDEN_ROLE");
+  });
+
+  it("POST /api/v1/areas/:areaId/process returns processed area payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+
+    expect(response.body.data.cache.key).toEqual(expect.any(String));
+    expect(response.body.data.area.areaId).toBe("area_market_district_001");
+  });
+
+  it("GET /api/v1/areas/cache/:cacheKey returns processed area payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/areas/cache/${cacheKey}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.cache.hit).toBe(true);
+    expect(response.body.data.area.areaId).toBe("area_market_district_001");
+  });
+
   it("GET /api/v1/areas/:areaId returns 404 for unknown area", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 

@@ -16,6 +16,7 @@
     "test:mutation": "stryker run",
     "test:mutation:runtime-settings": "npx stryker run stryker.runtime-settings.config.json",
     "bench:placeables": "ts-node --transpile-only scripts/run-placeable-bench.ts",
+    "bench:cache:e2e": "ts-node --transpile-only scripts/run-cache-e2e-bench.ts",
     "cache:module:sync": "ts-node --transpile-only scripts/run-module-cache-sync.ts"
   },
   "dependencies": {

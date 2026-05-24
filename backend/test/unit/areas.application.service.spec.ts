@@ -1,13 +1,16 @@
 import { AppException } from "../../src/common/http/app-exception";
 import { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
+import type { AreaProcessingCachePort } from "../../src/modules/areas/application/ports/area-processing-cache.port";
 import type { AreaRepositoryPort } from "../../src/modules/areas/application/ports/area-repository.port";
 import type {
   AreaListResult,
+  AreaProcessingResult,
   AreaRecord
 } from "../../src/modules/areas/domain/area.types";
 
 describe("AreasApplicationService", () => {
   let repository: jest.Mocked<AreaRepositoryPort>;
+  let processingCache: jest.Mocked<AreaProcessingCachePort>;
   let service: AreasApplicationService;
 
   beforeEach(() => {
@@ -15,7 +18,11 @@ describe("AreasApplicationService", () => {
       list: jest.fn(),
       findById: jest.fn()
     };
-    service = new AreasApplicationService(repository);
+    processingCache = {
+      get: jest.fn(),
+      set: jest.fn()
+    };
+    service = new AreasApplicationService(repository, processingCache);
   });
 
   it("lists areas through repository", async () => {
@@ -101,6 +108,74 @@ describe("AreasApplicationService", () => {
     repository.findById.mockResolvedValue(null);
 
     await expectAreaNotFound(service.getAreaPreview("missing"));
+  });
+
+  it("processes area and stores cache payload on miss", async () => {
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.area.areaId).toBe("area_test_001");
+    expect(result.area.processedAt).toEqual(expect.any(String));
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns processed area cache hit", async () => {
+    const value: AreaProcessingResult = {
+      areaId: "area_test_001",
+      name: "Test Area",
+      biome: "urban",
+      width: 12,
+      height: 12,
+      tags: ["benchmark", "city"],
+      benchmark: true,
+      previewImageUrl: "/previews/area_test_001.webp",
+      textureAtlas: {
+        atlasId: "atlas_urban_v1",
+        cacheKey: "atlas_urban_v1:12x12",
+        strategy: "blob-cache"
+      },
+      composition: {
+        placeables: 1,
+        creatures: 2,
+        items: 1,
+        total: 4
+      },
+      objects: [],
+      updatedAt: "2026-05-23T00:00:00.000Z",
+      processedAt: "2026-05-24T10:59:00.000Z"
+    };
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await service.getProcessedArea("a".repeat(64));
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(3);
+    expect(result.area.areaId).toBe("area_test_001");
+  });
+
+  it("throws AREA_CACHE_NOT_FOUND when processed area key is missing", async () => {
+    processingCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedArea("b".repeat(64))).rejects.toMatchObject({
+      code: "AREA_CACHE_NOT_FOUND"
+    });
   });
 });
 

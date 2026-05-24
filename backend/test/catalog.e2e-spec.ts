@@ -218,6 +218,82 @@ describe("Catalog API v1 (e2e)", () => {
     expect(response.body.data.previewImageUrl).toEqual(expect.any(String));
   });
 
+  it("POST /api/v1/catalog/creatures/process returns processed creature payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/catalog/creatures/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "cre_guard_human_001",
+        bypassCache: false
+      })
+      .expect(200);
+
+    expect(response.body.data.cache.key).toEqual(expect.any(String));
+    expect(response.body.data.creature.kind).toBe("creature");
+    expect(response.body.data.creature.render.frontendType).toBe("creature");
+  });
+
+  it("GET /api/v1/catalog/creatures/cache/:cacheKey returns cached creature payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/creatures/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "cre_guard_human_001",
+        bypassCache: false
+      })
+      .expect(200);
+
+    const cacheKey = processed.body.data.cache.key as string;
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/creatures/cache/${cacheKey}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.cache.hit).toBe(true);
+    expect(response.body.data.creature.templateId).toBe("cre_guard_human_001");
+  });
+
+  it("POST /api/v1/catalog/items/process returns processed item payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/catalog/items/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "itm_health_potion_001",
+        bypassCache: false
+      })
+      .expect(200);
+
+    expect(response.body.data.cache.key).toEqual(expect.any(String));
+    expect(response.body.data.item.kind).toBe("item");
+    expect(response.body.data.item.render.frontendType).toBe("item");
+  });
+
+  it("GET /api/v1/catalog/items/cache/:cacheKey returns cached item payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/items/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "itm_health_potion_001",
+        bypassCache: false
+      })
+      .expect(200);
+
+    const cacheKey = processed.body.data.cache.key as string;
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/items/cache/${cacheKey}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.cache.hit).toBe(true);
+    expect(response.body.data.item.templateId).toBe("itm_health_potion_001");
+  });
+
   it("GET /api/v1/catalog/items/:id/preview returns 404 for unknown template", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 

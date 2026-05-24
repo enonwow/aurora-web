@@ -17,7 +17,10 @@ import type {
   PlaceableProcessQuery,
   PlaceableRenderContract,
   PlaceableSubtype,
+  TemplateProcessQuery,
+  TemplateProcessingResult,
   TemplateKind,
+  TemplateRenderContract,
   TemplateListQuery
 } from "../domain/template.types";
 
@@ -63,7 +66,7 @@ export class CatalogApplicationService {
     const cacheKey = buildPlaceableCacheKey(template.templateId, template.resref, classification);
 
     if (!query.bypassCache) {
-      const cached = await this.placeableCache.get(cacheKey);
+      const cached = await this.placeableCache.get<PlaceableProcessingResult>(cacheKey);
       if (cached) {
         return {
           cache: {
@@ -91,7 +94,7 @@ export class CatalogApplicationService {
       processedAt: new Date().toISOString()
     };
 
-    const stored = await this.placeableCache.set(cacheKey, processed);
+    const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, processed);
     return {
       cache: {
         key: cacheKey,
@@ -104,7 +107,7 @@ export class CatalogApplicationService {
   }
 
   async getProcessedPlaceable(cacheKey: string) {
-    const cached = await this.placeableCache.get(cacheKey);
+    const cached = await this.placeableCache.get<PlaceableProcessingResult>(cacheKey);
     if (!cached) {
       throw new AppException({
         status: 404,
@@ -121,6 +124,38 @@ export class CatalogApplicationService {
         hits: cached.hits
       },
       placeable: cached.value
+    };
+  }
+
+  async processCreature(query: TemplateProcessQuery) {
+    const data = await this.processTemplateByKind("creature", query);
+    return {
+      cache: data.cache,
+      creature: data.value
+    };
+  }
+
+  async getProcessedCreature(cacheKey: string) {
+    const data = await this.getProcessedTemplateByKind("creature", cacheKey);
+    return {
+      cache: data.cache,
+      creature: data.value
+    };
+  }
+
+  async processItem(query: TemplateProcessQuery) {
+    const data = await this.processTemplateByKind("item", query);
+    return {
+      cache: data.cache,
+      item: data.value
+    };
+  }
+
+  async getProcessedItem(cacheKey: string) {
+    const data = await this.getProcessedTemplateByKind("item", cacheKey);
+    return {
+      cache: data.cache,
+      item: data.value
     };
   }
 
@@ -274,6 +309,116 @@ export class CatalogApplicationService {
 
     return benchmarkList.items;
   }
+
+  private async processTemplateByKind(
+    kind: "creature" | "item",
+    query: TemplateProcessQuery
+  ): Promise<{
+    cache: {
+      key: string;
+      hit: boolean;
+      storedAt: string;
+      hits: number;
+    };
+    value: TemplateProcessingResult;
+  }> {
+    const template = await this.resolveTemplateByKind(kind, query);
+    const cacheKey = buildTemplateCacheKey(kind, template.templateId, template.resref);
+
+    if (!query.bypassCache) {
+      const cached = await this.placeableCache.get<TemplateProcessingResult>(cacheKey);
+      if (cached) {
+        return {
+          cache: {
+            key: cacheKey,
+            hit: true,
+            storedAt: cached.storedAt,
+            hits: cached.hits
+          },
+          value: maybeStripTemplateBenchmarkMetadata(
+            cached.value,
+            query.includeBenchmarkMetadata
+          )
+        };
+      }
+    }
+
+    const processed: TemplateProcessingResult = {
+      templateId: template.templateId,
+      kind,
+      resref: template.resref,
+      name: template.name,
+      category: template.category,
+      benchmarkCandidate: template.benchmarkCandidate ?? false,
+      benchmarkBucket: template.benchmarkBucket,
+      metadata: { ...template.metadata },
+      render: buildTemplateRenderContract(kind),
+      processedAt: new Date().toISOString()
+    };
+
+    const stored = await this.placeableCache.set<TemplateProcessingResult>(
+      cacheKey,
+      processed
+    );
+    return {
+      cache: {
+        key: cacheKey,
+        hit: false,
+        storedAt: stored.storedAt,
+        hits: stored.hits
+      },
+      value: maybeStripTemplateBenchmarkMetadata(
+        processed,
+        query.includeBenchmarkMetadata
+      )
+    };
+  }
+
+  private async getProcessedTemplateByKind(kind: "creature" | "item", cacheKey: string) {
+    const cached = await this.placeableCache.get<TemplateProcessingResult>(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: `${kind.toUpperCase()}_CACHE_NOT_FOUND`,
+        message: `${kind} cache entry was not found.`
+      });
+    }
+
+    return {
+      cache: {
+        key: cacheKey,
+        hit: true,
+        storedAt: cached.storedAt,
+        hits: cached.hits
+      },
+      value: cached.value
+    };
+  }
+
+  private async resolveTemplateByKind(
+    kind: "creature" | "item",
+    query: TemplateProcessQuery
+  ) {
+    if (query.templateId) {
+      const byId = await this.repository.findByKindAndId(kind, query.templateId);
+      if (byId) {
+        return byId;
+      }
+    }
+
+    if (query.resref) {
+      const byResref = await this.repository.findByKindAndResref(kind, query.resref);
+      if (byResref) {
+        return byResref;
+      }
+    }
+
+    throw new AppException({
+      status: 404,
+      code: "TEMPLATE_NOT_FOUND",
+      message: `${kind} template was not found.`
+    });
+  }
 }
 
 function resolvePlaceableClassification(
@@ -418,6 +563,40 @@ function maybeStripBenchmarkMetadata(
   };
 }
 
+function maybeStripTemplateBenchmarkMetadata(
+  value: TemplateProcessingResult,
+  includeBenchmarkMetadata: boolean
+): TemplateProcessingResult {
+  if (includeBenchmarkMetadata) {
+    return {
+      ...value,
+      metadata: { ...value.metadata }
+    };
+  }
+
+  return {
+    ...value,
+    benchmarkBucket: undefined,
+    metadata: { ...value.metadata }
+  };
+}
+
+function buildTemplateRenderContract(kind: "creature" | "item"): TemplateRenderContract {
+  if (kind === "creature") {
+    return {
+      backendType: "creature",
+      frontendType: "creature",
+      rendererPreset: "creature-standard"
+    };
+  }
+
+  return {
+    backendType: "item",
+    frontendType: "item",
+    rendererPreset: "item-standard"
+  };
+}
+
 function summarizeDurations(values: number[]): BenchmarkDurationSummary {
   if (values.length === 0) {
     return {
@@ -471,6 +650,23 @@ function buildBenchmarkFingerprint(
           resref: candidate.resref,
           placeableSubtype: candidate.placeableSubtype ?? "generic"
         }))
+      })
+    )
+    .digest("hex");
+}
+
+function buildTemplateCacheKey(
+  kind: "creature" | "item",
+  templateId: string,
+  resref: string
+) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        type: "template-process/v1",
+        kind,
+        templateId,
+        resref
       })
     )
     .digest("hex");

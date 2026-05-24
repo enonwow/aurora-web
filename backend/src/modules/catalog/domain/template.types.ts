@@ -47,6 +47,13 @@ export interface PlaceableProcessQuery {
   includeBenchmarkMetadata: boolean;
 }
 
+export interface TemplateProcessQuery {
+  templateId?: string;
+  resref?: string;
+  bypassCache: boolean;
+  includeBenchmarkMetadata: boolean;
+}
+
 export interface PlaceableRenderContract {
   backendType: PlaceableSubtype;
   frontendType: "placeable" | "door" | "vfx";
@@ -59,6 +66,25 @@ export interface PlaceableRenderContract {
     | "vfx-emitter";
   isDoor: boolean;
   isVfx: boolean;
+}
+
+export interface TemplateRenderContract {
+  backendType: "creature" | "item";
+  frontendType: "creature" | "item";
+  rendererPreset: "creature-standard" | "item-standard";
+}
+
+export interface TemplateProcessingResult {
+  templateId: string;
+  kind: "creature" | "item";
+  resref: string;
+  name: string;
+  category: string;
+  benchmarkCandidate: boolean;
+  benchmarkBucket?: string;
+  metadata: Record<string, string | number | boolean>;
+  render: TemplateRenderContract;
+  processedAt: string;
 }
 
 export interface PlaceableBenchmarkRunQuery {

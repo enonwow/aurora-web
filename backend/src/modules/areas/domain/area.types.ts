@@ -60,3 +60,28 @@ export interface AreaListResult {
   limit: number;
   offset: number;
 }
+
+export interface AreaProcessQuery {
+  areaId: string;
+  bypassCache: boolean;
+}
+
+export interface AreaProcessingResult {
+  areaId: string;
+  name: string;
+  biome: string;
+  width: number;
+  height: number;
+  tags: string[];
+  benchmark: boolean;
+  previewImageUrl: string;
+  textureAtlas: {
+    atlasId: string;
+    cacheKey: string;
+    strategy: "blob-cache";
+  };
+  composition: AreaObjectCounts;
+  objects: AreaObjectPlacement[];
+  updatedAt: string;
+  processedAt: string;
+}

@@ -1,4 +1,5 @@
 import { AppException } from "../../src/common/http/app-exception";
+import type { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
 import { ProcessingDeltaRebuildApplicationService } from "../../src/modules/processing-graph/application/processing-delta-rebuild.application.service";
 import type { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
 import type { ProcessingGraphApplicationService } from "../../src/modules/processing-graph/application/processing-graph.application.service";
@@ -7,6 +8,7 @@ import type { ProcessingGraphCheckpointResult } from "../../src/modules/processi
 describe("ProcessingDeltaRebuildApplicationService", () => {
   let graphService: jest.Mocked<ProcessingGraphApplicationService>;
   let catalogService: jest.Mocked<CatalogApplicationService>;
+  let areasService: jest.Mocked<AreasApplicationService>;
   let service: ProcessingDeltaRebuildApplicationService;
 
   beforeEach(() => {
@@ -25,14 +27,29 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
       getCreaturePreview: jest.fn(),
       getItemPreview: jest.fn(),
       processPlaceable: jest.fn(),
+      processCreature: jest.fn(),
+      processItem: jest.fn(),
       getProcessedPlaceable: jest.fn(),
+      getProcessedCreature: jest.fn(),
+      getProcessedItem: jest.fn(),
       benchmarkPlaceables: jest.fn()
     } as unknown as jest.Mocked<CatalogApplicationService>;
+    areasService = {
+      listAreas: jest.fn(),
+      getArea: jest.fn(),
+      getAreaPreview: jest.fn(),
+      processArea: jest.fn(),
+      getProcessedArea: jest.fn()
+    } as unknown as jest.Mocked<AreasApplicationService>;
 
-    service = new ProcessingDeltaRebuildApplicationService(graphService, catalogService);
+    service = new ProcessingDeltaRebuildApplicationService(
+      graphService,
+      catalogService,
+      areasService
+    );
   });
 
-  it("runs selective rebuild and executes placeable action only", async () => {
+  it("runs selective rebuild and executes placeable/creature/area actions", async () => {
     graphService.checkpointLatestSnapshot.mockResolvedValue(
       checkpointResult({
         changed: true,
@@ -58,6 +75,14 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
       },
       placeable: {} as never
     });
+    catalogService.processCreature.mockResolvedValue({
+      cache: { key: "c", hit: false, storedAt: "2026-05-24T00:00:00.000Z", hits: 0 },
+      creature: {} as never
+    });
+    areasService.processArea.mockResolvedValue({
+      cache: { key: "a", hit: false, storedAt: "2026-05-24T00:00:00.000Z", hits: 0 },
+      area: {} as never
+    });
 
     const job = await service.startDeltaRebuild("builder.user");
 
@@ -68,12 +93,21 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
       true
     );
     expect(job.actions.some((action) => action.type === "rebuild_area_projection")).toBe(true);
-    expect(job.stats.completed).toBe(1);
-    expect(job.stats.skipped).toBe(2);
+    expect(job.stats.completed).toBe(3);
+    expect(job.stats.skipped).toBe(0);
     expect(catalogService.processPlaceable).toHaveBeenCalledWith({
       templateId: "tpl_placeable",
       bypassCache: true,
       includeBenchmarkMetadata: true
+    });
+    expect(catalogService.processCreature).toHaveBeenCalledWith({
+      templateId: "tpl_creature",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    expect(areasService.processArea).toHaveBeenCalledWith({
+      areaId: "area_alpha",
+      bypassCache: true
     });
   });
 
@@ -98,7 +132,7 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
     expect(catalogService.processPlaceable).not.toHaveBeenCalled();
   });
 
-  it("marks job failed when placeable action throws", async () => {
+  it("marks job failed when placeable action throws non-skippable app exception", async () => {
     graphService.checkpointLatestSnapshot.mockResolvedValue(
       checkpointResult({
         changed: true,
@@ -114,9 +148,9 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
     );
     catalogService.processPlaceable.mockRejectedValue(
       new AppException({
-        status: 404,
-        code: "TEMPLATE_NOT_FOUND",
-        message: "placeable template was not found."
+        status: 500,
+        code: "CACHE_WRITE_FAILED",
+        message: "cache write failed."
       })
     );
 
@@ -125,10 +159,10 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
     expect(job.status).toBe("failed");
     expect(job.stats.failed).toBe(1);
     expect(job.actions[0].status).toBe("failed");
-    expect(job.actions[0].error?.code).toBe("TEMPLATE_NOT_FOUND");
+    expect(job.actions[0].error?.code).toBe("CACHE_WRITE_FAILED");
   });
 
-  it("maps unknown template kind to item projection and skips planned action", async () => {
+  it("skips action when impacted template is missing in current dataset", async () => {
     graphService.checkpointLatestSnapshot.mockResolvedValue(
       checkpointResult({
         changed: true,
@@ -168,6 +202,13 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
         edges: []
       }
     });
+    catalogService.processItem.mockRejectedValue(
+      new AppException({
+        status: 404,
+        code: "TEMPLATE_NOT_FOUND",
+        message: "item template was not found."
+      })
+    );
 
     const job = await service.startDeltaRebuild("builder.user");
 
@@ -175,6 +216,8 @@ describe("ProcessingDeltaRebuildApplicationService", () => {
     expect(job.actions).toHaveLength(1);
     expect(job.actions[0].type).toBe("rebuild_item_projection");
     expect(job.actions[0].status).toBe("skipped");
+    expect(job.actions[0].note).toBe("Target missing in current dataset, nothing to rebuild.");
+    expect(job.stats.skipped).toBe(1);
     expect(catalogService.processPlaceable).not.toHaveBeenCalled();
   });
 

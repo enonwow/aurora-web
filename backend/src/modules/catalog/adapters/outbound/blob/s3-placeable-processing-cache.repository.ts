@@ -6,9 +6,8 @@ import {
 } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
 import type { BlobStorageSettings } from "../../../../runtime-settings/domain/runtime-settings.types";
 import type {
-  PlaceableProcessingCacheEntry,
   PlaceableProcessingCachePort,
-  PlaceableProcessingResult
+  ProcessingCacheEntry
 } from "../../../application/ports/placeable-processing-cache.port";
 
 const PLACEABLE_CACHE_SUFFIX = "cache/placeables";
@@ -22,7 +21,7 @@ export class S3PlaceableProcessingCacheRepository
     private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort
   ) {}
 
-  async get(key: string): Promise<PlaceableProcessingCacheEntry | null> {
+  async get<TValue = unknown>(key: string): Promise<ProcessingCacheEntry<TValue> | null> {
     const settings = await this.getBlobSettings();
     const objectKey = buildObjectKey(settings, key);
     const client = createClient(settings);
@@ -35,9 +34,9 @@ export class S3PlaceableProcessingCacheRepository
         })
       );
       const bodyText = await readBodyAsString(response.Body);
-      const parsed = JSON.parse(bodyText) as PlaceableProcessingCacheEntry;
+      const parsed = JSON.parse(bodyText) as ProcessingCacheEntry<TValue>;
       const nextHits = parsed.hits + 1;
-      const nextEntry: PlaceableProcessingCacheEntry = {
+      const nextEntry: ProcessingCacheEntry<TValue> = {
         key: parsed.key,
         value: parsed.value,
         storedAt: parsed.storedAt,
@@ -64,13 +63,13 @@ export class S3PlaceableProcessingCacheRepository
     }
   }
 
-  async set(
+  async set<TValue = unknown>(
     key: string,
-    value: PlaceableProcessingResult
-  ): Promise<PlaceableProcessingCacheEntry> {
+    value: TValue
+  ): Promise<ProcessingCacheEntry<TValue>> {
     const settings = await this.getBlobSettings();
     const objectKey = buildObjectKey(settings, key);
-    const entry: PlaceableProcessingCacheEntry = {
+    const entry: ProcessingCacheEntry<TValue> = {
       key,
       value: structuredClone(value),
       storedAt: new Date().toISOString(),

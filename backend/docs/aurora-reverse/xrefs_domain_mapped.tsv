@@ -1,0 +1,132 @@
+2da	0045a061	FUN_0045978c	0045978c	3294	undefined FUN_0045978c(int * param_1)	0045a061		PUSH s_TdlgCreatureEdit::LoadClasses:_I_00bb21ba	Data
+2da	00463fa7	FUN_00463d54	00463d54	533	undefined4 FUN_00463d54(int * param_1)	00463fa7		MOV ECX,s_ModelType_for_appearance_not_fou_00bb2362	Data
+2da	00482d63	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482d63		MOV EDX,s_2DAName_00bc0552	Data
+2da	00482d70	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482d70		CMP byte ptr [s_2DAName_00bc0552],0x0	Read
+2da	00482d82	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482d82		PUSH s_2DAName_00bc0552	Data
+2da	00482d8c	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482d8c		POP ECX=>s_2DAName_00bc0552	Data
+2da	00482d93	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482d93		MOV EDX,s_2DAName_00bc0552	Data
+2da	00482de6	FUN_004818b0	004818b0	4401	undefined4 FUN_004818b0(int * param_1)	00482de6		PUSH s_2DAName_00bc0552	Data
+2da	004d53cd	FUN_004d3e74	004d3e74	8183	undefined4 FUN_004d3e74(int * param_1, int * param_2)	004d53cd		PUSH s_pmh0_%s_%03d_00be2da3	Data
+2da	0052fcdc	FUN_0052ede0	0052ede0	10312	undefined FUN_0052ede0(int param_1, float * param_2, int * param_3, int * param_4)	0052fcdc		MOV param_3,s_2DAName_00bfdeb9	Data
+2da	0052fce9	FUN_0052ede0	0052ede0	10312	undefined FUN_0052ede0(int param_1, float * param_2, int * param_3, int * param_4)	0052fce9		CMP byte ptr [s_2DAName_00bfdeb9],0x0	Read
+2da	0052fcfb	FUN_0052ede0	0052ede0	10312	undefined FUN_0052ede0(int param_1, float * param_2, int * param_3, int * param_4)	0052fcfb		PUSH s_2DAName_00bfdeb9	Data
+2da	0052fd0c	FUN_0052ede0	0052ede0	10312	undefined FUN_0052ede0(int param_1, float * param_2, int * param_3, int * param_4)	0052fd0c		MOV param_2,s_2DAName_00bfdeb9	Data
+2da	0052fd7b	FUN_0052ede0	0052ede0	10312	undefined FUN_0052ede0(int param_1, float * param_2, int * param_3, int * param_4)	0052fd7b		PUSH s_2DAName_00bfdeb9	Data
+2da	00533d45	FUN_00532174	00532174	11581	undefined FUN_00532174(int param_1, int param_2, uint * param_3)	00533d45		MOV param_1,s_2DAName_00bfe240	Data
+2da	00533d52	FUN_00532174	00532174	11581	undefined FUN_00532174(int param_1, int param_2, uint * param_3)	00533d52		CMP byte ptr [s_2DAName_00bfe240],0x0	Read
+2da	00533d64	FUN_00532174	00532174	11581	undefined FUN_00532174(int param_1, int param_2, uint * param_3)	00533d64		PUSH s_2DAName_00bfe240	Data
+2da	00533d75	FUN_00532174	00532174	11581	undefined FUN_00532174(int param_1, int param_2, uint * param_3)	00533d75		MOV param_2,s_2DAName_00bfe240	Data
+2da	00533e06	FUN_00532174	00532174	11581	undefined FUN_00532174(int param_1, int param_2, uint * param_3)	00533e06		PUSH s_2DAName_00bfe240	Data
+2da	005bbaa6	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbaa6		LEA param_1,[ESI + 0x569]=>s_Mod_Entry_X_00c2da0d	Data
+2da	005bbab2	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbab2		PUSH param_1=>s_Mod_Entry_X_00c2da0d	Data
+2da	005bbac6	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbac6		LEA param_2,[ESI + 0x575]=>s_Mod_Entry_Y_00c2da19	Data
+2da	005bbad2	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbad2		PUSH param_2=>s_Mod_Entry_Y_00c2da19	Data
+2da	005bbae6	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbae6		LEA ECX,[ESI + 0x581]=>s_Mod_Entry_Z_00c2da25	Data
+2da	005bbaf2	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbaf2		PUSH ECX=>s_Mod_Entry_Z_00c2da25	Data
+2da	005bbb06	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb06		LEA param_1,[ESI + 0x58d]=>s_Mod_Entry_Dir_X_00c2da31	Data
+2da	005bbb12	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb12		PUSH param_1=>s_Mod_Entry_Dir_X_00c2da31	Data
+2da	005bbb26	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb26		LEA param_2,[ESI + 0x59d]=>s_Mod_Entry_Dir_Y_00c2da41	Data
+2da	005bbb32	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb32		PUSH param_2=>s_Mod_Entry_Dir_Y_00c2da41	Data
+2da	005bbb46	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb46		LEA ECX,[ESI + 0x5ad]=>s_Mod_Expan_List_00c2da51	Data
+2da	005bbb58	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb58		PUSH ECX=>s_Mod_Expan_List_00c2da51	Data
+2da	005bbb6a	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb6a		LEA param_1,[ESI + 0x5bc]=>s_Mod_DawnHour_00c2da60	Data
+2da	005bbb76	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bbb76		PUSH param_1=>s_Mod_DawnHour_00c2da60	Data
+2da	00612b81	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612b81		MOV param_1,s_Equip2DA_00c4a16d	Data
+2da	00612b8e	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612b8e		CMP byte ptr [s_Equip2DA_00c4a16d],0x0	Read
+2da	00612ba0	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612ba0		PUSH s_Equip2DA_00c4a16d	Data
+2da	00612baa	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612baa		POP param_3=>s_Equip2DA_00c4a16d	Data
+2da	00612bb1	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612bb1		MOV param_2,s_Equip2DA_00c4a16d	Data
+2da	00612c04	FUN_00612a44	00612a44	1879	undefined4 FUN_00612a44(int param_1, int param_2, int param_3)	00612c04		PUSH s_Equip2DA_00c4a16d	Data
+hak	004af8aa	FUN_004af534	004af534	1525	undefined FUN_004af534(undefined4 param_1, int * param_2)	004af8aa		PUSH s_HAK_V1.0_00bd744d	Data
+hak	00542054	FUN_00541cd4	00541cd4	1535	undefined FUN_00541cd4(undefined4 param_1, int * param_2)	00542054		PUSH s_HAK_V1.0_00c0a37a	Data
+hak	0058105a	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	0058105a		MOV EDX,s_\hak_00c1d712	Data
+hak	00581067	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00581067		CMP byte ptr [s_\hak_00c1d712],0x0	Read
+hak	0058107d	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	0058107d		PUSH s_\hak_00c1d712	Data
+hak	00581096	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00581096		MOV EDX,s_\hak_00c1d712	Data
+hak	00581131	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00581131		PUSH s_\hak_00c1d712	Data
+hak	005b784a	FUN_005b5bc4	005b5bc4	15760	uint FUN_005b5bc4(int param_1)	005b784a		PUSH s_Mod_HakList_00c2d793	Data
+hak	005b7b64	FUN_005b5bc4	005b5bc4	15760	uint FUN_005b5bc4(int param_1)	005b7b64		PUSH s_Mod_Hak_00c2d79f	Data
+hak	005b7f75	FUN_005b5bc4	005b5bc4	15760	uint FUN_005b5bc4(int param_1)	005b7f75		PUSH s_Mod_Hak_00c2d7a9	Data
+hak	005b800c	FUN_005b5bc4	005b5bc4	15760	uint FUN_005b5bc4(int param_1)	005b800c		PUSH s_Mod_Hak_00c2d7b1	Data
+hak	005bc5db	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bc5db		LEA ECX,[ESI + 0x87c]=>s_Mod_HakList_00c2dd20	Data
+hak	005bc5e1	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bc5e1		PUSH ECX=>s_Mod_HakList_00c2dd20	Data
+hak	005bc631	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bc631		LEA param_2,[ESI + 0x888]=>s_Mod_Hak_00c2dd2c	Data
+hak	005bc63a	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bc63a		PUSH param_2=>s_Mod_Hak_00c2dd2c	Data
+hak	005ce620	FUN_005ce044	005ce044	3631	undefined FUN_005ce044(void)	005ce620		LEA ECX,[EBX + 0x40b]=>s_ResourceInHak_00c35c53	Data
+hak	005ce62a	FUN_005ce044	005ce044	3631	undefined FUN_005ce044(void)	005ce62a		PUSH ECX=>s_ResourceInHak_00c35c53	Data
+hak	00ac6f75	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac6f75		MOV EDX,s_HAKINSTALL_00d096a1	Data
+hak	00ac6f82	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac6f82		CMP byte ptr [s_HAKINSTALL_00d096a1],0x0	Read
+hak	00ac6f98	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac6f98		PUSH s_HAKINSTALL_00d096a1	Data
+hak	00ac6fb1	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac6fb1		MOV EDX,s_HAKINSTALL_00d096a1	Data
+hak	00ac7033	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7033		PUSH s_HAKINSTALL_00d096a1	Data
+tlk	00584de0	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00584de0		MOV EDX,s_\tlk_00c1d848	Data
+tlk	00584ded	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00584ded		CMP byte ptr [s_\tlk_00c1d848],0x0	Read
+tlk	00584e03	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00584e03		PUSH s_\tlk_00c1d848	Data
+tlk	00584e1c	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00584e1c		MOV EDX,s_\tlk_00c1d848	Data
+tlk	00584eb7	FUN_0057f8b8	0057f8b8	22570	undefined FUN_0057f8b8(int param_1, undefined4 param_2, undefined4 param_3, int param_4, undefined4 param_5, undefined4 param_6)	00584eb7		PUSH s_\tlk_00c1d848	Data
+tlk	0058a781	FUN_005888f0	005888f0	13706	undefined FUN_005888f0(int * param_1, char param_2, int * param_3)	0058a781		PUSH s_Error:_could_not_open_dialog.tlk_00c1da79	Data
+tlk	005b6aaa	FUN_005b5bc4	005b5bc4	15760	uint FUN_005b5bc4(int param_1)	005b6aaa		PUSH s_Mod_CustomTlk_00c2d566	Data
+tlk	005bba61	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bba61		LEA param_2,[ESI + 0x54c]=>s_Mod_CustomTlk_00c2d9f0	Data
+tlk	005bba73	FUN_005bb574	005bb574	4960	undefined4 FUN_005bb574(int param_1, LPCSTR param_2)	005bba73		PUSH param_2=>s_Mod_CustomTlk_00c2d9f0	Data
+tlk	00ac4642	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac4642		MOV ECX,s_TLKLOCINSTALL_00d0954e	Data
+tlk	00ac464f	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac464f		CMP byte ptr [s_TLKLOCINSTALL_00d0954e],0x0	Read
+tlk	00ac4665	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac4665		PUSH s_TLKLOCINSTALL_00d0954e	Data
+tlk	00ac467e	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac467e		MOV EDX,s_TLKLOCINSTALL_00d0954e	Data
+tlk	00ac4700	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac4700		PUSH s_TLKLOCINSTALL_00d0954e	Data
+tlk	00ac44b8	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac44b8		MOV ECX,s_data\tlk_00d0955c	Data
+tlk	00ac44c5	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac44c5		CMP byte ptr [s_data\tlk_00d0955c],0x0	Read
+tlk	00ac44db	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac44db		PUSH s_data\tlk_00d0955c	Data
+tlk	00ac44f4	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac44f4		MOV EDX,s_data\tlk_00d0955c	Data
+tlk	00ac458f	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac458f		PUSH s_data\tlk_00d0955c	Data
+tlk	00ac7256	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7256		MOV EDX,s_TLKINSTALL_00d096b5	Data
+tlk	00ac7263	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7263		CMP byte ptr [s_TLKINSTALL_00d096b5],0x0	Read
+tlk	00ac7279	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7279		PUSH s_TLKINSTALL_00d096b5	Data
+tlk	00ac7292	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7292		MOV EDX,s_TLKINSTALL_00d096b5	Data
+tlk	00ac7314	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7314		PUSH s_TLKINSTALL_00d096b5	Data
+tlk	00ac70e9	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac70e9		MOV EDX,s_\data\tlk_00d096c0	Data
+tlk	00ac70f6	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac70f6		CMP byte ptr [s_\data\tlk_00d096c0],0x0	Read
+tlk	00ac710c	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac710c		PUSH s_\data\tlk_00d096c0	Data
+tlk	00ac7125	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac7125		MOV EDX,s_\data\tlk_00d096c0	Data
+tlk	00ac71c0	FUN_00abcfec	00abcfec	42802	undefined FUN_00abcfec()	00ac71c0		PUSH s_\data\tlk_00d096c0	Data
+utc	004a3758	FUN_004a3714	004a3714	5232	undefined FUN_004a3714(int * param_1)	004a3758		PUSH s_*.UTC_00bd04e2	Data
+utc	00591efa	FUN_00591a9c	00591a9c	1825	undefined FUN_00591a9c(int * param_1)	00591efa		LEA param_1,[ESI + 0xb96]=>s_*.UTC_00c1db4a	Data
+utc	00591f00	FUN_00591a9c	00591a9c	1825	undefined FUN_00591a9c(int * param_1)	00591f00		PUSH param_1=>s_*.UTC_00c1db4a	Data
+utc	005938a1	FUN_00593848	00593848	2308	undefined FUN_00593848(int param_1, undefined4 * param_2)	005938a1		PUSH s_*.UTC_00c1dbc1	Data
+utc	0059b8b1	FUN_0059b858	0059b858	4102	undefined FUN_0059b858(int param_1, undefined4 * param_2)	0059b8b1		PUSH s_*.UTC_00c1dc8f	Data
+utc	005c6cc8	FUN_005c675c	005c675c	5533	undefined4 FUN_005c675c(uint * param_1, char param_2)	005c6cc8		PUSH s_*.UTC_00c2feb0	Data
+utc	005f54d5	FUN_005f5494	005f5494	4163	undefined FUN_005f5494(undefined4 param_1, int * param_2)	005f54d5		PUSH s_*.UTC_00c4177d	Data
+utc	00638928	FUN_00638644	00638644	1899	undefined FUN_00638644(int * param_1, int param_2, int * param_3, int param_4, undefined4 * param_5, uint * param_6)	00638928		PUSH s_TNWPaletteLoader::SavePaletteTre_00c52e46	Data
+utc	006389ac	FUN_00638644	00638644	1899	undefined FUN_00638644(int * param_1, int param_2, int * param_3, int param_4, undefined4 * param_5, uint * param_6)	006389ac		PUSH s_TNWPaletteLoader::SavePaletteTre_00c52ecf	Data
+utc	0073394f	FUN_007338c4	007338c4	1177	undefined4 FUN_007338c4(int param_1, int * param_2)	0073394f		PUSH s_*.UTC_00ca5854	Data
+utc	007349c6	FUN_007347f8	007347f8	2215	undefined4 FUN_007347f8(int param_1)	007349c6		PUSH s_*.UTC_00ca586c	Data
+utp	004a420d	FUN_004a3714	004a3714	5232	undefined FUN_004a3714(int * param_1)	004a420d		PUSH s_*.UTP_00bd0500	Data
+utp	00591f76	FUN_00591a9c	00591a9c	1825	undefined FUN_00591a9c(int * param_1)	00591f76		LEA param_1,[ESI + 0xba2]=>s_*.UTP_00c1db56	Data
+utp	00591f7c	FUN_00591a9c	00591a9c	1825	undefined FUN_00591a9c(int * param_1)	00591f7c		PUSH param_1=>s_*.UTP_00c1db56	Data
+utp	00593e63	FUN_00593848	00593848	2308	undefined FUN_00593848(int param_1, undefined4 * param_2)	00593e63		PUSH s_*.UTP_00c1dbcf	Data
+utp	0059be6b	FUN_0059b858	0059b858	4102	undefined FUN_0059b858(int param_1, undefined4 * param_2)	0059be6b		PUSH s_*.UTP_00c1dc9d	Data
+utp	005c6d6b	FUN_005c675c	005c675c	5533	undefined4 FUN_005c675c(uint * param_1, char param_2)	005c6d6b		PUSH s_*.UTP_00c2febc	Data
+utp	005f5b6c	FUN_005f5494	005f5494	4163	undefined FUN_005f5494(undefined4 param_1, int * param_2)	005f5b6c		PUSH s_*.UTP_00c417a5	Data
+utp	00734373	FUN_007342e8	007342e8	1175	undefined4 FUN_007342e8(int param_1, int * param_2)	00734373		PUSH s_*.UTP_00ca5864	Data
+utp	00734b2e	FUN_007347f8	007347f8	2215	undefined4 FUN_007347f8(int param_1)	00734b2e		PUSH s_*.UTP_00ca5884	Data
+utp	00a1dadf	FUN_00a1dacc	00a1dacc	66	undefined FUN_00a1dacc(int param_1, char * param_2)	00a1dadf		PUSH s_diewithoutparent_00cbf4b5	Data
+utp	00a1daf4	FUN_00a1dacc	00a1dacc	66	undefined FUN_00a1dacc(int param_1, char * param_2)	00a1daf4		PUSH s_diewithoutparent_00cbf4c6	Data
+utp	00a1dafe	FUN_00a1dacc	00a1dacc	66	undefined FUN_00a1dacc(int param_1, char * param_2)	00a1dafe		POP ECX=>s_diewithoutparent_00cbf4c6	Data
+utp	00a4939e	FUN_00a4938c	00a4938c	34	undefined FUN_00a4938c(int param_1)	00a4939e	LAB_00a4939e	PUSH s_diewithoutparent_1_00cc3fa2	Data
+utp	00d1570c	DelayLoad_GetProcessDpiAwareness	00b9c984	13	undefined DelayLoad_GetProcessDpiAwareness(undefined4 param_1, undefined4 param_2, undefined4 param_3)	00d1570c		addr s_GL_AMD_debug_output_00d173c4	Data
+utp	00d15888	DelayLoad_GetProcessDpiAwareness	00b9c984	13	undefined DelayLoad_GetProcessDpiAwareness(undefined4 param_1, undefined4 param_2, undefined4 param_3)	00d15888		addr s_GL_ARB_debug_output_00d17db6	Data
+utp	00d15afc	DelayLoad_GetProcessDpiAwareness	00b9c984	13	undefined DelayLoad_GetProcessDpiAwareness(undefined4 param_1, undefined4 param_2, undefined4 param_3)	00d15afc		addr s_GL_ATIX_vertex_shader_output_poi_00d18df6	Data
+utp	00b11115	FUN_00b110e8	00b110e8	482	undefined4 FUN_00b110e8(void)	00b11115		LEA ECX,[ESI + 0x10c6a]=>s_glCombinerOutputNV_00d27e68	Data
+utp	00b1111b	FUN_00b110e8	00b110e8	482	undefined4 FUN_00b110e8(void)	00b1111b		PUSH ECX=>s_glCombinerOutputNV_00d27e68	Data
+utp	00b11211	FUN_00b110e8	00b110e8	482	undefined4 FUN_00b110e8(void)	00b11211		LEA ECX,[ESI + 0x10d12]=>s_glGetCombinerInputParameterivNV_00d27f10	Data
+utp	00b11217	FUN_00b110e8	00b110e8	482	undefined4 FUN_00b110e8(void)	00b11217		PUSH ECX=>s_glGetCombinerInputParameterivNV_00d27f10	Data
+utp	00b1a556	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1a556		LEA EDX,[EBX + 0x144d2]=>s_debug_output_00d2b6d0	Data
+utp	00b1a55c	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1a55c		PUSH EDX=>s_debug_output_00d2b6d0	Data
+utp	00b1b1fd	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1b1fd		LEA EDX,[EBX + 0x14bf7]=>s_debug_output_00d2bdf5	Data
+utp	00b1b203	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1b203		PUSH EDX=>s_debug_output_00d2bdf5	Data
+utp	00b1c670	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1c670		LEA EDX,[EBX + 0x157f4]=>s_vertex_shader_output_point_size_00d2c9f2	Data
+utp	00b1c676	FUN_00b1a188	00b1a188	27461	undefined FUN_00b1a188()	00b1c676		PUSH EDX=>s_vertex_shader_output_point_size_00d2c9f2	Data
+utp	00b214d0	FUN_00b20cd0	00b20cd0	2160	undefined FUN_00b20cd0(char * param_1)	00b214d0		LEA EDX,[EBX + 0x1808e]=>s_video_output_00d2f28c	Data
+utp	00b214d6	FUN_00b20cd0	00b20cd0	2160	undefined FUN_00b20cd0(char * param_1)	00b214d6		PUSH EDX=>s_video_output_00d2f28c	Data
+are	00726ed1	FUN_0072691c	0072691c	3928	undefined FUN_0072691c(void)	00726ed1		LEA EAX,[EBX + 0x1de]=>s_DefaultAreaProperties_00ca51ce	Data
+are	00726edb	FUN_0072691c	0072691c	3928	undefined FUN_0072691c(void)	00726edb		PUSH EAX=>s_DefaultAreaProperties_00ca51ce	Data
+git	00e4a4f4	DelayLoad_GetProcessDpiAwareness	00b9c984	13	undefined DelayLoad_GetProcessDpiAwareness(undefined4 param_1, undefined4 param_2, undefined4 param_3)	00e4a4f4		ibo32 00e4ffd4	Data

@@ -2,6 +2,13 @@ import type { PlaceableRenderContract, PlaceableSubtype } from "../../domain/tem
 
 export const PLACEABLE_PROCESSING_CACHE = Symbol("PLACEABLE_PROCESSING_CACHE");
 
+export interface ProcessingCacheEntry<TValue> {
+  key: string;
+  value: TValue;
+  storedAt: string;
+  hits: number;
+}
+
 export interface PlaceableProcessingResult {
   templateId: string;
   resref: string;
@@ -21,14 +28,12 @@ export interface PlaceableProcessingResult {
   processedAt: string;
 }
 
-export interface PlaceableProcessingCacheEntry {
-  key: string;
-  value: PlaceableProcessingResult;
-  storedAt: string;
-  hits: number;
-}
+export type PlaceableProcessingCacheEntry = ProcessingCacheEntry<PlaceableProcessingResult>;
 
 export interface PlaceableProcessingCachePort {
-  get(key: string): Promise<PlaceableProcessingCacheEntry | null>;
-  set(key: string, value: PlaceableProcessingResult): Promise<PlaceableProcessingCacheEntry>;
+  get<TValue = unknown>(key: string): Promise<ProcessingCacheEntry<TValue> | null>;
+  set<TValue = unknown>(
+    key: string,
+    value: TValue
+  ): Promise<ProcessingCacheEntry<TValue>>;
 }
