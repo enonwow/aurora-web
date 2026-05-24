@@ -21,7 +21,9 @@ export class MemoryPlaceableProcessingCacheRepository
       hits: entry.hits + 1
     };
     this.entries.set(key, updated);
-    return cloneEntry(updated) as ProcessingCacheEntry<TValue>;
+    return {
+      ...updated
+    } as ProcessingCacheEntry<TValue>;
   }
 
   async set<TValue = unknown>(
@@ -30,20 +32,13 @@ export class MemoryPlaceableProcessingCacheRepository
   ): Promise<ProcessingCacheEntry<TValue>> {
     const entry: ProcessingCacheEntry<unknown> = {
       key,
-      value: structuredClone(value),
+      value,
       storedAt: new Date().toISOString(),
       hits: 0
     };
     this.entries.set(key, entry);
-    return cloneEntry(entry) as ProcessingCacheEntry<TValue>;
+    return {
+      ...entry
+    } as ProcessingCacheEntry<TValue>;
   }
-}
-
-function cloneEntry(entry: ProcessingCacheEntry<unknown>): ProcessingCacheEntry<unknown> {
-  return {
-    key: entry.key,
-    value: structuredClone(entry.value),
-    storedAt: entry.storedAt,
-    hits: entry.hits
-  };
 }

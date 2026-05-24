@@ -20,26 +20,21 @@ export class MemoryAreaProcessingCacheRepository implements AreaProcessingCacheP
       hits: entry.hits + 1
     };
     this.entries.set(key, updated);
-    return cloneEntry(updated);
+    return {
+      ...updated
+    };
   }
 
   async set(key: string, value: AreaProcessingResult): Promise<AreaProcessingCacheEntry> {
     const entry: AreaProcessingCacheEntry = {
       key,
-      value: structuredClone(value),
+      value,
       storedAt: new Date().toISOString(),
       hits: 0
     };
     this.entries.set(key, entry);
-    return cloneEntry(entry);
+    return {
+      ...entry
+    };
   }
-}
-
-function cloneEntry(entry: AreaProcessingCacheEntry): AreaProcessingCacheEntry {
-  return {
-    key: entry.key,
-    value: structuredClone(entry.value),
-    storedAt: entry.storedAt,
-    hits: entry.hits
-  };
 }

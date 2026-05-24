@@ -89,7 +89,7 @@ export class CatalogApplicationService {
       render: buildRenderContract(classification.normalizedSubtype),
       benchmarkCandidate: template.benchmarkCandidate ?? false,
       benchmarkBucket: template.benchmarkBucket,
-      metadata: { ...template.metadata },
+      metadata: template.metadata,
       classification,
       processedAt: new Date().toISOString()
     };
@@ -351,7 +351,7 @@ export class CatalogApplicationService {
       category: template.category,
       benchmarkCandidate: template.benchmarkCandidate ?? false,
       benchmarkBucket: template.benchmarkBucket,
-      metadata: { ...template.metadata },
+      metadata: template.metadata,
       render: buildTemplateRenderContract(kind),
       processedAt: new Date().toISOString()
     };
@@ -475,12 +475,7 @@ function buildPlaceableCacheKey(
 ) {
   return createHash("sha256")
     .update(
-      JSON.stringify({
-        type: "placeable-process/v1",
-        templateId,
-        resref,
-        subtype: classification.normalizedSubtype
-      })
+      `placeable-process/v1|${templateId}|${resref}|${classification.normalizedSubtype}`
     )
     .digest("hex");
 }
@@ -550,16 +545,16 @@ function maybeStripBenchmarkMetadata(
   includeBenchmarkMetadata: boolean
 ): PlaceableProcessingResult {
   if (includeBenchmarkMetadata) {
-    return {
-      ...value,
-      metadata: { ...value.metadata }
-    };
+    return value;
+  }
+
+  if (typeof value.benchmarkBucket === "undefined") {
+    return value;
   }
 
   return {
     ...value,
-    benchmarkBucket: undefined,
-    metadata: { ...value.metadata }
+    benchmarkBucket: undefined
   };
 }
 
@@ -568,16 +563,16 @@ function maybeStripTemplateBenchmarkMetadata(
   includeBenchmarkMetadata: boolean
 ): TemplateProcessingResult {
   if (includeBenchmarkMetadata) {
-    return {
-      ...value,
-      metadata: { ...value.metadata }
-    };
+    return value;
+  }
+
+  if (typeof value.benchmarkBucket === "undefined") {
+    return value;
   }
 
   return {
     ...value,
-    benchmarkBucket: undefined,
-    metadata: { ...value.metadata }
+    benchmarkBucket: undefined
   };
 }
 
@@ -661,13 +656,6 @@ function buildTemplateCacheKey(
   resref: string
 ) {
   return createHash("sha256")
-    .update(
-      JSON.stringify({
-        type: "template-process/v1",
-        kind,
-        templateId,
-        resref
-      })
-    )
+    .update(`template-process/v1|${kind}|${templateId}|${resref}`)
     .digest("hex");
 }

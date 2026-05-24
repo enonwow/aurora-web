@@ -1,5 +1,5 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Injectable, Inject } from "@nestjs/common";
+import { Injectable, Inject, OnModuleDestroy } from "@nestjs/common";
 import {
   RUNTIME_SETTINGS_REPOSITORY,
   type RuntimeSettingsRepositoryPort
@@ -14,17 +14,25 @@ const PLACEABLE_CACHE_SUFFIX = "cache/placeables";
 
 @Injectable()
 export class S3PlaceableProcessingCacheRepository
-  implements PlaceableProcessingCachePort
+  implements PlaceableProcessingCachePort, OnModuleDestroy
 {
+  private client: S3Client | null = null;
+  private clientSignature: string | null = null;
+
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort
   ) {}
 
+  onModuleDestroy(): void {
+    this.client?.destroy();
+    this.client = null;
+    this.clientSignature = null;
+  }
+
   async get<TValue = unknown>(key: string): Promise<ProcessingCacheEntry<TValue> | null> {
-    const settings = await this.getBlobSettings();
+    const { settings, client } = await this.resolveClient();
     const objectKey = buildObjectKey(settings, key);
-    const client = createClient(settings);
 
     try {
       const response = await client.send(
@@ -52,14 +60,12 @@ export class S3PlaceableProcessingCacheRepository
         })
       );
 
-      return structuredClone(nextEntry);
+      return nextEntry;
     } catch (error) {
       if (isMissingObjectError(error)) {
         return null;
       }
       throw error;
-    } finally {
-      client.destroy();
     }
   }
 
@@ -67,35 +73,46 @@ export class S3PlaceableProcessingCacheRepository
     key: string,
     value: TValue
   ): Promise<ProcessingCacheEntry<TValue>> {
-    const settings = await this.getBlobSettings();
+    const { settings, client } = await this.resolveClient();
     const objectKey = buildObjectKey(settings, key);
     const entry: ProcessingCacheEntry<TValue> = {
       key,
-      value: structuredClone(value),
+      value,
       storedAt: new Date().toISOString(),
       hits: 0
     };
 
-    const client = createClient(settings);
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: settings.bucket,
-          Key: objectKey,
-          Body: JSON.stringify(entry),
-          ContentType: "application/json; charset=utf-8"
-        })
-      );
-    } finally {
-      client.destroy();
-    }
+    await client.send(
+      new PutObjectCommand({
+        Bucket: settings.bucket,
+        Key: objectKey,
+        Body: JSON.stringify(entry),
+        ContentType: "application/json; charset=utf-8"
+      })
+    );
 
-    return structuredClone(entry);
+    return entry;
   }
 
   private async getBlobSettings(): Promise<BlobStorageSettings> {
     const settings = await this.runtimeSettingsRepository.get();
     return settings.blobStorage;
+  }
+
+  private async resolveClient(): Promise<{ settings: BlobStorageSettings; client: S3Client }> {
+    const settings = await this.getBlobSettings();
+    const signature = buildSettingsSignature(settings);
+
+    if (!this.client || this.clientSignature !== signature) {
+      this.client?.destroy();
+      this.client = createClient(settings);
+      this.clientSignature = signature;
+    }
+
+    return {
+      settings,
+      client: this.client!
+    };
   }
 }
 
@@ -122,6 +139,18 @@ function normalizePrefix(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function buildSettingsSignature(settings: BlobStorageSettings): string {
+  return [
+    settings.endpoint,
+    settings.region,
+    settings.bucket,
+    settings.modulePrefix,
+    settings.accessKeyId,
+    settings.secretAccessKey,
+    String(settings.forcePathStyle)
+  ].join("|");
 }
 
 function isMissingObjectError(error: unknown): boolean {

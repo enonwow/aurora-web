@@ -13,7 +13,8 @@ import type {
   AreaObjectCounts,
   AreaObjectPlacement,
   AreaProcessQuery,
-  AreaProcessingResult
+  AreaProcessingResult,
+  AreaRecord
 } from "../domain/area.types";
 
 @Injectable()
@@ -93,7 +94,7 @@ export class AreasApplicationService {
   }
 
   async processArea(query: AreaProcessQuery) {
-    const area = await this.getArea(query.areaId);
+    const area = await this.resolveAreaRecord(query.areaId);
     const cacheKey = buildAreaCacheKey(area);
 
     if (!query.bypassCache) {
@@ -111,24 +112,24 @@ export class AreasApplicationService {
       }
     }
 
+    const composition = countObjectsByKind(area.objects);
+    const textureAtlasCacheKey = `${area.textureAtlasId}:${area.width}x${area.height}`;
     const processed: AreaProcessingResult = {
       areaId: area.areaId,
       name: area.name,
       biome: area.biome,
       width: area.width,
       height: area.height,
-      tags: [...area.tags],
+      tags: area.tags,
       benchmark: area.benchmark,
       previewImageUrl: area.previewImageUrl,
       textureAtlas: {
-        atlasId: area.textureAtlas.atlasId,
-        cacheKey: area.textureAtlas.cacheKey,
+        atlasId: area.textureAtlasId,
+        cacheKey: textureAtlasCacheKey,
         strategy: "blob-cache"
       },
-      composition: {
-        ...area.composition
-      },
-      objects: area.objects.map((object) => ({ ...object })),
+      composition,
+      objects: area.objects,
       updatedAt: area.updatedAt,
       processedAt: new Date().toISOString()
     };
@@ -165,6 +166,18 @@ export class AreasApplicationService {
       area: cached.value
     };
   }
+
+  private async resolveAreaRecord(areaId: string): Promise<AreaRecord> {
+    const area = await this.repository.findById(areaId);
+    if (!area) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_NOT_FOUND",
+        message: "Area was not found."
+      });
+    }
+    return area;
+  }
 }
 
 function countObjectsByKind(objects: AreaObjectPlacement[]): AreaObjectCounts {
@@ -191,32 +204,17 @@ function countObjectsByKind(objects: AreaObjectPlacement[]): AreaObjectCounts {
   return counts;
 }
 
-function buildAreaCacheKey(area: {
-  areaId: string;
-  width: number;
-  height: number;
-  updatedAt: string;
-  textureAtlas: { atlasId: string };
-  objects: Array<{ objectId: string; templateId: string; x: number; y: number; z: number; bearing: number }>;
-}) {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        type: "area-process/v1",
-        areaId: area.areaId,
-        width: area.width,
-        height: area.height,
-        updatedAt: area.updatedAt,
-        textureAtlasId: area.textureAtlas.atlasId,
-        objects: area.objects.map((object) => ({
-          objectId: object.objectId,
-          templateId: object.templateId,
-          x: object.x,
-          y: object.y,
-          z: object.z,
-          bearing: object.bearing
-        }))
-      })
-    )
-    .digest("hex");
+function buildAreaCacheKey(area: AreaRecord) {
+  const hash = createHash("sha256");
+  hash.update(
+    `area-process/v1|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}`
+  );
+
+  for (const object of area.objects) {
+    hash.update(
+      `|${object.objectId}|${object.kind}|${object.templateId}|${object.x}|${object.y}|${object.z}|${object.bearing}`
+    );
+  }
+
+  return hash.digest("hex");
 }

@@ -38,7 +38,7 @@ interface CandidateBenchResult {
   cacheRead: DurationSummary;
 }
 
-type HttpClient = supertest.SuperTest<supertest.Test>;
+type HttpClient = ReturnType<typeof supertest.agent>;
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
