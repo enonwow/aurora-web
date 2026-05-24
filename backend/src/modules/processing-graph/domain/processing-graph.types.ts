@@ -119,3 +119,64 @@ export interface ProcessingGraphCheckpointResult {
   triggeredAt: string;
   triggeredBy: string;
 }
+
+export type ProcessingDeltaActionType =
+  | "rebuild_placeable_cache"
+  | "rebuild_creature_projection"
+  | "rebuild_item_projection"
+  | "rebuild_area_projection";
+
+export type ProcessingDeltaActionStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export interface ProcessingDeltaRebuildAction {
+  actionId: string;
+  type: ProcessingDeltaActionType;
+  targetId: string;
+  status: ProcessingDeltaActionStatus;
+  startedAt?: string;
+  finishedAt?: string;
+  note?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export type ProcessingDeltaJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed";
+
+export interface ProcessingDeltaRebuildJob {
+  jobId: string;
+  status: ProcessingDeltaJobStatus;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  triggeredBy: string;
+  delta: {
+    baseline: "none" | "latest";
+    changed: boolean;
+    summary: ProcessingGraphDeltaSummary;
+    impacted: {
+      areas: string[];
+      templates: string[];
+      areaObjects: string[];
+    };
+    previousDatasetHash?: string;
+    currentDatasetHash: string;
+  };
+  actions: ProcessingDeltaRebuildAction[];
+  stats: {
+    total: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+  };
+}

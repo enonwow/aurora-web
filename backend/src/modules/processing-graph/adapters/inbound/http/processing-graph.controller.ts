@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
+import { Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,8 +11,13 @@ import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
+import { ProcessingDeltaRebuildApplicationService } from "../../../application/processing-delta-rebuild.application.service";
 import { ProcessingGraphApplicationService } from "../../../application/processing-graph.application.service";
-import { parseAreaSubgraphParams } from "./processing-graph.schemas";
+import {
+  parseAreaSubgraphParams,
+  parseDeltaJobListQuery,
+  parseDeltaJobParams
+} from "./processing-graph.schemas";
 
 @Controller("processing/graphs")
 @ApiTags("processing-graph")
@@ -22,6 +27,7 @@ import { parseAreaSubgraphParams } from "./processing-graph.schemas";
 export class ProcessingGraphController {
   constructor(
     private readonly service: ProcessingGraphApplicationService,
+    private readonly deltaRebuildService: ProcessingDeltaRebuildApplicationService,
     private readonly config: AppConfigService
   ) {}
 
@@ -66,6 +72,59 @@ export class ProcessingGraphController {
     const data = await this.service.checkpointLatestSnapshot(
       request.auth!.user.username
     );
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("delta/rebuild")
+  @HttpCode(200)
+  @Roles("admin", "builder")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary:
+      "Run selective rebuild job from current graph delta (only impacted targets are processed)."
+  })
+  @ApiResponse({ status: 200, description: "Delta rebuild job result payload." })
+  @ApiResponse({ status: 401, description: "Missing or invalid session." })
+  @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
+  async runDeltaRebuild(@Req() request: AppRequest) {
+    const data = await this.deltaRebuildService.startDeltaRebuild(
+      request.auth!.user.username
+    );
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("delta/jobs")
+  @ApiOperation({
+    summary:
+      "List recent selective rebuild jobs for delta processing pipeline."
+  })
+  @ApiResponse({ status: 200, description: "Delta rebuild jobs list payload." })
+  @ApiResponse({ status: 401, description: "Missing or invalid session." })
+  @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
+  async listDeltaJobs(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    const parsed = parseDeltaJobListQuery(query);
+    const data = this.deltaRebuildService.listJobs(parsed.limit);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("delta/jobs/:jobId")
+  @ApiOperation({
+    summary:
+      "Get status/details of a single selective rebuild job."
+  })
+  @ApiParam({ name: "jobId" })
+  @ApiResponse({ status: 200, description: "Delta rebuild job payload." })
+  @ApiResponse({ status: 404, description: "Delta rebuild job not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getDeltaJob(
+    @Req() request: AppRequest,
+    @Param() params: Record<string, unknown>
+  ) {
+    const parsed = parseDeltaJobParams(params);
+    const data = this.deltaRebuildService.getJob(parsed.jobId);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 

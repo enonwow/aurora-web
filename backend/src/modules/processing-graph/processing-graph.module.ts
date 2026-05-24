@@ -6,6 +6,7 @@ import { FileProcessingGraphSnapshotRepository } from "./adapters/outbound/file/
 import {
   PROCESSING_GRAPH_SNAPSHOT_REPOSITORY
 } from "./application/ports/processing-graph-snapshot-repository.port";
+import { ProcessingDeltaRebuildApplicationService } from "./application/processing-delta-rebuild.application.service";
 import { ProcessingGraphApplicationService } from "./application/processing-graph.application.service";
 
 @Module({
@@ -13,6 +14,7 @@ import { ProcessingGraphApplicationService } from "./application/processing-grap
   controllers: [ProcessingGraphController],
   providers: [
     ProcessingGraphApplicationService,
+    ProcessingDeltaRebuildApplicationService,
     FileProcessingGraphSnapshotRepository,
     {
       provide: PROCESSING_GRAPH_SNAPSHOT_REPOSITORY,

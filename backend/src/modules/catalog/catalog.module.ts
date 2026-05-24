@@ -41,6 +41,6 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
       ) => (config.isTest ? memoryCache : s3Cache)
     }
   ],
-  exports: [TEMPLATE_CATALOG_REPOSITORY]
+  exports: [TEMPLATE_CATALOG_REPOSITORY, CatalogApplicationService]
 })
 export class CatalogModule {}
