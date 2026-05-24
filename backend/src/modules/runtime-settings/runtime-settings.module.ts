@@ -35,6 +35,7 @@ import {
       provide: MODULE_BLOB_STORAGE,
       useExisting: S3ModuleBlobStorageService
     }
-  ]
+  ],
+  exports: [RUNTIME_SETTINGS_REPOSITORY]
 })
 export class RuntimeSettingsModule {}

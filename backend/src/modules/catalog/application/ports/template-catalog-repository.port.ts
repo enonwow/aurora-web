@@ -10,4 +10,5 @@ export const TEMPLATE_CATALOG_REPOSITORY = Symbol("TEMPLATE_CATALOG_REPOSITORY")
 export interface TemplateCatalogRepositoryPort {
   listByKind(kind: TemplateKind, query: TemplateListQuery): Promise<TemplateListResult>;
   findByKindAndId(kind: TemplateKind, templateId: string): Promise<TemplateRecord | null>;
+  findByKindAndResref(kind: TemplateKind, resref: string): Promise<TemplateRecord | null>;
 }

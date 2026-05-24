@@ -1,5 +1,8 @@
 import { AppException } from "../../src/common/http/app-exception";
 import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
+import type {
+  PlaceableProcessingCachePort
+} from "../../src/modules/catalog/application/ports/placeable-processing-cache.port";
 import type { TemplateCatalogRepositoryPort } from "../../src/modules/catalog/application/ports/template-catalog-repository.port";
 import type {
   TemplateListResult,
@@ -8,14 +11,20 @@ import type {
 
 describe("CatalogApplicationService", () => {
   let repository: jest.Mocked<TemplateCatalogRepositoryPort>;
+  let placeableCache: jest.Mocked<PlaceableProcessingCachePort>;
   let service: CatalogApplicationService;
 
   beforeEach(() => {
     repository = {
       listByKind: jest.fn(),
-      findByKindAndId: jest.fn()
+      findByKindAndId: jest.fn(),
+      findByKindAndResref: jest.fn()
     };
-    service = new CatalogApplicationService(repository);
+    placeableCache = {
+      get: jest.fn(),
+      set: jest.fn()
+    };
+    service = new CatalogApplicationService(repository, placeableCache);
   });
 
   it("lists placeables through repository", async () => {
@@ -181,6 +190,172 @@ describe("CatalogApplicationService", () => {
     expect(preview).toMatchObject({
       benchmarkCandidate: false
     });
+  });
+
+  it("processes placeable into render contract and stores cache entry", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_vfx_001"),
+      resref: "plc_vfx_001",
+      placeableSubtype: "vfx",
+      benchmarkCandidate: true,
+      benchmarkBucket: "placeable_heavy_vfx"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processPlaceable({
+      templateId: "plc_vfx_001",
+      subtypeHint: "vvx",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.placeable.placeableSubtype).toBe("vfx");
+    expect(result.placeable.render.frontendType).toBe("vfx");
+    expect(result.placeable.classification.mismatchWithTemplate).toBe(false);
+    expect(result.placeable.benchmarkBucket).toBe("placeable_heavy_vfx");
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves placeable processing by resref", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_resref_001"),
+      resref: "ad_top_lion_1",
+      placeableSubtype: "vfx"
+    };
+    repository.findByKindAndResref.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:05:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processPlaceable({
+      resref: "ad_top_lion_1",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.findByKindAndResref).toHaveBeenCalledWith(
+      "placeable",
+      "ad_top_lion_1"
+    );
+    expect(result.placeable.templateId).toBe("plc_resref_001");
+  });
+
+  it("returns cache hit for already processed placeable", async () => {
+    placeableCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 3,
+      value: {
+        templateId: "plc_cached_001",
+        resref: "plc_cached",
+        name: "Cached Placeable",
+        category: "benchmark",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: {
+          sample: true
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await service.getProcessedPlaceable("a".repeat(64));
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(3);
+    expect(result.placeable.placeableSubtype).toBe("door");
+  });
+
+  it("throws PLACEABLE_CACHE_NOT_FOUND when cache key is missing", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedPlaceable("b".repeat(64))).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_NOT_FOUND"
+    });
+  });
+
+  it("runs benchmark and returns deterministic metrics envelope", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [
+        {
+          ...buildTemplate("placeable", "plc_bench_001"),
+          resref: "plc_bench_001",
+          placeableSubtype: "generic",
+          benchmarkCandidate: true
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+
+    const processSpy = jest
+      .spyOn(service, "processPlaceable")
+      .mockResolvedValue({
+        cache: {
+          key: "c".repeat(64),
+          hit: false,
+          storedAt: "2026-05-24T10:15:00.000Z",
+          hits: 0
+        },
+        placeable: {
+          templateId: "plc_bench_001",
+          resref: "plc_bench_001",
+          name: "Bench",
+          category: "benchmark",
+          placeableSubtype: "generic",
+          render: {
+            backendType: "generic",
+            frontendType: "placeable",
+            rendererPreset: "placeable-generic",
+            isDoor: false,
+            isVfx: false
+          },
+          benchmarkCandidate: true,
+          metadata: { sample: true },
+          classification: {
+            source: "template",
+            normalizedSubtype: "generic",
+            mismatchWithTemplate: false
+          },
+          processedAt: "2026-05-24T10:14:00.000Z"
+        }
+      });
+
+    const result = await service.benchmarkPlaceables({
+      iterations: 3,
+      warmupIterations: 1,
+      bypassCache: true
+    });
+
+    expect(result.datasetFingerprint).toHaveLength(64);
+    expect(result.metrics.perCandidate).toHaveLength(1);
+    expect(result.metrics.overall.p95Ms).toBeGreaterThanOrEqual(0);
+    expect(processSpy).toHaveBeenCalled();
   });
 });
 

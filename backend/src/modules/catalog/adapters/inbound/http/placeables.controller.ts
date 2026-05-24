@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -15,6 +16,11 @@ import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { parseCatalogListQuery } from "./catalog.schemas";
+import {
+  parsePlaceableBenchmarkPayload,
+  parsePlaceableCacheKey,
+  parsePlaceableProcessPayload
+} from "./placeables.schemas";
 
 @Controller("catalog/placeables")
 @ApiTags("catalog-placeables")
@@ -40,6 +46,7 @@ export class PlaceablesController {
       "door",
       "vfx",
       "vvx",
+      "vvxy",
       "container",
       "light_source",
       "trigger_proxy"
@@ -66,6 +73,92 @@ export class PlaceablesController {
   @ApiResponse({ status: 404, description: "Template not found." })
   async preview(@Req() request: AppRequest, @Param("templateId") templateId: string) {
     const data = await this.service.getPlaceablePreview(templateId);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("process")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary:
+      "Process placeable into backend render contract (type/classification/cache metadata)."
+  })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        templateId: { type: "string" },
+        resref: { type: "string" },
+        subtypeHint: {
+          type: "string",
+          enum: [
+            "generic",
+            "door",
+            "vfx",
+            "vvx",
+            "vvxy",
+            "container",
+            "light_source",
+            "trigger_proxy"
+          ]
+        },
+        bypassCache: { type: "boolean", default: false },
+        includeBenchmarkMetadata: { type: "boolean", default: true }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: "Processed placeable payload." })
+  @ApiResponse({ status: 404, description: "Template not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async process(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
+    const parsed = parsePlaceableProcessPayload(body);
+    const data = await this.service.processPlaceable(parsed);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("cache/:cacheKey")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({ summary: "Get processed placeable payload from cache by cache key." })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiResponse({ status: 200, description: "Cached placeable processing payload." })
+  @ApiResponse({ status: 404, description: "Cache entry not found." })
+  async getCached(
+    @Req() request: AppRequest,
+    @Param("cacheKey") rawCacheKey: string
+  ) {
+    const cacheKey = parsePlaceableCacheKey(rawCacheKey);
+    const data = await this.service.getProcessedPlaceable(cacheKey);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("benchmark")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary: "Run placeable processing benchmark and return deterministic fingerprint."
+  })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        templateIds: {
+          type: "array",
+          items: { type: "string" }
+        },
+        iterations: { type: "integer", default: 200, minimum: 1, maximum: 5000 },
+        warmupIterations: { type: "integer", default: 20, minimum: 0, maximum: 1000 },
+        bypassCache: { type: "boolean", default: true }
+      }
+    }
+  })
+  @ApiResponse({ status: 200, description: "Benchmark run output." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async benchmark(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
+    const parsed = parsePlaceableBenchmarkPayload(body);
+    const data = await this.service.benchmarkPlaceables(parsed);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 }

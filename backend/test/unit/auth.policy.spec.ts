@@ -8,7 +8,9 @@ describe("auth policy", () => {
   it("maps roles to stable permission sets", () => {
     expect(ROLE_PERMISSIONS.viewer).toContain("scene.read");
     expect(ROLE_PERMISSIONS.builder).toContain("scene.edit");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.placeable.run");
     expect(ROLE_PERMISSIONS.dm).toContain("dm.spawn_creature");
+    expect(ROLE_PERMISSIONS.dm).toContain("processing.placeable.read");
     expect(ROLE_PERMISSIONS.admin).toContain("admin.config.write");
   });
 

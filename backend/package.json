@@ -13,7 +13,8 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:regression": "jest --config ./test/jest-e2e.json",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "bench:placeables": "ts-node --transpile-only scripts/run-placeable-bench.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1053.0",

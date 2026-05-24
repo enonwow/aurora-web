@@ -270,4 +270,13 @@ export class StaticTemplateCatalogRepository implements TemplateCatalogRepositor
       null
     );
   }
+
+  async findByKindAndResref(kind: TemplateKind, resref: string): Promise<TemplateRecord | null> {
+    const normalized = resref.trim().toLowerCase();
+    return (
+      TEMPLATES.find(
+        (item) => item.kind === kind && item.resref.trim().toLowerCase() === normalized
+      ) ?? null
+    );
+  }
 }

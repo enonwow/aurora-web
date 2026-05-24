@@ -134,6 +134,77 @@ describe("Catalog API v1 (e2e)", () => {
     expect(response.body.data.benchmarkCandidate).toBe(false);
   });
 
+  it("POST /api/v1/catalog/placeables/process denies viewer role", async () => {
+    const token = await loginAndGetToken("viewer.user", "viewer123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/catalog/placeables/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ templateId: "plc_torch_smoke_vfx_001" })
+      .expect(403);
+
+    expect(response.body.error.code).toBe("FORBIDDEN_ROLE");
+  });
+
+  it("POST /api/v1/catalog/placeables/process returns normalized placeable contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/catalog/placeables/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "plc_torch_smoke_vfx_001",
+        subtypeHint: "vvxy",
+        bypassCache: false
+      })
+      .expect(200);
+
+    expect(response.body.data.placeable.placeableSubtype).toBe("vfx");
+    expect(response.body.data.placeable.render.frontendType).toBe("vfx");
+    expect(response.body.data.placeable.render.rendererPreset).toBe("vfx-emitter");
+    expect(response.body.data.cache.key).toEqual(expect.any(String));
+  });
+
+  it("GET /api/v1/catalog/placeables/cache/:cacheKey returns cached payload", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/placeables/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateId: "plc_city_gate_001",
+        bypassCache: false
+      })
+      .expect(200);
+
+    const cacheKey = processed.body.data.cache.key as string;
+    const cached = await supertest(httpServer)
+      .get(`/api/v1/catalog/placeables/cache/${cacheKey}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(cached.body.data.placeable.templateId).toBe("plc_city_gate_001");
+    expect(cached.body.data.cache.hit).toBe(true);
+  });
+
+  it("POST /api/v1/catalog/placeables/benchmark returns benchmark metrics", async () => {
+    const token = await loginAndGetToken("dm.user", "dm123");
+
+    const response = await supertest(httpServer)
+      .post("/api/v1/catalog/placeables/benchmark")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        templateIds: ["plc_torch_smoke_vfx_001"],
+        iterations: 3,
+        warmupIterations: 1,
+        bypassCache: true
+      })
+      .expect(200);
+
+    expect(response.body.data.datasetFingerprint).toEqual(expect.any(String));
+    expect(response.body.data.metrics.perCandidate).toHaveLength(1);
+    expect(response.body.data.metrics.overall.p95Ms).toBeGreaterThanOrEqual(0);
+  });
+
   it("GET /api/v1/catalog/creatures/:id/preview returns preview payload", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 

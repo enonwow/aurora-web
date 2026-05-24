@@ -6,6 +6,7 @@ export type PlaceableSubtype =
   | "container"
   | "light_source"
   | "trigger_proxy";
+export type PlaceableSubtypeInput = PlaceableSubtype | "vvx" | "vvxy";
 
 export interface TemplateRecord {
   templateId: string;
@@ -36,4 +37,65 @@ export interface TemplateListResult {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface PlaceableProcessQuery {
+  templateId?: string;
+  resref?: string;
+  subtypeHint?: PlaceableSubtypeInput;
+  bypassCache: boolean;
+  includeBenchmarkMetadata: boolean;
+}
+
+export interface PlaceableRenderContract {
+  backendType: PlaceableSubtype;
+  frontendType: "placeable" | "door" | "vfx";
+  rendererPreset:
+    | "placeable-generic"
+    | "placeable-container"
+    | "placeable-light"
+    | "placeable-trigger-proxy"
+    | "door-standard"
+    | "vfx-emitter";
+  isDoor: boolean;
+  isVfx: boolean;
+}
+
+export interface PlaceableBenchmarkRunQuery {
+  templateIds?: string[];
+  iterations: number;
+  warmupIterations: number;
+  bypassCache: boolean;
+}
+
+export interface BenchmarkDurationSummary {
+  minMs: number;
+  maxMs: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface PlaceableBenchmarkResult {
+  datasetFingerprint: string;
+  config: {
+    iterations: number;
+    warmupIterations: number;
+    bypassCache: boolean;
+    candidates: number;
+  };
+  timing: {
+    startedAt: string;
+    finishedAt: string;
+  };
+  metrics: {
+    overall: BenchmarkDurationSummary;
+    perCandidate: Array<{
+      templateId: string;
+      resref: string;
+      placeableSubtype: PlaceableSubtype;
+      metrics: BenchmarkDurationSummary;
+    }>;
+  };
 }
