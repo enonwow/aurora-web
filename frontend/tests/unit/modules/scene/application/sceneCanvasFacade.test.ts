@@ -38,6 +38,202 @@ describe("sceneCanvasFacade", () => {
     expect(barrel?.y).toBeCloseTo((5.7 / 18) * 2, 5);
   });
 
+  it("preserves placeable/sound baseline payloads during legacy draft migration", () => {
+    const legacyDraft = createSeedAreaScene(18, 18);
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => legacyDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const placeable = history.present.objects.find((object) => object.id === "plc_barrel_01");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(placeable?.placeableProperties).toEqual({
+      plot: false,
+      useable: false,
+      hasInventory: false
+    });
+    expect(sound?.soundPositioning).toEqual({
+      mode: "specific",
+      elevation: 0,
+      maxVolumeDistance: 8,
+      cutoffDistance: 16,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0
+    });
+  });
+
+  it("backfills missing sound/placeable metadata when loading legacy draft", () => {
+    const legacyDraft = createSeedAreaScene(18, 18);
+    const legacyWithoutMetadata: AreaScene = {
+      ...legacyDraft,
+      objects: legacyDraft.objects.map((object) => {
+        if (object.kind === "placeables") {
+          return {
+            ...object,
+            placeableProperties: undefined
+          };
+        }
+        if (object.kind === "sounds") {
+          return {
+            ...object,
+            soundPositioning: undefined
+          };
+        }
+        return object;
+      })
+    };
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => legacyWithoutMetadata,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const placeable = history.present.objects.find((object) => object.id === "plc_barrel_01");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(placeable?.placeableProperties).toEqual({
+      plot: false,
+      useable: false,
+      hasInventory: false
+    });
+    expect(sound?.soundPositioning).toEqual({
+      mode: "specific",
+      elevation: 0,
+      maxVolumeDistance: 8,
+      cutoffDistance: 16,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0
+    });
+  });
+
+  it("roundtrips sound/placeable metadata through draft save/load serialization", () => {
+    const serializedByUserId = new Map<string, string>();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: (userId) => {
+        const serialized = serializedByUserId.get(userId);
+        if (!serialized) {
+          return null;
+        }
+        return JSON.parse(serialized) as AreaScene;
+      },
+      saveByUserId: (userId, scene) => {
+        serializedByUserId.set(userId, JSON.stringify(scene));
+      }
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const source = createSeedAreaScene();
+    const sceneWithMetadata: AreaScene = {
+      ...source,
+      source: "local_draft",
+      objects: source.objects.map((object) => {
+        if (object.id === "plc_barrel_01") {
+          return {
+            ...object,
+            placeableProperties: {
+              plot: true,
+              useable: true,
+              hasInventory: true
+            }
+          };
+        }
+        if (object.id === "snd_amb_01") {
+          return {
+            ...object,
+            soundPositioning: {
+              mode: "random",
+              elevation: 1.5,
+              maxVolumeDistance: 11,
+              cutoffDistance: 22,
+              randomRangeWestEast: 2,
+              randomRangeNorthSouth: 3
+            }
+          };
+        }
+        return object;
+      })
+    };
+
+    facade.saveLocalDraft("u_builder_001", sceneWithMetadata);
+    const history = facade.createInitialHistory("u_builder_001");
+    const placeable = history.present.objects.find((object) => object.id === "plc_barrel_01");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(placeable?.placeableProperties).toEqual({
+      plot: true,
+      useable: true,
+      hasInventory: true
+    });
+    expect(sound?.soundPositioning).toEqual({
+      mode: "random",
+      elevation: 1.5,
+      maxVolumeDistance: 11,
+      cutoffDistance: 22,
+      randomRangeWestEast: 2,
+      randomRangeNorthSouth: 3
+    });
+  });
+
+  it("normalizes invalid metadata from loaded draft to safe baselines", () => {
+    const draft = createSeedAreaScene();
+    const corruptedDraft: AreaScene = {
+      ...draft,
+      source: "local_draft",
+      objects: draft.objects.map((object) => {
+        if (object.id === "plc_barrel_01") {
+          return {
+            ...object,
+            placeableProperties: {
+              plot: "bad",
+              useable: 0,
+              hasInventory: "true"
+            } as unknown as typeof object.placeableProperties
+          };
+        }
+        if (object.id === "snd_amb_01") {
+          return {
+            ...object,
+            soundPositioning: {
+              mode: "everywhere",
+              elevation: Number.NEGATIVE_INFINITY,
+              maxVolumeDistance: -4,
+              cutoffDistance: 1,
+              randomRangeWestEast: 12,
+              randomRangeNorthSouth: 13
+            } as unknown as NonNullable<typeof object.soundPositioning>
+          };
+        }
+        return object;
+      })
+    };
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => corruptedDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const placeable = history.present.objects.find((object) => object.id === "plc_barrel_01");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(placeable?.placeableProperties).toEqual({
+      plot: false,
+      useable: false,
+      hasInventory: false
+    });
+    expect(sound?.soundPositioning).toEqual({
+      mode: "everywhere",
+      elevation: 0,
+      maxVolumeDistance: 0,
+      cutoffDistance: 1,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0
+    });
+  });
+
   it("does not migrate non-seed legacy-sized draft when scene id differs", () => {
     const customDraft = {
       ...createSeedAreaScene(18, 18),

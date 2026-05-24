@@ -152,7 +152,7 @@ describe("Regression smoke: auth shell behavior", () => {
     const dmTab = screen.getByRole("button", { name: /dm commands/i });
     fireEvent.click(dmTab);
     await waitFor(() => {
-      expect(dmTab).toHaveAttribute("aria-expanded", "true");
+      expect(dmTab.className).toContain("is-active");
     });
 
     expect(await screen.findByRole("button", { name: /spawn creature/i })).toBeInTheDocument();

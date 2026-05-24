@@ -120,6 +120,7 @@ interface AdjustLocationDialogState {
   snapshotObjects: SceneObject[];
   draft: AdjustLocationDraft;
   showVisualTransforms: boolean;
+  mixedStaticPlaceables: boolean;
   windowX: number;
   windowY: number;
   collapsed: boolean;
@@ -401,6 +402,30 @@ function resolveSceneObjectName(object: SceneObject): string {
 
 function isVisualTransformEditableForObject(object: SceneObject): boolean {
   return VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind);
+}
+
+function resolveAdjustLocationVisualTransformMeta(targets: SceneObject[]): {
+  showVisualTransforms: boolean;
+  mixedStaticPlaceables: boolean;
+} {
+  const showVisualTransforms = targets.every((object) =>
+    isVisualTransformEditableForObject(object)
+  );
+  if (!showVisualTransforms) {
+    return {
+      showVisualTransforms: false,
+      mixedStaticPlaceables: false
+    };
+  }
+
+  const placeables = targets.filter((object) => object.kind === "placeables");
+  const hasStaticPlaceable = placeables.some((object) => object.isStatic ?? true);
+  const hasNonStaticPlaceable = placeables.some((object) => !(object.isStatic ?? true));
+
+  return {
+    showVisualTransforms: true,
+    mixedStaticPlaceables: hasStaticPlaceable && hasNonStaticPlaceable
+  };
 }
 
 function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePropertiesDraft {
@@ -1089,9 +1114,9 @@ function updateAxesHelperForScene(
 ): void {
   const transform = resolveAxesHelperTransform(sceneData.width, sceneData.height, sceneScale);
   runtime.axesHelper.position.set(
-    transform.positionX,
+    SCENE_COORDINATE_MIN,
     transform.positionY,
-    transform.positionZ
+    SCENE_COORDINATE_MIN
   );
   runtime.axesHelper.scale.setScalar(transform.scale);
 }
@@ -2240,16 +2265,20 @@ export function WorkspaceCanvasViewport({
       }
 
       if (gesture.mode === "translate") {
+        if (transformControls.axis) {
+          gesture.axis = transformControls.axis;
+        }
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
+        const applyAllAxes = axis.length === 0 || axis === "XYZ" || axis === "XYZE" || axis === "E";
         const rawDeltaX = runtime.transformAnchor.position.x - gesture.startAnchorPosition.x;
         const rawDeltaY = runtime.transformAnchor.position.z - gesture.startAnchorPosition.z;
         const rawDeltaZ = runtime.transformAnchor.position.y - gesture.startAnchorPosition.y;
         const deltaX =
-          axis.includes("X") && Math.abs(rawDeltaX) > epsilon ? rawDeltaX : 0;
+          (applyAllAxes || axis.includes("X")) && Math.abs(rawDeltaX) > epsilon ? rawDeltaX : 0;
         const deltaY =
-          axis.includes("Z") && Math.abs(rawDeltaY) > epsilon ? rawDeltaY : 0;
+          (applyAllAxes || axis.includes("Z")) && Math.abs(rawDeltaY) > epsilon ? rawDeltaY : 0;
         const deltaZ =
-          axis.includes("Y") && Math.abs(rawDeltaZ) > epsilon ? rawDeltaZ : 0;
+          (applyAllAxes || axis.includes("Y")) && Math.abs(rawDeltaZ) > epsilon ? rawDeltaZ : 0;
 
         const boundedDelta = clampTranslationDeltaToSceneBounds(
           scene,
@@ -2290,8 +2319,12 @@ export function WorkspaceCanvasViewport({
       }
 
       if (gesture.mode === "rotate") {
+        if (transformControls.axis) {
+          gesture.axis = transformControls.axis;
+        }
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
-        const supportsBearingDelta = axis.includes("Y") || axis === "E" || axis === "XYZE";
+        const supportsBearingDelta =
+          axis.length === 0 || axis.includes("Y") || axis === "E" || axis === "XYZE";
         let deltaBearingRad = 0;
         if (supportsBearingDelta) {
           const up = new THREE.Vector3(0, 1, 0);
@@ -3133,14 +3166,13 @@ export function WorkspaceCanvasViewport({
         : ADJUST_LOCATION_DIALOG_MARGIN_PX;
       const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
       const initialDialogPosition = clampAdjustLocationDialogPosition(preferredX, preferredY);
-      const showVisualTransforms = targets.every((object) =>
-        isVisualTransformEditableForObject(object)
-      );
+      const visualTransformMeta = resolveAdjustLocationVisualTransformMeta(targets);
       const snapshotObjects = targets.map(cloneSceneObject);
       setAdjustLocationDialog({
         objectIds: targets.map((object) => object.id),
         snapshotObjects,
-        showVisualTransforms,
+        showVisualTransforms: visualTransformMeta.showVisualTransforms,
+        mixedStaticPlaceables: visualTransformMeta.mixedStaticPlaceables,
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
         collapsed: false,
@@ -3154,7 +3186,7 @@ export function WorkspaceCanvasViewport({
       trackTelemetry("scene.adjust_location.open", {
         userId,
         selectedCount: targets.length,
-        visualTransforms: showVisualTransforms
+        visualTransforms: visualTransformMeta.showVisualTransforms
       });
     },
     [
@@ -3958,12 +3990,11 @@ export function WorkspaceCanvasViewport({
         scene.width,
         scene.height
       );
-      const nextShowVisualTransforms = liveObjects.every((object) =>
-        isVisualTransformEditableForObject(object)
-      );
+      const visualTransformMeta = resolveAdjustLocationVisualTransformMeta(liveObjects);
       if (
         areAdjustLocationDraftsEqual(current.draft, nextDraft) &&
-        current.showVisualTransforms === nextShowVisualTransforms
+        current.showVisualTransforms === visualTransformMeta.showVisualTransforms &&
+        current.mixedStaticPlaceables === visualTransformMeta.mixedStaticPlaceables
       ) {
         return current;
       }
@@ -3971,7 +4002,8 @@ export function WorkspaceCanvasViewport({
       return {
         ...current,
         draft: nextDraft,
-        showVisualTransforms: nextShowVisualTransforms
+        showVisualTransforms: visualTransformMeta.showVisualTransforms,
+        mixedStaticPlaceables: visualTransformMeta.mixedStaticPlaceables
       };
     });
   }, [adjustLocationUnitsPerTile, scene.height, scene.objects, scene.width]);
@@ -4492,6 +4524,13 @@ export function WorkspaceCanvasViewport({
                     </label>
                   </fieldset>
                 </section>
+              ) : null}
+              {adjustLocationDialog.showVisualTransforms &&
+              adjustLocationDialog.mixedStaticPlaceables ? (
+                <p className="canvas-adjust-location-note" role="note">
+                  Mixed Static + non-Static selection: Visual Transforms are editable and saved
+                  for all selected objects, but runtime applies them only where Static is OFF.
+                </p>
               ) : null}
 
               <footer className="canvas-adjust-location-actions">

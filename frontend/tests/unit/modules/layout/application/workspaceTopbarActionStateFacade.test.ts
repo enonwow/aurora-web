@@ -14,6 +14,7 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("debug_textures", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("debug_status_map_off", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("canvas_gizmo_translate", initial)).toBe(true);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("unlock_all_layers", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("clear_isolation", initial)).toBe(true);
   });
@@ -50,5 +51,47 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("isolate_creatures", isolatedCreatures)).toBe(true);
     expect(actionStateFacade.isActionActive("clear_isolation", isolatedCreatures)).toBe(false);
     expect(actionStateFacade.isActionActive("clear_isolation", isolationCleared)).toBe(true);
+  });
+
+  it("treats scale gizmo mode as reserved and not active in topbar action state", () => {
+    const chromeFacade = createWorkspaceChromeFacade();
+    const actionStateFacade = createWorkspaceTopbarActionStateFacade();
+    const scaleState = {
+      ...chromeFacade.createDefaultToolbarState(),
+      canvasDebug: {
+        ...chromeFacade.createDefaultToolbarState().canvasDebug,
+        gizmoMode: "scale" as const
+      }
+    };
+
+    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", scaleState)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_translate", scaleState)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_rotate", scaleState)).toBe(false);
+  });
+
+  it("keeps rotate active after reserved scale action is issued", () => {
+    const chromeFacade = createWorkspaceChromeFacade();
+    const actionStateFacade = createWorkspaceTopbarActionStateFacade();
+    const rotateState = chromeFacade.applyToolbarAction(
+      chromeFacade.createDefaultToolbarState(),
+      "canvas_gizmo_rotate"
+    );
+    const afterScale = chromeFacade.applyToolbarAction(rotateState, "canvas_gizmo_scale");
+
+    expect(afterScale.lastCommand).toBe("canvas_gizmo_scale");
+    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", afterScale)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_rotate", afterScale)).toBe(true);
+  });
+
+  it("returns false for command-only and non-toggle action keys", () => {
+    const chromeFacade = createWorkspaceChromeFacade();
+    const actionStateFacade = createWorkspaceTopbarActionStateFacade();
+    const initial = chromeFacade.createDefaultToolbarState();
+
+    expect(actionStateFacade.isActionActive("undo", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("redo", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("save_local_draft", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("debug_export_status_report", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("dm_spawn_creature", initial)).toBe(false);
   });
 });

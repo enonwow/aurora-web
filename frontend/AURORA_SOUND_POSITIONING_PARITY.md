@@ -6,6 +6,21 @@ Source: Aurora UI screenshots (Basic/Positioning/Advanced) + in-editor visual ca
 ## Purpose
 Lock one shared interpretation of Aurora sound positioning visuals so mock/runtime behavior does not drift.
 
+## Current Implementation Status (aurora-web)
+Status: `SHELL_ONLY` for sound objects, `NOT_IMPLEMENTED` for sound-positioning modes.
+
+Implemented now:
+1. `sounds` exist as scene objects in the same selection/move pipeline as other movable objects.
+2. Sounds are visible in catalog/filter/layer tooling and can be transformed via generic object controls.
+
+Not implemented yet:
+1. Dedicated Sound Properties dialog (`Basic/Positioning/Advanced`) with Aurora mode controls.
+2. Mode payload and behavior (`everywhere`, `random each play`, `specific position`).
+3. Attenuation/random-range viewport guides tied to real sound properties.
+
+Interpretation rule:
+1. This file is the parity target contract for upcoming implementation, not a claim that all behavior is already live.
+
 ## Positioning Modes
 
 ### 1. Plays everywhere in area
@@ -36,3 +51,14 @@ Lock one shared interpretation of Aurora sound positioning visuals so mock/runti
 
 ## Guardrail
 When reproducing Aurora behavior, do not reinterpret `specific position` as random-box behavior. The anchor is fixed unless user explicitly chooses the random-position mode.
+
+## Backlog Hooks
+Code now:
+1. Extend scene schema with sound positioning payload (mode + ranges + attenuation + schedule + variation).
+2. Implement Sound Properties shell and mode-gated controls.
+3. Add editor-only sound guides (glyph/anchor/range/box) that never serialize as runtime entities.
+4. Add tests for strict mode gating and payload roundtrip.
+
+Retail-hard-confirm later:
+1. Confirm runtime edge semantics for attenuation and scheduling.
+2. Confirm any Aurora-specific randomization constraints not visible in screenshot-only evidence.

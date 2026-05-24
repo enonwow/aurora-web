@@ -1,10 +1,11 @@
 import {
   applyToolbarAction,
-  createDefaultToolbarState
+  createDefaultToolbarState,
+  getRoleToolbarGroups
 } from "../../../../src/modules/layout/roleTopbarPolicy";
 
 describe("roleTopbarPolicy canvas tools", () => {
-  it("switches gizmo mode across translate/rotate/scale", () => {
+  it("switches gizmo mode across translate/rotate and keeps scale reserved", () => {
     const initial = createDefaultToolbarState();
 
     const translate = applyToolbarAction(initial, "canvas_gizmo_translate");
@@ -13,8 +14,27 @@ describe("roleTopbarPolicy canvas tools", () => {
     const rotate = applyToolbarAction(translate, "canvas_gizmo_rotate");
     expect(rotate.canvasDebug.gizmoMode).toBe("rotate");
 
-    const scale = applyToolbarAction(rotate, "canvas_gizmo_scale");
-    expect(scale.canvasDebug.gizmoMode).toBe("scale");
+    const scaleReserved = applyToolbarAction(rotate, "canvas_gizmo_scale");
+    expect(scaleReserved.canvasDebug.gizmoMode).toBe("rotate");
+    expect(scaleReserved.lastCommand).toBe("canvas_gizmo_scale");
+  });
+
+  it("keeps canvas scale action in toolbar as post_mvp (unsupported in Aurora First)", () => {
+    const builderCanvas = getRoleToolbarGroups("builder").find((group) => group.key === "canvas");
+    const dmCanvas = getRoleToolbarGroups("dm").find((group) => group.key === "canvas");
+
+    expect(builderCanvas).toBeDefined();
+    expect(dmCanvas).toBeDefined();
+    expect(
+      builderCanvas?.actions.find((action) => action.key === "canvas_gizmo_scale")
+    ).toMatchObject({
+      status: "post_mvp",
+      supported: false,
+      label: "Gizmo Scale (Reserved)"
+    });
+    expect(dmCanvas?.actions.find((action) => action.key === "canvas_gizmo_scale")).toMatchObject(
+      { status: "post_mvp", supported: false, label: "Gizmo Scale (Reserved)" }
+    );
   });
 
   it("toggles snapping flags", () => {
@@ -115,5 +135,20 @@ describe("roleTopbarPolicy canvas tools", () => {
 
     const deleteSelection = applyToolbarAction(copySelection, "delete_selected_objects");
     expect(deleteSelection.lastCommand).toBe("delete_selected_objects");
+  });
+
+  it("keeps command-only actions side-effect free for canvas debug state", () => {
+    const initial = createDefaultToolbarState();
+    const afterUndo = applyToolbarAction(initial, "undo");
+    const afterRedo = applyToolbarAction(initial, "redo");
+
+    expect(afterUndo.lastCommand).toBe("undo");
+    expect(afterRedo.lastCommand).toBe("redo");
+    expect(afterUndo.canvasDebug).toBe(initial.canvasDebug);
+    expect(afterRedo.canvasDebug).toBe(initial.canvasDebug);
+    expect(afterUndo.visibility).toBe(initial.visibility);
+    expect(afterRedo.visibility).toBe(initial.visibility);
+    expect(afterUndo.selectionMode).toBe(initial.selectionMode);
+    expect(afterRedo.selectionMode).toBe(initial.selectionMode);
   });
 });

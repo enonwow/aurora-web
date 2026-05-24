@@ -1,6 +1,8 @@
 import type {
   AreaScene,
   SceneObject,
+  SceneObjectPlaceableProperties,
+  SceneObjectSoundPositioning,
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
@@ -20,6 +22,46 @@ export const LEGACY_SEED_SCENE_WIDTH_TILES = 18;
 export const LEGACY_SEED_SCENE_HEIGHT_TILES = 18;
 export const DEFAULT_SEED_SCENE_WIDTH_TILES = 2;
 export const DEFAULT_SEED_SCENE_HEIGHT_TILES = 2;
+
+const DEFAULT_PLACEABLE_PROPERTIES: SceneObjectPlaceableProperties = {
+  plot: false,
+  useable: false,
+  hasInventory: false
+};
+
+const DEFAULT_SOUND_POSITIONING_BASELINE: Omit<
+  SceneObjectSoundPositioning,
+  "elevation"
+> = {
+  mode: "specific",
+  maxVolumeDistance: 8,
+  cutoffDistance: 16,
+  randomRangeWestEast: 0,
+  randomRangeNorthSouth: 0
+};
+
+const SOUND_POSITIONING_MODES = new Set<SceneObjectSoundPositioning["mode"]>([
+  "everywhere",
+  "random",
+  "specific"
+]);
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function asFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function clampMin(value: number, min: number): number {
+  return value < min ? min : value;
+}
+
+function isSoundPositioningMode(value: unknown): value is SceneObjectSoundPositioning["mode"] {
+  return typeof value === "string" &&
+    SOUND_POSITIONING_MODES.has(value as SceneObjectSoundPositioning["mode"]);
+}
 
 function terrainByIndex(index: number): TerrainBrushKind {
   return TERRAIN_SEQUENCE[index % TERRAIN_SEQUENCE.length];
@@ -46,6 +88,127 @@ function scaleCoordinate(value: number, from: number, to: number): number {
   return (value / from) * to;
 }
 
+export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
+  if (object.kind === "placeables") {
+    const rawPlaceableProperties =
+      (object.placeableProperties as
+        | Partial<Record<keyof SceneObjectPlaceableProperties, unknown>>
+        | undefined) ?? undefined;
+    const nextPlaceableProperties: SceneObjectPlaceableProperties = {
+      plot: isBoolean(rawPlaceableProperties?.plot)
+        ? rawPlaceableProperties.plot
+        : DEFAULT_PLACEABLE_PROPERTIES.plot,
+      useable: isBoolean(rawPlaceableProperties?.useable)
+        ? rawPlaceableProperties.useable
+        : DEFAULT_PLACEABLE_PROPERTIES.useable,
+      hasInventory: isBoolean(rawPlaceableProperties?.hasInventory)
+        ? rawPlaceableProperties.hasInventory
+        : DEFAULT_PLACEABLE_PROPERTIES.hasInventory
+    };
+    const currentPlaceableProperties = object.placeableProperties;
+    if (
+      currentPlaceableProperties?.plot === nextPlaceableProperties.plot &&
+      currentPlaceableProperties?.useable === nextPlaceableProperties.useable &&
+      currentPlaceableProperties?.hasInventory === nextPlaceableProperties.hasInventory &&
+      object.soundPositioning === undefined
+    ) {
+      return object;
+    }
+
+    return {
+      ...object,
+      placeableProperties: nextPlaceableProperties,
+      soundPositioning: undefined
+    };
+  }
+
+  if (object.kind === "sounds") {
+    const rawSoundPositioning =
+      (object.soundPositioning as
+        | Partial<Record<keyof SceneObjectSoundPositioning, unknown>>
+        | undefined) ?? undefined;
+    const nextMode: SceneObjectSoundPositioning["mode"] = isSoundPositioningMode(
+      rawSoundPositioning?.mode
+    )
+      ? rawSoundPositioning.mode
+      : DEFAULT_SOUND_POSITIONING_BASELINE.mode;
+    const fallbackElevation = clampMin(asFiniteNumber(object.visualTransform.offsetZ, 0), 0);
+    const nextMaxVolumeDistance = clampMin(
+      asFiniteNumber(
+        rawSoundPositioning?.maxVolumeDistance,
+        DEFAULT_SOUND_POSITIONING_BASELINE.maxVolumeDistance
+      ),
+      0
+    );
+    const nextCutoffDistanceBase = clampMin(
+      asFiniteNumber(
+        rawSoundPositioning?.cutoffDistance,
+        DEFAULT_SOUND_POSITIONING_BASELINE.cutoffDistance
+      ),
+      0
+    );
+    const nextCutoffDistance = Math.max(nextCutoffDistanceBase, nextMaxVolumeDistance);
+    const nextRandomRangeWestEast =
+      nextMode === "random"
+        ? clampMin(
+            asFiniteNumber(
+              rawSoundPositioning?.randomRangeWestEast,
+              DEFAULT_SOUND_POSITIONING_BASELINE.randomRangeWestEast
+            ),
+            0
+          )
+        : 0;
+    const nextRandomRangeNorthSouth =
+      nextMode === "random"
+        ? clampMin(
+            asFiniteNumber(
+              rawSoundPositioning?.randomRangeNorthSouth,
+              DEFAULT_SOUND_POSITIONING_BASELINE.randomRangeNorthSouth
+            ),
+            0
+          )
+        : 0;
+    const nextSoundPositioning: SceneObjectSoundPositioning = {
+      mode: nextMode,
+      elevation: clampMin(asFiniteNumber(rawSoundPositioning?.elevation, fallbackElevation), 0),
+      maxVolumeDistance: nextMaxVolumeDistance,
+      cutoffDistance: nextCutoffDistance,
+      randomRangeWestEast: nextRandomRangeWestEast,
+      randomRangeNorthSouth: nextRandomRangeNorthSouth
+    };
+    const currentSoundPositioning = object.soundPositioning;
+    if (
+      currentSoundPositioning?.mode === nextSoundPositioning.mode &&
+      currentSoundPositioning?.elevation === nextSoundPositioning.elevation &&
+      currentSoundPositioning?.maxVolumeDistance === nextSoundPositioning.maxVolumeDistance &&
+      currentSoundPositioning?.cutoffDistance === nextSoundPositioning.cutoffDistance &&
+      currentSoundPositioning?.randomRangeWestEast === nextSoundPositioning.randomRangeWestEast &&
+      currentSoundPositioning?.randomRangeNorthSouth === nextSoundPositioning.randomRangeNorthSouth &&
+      object.placeableProperties === undefined
+    ) {
+      return object;
+    }
+
+    return {
+      ...object,
+      placeableProperties: undefined,
+      soundPositioning: nextSoundPositioning
+    };
+  }
+
+  if (object.placeableProperties === undefined && object.soundPositioning === undefined) {
+    return object;
+  }
+
+  // Defensive cleanup for corrupted drafts where metadata ended up on unsupported kinds.
+  // This keeps runtime behavior deterministic without changing public API contracts.
+  return {
+    ...object,
+    placeableProperties: undefined,
+    soundPositioning: undefined
+  };
+}
+
 export function rescaleSceneObjectsToSize(
   objects: SceneObject[],
   fromWidth: number,
@@ -53,11 +216,13 @@ export function rescaleSceneObjectsToSize(
   toWidth: number,
   toHeight: number
 ): SceneObject[] {
-  return objects.map((object) => ({
-    ...object,
-    x: scaleCoordinate(object.x, fromWidth, toWidth),
-    y: scaleCoordinate(object.y, fromHeight, toHeight)
-  }));
+  return objects.map((object) =>
+    normalizeSceneObjectMetadata({
+      ...object,
+      x: scaleCoordinate(object.x, fromWidth, toWidth),
+      y: scaleCoordinate(object.y, fromHeight, toHeight)
+    })
+  );
 }
 
 function createSeedObjects(width: number, height: number): SceneObject[] {
@@ -82,23 +247,25 @@ function createSeedObjects(width: number, height: number): SceneObject[] {
     { id: "snd_amb_02", kind: "sounds", x: 15.4, y: 3.2, resRef: "as_amb_caves", tag: "SOUND_CAVES_02" }
   ];
 
-  return seedObjects.map((entry) => ({
-    ...entry,
-    name: entry.tag,
-    isStatic: entry.kind === "placeables",
-    x: scaleCoordinate(entry.x, LEGACY_SEED_SCENE_WIDTH_TILES, width),
-    y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
-    bearing: entry.bearing ?? 0,
-    visualTransform: {
-      scale: 1,
-      offsetX: 0,
-      offsetY: 0,
-      offsetZ: 0,
-      pitch: 0,
-      roll: 0,
-      yaw: 0
-    }
-  }));
+  return seedObjects.map((entry) =>
+    normalizeSceneObjectMetadata({
+      ...entry,
+      name: entry.tag,
+      isStatic: entry.kind === "placeables",
+      x: scaleCoordinate(entry.x, LEGACY_SEED_SCENE_WIDTH_TILES, width),
+      y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
+      bearing: entry.bearing ?? 0,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        roll: 0,
+        yaw: 0
+      }
+    })
+  );
 }
 
 export function createSeedAreaScene(
@@ -140,7 +307,7 @@ export function createNewSceneObject(
   };
 
   const key = kind.slice(0, 3);
-  return {
+  return normalizeSceneObjectMetadata({
     id: `${key}_${index}`,
     kind,
     name: `${kind.toUpperCase()}_${index}`,
@@ -159,5 +326,5 @@ export function createNewSceneObject(
       roll: 0,
       yaw: 0
     }
-  };
+  });
 }

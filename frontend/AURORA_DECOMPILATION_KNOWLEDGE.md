@@ -108,3 +108,37 @@ Implication:
 1. Reconstruct exact bearing math normalization/wrap behavior from code path behind `pOrientationAngleMouseUp` and `udBearingClick`.
 2. Reconstruct exact tile connectivity/group placement logic from `TArea*` + `TTileSet*` method xrefs.
 3. Reconstruct validation/clamping details for location/transform numeric ranges.
+
+## Frontend Coverage Snapshot (aurora-web, 2026-05-24)
+This section maps decomp evidence to actual implementation state in `frontend/`.
+
+### Implemented from evidence
+1. Dedicated `Adjust Location` workflow with `Position`, `Bearing`, dial interaction, and `Apply/OK/Cancel`.
+2. Dual orientation input path (numeric + pointer dial).
+3. Visual transform payload exists and is editable for `placeables/creatures/items`.
+4. Door transform restrictions (anchor-bound) are enforced in viewport/mutation flows.
+5. Placeable properties shell with active `name/tag/resRef/static` write path.
+
+### Partially implemented (shell/preserve-first)
+1. Placeable tabs (`Scripts/Advanced/Description/Comments`) are present but behavior is placeholder.
+2. Sound parity exists as notes, but no dedicated sound-positioning data model/dialog yet.
+3. Tile concepts exist as basic grid fields; no tileset/group parser/runtime contract yet.
+
+### Not implemented in frontend yet
+1. Door transition/link payload schema (`LinkedTo*`, `TransitionDestination`, `LoadScreenID`, module link).
+2. VFX runtime contract and parser policy lanes in the frontend scene model.
+3. Walkmesh query/pathing runtime integration.
+
+## Aurora First Execution Split
+Use with `frontend/AURORA_FIRST_IMPLEMENTATION_MATRIX.md`.
+
+### Code now (safe without retail-hard-confirm)
+1. Preserve-only schema additions for placeable advanced/script fields.
+2. Sound positioning domain model + UI shell with strict mode gating.
+3. Door transition preserve-only payload + UI shell.
+4. Tileset/groups scaffolding and structural validators.
+
+### Retail-hard-confirm later
+1. Final bearing dial math/wrap exactness.
+2. Canonical ARE/GIT write semantics for visual transforms and door transitions.
+3. Exact sound/VFX runtime semantics and edge cases.

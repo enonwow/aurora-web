@@ -1102,12 +1102,9 @@ input {
 .canvas-stage-real {
   position: absolute;
   inset: 0;
-  border: 1px dashed color-mix(in srgb, var(--canvas-grid-line) 70%, #36597d 30%);
+  border: 1px solid color-mix(in srgb, var(--canvas-grid-line) 52%, #36597d 48%);
   border-radius: 0;
-  background:
-    linear-gradient(90deg, var(--canvas-grid-line) 1px, transparent 1px) 0 0 / 40px 40px,
-    linear-gradient(0deg, var(--canvas-grid-line) 1px, transparent 1px) 0 0 / 40px 40px,
-    var(--canvas-bg);
+  background: var(--canvas-bg);
   overflow: hidden;
 }
 
@@ -1317,6 +1314,17 @@ input {
   color: #e0ecfa;
   padding: 0.28rem 0.38rem;
   font-size: 0.78rem;
+}
+
+.canvas-adjust-location-note {
+  margin: 0.1rem 0 0;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid #355170;
+  border-radius: 8px;
+  background: rgba(10, 26, 43, 0.85);
+  color: #bdd0eb;
+  font-size: 0.74rem;
+  line-height: 1.4;
 }
 
 .canvas-bearing-dial {

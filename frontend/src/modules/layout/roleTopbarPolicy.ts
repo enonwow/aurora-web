@@ -278,7 +278,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
     actions: [
       action("canvas_gizmo_translate", "Gizmo Move (1)", "mvp"),
       action("canvas_gizmo_rotate", "Gizmo Rotate (2)", "mvp"),
-      action("canvas_gizmo_scale", "Gizmo Scale (3)", "mvp"),
+      action("canvas_gizmo_scale", "Gizmo Scale (Reserved)", "post_mvp"),
       action("snap_grid_toggle", "Snap Grid", "mvp"),
       action("snap_angle_toggle", "Snap Angle", "mvp"),
       action("snap_height_toggle", "Snap Height", "mvp"),
@@ -376,7 +376,7 @@ const dmGroups: ToolbarGroup[] = [
     actions: [
       action("canvas_gizmo_translate", "Gizmo Move (1)", "mvp"),
       action("canvas_gizmo_rotate", "Gizmo Rotate (2)", "mvp"),
-      action("canvas_gizmo_scale", "Gizmo Scale (3)", "mvp"),
+      action("canvas_gizmo_scale", "Gizmo Scale (Reserved)", "post_mvp"),
       action("snap_grid_toggle", "Snap Grid", "mvp"),
       action("snap_angle_toggle", "Snap Angle", "mvp"),
       action("camera_bookmark_save_1", "Save Bookmark #1", "mvp"),
@@ -917,10 +917,6 @@ export function applyToolbarAction(
   if (actionKey === "canvas_gizmo_scale") {
     return {
       ...current,
-      canvasDebug: {
-        ...current.canvasDebug,
-        gizmoMode: "scale"
-      },
       lastCommand: actionKey
     };
   }

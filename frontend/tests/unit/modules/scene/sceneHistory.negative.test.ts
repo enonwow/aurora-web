@@ -68,5 +68,22 @@ describe("sceneHistory - negative cases", () => {
     const redone = redoSceneHistory(undone);
     expect(redone.present.areaName).toBe("MUTATED_PRESENT");
   });
+
+  it("treats commit with unchanged scene reference as no-op and preserves redo stack", () => {
+    const seed = createSeedAreaScene();
+    const h0 = createSceneHistory(seed);
+    const h1 = commitSceneHistory(h0, { ...seed, areaName: "A" });
+    const h2 = commitSceneHistory(h1, { ...seed, areaName: "B" });
+    const undone = undoSceneHistory(h2);
+    expect(undone.future).toHaveLength(1);
+
+    const noopCommit = commitSceneHistory(undone, undone.present);
+    expect(noopCommit).toBe(undone);
+    expect(noopCommit.past).toHaveLength(1);
+    expect(noopCommit.future).toHaveLength(1);
+
+    const redone = redoSceneHistory(noopCommit);
+    expect(redone.present.areaName).toBe("B");
+  });
 });
 

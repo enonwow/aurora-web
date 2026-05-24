@@ -381,31 +381,259 @@ describe("sceneMutationsFacade", () => {
     expect(transformed).toBe(scene);
   });
 
-  it("sets absolute location and bearing for movable selection", () => {
+  it("applies shared delta for absolute location and bearing on movable multi-selection", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const first = scene.objects.find((object) => object.kind === "placeables");
     const second = scene.objects.find((object) => object.kind === "items");
     expect(first).toBeDefined();
     expect(second).toBeDefined();
+    const targetX = 0.7;
+    const targetY = 1.1;
+    const targetZ = 0.6;
+    const targetBearing = 1.2;
+    const deltaX = targetX - first!.x;
+    const deltaY = targetY - first!.y;
+    const deltaZ = targetZ - first!.visualTransform.offsetZ;
+    const deltaBearing = targetBearing - first!.bearing;
 
     const nextScene = facade.setObjectsAbsoluteLocationByIds(
       scene,
       [first!.id, second!.id],
-      { x: 1.75, y: 0.25, z: 0.6, bearing: 1.2 }
+      { x: targetX, y: targetY, z: targetZ, bearing: targetBearing }
     );
     const changedFirst = nextScene.objects.find((object) => object.id === first!.id);
     const changedSecond = nextScene.objects.find((object) => object.id === second!.id);
     expect(changedFirst).toBeDefined();
     expect(changedSecond).toBeDefined();
-    expect(changedFirst?.x).toBeCloseTo(1.75);
-    expect(changedSecond?.x).toBeCloseTo(1.75);
-    expect(changedFirst?.y).toBeCloseTo(0.25);
-    expect(changedSecond?.y).toBeCloseTo(0.25);
-    expect(changedFirst?.bearing).toBeCloseTo(1.2);
-    expect(changedSecond?.bearing).toBeCloseTo(1.2);
-    expect(changedFirst?.visualTransform.offsetZ).toBeCloseTo(0.6);
-    expect(changedSecond?.visualTransform.offsetZ).toBeCloseTo(0.6);
+    expect(changedFirst?.x).toBeCloseTo(targetX);
+    expect(changedFirst?.y).toBeCloseTo(targetY);
+    expect(changedFirst?.bearing).toBeCloseTo(targetBearing);
+    expect(changedFirst?.visualTransform.offsetZ).toBeCloseTo(targetZ);
+    expect(changedSecond?.x).toBeCloseTo((second?.x ?? 0) + deltaX);
+    expect(changedSecond?.y).toBeCloseTo((second?.y ?? 0) + deltaY);
+    expect(changedSecond?.bearing).toBeCloseTo((second?.bearing ?? 0) + deltaBearing);
+    expect(changedSecond?.visualTransform.offsetZ).toBeCloseTo(
+      (second?.visualTransform.offsetZ ?? 0) + deltaZ
+    );
+  });
+
+  it("returns same scene reference for no-op absolute-location update", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(scene, [target!.id], {
+      x: target!.x,
+      y: target!.y,
+      z: target!.visualTransform.offsetZ,
+      bearing: target!.bearing
+    });
+
+    expect(nextScene).toBe(scene);
+  });
+
+  it("uses deterministic primary target based on objectIds order", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "itm_chest_01");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const firstOrdered = facade.setObjectsAbsoluteLocationByIds(
+      scene,
+      [first!.id, second!.id],
+      { x: 1.2, y: 1.3, z: 0.4, bearing: 0.8 }
+    );
+    const secondOrdered = facade.setObjectsAbsoluteLocationByIds(
+      scene,
+      [second!.id, first!.id],
+      { x: 1.2, y: 1.3, z: 0.4, bearing: 0.8 }
+    );
+
+    const firstAsPrimary = firstOrdered.objects.find((object) => object.id === first!.id);
+    const secondAsPrimary = secondOrdered.objects.find((object) => object.id === second!.id);
+    expect(firstAsPrimary).toBeDefined();
+    expect(secondAsPrimary).toBeDefined();
+    expect(firstAsPrimary?.x).toBeCloseTo(1.2);
+    expect(firstAsPrimary?.y).toBeCloseTo(1.3);
+    expect(firstAsPrimary?.visualTransform.offsetZ).toBeCloseTo(0.4);
+    expect(firstAsPrimary?.bearing).toBeCloseTo(0.8);
+    expect(secondAsPrimary?.x).toBeCloseTo(1.2);
+    expect(secondAsPrimary?.y).toBeCloseTo(1.3);
+    expect(secondAsPrimary?.visualTransform.offsetZ).toBeCloseTo(0.4);
+    expect(secondAsPrimary?.bearing).toBeCloseTo(0.8);
+  });
+
+  it("clamps shared absolute-location delta on X/Y/Z bounds for multi-select edge positions", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "plc_table_02");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const stagedScene = {
+      ...scene,
+      objects: scene.objects.map((object) => {
+        if (object.id === first!.id) {
+          return {
+            ...object,
+            x: 0.1,
+            y: 1.9,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 0.2
+            }
+          };
+        }
+        if (object.id === second!.id) {
+          return {
+            ...object,
+            x: 1.5,
+            y: 0.4,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 1.3
+            }
+          };
+        }
+        return object;
+      })
+    };
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(
+      stagedScene,
+      [first!.id, second!.id],
+      { x: -5, y: 7, z: -3, bearing: 0 }
+    );
+    const nextFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const nextSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(nextFirst).toBeDefined();
+    expect(nextSecond).toBeDefined();
+
+    const deltaXFirst = (nextFirst?.x ?? 0) - 0.1;
+    const deltaXSecond = (nextSecond?.x ?? 0) - 1.5;
+    const deltaYFirst = (nextFirst?.y ?? 0) - 1.9;
+    const deltaYSecond = (nextSecond?.y ?? 0) - 0.4;
+    const deltaZFirst = (nextFirst?.visualTransform.offsetZ ?? 0) - 0.2;
+    const deltaZSecond = (nextSecond?.visualTransform.offsetZ ?? 0) - 1.3;
+
+    expect(deltaXFirst).toBeCloseTo(deltaXSecond, 6);
+    expect(deltaYFirst).toBeCloseTo(deltaYSecond, 6);
+    expect(deltaZFirst).toBeCloseTo(deltaZSecond, 6);
+    expect(nextFirst?.x).toBeCloseTo(0);
+    expect(nextFirst?.y).toBeLessThan(scene.height);
+    expect(nextFirst?.y).toBeGreaterThan(scene.height - 0.2);
+    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
+    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(1.1);
+  });
+
+  it("clamps absolute-location multi-selection movement to shared scene bounds delta", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "plc_table_02");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const boundedScene = {
+      ...scene,
+      objects: scene.objects.map((object) => {
+        if (object.id === first!.id) {
+          return { ...object, x: 1.8, y: 1.9 };
+        }
+        if (object.id === second!.id) {
+          return { ...object, x: 1.6, y: 0.4 };
+        }
+        return object;
+      })
+    };
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(
+      boundedScene,
+      [first!.id, second!.id],
+      { x: 2.5, y: 2.6, z: 0, bearing: 0 }
+    );
+    const movedFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const movedSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(movedFirst).toBeDefined();
+    expect(movedSecond).toBeDefined();
+
+    const deltaXFirst = (movedFirst?.x ?? 0) - 1.8;
+    const deltaXSecond = (movedSecond?.x ?? 0) - 1.6;
+    const deltaYFirst = (movedFirst?.y ?? 0) - 1.9;
+    const deltaYSecond = (movedSecond?.y ?? 0) - 0.4;
+    expect(deltaXFirst).toBeCloseTo(deltaXSecond, 6);
+    expect(deltaYFirst).toBeCloseTo(deltaYSecond, 6);
+    expect(movedFirst?.x).toBeLessThan(scene.width);
+    expect(movedFirst?.y).toBeLessThan(scene.height);
+  });
+
+  it("blocks absolute-location changes when selection contains doors", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const door = scene.objects.find((object) => object.kind === "doors");
+    const placeable = scene.objects.find((object) => object.kind === "placeables");
+    expect(door).toBeDefined();
+    expect(placeable).toBeDefined();
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(scene, [door!.id, placeable!.id], {
+      x: 1,
+      y: 1,
+      z: 0.2,
+      bearing: 0.4
+    });
+
+    expect(nextScene).toBe(scene);
+  });
+
+  it("clamps absolute-location Z updates to shared floor delta for multi-selection", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "plc_table_02");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const liftedScene = {
+      ...scene,
+      objects: scene.objects.map((object) => {
+        if (object.id === first!.id) {
+          return {
+            ...object,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 0.2
+            }
+          };
+        }
+        if (object.id === second!.id) {
+          return {
+            ...object,
+            visualTransform: {
+              ...object.visualTransform,
+              offsetZ: 1.0
+            }
+          };
+        }
+        return object;
+      })
+    };
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(
+      liftedScene,
+      [first!.id, second!.id],
+      { x: 1.8, y: 1.9, z: -0.5, bearing: 0 }
+    );
+    const nextFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const nextSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(nextFirst).toBeDefined();
+    expect(nextSecond).toBeDefined();
+    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
+    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(0.8);
   });
 
   it("normalizes absolute-location bearing input to 0..2pi", () => {
@@ -455,6 +683,25 @@ describe("sceneMutationsFacade", () => {
     expect(changed?.visualTransform.pitch).toBeCloseTo(0.3);
     expect(changed?.visualTransform.yaw).toBeCloseTo(-0.4);
     expect(changed?.visualTransform.roll).toBeCloseTo(0.2);
+  });
+
+  it("returns same scene reference for no-op visual-transform update", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "creatures");
+    expect(target).toBeDefined();
+
+    const nextScene = facade.setObjectsVisualTransformByIds(scene, [target!.id], {
+      scale: target!.visualTransform.scale,
+      offsetX: target!.visualTransform.offsetX,
+      offsetY: target!.visualTransform.offsetY,
+      offsetZ: target!.visualTransform.offsetZ,
+      pitch: target!.visualTransform.pitch,
+      yaw: target!.visualTransform.yaw,
+      roll: target!.visualTransform.roll
+    });
+
+    expect(nextScene).toBe(scene);
   });
 
   it("stores visual-transform updates for static placeables", () => {

@@ -241,6 +241,22 @@ function resolveVisualTransformTargets(scene: AreaScene, objectIds: string[]): S
   return targets;
 }
 
+function resolvePrimaryTarget(targets: SceneObject[], objectIds: string[]): SceneObject | null {
+  if (targets.length === 0 || objectIds.length === 0) {
+    return null;
+  }
+
+  const targetById = new Map(targets.map((object) => [object.id, object]));
+  for (const objectId of objectIds) {
+    const matched = targetById.get(objectId);
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return targets[0] ?? null;
+}
+
 export function createSceneMutationsFacade(): SceneMutationsFacade {
   return {
     appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene {
@@ -391,12 +407,50 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
+      const primaryTarget = resolvePrimaryTarget(targets, objectIds);
+      if (!primaryTarget) {
+        return scene;
+      }
+
       const maxX = resolveSceneCoordinateMax(scene.width);
       const maxY = resolveSceneCoordinateMax(scene.height);
-      const nextX = clampNumber(input.x, SCENE_COORDINATE_MIN, maxX);
-      const nextY = clampNumber(input.y, SCENE_COORDINATE_MIN, maxY);
-      const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.z);
-      const nextBearing = normalizeBearingRadians(input.bearing);
+      const requestedX = clampNumber(input.x, SCENE_COORDINATE_MIN, maxX);
+      const requestedY = clampNumber(input.y, SCENE_COORDINATE_MIN, maxY);
+      const requestedOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.z);
+      const requestedBearing = normalizeBearingRadians(input.bearing);
+      const requestedDeltaX = requestedX - primaryTarget.x;
+      const requestedDeltaY = requestedY - primaryTarget.y;
+      const requestedDeltaZ = requestedOffsetZ - primaryTarget.visualTransform.offsetZ;
+      const requestedDeltaBearing = requestedBearing - primaryTarget.bearing;
+
+      const translationBounds = resolveTranslationBounds(scene, targets);
+      const clampedDeltaX = clampDeltaToBounds(
+        requestedDeltaX,
+        translationBounds.minDeltaX,
+        translationBounds.maxDeltaX
+      );
+      const clampedDeltaY = clampDeltaToBounds(
+        requestedDeltaY,
+        translationBounds.minDeltaY,
+        translationBounds.maxDeltaY
+      );
+      const minDeltaZ = targets.reduce(
+        (bound, object) => Math.max(bound, SCENE_OBJECT_MIN_OFFSET_Z - object.visualTransform.offsetZ),
+        Number.NEGATIVE_INFINITY
+      );
+      const clampedDeltaZ =
+        requestedDeltaZ < 0
+          ? clampDeltaToBounds(requestedDeltaZ, minDeltaZ, Number.POSITIVE_INFINITY)
+          : requestedDeltaZ;
+      if (
+        clampedDeltaX === 0 &&
+        clampedDeltaY === 0 &&
+        clampedDeltaZ === 0 &&
+        requestedDeltaBearing === 0
+      ) {
+        return scene;
+      }
+
       const idSet = new Set(targets.map((object) => object.id));
       let changed = false;
 
@@ -404,6 +458,13 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         if (!idSet.has(object.id)) {
           return object;
         }
+        const nextX = clampNumber(object.x + clampedDeltaX, SCENE_COORDINATE_MIN, maxX);
+        const nextY = clampNumber(object.y + clampedDeltaY, SCENE_COORDINATE_MIN, maxY);
+        const nextOffsetZ = Math.max(
+          SCENE_OBJECT_MIN_OFFSET_Z,
+          object.visualTransform.offsetZ + clampedDeltaZ
+        );
+        const nextBearing = normalizeBearingRadians(object.bearing + requestedDeltaBearing);
         if (
           object.x === nextX &&
           object.y === nextY &&

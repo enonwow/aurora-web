@@ -1,14 +1,19 @@
 # Aurora First Implementation Matrix
 
+Date snapshot: 2026-05-24  
+Scope: `frontend/` implementation status (code + tests), not only reverse notes.
+Operational board: `frontend/AURORA_FRONTEND_EXECUTION_BOARD.md`
+Retail hard-confirm test plan: `frontend/AURORA_RETAIL_HARDCONFIRM_TEST_PLAN.md`
+
 Status legend:
-- `CONFIRMED`: behavior has hard evidence in decompiled/runtime notes.
-- `PARTIAL`: behavior is mostly known but has unresolved edges.
-- `UNKNOWN`: currently missing hard confirmation.
+- `IMPLEMENTED`: shipped in current codebase and covered by tests.
+- `SHELL`: visible UI/contract shell exists, but behavior is intentionally limited.
+- `NOT_STARTED`: no runtime data model/flow yet in frontend.
+- `RETAIL_CONFIRM`: blocked on hard retail confirmation before semantic finalization.
 
 ## Scope lanes
-
 1. Placeables + Adjust Location + Visual Transform
-2. Scripts + Properties tabs
+2. Placeable Properties + Scripts tabs
 3. VFX + Sound
 4. Tiles + Tilesets + Groups
 5. Doors + Transitions + Links
@@ -18,139 +23,116 @@ Status legend:
 
 ## 1) Placeables + Adjust Location + Visual Transform
 
-Status: `PARTIAL`
+Status: `IMPLEMENTED` (MVP lane)
 
-Hard-confirmed:
-- `Adjust Location` is explicit (`TDLGLOCATION`, caption `Adjust Position/Orientation`) with dedicated `Position` (`X/Y/Z`) and `Orientation` (`Bearing`) controls and handlers.
-- `Visual Transforms` are in the same dialog surface (`Scale`, `Rotation XYZ`, `Translation XYZ`) with dedicated handlers.
-- `Apply/OK/Cancel` are separate handlers (`bApplyClick`, `bOKClick`, `bCancelClick`).
-- Situated instances read `X/Y/Z` from instance data and `Bearing` from stored value with degree conversion in UI path.
-- Placeable precedence is `UTP -> GIT override`.
-- `Static` is explicit (`xbStatic -> Static`).
-- Supporting evidence appears in:
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\placeables\AURORA_RE_ADJUST_LOCATION_2026-05-18.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\placeables\AURORA_RE_PLACEABLE_OBJECT_PROPERTIES_2026-05-18.md`
-  - `C:\Projects\New Folder\export\strings.tsv`
-  - `C:\Projects\New Folder\export\functions.tsv`
+Implemented now:
+1. `Adjust Location` dialog with `Position (X/Y/Z)`, `Orientation (Bearing)`, bearing dial, `Apply/OK/Cancel`.
+2. Multi-selection edit path with one commit step per apply.
+3. `Cancel` restores dialog-open snapshots.
+4. Visual transform fields in the same dialog, shown only for `placeables/creatures/items`.
+5. `Static` placeables store visual-transform values, renderer ignores them while `isStatic=true`.
+6. Door guardrails are active: no generic move/rotate/adjust location for doors.
 
-Implementation rules:
-- Keep `Adjust Location` as dedicated flow, not merged into generic inspector fields.
-- Keep dual bearing input path: numeric + orientation panel drag.
-- Preserve `Apply` (commit/no close), `OK` (commit/close), `Cancel` (revert dialog session).
-- Keep `Static` as explicit render-time gate for visual transforms (preserve stored values, conditionally apply in rendering policy).
+Evidence in repo:
+1. `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+2. `frontend/src/modules/scene/application/sceneMutationsFacade.ts`
+3. `frontend/tests/regression-smoke/workspace/Workspace.regression-smoke.test.tsx`
+4. `frontend/tests/unit/modules/scene/application/sceneMutationsFacade.test.ts`
 
-Open gaps:
-- Exact serialization keys/shape for `Visual Transforms` in canonical GFF/GIT write path.
-- Exact clamp/units for `Scale` and `Rotation XYZ`.
-- Final undo granularity semantics for repeated `Apply`.
-- Exact math/snapping behavior of orientation panel drag.
+Known implementation gaps (coding backlog, not retail-blocked):
+1. Static-object generic gizmo movement is still allowed for placeables (only visual-transform rendering is gated by `isStatic`).
+2. Numeric clamps/step precision in dialog are still generic MVP, not Aurora-precise per field.
+3. No explicit test for repeated `Apply` history granularity beyond current smoke coverage.
 
-Regression tests:
-- `Bearing` roundtrip: storage radians <-> UI degrees.
-- `Cancel` restores pre-open snapshot for single and multi-selection edits.
-- `Apply`/`OK` history semantics.
-- `Static=true` ignores visual transform in renderer while preserving stored values.
+Retail-hard-confirm gaps:
+1. Exact Aurora orientation dial math/snapping/wrap behavior.
+2. Canonical ARE/GIT serialization mapping for visual transform payload.
 
 ---
 
-## 2) Scripts + Properties tabs
+## 2) Placeable Properties + Scripts tabs
 
-Status: `PARTIAL`
+Status: `SHELL`
 
-Hard-confirmed:
-- Placeable properties surface is the situated editor specialization with tabs: Basic/Lock/Trap/Scripts/Advanced/Description/Comments.
-- High-confidence field mapping exists for core fields: `LocName`, `Tag`, `Appearance`, `Plot`, `Useable`, `HasInventory`, `Static`, `TemplateResRef`, `Faction`, `Conversation`, `AnimationState`, `Description`, `Comment`.
-- Script slots are strongly mapped, including:
-  - `OnClick`, `OnClosed`, `OnDamaged`, `OnDeath`, `OnHeartbeat`, `OnInvDisturbed`, `OnLock`, `OnMeleeAttacked`, `OnOpen`, `OnSpellCastAt`, `OnUnlock`, `OnUsed`, `OnUserDefined`.
-- Main evidence:
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\placeables\AURORA_RE_PLACEABLE_OBJECT_PROPERTIES_2026-05-18.md`
-  - `C:\Projects\New Folder\export\strings.tsv`
-  - `C:\Projects\New Folder\export\functions.tsv`
+Implemented now:
+1. `Placeable Object Properties` window shell with tabs: `Basic`, `Scripts`, `Advanced`, `Description`, `Comments`.
+2. Active writable fields: `Name`, `Tag`, `Appearance Type (resRef)`, `Static`.
+3. `Apply/OK/Cancel` semantics wired through mutations facade.
 
-Implementation rules:
-- Use canonical storage script keys, not UI aliases.
-- Keep precedence `Template/blueprint defaults -> instance overrides`.
-- Preserve full tab contract even if some controls start as read-only/disabled in early implementation.
+Implemented with explicit Post-MVP placeholders:
+1. `Plot`, `Useable`, `Has Inventory`, saves/resists fields and tab internals are disabled placeholders.
+2. Script slots are not editable yet.
 
-Open gaps:
-- `Reflex Save` canonical key (`Ref` vs alternative spelling) still unresolved.
-- `Treasure Model` exact storage mapping unresolved.
-- `No Interrupt` polarity needs final roundtrip confirmation.
-- `OnFailToOpen` visibility rules vary by surface and need runtime validation.
+Evidence in repo:
+1. `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+2. `frontend/src/modules/scene/application/sceneMutationsFacade.ts`
+3. `frontend/tests/unit/modules/scene/application/sceneMutationsFacade.test.ts`
 
-Regression tests:
-- Script slots roundtrip snapshot for all scripted controls.
-- Alias safety tests (UI label differences do not change stored key names).
-- Lock/trap enable/disable control-state transitions.
-- `TemplateResRef` retention across appearance changes.
+Coding backlog (now):
+1. Promote disabled Basic flags to preserve-only payload fields.
+2. Add script-slot data shape in scene contract + mutation facade (preserve-only first).
+3. Add per-tab activation rollout with tests for each promoted control.
+
+Retail-hard-confirm gaps:
+1. Final canonical keys/polarity for unresolved fields (`Reflex Save` key spelling, `No Interrupt`, `Treasure Model`, `OnFailToOpen` visibility).
 
 ---
 
 ## 3) VFX + Sound
 
-Status: `PARTIAL`
+Status: `SHELL` (sound object only), `NOT_STARTED` (VFX runtime)
 
-Hard-confirmed:
-- Sound positioning has three modes: everywhere, random-each-play, specific-position.
-- Sound authoring surface includes distance min/max, random ranges, height/elevation, interval and interval variation, volume and pitch variation, play style/order, specific-hours scheduling.
-- Editor viewport representation is consistent: glyph/anchor/attenuation guides and editor-only box overlays.
-- VFX parser contracts are explicit for frame ranges and numeric profile policy (classic vs EE), including random-domain checks.
-- Main evidence:
-  - `C:\Projects\aurora-web\frontend\AURORA_SOUND_POSITIONING_PARITY.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\vfx\VFX_STATUS_AND_GAPS_2026-05-20.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\vfx\AURORA_VFX_RE_OBJECTIVE_REPORT_2026-05-18.md`
-  - `C:\Projects\nwn-last-city\Aurora\reverse\runs\LC_AURORA_RE_ARTIFACT_2026-05-18_0745_encounter_sound_authoring_runtime_matrix.json`
-  - `C:\Projects\nwn-last-city\Aurora\reverse\runs\LC_AURORA_RE_ARTIFACT_2026-05-19_2317_vfx_frame_range_contract_matrix.json`
+Implemented now:
+1. `sounds` exist as scene objects and can be selected/moved through generic object pipeline.
+2. Sound objects appear in catalog and visibility/lock/isolation tooling.
+3. No dedicated sound positioning dialog or mode-specific data model.
 
-Implementation rules:
-- Keep strict mode-gating for VFX numeric parsing (classic/EE policy split).
-- Keep sound mode gating deterministic (`specific` must not degrade to random-box).
-- Keep sound visualization editor-only where appropriate (do not serialize helper wireframes as runtime objects).
+Not implemented yet:
+1. Sound mode triad (`everywhere` / `random each play` / `specific position`) and its parameter set.
+2. Sound attenuation/random-box visualization parity.
+3. VFX object/runtime contracts (catalog has only post-MVP placeholder type).
 
-Open gaps:
-- Retail runtime truth for several VFX behaviors remains open (exact blend math, sorting granularity, overflow/caps, detailed collision semantics).
-- Sound/encounter runtime bindings remain partially uncovered in current reverse corpus.
-- NWScript sound/encounter runtime mapping has stub-heavy zones.
+Evidence in repo:
+1. `frontend/src/modules/scene/contracts.ts`
+2. `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+3. `frontend/src/modules/layout/application/sceneObjectCatalogQueryFacade.ts`
 
-Regression tests:
-- Sound mode gating and random-box bounds tests.
-- Sound attenuation and schedule behavior tests.
-- VFX frame range and atlas bound tests under both profile policies.
-- VFX parser whitespace/edge token test matrix.
+Coding backlog (now):
+1. Extend `SceneObject` model for sound positioning payload (mode + ranges + attenuation + scheduling).
+2. Add Sound Properties dialog shell with deterministic mode-gating.
+3. Add viewport overlays as editor-only primitives, never serialized as runtime entities.
+4. Add VFX preserve-only catalog/model skeleton to avoid ad-hoc later schema.
+
+Retail-hard-confirm gaps:
+1. Exact runtime semantics for sound playback/attenuation edge-cases.
+2. VFX runtime math: blend/sort/overflow/collision behavior.
 
 ---
 
 ## 4) Tiles + Tilesets + Groups
 
-Status: `PARTIAL`
+Status: `SHELL`
 
-Hard-confirmed:
-- Tile model resolution should be deterministic from chosen tileset (`Tile_ID -> Model`), not global first-match mixing.
-- Orientation should be handled as rotation (`*90`) rather than side-label remapping.
-- Height contributes to vertical placement through transition scaling path.
-- Parser-level alias/canonicalization and duplicate protections are strongly covered.
-- Main evidence:
-  - `C:\Projects\ai-documentations\aurora-reverse\formats\tilesets\TILESET_STATUS_AND_GAPS_2026-05-20.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\formats\tilesets\AURORA_RE_TILESET_TNO01_V51_05_DECOMP_2026-05-18.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\reports\areas3d-audits\AREAS3D_RE_TILE_TILESET_AUDYT_2026-05-18.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\reports\areas3d-audits\AREAS3D_RE_AREA_TILESET_PIPELINE_AUDYT_2026-05-18.md`
+Implemented now:
+1. Tile grid with basic fields (`terrain`, `orientation`, `rotateTexture`, `plot`).
+2. Terrain mutation path (`updateTileTerrain`) and viewport rendering basics.
 
-Implementation rules:
-- For each area, pin one authoritative tileset resolution source.
-- Enforce structural validation (`width * height == tile_count`) and deterministic group parsing.
-- Keep orientation logic strictly on transform rotation axis, not semantic renaming.
-- Keep deterministic cache keys using tileset id, tile id, orientation, and height.
+Not implemented yet:
+1. Tileset parser/resolver (`Tile_ID -> model`), group contracts, master-cell rules.
+2. Deterministic tileset cache and strict area/tileset validation pipeline.
 
-Open gaps:
-- No hard, explicit retail rule set yet for `2x2 master cell` semantics.
-- Full runtime proof for problematic neighborhood render/material precedence remains open.
-- Some reported source-rule notes require sanitization before treating as normative.
+Evidence in repo:
+1. `frontend/src/modules/scene/contracts.ts`
+2. `frontend/src/modules/scene/domain/sceneFactory.ts`
+3. `frontend/src/modules/scene/application/sceneMutationsFacade.ts`
 
-Regression tests:
-- Group count and geometry consistency tests.
-- Corner/adjacency sentinel matrix tests (edge vs interior).
-- Height transition tests across mixed neighboring tiles.
-- Render parity capture tests for known problematic tile neighborhoods.
+Coding backlog (now):
+1. Add tileset domain model + adapter boundary (preserve-only first for unresolved semantics).
+2. Implement structural validators (`width*height == tile_count`, group consistency).
+3. Add orientation parity tests on transform axis path.
+
+Retail-hard-confirm gaps:
+1. 2x2 master-cell semantics and neighborhood material precedence from retail.
 
 ---
 
@@ -158,30 +140,27 @@ Regression tests:
 
 Status: `PARTIAL`
 
-Hard-confirmed:
-- Door transition field surface is known and should preserve:
-  - `LinkedTo`, `LinkedToFlags`, `LoadScreenID`, `TransitionDestination`/`TransitionDestin`, `LinkedToModule`.
-- Toolset UI control surface for link targets is confirmed (radio/button families and handlers).
-- Alias divergence for destination keys exists in corpus and must be handled compatibly.
-- Evidence:
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\doors\AURORA_RE_DOOR_KNOWLEDGE_BASE.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\are-git\DOOR_TRANSITION_FIELD_STATUS_MATRIX_2026-05-19.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\are-git\DOOR_TRANSITION_DEST_KEY_ALIAS_COMPAT_2026-05-20.md`
+Implemented now:
+1. Door anchor guardrails are active across context menu, keyboard move, transform controls, and mutation facade.
+2. Adjust Location action is hidden for doors.
 
-Implementation rules:
-- Use preserve-only behavior for door transition payload semantics until retail confirmation closes.
-- Do not hard-map `LinkedToFlags` enum semantics from UI labels.
-- Accept known destination key aliases without destructive normalization.
+Not implemented yet:
+1. Door transition/link payload in scene model (`LinkedTo*`, destination/module, `LoadScreenID`).
+2. Preserve-only roundtrip for transition aliases.
 
-Open gaps:
-- Retail write path for `TransitionDestination`/`LinkedToModule` remains open.
-- Retail runtime effect of `LoadScreenID` remains open.
-- Significant ARE/GIT hard-confirm backlog remains unresolved.
+Evidence in repo:
+1. `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+2. `frontend/src/modules/scene/application/sceneMutationsFacade.ts`
+3. `frontend/tests/regression-smoke/workspace/Workspace.regression-smoke.test.tsx`
+4. `frontend/tests/unit/modules/scene/application/sceneMutationsFacade.test.ts`
 
-Regression tests:
-- Alias compatibility tests for transition destination fields.
-- Parse boundary tests for transition numeric fields.
-- Preserve-only roundtrip tests for door transition payloads.
+Coding backlog (now):
+1. Extend scene schema with preserve-only door transition block.
+2. Add Door Properties shell for transition fields (read-only/preserve-first).
+3. Add alias-safe parse/write tests in frontend contract layer.
+
+Retail-hard-confirm gaps:
+1. Real semantics of `LinkedToFlags`, `LoadScreenID`, and write-path normalization policy.
 
 ---
 
@@ -189,53 +168,48 @@ Regression tests:
 
 Status: `PARTIAL`
 
-Hard-confirmed:
-- Retail ARE/GIT hard-confirm scoreboard remains mostly open (`HARD_CONFIRMED_RETAIL` is effectively not closed in current 20-question set).
-- Walkmesh/pathing analysis coverage is broad in reverse package with explicit callflow decomposition and parser/scaffold contracts.
-- Local walkmesh query contracts and tests exist in `cpp_impl` (mesh validation, height query, walkability line sampling, intra-tile/area path scaffolding).
-- Evidence:
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\are-git\AURORA_RE_RETAIL_20_ANSWERS_SNAPSHOT_2026-05-18.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\are-git\RETAIL_ARE_GIT_STATUS_AND_GAPS_2026-05-20.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\walking\AURORA_BINARY_DECOMP_IMPLEMENTATION_GUIDE_WALKING_2026-05-20.md`
-  - `C:\Projects\ai-documentations\aurora-reverse\runtime-behavior\walking\AURORA_BINARY_DECOMP_CALLFLOW_WALKMESH_MOVEMENT_MODELS_2026-05-20.md`
-  - `C:\Projects\nwn-last-city\Aurora\reverse\cpp_impl\src\aurora\walking\*`
+Implemented now:
+1. Coordinate operations are deterministic in frontend (`x/y` clamp, `bearing` normalization, `offsetZ` floor).
+2. History + local draft persistence pipeline is in place.
+3. Walkmesh overlay toggle exists in tooling as debug UI switch.
 
-Implementation rules:
-- Treat coordinate/orientation mappings as object-type-dependent (`Bearing` vs orientation vector forms), not globally uniform.
-- Keep walkmesh queries deterministic and test-backed (strict invalid mesh guards, predictable sampling).
-- Keep ARE/GIT integration conservative where retail proof is missing.
+Not implemented yet:
+1. Walkmesh data model/query engine/pathing semantics in frontend.
+2. ARE/GIT/IFO integration and retail parity fixtures.
 
-Open gaps:
-- Global world-origin (`0,0`) parity against retail/toolset is not fully hard-confirmed from current evidence package.
-- Exact retail sign conventions and axis interpretation need dedicated parity scenarios.
-- IFO integration proofs in this narrowed lane remain incomplete.
+Evidence in repo:
+1. `frontend/src/modules/scene/application/sceneMutationsFacade.ts`
+2. `frontend/src/modules/scene/adapters/localDraftStore.ts`
+3. `frontend/src/modules/layout/roleTopbarPolicy.ts`
 
-Regression tests:
-- Coordinate parity suite: known area fixtures with expected positions and bearings.
-- Walkmesh height and line-walkability tests with invalid/degenerate mesh cases.
-- Inter-area pathing scenario tests with deterministic tie-break behavior.
+Coding backlog (now):
+1. Introduce explicit coordinate parity fixture set (known expected input/output).
+2. Wire walkmesh payload contract (even stubbed) to replace UI-only toggle.
+3. Add area import/export boundary contracts (ARE/GIT preserve-only first).
+
+Retail-hard-confirm gaps:
+1. Global origin, axis sign conventions, and cross-area pathing parity against retail.
 
 ---
 
-## Cross-lane decisions for aurora-web
+## Aurora First Backlog (Execution Split)
 
-Status: `ACTIVE`
+### Track A: code now (no retail blocker)
+1. `AF-NOW-01` Enforce static-placeable move policy in generic gizmo/keyboard paths.
+2. `AF-NOW-02` Expand placeable properties payload (preserve-only flags + script slots schema).
+3. `AF-NOW-03` Add sound positioning domain + dialog shell with strict mode gating.
+4. `AF-NOW-04` Add tileset/groups domain scaffolding with deterministic validators.
+5. `AF-NOW-05` Add door transition preserve-only schema and shell UI.
+6. `AF-NOW-06` Add focused regression suite for adjust-location multi-selection and history semantics.
 
-- Use evidence-first policy: `CONFIRMED` behaviors can be implemented as canonical.
-- Use preserve-only policy for unresolved semantics (especially ARE/GIT and door transitions).
-- Keep compatibility aliases where corpus proves spelling divergence.
-- Keep unknowns isolated behind explicit TODO/feature flags and regression tests.
+### Track B: retail-hard-confirm later
+1. `AF-RHC-01` Confirm orientation/bearing dial math and snapping rules.
+2. `AF-RHC-02` Confirm canonical ARE/GIT key mapping for visual transforms and door transitions.
+3. `AF-RHC-03` Confirm sound runtime behavior edge-cases (mode semantics, attenuation, scheduling).
+4. `AF-RHC-04` Confirm VFX runtime semantics (blend/sort/collision/limits).
+5. `AF-RHC-05` Confirm tileset master-cell and neighborhood precedence rules.
+6. `AF-RHC-06` Confirm world-origin and axis-sign parity across area/module pipelines.
 
-## Final readiness
-
-- Ready to implement now:
-  - Placeable `Adjust Location` shell and core field mapping.
-  - Placeable properties/scripts core roundtrip.
-  - Sound positioning UI behavior and VFX parser policy contracts.
-  - Deterministic tile/tileset parsing rules with strict validation.
-  - Door transition preserve-only data layer.
-- Must validate on retail first:
-  - ARE/GIT hard-confirm backlog.
-  - Door transition semantics (`LinkedToFlags`, `LoadScreenID`, destination/module write path).
-  - Global coordinate-origin parity and full axis-sign conventions.
-  - VFX full runtime rendering semantics (blend/sorting/overflow/collision details).
+## Decision policy
+1. `Track A` can be implemented immediately with preserve-only strategy where needed.
+2. `Track B` items must not be guessed into canonical semantics before hard confirmation.

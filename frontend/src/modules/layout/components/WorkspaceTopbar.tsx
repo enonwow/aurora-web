@@ -51,6 +51,14 @@ function statusLabel(status: "mvp" | "post_mvp" | "pending_estimate"): string {
   return "Pending";
 }
 
+function resolveCanvasActionTitle(action: ToolbarAction): string {
+  const status = statusLabel(action.status);
+  if (action.key === "canvas_gizmo_scale" && !action.supported && action.status === "post_mvp") {
+    return `${action.label} (${status}, Reserved)`;
+  }
+  return `${action.label} (${status})`;
+}
+
 function resolveInitialGroup(groups: ToolbarGroup[]): string | null {
   if (!groups.length) {
     return null;
@@ -121,6 +129,13 @@ export function WorkspaceTopbar({
       return [];
     }
 
+    const supportedActionKeys = new Set(
+      sectionGroups.flatMap((group) =>
+        group.actions.filter((action) => action.supported).map((action) => action.key)
+      )
+    );
+    const hasGizmoScale = supportedActionKeys.has("canvas_gizmo_scale");
+
     const viewportShortcuts: KeyboardShortcut[] = [
       { key: "MMB", description: "Rotate camera." },
       { key: "Ctrl + RMB", description: "Pan camera." },
@@ -131,20 +146,25 @@ export function WorkspaceTopbar({
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
       { key: "1", description: "Switch gizmo to Move mode." },
       { key: "2", description: "Switch gizmo to Rotate (bearing) mode." },
-      { key: "3", description: "Reserved for Visual Transform scale mode (not active yet)." },
       { key: "Arrow keys / Shift + Arrow", description: "Move selected object(s) in scene." },
       { key: "Ctrl/Cmd + C", description: "Copy selected object(s)." },
       { key: "Ctrl/Cmd + X", description: "Cut selected object(s)." },
       { key: "Ctrl/Cmd + V", description: "Paste copied or cut object(s)." },
       { key: "Del / Backspace", description: "Delete selected objects (unlocked layers only)." }
     ];
+    if (hasGizmoScale) {
+      canvasWorkflowShortcuts.splice(3, 0, {
+        key: "3",
+        description: "Switch gizmo to Scale mode."
+      });
+    }
 
     return [
       ...baseShortcuts,
       ...viewportShortcuts,
       ...canvasWorkflowShortcuts
     ];
-  }, [baseShortcuts, isAuthenticated, role]);
+  }, [baseShortcuts, isAuthenticated, role, sectionGroups]);
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(
     resolveInitialGroup(sectionGroups)
   );
@@ -344,7 +364,7 @@ export function WorkspaceTopbar({
           key={action.key}
           onClick={() => onAction(action.key)}
           disabled={!action.supported}
-          title={action.label}
+          title={resolveCanvasActionTitle(action)}
         >
           <span>{shortLabel ?? action.label}</span>
         </button>
@@ -360,7 +380,7 @@ export function WorkspaceTopbar({
         <div className="topbar-nav-buttons topbar-nav-buttons-compact">
           {renderCanvasActionButton("canvas_gizmo_translate", "Move (1)")}
           {renderCanvasActionButton("canvas_gizmo_rotate", "Rotate (2)")}
-          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (3)")}
+          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (Reserved)")}
           {renderCanvasActionButton("snap_grid_toggle", "Snap Grid")}
           {renderCanvasActionButton("snap_angle_toggle", "Snap Angle")}
           {renderCanvasActionButton("snap_height_toggle", "Snap Height")}

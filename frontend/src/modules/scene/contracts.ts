@@ -14,6 +14,28 @@ export type SceneObjectKind =
   | "placeables"
   | "sounds";
 
+export interface SceneObjectPlaceableProperties {
+  // Runtime normalization enforces boolean defaults for legacy/corrupted payloads.
+  plot: boolean;
+  useable: boolean;
+  hasInventory: boolean;
+}
+
+export type SceneSoundPositioningMode =
+  | "everywhere"
+  | "random"
+  | "specific";
+
+export interface SceneObjectSoundPositioning {
+  // Runtime normalization clamps invalid legacy values to safe baselines.
+  mode: SceneSoundPositioningMode;
+  elevation: number;
+  maxVolumeDistance: number;
+  cutoffDistance: number;
+  randomRangeWestEast: number;
+  randomRangeNorthSouth: number;
+}
+
 export interface SceneTile {
   id: string;
   row: number;
@@ -41,6 +63,8 @@ export interface SceneObject {
   resRef: string;
   tag: string;
   isStatic?: boolean;
+  placeableProperties?: SceneObjectPlaceableProperties;
+  soundPositioning?: SceneObjectSoundPositioning;
   x: number;
   y: number;
   bearing: number;

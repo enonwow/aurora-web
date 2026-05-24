@@ -115,8 +115,7 @@ function isGizmoActionActive(
   return (
     (actionKey === "canvas_gizmo_translate" &&
       toolbarState.canvasDebug.gizmoMode === "translate") ||
-    (actionKey === "canvas_gizmo_rotate" && toolbarState.canvasDebug.gizmoMode === "rotate") ||
-    (actionKey === "canvas_gizmo_scale" && toolbarState.canvasDebug.gizmoMode === "scale")
+    (actionKey === "canvas_gizmo_rotate" && toolbarState.canvasDebug.gizmoMode === "rotate")
   );
 }
 

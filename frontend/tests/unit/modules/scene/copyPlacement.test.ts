@@ -3,6 +3,7 @@ import {
   getPointsCentroid,
   resolveCopyAnchorPoint
 } from "../../../../src/modules/scene/domain/copyPlacement";
+import { createNewSceneObject } from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("copyPlacement", () => {
   it("computes centroid for source points", () => {
@@ -72,6 +73,20 @@ describe("copyPlacement", () => {
     expect(translation).toEqual({ x: 4.5, y: 4.5 });
   });
 
+  it("clamps snap step to minimum baseline when non-positive step is provided", () => {
+    const translation = computeCopyTranslationVector({
+      sourcePoints: [
+        { x: 1.05, y: 1.05 },
+        { x: 2.05, y: 2.05 }
+      ],
+      anchor: { x: 4.11, y: 4.14 },
+      snapGrid: true,
+      snapGridStep: 0
+    });
+
+    expect(translation).toEqual({ x: 2.6, y: 2.6 });
+  });
+
   it("preserves group geometry by applying one shared translation", () => {
     const source = [
       { x: 10, y: 10 },
@@ -101,5 +116,66 @@ describe("copyPlacement", () => {
     ];
 
     expect(movedVectors).toEqual(originalVectors);
+  });
+
+  it("keeps new metadata fields present in simulated copy-paste flow for placeables", () => {
+    const source = createNewSceneObject("placeables", 1.25, 2.5, 1);
+    const translation = computeCopyTranslationVector({
+      sourcePoints: [{ x: source.x, y: source.y }],
+      anchor: { x: 2.25, y: 4.5 },
+      snapGrid: false,
+      snapGridStep: 1
+    });
+    expect(translation).not.toBeNull();
+
+    const pasted = createNewSceneObject(
+      source.kind,
+      source.x + (translation?.x ?? 0),
+      source.y + (translation?.y ?? 0),
+      2
+    );
+    pasted.resRef = source.resRef;
+    pasted.tag = `${source.tag}_COPY`;
+    pasted.visualTransform = { ...source.visualTransform };
+    pasted.bearing = source.bearing;
+
+    expect(pasted.placeableProperties).toEqual({
+      plot: false,
+      useable: false,
+      hasInventory: false
+    });
+    expect(pasted.soundPositioning).toBeUndefined();
+  });
+
+  it("keeps new metadata fields present in simulated copy-paste flow for sounds", () => {
+    const source = createNewSceneObject("sounds", 0.75, 1.5, 10);
+    const translation = computeCopyTranslationVector({
+      sourcePoints: [{ x: source.x, y: source.y }],
+      anchor: { x: 1.75, y: 3.25 },
+      snapGrid: false,
+      snapGridStep: 1
+    });
+    expect(translation).not.toBeNull();
+
+    const pasted = createNewSceneObject(
+      source.kind,
+      source.x + (translation?.x ?? 0),
+      source.y + (translation?.y ?? 0),
+      11
+    );
+    pasted.resRef = source.resRef;
+    pasted.tag = `${source.tag}_COPY`;
+    pasted.visualTransform = { ...source.visualTransform };
+    pasted.bearing = source.bearing;
+
+    expect(pasted.soundPositioning).toEqual({
+      mode: "specific",
+      elevation: 0,
+      maxVolumeDistance: 8,
+      cutoffDistance: 16,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0
+    });
+    expect(pasted.placeableProperties).toBeUndefined();
   });
 });

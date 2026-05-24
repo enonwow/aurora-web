@@ -91,5 +91,17 @@ These constraints are part of `Aurora First` parity and are not optional UI pref
 ## Aurora Reverse-Engineering Notes (Decompilation Evidence)
 1. Ghidra-based evidence index for Aurora First implementation is tracked in:
    - `frontend/AURORA_DECOMPILATION_KNOWLEDGE.md`
-2. Cross-domain implementation readiness matrix (`CONFIRMED/PARTIAL/UNKNOWN`) is tracked in:
+2. Cross-domain implementation readiness matrix (`IMPLEMENTED/SHELL/NOT_STARTED/RETAIL_CONFIRM`) is tracked in:
    - `frontend/AURORA_FIRST_IMPLEMENTATION_MATRIX.md`
+
+## Aurora First Delivery Tracks (2026-05-24)
+1. Docs are split intentionally:
+   - implementation snapshot + actionable backlog: `frontend/AURORA_FIRST_IMPLEMENTATION_MATRIX.md`
+   - operational execution board (20 tasks): `frontend/AURORA_FRONTEND_EXECUTION_BOARD.md`
+   - reverse/decomp evidence base: `frontend/AURORA_DECOMPILATION_KNOWLEDGE.md`
+   - lane-level parity targets: `frontend/AURORA_*_PARITY.md`
+2. Execution policy:
+   - `Track A (code now)`: implement deterministic UI/schema/adapter work immediately with preserve-only semantics where needed.
+   - `Track B (retail-hard-confirm)`: do not lock canonical runtime semantics until hard evidence is closed.
+3. Current architecture implication:
+   - Aurora-parity unknowns should stay isolated in `domain` contracts + `application` facades and never leak ad-hoc assumptions into UI components.

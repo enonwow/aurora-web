@@ -8,6 +8,7 @@ import {
   DEFAULT_SEED_SCENE_WIDTH_TILES,
   LEGACY_SEED_SCENE_HEIGHT_TILES,
   LEGACY_SEED_SCENE_WIDTH_TILES,
+  normalizeSceneObjectMetadata,
   rescaleSceneObjectsToSize
 } from "../domain/sceneFactory";
 import { normalizeBearingRadians } from "../domain/bearing";
@@ -56,21 +57,26 @@ function migrateLegacySeedDraft(draft: AreaScene, now: () => number): AreaScene 
 function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
   let changed = false;
   const normalizedObjects = scene.objects.map((object) => {
+    const withMetadata = normalizeSceneObjectMetadata(object);
     const currentScale = object.visualTransform.scale;
     const nextScale =
       typeof currentScale === "number" && Number.isFinite(currentScale) && currentScale > 0
         ? currentScale
         : 1;
     const nextBearing = normalizeBearingRadians(object.bearing);
-    if (nextScale === currentScale && nextBearing === object.bearing) {
+    if (
+      nextScale === currentScale &&
+      nextBearing === object.bearing &&
+      withMetadata === object
+    ) {
       return object;
     }
     changed = true;
     return {
-      ...object,
+      ...withMetadata,
       bearing: nextBearing,
       visualTransform: {
-        ...object.visualTransform,
+        ...withMetadata.visualTransform,
         scale: nextScale
       }
     };
@@ -108,7 +114,7 @@ export function createSceneCanvasFacade(
       return createSceneHistory(normalizeDraftVisualTransform(draft));
     },
     saveLocalDraft(userId: string, scene: AreaScene): void {
-      dependencies.draftPort.saveByUserId(userId, scene);
+      dependencies.draftPort.saveByUserId(userId, normalizeDraftVisualTransform(scene));
     }
   };
 }

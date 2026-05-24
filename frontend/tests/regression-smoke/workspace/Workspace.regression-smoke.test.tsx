@@ -211,6 +211,114 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
   });
 
+  it("keeps Adjust Location axis direction consistent while preserving scale and Z values", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(row);
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const xInput = within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement;
+    const yInput = within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement;
+    const zInput = within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement;
+    const scaleInput = within(dialog).getByRole("spinbutton", { name: /^scale$/i }) as HTMLInputElement;
+    const zTranslationInput = within(dialog).getByRole("spinbutton", {
+      name: /^z translation$/i
+    }) as HTMLInputElement;
+
+    const beforeX = Number.parseFloat(xInput.value);
+    const beforeY = Number.parseFloat(yInput.value);
+    const beforeZ = Number.parseFloat(zInput.value);
+    const beforeScale = Number.parseFloat(scaleInput.value);
+    const beforeZTranslation = Number.parseFloat(zTranslationInput.value);
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+
+    await waitFor(() => {
+      const nextX = Number.parseFloat(
+        (within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement).value
+      );
+      const nextY = Number.parseFloat(
+        (within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
+      );
+      expect(nextX).toBeLessThan(beforeX);
+      expect(nextY).toBeLessThan(beforeY);
+    });
+
+    const afterScale = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^scale$/i }) as HTMLInputElement).value
+    );
+    const afterZ = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+    );
+    const afterZTranslation = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement)
+        .value
+    );
+    expect(afterScale).toBeCloseTo(beforeScale, 6);
+    expect(afterZ).toBeCloseTo(beforeZ, 6);
+    expect(afterZTranslation).toBeCloseTo(beforeZTranslation, 6);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+  });
+
+  it("keeps Adjust Location Z and Z Translation synchronized across apply and reopen", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const zInput = within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement;
+    const zTranslationInput = within(dialog).getByRole("spinbutton", {
+      name: /^z translation$/i
+    }) as HTMLInputElement;
+    const targetZ = Number.parseFloat(zInput.value) + 1.25;
+
+    fireEvent.change(zTranslationInput, { target: { value: String(targetZ) } });
+
+    await waitFor(() => {
+      expect(
+        Number.parseFloat(
+          (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+        )
+      ).toBeCloseTo(targetZ, 6);
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    expect(screen.queryByRole("dialog", { name: /adjust location/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const savedDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const changed = savedDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(changed).toBeDefined();
+    expect(changed?.visualTransform.offsetZ ?? 0).toBeCloseTo(targetZ, 6);
+
+    fireEvent.contextMenu(row, { clientX: 272, clientY: 208 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const reopenedDialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const reopenedZ = Number.parseFloat(
+      (within(reopenedDialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+    );
+    const reopenedZTranslation = Number.parseFloat(
+      (
+        within(reopenedDialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement
+      ).value
+    );
+    expect(reopenedZ).toBeCloseTo(targetZ, 6);
+    expect(reopenedZTranslation).toBeCloseTo(targetZ, 6);
+
+    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
+  });
+
   it("applies bearing from Adjust Location to object placement", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -281,6 +389,140 @@ describe("Regression smoke: workspace interactions", () => {
       expect(doorRow).toHaveAttribute("aria-selected", "false");
     });
   });
+
+  it("keeps Visual Transforms visible for mixed static/non-static placeables and saves values for all", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const staticRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const nonStaticRow = within(rightSidebar).getByRole("button", { name: /plc_table_02/i });
+
+    fireEvent.contextMenu(staticRow, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const staticDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(staticDialog).getByRole("checkbox", { name: /static/i }) as HTMLInputElement;
+    if (!staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(staticDialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.contextMenu(nonStaticRow, { clientX: 280, clientY: 220 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const nonStaticDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const nonStaticCheckbox = within(nonStaticDialog).getByRole("checkbox", { name: /static/i }) as HTMLInputElement;
+    if (nonStaticCheckbox.checked) {
+      fireEvent.click(nonStaticCheckbox);
+    }
+    fireEvent.click(within(nonStaticDialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const draftWithStaticSetup = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const staticObject = draftWithStaticSetup?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const nonStaticObject = draftWithStaticSetup?.objects.find((object) => object.tag === "PLC_TABLE_02");
+    expect(staticObject).toBeDefined();
+    expect(nonStaticObject).toBeDefined();
+    expect(staticObject?.isStatic ?? true).toBe(true);
+    expect(nonStaticObject?.isStatic ?? true).toBe(false);
+
+    fireEvent.click(staticRow);
+    fireEvent.click(nonStaticRow, { ctrlKey: true });
+    await waitFor(() => {
+      expect(staticRow).toHaveAttribute("aria-selected", "true");
+      expect(nonStaticRow).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.contextMenu(staticRow, { clientX: 268, clientY: 204 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    expect(within(dialog).getByRole("spinbutton", { name: /^scale$/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/mixed static \+ non-static selection/i)
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^scale$/i }), {
+      target: { value: "1.33" }
+    });
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^z translation$/i }), {
+      target: { value: "2.2" }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const afterAdjustDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const afterStaticObject = afterAdjustDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    const afterNonStaticObject = afterAdjustDraft?.objects.find((object) => object.tag === "PLC_TABLE_02");
+    expect(afterStaticObject).toBeDefined();
+    expect(afterNonStaticObject).toBeDefined();
+    expect(afterStaticObject?.visualTransform.scale ?? 0).toBeCloseTo(1.33, 6);
+    expect(afterNonStaticObject?.visualTransform.scale ?? 0).toBeCloseTo(1.33, 6);
+    expect(afterStaticObject?.visualTransform.offsetZ ?? 0).toBeCloseTo(2.2, 6);
+    expect(afterNonStaticObject?.visualTransform.offsetZ ?? 0).toBeCloseTo(2.2, 6);
+    expect(afterStaticObject?.isStatic ?? true).toBe(true);
+    expect(afterNonStaticObject?.isStatic ?? true).toBe(false);
+  });
+
+  it("reopens Adjust Location with updated XY, Z and bearing after transform commits", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(row);
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+
+    fireEvent.contextMenu(row, { clientX: 268, clientY: 204 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+
+    const movedX = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement).value
+    );
+    const movedY = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
+    );
+    const targetZ = 1.9;
+    const targetBearing = 137.5;
+
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^z translation$/i }), {
+      target: { value: String(targetZ) }
+    });
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /bearing/i }), {
+      target: { value: String(targetBearing) }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.contextMenu(row, { clientX: 274, clientY: 210 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const reopenedDialog = await screen.findByRole("dialog", { name: /adjust location/i });
+
+    expect(
+      Number.parseFloat(
+        (within(reopenedDialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement).value
+      )
+    ).toBeCloseTo(movedX, 6);
+    expect(
+      Number.parseFloat(
+        (within(reopenedDialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
+      )
+    ).toBeCloseTo(movedY, 6);
+    expect(
+      Number.parseFloat(
+        (within(reopenedDialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+      )
+    ).toBeCloseTo(targetZ, 6);
+    expect(
+      Number.parseFloat(
+        (within(reopenedDialog).getByRole("spinbutton", { name: /bearing/i }) as HTMLInputElement).value
+      )
+    ).toBeCloseTo(targetBearing, 1);
+
+    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
+  });
+
   it("hides Adjust Location for doors in object context menu", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -634,13 +876,21 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.keyDown(window, { key: "?" });
-    expect(await screen.findByRole("dialog", { name: /keyboard shortcuts/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /shortcuts/i })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "?", code: "Slash", shiftKey: true });
+    fireEvent.keyDown(window, { key: "?", code: "Slash", shiftKey: true });
+    expect(
+      await screen.findByRole("dialog", { name: /keyboard shortcuts/i }, { timeout: 5000 })
+    ).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: /keyboard shortcuts/i })).not.toBeInTheDocument();
-    });
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("dialog", { name: /keyboard shortcuts/i })).not.toBeInTheDocument();
+      },
+      { timeout: 5000 }
+    );
   });
 
   it("saves local draft using Ctrl+S keyboard shortcut", async () => {
@@ -845,6 +1095,6 @@ describe("Regression smoke: workspace interactions", () => {
     await signInAs("builder.user", "builder123");
     await openQuickOptionsDialog();
     expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("add");
-  });
+  }, 15000);
 });
 

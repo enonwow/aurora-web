@@ -19,6 +19,21 @@ Lock the expected Aurora behavior for the `Adjust Location` workflow and static-
    - `OK`
    - `Cancel`
 
+## Current Implementation Status (aurora-web)
+Status: `IMPLEMENTED` (MVP), with known deltas.
+
+Implemented now:
+1. Dialog shell and controls are live in viewport runtime.
+2. `Apply` commits and keeps dialog open; `OK` commits and closes.
+3. `Cancel` restores object placement snapshot captured at dialog open.
+4. Multi-selection is supported; one apply step updates all selected editable targets.
+5. `Bearing` input accepts full-turn value (`360`) and keeps it stable in UI.
+6. `Visual Transforms` are visible only when all edited objects are in visual-transform-eligible kinds (`placeables`, `creatures`, `items`).
+
+Notable current delta from strict parity target:
+1. Static placeables are still movable via generic move flows (keyboard/gizmo); only visual-transform rendering is gated by `Static`.
+2. Field clamp/precision rules are currently generic MVP clamps, not final Aurora hard-confirm values.
+
 ## Dialog Variants
 1. Base variant:
    - `Position` + `Orientation` only.
@@ -50,6 +65,9 @@ Lock the expected Aurora behavior for the `Adjust Location` workflow and static-
 7. `door` context menu does not expose `Adjust Location`.
 8. `Apply`/`OK`/`Cancel` semantics remain the same in both base and extended variants.
 9. Edit-history behavior for this dialog is step-based (`Undo/Redo` by edit step, not as one grouped drag gesture).
+
+Implementation note (2026-05-24):
+1. In current frontend code, `Adjust Location` is available for movable non-door kinds (`placeables`, `creatures`, `items`, `sounds`), not only static objects.
 
 ## Multi-Selection Semantics
 1. `Adjust Location` is allowed for multi-selection (operator-responsibility model).
@@ -83,7 +101,19 @@ Lock the expected Aurora behavior for the `Adjust Location` workflow and static-
 3. `Static` state must be explicit in object metadata and preserved in roundtrip.
 4. `door` move/edit flows must not assume context-menu `Adjust Location` availability.
 
+Current guardrail coverage in code:
+1. Door guardrails are implemented and tested (context menu + mutation-level transform blocking).
+2. Static-object generic-move guardrail is not yet enforced.
+
 ## Open Questions (to close with next evidence)
 1. Numeric ranges, clamping rules, and precision/step constraints for:
    - `X`, `Y`, `Z`, `Bearing`
    - `Scale`, `X/Y/Z Rotation`, `X/Y/Z Translation`
+
+## Backlog Hooks
+Code now:
+1. Enforce static-placeable move policy in generic transform/arrow move paths.
+2. Add regression tests for repeated `Apply` and multi-selection restore history semantics.
+
+Retail-hard-confirm later:
+1. Finalize exact numeric clamps/precision and orientation-dial snapping math from retail evidence.

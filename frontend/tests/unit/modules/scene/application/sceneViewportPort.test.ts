@@ -14,6 +14,7 @@ describe("sceneViewportPort", () => {
     const history = createSceneHistory(seed);
     const committedHistory = createSceneHistory(nextScene);
     const createdObject = seed.objects[0];
+    const orderedSelectionIds = [seed.objects[1].id, seed.objects[0].id];
 
     const bundle: SceneFacadeBundle = {
       canvas: {
@@ -70,7 +71,7 @@ describe("sceneViewportPort", () => {
     );
     const updatedAbsoluteLocation = port.setObjectsAbsoluteLocationByIds(
       seed,
-      [seed.objects[0].id],
+      orderedSelectionIds,
       { x: 1.2, y: 0.6, z: 0.3, bearing: 0.7 }
     );
     const updatedVisualTransform = port.setObjectsVisualTransformByIds(
@@ -147,7 +148,7 @@ describe("sceneViewportPort", () => {
     );
     expect(bundle.mutations.setObjectsAbsoluteLocationByIds).toHaveBeenCalledWith(
       seed,
-      [seed.objects[0].id],
+      orderedSelectionIds,
       { x: 1.2, y: 0.6, z: 0.3, bearing: 0.7 }
     );
     expect(bundle.mutations.setObjectsVisualTransformByIds).toHaveBeenCalledWith(
@@ -196,5 +197,57 @@ describe("sceneViewportPort", () => {
       snapGridStep: 0.25
     });
     expect(bundle.authoring.getSceneScale).toHaveBeenCalledWith(seed.width, seed.height);
+  });
+
+  it("preserves no-op scene reference and objectIds order for absolute-location delegation", () => {
+    const seed = createSeedAreaScene();
+    const orderedSelectionIds = [seed.objects[2].id, seed.objects[0].id, seed.objects[1].id];
+    const bundle: SceneFacadeBundle = {
+      canvas: {
+        createInitialHistory: vi.fn(() => createSceneHistory(seed)),
+        saveLocalDraft: vi.fn()
+      },
+      history: {
+        commit: vi.fn((history) => history),
+        undo: vi.fn((history) => history),
+        redo: vi.fn((history) => history)
+      },
+      mutations: {
+        appendObjects: vi.fn(() => seed),
+        deleteObjectsByIds: vi.fn(() => seed),
+        deleteObjectById: vi.fn(() => seed),
+        setPlaceablePropertiesByIds: vi.fn(() => seed),
+        setObjectsAbsoluteLocationByIds: vi.fn(() => seed),
+        setObjectsVisualTransformByIds: vi.fn(() => seed),
+        restoreObjectsPlacementBySnapshots: vi.fn(() => seed),
+        translateObjectsByIds: vi.fn(() => seed),
+        adjustObjectsHeightByIds: vi.fn(() => seed),
+        rotateObjectsBearingByIds: vi.fn(() => seed),
+        updateTileTerrain: vi.fn(() => seed),
+        resetObjectTransform: vi.fn(() => seed)
+      },
+      authoring: {
+        createObject: vi.fn(() => seed.objects[0]),
+        resolveCopyAnchor: vi.fn(() => null),
+        computeCopyTranslation: vi.fn(() => null),
+        createSeedObjectsSnapshot: vi.fn(() => seed.objects),
+        getSceneScale: vi.fn(() => 1)
+      }
+    };
+
+    const port = createSceneViewportPort(bundle);
+    const nextScene = port.setObjectsAbsoluteLocationByIds(seed, orderedSelectionIds, {
+      x: 0.9,
+      y: 1.1,
+      z: 0.2,
+      bearing: 0.3
+    });
+
+    expect(nextScene).toBe(seed);
+    expect(bundle.mutations.setObjectsAbsoluteLocationByIds).toHaveBeenCalledWith(
+      seed,
+      orderedSelectionIds,
+      { x: 0.9, y: 1.1, z: 0.2, bearing: 0.3 }
+    );
   });
 });
