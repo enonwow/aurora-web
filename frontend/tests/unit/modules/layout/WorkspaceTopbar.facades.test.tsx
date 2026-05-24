@@ -173,4 +173,47 @@ describe("WorkspaceTopbar facades injection", () => {
     expect(onAction).toHaveBeenCalledWith("redo");
     expect(onAction.mock.calls.filter(([action]) => action === "redo")).toHaveLength(2);
   });
+
+  it("switches gizmo mode with 1/2 and keeps 3 inactive until visual transform scale is enabled", () => {
+    const groups: ToolbarGroup[] = [
+      {
+        key: "canvas",
+        label: "Canvas",
+        actions: [
+          { key: "canvas_gizmo_translate", label: "Move", status: "mvp", supported: true },
+          { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true },
+          { key: "canvas_gizmo_scale", label: "Scale", status: "post_mvp", supported: true }
+        ]
+      }
+    ];
+    const chromeFacade = createChromeFacadeMock({ groups, quickActions: [], shortcuts: [] });
+    const topbarActionStateFacade = createTopbarActionStateFacadeMock();
+    const onAction = vi.fn();
+
+    render(
+      <WorkspaceTopbar
+        isAuthenticated={true}
+        role="builder"
+        workspaceChromeFacade={chromeFacade}
+        workspaceTopbarActionStateFacade={topbarActionStateFacade}
+        toolbarState={createToolbarState()}
+        layoutTheme={DEFAULT_LAYOUT_THEME}
+        onLayoutThemeChange={() => undefined}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        onWorkspaceOptionsChange={() => undefined}
+        onAction={onAction}
+        showDebugPanel={false}
+        onToggleDebug={() => undefined}
+        onSignOut={() => undefined}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "1" });
+    fireEvent.keyDown(window, { key: "2" });
+    fireEvent.keyDown(window, { key: "3" });
+
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_translate");
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_rotate");
+    expect(onAction).not.toHaveBeenCalledWith("canvas_gizmo_scale");
+  });
 });

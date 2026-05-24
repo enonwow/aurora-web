@@ -23,7 +23,7 @@ export interface SceneMutationsFacade {
     delta: SceneObjectTranslationDelta
   ): AreaScene;
   adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene;
-  rotateObjectsPitchByIds(scene: AreaScene, objectIds: string[], deltaPitchRad: number): AreaScene;
+  rotateObjectsBearingByIds(scene: AreaScene, objectIds: string[], deltaBearingRad: number): AreaScene;
 }
 
 const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
@@ -348,12 +348,12 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       }
       return replaceSceneObjects(scene, nextObjects);
     },
-    rotateObjectsPitchByIds(
+    rotateObjectsBearingByIds(
       scene: AreaScene,
       objectIds: string[],
-      deltaPitchRad: number
+      deltaBearingRad: number
     ): AreaScene {
-      if (objectIds.length === 0 || deltaPitchRad === 0) {
+      if (objectIds.length === 0 || deltaBearingRad === 0) {
         return scene;
       }
 
@@ -369,10 +369,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         }
         return {
           ...object,
-          visualTransform: {
-            ...object.visualTransform,
-            pitch: object.visualTransform.pitch + deltaPitchRad
-          }
+          bearing: object.bearing + deltaBearingRad
         };
       });
       return replaceSceneObjects(scene, nextObjects);

@@ -31,7 +31,7 @@ describe("sceneViewportPort", () => {
         deleteObjectById: vi.fn(() => nextScene),
         translateObjectsByIds: vi.fn(() => nextScene),
         adjustObjectsHeightByIds: vi.fn(() => nextScene),
-        rotateObjectsPitchByIds: vi.fn(() => nextScene),
+        rotateObjectsBearingByIds: vi.fn(() => nextScene),
         updateTileTerrain: vi.fn(() => nextScene),
         resetObjectTransform: vi.fn(() => nextScene)
       },
@@ -56,7 +56,7 @@ describe("sceneViewportPort", () => {
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
     const translated = port.translateObjectsByIds(seed, [seed.objects[0].id], { x: 0.5, y: -0.25 });
     const adjustedHeight = port.adjustObjectsHeightByIds(seed, [seed.objects[0].id], 0.4);
-    const rotatedPitch = port.rotateObjectsPitchByIds(seed, [seed.objects[0].id], 0.2);
+    const rotatedBearing = port.rotateObjectsBearingByIds(seed, [seed.objects[0].id], 0.2);
     const retiled = port.updateTileTerrain(seed, seed.tiles[0].id, "wall");
     const reset = port.resetObjectTransform(seed, seed.objects[0].id);
     const created = port.createObject("items", 1, 2, 7);
@@ -82,7 +82,7 @@ describe("sceneViewportPort", () => {
     expect(deletedOne).toBe(nextScene);
     expect(translated).toBe(nextScene);
     expect(adjustedHeight).toBe(nextScene);
-    expect(rotatedPitch).toBe(nextScene);
+    expect(rotatedBearing).toBe(nextScene);
     expect(retiled).toBe(nextScene);
     expect(reset).toBe(nextScene);
     expect(created).toBe(createdObject);
@@ -108,7 +108,7 @@ describe("sceneViewportPort", () => {
       [seed.objects[0].id],
       0.4
     );
-    expect(bundle.mutations.rotateObjectsPitchByIds).toHaveBeenCalledWith(
+    expect(bundle.mutations.rotateObjectsBearingByIds).toHaveBeenCalledWith(
       seed,
       [seed.objects[0].id],
       0.2

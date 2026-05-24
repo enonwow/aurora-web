@@ -263,21 +263,19 @@ describe("sceneMutationsFacade", () => {
     expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(0.8);
   });
 
-  it("rotates movable object pitch around X axis", () => {
+  it("rotates movable object bearing around Y axis", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const movable = scene.objects.find((object) => object.kind === "creatures");
     expect(movable).toBeDefined();
 
-    const nextScene = facade.rotateObjectsPitchByIds(scene, [movable!.id], 0.3);
+    const nextScene = facade.rotateObjectsBearingByIds(scene, [movable!.id], 0.3);
     const changed = nextScene.objects.find((object) => object.id === movable!.id);
 
-    expect(changed?.visualTransform.pitch).toBeCloseTo(
-      (movable?.visualTransform.pitch ?? 0) + 0.3
-    );
+    expect(changed?.bearing).toBeCloseTo((movable?.bearing ?? 0) + 0.3);
   });
 
-  it("blocks height and pitch changes when selection contains doors", () => {
+  it("blocks height and bearing changes when selection contains doors", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const door = scene.objects.find((object) => object.kind === "doors");
@@ -286,9 +284,9 @@ describe("sceneMutationsFacade", () => {
     expect(placeable).toBeDefined();
 
     const heightAdjusted = facade.adjustObjectsHeightByIds(scene, [door!.id, placeable!.id], 0.2);
-    const pitchRotated = facade.rotateObjectsPitchByIds(scene, [door!.id, placeable!.id], 0.1);
+    const bearingRotated = facade.rotateObjectsBearingByIds(scene, [door!.id, placeable!.id], 0.1);
 
     expect(heightAdjusted).toBe(scene);
-    expect(pitchRotated).toBe(scene);
+    expect(bearingRotated).toBe(scene);
   });
 });

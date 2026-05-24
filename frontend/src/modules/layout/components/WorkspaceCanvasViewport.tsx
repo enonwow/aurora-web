@@ -105,14 +105,15 @@ interface TransformGestureState {
   axis: string | null;
   objectIds: string[];
   startAnchorPosition: THREE.Vector3;
-  startAnchorRotationX: number;
+  startAnchorRotationY: number;
+  startAnchorQuaternion: THREE.Quaternion;
   sourceObjects: SceneObject[];
   sourceMeshPositions: Map<string, THREE.Vector3>;
   sourceMeshRotations: Map<string, THREE.Euler>;
   deltaX: number;
   deltaY: number;
   deltaZ: number;
-  deltaPitchRad: number;
+  deltaBearingRad: number;
 }
 
 function createIdleTransformGestureState(): TransformGestureState {
@@ -122,14 +123,15 @@ function createIdleTransformGestureState(): TransformGestureState {
     axis: null,
     objectIds: [],
     startAnchorPosition: new THREE.Vector3(),
-    startAnchorRotationX: 0,
+    startAnchorRotationY: 0,
+    startAnchorQuaternion: new THREE.Quaternion(),
     sourceObjects: [],
     sourceMeshPositions: new Map<string, THREE.Vector3>(),
     sourceMeshRotations: new Map<string, THREE.Euler>(),
     deltaX: 0,
     deltaY: 0,
     deltaZ: 0,
-    deltaPitchRad: 0
+    deltaBearingRad: 0
   };
 }
 
@@ -1822,8 +1824,8 @@ export function WorkspaceCanvasViewport({
     transformControls.enabled = true;
     transformControls.setSpace("world");
     transformControls.setMode(gizmoMode);
-    transformControls.showX = true;
-    transformControls.showY = gizmoMode === "translate";
+    transformControls.showX = gizmoMode === "translate";
+    transformControls.showY = gizmoMode === "rotate";
     transformControls.showZ = gizmoMode === "translate";
     // Keep gizmo interaction continuous/predictable; keyboard nudges still use snap rules.
     transformControls.setTranslationSnap(null);
@@ -1849,7 +1851,7 @@ export function WorkspaceCanvasViewport({
       runtime.controls.enabled = !isDragging;
     };
 
-    const handleMouseDown = () => {
+    const startTransformGesture = () => {
       const mode = transformControls.getMode() as "translate" | "rotate" | "scale";
       const objectIds = selectedObjectIds.filter((id) => {
         const object = objectById.get(id);
@@ -1897,15 +1899,20 @@ export function WorkspaceCanvasViewport({
         axis: transformControls.axis,
         objectIds,
         startAnchorPosition: runtime.transformAnchor.position.clone(),
-        startAnchorRotationX: runtime.transformAnchor.rotation.x,
+        startAnchorRotationY: runtime.transformAnchor.rotation.y,
+        startAnchorQuaternion: runtime.transformAnchor.quaternion.clone(),
         sourceObjects,
         sourceMeshPositions,
         sourceMeshRotations,
         deltaX: 0,
         deltaY: 0,
         deltaZ: 0,
-        deltaPitchRad: 0
+        deltaBearingRad: 0
       };
+    };
+
+    const handleMouseDown = () => {
+      startTransformGesture();
     };
 
     const handleMouseUp = () => {
@@ -1959,14 +1966,14 @@ export function WorkspaceCanvasViewport({
       }
 
       if (gesture.mode === "rotate") {
-        const deltaPitchRad = gesture.deltaPitchRad;
-        const hasRotationDelta = Math.abs(deltaPitchRad) > epsilon;
+        const deltaBearingRad = gesture.deltaBearingRad;
+        const hasRotationDelta = Math.abs(deltaBearingRad) > epsilon;
         if (hasRotationDelta) {
           setSceneHistory((current) => {
-            const nextScene = sceneViewportPort.rotateObjectsPitchByIds(
+            const nextScene = sceneViewportPort.rotateObjectsBearingByIds(
               current.present,
               gesture.objectIds,
-              deltaPitchRad
+              deltaBearingRad
             );
             if (nextScene === current.present) {
               return current;
@@ -1974,11 +1981,11 @@ export function WorkspaceCanvasViewport({
             return sceneViewportPort.commitHistory(current, nextScene);
           });
           setSelectedTileId(null);
-          trackTelemetry("scene.objects.rotate_pitch", {
+          trackTelemetry("scene.objects.rotate_bearing", {
             userId,
-            source: "gizmo_rotate_pitch_x",
+            source: "gizmo_rotate_bearing_y",
             rotatedCount: gesture.objectIds.length,
-            deltaPitchRad
+            deltaBearingRad
           });
         }
       }
@@ -1987,7 +1994,11 @@ export function WorkspaceCanvasViewport({
     };
 
     const handleObjectChange = () => {
-      const gesture = transformGestureRef.current;
+      let gesture = transformGestureRef.current;
+      if ((!gesture.active || gesture.objectIds.length === 0) && transformControls.dragging) {
+        startTransformGesture();
+        gesture = transformGestureRef.current;
+      }
       if (!gesture.active || gesture.objectIds.length === 0) {
         return;
       }
@@ -2044,10 +2055,31 @@ export function WorkspaceCanvasViewport({
 
       if (gesture.mode === "rotate") {
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
-        const rawDeltaPitch = runtime.transformAnchor.rotation.x - gesture.startAnchorRotationX;
-        const deltaPitchRad =
-          axis.includes("X") && Math.abs(rawDeltaPitch) > 1e-5 ? rawDeltaPitch : 0;
-        gesture.deltaPitchRad = deltaPitchRad;
+        const supportsBearingDelta = axis.includes("Y") || axis === "E" || axis === "XYZE";
+        let deltaBearingRad = 0;
+        if (supportsBearingDelta) {
+          const up = new THREE.Vector3(0, 1, 0);
+          const forward = new THREE.Vector3(0, 0, 1);
+          const startForward = forward.applyQuaternion(gesture.startAnchorQuaternion);
+          const currentForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
+            runtime.transformAnchor.quaternion
+          );
+          startForward.y = 0;
+          currentForward.y = 0;
+          if (startForward.lengthSq() > epsilon && currentForward.lengthSq() > epsilon) {
+            startForward.normalize();
+            currentForward.normalize();
+            const cross = new THREE.Vector3().crossVectors(startForward, currentForward);
+            const dot = THREE.MathUtils.clamp(startForward.dot(currentForward), -1, 1);
+            deltaBearingRad = Math.atan2(cross.dot(up), dot);
+          } else {
+            deltaBearingRad = runtime.transformAnchor.rotation.y - gesture.startAnchorRotationY;
+          }
+          if (Math.abs(deltaBearingRad) <= epsilon) {
+            deltaBearingRad = 0;
+          }
+        }
+        gesture.deltaBearingRad = deltaBearingRad;
 
         gesture.objectIds.forEach((id) => {
           const mesh = runtime.objectMeshById.get(id);
@@ -2056,8 +2088,8 @@ export function WorkspaceCanvasViewport({
             return;
           }
           mesh.rotation.set(
-            sourceRotation.x + deltaPitchRad,
-            sourceRotation.y,
+            sourceRotation.x,
+            sourceRotation.y + deltaBearingRad,
             sourceRotation.z
           );
         });
@@ -3009,7 +3041,7 @@ export function WorkspaceCanvasViewport({
     : "Not saved yet";
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: translate XYZ / rotate X | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: translate XYZ / rotate bearing (Y) | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;

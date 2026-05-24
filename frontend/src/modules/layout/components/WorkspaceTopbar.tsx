@@ -129,6 +129,9 @@ export function WorkspaceTopbar({
     ];
     const canvasWorkflowShortcuts: KeyboardShortcut[] = [
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
+      { key: "1", description: "Switch gizmo to Move mode." },
+      { key: "2", description: "Switch gizmo to Rotate (bearing) mode." },
+      { key: "3", description: "Reserved for Visual Transform scale mode (not active yet)." },
       { key: "Arrow keys / Shift + Arrow", description: "Move selected object(s) in scene." },
       { key: "Ctrl/Cmd + C", description: "Copy selected object(s)." },
       { key: "Ctrl/Cmd + X", description: "Cut selected object(s)." },
@@ -205,6 +208,13 @@ export function WorkspaceTopbar({
 
     const hasUndo = quickActions.some((action) => action.key === "undo");
     const hasRedo = quickActions.some((action) => action.key === "redo");
+    const supportedActionKeys = new Set(
+      sectionGroups.flatMap((group) =>
+        group.actions.filter((action) => action.supported).map((action) => action.key)
+      )
+    );
+    const hasGizmoTranslate = supportedActionKeys.has("canvas_gizmo_translate");
+    const hasGizmoRotate = supportedActionKeys.has("canvas_gizmo_rotate");
 
     const handleKeyboardShortcuts = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
@@ -223,6 +233,22 @@ export function WorkspaceTopbar({
       if (event.key === "Escape") {
         setIsShortcutsOpen(false);
         setIsQuickOptionsOpen(false);
+        return;
+      }
+
+      const isDigit1 =
+        event.key === "1" || event.code === "Digit1" || event.code === "Numpad1";
+      if (!isMeta && !event.altKey && !event.shiftKey && isDigit1 && hasGizmoTranslate) {
+        event.preventDefault();
+        onAction("canvas_gizmo_translate");
+        return;
+      }
+
+      const isDigit2 =
+        event.key === "2" || event.code === "Digit2" || event.code === "Numpad2";
+      if (!isMeta && !event.altKey && !event.shiftKey && isDigit2 && hasGizmoRotate) {
+        event.preventDefault();
+        onAction("canvas_gizmo_rotate");
         return;
       }
 
@@ -332,9 +358,9 @@ export function WorkspaceTopbar({
       <section className="canvas-drawer-group">
         <h3>Transform</h3>
         <div className="topbar-nav-buttons topbar-nav-buttons-compact">
-          {renderCanvasActionButton("canvas_gizmo_translate", "Move (W)")}
-          {renderCanvasActionButton("canvas_gizmo_rotate", "Rotate (E)")}
-          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (R)")}
+          {renderCanvasActionButton("canvas_gizmo_translate", "Move (1)")}
+          {renderCanvasActionButton("canvas_gizmo_rotate", "Rotate (2)")}
+          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (3)")}
           {renderCanvasActionButton("snap_grid_toggle", "Snap Grid")}
           {renderCanvasActionButton("snap_angle_toggle", "Snap Angle")}
           {renderCanvasActionButton("snap_height_toggle", "Snap Height")}

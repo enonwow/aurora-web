@@ -32,3 +32,7 @@
    - `doors` do not participate in generic `visualTransform` editing
    - multi-selection transform must be blocked if selection contains `doors`
    - add unit + regression coverage for these constraints before merge
+12. Aurora window-shell policy is mandatory (`frontend/AURORA_WINDOW_SHELLS_POLICY.md`):
+   - mirror Aurora property-window structure first (tabs/groups/labels/layout)
+   - activate behaviors incrementally using explicit states: `ACTIVE_NOW`, `PRESERVE_ONLY`, `POST_MVP_DISABLED`
+   - unsupported controls must be visible and non-destructive (no silent payload mutation/loss)

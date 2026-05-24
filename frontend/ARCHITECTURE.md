@@ -72,3 +72,16 @@ These constraints are part of `Aurora First` parity and are not optional UI pref
 3. Multi-selection transform is blocked when selection contains at least one `door`.
 4. Bulk move/transform operations apply only to movable kinds (`placeables`, `creatures`, `items`, `sounds`) and still respect layer locks.
 5. If future work requires moving a door, it must go through a dedicated door-anchor workflow (not shared transform tools).
+6. `door` context actions should not expose generic `Adjust Location` in parity mode.
+
+## Aurora Reverse-Engineering Notes (Sound Positioning)
+1. Sound positioning parity rules are tracked in:
+   - `frontend/AURORA_SOUND_POSITIONING_PARITY.md`
+
+## Aurora Reverse-Engineering Notes (Adjust Location)
+1. Static-object `Adjust Location` and `Static` semantics are tracked in:
+   - `frontend/AURORA_ADJUST_LOCATION_PARITY.md`
+
+## Aurora Reverse-Engineering Notes (Window Shells)
+1. Property-window parity and phased activation policy are tracked in:
+   - `frontend/AURORA_WINDOW_SHELLS_POLICY.md`
