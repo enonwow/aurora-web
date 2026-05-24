@@ -33,19 +33,38 @@ To jest backendowy odpowiednik ustawien z PoC:
     - wynikowa liste `hakPriorityList`
     - wynikowe sciezki `hakPaths`
 
+- `GET /api/v1/settings/runtime/module-cache?limit=200`
+  - tylko rola `admin`
+  - zwraca stan cache modulu w blobie:
+    - bucket/prefix,
+    - liczbe i rozmiar obiektow,
+    - liste kluczy pod prefixem.
+
+- `POST /api/v1/settings/runtime/module-cache/rebuild`
+  - tylko rola `admin`
+  - dodatkowo permission: `admin.config.write`
+  - synchronizuje cache modulu w blob storage:
+    - z `moduleDecompiledPath` (priorytet),
+    - albo z `modulePackedPath` (gdy decompiled jest puste).
+  - domyslnie dziala inkrementalnie (`forceFull=false`) na podstawie hashy plikow.
+  - opcjonalnie `?forceFull=true` wymusza pelny rebuild.
+
 ## Uwaga operacyjna
 - API nie wystartuje, jezeli oba pola sa puste:
   - `paths.moduleDecompiledPath`
   - `paths.modulePackedPath`
 - Priorytet zrodel modulu:
   - jezeli ustawione sa oba pola (`moduleDecompiledPath` i `modulePackedPath`), backend korzysta z `moduleDecompiledPath` jako zrodla nadrzednego,
-  - w takim przypadku sync z `.mod` do bloba jest pomijany.
+  - przy starcie backend wykonuje inkrementalny sync cache (chyba ze bootstrap sync jest wylaczony dla testow/flag).
 - Jezeli `paths.modulePackedPath` jest ustawione:
   - `blobStorage.bucket` jest wymagane juz na walidacji payloadu API,
-  - backend przy starcie czyta kontener `.mod` (ERF),
-  - buduje snapshot plikow zasobow,
-  - czysci prefix `blobStorage.modulePrefix` w bucketcie,
-  - wrzuca aktualny snapshot do bloba (SeaweedFS/S3).
+  - backend odczytuje kontener `.mod` (ERF) i porownuje snapshot po hashach.
+- Strategia cache snapshotu:
+  - backend liczy `moduleHash` (hash globalny snapshotu) i hash per plik zasobu.
+  - jezeli `moduleHash` sie nie zmienil -> status `noop` (brak upload/delete).
+  - jezeli `moduleHash` sie zmienil -> uploadowane sa tylko pliki `changed/added`, usuwane tylko `deleted`.
+  - pliki `unchanged` zostaja nietkniete w blobie.
+  - manifest hashy jest zapisywany w bucketcie (metadane snapshotu), zeby kolejne uruchomienia nie robily full recache.
 - Walidacja requestu `PUT` wymusza co najmniej jedna sciezke modulu (`moduleDecompiledPath` lub `modulePackedPath`).
 - Walidacja requestu `PUT` sprawdza, czy `sources.<asset>.hakProfileId` wskazuje istniejacy profil w `hakProfiles`.
 - Rozwiazywanie list hakow odbywa sie z priorytetem:
@@ -55,3 +74,9 @@ To jest backendowy odpowiednik ustawien z PoC:
   - brak listy i profilu -> tryb `none`.
 - Lokalne sciezki `exports` / `cache` nie sa juz utrzymywane w runtime settings; dane robocze i cache trzymamy w blob storage.
 - W docker-compose domyslny endpoint bloba to `http://seaweedfs:8333` (nazwa uslugi compose).
+
+## Skrypt CLI
+- `npm run cache:module:sync`
+  - uruchamia ten sam flow co endpoint `module-cache/rebuild` w trybie inkrementalnym.
+- `npm run cache:module:sync -- --force-full`
+  - wymusza pelny rebuild snapshotu.

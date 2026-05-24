@@ -1,4 +1,7 @@
-import { parseReplaceRuntimeSettingsRequest } from "../../src/modules/runtime-settings/adapters/inbound/http/runtime-settings.schemas";
+import {
+  parseModuleCacheRebuildQuery,
+  parseReplaceRuntimeSettingsRequest
+} from "../../src/modules/runtime-settings/adapters/inbound/http/runtime-settings.schemas";
 import { buildDefaultRuntimeSettings } from "../../src/modules/runtime-settings/domain/runtime-settings.defaults";
 
 const POC_MODULE_PACKED_PATH =
@@ -40,6 +43,24 @@ describe("runtime settings payload schema", () => {
 
     expect(() => parseReplaceRuntimeSettingsRequest(payload)).toThrow(
       "Runtime settings validation failed."
+    );
+  });
+});
+
+describe("module cache rebuild query schema", () => {
+  it("defaults forceFull to false", () => {
+    expect(parseModuleCacheRebuildQuery({})).toEqual({ forceFull: false });
+  });
+
+  it("accepts forceFull=true string", () => {
+    expect(parseModuleCacheRebuildQuery({ forceFull: "true" })).toEqual({
+      forceFull: true
+    });
+  });
+
+  it("rejects invalid forceFull value", () => {
+    expect(() => parseModuleCacheRebuildQuery({ forceFull: "abc" })).toThrow(
+      "Module cache rebuild query validation failed."
     );
   });
 });

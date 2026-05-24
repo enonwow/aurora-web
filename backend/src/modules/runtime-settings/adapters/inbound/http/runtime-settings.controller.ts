@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Req } from "@nestjs/common";
+import { Body, Controller, Get, Post, Put, Query, Req } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,7 +11,11 @@ import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { RuntimeSettingsApplicationService } from "../../../application/runtime-settings.application.service";
-import { parseReplaceRuntimeSettingsRequest } from "./runtime-settings.schemas";
+import {
+  parseModuleCacheRebuildQuery,
+  parseModuleCacheSummaryQuery,
+  parseReplaceRuntimeSettingsRequest
+} from "./runtime-settings.schemas";
 
 @Controller("settings/runtime")
 @ApiTags("runtime-settings")
@@ -44,6 +48,44 @@ export class RuntimeSettingsController {
   @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
   async getResolvedHakSettings(@Req() request: AppRequest) {
     const data = await this.settingsService.getResolvedHakSettings();
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("module-cache")
+  @ApiOperation({
+    summary:
+      "List module cache objects currently stored in blob bucket under module prefix."
+  })
+  @ApiResponse({ status: 200, description: "Module cache object summary." })
+  @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
+  async getModuleCacheSummary(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    const parsed = parseModuleCacheSummaryQuery(query);
+    const data = await this.settingsService.getModuleBlobCacheSummary(parsed.limit);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("module-cache/rebuild")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync module cache in blob storage from configured module source (decompiled path preferred, otherwise packed module). Default mode is incremental by per-file hash; use forceFull=true for full rebuild."
+  })
+  @ApiResponse({ status: 200, description: "Module cache sync completed." })
+  @ApiResponse({ status: 422, description: "Validation or source configuration failed." })
+  async rebuildModuleCache(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    const parsed = parseModuleCacheRebuildQuery(query);
+    const data = await this.settingsService.rebuildModuleBlobCache(
+      request.auth!.user.username,
+      {
+        forceFull: parsed.forceFull
+      }
+    );
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 

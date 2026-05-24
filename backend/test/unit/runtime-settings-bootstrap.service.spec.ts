@@ -1,223 +1,120 @@
 import { RuntimeSettingsBootstrapService } from "../../src/modules/runtime-settings/application/runtime-settings-bootstrap.service";
-import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
-import type { PackedModuleExtractorPort } from "../../src/modules/runtime-settings/application/ports/packed-module-extractor.port";
-import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
-import type { RuntimeSettingsRecord } from "../../src/modules/runtime-settings/domain/runtime-settings.types";
-
-const POC_PATHS = {
-  vanillaDataPath:
-    "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/data",
-  hakDirectoryPath: "C:/Users/enonw/Documents/Neverwinter Nights/hak",
-  moduleDecompiledPath:
-    "C:/Users/enonw/Documents/Neverwinter Nights/LC-Decompiled/temp0",
-  modulePackedPath: "C:/Users/enonw/Documents/Neverwinter Nights/modules/the_last_city.mod",
-  tlkBasePath:
-    "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/lang/en/data/dialog.tlk",
-  tlkCustomPath: ""
-} as const;
+import type { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
 
 describe("RuntimeSettingsBootstrapService", () => {
-  let repository: jest.Mocked<RuntimeSettingsRepositoryPort>;
-  let packedModuleExtractor: jest.Mocked<PackedModuleExtractorPort>;
-  let moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort>;
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousBootstrapFlag = process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC;
+  let settingsService: jest.Mocked<RuntimeSettingsApplicationService>;
   let service: RuntimeSettingsBootstrapService;
 
-  beforeEach(() => {
-    repository = {
-      get: jest.fn(),
-      save: jest.fn()
-    };
-    packedModuleExtractor = {
-      extractFromPackedModule: jest.fn()
-    };
-    moduleBlobStorage = {
-      replaceModuleSnapshot: jest.fn()
-    };
+  beforeAll(() => {
+    process.env.NODE_ENV = "development";
+    delete process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC;
+  });
 
-    service = new RuntimeSettingsBootstrapService(
-      repository,
-      packedModuleExtractor,
-      moduleBlobStorage
+  afterAll(() => {
+    process.env.NODE_ENV = previousNodeEnv;
+    if (previousBootstrapFlag === undefined) {
+      delete process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC;
+    } else {
+      process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC = previousBootstrapFlag;
+    }
+  });
+
+  beforeEach(() => {
+    settingsService = {
+      getRuntimeSettings: jest.fn(),
+      getResolvedHakSettings: jest.fn(),
+      replaceRuntimeSettings: jest.fn(),
+      getModuleBlobCacheSummary: jest.fn(),
+      syncModuleBlobCache: jest.fn(),
+      rebuildModuleBlobCache: jest.fn()
+    } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
+
+    service = new RuntimeSettingsBootstrapService(settingsService);
+  });
+
+  it("runs incremental module cache sync on startup", async () => {
+    settingsService.syncModuleBlobCache.mockResolvedValue({
+      mode: "incremental",
+      source: {
+        type: "decompiled",
+        path: "C:/module/temp0"
+      },
+      sync: {
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-v2",
+        previousModuleHash: "hash-v1",
+        status: "updated",
+        uploadedFiles: 4,
+        uploadedBytes: 4096,
+        deletedFiles: 1,
+        deletedBytes: 1024,
+        unchangedFiles: 20,
+        totalFiles: 24
+      },
+      settingsRevision: 7,
+      triggeredBy: "system.bootstrap",
+      triggeredAt: "2026-05-24T08:00:00.000Z"
+    });
+
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    expect(settingsService.syncModuleBlobCache).toHaveBeenCalledWith(
+      "system.bootstrap",
+      { forceFull: false }
     );
   });
 
-  it("fails startup when both module paths are missing", async () => {
-    repository.get.mockResolvedValue(
-      buildSettingsRecord({
-        moduleDecompiledPath: "",
-        modulePackedPath: ""
-      })
+  it("also succeeds when nothing changed (noop hash)", async () => {
+    settingsService.syncModuleBlobCache.mockResolvedValue({
+      mode: "incremental",
+      source: {
+        type: "packed",
+        path: "C:/modules/the_last_city.mod"
+      },
+      sync: {
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-v2",
+        previousModuleHash: "hash-v2",
+        status: "noop",
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        deletedFiles: 0,
+        deletedBytes: 0,
+        unchangedFiles: 24,
+        totalFiles: 24
+      },
+      settingsRevision: 8,
+      triggeredBy: "system.bootstrap",
+      triggeredAt: "2026-05-24T08:10:00.000Z"
+    });
+
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    expect(settingsService.syncModuleBlobCache).toHaveBeenCalledWith(
+      "system.bootstrap",
+      { forceFull: false }
+    );
+  });
+
+  it("fails startup when sync throws", async () => {
+    settingsService.syncModuleBlobCache.mockRejectedValue(
+      new Error("Runtime settings invalid")
     );
 
     await expect(service.onApplicationBootstrap()).rejects.toThrow(
-      "either paths.moduleDecompiledPath or paths.modulePackedPath"
+      "Runtime settings invalid"
     );
-    expect(packedModuleExtractor.extractFromPackedModule).not.toHaveBeenCalled();
-    expect(moduleBlobStorage.replaceModuleSnapshot).not.toHaveBeenCalled();
   });
 
-  it("skips packed-module sync when modulePackedPath is empty", async () => {
-    repository.get.mockResolvedValue(
-      buildSettingsRecord({
-        moduleDecompiledPath: POC_PATHS.moduleDecompiledPath,
-        modulePackedPath: ""
-      })
-    );
-
-    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
-    expect(packedModuleExtractor.extractFromPackedModule).not.toHaveBeenCalled();
-    expect(moduleBlobStorage.replaceModuleSnapshot).not.toHaveBeenCalled();
-  });
-
-  it("prefers decompiled module path when both paths are configured", async () => {
-    repository.get.mockResolvedValue(
-      buildSettingsRecord({
-        moduleDecompiledPath: POC_PATHS.moduleDecompiledPath,
-        modulePackedPath: POC_PATHS.modulePackedPath
-      })
-    );
-
-    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
-    expect(packedModuleExtractor.extractFromPackedModule).not.toHaveBeenCalled();
-    expect(moduleBlobStorage.replaceModuleSnapshot).not.toHaveBeenCalled();
-  });
-
-  it("extracts packed module and uploads snapshot to blob storage", async () => {
-    const settings = buildSettingsRecord({
-      moduleDecompiledPath: "",
-      modulePackedPath: POC_PATHS.modulePackedPath
-    });
-    repository.get.mockResolvedValue(settings);
-    packedModuleExtractor.extractFromPackedModule.mockResolvedValue([
-      {
-        fileName: "module.ifo",
-        resourceType: 2014,
-        bytes: Buffer.from("module-data")
-      }
-    ]);
-    moduleBlobStorage.replaceModuleSnapshot.mockResolvedValue({
-      bucket: "aurora-module-assets",
-      prefix: "modules/current/",
-      uploadedFiles: 1,
-      uploadedBytes: 11
-    });
-
-    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
-    expect(packedModuleExtractor.extractFromPackedModule).toHaveBeenCalledWith(
-      POC_PATHS.modulePackedPath
-    );
-    expect(moduleBlobStorage.replaceModuleSnapshot).toHaveBeenCalledWith(
-      settings.blobStorage,
-      expect.arrayContaining([
-        expect.objectContaining({ fileName: "module.ifo", resourceType: 2014 })
-      ])
-    );
+  it("skips bootstrap sync when disabled by flag", async () => {
+    process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC = "false";
+    try {
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+      expect(settingsService.syncModuleBlobCache).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC;
+    }
   });
 });
-
-function buildSettingsRecord(paths: {
-  moduleDecompiledPath: string;
-  modulePackedPath: string;
-}): RuntimeSettingsRecord {
-  return {
-    revision: 1,
-    updatedAt: "2026-05-23T12:00:00.000Z",
-    updatedBy: "admin.user",
-    paths: {
-      vanillaDataPath: POC_PATHS.vanillaDataPath,
-      hakDirectoryPath: POC_PATHS.hakDirectoryPath,
-      moduleDecompiledPath: paths.moduleDecompiledPath,
-      modulePackedPath: paths.modulePackedPath,
-      tlkBasePath: POC_PATHS.tlkBasePath,
-      tlkCustomPath: POC_PATHS.tlkCustomPath
-    },
-    blobStorage: {
-      endpoint: "http://localhost:8333",
-      region: "us-east-1",
-      bucket: "aurora-module-assets",
-      modulePrefix: "modules/current",
-      accessKeyId: "seaweedfs",
-      secretAccessKey: "seaweedfs-secret",
-      forcePathStyle: true
-    },
-    telemetryDebugMode: "full",
-    hakProfiles: {
-      lc_core: ["lc_core.hak"],
-      lc_models: ["lc_placeables.hak", "lc_creatures.hak"],
-      lc_tiles: ["lc_tiles.hak"],
-      lc_audio: ["lc_sounds.hak"]
-    },
-    sources: {
-      placeable: baseSource(),
-      tile: baseSource(),
-      area: baseSource(),
-      sound: {
-        ...baseSource(),
-        includeVanilla: false
-      }
-    },
-    benchmarkCandidates: {
-      placeableHeavyNoVfx: baseCandidate("c_wingsmeph", 659, 16, 0),
-      placeableHeavyVfx: baseCandidate("ad_top_lion_1", 798, 28, 1),
-      placeableVfxPlcAlternative: baseCandidate("plc_x02", 112, 5, 3),
-      doorHeavyInstance: baseCandidate(
-        "tn_sdoor_14",
-        250,
-        10,
-        0,
-        "wnd_slms_swamp__with_placeables",
-        12
-      ),
-      doorHeavySingleMesh: {
-        ...baseCandidate(
-          "tn_gdoor_05",
-          190,
-          6,
-          0,
-          "wnd_slms_swamp__with_placeables",
-          8
-        ),
-        metrics: {
-          triangles: 190,
-          meshes: 6,
-          emitters: 0,
-          maxSingleMeshTriangles: 102
-        }
-      }
-    }
-  };
-}
-
-function baseSource() {
-  return {
-    includeModuleTemp0: true,
-    includeModulePacked: false,
-    includeHaks: true,
-    includeVanilla: true,
-    hakProfileId: "lc_core",
-    hakPriorityList: []
-  };
-}
-
-function baseCandidate(
-  resref: string,
-  triangles: number,
-  meshes: number,
-  emitters: number,
-  areaResref?: string,
-  doorIndex?: number
-) {
-  return {
-    resref,
-    metrics: {
-      triangles,
-      meshes,
-      emitters
-    },
-    context: {
-      source: areaResref ? "area-data" : "scene.json",
-      areaResref,
-      doorIndex
-    }
-  };
-}

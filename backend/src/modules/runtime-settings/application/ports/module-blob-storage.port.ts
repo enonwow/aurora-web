@@ -6,13 +6,49 @@ export const MODULE_BLOB_STORAGE = Symbol("MODULE_BLOB_STORAGE");
 export interface ModuleBlobSyncResult {
   bucket: string;
   prefix: string;
+  moduleHash: string;
+  previousModuleHash?: string;
+  status: "noop" | "updated";
   uploadedFiles: number;
   uploadedBytes: number;
+  deletedFiles: number;
+  deletedBytes: number;
+  unchangedFiles: number;
+  totalFiles: number;
+}
+
+export interface ModuleBlobObjectSummary {
+  key: string;
+  size: number;
+  lastModified?: string;
+  etag?: string;
+}
+
+export interface ModuleBlobSnapshotSummary {
+  bucket: string;
+  prefix: string;
+  moduleHash?: string;
+  totalFiles: number;
+  totalBytes: number;
+  objects: ModuleBlobObjectSummary[];
+  truncated: boolean;
+  continuationToken?: string;
 }
 
 export interface ModuleBlobStoragePort {
   replaceModuleSnapshot(
     settings: BlobStorageSettings,
-    files: PackedModuleFile[]
+    files: PackedModuleFile[],
+    options?: {
+      forceFull?: boolean;
+    }
   ): Promise<ModuleBlobSyncResult>;
+
+  listModuleSnapshot(
+    settings: BlobStorageSettings,
+    options?: {
+      limit?: number;
+      continuationToken?: string;
+    }
+  ): Promise<ModuleBlobSnapshotSummary>;
 }
