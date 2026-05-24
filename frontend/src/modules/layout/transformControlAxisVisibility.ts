@@ -1,0 +1,21 @@
+export type GizmoMode = "translate" | "rotate" | "scale";
+
+export interface TransformControlAxisVisibility {
+  showX: boolean;
+  showY: boolean;
+  showZ: boolean;
+}
+
+export function resolveTransformControlAxisVisibility(
+  gizmoMode: GizmoMode
+): TransformControlAxisVisibility {
+  if (gizmoMode === "translate") {
+    // In Aurora-style coordinates, height is stored as Z while the 3D up axis remains Y.
+    // Keeping Y visible in translate mode preserves vertical movement editing.
+    return { showX: true, showY: true, showZ: true };
+  }
+  if (gizmoMode === "rotate") {
+    return { showX: false, showY: true, showZ: false };
+  }
+  return { showX: false, showY: false, showZ: false };
+}

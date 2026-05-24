@@ -88,6 +88,7 @@ function createSeedObjects(width: number, height: number): SceneObject[] {
     y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
     bearing: entry.bearing ?? 0,
     visualTransform: {
+      scale: 1,
       offsetX: 0,
       offsetY: 0,
       offsetZ: 0,
@@ -146,6 +147,7 @@ export function createNewSceneObject(
     y,
     bearing: 0,
     visualTransform: {
+      scale: 1,
       offsetX: 0,
       offsetY: 0,
       offsetZ: 0,

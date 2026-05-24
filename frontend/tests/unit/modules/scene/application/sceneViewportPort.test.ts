@@ -29,6 +29,9 @@ describe("sceneViewportPort", () => {
         appendObjects: vi.fn(() => nextScene),
         deleteObjectsByIds: vi.fn(() => nextScene),
         deleteObjectById: vi.fn(() => nextScene),
+        setObjectsAbsoluteLocationByIds: vi.fn(() => nextScene),
+        setObjectsVisualTransformByIds: vi.fn(() => nextScene),
+        restoreObjectsPlacementBySnapshots: vi.fn(() => nextScene),
         translateObjectsByIds: vi.fn(() => nextScene),
         adjustObjectsHeightByIds: vi.fn(() => nextScene),
         rotateObjectsBearingByIds: vi.fn(() => nextScene),
@@ -54,6 +57,25 @@ describe("sceneViewportPort", () => {
     const appended = port.appendObjects(seed, []);
     const deletedMany = port.deleteObjectsByIds(seed, [seed.objects[0].id]);
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
+    const updatedAbsoluteLocation = port.setObjectsAbsoluteLocationByIds(
+      seed,
+      [seed.objects[0].id],
+      { x: 1.2, y: 0.6, z: 0.3, bearing: 0.7 }
+    );
+    const updatedVisualTransform = port.setObjectsVisualTransformByIds(
+      seed,
+      [seed.objects[0].id],
+      {
+        scale: 1.1,
+        offsetX: 0.25,
+        offsetY: -0.1,
+        offsetZ: 0.4,
+        pitch: 0.12,
+        yaw: -0.2,
+        roll: 0.3
+      }
+    );
+    const restoredFromSnapshots = port.restoreObjectsPlacementBySnapshots(seed, [seed.objects[0]]);
     const translated = port.translateObjectsByIds(seed, [seed.objects[0].id], { x: 0.5, y: -0.25 });
     const adjustedHeight = port.adjustObjectsHeightByIds(seed, [seed.objects[0].id], 0.4);
     const rotatedBearing = port.rotateObjectsBearingByIds(seed, [seed.objects[0].id], 0.2);
@@ -80,6 +102,9 @@ describe("sceneViewportPort", () => {
     expect(appended).toBe(nextScene);
     expect(deletedMany).toBe(nextScene);
     expect(deletedOne).toBe(nextScene);
+    expect(updatedAbsoluteLocation).toBe(nextScene);
+    expect(updatedVisualTransform).toBe(nextScene);
+    expect(restoredFromSnapshots).toBe(nextScene);
     expect(translated).toBe(nextScene);
     expect(adjustedHeight).toBe(nextScene);
     expect(rotatedBearing).toBe(nextScene);
@@ -98,6 +123,27 @@ describe("sceneViewportPort", () => {
     expect(bundle.mutations.appendObjects).toHaveBeenCalledWith(seed, []);
     expect(bundle.mutations.deleteObjectsByIds).toHaveBeenCalledWith(seed, [seed.objects[0].id]);
     expect(bundle.mutations.deleteObjectById).toHaveBeenCalledWith(seed, seed.objects[0].id);
+    expect(bundle.mutations.setObjectsAbsoluteLocationByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      { x: 1.2, y: 0.6, z: 0.3, bearing: 0.7 }
+    );
+    expect(bundle.mutations.setObjectsVisualTransformByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      {
+        scale: 1.1,
+        offsetX: 0.25,
+        offsetY: -0.1,
+        offsetZ: 0.4,
+        pitch: 0.12,
+        yaw: -0.2,
+        roll: 0.3
+      }
+    );
+    expect(bundle.mutations.restoreObjectsPlacementBySnapshots).toHaveBeenCalledWith(seed, [
+      seed.objects[0]
+    ]);
     expect(bundle.mutations.translateObjectsByIds).toHaveBeenCalledWith(
       seed,
       [seed.objects[0].id],

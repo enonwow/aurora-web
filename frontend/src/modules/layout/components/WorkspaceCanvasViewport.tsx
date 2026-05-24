@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  MouseEvent as ReactMouseEvent
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent
 } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -25,6 +27,12 @@ import type { ViewportFacade } from "../application/viewportFacade";
 import { buildCanvasGridSegments, MASTER_CELLS_PER_TILE } from "../canvasGrid";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
 import { isContextMenuGesture, isCtrlPanGesture } from "../viewportPointerPolicy";
+import { resolveTransformControlAxisVisibility } from "../transformControlAxisVisibility";
+import { normalizeBearingDegrees } from "../../scene/domain/bearing";
+import {
+  BASE_AXES_HELPER_SIZE,
+  resolveAxesHelperTransform
+} from "../axesHelperFacade";
 
 type WorkspaceCanvasViewportFacade = Pick<
   ViewportFacade,
@@ -93,11 +101,51 @@ interface ContextMenuState {
   objectKind: SceneObjectKind;
 }
 
+interface AdjustLocationDraft {
+  x: number;
+  y: number;
+  z: number;
+  bearingDeg: number;
+  scale: number;
+  xRotationDeg: number;
+  yRotationDeg: number;
+  zRotationDeg: number;
+  xTranslation: number;
+  yTranslation: number;
+  zTranslation: number;
+}
+
+interface AdjustLocationDialogState {
+  objectIds: string[];
+  snapshotObjects: SceneObject[];
+  draft: AdjustLocationDraft;
+  showVisualTransforms: boolean;
+  windowX: number;
+  windowY: number;
+  collapsed: boolean;
+}
+
+interface AdjustLocationDialogDragState {
+  active: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface BearingDialDragState {
+  active: boolean;
+  pointerId: number | null;
+}
+
 interface DragMoveState {
   active: boolean;
   lastWorld: { x: number; y: number } | null;
   objectIds: string[];
 }
+
+const ADJUST_LOCATION_DIALOG_MARGIN_PX = 12;
+const ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX = 520;
+const ADJUST_LOCATION_DIALOG_FALLBACK_HEIGHT_PX = 420;
 
 interface TransformGestureState {
   active: boolean;
@@ -179,8 +227,6 @@ const TILE_GEOMETRY_Y = 0;
 const LIGHT_COLOR = 0xffffff;
 const BACKGROUND_COLOR = 0x0c1420;
 const ORBIT_MOUSE_DISABLED = -1 as unknown as THREE.MOUSE;
-const BASE_AXES_HELPER_SIZE = 4.2;
-
 const OBJECT_KIND_BY_SCOPE: Partial<Record<SelectionScope, SceneObjectKind>> = {
   creatures: "creatures",
   doors: "doors",
@@ -221,6 +267,11 @@ const MOVE_ALLOWED_KINDS = new Set<SceneObjectKind>([
   "items",
   "sounds"
 ]);
+const VISUAL_TRANSFORM_EDITABLE_KINDS = new Set<SceneObjectKind>([
+  "placeables",
+  "creatures",
+  "items"
+]);
 
 type DebugState = WorkspaceToolbarState["canvasDebug"];
 type MockRenderStatus = "ok" | "warning" | "error" | "non_render";
@@ -233,6 +284,80 @@ const STATUS_COLOR: Record<MockRenderStatus, string> = {
 };
 
 const CHUNK_SIZE = 4;
+const DEGREES_PER_RADIAN = 180 / Math.PI;
+const RADIANS_PER_DEGREE = Math.PI / 180;
+
+function toDegrees(radians: number): number {
+  return normalizeBearingDegrees(radians * DEGREES_PER_RADIAN);
+}
+
+function toRadians(degrees: number): number {
+  return normalizeBearingDegrees(degrees) * RADIANS_PER_DEGREE;
+}
+
+function normalizeBearingDegreesForInput(value: number): number {
+  const normalized = normalizeBearingDegrees(value);
+  if (value > 0 && normalized === 0) {
+    return 360;
+  }
+  return normalized;
+}
+
+function toAdjustLocationCoordinate(
+  worldCoordinate: number,
+  sceneSize: number,
+  unitsPerTile: number
+): number {
+  const sceneMax = resolveSceneCoordinateMax(sceneSize);
+  return Math.max(0, (sceneMax - worldCoordinate) * unitsPerTile);
+}
+
+function fromAdjustLocationCoordinate(
+  adjustCoordinate: number,
+  sceneSize: number,
+  unitsPerTile: number
+): number {
+  const sceneMax = resolveSceneCoordinateMax(sceneSize);
+  const nextWorld = sceneMax - adjustCoordinate / unitsPerTile;
+  return Math.min(sceneMax, Math.max(SCENE_COORDINATE_MIN, nextWorld));
+}
+
+function buildAdjustLocationDraft(
+  source: SceneObject,
+  unitsPerTile: number,
+  sceneWidth: number,
+  sceneHeight: number
+): AdjustLocationDraft {
+  return {
+    x: toAdjustLocationCoordinate(source.x, sceneWidth, unitsPerTile),
+    y: toAdjustLocationCoordinate(source.y, sceneHeight, unitsPerTile),
+    z: source.visualTransform.offsetZ,
+    bearingDeg: toDegrees(source.bearing),
+    scale: source.visualTransform.scale,
+    xRotationDeg: toDegrees(source.visualTransform.pitch),
+    yRotationDeg: toDegrees(source.visualTransform.yaw),
+    zRotationDeg: toDegrees(source.visualTransform.roll),
+    xTranslation: source.visualTransform.offsetX,
+    yTranslation: source.visualTransform.offsetY,
+    zTranslation: source.visualTransform.offsetZ
+  };
+}
+
+function areAdjustLocationDraftsEqual(left: AdjustLocationDraft, right: AdjustLocationDraft): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.z === right.z &&
+    left.bearingDeg === right.bearingDeg &&
+    left.scale === right.scale &&
+    left.xRotationDeg === right.xRotationDeg &&
+    left.yRotationDeg === right.yRotationDeg &&
+    left.zRotationDeg === right.zRotationDeg &&
+    left.xTranslation === right.xTranslation &&
+    left.yTranslation === right.yTranslation &&
+    left.zTranslation === right.zTranslation
+  );
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -825,6 +950,7 @@ function rebuildObjectMeshes(
     }
 
     const mesh = new THREE.Mesh(geometry, material);
+    const visualScale = Math.max(0.01, object.visualTransform.scale);
     mesh.position.set(
       object.x + object.visualTransform.offsetX,
       objectBaseY + object.visualTransform.offsetZ,
@@ -835,10 +961,11 @@ function rebuildObjectMeshes(
       object.bearing + object.visualTransform.yaw,
       object.visualTransform.roll
     );
+    mesh.scale.setScalar(visualScale);
 
     if (selectedSet.has(object.id)) {
       material.emissive = new THREE.Color("#ffd87f");
-      mesh.scale.setScalar(1.16);
+      mesh.scale.setScalar(visualScale * 1.16);
     }
 
     mesh.userData = {
@@ -878,12 +1005,18 @@ function rebuildObjectMeshes(
   });
 }
 
-function updateAxesHelperForScene(runtime: RuntimeState, sceneData: AreaScene, sceneScale: number): void {
-  const axesSize = THREE.MathUtils.clamp(BASE_AXES_HELPER_SIZE * sceneScale, 0.34, BASE_AXES_HELPER_SIZE);
-  const axesScale = axesSize / BASE_AXES_HELPER_SIZE;
-
-  runtime.axesHelper.position.set(sceneData.width / 2, 0.02, sceneData.height / 2);
-  runtime.axesHelper.scale.setScalar(axesScale);
+function updateAxesHelperForScene(
+  runtime: RuntimeState,
+  sceneData: AreaScene,
+  sceneScale: number
+): void {
+  const transform = resolveAxesHelperTransform(sceneData.width, sceneData.height, sceneScale);
+  runtime.axesHelper.position.set(
+    transform.positionX,
+    transform.positionY,
+    transform.positionZ
+  );
+  runtime.axesHelper.scale.setScalar(transform.scale);
 }
 
 function rebuildChunkBounds(runtime: RuntimeState, sceneData: AreaScene, enabled: boolean): void {
@@ -1092,6 +1225,17 @@ export function WorkspaceCanvasViewport({
   const commandRevisionRef = useRef(0);
   const nextObjectSequenceRef = useRef(1);
   const clipboardObjectsRef = useRef<SceneObject[]>([]);
+  const adjustLocationDialogRef = useRef<HTMLElement | null>(null);
+  const adjustLocationDialogDragRef = useRef<AdjustLocationDialogDragState>({
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0
+  });
+  const bearingDialDragRef = useRef<BearingDialDragState>({
+    active: false,
+    pointerId: null
+  });
   const lastPointerWorldRef = useRef<{ x: number; y: number } | null>(null);
   const dragMoveRef = useRef<DragMoveState>({
     active: false,
@@ -1122,6 +1266,8 @@ export function WorkspaceCanvasViewport({
     currentY: 0
   });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [adjustLocationDialog, setAdjustLocationDialog] =
+    useState<AdjustLocationDialogState | null>(null);
   const [runtimePopupPinned, setRuntimePopupPinned] = useState(false);
   const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot>({
     fps: 0,
@@ -1132,6 +1278,7 @@ export function WorkspaceCanvasViewport({
   });
   const trackTelemetry = trackTelemetryEvent;
   const scene = sceneHistory.present;
+  const adjustLocationUnitsPerTile = Math.max(1, viewportFacade.defaultMasterCellsPerTile);
 
   useEffect(() => {
     onSceneObjectsSnapshotChange?.(scene.objects);
@@ -1207,7 +1354,9 @@ export function WorkspaceCanvasViewport({
     }
 
     setSelectedTileId(null);
-    setSelectedObjectIds([selectedObject.id]);
+    setSelectedObjectIds((current) =>
+      current.includes(selectedObject.id) ? current : [selectedObject.id]
+    );
     setContextMenu({
       x: localX,
       y: localY,
@@ -1824,9 +1973,10 @@ export function WorkspaceCanvasViewport({
     transformControls.enabled = true;
     transformControls.setSpace("world");
     transformControls.setMode(gizmoMode);
-    transformControls.showX = gizmoMode === "translate";
-    transformControls.showY = gizmoMode === "rotate";
-    transformControls.showZ = gizmoMode === "translate";
+    const axisVisibility = resolveTransformControlAxisVisibility(gizmoMode);
+    transformControls.showX = axisVisibility.showX;
+    transformControls.showY = axisVisibility.showY;
+    transformControls.showZ = axisVisibility.showZ;
     // Keep gizmo interaction continuous/predictable; keyboard nudges still use snap rules.
     transformControls.setTranslationSnap(null);
     transformControls.setRotationSnap(null);
@@ -2505,6 +2655,7 @@ export function WorkspaceCanvasViewport({
         return;
       }
       if (
+        event.button === 0 &&
         runtime.transformControls.enabled &&
         (runtime.transformControls.dragging || runtime.transformControls.axis !== null)
       ) {
@@ -2545,19 +2696,25 @@ export function WorkspaceCanvasViewport({
           })
         ) {
           const hitObjectId = findHitObjectId();
-          if (!hitObjectId) {
+          const selectedVisibleId =
+            selectedObjectIds.find((id) => visibleObjects.some((object) => object.id === id)) ??
+            null;
+          const targetObjectId = hitObjectId ?? selectedVisibleId;
+          if (!targetObjectId) {
             setContextMenu(null);
             return;
           }
 
-          const hitObject = visibleObjects.find((object) => object.id === hitObjectId) ?? null;
+          const hitObject = visibleObjects.find((object) => object.id === targetObjectId) ?? null;
           if (!hitObject) {
             setContextMenu(null);
             return;
           }
 
           setSelectedTileId(null);
-          setSelectedObjectIds([hitObject.id]);
+          setSelectedObjectIds((current) =>
+            current.includes(hitObject.id) ? current : [hitObject.id]
+          );
           setContextMenu({
             x: local.x,
             y: local.y,
@@ -2852,6 +3009,346 @@ export function WorkspaceCanvasViewport({
     };
   }, []);
 
+  const clampAdjustLocationDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) => {
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return { x, y };
+      }
+      const measuredRect = panelRect ?? adjustLocationDialogRef.current?.getBoundingClientRect() ?? null;
+      const panelWidth = measuredRect?.width ?? ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX;
+      const panelHeight = measuredRect?.height ?? ADJUST_LOCATION_DIALOG_FALLBACK_HEIGHT_PX;
+      const maxX = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.width - panelWidth - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      const maxY = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.height - panelHeight - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      return {
+        x: Math.min(Math.max(x, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxX),
+        y: Math.min(Math.max(y, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxY)
+      };
+    },
+    []
+  );
+
+  const openAdjustLocationDialog = useCallback(
+    (targets: SceneObject[]) => {
+      if (targets.length === 0) {
+        return;
+      }
+
+      const source = targets[0];
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const preferredX = hostRect
+        ? hostRect.width - ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
+        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const initialDialogPosition = clampAdjustLocationDialogPosition(preferredX, preferredY);
+      const showVisualTransforms = targets.every((object) =>
+        VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind)
+      );
+      const snapshotObjects = targets.map(cloneSceneObject);
+      setAdjustLocationDialog({
+        objectIds: targets.map((object) => object.id),
+        snapshotObjects,
+        showVisualTransforms,
+        windowX: initialDialogPosition.x,
+        windowY: initialDialogPosition.y,
+        collapsed: false,
+        draft: buildAdjustLocationDraft(
+          source,
+          adjustLocationUnitsPerTile,
+          scene.width,
+          scene.height
+        )
+      });
+      trackTelemetry("scene.adjust_location.open", {
+        userId,
+        selectedCount: targets.length,
+        visualTransforms: showVisualTransforms
+      });
+    },
+    [
+      adjustLocationUnitsPerTile,
+      clampAdjustLocationDialogPosition,
+      cloneSceneObject,
+      scene.height,
+      scene.width,
+      trackTelemetry,
+      userId
+    ]
+  );
+
+  const updateAdjustLocationDraftField = useCallback(
+    (field: keyof AdjustLocationDraft, rawValue: string) => {
+      const nextValue = Number(rawValue);
+      if (!Number.isFinite(nextValue)) {
+        return;
+      }
+      const sanitizedValue =
+        field === "bearingDeg" ? normalizeBearingDegreesForInput(nextValue) : nextValue;
+      setAdjustLocationDialog((current) =>
+        current
+          ? {
+              ...current,
+              draft: {
+                ...current.draft,
+                [field]: sanitizedValue,
+                ...(field === "z"
+                  ? { zTranslation: sanitizedValue }
+                  : field === "zTranslation"
+                    ? { z: sanitizedValue }
+                    : {})
+              }
+            }
+          : current
+      );
+    },
+    []
+  );
+
+  const updateBearingByDialPointer = useCallback(
+    (target: HTMLElement, clientX: number, clientY: number) => {
+      const rect = target.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const deltaX = clientX - centerX;
+      const deltaY = clientY - centerY;
+      // Aurora preview convention: 0 at top (12 o'clock), angles increase counterclockwise.
+      const nextBearingDeg = normalizeBearingDegrees(
+        Math.atan2(-deltaX, -deltaY) * DEGREES_PER_RADIAN
+      );
+      setAdjustLocationDialog((current) =>
+        current
+          ? {
+              ...current,
+              draft: {
+                ...current.draft,
+                bearingDeg: nextBearingDeg
+              }
+            }
+          : current
+      );
+    },
+    []
+  );
+
+  const startBearingDialDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      bearingDialDragRef.current = {
+        active: true,
+        pointerId: event.pointerId
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      updateBearingByDialPointer(event.currentTarget, event.clientX, event.clientY);
+      event.preventDefault();
+    },
+    [updateBearingByDialPointer]
+  );
+
+  const moveBearingDialDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = bearingDialDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      updateBearingByDialPointer(event.currentTarget, event.clientX, event.clientY);
+      event.preventDefault();
+    },
+    [updateBearingByDialPointer]
+  );
+
+  const endBearingDialDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const drag = bearingDialDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    bearingDialDragRef.current = {
+      active: false,
+      pointerId: null
+    };
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
+  const applyAdjustLocationDraft = useCallback(
+    (closeAfterApply: boolean) => {
+      if (!adjustLocationDialog || adjustLocationDialog.objectIds.length === 0) {
+        return;
+      }
+
+      const draft = adjustLocationDialog.draft;
+      const objectIds = adjustLocationDialog.objectIds;
+      const includeVisualTransforms = adjustLocationDialog.showVisualTransforms;
+
+      setSceneHistory((current) => {
+        let nextScene = sceneViewportPort.setObjectsAbsoluteLocationByIds(
+          current.present,
+          objectIds,
+          {
+            x: fromAdjustLocationCoordinate(draft.x, scene.width, adjustLocationUnitsPerTile),
+            y: fromAdjustLocationCoordinate(draft.y, scene.height, adjustLocationUnitsPerTile),
+            z: draft.z,
+            bearing: toRadians(draft.bearingDeg)
+          }
+        );
+        if (includeVisualTransforms) {
+          nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, objectIds, {
+            scale: draft.scale,
+            offsetX: draft.xTranslation,
+            offsetY: draft.yTranslation,
+            offsetZ: draft.z,
+            pitch: toRadians(draft.xRotationDeg),
+            yaw: toRadians(draft.yRotationDeg),
+            roll: toRadians(draft.zRotationDeg)
+          });
+        }
+        if (nextScene === current.present) {
+          return current;
+        }
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+
+      trackTelemetry("scene.adjust_location.apply", {
+        userId,
+        selectedCount: objectIds.length,
+        closeAfterApply,
+        visualTransforms: includeVisualTransforms
+      });
+
+      if (closeAfterApply) {
+        setAdjustLocationDialog(null);
+      }
+    },
+    [
+      adjustLocationDialog,
+      adjustLocationUnitsPerTile,
+      scene.height,
+      scene.width,
+      sceneViewportPort,
+      trackTelemetry,
+      userId
+    ]
+  );
+
+  const cancelAdjustLocationDialog = useCallback(() => {
+    if (adjustLocationDialog && adjustLocationDialog.snapshotObjects.length > 0) {
+      setSceneHistory((current) => {
+        const restoredScene = sceneViewportPort.restoreObjectsPlacementBySnapshots(
+          current.present,
+          adjustLocationDialog.snapshotObjects
+        );
+        if (restoredScene === current.present) {
+          return current;
+        }
+        return sceneViewportPort.commitHistory(current, restoredScene);
+      });
+      trackTelemetry("scene.adjust_location.cancel", {
+        userId,
+        selectedCount: adjustLocationDialog.snapshotObjects.length
+      });
+    }
+    setAdjustLocationDialog(null);
+  }, [adjustLocationDialog, sceneViewportPort, trackTelemetry, userId]);
+
+  const toggleAdjustLocationDialogCollapsed = useCallback(() => {
+    setAdjustLocationDialog((current) =>
+      current
+        ? {
+            ...current,
+            collapsed: !current.collapsed
+          }
+        : current
+    );
+  }, []);
+
+  const startAdjustLocationDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !adjustLocationDialog) {
+        return;
+      }
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button")) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const panelRect = adjustLocationDialogRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+
+      const resolvedX = panelRect
+        ? panelRect.left - hostRect.left
+        : adjustLocationDialog.windowX;
+      const resolvedY = panelRect
+        ? panelRect.top - hostRect.top
+        : adjustLocationDialog.windowY;
+
+      adjustLocationDialogDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - (hostRect.left + resolvedX),
+        offsetY: event.clientY - (hostRect.top + resolvedY)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [adjustLocationDialog]
+  );
+
+  const moveAdjustLocationDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = adjustLocationDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+      const desiredX = event.clientX - hostRect.left - drag.offsetX;
+      const desiredY = event.clientY - hostRect.top - drag.offsetY;
+      const nextPosition = clampAdjustLocationDialogPosition(desiredX, desiredY);
+      setAdjustLocationDialog((current) =>
+        current
+          ? {
+              ...current,
+              windowX: nextPosition.x,
+              windowY: nextPosition.y
+            }
+          : current
+      );
+      event.preventDefault();
+    },
+    [clampAdjustLocationDialogPosition]
+  );
+
+  const endAdjustLocationDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = adjustLocationDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      adjustLocationDialogDragRef.current = {
+        active: false,
+        pointerId: null,
+        offsetX: 0,
+        offsetY: 0
+      };
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -2880,6 +3377,49 @@ export function WorkspaceCanvasViewport({
 
       if (isKindLocked(toolbarState.canvasDebug, contextObj.kind)) {
         trackTelemetry("scene.context_menu.action_blocked_locked_layer", {
+          userId,
+          objectId: contextObj.id,
+          objectKind: contextObj.kind,
+          action
+        });
+        closeContextMenu();
+        return;
+      }
+
+      if (action === "adjust_location") {
+        const selectedObjects = selectedObjectIds
+          .map((id) => scene.objects.find((object) => object.id === id) ?? null)
+          .filter((object): object is SceneObject => Boolean(object));
+        const selectionIncludesContext = selectedObjects.some(
+          (object) => object.id === contextObj.id
+        );
+        const resolvedTargets =
+          selectionIncludesContext && selectedObjects.length > 1
+            ? selectedObjects
+            : [contextObj];
+        const editableTargets = resolvedTargets.filter(
+          (object) =>
+            MOVE_ALLOWED_KINDS.has(object.kind) &&
+            !isKindLocked(toolbarState.canvasDebug, object.kind)
+        );
+        if (
+          editableTargets.length === 0 ||
+          editableTargets.some((object) => object.kind === "doors")
+        ) {
+          trackTelemetry("scene.adjust_location.blocked", {
+            userId,
+            objectId: contextObj.id,
+            objectKind: contextObj.kind,
+            selectedCount: resolvedTargets.length
+          });
+          closeContextMenu();
+          return;
+        }
+
+        setSelectedTileId(null);
+        setSelectedObjectIds(editableTargets.map((object) => object.id));
+        openAdjustLocationDialog(editableTargets);
+        trackTelemetry("scene.context_menu.action", {
           userId,
           objectId: contextObj.id,
           objectKind: contextObj.kind,
@@ -2983,12 +3523,14 @@ export function WorkspaceCanvasViewport({
       closeContextMenu();
     },
     [
+      openAdjustLocationDialog,
       closeContextMenu,
       contextMenu,
       duplicateObjects,
       focusCameraOnWorldPoint,
       scene.objects,
       sceneViewportPort,
+      selectedObjectIds,
       toolbarState.canvasDebug,
       userId
     ]
@@ -3008,6 +3550,114 @@ export function WorkspaceCanvasViewport({
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [closeContextMenu, contextMenu]);
+
+  useEffect(() => {
+    if (!adjustLocationDialog) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelAdjustLocationDialog();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [adjustLocationDialog, cancelAdjustLocationDialog]);
+
+  useEffect(() => {
+    setAdjustLocationDialog((current) => {
+      if (!current || current.objectIds.length === 0) {
+        return current;
+      }
+
+      const liveObjects = current.objectIds
+        .map((id) => scene.objects.find((object) => object.id === id) ?? null)
+        .filter((object): object is SceneObject => Boolean(object));
+      if (liveObjects.length === 0) {
+        return current;
+      }
+
+      const source = liveObjects[0];
+      const nextDraft = buildAdjustLocationDraft(
+        source,
+        adjustLocationUnitsPerTile,
+        scene.width,
+        scene.height
+      );
+      const nextShowVisualTransforms = liveObjects.every((object) =>
+        VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind)
+      );
+      if (
+        areAdjustLocationDraftsEqual(current.draft, nextDraft) &&
+        current.showVisualTransforms === nextShowVisualTransforms
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        draft: nextDraft,
+        showVisualTransforms: nextShowVisualTransforms
+      };
+    });
+  }, [adjustLocationUnitsPerTile, scene.height, scene.objects, scene.width]);
+
+  useEffect(() => {
+    if (!adjustLocationDialog) {
+      return;
+    }
+    const clampedPosition = clampAdjustLocationDialogPosition(
+      adjustLocationDialog.windowX,
+      adjustLocationDialog.windowY
+    );
+    if (
+      clampedPosition.x === adjustLocationDialog.windowX &&
+      clampedPosition.y === adjustLocationDialog.windowY
+    ) {
+      return;
+    }
+    setAdjustLocationDialog((current) =>
+      current
+        ? {
+            ...current,
+            windowX: clampedPosition.x,
+            windowY: clampedPosition.y
+          }
+        : current
+    );
+  }, [
+    adjustLocationDialog,
+    adjustLocationDialog?.collapsed,
+    adjustLocationDialog?.windowX,
+    adjustLocationDialog?.windowY,
+    clampAdjustLocationDialogPosition
+  ]);
+
+  useEffect(() => {
+    if (!adjustLocationDialog) {
+      return;
+    }
+    const handleResize = () => {
+      setAdjustLocationDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const clamped = clampAdjustLocationDialogPosition(current.windowX, current.windowY);
+        if (clamped.x === current.windowX && clamped.y === current.windowY) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: clamped.x,
+          windowY: clamped.y
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [adjustLocationDialog, clampAdjustLocationDialogPosition]);
 
   const selectedTile = selectedTileId
     ? scene.tiles.find((tile) => tile.id === selectedTileId) ?? null
@@ -3109,14 +3759,16 @@ export function WorkspaceCanvasViewport({
             <span>{contextMenu.objectKind}</span>
             {isContextObjectLocked ? <span>Layer locked</span> : null}
           </header>
-          <button
-            type="button"
-            role="menuitem"
-            disabled={isContextObjectLocked}
-            onClick={() => handleContextAction("adjust_location")}
-          >
-            Adjust location
-          </button>
+          {contextObject?.kind !== "doors" ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={isContextObjectLocked}
+              onClick={() => handleContextAction("adjust_location")}
+            >
+              Adjust location
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
@@ -3154,6 +3806,242 @@ export function WorkspaceCanvasViewport({
           >
             Delete
           </button>
+        </article>
+      ) : null}
+
+      {adjustLocationDialog ? (
+        <article
+          ref={adjustLocationDialogRef}
+          className={`canvas-adjust-location-dialog ${
+            adjustLocationDialog.collapsed ? "is-collapsed" : ""
+          }`}
+          role="dialog"
+          aria-label="Adjust location"
+          style={{
+            left: `${adjustLocationDialog.windowX}px`,
+            top: `${adjustLocationDialog.windowY}px`
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <header
+            className="canvas-adjust-location-header"
+            onPointerDown={startAdjustLocationDialogDrag}
+            onPointerMove={moveAdjustLocationDialogDrag}
+            onPointerUp={endAdjustLocationDialogDrag}
+            onPointerCancel={endAdjustLocationDialogDrag}
+          >
+            <div className="canvas-adjust-location-header-copy">
+              <h2>Adjust Location</h2>
+              <p>
+                Editing {adjustLocationDialog.objectIds.length} object
+                {adjustLocationDialog.objectIds.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            <div className="canvas-adjust-location-header-actions">
+              <button
+                type="button"
+                onClick={() => toggleAdjustLocationDialogCollapsed()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={
+                  adjustLocationDialog.collapsed
+                    ? "Expand adjust location dialog"
+                    : "Collapse adjust location dialog"
+                }
+              >
+                {adjustLocationDialog.collapsed ? "+" : "-"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelAdjustLocationDialog()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label="Close adjust location dialog"
+              >
+                x
+              </button>
+            </div>
+          </header>
+
+          {!adjustLocationDialog.collapsed ? (
+            <>
+              <section className="canvas-adjust-location-grid">
+                <fieldset className="canvas-adjust-location-group">
+                  <legend>Position</legend>
+                  <label>
+                    X
+                    <input
+                      type="number"
+                      value={adjustLocationDialog.draft.x}
+                      step="0.01"
+                      onChange={(event) =>
+                        updateAdjustLocationDraftField("x", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Y
+                    <input
+                      type="number"
+                      value={adjustLocationDialog.draft.y}
+                      step="0.01"
+                      onChange={(event) =>
+                        updateAdjustLocationDraftField("y", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Z
+                    <input
+                      type="number"
+                      value={adjustLocationDialog.draft.z}
+                      step="0.01"
+                      onChange={(event) =>
+                        updateAdjustLocationDraftField("z", event.target.value)
+                      }
+                    />
+                  </label>
+                </fieldset>
+
+                <fieldset className="canvas-adjust-location-group">
+                  <legend>Orientation</legend>
+                  <label>
+                    Bearing
+                    <input
+                      type="number"
+                      value={adjustLocationDialog.draft.bearingDeg}
+                      min="0"
+                      max="360"
+                      step="0.1"
+                      onChange={(event) =>
+                        updateAdjustLocationDraftField("bearingDeg", event.target.value)
+                      }
+                    />
+                  </label>
+                  <div
+                    className="canvas-bearing-dial"
+                    role="slider"
+                    aria-label="Bearing dial"
+                    aria-valuemin={0}
+                    aria-valuemax={360}
+                    aria-valuenow={Math.round(adjustLocationDialog.draft.bearingDeg)}
+                    style={
+                      {
+                        "--bearing-dial-angle": `${adjustLocationDialog.draft.bearingDeg}deg`
+                      } as CSSProperties
+                    }
+                    onPointerDown={startBearingDialDrag}
+                    onPointerMove={moveBearingDialDrag}
+                    onPointerUp={endBearingDialDrag}
+                    onPointerCancel={endBearingDialDrag}
+                  >
+                    <span className="canvas-bearing-dial-center" />
+                    <span className="canvas-bearing-dial-line" />
+                  </div>
+                </fieldset>
+              </section>
+
+              {adjustLocationDialog.showVisualTransforms ? (
+                <section className="canvas-adjust-location-grid">
+                  <fieldset className="canvas-adjust-location-group">
+                    <legend>Visual Transforms</legend>
+                    <label>
+                      Scale
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.scale}
+                        step="0.01"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("scale", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      X Rotation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.xRotationDeg}
+                        step="0.1"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("xRotationDeg", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Y Rotation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.yRotationDeg}
+                        step="0.1"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("yRotationDeg", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Z Rotation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.zRotationDeg}
+                        step="0.1"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("zRotationDeg", event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+
+                  <fieldset className="canvas-adjust-location-group">
+                    <legend>Visual Translation</legend>
+                    <label>
+                      X Translation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.xTranslation}
+                        step="0.01"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("xTranslation", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Y Translation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.yTranslation}
+                        step="0.01"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("yTranslation", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Z Translation
+                      <input
+                        type="number"
+                        value={adjustLocationDialog.draft.zTranslation}
+                        step="0.01"
+                        onChange={(event) =>
+                          updateAdjustLocationDraftField("zTranslation", event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              <footer className="canvas-adjust-location-actions">
+                <button type="button" onClick={() => applyAdjustLocationDraft(false)}>
+                  Apply
+                </button>
+                <button type="button" onClick={() => applyAdjustLocationDraft(true)}>
+                  OK
+                </button>
+                <button type="button" onClick={() => cancelAdjustLocationDialog()}>
+                  Cancel
+                </button>
+              </footer>
+            </>
+          ) : null}
         </article>
       ) : null}
 
@@ -3289,3 +4177,5 @@ export function WorkspaceCanvasViewport({
     </section>
   );
 }
+
+

@@ -85,6 +85,7 @@ describe("sceneMutationsFacade", () => {
               bearing: 1.4,
               visualTransform: {
                 ...object.visualTransform,
+                scale: 1.4,
                 offsetX: 0.2,
                 offsetY: -0.3,
                 offsetZ: 1.1,
@@ -102,6 +103,7 @@ describe("sceneMutationsFacade", () => {
 
     expect(resetObject?.bearing).toBe(0);
     expect(resetObject?.visualTransform).toEqual({
+      scale: 1,
       offsetX: 0,
       offsetY: 0,
       offsetZ: 0,
@@ -275,6 +277,33 @@ describe("sceneMutationsFacade", () => {
     expect(changed?.bearing).toBeCloseTo((movable?.bearing ?? 0) + 0.3);
   });
 
+  it("normalizes bearing after rotation and keeps it within 0..2pi", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const movable = scene.objects.find((object) => object.kind === "creatures");
+    expect(movable).toBeDefined();
+
+    const nearFullTurn = (Math.PI * 2) - 0.05;
+    const seeded = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === movable!.id
+          ? {
+              ...object,
+              bearing: nearFullTurn
+            }
+          : object
+      )
+    };
+
+    const nextScene = facade.rotateObjectsBearingByIds(seeded, [movable!.id], 0.1);
+    const changed = nextScene.objects.find((object) => object.id === movable!.id);
+    expect(changed).toBeDefined();
+    expect(changed!.bearing).toBeGreaterThanOrEqual(0);
+    expect(changed!.bearing).toBeLessThan(Math.PI * 2);
+    expect(changed!.bearing).toBeCloseTo(0.05, 6);
+  });
+
   it("blocks height and bearing changes when selection contains doors", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
@@ -288,5 +317,108 @@ describe("sceneMutationsFacade", () => {
 
     expect(heightAdjusted).toBe(scene);
     expect(bearingRotated).toBe(scene);
+  });
+
+  it("sets absolute location and bearing for movable selection", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.kind === "placeables");
+    const second = scene.objects.find((object) => object.kind === "items");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(
+      scene,
+      [first!.id, second!.id],
+      { x: 1.75, y: 0.25, z: 0.6, bearing: 1.2 }
+    );
+    const changedFirst = nextScene.objects.find((object) => object.id === first!.id);
+    const changedSecond = nextScene.objects.find((object) => object.id === second!.id);
+    expect(changedFirst).toBeDefined();
+    expect(changedSecond).toBeDefined();
+    expect(changedFirst?.x).toBeCloseTo(1.75);
+    expect(changedSecond?.x).toBeCloseTo(1.75);
+    expect(changedFirst?.y).toBeCloseTo(0.25);
+    expect(changedSecond?.y).toBeCloseTo(0.25);
+    expect(changedFirst?.bearing).toBeCloseTo(1.2);
+    expect(changedSecond?.bearing).toBeCloseTo(1.2);
+    expect(changedFirst?.visualTransform.offsetZ).toBeCloseTo(0.6);
+    expect(changedSecond?.visualTransform.offsetZ).toBeCloseTo(0.6);
+  });
+
+  it("normalizes absolute-location bearing input to 0..2pi", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.kind === "placeables");
+    expect(first).toBeDefined();
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(scene, [first!.id], {
+      x: 1,
+      y: 1,
+      z: 0,
+      bearing: -0.5
+    });
+    const changed = nextScene.objects.find((object) => object.id === first!.id);
+    expect(changed).toBeDefined();
+    expect(changed!.bearing).toBeGreaterThanOrEqual(0);
+    expect(changed!.bearing).toBeLessThan(Math.PI * 2);
+    expect(changed!.bearing).toBeCloseTo((Math.PI * 2) - 0.5, 6);
+  });
+
+  it("sets visual transform values and clamps scale/height floor", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "creatures");
+    expect(target).toBeDefined();
+
+    const nextScene = facade.setObjectsVisualTransformByIds(
+      scene,
+      [target!.id],
+      {
+        scale: -2,
+        offsetX: 0.35,
+        offsetY: -0.5,
+        offsetZ: -0.8,
+        pitch: 0.3,
+        yaw: -0.4,
+        roll: 0.2
+      }
+    );
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed).toBeDefined();
+    expect(changed?.visualTransform.scale).toBeCloseTo(0.01);
+    expect(changed?.visualTransform.offsetX).toBeCloseTo(0.35);
+    expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.5);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(0);
+    expect(changed?.visualTransform.pitch).toBeCloseTo(0.3);
+    expect(changed?.visualTransform.yaw).toBeCloseTo(-0.4);
+    expect(changed?.visualTransform.roll).toBeCloseTo(0.2);
+  });
+
+  it("restores object placement from snapshots", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const first = scene.objects.find((object) => object.id === "plc_barrel_01");
+    const second = scene.objects.find((object) => object.id === "itm_chest_01");
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const mutated = facade.setObjectsAbsoluteLocationByIds(
+      scene,
+      [first!.id, second!.id],
+      { x: 0.9, y: 1.2, z: 0.4, bearing: 0.35 }
+    );
+    const restored = facade.restoreObjectsPlacementBySnapshots(mutated, [first!, second!]);
+    const restoredFirst = restored.objects.find((object) => object.id === first!.id);
+    const restoredSecond = restored.objects.find((object) => object.id === second!.id);
+
+    expect(restoredFirst?.x).toBeCloseTo(first!.x);
+    expect(restoredFirst?.y).toBeCloseTo(first!.y);
+    expect(restoredFirst?.bearing).toBeCloseTo(first!.bearing);
+    expect(restoredFirst?.visualTransform.offsetZ).toBeCloseTo(first!.visualTransform.offsetZ);
+    expect(restoredSecond?.x).toBeCloseTo(second!.x);
+    expect(restoredSecond?.y).toBeCloseTo(second!.y);
+    expect(restoredSecond?.bearing).toBeCloseTo(second!.bearing);
+    expect(restoredSecond?.visualTransform.offsetZ).toBeCloseTo(second!.visualTransform.offsetZ);
   });
 });

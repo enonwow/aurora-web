@@ -5,10 +5,28 @@ import type {
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
+import { normalizeBearingRadians } from "../domain/bearing";
 
 export interface SceneObjectTranslationDelta {
   x: number;
   y: number;
+}
+
+export interface SceneObjectAbsoluteLocationInput {
+  x: number;
+  y: number;
+  z: number;
+  bearing: number;
+}
+
+export interface SceneObjectVisualTransformInput {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
 }
 
 export interface SceneMutationsFacade {
@@ -17,6 +35,17 @@ export interface SceneMutationsFacade {
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
+  setObjectsAbsoluteLocationByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneObjectAbsoluteLocationInput
+  ): AreaScene;
+  setObjectsVisualTransformByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneObjectVisualTransformInput
+  ): AreaScene;
+  restoreObjectsPlacementBySnapshots(scene: AreaScene, snapshots: SceneObject[]): AreaScene;
   translateObjectsByIds(
     scene: AreaScene,
     objectIds: string[],
@@ -36,6 +65,7 @@ const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
 const SCENE_COORDINATE_MIN = 0;
 const SCENE_COORDINATE_EPSILON = 1e-4;
 const SCENE_OBJECT_MIN_OFFSET_Z = 0;
+const SCENE_VISUAL_SCALE_MIN = 0.01;
 
 function clampNumber(value: number, min: number, max: number): number {
   if (min > max) {
@@ -74,12 +104,16 @@ function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneO
   const maxY = resolveSceneCoordinateMax(scene.height);
   const nextX = clampNumber(object.x, SCENE_COORDINATE_MIN, maxX);
   const nextY = clampNumber(object.y, SCENE_COORDINATE_MIN, maxY);
+  const nextBearing = normalizeBearingRadians(object.bearing);
   const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, object.visualTransform.offsetZ);
+  const nextScale = Math.max(SCENE_VISUAL_SCALE_MIN, object.visualTransform.scale);
 
   if (
     nextX === object.x &&
     nextY === object.y &&
-    nextOffsetZ === object.visualTransform.offsetZ
+    nextBearing === object.bearing &&
+    nextOffsetZ === object.visualTransform.offsetZ &&
+    nextScale === object.visualTransform.scale
   ) {
     return object;
   }
@@ -88,8 +122,10 @@ function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneO
     ...object,
     x: nextX,
     y: nextY,
+    bearing: nextBearing,
     visualTransform: {
       ...object.visualTransform,
+      scale: nextScale,
       offsetZ: nextOffsetZ
     }
   };
@@ -221,6 +257,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         }
         const hasTransformChange =
           object.bearing !== 0 ||
+          object.visualTransform.scale !== 1 ||
           object.visualTransform.offsetX !== 0 ||
           object.visualTransform.offsetY !== 0 ||
           object.visualTransform.offsetZ !== 0 ||
@@ -235,6 +272,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           ...object,
           bearing: 0,
           visualTransform: {
+            scale: 1,
             offsetX: 0,
             offsetY: 0,
             offsetZ: 0,
@@ -243,6 +281,163 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
             yaw: 0
           }
         };
+      });
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    setObjectsAbsoluteLocationByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneObjectAbsoluteLocationInput
+    ): AreaScene {
+      if (objectIds.length === 0) {
+        return scene;
+      }
+
+      const targets = resolveMovableTargets(scene, objectIds);
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      const maxX = resolveSceneCoordinateMax(scene.width);
+      const maxY = resolveSceneCoordinateMax(scene.height);
+      const nextX = clampNumber(input.x, SCENE_COORDINATE_MIN, maxX);
+      const nextY = clampNumber(input.y, SCENE_COORDINATE_MIN, maxY);
+      const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.z);
+      const nextBearing = normalizeBearingRadians(input.bearing);
+      const idSet = new Set(targets.map((object) => object.id));
+      let changed = false;
+
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id)) {
+          return object;
+        }
+        if (
+          object.x === nextX &&
+          object.y === nextY &&
+          object.visualTransform.offsetZ === nextOffsetZ &&
+          object.bearing === nextBearing
+        ) {
+          return object;
+        }
+        changed = true;
+        return {
+          ...object,
+          x: nextX,
+          y: nextY,
+          bearing: nextBearing,
+          visualTransform: {
+            ...object.visualTransform,
+            offsetZ: nextOffsetZ
+          }
+        };
+      });
+
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    setObjectsVisualTransformByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneObjectVisualTransformInput
+    ): AreaScene {
+      if (objectIds.length === 0) {
+        return scene;
+      }
+
+      const targets = resolveMovableTargets(scene, objectIds);
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      const nextScale = Math.max(SCENE_VISUAL_SCALE_MIN, input.scale);
+      const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.offsetZ);
+      const idSet = new Set(targets.map((object) => object.id));
+      let changed = false;
+
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id)) {
+          return object;
+        }
+        if (
+          object.visualTransform.scale === nextScale &&
+          object.visualTransform.offsetX === input.offsetX &&
+          object.visualTransform.offsetY === input.offsetY &&
+          object.visualTransform.offsetZ === nextOffsetZ &&
+          object.visualTransform.pitch === input.pitch &&
+          object.visualTransform.yaw === input.yaw &&
+          object.visualTransform.roll === input.roll
+        ) {
+          return object;
+        }
+        changed = true;
+        return {
+          ...object,
+          visualTransform: {
+            ...object.visualTransform,
+            scale: nextScale,
+            offsetX: input.offsetX,
+            offsetY: input.offsetY,
+            offsetZ: nextOffsetZ,
+            pitch: input.pitch,
+            yaw: input.yaw,
+            roll: input.roll
+          }
+        };
+      });
+
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    restoreObjectsPlacementBySnapshots(scene: AreaScene, snapshots: SceneObject[]): AreaScene {
+      if (snapshots.length === 0) {
+        return scene;
+      }
+
+      const snapshotById = new Map(snapshots.map((object) => [object.id, object]));
+      const targets = resolveMovableTargets(scene, Array.from(snapshotById.keys()));
+      if (targets.length === 0) {
+        return scene;
+      }
+
+      const targetIdSet = new Set(targets.map((object) => object.id));
+      let changed = false;
+      const nextObjects = scene.objects.map((object) => {
+        if (!targetIdSet.has(object.id)) {
+          return object;
+        }
+        const snapshot = snapshotById.get(object.id);
+        if (!snapshot) {
+          return object;
+        }
+        if (
+          object.x === snapshot.x &&
+          object.y === snapshot.y &&
+          object.bearing === snapshot.bearing &&
+          object.visualTransform.scale === snapshot.visualTransform.scale &&
+          object.visualTransform.offsetX === snapshot.visualTransform.offsetX &&
+          object.visualTransform.offsetY === snapshot.visualTransform.offsetY &&
+          object.visualTransform.offsetZ === snapshot.visualTransform.offsetZ &&
+          object.visualTransform.pitch === snapshot.visualTransform.pitch &&
+          object.visualTransform.yaw === snapshot.visualTransform.yaw &&
+          object.visualTransform.roll === snapshot.visualTransform.roll
+        ) {
+          return object;
+        }
+        changed = true;
+        return normalizeObjectPlacement(scene, {
+          ...object,
+          x: snapshot.x,
+          y: snapshot.y,
+          bearing: snapshot.bearing,
+          visualTransform: { ...snapshot.visualTransform }
+        });
       });
       if (!changed) {
         return scene;
@@ -363,15 +558,24 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       }
 
       const idSet = new Set(targets.map((object) => object.id));
+      let changed = false;
       const nextObjects = scene.objects.map((object) => {
         if (!idSet.has(object.id)) {
           return object;
         }
+        const nextBearing = normalizeBearingRadians(object.bearing + deltaBearingRad);
+        if (nextBearing === object.bearing) {
+          return object;
+        }
+        changed = true;
         return {
           ...object,
-          bearing: object.bearing + deltaBearingRad
+          bearing: nextBearing
         };
       });
+      if (!changed) {
+        return scene;
+      }
       return replaceSceneObjects(scene, nextObjects);
     }
   };

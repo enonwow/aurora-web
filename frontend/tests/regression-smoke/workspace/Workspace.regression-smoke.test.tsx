@@ -123,6 +123,176 @@ describe("Regression smoke: workspace interactions", () => {
     expect(screen.queryByRole("menu", { name: /object context menu/i })).not.toBeInTheDocument();
   });
 
+  it("supports Adjust Location apply and snapshot restore on cancel", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const beforeDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const beforeObject = beforeDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(beforeObject).toBeDefined();
+
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: /collapse adjust location dialog/i
+      })
+    );
+    expect(
+      within(dialog).queryByRole("button", {
+        name: /^apply$/i
+      })
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: /expand adjust location dialog/i
+      })
+    );
+    const xInput = within(dialog).getByRole("spinbutton", { name: /^x$/i });
+    const zInput = within(dialog).getByRole("spinbutton", { name: /^z$/i });
+    fireEvent.change(xInput, {
+      target: { value: String((beforeObject?.x ?? 0) * 10 + 4.5) }
+    });
+    fireEvent.change(zInput, {
+      target: { value: String((beforeObject?.visualTransform.offsetZ ?? 0) + 1.25) }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const afterApplyDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const afterApplyObject = afterApplyDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(afterApplyObject).toBeDefined();
+    expect((afterApplyObject?.x ?? 0) - (beforeObject?.x ?? 0)).toBeGreaterThan(0.4);
+    expect((afterApplyObject?.visualTransform.offsetZ ?? 0) - (beforeObject?.visualTransform.offsetZ ?? 0)).toBeGreaterThan(1);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+    expect(screen.queryByRole("dialog", { name: /adjust location/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const afterCancelDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const afterCancelObject = afterCancelDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(afterCancelObject).toBeDefined();
+    expect(afterCancelObject?.x).toBeCloseTo(beforeObject?.x ?? 0, 6);
+    expect(afterCancelObject?.visualTransform.offsetZ).toBeCloseTo(
+      beforeObject?.visualTransform.offsetZ ?? 0,
+      6
+    );
+  });
+
+  it("keeps Adjust Location fields in sync with canvas movement", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.click(row);
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const xInput = within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement;
+    const beforeX = Number.parseFloat(xInput.value);
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+
+    await waitFor(() => {
+      const nextX = Number.parseFloat(
+        (within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement).value
+      );
+      expect(Math.abs(nextX - beforeX)).toBeGreaterThan(5);
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+  });
+
+  it("applies bearing from Adjust Location to object placement", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const bearingInput = within(dialog).getByRole("spinbutton", { name: /bearing/i });
+    fireEvent.change(bearingInput, { target: { value: "45" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const savedDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const changed = savedDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(changed).toBeDefined();
+    expect(changed?.bearing ?? 0).toBeCloseTo(Math.PI / 4, 5);
+  });
+
+  it("keeps full-turn bearing value as 360 in Adjust Location input", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const bearingInput = within(dialog).getByRole("spinbutton", { name: /bearing/i }) as HTMLInputElement;
+    fireEvent.change(bearingInput, { target: { value: "360" } });
+
+    await waitFor(() => {
+      expect(
+        (within(dialog).getByRole("spinbutton", { name: /bearing/i }) as HTMLInputElement).value
+      ).toBe("360");
+    });
+  });
+
+
+  it("syncs selection to editable targets when opening Adjust Location from mixed selection", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
+
+    fireEvent.click(placeableRow);
+    fireEvent.click(doorRow, { ctrlKey: true });
+
+    await waitFor(() => {
+      expect(placeableRow).toHaveAttribute("aria-selected", "true");
+      expect(doorRow).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.contextMenu(placeableRow, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    await screen.findByRole("dialog", { name: /adjust location/i });
+
+    await waitFor(() => {
+      expect(placeableRow).toHaveAttribute("aria-selected", "true");
+      expect(doorRow).toHaveAttribute("aria-selected", "false");
+    });
+  });
+  it("hides Adjust Location for doors in object context menu", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
+    fireEvent.contextMenu(row, { clientX: 280, clientY: 220 });
+
+    expect(screen.getByRole("menu", { name: /object context menu/i })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^adjust location$/i })).not.toBeInTheDocument();
+  });
+
   it("keeps object catalog interactive for type switch and filtering", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -677,3 +847,4 @@ describe("Regression smoke: workspace interactions", () => {
     expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("add");
   });
 });
+

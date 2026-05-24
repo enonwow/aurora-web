@@ -17,6 +17,23 @@ export interface SceneViewportTranslationDelta {
   y: number;
 }
 
+export interface SceneViewportAbsoluteLocationInput {
+  x: number;
+  y: number;
+  z: number;
+  bearing: number;
+}
+
+export interface SceneViewportVisualTransformInput {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+}
+
 export interface SceneViewportCopyAnchorParams {
   cursorAnchor: SceneViewportPoint | null;
   sourcePoints: SceneViewportPoint[];
@@ -39,6 +56,17 @@ export interface SceneViewportPort {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
   deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene;
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
+  setObjectsAbsoluteLocationByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneViewportAbsoluteLocationInput
+  ): AreaScene;
+  setObjectsVisualTransformByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneViewportVisualTransformInput
+  ): AreaScene;
+  restoreObjectsPlacementBySnapshots(scene: AreaScene, snapshots: SceneObject[]): AreaScene;
   translateObjectsByIds(
     scene: AreaScene,
     objectIds: string[],
@@ -85,6 +113,23 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     deleteObjectById(scene: AreaScene, objectId: string): AreaScene {
       return bundle.mutations.deleteObjectById(scene, objectId);
+    },
+    setObjectsAbsoluteLocationByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneViewportAbsoluteLocationInput
+    ): AreaScene {
+      return bundle.mutations.setObjectsAbsoluteLocationByIds(scene, objectIds, input);
+    },
+    setObjectsVisualTransformByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneViewportVisualTransformInput
+    ): AreaScene {
+      return bundle.mutations.setObjectsVisualTransformByIds(scene, objectIds, input);
+    },
+    restoreObjectsPlacementBySnapshots(scene: AreaScene, snapshots: SceneObject[]): AreaScene {
+      return bundle.mutations.restoreObjectsPlacementBySnapshots(scene, snapshots);
     },
     translateObjectsByIds(
       scene: AreaScene,

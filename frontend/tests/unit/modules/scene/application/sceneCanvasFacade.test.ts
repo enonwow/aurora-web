@@ -117,4 +117,33 @@ describe("sceneCanvasFacade", () => {
     expect(saveByUserId).toHaveBeenCalledTimes(1);
     expect(saveByUserId).toHaveBeenCalledWith("u_builder_001", scene);
   });
+
+  it("normalizes bearing from loaded draft into 0..2pi", () => {
+    const draft = createSeedAreaScene();
+    const target = draft.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+    const patchedDraft: AreaScene = {
+      ...draft,
+      objects: draft.objects.map((object) =>
+        object.id === target!.id
+          ? {
+              ...object,
+              bearing: -0.35
+            }
+          : object
+      )
+    };
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => patchedDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const normalized = history.present.objects.find((object) => object.id === target!.id);
+    expect(normalized).toBeDefined();
+    expect(normalized!.bearing).toBeGreaterThanOrEqual(0);
+    expect(normalized!.bearing).toBeLessThan(Math.PI * 2);
+    expect(normalized!.bearing).toBeCloseTo((Math.PI * 2) - 0.35, 6);
+  });
 });

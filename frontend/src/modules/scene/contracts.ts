@@ -25,6 +25,7 @@ export interface SceneTile {
 }
 
 export interface SceneObjectVisualTransform {
+  scale: number;
   offsetX: number;
   offsetY: number;
   offsetZ: number;
