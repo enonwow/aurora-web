@@ -35,6 +35,15 @@ export interface ModuleBlobSnapshotSummary {
   continuationToken?: string;
 }
 
+export interface ModuleBlobObjectPayload {
+  key: string;
+  size: number;
+  contentType: string;
+  etag?: string;
+  lastModified?: string;
+  bytes: Buffer;
+}
+
 export interface ModuleBlobStoragePort {
   replaceModuleSnapshot(
     settings: BlobStorageSettings,
@@ -51,4 +60,9 @@ export interface ModuleBlobStoragePort {
       continuationToken?: string;
     }
   ): Promise<ModuleBlobSnapshotSummary>;
+
+  getModuleObject(
+    settings: BlobStorageSettings,
+    key: string
+  ): Promise<ModuleBlobObjectPayload | null>;
 }

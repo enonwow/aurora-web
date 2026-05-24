@@ -184,6 +184,22 @@ describe("S3ModuleBlobStorageService", () => {
     expect(result.unchangedFiles).toBe(1);
     expect(result.totalFiles).toBe(3);
   });
+
+  it("returns object payload for existing module object key", async () => {
+    await service.replaceModuleSnapshot(settings, [file("models/p_gate.mdl", "model-v1")]);
+
+    const object = await service.getModuleObject(settings, "modules/current/models/p_gate.mdl");
+
+    expect(object).not.toBeNull();
+    expect(object?.key).toBe("modules/current/models/p_gate.mdl");
+    expect(object?.bytes.toString("utf-8")).toBe("model-v1");
+    expect(object?.contentType).toBe("application/octet-stream");
+  });
+
+  it("returns null for missing module object key", async () => {
+    const object = await service.getModuleObject(settings, "modules/current/missing.file");
+    expect(object).toBeNull();
+  });
 });
 
 function file(fileName: string, content: string) {

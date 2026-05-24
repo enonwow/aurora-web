@@ -10,6 +10,7 @@ import {
 import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type {
+  ModuleBlobObjectPayload,
   ModuleBlobSnapshotSummary,
   ModuleBlobStoragePort,
   ModuleBlobSyncResult
@@ -258,6 +259,43 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
           objects: [],
           truncated: false
         };
+      }
+      throw error;
+    } finally {
+      client.destroy();
+    }
+  }
+
+  async getModuleObject(
+    settings: BlobStorageSettings,
+    key: string
+  ): Promise<ModuleBlobObjectPayload | null> {
+    const normalizedKey = normalizeObjectKey(key);
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const client = createClient(settings);
+    try {
+      const response = await client.send(
+        new GetObjectCommand({
+          Bucket: settings.bucket,
+          Key: normalizedKey
+        })
+      );
+
+      const bytes = await readBodyAsBuffer(response.Body);
+      return {
+        key: normalizedKey,
+        size: bytes.length,
+        contentType: response.ContentType ?? inferContentType(normalizedKey),
+        etag: response.ETag?.replace(/"/gu, ""),
+        lastModified: response.LastModified?.toISOString(),
+        bytes
+      };
+    } catch (error) {
+      if (isMissingBucketError(error) || isMissingObjectError(error)) {
+        return null;
       }
       throw error;
     } finally {
@@ -534,12 +572,66 @@ async function readBodyAsString(body: unknown): Promise<string> {
   throw new Error("Unable to read S3 object body as string.");
 }
 
+async function readBodyAsBuffer(body: unknown): Promise<Buffer> {
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body);
+  }
+
+  if (typeof body === "string") {
+    return Buffer.from(body, "utf-8");
+  }
+
+  if (body && typeof body === "object") {
+    const withTransformBytes = body as {
+      transformToByteArray?: () => Promise<Uint8Array>;
+      transformToString?: () => Promise<string>;
+      on?: (event: string, listener: (...args: unknown[]) => void) => void;
+    };
+
+    if (typeof withTransformBytes.transformToByteArray === "function") {
+      const bytes = await withTransformBytes.transformToByteArray();
+      return Buffer.from(bytes);
+    }
+
+    if (typeof withTransformBytes.transformToString === "function") {
+      const value = await withTransformBytes.transformToString();
+      return Buffer.from(value, "utf-8");
+    }
+
+    if (typeof withTransformBytes.on === "function") {
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        withTransformBytes.on!("data", (chunk: unknown) => {
+          if (chunk instanceof Buffer) {
+            chunks.push(chunk);
+            return;
+          }
+          if (chunk instanceof Uint8Array) {
+            chunks.push(Buffer.from(chunk));
+            return;
+          }
+          chunks.push(Buffer.from(String(chunk), "utf-8"));
+        });
+        withTransformBytes.on!("error", reject);
+        withTransformBytes.on!("end", () => resolve());
+      });
+      return Buffer.concat(chunks);
+    }
+  }
+
+  throw new Error("Unable to read S3 object body as bytes.");
+}
+
 function normalizePrefix(value: string): string {
   const trimmed = value.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   if (!trimmed) {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function normalizeObjectKey(value: string): string {
+  return value.trim().replace(/^\/+/u, "");
 }
 
 function isMissingBucketError(error: unknown): boolean {

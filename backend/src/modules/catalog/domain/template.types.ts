@@ -8,6 +8,35 @@ export type PlaceableSubtype =
   | "trigger_proxy";
 export type PlaceableSubtypeInput = PlaceableSubtype | "vvx" | "vvxy";
 
+export type PlaceableAssetRole =
+  | "model"
+  | "texture"
+  | "material"
+  | "vfx"
+  | "metadata"
+  | "unknown";
+
+export interface PlaceableAssetEntry {
+  assetId: string;
+  role: PlaceableAssetRole;
+  fileName: string;
+  objectKey: string;
+  extension: string;
+  sizeBytes: number;
+  contentType: string;
+  etag?: string;
+}
+
+export interface PlaceableAssetManifest {
+  version: "placeable-asset-manifest/v1";
+  source: "module-blob-snapshot";
+  generatedAt: string;
+  moduleHash?: string;
+  assetCount: number;
+  candidatesScanned: number;
+  assets: PlaceableAssetEntry[];
+}
+
 export interface TemplateRecord {
   templateId: string;
   kind: TemplateKind;

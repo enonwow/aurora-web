@@ -44,6 +44,13 @@ const cacheKeySchema = z
   .max(128)
   .regex(/^[a-f0-9]+$/iu, "cacheKey must be hexadecimal.");
 
+const assetIdSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(64)
+  .regex(/^[a-f0-9]+$/iu, "assetId must be hexadecimal.");
+
 export function parsePlaceableProcessPayload(input: unknown) {
   const parsed = processPayloadSchema.safeParse(input);
   if (parsed.success) {
@@ -69,6 +76,15 @@ export function parsePlaceableCacheKey(input: unknown): string {
   }
 
   throwValidationError(parsed.error.issues, "Placeable cache key validation failed.");
+}
+
+export function parsePlaceableAssetId(input: unknown): string {
+  const parsed = assetIdSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(parsed.error.issues, "Placeable asset id validation failed.");
 }
 
 function throwValidationError(

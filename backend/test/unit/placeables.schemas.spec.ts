@@ -1,5 +1,6 @@
 import { AppException } from "../../src/common/http/app-exception";
 import {
+  parsePlaceableAssetId,
   parsePlaceableBenchmarkPayload,
   parsePlaceableCacheKey,
   parsePlaceableProcessPayload
@@ -38,5 +39,14 @@ describe("placeables.schemas", () => {
 
   it("rejects non-hexadecimal cache keys", () => {
     expect(() => parsePlaceableCacheKey("invalid:key")).toThrow(AppException);
+  });
+
+  it("accepts hexadecimal asset ids", () => {
+    const assetId = "abc123ff";
+    expect(parsePlaceableAssetId(assetId)).toBe(assetId);
+  });
+
+  it("rejects invalid asset ids", () => {
+    expect(() => parsePlaceableAssetId("asset-01")).toThrow(AppException);
   });
 });

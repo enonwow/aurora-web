@@ -32,6 +32,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["market", "wood", "structure"],
     previewImageUrl: "/assets/previews/placeables/market-stall.webp",
     metadata: {
+      modelResref: "plc_mkt_stall",
+      texturePrefix: "plc_mkt_stall",
       footprint: "3x2",
       collision: true
     }
@@ -46,6 +48,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["storage", "wood", "small-prop"],
     previewImageUrl: "/assets/previews/placeables/crate-stack.webp",
     metadata: {
+      modelResref: "plc_crate_stack",
+      texturePrefix: "plc_crate_stack",
       footprint: "1x1",
       collision: true
     }
@@ -60,6 +64,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["door", "gate", "interactive"],
     previewImageUrl: "/assets/previews/placeables/city-gate-door.webp",
     metadata: {
+      modelResref: "plc_city_gate",
+      texturePrefix: "plc_city_gate",
       footprint: "2x1",
       collision: true,
       openState: "closed"
@@ -75,6 +81,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["vfx", "smoke", "anchor"],
     previewImageUrl: "/assets/previews/placeables/torch-smoke-vfx.webp",
     metadata: {
+      modelResref: "plc_torch_smoke_vfx",
+      texturePrefix: "plc_torch_smoke_vfx",
       footprint: "1x1",
       collision: false,
       vfxPreset: "torch_smoke_soft"
@@ -92,6 +100,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["benchmark", "heavy", "no-vfx"],
     previewImageUrl: "/assets/previews/placeables/c-wingsmeph.webp",
     metadata: {
+      modelResref: "c_wingsmeph",
+      texturePrefix: "c_wingsmeph",
       triangles: 659,
       meshes: 16,
       emitters: 0,
@@ -110,6 +120,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["benchmark", "heavy", "vfx"],
     previewImageUrl: "/assets/previews/placeables/ad-top-lion-1.webp",
     metadata: {
+      modelResref: "ad_top_lion_1",
+      texturePrefix: "ad_top_lion_1",
       triangles: 798,
       meshes: 28,
       emitters: 1,
@@ -128,6 +140,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["benchmark", "vfx", "plc"],
     previewImageUrl: "/assets/previews/placeables/plc-x02.webp",
     metadata: {
+      modelResref: "plc_x02",
+      texturePrefix: "plc_x02",
       triangles: 112,
       meshes: 5,
       emitters: 3,
@@ -146,6 +160,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["benchmark", "door", "heavy-instance"],
     previewImageUrl: "/assets/previews/placeables/tn-sdoor-14.webp",
     metadata: {
+      modelResref: "tn_sdoor_14",
+      texturePrefix: "tn_sdoor_14",
       triangles: 250,
       meshes: 10,
       emitters: 0,
@@ -165,6 +181,8 @@ const TEMPLATES: TemplateRecord[] = [
     tags: ["benchmark", "door", "single-mesh"],
     previewImageUrl: "/assets/previews/placeables/tn-gdoor-05.webp",
     metadata: {
+      modelResref: "tn_gdoor_05",
+      texturePrefix: "tn_gdoor_05",
       triangles: 190,
       meshes: 6,
       emitters: 0,

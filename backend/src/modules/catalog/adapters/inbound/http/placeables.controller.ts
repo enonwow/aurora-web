@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiBody,
@@ -8,6 +8,7 @@ import {
   ApiResponse,
   ApiTags
 } from "@nestjs/swagger";
+import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
@@ -17,6 +18,7 @@ import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { parseCatalogListQuery } from "./catalog.schemas";
 import {
+  parsePlaceableAssetId,
   parsePlaceableBenchmarkPayload,
   parsePlaceableCacheKey,
   parsePlaceableProcessPayload
@@ -82,7 +84,7 @@ export class PlaceablesController {
   @Permissions("processing.placeable.run")
   @ApiOperation({
     summary:
-      "Process placeable into backend render contract (type/classification/cache metadata)."
+      "Process placeable into backend render contract (classification + cache metadata + asset manifest)."
   })
   @ApiBody({
     schema: {
@@ -133,6 +135,42 @@ export class PlaceablesController {
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
+  @Get("cache/:cacheKey/assets/:assetId")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary:
+      "Download placeable asset blob by cached placeable key and asset id from manifest."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiParam({ name: "assetId", description: "Hex asset id from placeable assetManifest.assets[]" })
+  @ApiResponse({ status: 200, description: "Binary asset payload." })
+  @ApiResponse({ status: 404, description: "Asset or blob object not found." })
+  async getCachedAsset(
+    @Param("cacheKey") rawCacheKey: string,
+    @Param("assetId") rawAssetId: string,
+    @Res() response: FastifyReply
+  ) {
+    const cacheKey = parsePlaceableCacheKey(rawCacheKey);
+    const assetId = parsePlaceableAssetId(rawAssetId);
+    const data = await this.service.getProcessedPlaceableAsset(cacheKey, assetId);
+
+    response.header("Content-Type", data.payload.contentType);
+    response.header("Content-Length", String(data.payload.size));
+    response.header("Cache-Control", "private, max-age=120");
+    if (data.payload.etag) {
+      response.header("ETag", data.payload.etag);
+    }
+    response.header("X-Aurora-Asset-Id", data.asset.assetId);
+    response.header("X-Aurora-Cache-Key", data.cacheKey);
+    response.header("X-Aurora-Module-Hash", data.moduleHash ?? "");
+    response.header(
+      "Content-Disposition",
+      `inline; filename="${sanitizeHeaderFileName(data.asset.fileName)}"`
+    );
+
+    return response.send(data.payload.bytes);
+  }
+
   @Post("benchmark")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
@@ -161,4 +199,8 @@ export class PlaceablesController {
     const data = await this.service.benchmarkPlaceables(parsed);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
+}
+
+function sanitizeHeaderFileName(value: string): string {
+  return value.replace(/["\\\r\n]/gu, "_");
 }

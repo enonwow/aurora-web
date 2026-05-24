@@ -1,4 +1,8 @@
-import type { PlaceableRenderContract, PlaceableSubtype } from "../../domain/template.types";
+import type {
+  PlaceableAssetManifest,
+  PlaceableRenderContract,
+  PlaceableSubtype
+} from "../../domain/template.types";
 
 export const PLACEABLE_PROCESSING_CACHE = Symbol("PLACEABLE_PROCESSING_CACHE");
 
@@ -19,6 +23,7 @@ export interface PlaceableProcessingResult {
   benchmarkCandidate: boolean;
   benchmarkBucket?: string;
   metadata: Record<string, string | number | boolean>;
+  assetManifest: PlaceableAssetManifest;
   classification: {
     source: "template" | "hint";
     inputSubtype?: string;

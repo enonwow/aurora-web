@@ -162,6 +162,9 @@ describe("Catalog API v1 (e2e)", () => {
     expect(response.body.data.placeable.placeableSubtype).toBe("vfx");
     expect(response.body.data.placeable.render.frontendType).toBe("vfx");
     expect(response.body.data.placeable.render.rendererPreset).toBe("vfx-emitter");
+    expect(response.body.data.placeable.assetManifest.version).toBe(
+      "placeable-asset-manifest/v1"
+    );
     expect(response.body.data.cache.key).toEqual(expect.any(String));
   });
 
@@ -183,6 +186,7 @@ describe("Catalog API v1 (e2e)", () => {
       .expect(200);
 
     expect(cached.body.data.placeable.templateId).toBe("plc_city_gate_001");
+    expect(cached.body.data.placeable.assetManifest).toEqual(expect.any(Object));
     expect(cached.body.data.cache.hit).toBe(true);
   });
 

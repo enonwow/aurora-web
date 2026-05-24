@@ -38,7 +38,8 @@ describe("RuntimeSettingsApplicationService", () => {
     };
     moduleBlobStorage = {
       replaceModuleSnapshot: jest.fn(),
-      listModuleSnapshot: jest.fn()
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
     };
     service = new RuntimeSettingsApplicationService(
       repository,

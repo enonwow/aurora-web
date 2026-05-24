@@ -4,6 +4,8 @@ import type {
   PlaceableProcessingCachePort
 } from "../../src/modules/catalog/application/ports/placeable-processing-cache.port";
 import type { TemplateCatalogRepositoryPort } from "../../src/modules/catalog/application/ports/template-catalog-repository.port";
+import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type {
   TemplateListResult,
   TemplateRecord
@@ -221,6 +223,7 @@ describe("CatalogApplicationService", () => {
     expect(result.placeable.render.frontendType).toBe("vfx");
     expect(result.placeable.classification.mismatchWithTemplate).toBe(false);
     expect(result.placeable.benchmarkBucket).toBe("placeable_heavy_vfx");
+    expect(result.placeable.assetManifest.version).toBe("placeable-asset-manifest/v1");
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
   });
 
@@ -310,6 +313,7 @@ describe("CatalogApplicationService", () => {
         metadata: {
           sample: true
         },
+        assetManifest: buildEmptyManifest(),
         classification: {
           source: "template",
           normalizedSubtype: "door",
@@ -332,6 +336,96 @@ describe("CatalogApplicationService", () => {
     await expect(service.getProcessedPlaceable("b".repeat(64))).rejects.toMatchObject({
       code: "PLACEABLE_CACHE_NOT_FOUND"
     });
+  });
+
+  it("returns cached placeable asset payload from module blob storage", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: "modules/current/models/plc_city_gate.mdl",
+      size: 12,
+      contentType: "application/octet-stream",
+      bytes: Buffer.from("model-bytes", "utf-8")
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const cacheKey = "c".repeat(64);
+    const assetId = "aabbccddeeff";
+    placeableCache.get.mockResolvedValue({
+      key: cacheKey,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 1,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId,
+              role: "model",
+              fileName: "plc_city_gate.mdl",
+              objectKey: "modules/current/models/plc_city_gate.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await serviceWithBlob.getProcessedPlaceableAsset(cacheKey, assetId);
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "aurora-module-assets"
+      }),
+      "modules/current/models/plc_city_gate.mdl"
+    );
+    expect(result.asset.assetId).toBe(assetId);
+    expect(result.payload.bytes.toString("utf-8")).toBe("model-bytes");
   });
 
   it("processes creature into cached contract", async () => {
@@ -519,6 +613,7 @@ describe("CatalogApplicationService", () => {
           },
           benchmarkCandidate: true,
           metadata: { sample: true },
+          assetManifest: buildEmptyManifest(),
           classification: {
             source: "template",
             normalizedSubtype: "generic",
@@ -553,6 +648,106 @@ function buildTemplate(kind: TemplateRecord["kind"], id: string): TemplateRecord
     previewImageUrl: `/preview/${kind}/${id}.webp`,
     metadata: {
       sample: true
+    }
+  };
+}
+
+function buildEmptyManifest() {
+  return {
+    version: "placeable-asset-manifest/v1" as const,
+    source: "module-blob-snapshot" as const,
+    generatedAt: "2026-05-24T10:00:00.000Z",
+    moduleHash: undefined,
+    assetCount: 0,
+    candidatesScanned: 0,
+    assets: []
+  };
+}
+
+function buildRuntimeSettingsRecord() {
+  return {
+    revision: 1,
+    updatedAt: "2026-05-24T08:00:00.000Z",
+    updatedBy: "admin.user",
+    paths: {
+      vanillaDataPath: "C:/nwn/data",
+      hakDirectoryPath: "C:/nwn/hak",
+      moduleDecompiledPath: "C:/nwn/temp0",
+      modulePackedPath: "C:/nwn/module.mod",
+      tlkBasePath: "C:/nwn/dialog.tlk",
+      tlkCustomPath: ""
+    },
+    blobStorage: {
+      endpoint: "http://localhost:8333",
+      region: "us-east-1",
+      bucket: "aurora-module-assets",
+      modulePrefix: "modules/current",
+      accessKeyId: "seaweedfs",
+      secretAccessKey: "seaweedfs-secret",
+      forcePathStyle: true
+    },
+    telemetryDebugMode: "off" as const,
+    hakProfiles: {},
+    sources: {
+      placeable: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: false,
+        includeVanilla: false,
+        hakProfileId: "",
+        hakPriorityList: []
+      },
+      tile: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: false,
+        includeVanilla: false,
+        hakProfileId: "",
+        hakPriorityList: []
+      },
+      area: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: false,
+        includeVanilla: false,
+        hakProfileId: "",
+        hakPriorityList: []
+      },
+      sound: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: false,
+        includeVanilla: false,
+        hakProfileId: "",
+        hakPriorityList: []
+      }
+    },
+    benchmarkCandidates: {
+      placeableHeavyNoVfx: {
+        resref: "c_wingsmeph",
+        metrics: { triangles: 659, meshes: 16, emitters: 0 },
+        context: { source: "scene.json" }
+      },
+      placeableHeavyVfx: {
+        resref: "ad_top_lion_1",
+        metrics: { triangles: 798, meshes: 28, emitters: 1 },
+        context: { source: "scene.json" }
+      },
+      placeableVfxPlcAlternative: {
+        resref: "plc_x02",
+        metrics: { triangles: 112, meshes: 5, emitters: 3 },
+        context: { source: "scene.json" }
+      },
+      doorHeavyInstance: {
+        resref: "tn_sdoor_14",
+        metrics: { triangles: 250, meshes: 10, emitters: 0 },
+        context: { source: "scene.json" }
+      },
+      doorHeavySingleMesh: {
+        resref: "tn_gdoor_05",
+        metrics: { triangles: 190, meshes: 6, emitters: 0, maxSingleMeshTriangles: 102 },
+        context: { source: "scene.json" }
+      }
     }
   };
 }
