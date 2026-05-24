@@ -1282,6 +1282,24 @@ input {
   color: #d5e8ff;
   font-size: 0.78rem;
   padding: 0 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.canvas-adjust-location-info {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  border: 1px solid #5d7fa8;
+  color: #d8e9ff;
+  background: #15304f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  line-height: 1;
+  cursor: help;
 }
 
 .canvas-adjust-location-group label {
@@ -1362,6 +1380,229 @@ input {
 }
 
 .canvas-adjust-location-actions button:hover {
+  background: #17365d;
+}
+
+.canvas-placeable-properties-dialog {
+  position: absolute;
+  z-index: 9;
+  width: min(860px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+  border: 1px solid #355170;
+  border-radius: 10px;
+  background: #102033;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-placeable-properties-dialog.is-collapsed {
+  width: min(460px, calc(100% - 1.5rem));
+}
+
+.canvas-placeable-properties-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  cursor: grab;
+}
+
+.canvas-placeable-properties-header:active {
+  cursor: grabbing;
+}
+
+.canvas-placeable-properties-header-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.canvas-placeable-properties-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #e2efff;
+}
+
+.canvas-placeable-properties-header p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #a8bfdd;
+}
+
+.canvas-placeable-properties-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.canvas-placeable-properties-header-actions button {
+  border: 1px solid #355170;
+  border-radius: 6px;
+  background: #0e2540;
+  color: #e4f0ff;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.canvas-placeable-properties-header-actions button:hover {
+  background: #163458;
+}
+
+.canvas-placeable-properties-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+}
+
+.canvas-placeable-properties-tabs button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #0e2540;
+  color: #d7e7ff;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.canvas-placeable-properties-tabs button:hover {
+  background: #163458;
+}
+
+.canvas-placeable-properties-tabs button.is-active {
+  border-color: #6f93bf;
+  background: #1b3a61;
+  color: #f1f7ff;
+}
+
+.canvas-placeable-properties-shell {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.34fr) minmax(0, 1fr);
+  gap: 0.7rem;
+}
+
+.canvas-placeable-properties-preview {
+  border: 1px solid #355170;
+  border-radius: 9px;
+  min-height: 280px;
+  background: linear-gradient(180deg, #7d838d 0%, #6a7481 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-placeable-properties-preview span {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.canvas-placeable-properties-basic {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.canvas-placeable-properties-group {
+  border: 1px solid #355170;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.canvas-placeable-properties-group legend {
+  color: #d5e8ff;
+  font-size: 0.78rem;
+  padding: 0 0.25rem;
+}
+
+.canvas-placeable-properties-group label {
+  display: grid;
+  gap: 0.2rem;
+  color: #bdd0eb;
+  font-size: 0.75rem;
+}
+
+.canvas-placeable-properties-group input[type="text"],
+.canvas-placeable-properties-group input[type="number"] {
+  width: 100%;
+  border: 1px solid #39597d;
+  border-radius: 6px;
+  background: #081a2d;
+  color: #e0ecfa;
+  padding: 0.28rem 0.38rem;
+  font-size: 0.78rem;
+}
+
+.canvas-placeable-properties-group input[disabled] {
+  opacity: 0.58;
+}
+
+.canvas-placeable-properties-toggle {
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.canvas-placeable-properties-toggle input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.canvas-placeable-properties-toggle span {
+  color: #8ea9ca;
+  font-size: 0.67rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.canvas-placeable-properties-note {
+  margin: 0.15rem 0 0;
+  color: #9db5d3;
+  font-size: 0.72rem;
+}
+
+.canvas-placeable-properties-tab-placeholder {
+  border: 1px dashed #3a5a7f;
+  border-radius: 9px;
+  padding: 0.6rem 0.75rem;
+  background: rgba(11, 28, 48, 0.55);
+}
+
+.canvas-placeable-properties-tab-placeholder p {
+  margin: 0;
+  color: #c2d7f4;
+  font-size: 0.78rem;
+}
+
+.canvas-placeable-properties-tab-placeholder strong {
+  color: #ecf4ff;
+}
+
+.canvas-placeable-properties-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.canvas-placeable-properties-actions button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #122a45;
+  color: #e4f0ff;
+  padding: 0.36rem 0.72rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.canvas-placeable-properties-actions button:hover {
   background: #17365d;
 }
 

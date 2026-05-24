@@ -45,8 +45,8 @@ Lock the expected Aurora behavior for the `Adjust Location` workflow and static-
    - `Cancel`: discards pending dialog edits and restores values from the dialog-open snapshot.
 5. `Visual Transform` is not a separate dialog; it is an extended form of `Adjust Location`.
 6. For `placeable` objects:
-   - `Static = true` -> base `Adjust Location` variant (no `Visual Transforms` section).
-   - `Static = false` -> extended `Adjust Location` variant (with `Visual Transforms` section).
+   - `Static = true` -> `Visual Transforms` values are still saved, but renderer ignores them (object uses base transform).
+   - `Static = false` -> renderer applies stored `Visual Transforms` values.
 7. `door` context menu does not expose `Adjust Location`.
 8. `Apply`/`OK`/`Cancel` semantics remain the same in both base and extended variants.
 9. Edit-history behavior for this dialog is step-based (`Undo/Redo` by edit step, not as one grouped drag gesture).
@@ -55,8 +55,8 @@ Lock the expected Aurora behavior for the `Adjust Location` workflow and static-
 1. `Adjust Location` is allowed for multi-selection (operator-responsibility model).
 2. Multi-selection `Adjust Location` applies entered values to all selected objects in one commit step.
 3. `Visual Transforms` visibility for multi-selection:
-   - show only when all selected objects are non-static and eligible,
-   - hide when selection is mixed (`static` + non-static).
+   - show when all selected objects are eligible kinds for visual transforms (`placeables`, `creatures`, `items`),
+   - for mixed static/non-static placeables, values are still editable/saved; runtime applies them only where `Static = false`.
 4. If selection includes `door`, generic move/transform restrictions still apply (no parity override for door anchor rules).
 5. `Cancel` restores all selected objects to the dialog-open snapshot.
 6. `Undo/Redo` for multi-selection edits is step-based (one committed step affecting all selected objects).

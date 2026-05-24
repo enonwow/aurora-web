@@ -37,8 +37,10 @@ export interface SceneObjectVisualTransform {
 export interface SceneObject {
   id: string;
   kind: SceneObjectKind;
+  name?: string;
   resRef: string;
   tag: string;
+  isStatic?: boolean;
   x: number;
   y: number;
   bearing: number;

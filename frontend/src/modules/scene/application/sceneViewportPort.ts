@@ -34,6 +34,13 @@ export interface SceneViewportVisualTransformInput {
   roll: number;
 }
 
+export interface SceneViewportPlaceablePropertiesInput {
+  name: string;
+  tag: string;
+  resRef: string;
+  isStatic: boolean;
+}
+
 export interface SceneViewportCopyAnchorParams {
   cursorAnchor: SceneViewportPoint | null;
   sourcePoints: SceneViewportPoint[];
@@ -56,6 +63,11 @@ export interface SceneViewportPort {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
   deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene;
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
+  setPlaceablePropertiesByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneViewportPlaceablePropertiesInput
+  ): AreaScene;
   setObjectsAbsoluteLocationByIds(
     scene: AreaScene,
     objectIds: string[],
@@ -113,6 +125,13 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     deleteObjectById(scene: AreaScene, objectId: string): AreaScene {
       return bundle.mutations.deleteObjectById(scene, objectId);
+    },
+    setPlaceablePropertiesByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneViewportPlaceablePropertiesInput
+    ): AreaScene {
+      return bundle.mutations.setPlaceablePropertiesByIds(scene, objectIds, input);
     },
     setObjectsAbsoluteLocationByIds(
       scene: AreaScene,

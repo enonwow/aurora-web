@@ -29,6 +29,7 @@ describe("sceneViewportPort", () => {
         appendObjects: vi.fn(() => nextScene),
         deleteObjectsByIds: vi.fn(() => nextScene),
         deleteObjectById: vi.fn(() => nextScene),
+        setPlaceablePropertiesByIds: vi.fn(() => nextScene),
         setObjectsAbsoluteLocationByIds: vi.fn(() => nextScene),
         setObjectsVisualTransformByIds: vi.fn(() => nextScene),
         restoreObjectsPlacementBySnapshots: vi.fn(() => nextScene),
@@ -57,6 +58,16 @@ describe("sceneViewportPort", () => {
     const appended = port.appendObjects(seed, []);
     const deletedMany = port.deleteObjectsByIds(seed, [seed.objects[0].id]);
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
+    const updatedPlaceableProperties = port.setPlaceablePropertiesByIds(
+      seed,
+      [seed.objects[0].id],
+      {
+        name: "Updated Placeable",
+        tag: "PLC_UPDATED_01",
+        resRef: "plc_updated_01",
+        isStatic: false
+      }
+    );
     const updatedAbsoluteLocation = port.setObjectsAbsoluteLocationByIds(
       seed,
       [seed.objects[0].id],
@@ -102,6 +113,7 @@ describe("sceneViewportPort", () => {
     expect(appended).toBe(nextScene);
     expect(deletedMany).toBe(nextScene);
     expect(deletedOne).toBe(nextScene);
+    expect(updatedPlaceableProperties).toBe(nextScene);
     expect(updatedAbsoluteLocation).toBe(nextScene);
     expect(updatedVisualTransform).toBe(nextScene);
     expect(restoredFromSnapshots).toBe(nextScene);
@@ -123,6 +135,16 @@ describe("sceneViewportPort", () => {
     expect(bundle.mutations.appendObjects).toHaveBeenCalledWith(seed, []);
     expect(bundle.mutations.deleteObjectsByIds).toHaveBeenCalledWith(seed, [seed.objects[0].id]);
     expect(bundle.mutations.deleteObjectById).toHaveBeenCalledWith(seed, seed.objects[0].id);
+    expect(bundle.mutations.setPlaceablePropertiesByIds).toHaveBeenCalledWith(
+      seed,
+      [seed.objects[0].id],
+      {
+        name: "Updated Placeable",
+        tag: "PLC_UPDATED_01",
+        resRef: "plc_updated_01",
+        isStatic: false
+      }
+    );
     expect(bundle.mutations.setObjectsAbsoluteLocationByIds).toHaveBeenCalledWith(
       seed,
       [seed.objects[0].id],

@@ -54,6 +54,8 @@ Every control in an Aurora-mirrored window must be assigned one state:
 Detailed parity notes:
 1. `frontend/AURORA_SOUND_POSITIONING_PARITY.md`
 2. `frontend/AURORA_ADJUST_LOCATION_PARITY.md`
+3. `frontend/AURORA_PLACEABLE_PROPERTIES_PARITY.md`
+4. `frontend/AURORA_DECOMPILATION_KNOWLEDGE.md`
 
 ## Test Expectations Per Activated Increment
 For each control promoted to `ACTIVE_NOW`:

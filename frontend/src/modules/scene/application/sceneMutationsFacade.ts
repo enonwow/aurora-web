@@ -29,10 +29,22 @@ export interface SceneObjectVisualTransformInput {
   roll: number;
 }
 
+export interface SceneObjectPlaceablePropertiesInput {
+  name: string;
+  tag: string;
+  resRef: string;
+  isStatic: boolean;
+}
+
 export interface SceneMutationsFacade {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
   deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene;
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
+  setPlaceablePropertiesByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneObjectPlaceablePropertiesInput
+  ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   setObjectsAbsoluteLocationByIds(
@@ -60,6 +72,11 @@ const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
   "creatures",
   "items",
   "sounds"
+]);
+const VISUAL_TRANSFORM_OBJECT_KINDS = new Set<SceneObjectKind>([
+  "placeables",
+  "creatures",
+  "items"
 ]);
 
 const SCENE_COORDINATE_MIN = 0;
@@ -202,6 +219,28 @@ function resolveMovableTargets(scene: AreaScene, objectIds: string[]): SceneObje
   return targets;
 }
 
+function resolveVisualTransformTargets(scene: AreaScene, objectIds: string[]): SceneObject[] {
+  if (objectIds.length === 0) {
+    return [];
+  }
+
+  const idSet = new Set(objectIds);
+  const targets = scene.objects.filter((object) => idSet.has(object.id));
+  if (targets.length === 0) {
+    return [];
+  }
+
+  if (targets.some((object) => object.kind === "doors")) {
+    return [];
+  }
+
+  if (targets.some((object) => !VISUAL_TRANSFORM_OBJECT_KINDS.has(object.kind))) {
+    return [];
+  }
+
+  return targets;
+}
+
 export function createSceneMutationsFacade(): SceneMutationsFacade {
   return {
     appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene {
@@ -225,6 +264,57 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
     deleteObjectById(scene: AreaScene, objectId: string): AreaScene {
       const nextObjects = scene.objects.filter((object) => object.id !== objectId);
       if (nextObjects.length === scene.objects.length) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    setPlaceablePropertiesByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneObjectPlaceablePropertiesInput
+    ): AreaScene {
+      if (objectIds.length === 0) {
+        return scene;
+      }
+
+      const idSet = new Set(objectIds);
+      if (!scene.objects.some((object) => idSet.has(object.id) && object.kind === "placeables")) {
+        return scene;
+      }
+
+      const nextName = input.name.trim();
+      const nextTag = input.tag.trim();
+      const nextResRef = input.resRef.trim();
+      const nextIsStatic = Boolean(input.isStatic);
+
+      let changed = false;
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id) || object.kind !== "placeables") {
+          return object;
+        }
+
+        const currentName = object.name ?? object.tag;
+        const currentIsStatic = object.isStatic ?? true;
+        if (
+          currentName === nextName &&
+          object.tag === nextTag &&
+          object.resRef === nextResRef &&
+          currentIsStatic === nextIsStatic
+        ) {
+          return object;
+        }
+
+        changed = true;
+        return {
+          ...object,
+          name: nextName,
+          tag: nextTag,
+          resRef: nextResRef,
+          isStatic: nextIsStatic
+        };
+      });
+
+      if (!changed) {
         return scene;
       }
       return replaceSceneObjects(scene, nextObjects);
@@ -349,7 +439,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const targets = resolveMovableTargets(scene, objectIds);
+      const targets = resolveVisualTransformTargets(scene, objectIds);
       if (targets.length === 0) {
         return scene;
       }

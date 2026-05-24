@@ -123,6 +123,43 @@ describe("sceneMutationsFacade", () => {
     expect(nextScene).toBe(scene);
   });
 
+  it("updates placeable properties (name/tag/resref/static)", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+
+    const nextScene = facade.setPlaceablePropertiesByIds(scene, [target!.id], {
+      name: "Wooden Table",
+      tag: "PLC_WOOD_TABLE_01",
+      resRef: "plc_table_wood_01",
+      isStatic: false
+    });
+
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed).toBeDefined();
+    expect(changed?.name).toBe("Wooden Table");
+    expect(changed?.tag).toBe("PLC_WOOD_TABLE_01");
+    expect(changed?.resRef).toBe("plc_table_wood_01");
+    expect(changed?.isStatic).toBe(false);
+  });
+
+  it("does not apply placeable properties to non-placeable kinds", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const creature = scene.objects.find((object) => object.kind === "creatures");
+    expect(creature).toBeDefined();
+
+    const nextScene = facade.setPlaceablePropertiesByIds(scene, [creature!.id], {
+      name: "Nope",
+      tag: "NOPE",
+      resRef: "nope",
+      isStatic: true
+    });
+
+    expect(nextScene).toBe(scene);
+  });
+
   it("translates movable objects by delta", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
@@ -319,6 +356,31 @@ describe("sceneMutationsFacade", () => {
     expect(bearingRotated).toBe(scene);
   });
 
+  it("blocks visual-transform changes when selection contains doors", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const door = scene.objects.find((object) => object.kind === "doors");
+    const placeable = scene.objects.find((object) => object.kind === "placeables");
+    expect(door).toBeDefined();
+    expect(placeable).toBeDefined();
+
+    const transformed = facade.setObjectsVisualTransformByIds(
+      scene,
+      [door!.id, placeable!.id],
+      {
+        scale: 1.1,
+        offsetX: 0.2,
+        offsetY: 0.1,
+        offsetZ: 0.3,
+        pitch: 0.05,
+        yaw: -0.04,
+        roll: 0.02
+      }
+    );
+
+    expect(transformed).toBe(scene);
+  });
+
   it("sets absolute location and bearing for movable selection", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
@@ -393,6 +455,77 @@ describe("sceneMutationsFacade", () => {
     expect(changed?.visualTransform.pitch).toBeCloseTo(0.3);
     expect(changed?.visualTransform.yaw).toBeCloseTo(-0.4);
     expect(changed?.visualTransform.roll).toBeCloseTo(0.2);
+  });
+
+  it("stores visual-transform updates for static placeables", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+    expect(target?.isStatic ?? true).toBe(true);
+
+    const nextScene = facade.setObjectsVisualTransformByIds(scene, [target!.id], {
+      scale: 1.4,
+      offsetX: 0.5,
+      offsetY: -0.2,
+      offsetZ: 0.7,
+      pitch: 0.1,
+      yaw: 0.2,
+      roll: 0.3
+    });
+
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed).toBeDefined();
+    expect(changed).not.toBe(target);
+    expect(changed?.visualTransform.scale).toBeCloseTo(1.4);
+    expect(changed?.visualTransform.offsetX).toBeCloseTo(0.5);
+    expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.2);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(0.7);
+    expect(changed?.visualTransform.pitch).toBeCloseTo(0.1);
+    expect(changed?.visualTransform.yaw).toBeCloseTo(0.2);
+    expect(changed?.visualTransform.roll).toBeCloseTo(0.3);
+  });
+
+  it("applies visual-transform updates for non-static placeables", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+
+    const dynamicPlaceableScene = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === target!.id
+          ? {
+              ...object,
+              isStatic: false
+            }
+          : object
+      )
+    };
+
+    const nextScene = facade.setObjectsVisualTransformByIds(
+      dynamicPlaceableScene,
+      [target!.id],
+      {
+        scale: 1.3,
+        offsetX: 0.25,
+        offsetY: -0.15,
+        offsetZ: 0.45,
+        pitch: 0.05,
+        yaw: 0.1,
+        roll: -0.07
+      }
+    );
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed).toBeDefined();
+    expect(changed?.visualTransform.scale).toBeCloseTo(1.3);
+    expect(changed?.visualTransform.offsetX).toBeCloseTo(0.25);
+    expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.15);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(0.45);
+    expect(changed?.visualTransform.pitch).toBeCloseTo(0.05);
+    expect(changed?.visualTransform.yaw).toBeCloseTo(0.1);
+    expect(changed?.visualTransform.roll).toBeCloseTo(-0.07);
   });
 
   it("restores object placement from snapshots", () => {

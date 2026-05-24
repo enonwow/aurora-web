@@ -85,3 +85,11 @@ These constraints are part of `Aurora First` parity and are not optional UI pref
 ## Aurora Reverse-Engineering Notes (Window Shells)
 1. Property-window parity and phased activation policy are tracked in:
    - `frontend/AURORA_WINDOW_SHELLS_POLICY.md`
+2. Placeable property-window parity scope is tracked in:
+   - `frontend/AURORA_PLACEABLE_PROPERTIES_PARITY.md`
+
+## Aurora Reverse-Engineering Notes (Decompilation Evidence)
+1. Ghidra-based evidence index for Aurora First implementation is tracked in:
+   - `frontend/AURORA_DECOMPILATION_KNOWLEDGE.md`
+2. Cross-domain implementation readiness matrix (`CONFIRMED/PARTIAL/UNKNOWN`) is tracked in:
+   - `frontend/AURORA_FIRST_IMPLEMENTATION_MATRIX.md`

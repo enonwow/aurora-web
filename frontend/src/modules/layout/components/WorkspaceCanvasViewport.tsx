@@ -137,6 +137,37 @@ interface BearingDialDragState {
   pointerId: number | null;
 }
 
+type PlaceablePropertiesTab =
+  | "basic"
+  | "scripts"
+  | "advanced"
+  | "description"
+  | "comments";
+
+interface PlaceablePropertiesDraft {
+  name: string;
+  tag: string;
+  resRef: string;
+  isStatic: boolean;
+}
+
+interface PlaceablePropertiesDialogState {
+  objectId: string;
+  snapshotObject: SceneObject;
+  draft: PlaceablePropertiesDraft;
+  activeTab: PlaceablePropertiesTab;
+  windowX: number;
+  windowY: number;
+  collapsed: boolean;
+}
+
+interface PlaceablePropertiesDialogDragState {
+  active: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+}
+
 interface DragMoveState {
   active: boolean;
   lastWorld: { x: number; y: number } | null;
@@ -146,6 +177,8 @@ interface DragMoveState {
 const ADJUST_LOCATION_DIALOG_MARGIN_PX = 12;
 const ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX = 520;
 const ADJUST_LOCATION_DIALOG_FALLBACK_HEIGHT_PX = 420;
+const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 820;
+const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 540;
 
 interface TransformGestureState {
   active: boolean;
@@ -356,6 +389,38 @@ function areAdjustLocationDraftsEqual(left: AdjustLocationDraft, right: AdjustLo
     left.xTranslation === right.xTranslation &&
     left.yTranslation === right.yTranslation &&
     left.zTranslation === right.zTranslation
+  );
+}
+
+function resolveSceneObjectName(object: SceneObject): string {
+  if (typeof object.name === "string" && object.name.trim().length > 0) {
+    return object.name;
+  }
+  return object.tag;
+}
+
+function isVisualTransformEditableForObject(object: SceneObject): boolean {
+  return VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind);
+}
+
+function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePropertiesDraft {
+  return {
+    name: resolveSceneObjectName(source),
+    tag: source.tag,
+    resRef: source.resRef,
+    isStatic: source.isStatic ?? true
+  };
+}
+
+function arePlaceablePropertiesDraftsEqual(
+  left: PlaceablePropertiesDraft,
+  right: PlaceablePropertiesDraft
+): boolean {
+  return (
+    left.name === right.name &&
+    left.tag === right.tag &&
+    left.resRef === right.resRef &&
+    left.isStatic === right.isStatic
   );
 }
 
@@ -950,16 +1015,28 @@ function rebuildObjectMeshes(
     }
 
     const mesh = new THREE.Mesh(geometry, material);
-    const visualScale = Math.max(0.01, object.visualTransform.scale);
+    const effectiveVisualTransform =
+      object.kind === "placeables" && (object.isStatic ?? true)
+        ? {
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0,
+            offsetZ: 0,
+            pitch: 0,
+            yaw: 0,
+            roll: 0
+          }
+        : object.visualTransform;
+    const visualScale = Math.max(0.01, effectiveVisualTransform.scale);
     mesh.position.set(
-      object.x + object.visualTransform.offsetX,
-      objectBaseY + object.visualTransform.offsetZ,
-      object.y + object.visualTransform.offsetY
+      object.x + effectiveVisualTransform.offsetX,
+      objectBaseY + effectiveVisualTransform.offsetZ,
+      object.y + effectiveVisualTransform.offsetY
     );
     mesh.rotation.set(
-      object.visualTransform.pitch,
-      object.bearing + object.visualTransform.yaw,
-      object.visualTransform.roll
+      effectiveVisualTransform.pitch,
+      object.bearing + effectiveVisualTransform.yaw,
+      effectiveVisualTransform.roll
     );
     mesh.scale.setScalar(visualScale);
 
@@ -1232,6 +1309,13 @@ export function WorkspaceCanvasViewport({
     offsetX: 0,
     offsetY: 0
   });
+  const placeablePropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const placeablePropertiesDialogDragRef = useRef<PlaceablePropertiesDialogDragState>({
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0
+  });
   const bearingDialDragRef = useRef<BearingDialDragState>({
     active: false,
     pointerId: null
@@ -1268,6 +1352,8 @@ export function WorkspaceCanvasViewport({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [adjustLocationDialog, setAdjustLocationDialog] =
     useState<AdjustLocationDialogState | null>(null);
+  const [placeablePropertiesDialog, setPlaceablePropertiesDialog] =
+    useState<PlaceablePropertiesDialogState | null>(null);
   const [runtimePopupPinned, setRuntimePopupPinned] = useState(false);
   const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot>({
     fps: 0,
@@ -3048,7 +3134,7 @@ export function WorkspaceCanvasViewport({
       const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
       const initialDialogPosition = clampAdjustLocationDialogPosition(preferredX, preferredY);
       const showVisualTransforms = targets.every((object) =>
-        VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind)
+        isVisualTransformEditableForObject(object)
       );
       const snapshotObjects = targets.map(cloneSceneObject);
       setAdjustLocationDialog({
@@ -3349,6 +3435,250 @@ export function WorkspaceCanvasViewport({
     []
   );
 
+  const clampPlaceablePropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) => {
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return { x, y };
+      }
+      const measuredRect =
+        panelRect ?? placeablePropertiesDialogRef.current?.getBoundingClientRect() ?? null;
+      const panelWidth = measuredRect?.width ?? PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+      const panelHeight = measuredRect?.height ?? PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+      const maxX = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.width - panelWidth - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      const maxY = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.height - panelHeight - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      return {
+        x: Math.min(Math.max(x, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxX),
+        y: Math.min(Math.max(y, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxY)
+      };
+    },
+    []
+  );
+
+  const openPlaceablePropertiesDialog = useCallback(
+    (target: SceneObject) => {
+      if (target.kind !== "placeables") {
+        return;
+      }
+
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const preferredX = hostRect
+        ? hostRect.width - PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
+        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const initialDialogPosition = clampPlaceablePropertiesDialogPosition(preferredX, preferredY);
+      setPlaceablePropertiesDialog({
+        objectId: target.id,
+        snapshotObject: cloneSceneObject(target),
+        draft: buildPlaceablePropertiesDraft(target),
+        activeTab: "basic",
+        windowX: initialDialogPosition.x,
+        windowY: initialDialogPosition.y,
+        collapsed: false
+      });
+      trackTelemetry("scene.placeable_properties.open", {
+        userId,
+        objectId: target.id
+      });
+    },
+    [clampPlaceablePropertiesDialogPosition, cloneSceneObject, trackTelemetry, userId]
+  );
+
+  const updatePlaceablePropertiesDraftField = useCallback(
+    (field: keyof PlaceablePropertiesDraft, value: string | boolean) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const nextDraft =
+          typeof value === "boolean"
+            ? { ...current.draft, [field]: value }
+            : { ...current.draft, [field]: value };
+        if (arePlaceablePropertiesDraftsEqual(current.draft, nextDraft)) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: nextDraft
+        };
+      });
+    },
+    []
+  );
+
+  const setPlaceablePropertiesActiveTab = useCallback((nextTab: PlaceablePropertiesTab) => {
+    setPlaceablePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            activeTab: nextTab
+          }
+        : current
+    );
+  }, []);
+
+  const applyPlaceablePropertiesDraft = useCallback(
+    (closeAfterApply: boolean) => {
+      if (!placeablePropertiesDialog) {
+        return;
+      }
+
+      const draft = placeablePropertiesDialog.draft;
+      const objectId = placeablePropertiesDialog.objectId;
+      setSceneHistory((current) => {
+        const nextScene = sceneViewportPort.setPlaceablePropertiesByIds(
+          current.present,
+          [objectId],
+          {
+            name: draft.name,
+            tag: draft.tag,
+            resRef: draft.resRef,
+            isStatic: draft.isStatic
+          }
+        );
+        if (nextScene === current.present) {
+          return current;
+        }
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+
+      trackTelemetry("scene.placeable_properties.apply", {
+        userId,
+        objectId,
+        closeAfterApply
+      });
+
+      if (closeAfterApply) {
+        setPlaceablePropertiesDialog(null);
+      }
+    },
+    [placeablePropertiesDialog, sceneViewportPort, trackTelemetry, userId]
+  );
+
+  const cancelPlaceablePropertiesDialog = useCallback(() => {
+    if (placeablePropertiesDialog) {
+      const snapshot = placeablePropertiesDialog.snapshotObject;
+      setSceneHistory((current) => {
+        const nextScene = sceneViewportPort.setPlaceablePropertiesByIds(
+          current.present,
+          [snapshot.id],
+          {
+            name: resolveSceneObjectName(snapshot),
+            tag: snapshot.tag,
+            resRef: snapshot.resRef,
+            isStatic: snapshot.isStatic ?? true
+          }
+        );
+        if (nextScene === current.present) {
+          return current;
+        }
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+      trackTelemetry("scene.placeable_properties.cancel", {
+        userId,
+        objectId: snapshot.id
+      });
+    }
+    setPlaceablePropertiesDialog(null);
+  }, [placeablePropertiesDialog, sceneViewportPort, trackTelemetry, userId]);
+
+  const togglePlaceablePropertiesDialogCollapsed = useCallback(() => {
+    setPlaceablePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            collapsed: !current.collapsed
+          }
+        : current
+    );
+  }, []);
+
+  const startPlaceablePropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !placeablePropertiesDialog) {
+        return;
+      }
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button")) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const panelRect = placeablePropertiesDialogRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+
+      const resolvedX = panelRect
+        ? panelRect.left - hostRect.left
+        : placeablePropertiesDialog.windowX;
+      const resolvedY = panelRect
+        ? panelRect.top - hostRect.top
+        : placeablePropertiesDialog.windowY;
+
+      placeablePropertiesDialogDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - (hostRect.left + resolvedX),
+        offsetY: event.clientY - (hostRect.top + resolvedY)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [placeablePropertiesDialog]
+  );
+
+  const movePlaceablePropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = placeablePropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+      const desiredX = event.clientX - hostRect.left - drag.offsetX;
+      const desiredY = event.clientY - hostRect.top - drag.offsetY;
+      const nextPosition = clampPlaceablePropertiesDialogPosition(desiredX, desiredY);
+      setPlaceablePropertiesDialog((current) =>
+        current
+          ? {
+              ...current,
+              windowX: nextPosition.x,
+              windowY: nextPosition.y
+            }
+          : current
+      );
+      event.preventDefault();
+    },
+    [clampPlaceablePropertiesDialogPosition]
+  );
+
+  const endPlaceablePropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = placeablePropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      placeablePropertiesDialogDragRef.current = {
+        active: false,
+        pointerId: null,
+        offsetX: 0,
+        offsetY: 0
+      };
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -3418,7 +3748,33 @@ export function WorkspaceCanvasViewport({
 
         setSelectedTileId(null);
         setSelectedObjectIds(editableTargets.map((object) => object.id));
+        setPlaceablePropertiesDialog(null);
         openAdjustLocationDialog(editableTargets);
+        trackTelemetry("scene.context_menu.action", {
+          userId,
+          objectId: contextObj.id,
+          objectKind: contextObj.kind,
+          action
+        });
+        closeContextMenu();
+        return;
+      }
+
+      if (action === "properties") {
+        if (contextObj.kind !== "placeables") {
+          trackTelemetry("scene.placeable_properties.blocked_kind", {
+            userId,
+            objectId: contextObj.id,
+            objectKind: contextObj.kind
+          });
+          closeContextMenu();
+          return;
+        }
+
+        setSelectedTileId(null);
+        setSelectedObjectIds([contextObj.id]);
+        setAdjustLocationDialog(null);
+        openPlaceablePropertiesDialog(contextObj);
         trackTelemetry("scene.context_menu.action", {
           userId,
           objectId: contextObj.id,
@@ -3524,6 +3880,7 @@ export function WorkspaceCanvasViewport({
     },
     [
       openAdjustLocationDialog,
+      openPlaceablePropertiesDialog,
       closeContextMenu,
       contextMenu,
       duplicateObjects,
@@ -3567,6 +3924,21 @@ export function WorkspaceCanvasViewport({
   }, [adjustLocationDialog, cancelAdjustLocationDialog]);
 
   useEffect(() => {
+    if (!placeablePropertiesDialog) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelPlaceablePropertiesDialog();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [cancelPlaceablePropertiesDialog, placeablePropertiesDialog]);
+
+  useEffect(() => {
     setAdjustLocationDialog((current) => {
       if (!current || current.objectIds.length === 0) {
         return current;
@@ -3587,7 +3959,7 @@ export function WorkspaceCanvasViewport({
         scene.height
       );
       const nextShowVisualTransforms = liveObjects.every((object) =>
-        VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind)
+        isVisualTransformEditableForObject(object)
       );
       if (
         areAdjustLocationDraftsEqual(current.draft, nextDraft) &&
@@ -3603,6 +3975,29 @@ export function WorkspaceCanvasViewport({
       };
     });
   }, [adjustLocationUnitsPerTile, scene.height, scene.objects, scene.width]);
+
+  useEffect(() => {
+    setPlaceablePropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const liveObject = scene.objects.find((object) => object.id === current.objectId);
+      if (!liveObject || liveObject.kind !== "placeables") {
+        return null;
+      }
+
+      const nextDraft = buildPlaceablePropertiesDraft(liveObject);
+      if (arePlaceablePropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, [scene.objects]);
 
   useEffect(() => {
     if (!adjustLocationDialog) {
@@ -3636,6 +4031,37 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
+    if (!placeablePropertiesDialog) {
+      return;
+    }
+    const clampedPosition = clampPlaceablePropertiesDialogPosition(
+      placeablePropertiesDialog.windowX,
+      placeablePropertiesDialog.windowY
+    );
+    if (
+      clampedPosition.x === placeablePropertiesDialog.windowX &&
+      clampedPosition.y === placeablePropertiesDialog.windowY
+    ) {
+      return;
+    }
+    setPlaceablePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            windowX: clampedPosition.x,
+            windowY: clampedPosition.y
+          }
+        : current
+    );
+  }, [
+    clampPlaceablePropertiesDialogPosition,
+    placeablePropertiesDialog,
+    placeablePropertiesDialog?.collapsed,
+    placeablePropertiesDialog?.windowX,
+    placeablePropertiesDialog?.windowY
+  ]);
+
+  useEffect(() => {
     if (!adjustLocationDialog) {
       return;
     }
@@ -3658,6 +4084,30 @@ export function WorkspaceCanvasViewport({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [adjustLocationDialog, clampAdjustLocationDialogPosition]);
+
+  useEffect(() => {
+    if (!placeablePropertiesDialog) {
+      return;
+    }
+    const handleResize = () => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const clamped = clampPlaceablePropertiesDialogPosition(current.windowX, current.windowY);
+        if (clamped.x === current.windowX && clamped.y === current.windowY) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: clamped.x,
+          windowY: clamped.y
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampPlaceablePropertiesDialogPosition, placeablePropertiesDialog]);
 
   const selectedTile = selectedTileId
     ? scene.tiles.find((tile) => tile.id === selectedTileId) ?? null
@@ -3725,6 +4175,7 @@ export function WorkspaceCanvasViewport({
   const isContextObjectLocked = contextObject
     ? isKindLocked(toolbarState.canvasDebug, contextObject.kind)
     : false;
+  const isContextPlaceable = contextObject?.kind === "placeables";
 
   return (
     <section className="canvas-stage-real">
@@ -3794,7 +4245,12 @@ export function WorkspaceCanvasViewport({
           <button type="button" role="menuitem" disabled={isContextObjectLocked} onClick={() => handleContextAction("variables")}>
             Variables
           </button>
-          <button type="button" role="menuitem" disabled={isContextObjectLocked} onClick={() => handleContextAction("properties")}>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={isContextObjectLocked || !isContextPlaceable}
+            onClick={() => handleContextAction("properties")}
+          >
             Properties
           </button>
           <button
@@ -3943,7 +4399,16 @@ export function WorkspaceCanvasViewport({
               {adjustLocationDialog.showVisualTransforms ? (
                 <section className="canvas-adjust-location-grid">
                   <fieldset className="canvas-adjust-location-group">
-                    <legend>Visual Transforms</legend>
+                    <legend>
+                      Visual Transforms
+                      <span
+                        className="canvas-adjust-location-info"
+                        title="Placeables: when Static is ON, visual transform values are saved but not rendered. When Static is OFF, saved values are applied."
+                        aria-label="Visual transform rules info"
+                      >
+                        i
+                      </span>
+                    </legend>
                     <label>
                       Scale
                       <input
@@ -4037,6 +4502,206 @@ export function WorkspaceCanvasViewport({
                   OK
                 </button>
                 <button type="button" onClick={() => cancelAdjustLocationDialog()}>
+                  Cancel
+                </button>
+              </footer>
+            </>
+          ) : null}
+        </article>
+      ) : null}
+
+      {placeablePropertiesDialog ? (
+        <article
+          ref={placeablePropertiesDialogRef}
+          className={`canvas-placeable-properties-dialog ${
+            placeablePropertiesDialog.collapsed ? "is-collapsed" : ""
+          }`}
+          role="dialog"
+          aria-label="Placeable properties"
+          style={{
+            left: `${placeablePropertiesDialog.windowX}px`,
+            top: `${placeablePropertiesDialog.windowY}px`
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <header
+            className="canvas-placeable-properties-header"
+            onPointerDown={startPlaceablePropertiesDialogDrag}
+            onPointerMove={movePlaceablePropertiesDialogDrag}
+            onPointerUp={endPlaceablePropertiesDialogDrag}
+            onPointerCancel={endPlaceablePropertiesDialogDrag}
+          >
+            <div className="canvas-placeable-properties-header-copy">
+              <h2>Placeable Object Properties</h2>
+              <p>{placeablePropertiesDialog.draft.tag || placeablePropertiesDialog.objectId}</p>
+            </div>
+            <div className="canvas-placeable-properties-header-actions">
+              <button
+                type="button"
+                onClick={() => togglePlaceablePropertiesDialogCollapsed()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={
+                  placeablePropertiesDialog.collapsed
+                    ? "Expand placeable properties dialog"
+                    : "Collapse placeable properties dialog"
+                }
+              >
+                {placeablePropertiesDialog.collapsed ? "+" : "-"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelPlaceablePropertiesDialog()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label="Close placeable properties dialog"
+              >
+                x
+              </button>
+            </div>
+          </header>
+
+          {!placeablePropertiesDialog.collapsed ? (
+            <>
+              <nav className="canvas-placeable-properties-tabs" aria-label="placeable properties tabs">
+                {(["basic", "scripts", "advanced", "description", "comments"] as PlaceablePropertiesTab[]).map(
+                  (tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={
+                        placeablePropertiesDialog.activeTab === tab ? "is-active" : undefined
+                      }
+                      onClick={() => setPlaceablePropertiesActiveTab(tab)}
+                    >
+                      {tab === "basic"
+                        ? "Basic"
+                        : tab === "scripts"
+                          ? "Scripts"
+                          : tab === "advanced"
+                            ? "Advanced"
+                            : tab === "description"
+                              ? "Description"
+                              : "Comments"}
+                    </button>
+                  )
+                )}
+              </nav>
+
+              {placeablePropertiesDialog.activeTab === "basic" ? (
+                <section className="canvas-placeable-properties-shell">
+                  <aside className="canvas-placeable-properties-preview" aria-hidden="true">
+                    <span>Preview</span>
+                  </aside>
+                  <div className="canvas-placeable-properties-basic">
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Identity</legend>
+                      <label>
+                        Name
+                        <input
+                          type="text"
+                          value={placeablePropertiesDialog.draft.name}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("name", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        Tag
+                        <input
+                          type="text"
+                          value={placeablePropertiesDialog.draft.tag}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("tag", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        Appearance Type
+                        <input
+                          type="text"
+                          value={placeablePropertiesDialog.draft.resRef}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("resRef", event.target.value)
+                          }
+                        />
+                      </label>
+                    </fieldset>
+
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Basic Flags</legend>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input type="checkbox" disabled />
+                        Plot
+                        <span>Post-MVP</span>
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input type="checkbox" disabled />
+                        Useable
+                        <span>Post-MVP</span>
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input type="checkbox" disabled />
+                        Has Inventory
+                        <span>Post-MVP</span>
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.isStatic}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("isStatic", event.target.checked)
+                          }
+                        />
+                        Static
+                        <span>ACTIVE_NOW</span>
+                      </label>
+                    </fieldset>
+
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Stats</legend>
+                      <label>
+                        Hardness
+                        <input type="number" disabled value="5" />
+                      </label>
+                      <label>
+                        Hit Points
+                        <input type="number" disabled value="15" />
+                      </label>
+                      <label>
+                        Fortitude Save
+                        <input type="number" disabled value="0" />
+                      </label>
+                      <label>
+                        Reflex Save
+                        <input type="number" disabled value="0" />
+                      </label>
+                      <label>
+                        Will Save
+                        <input type="number" disabled value="0" />
+                      </label>
+                      <p className="canvas-placeable-properties-note">
+                        Remaining controls in this section are <strong>Post-MVP</strong>.
+                      </p>
+                    </fieldset>
+                  </div>
+                </section>
+              ) : (
+                <section className="canvas-placeable-properties-tab-placeholder">
+                  <p>
+                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
+                    <strong> Post-MVP</strong>.
+                  </p>
+                </section>
+              )}
+
+              <footer className="canvas-placeable-properties-actions">
+                <button type="button" onClick={() => applyPlaceablePropertiesDraft(false)}>
+                  Apply
+                </button>
+                <button type="button" onClick={() => applyPlaceablePropertiesDraft(true)}>
+                  OK
+                </button>
+                <button type="button" onClick={() => cancelPlaceablePropertiesDialog()}>
                   Cancel
                 </button>
               </footer>

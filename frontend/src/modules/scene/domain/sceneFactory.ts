@@ -84,6 +84,8 @@ function createSeedObjects(width: number, height: number): SceneObject[] {
 
   return seedObjects.map((entry) => ({
     ...entry,
+    name: entry.tag,
+    isStatic: entry.kind === "placeables",
     x: scaleCoordinate(entry.x, LEGACY_SEED_SCENE_WIDTH_TILES, width),
     y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
     bearing: entry.bearing ?? 0,
@@ -141,8 +143,10 @@ export function createNewSceneObject(
   return {
     id: `${key}_${index}`,
     kind,
+    name: `${kind.toUpperCase()}_${index}`,
     resRef: baseResRefByKind[kind],
     tag: `${kind.toUpperCase()}_${index}`,
+    isStatic: kind === "placeables",
     x,
     y,
     bearing: 0,
