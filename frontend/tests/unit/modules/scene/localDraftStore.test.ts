@@ -44,4 +44,14 @@ describe("localDraftStore", () => {
     expect(draftB?.areaName).toBe("Area B");
   });
 
+  it("persists drafts under stable storage key", () => {
+    const scene = createSeedAreaScene();
+    saveLocalSceneDraft(userId, scene, window.localStorage);
+
+    const raw = window.localStorage.getItem("aurora-web.local-area-drafts.v1");
+    expect(raw).not.toBeNull();
+    expect(raw).toContain(`"user:${userId}"`);
+    expect(raw).toContain('"source":"local_draft"');
+  });
+
 });

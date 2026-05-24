@@ -104,8 +104,33 @@ interface TransformGestureState {
   mode: "translate" | "rotate" | "scale" | null;
   axis: string | null;
   objectIds: string[];
-  lastAnchorPosition: THREE.Vector3;
-  lastAnchorRotationX: number;
+  startAnchorPosition: THREE.Vector3;
+  startAnchorRotationX: number;
+  sourceObjects: SceneObject[];
+  sourceMeshPositions: Map<string, THREE.Vector3>;
+  sourceMeshRotations: Map<string, THREE.Euler>;
+  deltaX: number;
+  deltaY: number;
+  deltaZ: number;
+  deltaPitchRad: number;
+}
+
+function createIdleTransformGestureState(): TransformGestureState {
+  return {
+    active: false,
+    mode: null,
+    axis: null,
+    objectIds: [],
+    startAnchorPosition: new THREE.Vector3(),
+    startAnchorRotationX: 0,
+    sourceObjects: [],
+    sourceMeshPositions: new Map<string, THREE.Vector3>(),
+    sourceMeshRotations: new Map<string, THREE.Euler>(),
+    deltaX: 0,
+    deltaY: 0,
+    deltaZ: 0,
+    deltaPitchRad: 0
+  };
 }
 
 interface RuntimeState {
@@ -1071,14 +1096,7 @@ export function WorkspaceCanvasViewport({
     lastWorld: null,
     objectIds: []
   });
-  const transformGestureRef = useRef<TransformGestureState>({
-    active: false,
-    mode: null,
-    axis: null,
-    objectIds: [],
-    lastAnchorPosition: new THREE.Vector3(),
-    lastAnchorRotationX: 0
-  });
+  const transformGestureRef = useRef<TransformGestureState>(createIdleTransformGestureState());
   const bookmark1Ref = useRef<CameraBookmark | null>(null);
   const perfFrameRef = useRef({
     frameCount: 0,
@@ -1533,90 +1551,6 @@ export function WorkspaceCanvasViewport({
     ]
   );
 
-  const moveSelectedObjectsByHeight = useCallback(
-    (deltaZ: number, source: string, targetObjectIds?: string[]): number => {
-      if (deltaZ === 0) {
-        return 0;
-      }
-
-      const resolved = resolveMovableSelectionIds(targetObjectIds);
-      if (resolved.ids.length === 0) {
-        trackTelemetry("scene.objects.move_skipped", {
-          userId,
-          source,
-          reason: resolved.reason ?? "selection_unavailable"
-        });
-        return 0;
-      }
-
-      const movableIds = new Set(resolved.ids);
-      const movableObjects = scene.objects.filter((object) => movableIds.has(object.id));
-      const boundedDeltaZ = clampHeightDeltaToSurface(movableObjects, deltaZ);
-      if (boundedDeltaZ === 0) {
-        trackTelemetry("scene.objects.move_skipped", {
-          userId,
-          source,
-          reason: "surface_floor_reached"
-        });
-        return 0;
-      }
-
-      setSceneHistory((current) =>
-        sceneViewportPort.commitHistory(
-          current,
-          sceneViewportPort.adjustObjectsHeightByIds(current.present, resolved.ids, boundedDeltaZ)
-        )
-      );
-      setSelectedTileId(null);
-      trackTelemetry("scene.objects.move", {
-        userId,
-        source,
-        movedCount: resolved.ids.length,
-        deltaZ: boundedDeltaZ
-      });
-      return resolved.ids.length;
-    },
-    [resolveMovableSelectionIds, scene, sceneViewportPort, userId]
-  );
-
-  const rotateSelectedObjectsPitch = useCallback(
-    (deltaPitchRad: number, source: string, targetObjectIds?: string[]): number => {
-      if (deltaPitchRad === 0) {
-        return 0;
-      }
-
-      const resolved = resolveMovableSelectionIds(targetObjectIds);
-      if (resolved.ids.length === 0) {
-        trackTelemetry("scene.objects.rotate_skipped", {
-          userId,
-          source,
-          reason: resolved.reason ?? "selection_unavailable"
-        });
-        return 0;
-      }
-
-      setSceneHistory((current) =>
-        sceneViewportPort.commitHistory(
-          current,
-          sceneViewportPort.rotateObjectsPitchByIds(
-            current.present,
-            resolved.ids,
-            deltaPitchRad
-          )
-        )
-      );
-      setSelectedTileId(null);
-      trackTelemetry("scene.objects.rotate_pitch", {
-        userId,
-        source,
-        rotatedCount: resolved.ids.length,
-        deltaPitchRad
-      });
-      return resolved.ids.length;
-    },
-    [resolveMovableSelectionIds, sceneViewportPort, userId]
-  );
-
   useEffect(() => {
     const host = hostRef.current;
     if (!host) {
@@ -1833,14 +1767,7 @@ export function WorkspaceCanvasViewport({
     }
 
     if (!supportsTransformControls) {
-      transformGestureRef.current = {
-        active: false,
-        mode: null,
-        axis: null,
-        objectIds: [],
-        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
-        lastAnchorRotationX: 0
-      };
+      transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
@@ -1853,14 +1780,7 @@ export function WorkspaceCanvasViewport({
       selectedObjects.length === 0 ||
       selectedObjects.some((object) => object.kind === "doors")
     ) {
-      transformGestureRef.current = {
-        active: false,
-        mode: null,
-        axis: null,
-        objectIds: [],
-        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
-        lastAnchorRotationX: 0
-      };
+      transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
@@ -1872,14 +1792,7 @@ export function WorkspaceCanvasViewport({
         !isKindLocked(toolbarState.canvasDebug, object.kind)
     );
     if (movableObjects.length === 0) {
-      transformGestureRef.current = {
-        active: false,
-        mode: null,
-        axis: null,
-        objectIds: [],
-        lastAnchorPosition: transformGestureRef.current.lastAnchorPosition,
-        lastAnchorRotationX: 0
-      };
+      transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
@@ -1891,6 +1804,7 @@ export function WorkspaceCanvasViewport({
       .map((id) => runtime.objectMeshById.get(id))
       .filter((mesh): mesh is THREE.Mesh => Boolean(mesh));
     if (movableMeshes.length === 0) {
+      transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
@@ -1928,14 +1842,11 @@ export function WorkspaceCanvasViewport({
     }
 
     const transformControls = runtime.transformControls;
+    const epsilon = 1e-5;
 
-    const handleDraggingChanged = (event: { value?: boolean }) => {
+    const handleDraggingChanged = (event: { value?: unknown }) => {
       const isDragging = Boolean(event.value);
       runtime.controls.enabled = !isDragging;
-      if (!isDragging) {
-        transformGestureRef.current.active = false;
-        transformGestureRef.current.axis = null;
-      }
     };
 
     const handleMouseDown = () => {
@@ -1951,8 +1862,32 @@ export function WorkspaceCanvasViewport({
         );
       });
       if (objectIds.length === 0) {
-        transformGestureRef.current.active = false;
-        transformGestureRef.current.axis = null;
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      const sourceObjects = objectIds
+        .map((id) => objectById.get(id))
+        .filter((object): object is SceneObject => Boolean(object))
+        .map(cloneSceneObject);
+      if (sourceObjects.length === 0) {
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      const sourceMeshPositions = new Map<string, THREE.Vector3>();
+      const sourceMeshRotations = new Map<string, THREE.Euler>();
+      objectIds.forEach((id) => {
+        const mesh = runtime.objectMeshById.get(id);
+        if (!mesh) {
+          return;
+        }
+        sourceMeshPositions.set(id, mesh.position.clone());
+        sourceMeshRotations.set(id, mesh.rotation.clone());
+      });
+
+      if (sourceMeshPositions.size === 0) {
+        transformGestureRef.current = createIdleTransformGestureState();
         return;
       }
 
@@ -1961,14 +1896,94 @@ export function WorkspaceCanvasViewport({
         mode,
         axis: transformControls.axis,
         objectIds,
-        lastAnchorPosition: runtime.transformAnchor.position.clone(),
-        lastAnchorRotationX: runtime.transformAnchor.rotation.x
+        startAnchorPosition: runtime.transformAnchor.position.clone(),
+        startAnchorRotationX: runtime.transformAnchor.rotation.x,
+        sourceObjects,
+        sourceMeshPositions,
+        sourceMeshRotations,
+        deltaX: 0,
+        deltaY: 0,
+        deltaZ: 0,
+        deltaPitchRad: 0
       };
     };
 
     const handleMouseUp = () => {
-      transformGestureRef.current.active = false;
-      transformGestureRef.current.axis = null;
+      const gesture = transformGestureRef.current;
+      if (!gesture.active || gesture.objectIds.length === 0) {
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      if (gesture.mode === "translate") {
+        const deltaX = gesture.deltaX;
+        const deltaY = gesture.deltaY;
+        const deltaZ = gesture.deltaZ;
+        const hasMoveDelta =
+          Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon || Math.abs(deltaZ) > epsilon;
+
+        if (hasMoveDelta) {
+          setSceneHistory((current) => {
+            let nextScene = current.present;
+            if (Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon) {
+              nextScene = sceneViewportPort.translateObjectsByIds(nextScene, gesture.objectIds, {
+                x: deltaX,
+                y: deltaY
+              });
+            }
+            if (Math.abs(deltaZ) > epsilon) {
+              nextScene = sceneViewportPort.adjustObjectsHeightByIds(
+                nextScene,
+                gesture.objectIds,
+                deltaZ
+              );
+            }
+            if (nextScene === current.present) {
+              return current;
+            }
+            return sceneViewportPort.commitHistory(current, nextScene);
+          });
+          setSelectedTileId(null);
+          trackTelemetry("scene.objects.move", {
+            userId,
+            source: "gizmo_translate",
+            movedCount: gesture.objectIds.length,
+            deltaX,
+            deltaY,
+            deltaZ
+          });
+        }
+
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      if (gesture.mode === "rotate") {
+        const deltaPitchRad = gesture.deltaPitchRad;
+        const hasRotationDelta = Math.abs(deltaPitchRad) > epsilon;
+        if (hasRotationDelta) {
+          setSceneHistory((current) => {
+            const nextScene = sceneViewportPort.rotateObjectsPitchByIds(
+              current.present,
+              gesture.objectIds,
+              deltaPitchRad
+            );
+            if (nextScene === current.present) {
+              return current;
+            }
+            return sceneViewportPort.commitHistory(current, nextScene);
+          });
+          setSelectedTileId(null);
+          trackTelemetry("scene.objects.rotate_pitch", {
+            userId,
+            source: "gizmo_rotate_pitch_x",
+            rotatedCount: gesture.objectIds.length,
+            deltaPitchRad
+          });
+        }
+      }
+
+      transformGestureRef.current = createIdleTransformGestureState();
     };
 
     const handleObjectChange = () => {
@@ -1979,10 +1994,9 @@ export function WorkspaceCanvasViewport({
 
       if (gesture.mode === "translate") {
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
-        const rawDeltaX = runtime.transformAnchor.position.x - gesture.lastAnchorPosition.x;
-        const rawDeltaY = runtime.transformAnchor.position.z - gesture.lastAnchorPosition.z;
-        const rawDeltaZ = runtime.transformAnchor.position.y - gesture.lastAnchorPosition.y;
-        const epsilon = 1e-5;
+        const rawDeltaX = runtime.transformAnchor.position.x - gesture.startAnchorPosition.x;
+        const rawDeltaY = runtime.transformAnchor.position.z - gesture.startAnchorPosition.z;
+        const rawDeltaZ = runtime.transformAnchor.position.y - gesture.startAnchorPosition.y;
         const deltaX =
           axis.includes("X") && Math.abs(rawDeltaX) > epsilon ? rawDeltaX : 0;
         const deltaY =
@@ -1990,42 +2004,63 @@ export function WorkspaceCanvasViewport({
         const deltaZ =
           axis.includes("Y") && Math.abs(rawDeltaZ) > epsilon ? rawDeltaZ : 0;
 
-        if (deltaX !== 0 || deltaY !== 0) {
-          const moved = moveSelectedObjectsByDelta(
-            { x: deltaX, y: deltaY },
-            "gizmo_translate",
-            gesture.objectIds
-          );
-          if (moved > 0) {
-            gesture.lastAnchorPosition.x = runtime.transformAnchor.position.x;
-            gesture.lastAnchorPosition.z = runtime.transformAnchor.position.z;
-          }
-        }
+        const boundedDelta = clampTranslationDeltaToSceneBounds(
+          scene,
+          gesture.sourceObjects,
+          { x: deltaX, y: deltaY }
+        );
+        const boundedDeltaZ = clampHeightDeltaToSurface(gesture.sourceObjects, deltaZ);
 
-        if (deltaZ !== 0) {
-          const lifted = moveSelectedObjectsByHeight(deltaZ, "gizmo_translate", gesture.objectIds);
-          if (lifted > 0) {
-            gesture.lastAnchorPosition.y = runtime.transformAnchor.position.y;
+        gesture.deltaX = boundedDelta.x;
+        gesture.deltaY = boundedDelta.y;
+        gesture.deltaZ = boundedDeltaZ;
+
+        gesture.objectIds.forEach((id) => {
+          const mesh = runtime.objectMeshById.get(id);
+          const sourcePosition = gesture.sourceMeshPositions.get(id);
+          if (!mesh || !sourcePosition) {
+            return;
           }
+          mesh.position.set(
+            sourcePosition.x + boundedDelta.x,
+            sourcePosition.y + boundedDeltaZ,
+            sourcePosition.z + boundedDelta.y
+          );
+        });
+
+        const expectedAnchorX = gesture.startAnchorPosition.x + boundedDelta.x;
+        const expectedAnchorY = gesture.startAnchorPosition.y + boundedDeltaZ;
+        const expectedAnchorZ = gesture.startAnchorPosition.z + boundedDelta.y;
+        if (
+          Math.abs(runtime.transformAnchor.position.x - expectedAnchorX) > epsilon ||
+          Math.abs(runtime.transformAnchor.position.y - expectedAnchorY) > epsilon ||
+          Math.abs(runtime.transformAnchor.position.z - expectedAnchorZ) > epsilon
+        ) {
+          runtime.transformAnchor.position.set(expectedAnchorX, expectedAnchorY, expectedAnchorZ);
+          runtime.transformAnchor.updateMatrixWorld();
         }
         return;
       }
 
       if (gesture.mode === "rotate") {
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
-        const rawDeltaPitch = runtime.transformAnchor.rotation.x - gesture.lastAnchorRotationX;
+        const rawDeltaPitch = runtime.transformAnchor.rotation.x - gesture.startAnchorRotationX;
         const deltaPitchRad =
           axis.includes("X") && Math.abs(rawDeltaPitch) > 1e-5 ? rawDeltaPitch : 0;
-        if (deltaPitchRad !== 0) {
-          const rotated = rotateSelectedObjectsPitch(
-            deltaPitchRad,
-            "gizmo_rotate_pitch_x",
-            gesture.objectIds
-          );
-          if (rotated > 0) {
-            gesture.lastAnchorRotationX = runtime.transformAnchor.rotation.x;
+        gesture.deltaPitchRad = deltaPitchRad;
+
+        gesture.objectIds.forEach((id) => {
+          const mesh = runtime.objectMeshById.get(id);
+          const sourceRotation = gesture.sourceMeshRotations.get(id);
+          if (!mesh || !sourceRotation) {
+            return;
           }
-        }
+          mesh.rotation.set(
+            sourceRotation.x + deltaPitchRad,
+            sourceRotation.y,
+            sourceRotation.z
+          );
+        });
       }
     };
 
@@ -2041,12 +2076,14 @@ export function WorkspaceCanvasViewport({
       transformControls.removeEventListener("objectChange", handleObjectChange);
     };
   }, [
-    moveSelectedObjectsByDelta,
-    moveSelectedObjectsByHeight,
+    cloneSceneObject,
     objectById,
-    rotateSelectedObjectsPitch,
+    scene,
+    sceneViewportPort,
     selectedObjectIds,
-    toolbarState.canvasDebug
+    toolbarState.canvasDebug,
+    trackTelemetry,
+    userId
   ]);
 
   const focusCameraOnWorldPoint = useCallback((worldX: number, worldY: number) => {

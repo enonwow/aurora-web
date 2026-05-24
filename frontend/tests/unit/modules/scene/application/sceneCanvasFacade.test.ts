@@ -38,6 +38,55 @@ describe("sceneCanvasFacade", () => {
     expect(barrel?.y).toBeCloseTo((5.7 / 18) * 2, 5);
   });
 
+  it("does not migrate non-seed legacy-sized draft when scene id differs", () => {
+    const customDraft = {
+      ...createSeedAreaScene(18, 18),
+      sceneId: "custom_area_scene_001"
+    };
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => customDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.sceneId).toBe("custom_area_scene_001");
+    expect(history.present.width).toBe(18);
+    expect(history.present.height).toBe(18);
+    expect(history.present.tiles).toHaveLength(18 * 18);
+  });
+
+  it("does not migrate draft when only one legacy dimension matches", () => {
+    const nonLegacyDraft = createSeedAreaScene(18, 17);
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => nonLegacyDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.width).toBe(18);
+    expect(history.present.height).toBe(17);
+    expect(history.present.tiles).toHaveLength(18 * 17);
+  });
+
+  it("does not migrate draft when only legacy height matches", () => {
+    const nonLegacyDraft = createSeedAreaScene(17, 18);
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => nonLegacyDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.width).toBe(17);
+    expect(history.present.height).toBe(18);
+    expect(history.present.tiles).toHaveLength(17 * 18);
+  });
+
   it("falls back to seed history when draft port load throws", () => {
     const draftPort: SceneDraftPort = {
       loadByUserId: () => {
@@ -69,4 +118,3 @@ describe("sceneCanvasFacade", () => {
     expect(saveByUserId).toHaveBeenCalledWith("u_builder_001", scene);
   });
 });
-

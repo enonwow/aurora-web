@@ -39,6 +39,25 @@ describe("sceneAuthoringFacade", () => {
     expect(translation).toEqual({ x: 0.5, y: 0.5 });
   });
 
+  it("prefers explicit cursor anchor and returns null translation for empty source", () => {
+    const facade = createSceneAuthoringFacade();
+    const anchor = facade.resolveCopyAnchor({
+      cursorAnchor: { x: 9.25, y: 4.75 },
+      sourcePoints: [],
+      fallbackOffset: 0.5
+    });
+
+    const translation = facade.computeCopyTranslation({
+      sourcePoints: [],
+      anchor: anchor ?? { x: 0, y: 0 },
+      snapGrid: false,
+      snapGridStep: 1
+    });
+
+    expect(anchor).toEqual({ x: 9.25, y: 4.75 });
+    expect(translation).toBeNull();
+  });
+
   it("returns seed objects snapshot for initial UI state", () => {
     const facade = createSceneAuthoringFacade();
 
@@ -54,6 +73,9 @@ describe("sceneAuthoringFacade", () => {
 
     expect(facade.getSceneScale(18, 18)).toBe(1);
     expect(facade.getSceneScale(2, 2)).toBeCloseTo(2 / 18, 6);
+    expect(facade.getSceneScale(2, 30)).toBeCloseTo(2 / 18, 6);
+    expect(facade.getSceneScale(30, 2)).toBeCloseTo(2 / 18, 6);
     expect(facade.getSceneScale(0.1, 0.1)).toBe(0.08);
+    expect(facade.getSceneScale(250, 250)).toBe(1);
   });
 });

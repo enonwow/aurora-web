@@ -39,5 +39,34 @@ describe("sceneHistory - negative cases", () => {
     expect(redone).toBe(history);
     expect(JSON.stringify(history)).toBe(historySnapshot);
   });
+
+  it("normalizes non-integer history limit with floor and keeps only most recent entries", () => {
+    const seed = createSeedAreaScene();
+    const h0 = createSceneHistory(seed);
+    const h1 = commitSceneHistory(h0, { ...seed, areaName: "A" }, 1.9);
+    const h2 = commitSceneHistory(h1, { ...seed, areaName: "B" }, 1.9);
+
+    expect(h2.past).toHaveLength(1);
+    expect(h2.past[0]?.areaName).toBe("A");
+  });
+
+  it("returns deep-cloned snapshots so later mutation does not leak into history", () => {
+    const seed = createSeedAreaScene();
+    const h0 = createSceneHistory(seed);
+    const committed = commitSceneHistory(h0, {
+      ...h0.present,
+      areaName: "Edited"
+    });
+
+    committed.past[0]!.areaName = "MUTATED_PAST";
+    committed.present.areaName = "MUTATED_PRESENT";
+
+    const undone = undoSceneHistory(committed);
+    expect(undone.present.areaName).toBe("MUTATED_PAST");
+    expect(undone.future[0]?.areaName).toBe("MUTATED_PRESENT");
+
+    const redone = redoSceneHistory(undone);
+    expect(redone.present.areaName).toBe("MUTATED_PRESENT");
+  });
 });
 

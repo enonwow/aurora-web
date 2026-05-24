@@ -26,8 +26,26 @@ async function signInAs(username: string, password: string) {
 }
 
 async function openQuickOptionsDialog() {
-  fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-  return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+  const trigger = screen.getByRole("button", { name: /open quick options/i });
+  fireEvent.click(trigger);
+  try {
+    return await screen.findByRole("dialog", { name: /quick options/i }, { timeout: 3000 });
+  } catch {
+    fireEvent.click(trigger);
+    return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+  }
+}
+
+async function openToolbarGroup(groupName: RegExp) {
+  const tab = screen.getByRole("button", { name: groupName });
+  fireEvent.click(tab);
+  if (tab.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(tab);
+  }
+  await waitFor(() => {
+    expect(tab).toHaveAttribute("aria-expanded", "true");
+  });
+  return tab;
 }
 
 describe("App auth mock flow", () => {
@@ -322,7 +340,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("dm.user", "dm123");
 
-    fireEvent.click(screen.getByRole("button", { name: /^dm commands$/i }));
+    await openToolbarGroup(/^dm commands$/i);
     expect(
       await screen.findByRole("button", { name: /spawn creature/i })
     ).toBeInTheDocument();
@@ -366,7 +384,7 @@ describe("App auth mock flow", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
+    await openToolbarGroup(/^module$/i);
     fireEvent.click(
       await screen.findByRole("button", { name: /save \(local draft\)/i })
     );

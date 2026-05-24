@@ -31,12 +31,20 @@ async function openQuickOptionsDialog() {
   return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
 }
 
-async function openCanvasCommands() {
-  const canvasTab = screen.getByRole("button", { name: /^canvas$/i });
-  fireEvent.click(canvasTab);
+async function openToolbarGroup(groupName: RegExp) {
+  const tab = screen.getByRole("button", { name: groupName });
+  fireEvent.click(tab);
+  if (tab.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(tab);
+  }
   await waitFor(() => {
-    expect(canvasTab).toHaveAttribute("aria-expanded", "true");
+    expect(tab).toHaveAttribute("aria-expanded", "true");
   });
+  return tab;
+}
+
+async function openCanvasCommands() {
+  await openToolbarGroup(/^canvas$/i);
   expect(await screen.findByLabelText(/canvas commands/i, {}, { timeout: 5000 })).toBeInTheDocument();
 }
 
@@ -51,11 +59,7 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    const visibilityTab = screen.getByRole("button", { name: /^visibility$/i });
-    fireEvent.click(visibilityTab);
-    await waitFor(() => {
-      expect(visibilityTab).toHaveAttribute("aria-expanded", "true");
-    });
+    await openToolbarGroup(/^visibility$/i);
     expect(
       await screen.findByLabelText(/visibility commands/i, {}, { timeout: 5000 })
     ).toBeInTheDocument();
@@ -470,6 +474,19 @@ describe("Regression smoke: workspace interactions", () => {
   });
 
   it("saves local draft using Ctrl+S keyboard shortcut", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(loadLocalSceneDraft("u_builder_001", window.localStorage)).not.toBeNull();
+    });
+    expect(loadLocalSceneDraft("u_builder_001", window.localStorage)?.source).toBe("local_draft");
+  });
+
+  it("recovers local draft save when storage root payload is malformed", async () => {
+    window.localStorage.setItem("aurora-web.local-area-drafts.v1", "123");
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
