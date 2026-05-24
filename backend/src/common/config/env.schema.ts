@@ -14,7 +14,11 @@ export const envSchema = z.object({
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["postgres", "memory"]).default("postgres"),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
-  RUNTIME_SETTINGS_FILE: z.string().min(1).default("./config/runtime-settings.json")
+  RUNTIME_SETTINGS_FILE: z.string().min(1).default("./config/runtime-settings.json"),
+  PROCESSING_GRAPH_SNAPSHOT_FILE: z
+    .string()
+    .min(1)
+    .default("./config/processing-graph-snapshot.json")
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

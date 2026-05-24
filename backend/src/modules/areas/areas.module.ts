@@ -13,6 +13,7 @@ import { AREA_REPOSITORY } from "./application/ports/area-repository.port";
       provide: AREA_REPOSITORY,
       useExisting: StaticAreaRepository
     }
-  ]
+  ],
+  exports: [AREA_REPOSITORY]
 })
 export class AreasModule {}

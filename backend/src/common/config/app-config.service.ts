@@ -59,4 +59,8 @@ export class AppConfigService {
   get runtimeSettingsFile() {
     return this.env.RUNTIME_SETTINGS_FILE;
   }
+
+  get processingGraphSnapshotFile() {
+    return this.env.PROCESSING_GRAPH_SNAPSHOT_FILE;
+  }
 }

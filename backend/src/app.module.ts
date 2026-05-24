@@ -8,6 +8,7 @@ import { AreasModule } from "./modules/areas/areas.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { CatalogModule } from "./modules/catalog/catalog.module";
 import { RuntimeSettingsModule } from "./modules/runtime-settings/runtime-settings.module";
+import { ProcessingGraphModule } from "./modules/processing-graph/processing-graph.module";
 import { HealthModule } from "./health/health.module";
 
 @Module({
@@ -17,6 +18,7 @@ import { HealthModule } from "./health/health.module";
     AuthModule,
     CatalogModule,
     AreasModule,
+    ProcessingGraphModule,
     RuntimeSettingsModule,
     HealthModule
   ],
