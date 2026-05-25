@@ -1,0 +1,432 @@
+{
+  "generatedAt": "2026-05-25T18:39:52.841Z",
+  "timing": {
+    "startedAt": "2026-05-25T18:39:52.537Z",
+    "finishedAt": "2026-05-25T18:39:52.841Z"
+  },
+  "config": {
+    "maxCandidatesPerType": 1,
+    "processBypassIterations": 5,
+    "processHitIterations": 8,
+    "cacheReadIterations": 10,
+    "assetDeliveryIterations": 6
+  },
+  "totals": {
+    "candidates": 4,
+    "requests": 97,
+    "delivery": {
+      "eligibleCandidates": 1,
+      "executedCandidates": 0,
+      "skippedByReason": {
+        "placeable_manifest_has_no_assets": 1
+      }
+    }
+  },
+  "routeGroups": {
+    "processBypass": {
+      "count": 20,
+      "p50Ms": 3.0398,
+      "p95Ms": 4.22,
+      "p99Ms": 4.6674
+    },
+    "processHit": {
+      "count": 32,
+      "p50Ms": 2.912,
+      "p95Ms": 4.4278,
+      "p99Ms": 4.442
+    },
+    "cacheRead": {
+      "count": 40,
+      "p50Ms": 2.9526,
+      "p95Ms": 4.032,
+      "p99Ms": 4.529
+    },
+    "assetDelivery": {
+      "count": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0
+    }
+  },
+  "summaryByType": {
+    "placeable": {
+      "candidates": 1,
+      "processBypass": {
+        "minMs": 3.2785,
+        "maxMs": 4.6674,
+        "avgMs": 4.2651,
+        "p50Ms": 4.6674,
+        "p95Ms": 4.6674,
+        "p99Ms": 4.6674
+      },
+      "processHit": {
+        "minMs": 2.2471,
+        "maxMs": 3.382,
+        "avgMs": 3.0292,
+        "p50Ms": 3.382,
+        "p95Ms": 3.382,
+        "p99Ms": 3.382
+      },
+      "cacheRead": {
+        "minMs": 2.6776,
+        "maxMs": 4.1262,
+        "avgMs": 3.6193,
+        "p50Ms": 4.1262,
+        "p95Ms": 4.1262,
+        "p99Ms": 4.1262
+      },
+      "delivery": {
+        "eligibleCandidates": 1,
+        "executedCandidates": 0,
+        "skippedByReason": {
+          "placeable_manifest_has_no_assets": 1
+        }
+      }
+    },
+    "creature": {
+      "candidates": 1,
+      "processBypass": {
+        "minMs": 2.591,
+        "maxMs": 3.08,
+        "avgMs": 2.947,
+        "p50Ms": 3.08,
+        "p95Ms": 3.08,
+        "p99Ms": 3.08
+      },
+      "processHit": {
+        "minMs": 2.727,
+        "maxMs": 4.442,
+        "avgMs": 3.8557,
+        "p50Ms": 4.442,
+        "p95Ms": 4.442,
+        "p99Ms": 4.442
+      },
+      "cacheRead": {
+        "minMs": 2.2861,
+        "maxMs": 3.6086,
+        "avgMs": 3.1829,
+        "p50Ms": 3.6086,
+        "p95Ms": 3.6086,
+        "p99Ms": 3.6086
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    },
+    "item": {
+      "candidates": 1,
+      "processBypass": {
+        "minMs": 2.7459,
+        "maxMs": 3.8369,
+        "avgMs": 3.4593,
+        "p50Ms": 3.8369,
+        "p95Ms": 3.8369,
+        "p99Ms": 3.8369
+      },
+      "processHit": {
+        "minMs": 2.4449,
+        "maxMs": 3.945,
+        "avgMs": 3.4164,
+        "p50Ms": 3.945,
+        "p95Ms": 3.945,
+        "p99Ms": 3.945
+      },
+      "cacheRead": {
+        "minMs": 2.0184,
+        "maxMs": 4.529,
+        "avgMs": 3.6146,
+        "p50Ms": 4.529,
+        "p95Ms": 4.529,
+        "p99Ms": 4.529
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    },
+    "area": {
+      "candidates": 1,
+      "processBypass": {
+        "minMs": 2.0238,
+        "maxMs": 4.1808,
+        "avgMs": 3.3953,
+        "p50Ms": 4.1808,
+        "p95Ms": 4.1808,
+        "p99Ms": 4.1808
+      },
+      "processHit": {
+        "minMs": 2.5758,
+        "maxMs": 4.4278,
+        "avgMs": 3.746,
+        "p50Ms": 4.4278,
+        "p95Ms": 4.4278,
+        "p99Ms": 4.4278
+      },
+      "cacheRead": {
+        "minMs": 2.5738,
+        "maxMs": 3.6613,
+        "avgMs": 3.3415,
+        "p50Ms": 3.6613,
+        "p95Ms": 3.6613,
+        "p99Ms": 3.6613
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    }
+  },
+  "routeGroupsByType": {
+    "placeable": {
+      "processBypass": {
+        "count": 5,
+        "p50Ms": 4.0447,
+        "p95Ms": 4.6674,
+        "p99Ms": 4.6674
+      },
+      "processHit": {
+        "count": 8,
+        "p50Ms": 2.7527,
+        "p95Ms": 3.382,
+        "p99Ms": 3.382
+      },
+      "cacheRead": {
+        "count": 10,
+        "p50Ms": 3.0402,
+        "p95Ms": 4.1262,
+        "p99Ms": 4.1262
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "creature": {
+      "processBypass": {
+        "count": 5,
+        "p50Ms": 2.904,
+        "p95Ms": 3.08,
+        "p99Ms": 3.08
+      },
+      "processHit": {
+        "count": 8,
+        "p50Ms": 3.2256,
+        "p95Ms": 4.442,
+        "p99Ms": 4.442
+      },
+      "cacheRead": {
+        "count": 10,
+        "p50Ms": 2.8028,
+        "p95Ms": 3.6086,
+        "p99Ms": 3.6086
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "item": {
+      "processBypass": {
+        "count": 5,
+        "p50Ms": 3.0398,
+        "p95Ms": 3.8369,
+        "p99Ms": 3.8369
+      },
+      "processHit": {
+        "count": 8,
+        "p50Ms": 2.8022,
+        "p95Ms": 3.945,
+        "p99Ms": 3.945
+      },
+      "cacheRead": {
+        "count": 10,
+        "p50Ms": 2.4676,
+        "p95Ms": 4.529,
+        "p99Ms": 4.529
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "area": {
+      "processBypass": {
+        "count": 5,
+        "p50Ms": 2.4105,
+        "p95Ms": 4.1808,
+        "p99Ms": 4.1808
+      },
+      "processHit": {
+        "count": 8,
+        "p50Ms": 2.8707,
+        "p95Ms": 4.4278,
+        "p99Ms": 4.4278
+      },
+      "cacheRead": {
+        "count": 10,
+        "p50Ms": 3.1499,
+        "p95Ms": 3.6613,
+        "p99Ms": 3.6613
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    }
+  },
+  "perCandidate": [
+    {
+      "type": "placeable",
+      "id": "plc_market_stall_001",
+      "cacheKey": "75991c6a6a9922c4031ba05e3cc8818b18fd16cf464212f7d2fdc805d98b77e4",
+      "processBypass": {
+        "minMs": 3.2785,
+        "maxMs": 4.6674,
+        "avgMs": 3.997,
+        "p50Ms": 4.0447,
+        "p95Ms": 4.6674,
+        "p99Ms": 4.6674
+      },
+      "processHit": {
+        "minMs": 2.2471,
+        "maxMs": 3.382,
+        "avgMs": 2.7377,
+        "p50Ms": 2.7527,
+        "p95Ms": 3.382,
+        "p99Ms": 3.382
+      },
+      "cacheRead": {
+        "minMs": 2.6776,
+        "maxMs": 4.1262,
+        "avgMs": 3.2286,
+        "p50Ms": 3.0402,
+        "p95Ms": 4.1262,
+        "p99Ms": 4.1262
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "75991c6a6a9922c4031ba05e3cc8818b18fd16cf464212f7d2fdc805d98b77e4",
+        "requestCount": 1,
+        "reason": "placeable_manifest_has_no_assets"
+      }
+    },
+    {
+      "type": "creature",
+      "id": "cre_guard_human_001",
+      "cacheKey": "e62de1297196b5921a589c4368860cf911bb911b3ec4b6ef9b3d556324ca26f9",
+      "processBypass": {
+        "minMs": 2.591,
+        "maxMs": 3.08,
+        "avgMs": 2.8402,
+        "p50Ms": 2.904,
+        "p95Ms": 3.08,
+        "p99Ms": 3.08
+      },
+      "processHit": {
+        "minMs": 2.727,
+        "maxMs": 4.442,
+        "avgMs": 3.3689,
+        "p50Ms": 3.2256,
+        "p95Ms": 4.442,
+        "p99Ms": 4.442
+      },
+      "cacheRead": {
+        "minMs": 2.2861,
+        "maxMs": 3.6086,
+        "avgMs": 2.8991,
+        "p50Ms": 2.8028,
+        "p95Ms": 3.6086,
+        "p99Ms": 3.6086
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "e62de1297196b5921a589c4368860cf911bb911b3ec4b6ef9b3d556324ca26f9",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "item",
+      "id": "itm_health_potion_001",
+      "cacheKey": "f8d4fd55b04e21227ff44ab7969d8c0b83ccfe4b3f16f37ad14312e23579d559",
+      "processBypass": {
+        "minMs": 2.7459,
+        "maxMs": 3.8369,
+        "avgMs": 3.2485,
+        "p50Ms": 3.0398,
+        "p95Ms": 3.8369,
+        "p99Ms": 3.8369
+      },
+      "processHit": {
+        "minMs": 2.4449,
+        "maxMs": 3.945,
+        "avgMs": 2.948,
+        "p50Ms": 2.8022,
+        "p95Ms": 3.945,
+        "p99Ms": 3.945
+      },
+      "cacheRead": {
+        "minMs": 2.0184,
+        "maxMs": 4.529,
+        "avgMs": 2.7699,
+        "p50Ms": 2.4676,
+        "p95Ms": 4.529,
+        "p99Ms": 4.529
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "f8d4fd55b04e21227ff44ab7969d8c0b83ccfe4b3f16f37ad14312e23579d559",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "area",
+      "id": "area_market_district_001",
+      "cacheKey": "7b9222007f2b26a8d94b330ac447cbeeac9fd856b968c95a0df46092c12c73c5",
+      "processBypass": {
+        "minMs": 2.0238,
+        "maxMs": 4.1808,
+        "avgMs": 2.8095,
+        "p50Ms": 2.4105,
+        "p95Ms": 4.1808,
+        "p99Ms": 4.1808
+      },
+      "processHit": {
+        "minMs": 2.5758,
+        "maxMs": 4.4278,
+        "avgMs": 3.2317,
+        "p50Ms": 2.8707,
+        "p95Ms": 4.4278,
+        "p99Ms": 4.4278
+      },
+      "cacheRead": {
+        "minMs": 2.5738,
+        "maxMs": 3.6613,
+        "avgMs": 3.1315,
+        "p50Ms": 3.1499,
+        "p95Ms": 3.6613,
+        "p99Ms": 3.6613
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "7b9222007f2b26a8d94b330ac447cbeeac9fd856b968c95a0df46092c12c73c5",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    }
+  ]
+}
+

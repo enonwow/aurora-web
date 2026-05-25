@@ -5,6 +5,9 @@ import {
 } from "../../../domain/runtime-settings.schema";
 import { z } from "zod";
 
+export const TEXTURE_INDEX_QUERY_DEFAULT_LIMIT = 100;
+export const TEXTURE_INDEX_QUERY_DEFAULT_OFFSET = 0;
+
 const moduleCacheSummaryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(200)
 });
@@ -26,6 +29,23 @@ const moduleCacheRebuildQuerySchema = z.object({
     .optional()
     .default(false)
 });
+
+const textureIndexQuerySchema = z
+  .object({
+    resref: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    offset: z.coerce.number().int().min(0).optional()
+  })
+  .transform((input) => {
+    const trimmedResref =
+      typeof input.resref === "string" ? input.resref.trim() : undefined;
+
+    return {
+      resref: trimmedResref && trimmedResref.length > 0 ? trimmedResref : undefined,
+      limit: input.limit ?? TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+      offset: input.offset ?? TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
+    };
+  });
 
 export function parseReplaceRuntimeSettingsRequest(
   input: unknown
@@ -73,6 +93,27 @@ export function parseModuleCacheRebuildQuery(input: unknown): { forceFull: boole
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Module cache rebuild query validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseTextureIndexQuery(input: unknown): {
+  resref?: string;
+  limit: number;
+  offset: number;
+} {
+  const parsed = textureIndexQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Texture index query validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message

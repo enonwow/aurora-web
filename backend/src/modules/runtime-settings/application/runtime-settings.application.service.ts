@@ -1,6 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
-import { readdir, readFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { basename, extname, isAbsolute, resolve } from "node:path";
 import type {
   RuntimeAssetKind,
   RuntimeSourceSettings,
@@ -24,6 +25,96 @@ import {
 import type { PackedModuleFile } from "./ports/packed-module-extractor.port";
 
 const RUNTIME_ASSET_KINDS = ["placeable", "tile", "area", "sound"] as const;
+const TEXTURE_EXTENSIONS = new Set(["dds", "tga", "plt", "txi", "mtr", "bmp"]);
+const TEXTURE_INDEX_FILE_NAME = "__aurora/meta/texture-index.v1.json";
+
+export interface TextureIndexEntry {
+  textureId: string;
+  resref: string;
+  extension: string;
+  objectKey: string;
+  sizeBytes: number;
+  sha256: string;
+  source: "module" | "hak" | "vanilla";
+  sourcePath: string;
+}
+
+export interface TextureIndexRecord {
+  version: "texture-index/v1";
+  generatedAt: string;
+  settingsRevision: number;
+  modulePrefix: string;
+  totalTextures: number;
+  totalBytes: number;
+  entries: TextureIndexEntry[];
+  byResref: Record<
+    string,
+    Array<{
+      objectKey: string;
+      sha256: string;
+      sizeBytes: number;
+      extension: string;
+      source: "module" | "hak" | "vanilla";
+      sourcePath: string;
+    }>
+  >;
+}
+
+export interface TextureIndexMetadataSummary {
+  indexObjectKey: string;
+  available: boolean;
+  version?: TextureIndexRecord["version"];
+  generatedAt?: string;
+  settingsRevision?: number;
+  modulePrefix?: string;
+  totalTextures?: number;
+  totalBytes?: number;
+}
+
+export interface TextureIndexQueryResult extends TextureIndexMetadataSummary {
+  query: {
+    resref?: string;
+    limit: number;
+    offset: number;
+  };
+  totalEntries: number;
+  entries: TextureIndexEntry[];
+}
+
+export interface TextureSyncSummary {
+  uploadedTextureFiles: number;
+  uploadedTextureBytes: number;
+  moduleTextures: number;
+  hakTextures: number;
+  vanillaTextures: number;
+  textureIndexObjectKey: string;
+}
+
+export interface ModuleBlobSyncEnvelope {
+  mode: "incremental" | "full";
+  source: {
+    type: "decompiled" | "packed";
+    path: string;
+  };
+  sync: ModuleBlobSyncResult;
+  settingsRevision: number;
+  triggeredBy: string;
+  triggeredAt: string;
+  textures: TextureSyncSummary;
+}
+
+interface TextureSourceFile extends PackedModuleFile {
+  source: "module" | "hak" | "vanilla";
+  sourcePath: string;
+}
+
+interface TextureSupplementResult {
+  files: TextureSourceFile[];
+  summary: {
+    hakTextures: number;
+    vanillaTextures: number;
+  };
+}
 
 export interface ResolvedHakSourceSettings {
   mode: "disabled" | "inline" | "profile" | "none";
@@ -40,6 +131,8 @@ export type ResolvedHakSettingsByAsset = Record<
 
 @Injectable()
 export class RuntimeSettingsApplicationService {
+  private readonly logger = new Logger(RuntimeSettingsApplicationService.name);
+
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly repository: RuntimeSettingsRepositoryPort,
@@ -78,27 +171,111 @@ export class RuntimeSettingsApplicationService {
     return this.moduleBlobStorage.listModuleSnapshot(settings.blobStorage, { limit });
   }
 
+  async getTextureIndexMetadataSummary(): Promise<TextureIndexMetadataSummary> {
+    const settings = await this.repository.get();
+    const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
+    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+    if (!record) {
+      return {
+        indexObjectKey,
+        available: false
+      };
+    }
+
+    return {
+      indexObjectKey,
+      available: true,
+      version: record.version,
+      generatedAt: record.generatedAt,
+      settingsRevision: record.settingsRevision,
+      modulePrefix: record.modulePrefix,
+      totalTextures: record.totalTextures,
+      totalBytes: record.totalBytes
+    };
+  }
+
+  async queryTextureIndex(options?: {
+    resref?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<TextureIndexQueryResult> {
+    const settings = await this.repository.get();
+    const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
+    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const normalizedResref = options?.resref?.trim().toLowerCase();
+
+    if (!record) {
+      return {
+        indexObjectKey,
+        available: false,
+        query: {
+          resref: normalizedResref || undefined,
+          limit,
+          offset
+        },
+        totalEntries: 0,
+        entries: []
+      };
+    }
+
+    const sourceEntries = normalizedResref
+      ? record.entries.filter(
+          (entry) => entry.resref.trim().toLowerCase() === normalizedResref
+        )
+      : record.entries;
+    const paged = sourceEntries.slice(offset, offset + limit);
+
+    return {
+      indexObjectKey,
+      available: true,
+      version: record.version,
+      generatedAt: record.generatedAt,
+      settingsRevision: record.settingsRevision,
+      modulePrefix: record.modulePrefix,
+      totalTextures: record.totalTextures,
+      totalBytes: record.totalBytes,
+      query: {
+        resref: normalizedResref || undefined,
+        limit,
+        offset
+      },
+      totalEntries: sourceEntries.length,
+      entries: paged
+    };
+  }
+
   async syncModuleBlobCache(
     triggeredBy: string,
     options?: {
       forceFull?: boolean;
     }
-  ): Promise<{
-    mode: "incremental" | "full";
-    source: {
-      type: "decompiled" | "packed";
-      path: string;
-    };
-    sync: ModuleBlobSyncResult;
-    settingsRevision: number;
-    triggeredBy: string;
-    triggeredAt: string;
-  }> {
+  ): Promise<ModuleBlobSyncEnvelope> {
     const settings = await this.repository.get();
     const source = await this.loadModuleSourceFiles(settings);
+    const moduleTextureFiles = collectTextureFilesFromPackedFiles(source.files, "module");
+    const textureSupplement = await this.loadTextureSupplementFiles(settings);
+    const textureFiles = [...moduleTextureFiles, ...textureSupplement.files];
+    const textureIndex = buildTextureIndexRecord(
+      settings.revision,
+      settings.blobStorage.modulePrefix,
+      textureFiles
+    );
+    const textureIndexFile: PackedModuleFile = {
+      fileName: TEXTURE_INDEX_FILE_NAME,
+      resourceType: 0,
+      bytes: Buffer.from(`${JSON.stringify(textureIndex, null, 2)}\n`, "utf-8")
+    };
+
+    const allFiles = [
+      ...source.files,
+      ...toPackedModuleFileList(textureSupplement.files),
+      textureIndexFile
+    ];
     const sync = await this.moduleBlobStorage.replaceModuleSnapshot(
       settings.blobStorage,
-      source.files,
+      allFiles,
       {
         forceFull: options?.forceFull === true
       }
@@ -113,7 +290,15 @@ export class RuntimeSettingsApplicationService {
       sync,
       settingsRevision: settings.revision,
       triggeredBy,
-      triggeredAt: new Date().toISOString()
+      triggeredAt: new Date().toISOString(),
+      textures: {
+        uploadedTextureFiles: textureFiles.length,
+        uploadedTextureBytes: sumBytes(textureFiles),
+        moduleTextures: moduleTextureFiles.length,
+        hakTextures: textureSupplement.summary.hakTextures,
+        vanillaTextures: textureSupplement.summary.vanillaTextures,
+        textureIndexObjectKey: `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`
+      }
     };
   }
 
@@ -122,17 +307,7 @@ export class RuntimeSettingsApplicationService {
     options?: {
       forceFull?: boolean;
     }
-  ): Promise<{
-    mode: "incremental" | "full";
-    source: {
-      type: "decompiled" | "packed";
-      path: string;
-    };
-    sync: ModuleBlobSyncResult;
-    settingsRevision: number;
-    triggeredBy: string;
-    triggeredAt: string;
-  }> {
+  ): Promise<ModuleBlobSyncEnvelope> {
     return this.syncModuleBlobCache(triggeredBy, options);
   }
 
@@ -167,6 +342,112 @@ export class RuntimeSettingsApplicationService {
     throw new Error(
       "Runtime settings invalid: either paths.moduleDecompiledPath or paths.modulePackedPath must be configured."
     );
+  }
+
+  private async loadTextureSupplementFiles(
+    settings: RuntimeSettingsRecord
+  ): Promise<TextureSupplementResult> {
+    const files: TextureSourceFile[] = [];
+    let hakTextures = 0;
+    let vanillaTextures = 0;
+
+    const hakPaths = collectEnabledHakPaths(settings);
+    const uniqueHakPaths = deduplicateOrdered(hakPaths);
+    for (const hakPath of uniqueHakPaths) {
+      const resolved = resolveFilePath(hakPath);
+      if (!(await existsAsFile(resolved))) {
+        this.logger.warn(`Skipping HAK texture source because file does not exist: ${resolved}`);
+        continue;
+      }
+
+      try {
+        const extracted = await this.packedModuleExtractor.extractFromPackedModule(resolved);
+        const textureFiles = extracted.filter((entry) =>
+          isTextureFileName(entry.fileName)
+        );
+        const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+        for (const texture of textureFiles) {
+          files.push({
+            fileName: normalizeRelativePath(`__aurora/sources/hak/${hakName}/${texture.fileName}`),
+            resourceType: texture.resourceType,
+            bytes: Buffer.from(texture.bytes),
+            source: "hak",
+            sourcePath: normalizeRelativePath(resolved)
+          });
+        }
+        hakTextures += textureFiles.length;
+      } catch (error) {
+        this.logger.warn(
+          `Skipping HAK texture source because extraction failed (${resolved}): ${stringifyError(error)}`
+        );
+      }
+    }
+
+    const includeVanilla = shouldIncludeVanillaTextures(settings);
+    if (includeVanilla) {
+      const vanillaRoot = resolveFilePath(settings.paths.vanillaDataPath.trim());
+      if (await existsAsDirectory(vanillaRoot)) {
+        const vanillaFiles = await readTextureFilesFromDirectory(vanillaRoot, vanillaRoot);
+        for (const texture of vanillaFiles) {
+          files.push({
+            fileName: normalizeRelativePath(`__aurora/sources/vanilla/${texture.relativePath}`),
+            resourceType: texture.resourceType,
+            bytes: texture.bytes,
+            source: "vanilla",
+            sourcePath: texture.relativePath
+          });
+        }
+        vanillaTextures += vanillaFiles.length;
+      } else {
+        this.logger.warn(
+          `Skipping vanilla texture source because directory does not exist: ${vanillaRoot}`
+        );
+      }
+    }
+
+    return {
+      files,
+      summary: {
+        hakTextures,
+        vanillaTextures
+      }
+    };
+  }
+
+  private async readTextureIndexRecord(
+    settings: RuntimeSettingsRecord,
+    indexObjectKey: string
+  ): Promise<TextureIndexRecord | null> {
+    const payload = await this.moduleBlobStorage.getModuleObject(
+      settings.blobStorage,
+      indexObjectKey
+    );
+    if (!payload) {
+      return null;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload.bytes.toString("utf-8"));
+    } catch (error) {
+      this.logger.warn(
+        `Texture index payload is malformed JSON; falling back to unavailable index. objectKey=${indexObjectKey}; error=${stringifyError(
+          error
+        )}`
+      );
+      return null;
+    }
+
+    try {
+      return parseTextureIndexRecord(parsed);
+    } catch (error) {
+      this.logger.warn(
+        `Texture index payload has invalid schema; falling back to unavailable index. objectKey=${indexObjectKey}; error=${stringifyError(
+          error
+        )}`
+      );
+      return null;
+    }
   }
 }
 
@@ -254,6 +535,10 @@ function resolveModulePath(pathValue: string): string {
   return isAbsolute(pathValue) ? pathValue : resolve(process.cwd(), pathValue);
 }
 
+function resolveFilePath(pathValue: string): string {
+  return isAbsolute(pathValue) ? pathValue : resolve(process.cwd(), pathValue);
+}
+
 async function readDecompiledModuleFiles(rootPath: string): Promise<PackedModuleFile[]> {
   const files: PackedModuleFile[] = [];
   await collectDirectoryFiles(rootPath, rootPath, files);
@@ -293,4 +578,264 @@ async function collectDirectoryFiles(
 
 function normalizeRelativePath(value: string): string {
   return value.replace(/\\/gu, "/");
+}
+
+function collectEnabledHakPaths(settings: RuntimeSettingsRecord): string[] {
+  const resolved = resolveHakSettingsByAsset(settings);
+  const enabledKinds: RuntimeAssetKind[] = ["placeable", "tile", "area"];
+  const hakPaths: string[] = [];
+  for (const kind of enabledKinds) {
+    hakPaths.push(...resolved[kind].hakPaths);
+  }
+  return hakPaths;
+}
+
+function shouldIncludeVanillaTextures(settings: RuntimeSettingsRecord): boolean {
+  return (
+    settings.sources.placeable.includeVanilla ||
+    settings.sources.tile.includeVanilla ||
+    settings.sources.area.includeVanilla
+  );
+}
+
+async function existsAsFile(pathValue: string): Promise<boolean> {
+  try {
+    const metadata = await stat(pathValue);
+    return metadata.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function existsAsDirectory(pathValue: string): Promise<boolean> {
+  try {
+    const metadata = await stat(pathValue);
+    return metadata.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isTextureFileName(fileName: string): boolean {
+  const extension = extname(fileName).replace(/^\./u, "").toLowerCase();
+  return TEXTURE_EXTENSIONS.has(extension);
+}
+
+function sanitizeSegment(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9._-]/gu, "_");
+  return normalized || "source";
+}
+
+async function readTextureFilesFromDirectory(
+  rootPath: string,
+  currentPath: string
+): Promise<Array<{ relativePath: string; resourceType: number; bytes: Buffer }>> {
+  const files: Array<{ relativePath: string; resourceType: number; bytes: Buffer }> = [];
+  const entries = await readdir(currentPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const absolutePath = resolve(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await readTextureFilesFromDirectory(rootPath, absolutePath)));
+      continue;
+    }
+
+    if (!entry.isFile() || !isTextureFileName(entry.name)) {
+      continue;
+    }
+
+    const bytes = await readFile(absolutePath);
+    const relativePath = normalizeRelativePath(
+      absolutePath.slice(rootPath.length).replace(/^[/\\]+/u, "")
+    );
+    files.push({
+      relativePath,
+      resourceType: 0,
+      bytes
+    });
+  }
+
+  return files;
+}
+
+function collectTextureFilesFromPackedFiles(
+  files: PackedModuleFile[],
+  source: TextureIndexEntry["source"]
+): TextureSourceFile[] {
+  return files
+    .filter((entry) => isTextureFileName(entry.fileName))
+    .map((entry) => ({
+      fileName: normalizeRelativePath(entry.fileName),
+      resourceType: entry.resourceType,
+      bytes: Buffer.from(entry.bytes),
+      sourcePath: normalizeRelativePath(entry.fileName),
+      source
+    }));
+}
+
+function toPackedModuleFileList(files: TextureSourceFile[]): PackedModuleFile[] {
+  return files.map((file) => ({
+    fileName: file.fileName,
+    resourceType: file.resourceType,
+    bytes: Buffer.from(file.bytes)
+  }));
+}
+
+function buildTextureIndexRecord(
+  settingsRevision: number,
+  modulePrefix: string,
+  files: TextureSourceFile[]
+): TextureIndexRecord {
+  const normalizedPrefix = normalizeBlobPrefix(modulePrefix);
+  const entries = files
+    .map((file) => {
+      const extension = extname(file.fileName).replace(/^\./u, "").toLowerCase();
+      const resref = basename(file.fileName, extname(file.fileName)).toLowerCase();
+      const objectKey = `${normalizedPrefix}${normalizeRelativePath(file.fileName)}`;
+      const sha256 = createHash("sha256").update(file.bytes).digest("hex");
+      return {
+        textureId: createHash("sha256")
+          .update(`${objectKey}|${sha256}|${file.bytes.length}`)
+          .digest("hex")
+          .slice(0, 24),
+        resref,
+        extension,
+        objectKey,
+        sizeBytes: file.bytes.length,
+        sha256,
+        source: file.source,
+        sourcePath: file.sourcePath
+      } satisfies TextureIndexEntry;
+    })
+    .sort((left, right) => left.objectKey.localeCompare(right.objectKey));
+
+  const byResref: TextureIndexRecord["byResref"] = {};
+  for (const entry of entries) {
+    const bucket = byResref[entry.resref] ?? [];
+    bucket.push({
+      objectKey: entry.objectKey,
+      sha256: entry.sha256,
+      sizeBytes: entry.sizeBytes,
+      extension: entry.extension,
+      source: entry.source,
+      sourcePath: entry.sourcePath
+    });
+    byResref[entry.resref] = bucket;
+  }
+
+  return {
+    version: "texture-index/v1",
+    generatedAt: new Date().toISOString(),
+    settingsRevision,
+    modulePrefix: normalizedPrefix,
+    totalTextures: entries.length,
+    totalBytes: entries.reduce((sum, entry) => sum + entry.sizeBytes, 0),
+    entries,
+    byResref
+  };
+}
+
+function normalizeBlobPrefix(value: string): string {
+  const trimmed = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
+  if (!trimmed) {
+    return "";
+  }
+  return `${trimmed}/`;
+}
+
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function sumBytes(files: Array<{ bytes: Buffer }>): number {
+  return files.reduce((sum, file) => sum + file.bytes.length, 0);
+}
+
+function parseTextureIndexRecord(value: unknown): TextureIndexRecord {
+  if (!value || typeof value !== "object") {
+    throw new Error("Texture index payload has invalid shape.");
+  }
+
+  const candidate = value as Partial<TextureIndexRecord>;
+  if (
+    candidate.version !== "texture-index/v1" ||
+    typeof candidate.generatedAt !== "string" ||
+    typeof candidate.settingsRevision !== "number" ||
+    typeof candidate.modulePrefix !== "string" ||
+    typeof candidate.totalTextures !== "number" ||
+    typeof candidate.totalBytes !== "number" ||
+    !Array.isArray(candidate.entries)
+  ) {
+    throw new Error("Texture index payload has invalid metadata.");
+  }
+
+  const entries = candidate.entries.map((entry) => parseTextureIndexEntry(entry));
+  const byResref = buildByResrefIndex(entries);
+
+  return {
+    version: "texture-index/v1",
+    generatedAt: candidate.generatedAt,
+    settingsRevision: candidate.settingsRevision,
+    modulePrefix: candidate.modulePrefix,
+    totalTextures: candidate.totalTextures,
+    totalBytes: candidate.totalBytes,
+    entries,
+    byResref
+  };
+}
+
+function parseTextureIndexEntry(value: unknown): TextureIndexEntry {
+  if (!value || typeof value !== "object") {
+    throw new Error("Texture index entry has invalid shape.");
+  }
+
+  const candidate = value as Partial<TextureIndexEntry>;
+  if (
+    typeof candidate.textureId !== "string" ||
+    typeof candidate.resref !== "string" ||
+    typeof candidate.extension !== "string" ||
+    typeof candidate.objectKey !== "string" ||
+    typeof candidate.sizeBytes !== "number" ||
+    typeof candidate.sha256 !== "string" ||
+    !isTextureSourceType(candidate.source) ||
+    typeof candidate.sourcePath !== "string"
+  ) {
+    throw new Error("Texture index entry has invalid fields.");
+  }
+
+  return {
+    textureId: candidate.textureId,
+    resref: candidate.resref,
+    extension: candidate.extension,
+    objectKey: candidate.objectKey,
+    sizeBytes: candidate.sizeBytes,
+    sha256: candidate.sha256,
+    source: candidate.source,
+    sourcePath: candidate.sourcePath
+  };
+}
+
+function buildByResrefIndex(entries: TextureIndexEntry[]): TextureIndexRecord["byResref"] {
+  const byResref: TextureIndexRecord["byResref"] = {};
+  for (const entry of entries) {
+    const key = entry.resref.toLowerCase();
+    const bucket = byResref[key] ?? [];
+    bucket.push({
+      objectKey: entry.objectKey,
+      sha256: entry.sha256,
+      sizeBytes: entry.sizeBytes,
+      extension: entry.extension,
+      source: entry.source,
+      sourcePath: entry.sourcePath
+    });
+    byResref[key] = bucket;
+  }
+  return byResref;
+}
+
+function isTextureSourceType(value: unknown): value is TextureIndexEntry["source"] {
+  return value === "module" || value === "hak" || value === "vanilla";
 }

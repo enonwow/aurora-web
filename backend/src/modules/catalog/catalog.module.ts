@@ -11,6 +11,7 @@ import {
 import { CreaturesController } from "./adapters/inbound/http/creatures.controller";
 import { ItemsController } from "./adapters/inbound/http/items.controller";
 import { PlaceablesController } from "./adapters/inbound/http/placeables.controller";
+import { ModuleSnapshotTemplateCatalogRepository } from "./adapters/outbound/blob/module-snapshot-template-catalog.repository";
 import { S3PlaceableProcessingCacheRepository } from "./adapters/outbound/blob/s3-placeable-processing-cache.repository";
 import { LayeredPlaceableProcessingCacheRepository } from "./adapters/outbound/layered/layered-placeable-processing-cache.repository";
 import { MemoryPlaceableProcessingCacheRepository } from "./adapters/outbound/memory/memory-placeable-processing-cache.repository";
@@ -22,12 +23,22 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
   providers: [
     CatalogApplicationService,
     StaticTemplateCatalogRepository,
+    ModuleSnapshotTemplateCatalogRepository,
     MemoryPlaceableProcessingCacheRepository,
     S3PlaceableProcessingCacheRepository,
     LayeredPlaceableProcessingCacheRepository,
     {
       provide: TEMPLATE_CATALOG_REPOSITORY,
-      useExisting: StaticTemplateCatalogRepository
+      inject: [
+        AppConfigService,
+        ModuleSnapshotTemplateCatalogRepository,
+        StaticTemplateCatalogRepository
+      ],
+      useFactory: (
+        config: AppConfigService,
+        moduleSnapshotRepository: ModuleSnapshotTemplateCatalogRepository,
+        staticRepository: StaticTemplateCatalogRepository
+      ) => (config.isTest ? staticRepository : moduleSnapshotRepository)
     },
     {
       provide: PLACEABLE_PROCESSING_CACHE,

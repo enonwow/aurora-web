@@ -3,6 +3,22 @@ import type { PackedModuleFile } from "./packed-module-extractor.port";
 
 export const MODULE_BLOB_STORAGE = Symbol("MODULE_BLOB_STORAGE");
 
+export type ModuleBlobSyncSource = "module" | "hak" | "vanilla" | "index";
+
+export interface ModuleBlobSourceDeltaMetrics {
+  uploadedFiles: number;
+  uploadedBytes: number;
+  deletedFiles: number;
+  deletedBytes: number;
+  unchangedFiles: number;
+  unchangedBytes: number;
+}
+
+export type ModuleBlobSourceDeltaSummary = Record<
+  ModuleBlobSyncSource,
+  ModuleBlobSourceDeltaMetrics
+>;
+
 export interface ModuleBlobSyncResult {
   bucket: string;
   prefix: string;
@@ -15,6 +31,7 @@ export interface ModuleBlobSyncResult {
   deletedBytes: number;
   unchangedFiles: number;
   totalFiles: number;
+  sourceDelta?: ModuleBlobSourceDeltaSummary;
 }
 
 export interface ModuleBlobObjectSummary {

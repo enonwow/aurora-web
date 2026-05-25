@@ -761,6 +761,374 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("returns placeable asset delivery contracts without downloading bytes", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 8
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const cacheKey = "a".repeat(64);
+    placeableCache.get.mockResolvedValue({
+      key: cacheKey,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 2,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "abcdef012345",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            },
+            {
+              assetId: "abcdef012346",
+              role: "texture",
+              fileName: "plc_city_gate_00.dds",
+              objectKey: "modules/current/textures/plc_city_gate_00.dds",
+              extension: "dds",
+              sizeBytes: 48,
+              contentType: "image/vnd-ms.dds"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await serviceWithBlob.getProcessedPlaceableAssetDelivery(cacheKey);
+
+    expect(moduleBlobStorage.getModuleObject).not.toHaveBeenCalled();
+    expect(result.moduleHash).toBe("hash-v1");
+    expect(result.assets).toHaveLength(2);
+    expect(result.assets[0]).toMatchObject({
+      assetId: "abcdef012345",
+      objectKey: "modules/current/models/plc_city_gate_00.mdl",
+      contentType: "application/octet-stream",
+      sizeBytes: 12,
+      deliveryPath: `/api/v1/catalog/placeables/cache/${cacheKey}/assets/abcdef012345`,
+      deliveryUrl: `/api/v1/catalog/placeables/cache/${cacheKey}/assets/abcdef012345`,
+      s3Url: "s3://aurora-module-assets/modules/current/models/plc_city_gate_00.mdl"
+    });
+  });
+
+  it("self-heals cached placeable manifest when module hash changed before delivery contracts", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 10
+    });
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-v2",
+      totalFiles: 1,
+      totalBytes: 12,
+      objects: [
+        {
+          key: "modules/current/models/plc_city_gate.mdl",
+          size: 12,
+          etag: "e1"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:32:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const cacheKey = "a".repeat(64);
+    placeableCache.get.mockResolvedValue({
+      key: cacheKey,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 1,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "oldasset1",
+              role: "model",
+              fileName: "plc_city_gate_legacy.mdl",
+              objectKey: "modules/current/models/plc_city_gate_legacy.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await serviceWithBlob.getProcessedPlaceableAssetDelivery(cacheKey);
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(1);
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(
+      (placeableCache.set.mock.calls[0]?.[1] as { assetManifest?: { moduleHash?: string } })
+        .assetManifest?.moduleHash
+    ).toBe("hash-v2");
+    expect(result.moduleHash).toBe("hash-v2");
+    expect(result.assets).toHaveLength(1);
+    expect(result.assets[0]?.objectKey).toBe("modules/current/models/plc_city_gate.mdl");
+  });
+
+  it("throws PLACEABLE_CACHE_NOT_FOUND when getProcessedPlaceableAssetDelivery cache key is missing", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(
+      service.getProcessedPlaceableAssetDelivery("a".repeat(64))
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_NOT_FOUND",
+      message: "Placeable cache entry was not found."
+    });
+  });
+
+  it("returns delivery contracts without s3Url when runtime settings repository is unavailable", async () => {
+    const cacheKey = "a".repeat(64);
+    placeableCache.get.mockResolvedValue({
+      key: cacheKey,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 1,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "abcdef012345",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await service.getProcessedPlaceableAssetDelivery(cacheKey);
+
+    expect(result.assets).toHaveLength(1);
+    expect(result.assets[0]).toMatchObject({
+      assetId: "abcdef012345",
+      objectKey: "modules/current/models/plc_city_gate_00.mdl",
+      deliveryPath: `/api/v1/catalog/placeables/cache/${cacheKey}/assets/abcdef012345`,
+      deliveryUrl: `/api/v1/catalog/placeables/cache/${cacheKey}/assets/abcdef012345`
+    });
+    expect(result.assets[0].s3Url).toBeUndefined();
+  });
+
+  it("filters placeable delivery contracts by requested asset ids", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 9
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const cacheKey = "b".repeat(64);
+    placeableCache.get.mockResolvedValue({
+      key: cacheKey,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 2,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "abcDEF012345",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            },
+            {
+              assetId: "abcdef012346",
+              role: "texture",
+              fileName: "plc_city_gate_00.dds",
+              objectKey: "modules/current/textures/plc_city_gate_00.dds",
+              extension: "dds",
+              sizeBytes: 48,
+              contentType: "image/vnd-ms.dds"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const filtered = await serviceWithBlob.getProcessedPlaceableAssetDelivery(cacheKey, [
+      "  abcdef012345  "
+    ]);
+    expect(filtered.assets).toHaveLength(1);
+    expect(filtered.assets[0].assetId).toBe("abcDEF012345");
+
+    await expect(
+      serviceWithBlob.getProcessedPlaceableAssetDelivery(cacheKey, ["missing"])
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_ASSET_NOT_FOUND",
+      message: "Placeable asset was not found in cached manifest."
+    });
+  });
+
   it("builds placeable asset manifest from paged module snapshot and preserves first module hash", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
       get: jest.fn(),

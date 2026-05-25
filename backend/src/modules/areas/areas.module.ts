@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
 import { AreasController } from "./adapters/inbound/http/areas.controller";
+import { ModuleSnapshotAreaRepository } from "./adapters/outbound/blob/module-snapshot-area.repository";
 import { S3AreaProcessingCacheRepository } from "./adapters/outbound/blob/s3-area-processing-cache.repository";
 import { LayeredAreaProcessingCacheRepository } from "./adapters/outbound/layered/layered-area-processing-cache.repository";
 import { MemoryAreaProcessingCacheRepository } from "./adapters/outbound/memory/memory-area-processing-cache.repository";
@@ -16,12 +17,18 @@ import { AREA_REPOSITORY } from "./application/ports/area-repository.port";
   providers: [
     AreasApplicationService,
     StaticAreaRepository,
+    ModuleSnapshotAreaRepository,
     MemoryAreaProcessingCacheRepository,
     S3AreaProcessingCacheRepository,
     LayeredAreaProcessingCacheRepository,
     {
       provide: AREA_REPOSITORY,
-      useExisting: StaticAreaRepository
+      inject: [AppConfigService, ModuleSnapshotAreaRepository, StaticAreaRepository],
+      useFactory: (
+        config: AppConfigService,
+        moduleSnapshotRepository: ModuleSnapshotAreaRepository,
+        staticRepository: StaticAreaRepository
+      ) => (config.isTest ? staticRepository : moduleSnapshotRepository)
     },
     {
       provide: AREA_PROCESSING_CACHE,

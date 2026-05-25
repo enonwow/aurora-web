@@ -56,7 +56,15 @@ describe("RuntimeSettingsBootstrapService", () => {
       },
       settingsRevision: 7,
       triggeredBy: "system.bootstrap",
-      triggeredAt: "2026-05-24T08:00:00.000Z"
+      triggeredAt: "2026-05-24T08:00:00.000Z",
+      textures: {
+        uploadedTextureFiles: 2,
+        uploadedTextureBytes: 2048,
+        moduleTextures: 1,
+        hakTextures: 1,
+        vanillaTextures: 0,
+        textureIndexObjectKey: "modules/current/__aurora/meta/texture-index.v1.json"
+      }
     });
 
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
@@ -88,7 +96,15 @@ describe("RuntimeSettingsBootstrapService", () => {
       },
       settingsRevision: 8,
       triggeredBy: "system.bootstrap",
-      triggeredAt: "2026-05-24T08:10:00.000Z"
+      triggeredAt: "2026-05-24T08:10:00.000Z",
+      textures: {
+        uploadedTextureFiles: 2,
+        uploadedTextureBytes: 2048,
+        moduleTextures: 1,
+        hakTextures: 1,
+        vanillaTextures: 0,
+        textureIndexObjectKey: "modules/current/__aurora/meta/texture-index.v1.json"
+      }
     });
 
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();

@@ -10,6 +10,8 @@ import {
 import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type {
+  ModuleBlobSourceDeltaSummary,
+  ModuleBlobSyncSource,
   ModuleBlobObjectPayload,
   ModuleBlobSnapshotSummary,
   ModuleBlobStoragePort,
@@ -19,6 +21,10 @@ import type { PackedModuleFile } from "../../../application/ports/packed-module-
 import type { BlobStorageSettings } from "../../../domain/runtime-settings.types";
 
 const DEFAULT_UPLOAD_CONCURRENCY = 8;
+const HAK_SOURCE_PREFIX = "__aurora/sources/hak/";
+const VANILLA_SOURCE_PREFIX = "__aurora/sources/vanilla/";
+const AURORA_META_PREFIX = "__aurora/meta/";
+const TEXTURE_INDEX_META_KEY = "__aurora/meta/texture-index.v1.json";
 
 interface ModuleSnapshotManifestEntry {
   sha256: string;
@@ -31,6 +37,8 @@ interface ModuleSnapshotManifest {
   moduleHash: string;
   fileCount: number;
   files: Record<string, ModuleSnapshotManifestEntry>;
+  sourceTotals?: ModuleSnapshotSourceTotals;
+  sourceDelta?: ModuleBlobSourceDeltaSummary;
 }
 
 interface FileDigest {
@@ -44,6 +52,13 @@ interface ExistingObjectSummary {
   key: string;
   size: number;
 }
+
+interface ModuleSnapshotSourceMetrics {
+  files: number;
+  bytes: number;
+}
+
+type ModuleSnapshotSourceTotals = Record<ModuleBlobSyncSource, ModuleSnapshotSourceMetrics>;
 
 @Injectable()
 export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
@@ -67,6 +82,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       await ensureBucketExists(client, settings.bucket);
       const digests = buildFileDigests(files, normalizedPrefix);
       const manifest = buildManifest(digests);
+      manifest.sourceTotals = summarizeManifestSources(manifest.files, normalizedPrefix);
       const manifestKey = buildManifestKey(normalizedPrefix);
       const previousManifest = await readManifest(
         client,
@@ -81,6 +97,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
         previousManifest &&
         previousManifest.moduleHash === manifest.moduleHash
       ) {
+        const sourceDelta = buildNoopSourceDelta(previousManifest.files, normalizedPrefix);
         return {
           bucket: settings.bucket,
           prefix: normalizedPrefix,
@@ -92,7 +109,8 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
           deletedFiles: 0,
           deletedBytes: 0,
           unchangedFiles: manifest.fileCount,
-          totalFiles: manifest.fileCount
+          totalFiles: manifest.fileCount,
+          sourceDelta
         };
       }
 
@@ -101,6 +119,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       const deletedSizeByKey = new Map<string, number>();
       const changedDigests: FileDigest[] = [];
       let unchangedFiles = 0;
+      const sourceDelta = createEmptySourceDelta();
 
       if (forceFull) {
         changedDigests.push(...digests);
@@ -120,6 +139,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
             previousEntry.size === digest.size
           ) {
             unchangedFiles += 1;
+            addUnchangedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
             continue;
           }
           changedDigests.push(digest);
@@ -143,6 +163,10 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       }
 
       let uploadedBytes = 0;
+      for (const digest of changedDigests) {
+        addUploadedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
+      }
+
       for (let index = 0; index < changedDigests.length; index += DEFAULT_UPLOAD_CONCURRENCY) {
         const batch = changedDigests.slice(index, index + DEFAULT_UPLOAD_CONCURRENCY);
         uploadedBytes += batch.reduce((sum, item) => sum + item.size, 0);
@@ -163,11 +187,15 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       if (deletedKeys.length > 0) {
         await deleteObjectKeys(client, settings.bucket, deletedKeys);
       }
+      for (const key of deletedKeys) {
+        addDeletedMetric(sourceDelta, key, deletedSizeByKey.get(key) ?? 0, normalizedPrefix);
+      }
 
       const deletedBytes = deletedKeys.reduce(
         (sum, key) => sum + (deletedSizeByKey.get(key) ?? 0),
         0
       );
+      manifest.sourceDelta = sourceDelta;
       const shouldPersistManifest =
         !previousManifest || forceFull || changedDigests.length > 0 || deletedKeys.length > 0;
 
@@ -190,7 +218,8 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
         deletedFiles: deletedKeys.length,
         deletedBytes,
         unchangedFiles,
-        totalFiles: manifest.fileCount
+        totalFiles: manifest.fileCount,
+        sourceDelta
       };
     } finally {
       client.destroy();
@@ -302,6 +331,116 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       client.destroy();
     }
   }
+}
+
+function createEmptySourceDelta(): ModuleBlobSourceDeltaSummary {
+  return {
+    module: emptySourceMetrics(),
+    hak: emptySourceMetrics(),
+    vanilla: emptySourceMetrics(),
+    index: emptySourceMetrics()
+  };
+}
+
+function emptySourceMetrics() {
+  return {
+    uploadedFiles: 0,
+    uploadedBytes: 0,
+    deletedFiles: 0,
+    deletedBytes: 0,
+    unchangedFiles: 0,
+    unchangedBytes: 0
+  };
+}
+
+function summarizeManifestSources(
+  files: Record<string, ModuleSnapshotManifestEntry>,
+  normalizedPrefix: string
+): ModuleSnapshotSourceTotals {
+  const totals: ModuleSnapshotSourceTotals = {
+    module: { files: 0, bytes: 0 },
+    hak: { files: 0, bytes: 0 },
+    vanilla: { files: 0, bytes: 0 },
+    index: { files: 0, bytes: 0 }
+  };
+
+  for (const [key, entry] of Object.entries(files)) {
+    const source = classifySourceKey(key, normalizedPrefix);
+    totals[source].files += 1;
+    totals[source].bytes += entry.size;
+  }
+
+  return totals;
+}
+
+function buildNoopSourceDelta(
+  files: Record<string, ModuleSnapshotManifestEntry>,
+  normalizedPrefix: string
+): ModuleBlobSourceDeltaSummary {
+  const delta = createEmptySourceDelta();
+  for (const [key, entry] of Object.entries(files)) {
+    const source = classifySourceKey(key, normalizedPrefix);
+    delta[source].unchangedFiles += 1;
+    delta[source].unchangedBytes += entry.size;
+  }
+  return delta;
+}
+
+function addUploadedMetric(
+  delta: ModuleBlobSourceDeltaSummary,
+  key: string,
+  size: number,
+  normalizedPrefix: string
+): void {
+  const source = classifySourceKey(key, normalizedPrefix);
+  delta[source].uploadedFiles += 1;
+  delta[source].uploadedBytes += size;
+}
+
+function addDeletedMetric(
+  delta: ModuleBlobSourceDeltaSummary,
+  key: string,
+  size: number,
+  normalizedPrefix: string
+): void {
+  const source = classifySourceKey(key, normalizedPrefix);
+  delta[source].deletedFiles += 1;
+  delta[source].deletedBytes += size;
+}
+
+function addUnchangedMetric(
+  delta: ModuleBlobSourceDeltaSummary,
+  key: string,
+  size: number,
+  normalizedPrefix: string
+): void {
+  const source = classifySourceKey(key, normalizedPrefix);
+  delta[source].unchangedFiles += 1;
+  delta[source].unchangedBytes += size;
+}
+
+function classifySourceKey(key: string, normalizedPrefix: string): ModuleBlobSyncSource {
+  const relativeKey = key.startsWith(normalizedPrefix)
+    ? key.slice(normalizedPrefix.length)
+    : key;
+  const normalizedKey = relativeKey.replace(/^\/+/u, "");
+
+  if (normalizedKey.startsWith(HAK_SOURCE_PREFIX)) {
+    return "hak";
+  }
+
+  if (normalizedKey.startsWith(VANILLA_SOURCE_PREFIX)) {
+    return "vanilla";
+  }
+
+  if (
+    normalizedKey === TEXTURE_INDEX_META_KEY ||
+    normalizedKey.startsWith(AURORA_META_PREFIX)
+  ) {
+    return "index";
+  }
+
+  return "module";
 }
 
 function createClient(settings: BlobStorageSettings): S3Client {

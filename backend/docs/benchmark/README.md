@@ -1,0 +1,90 @@
+# Benchmark Notes
+
+Concise runbook for benchmarking the current cache + delivery flow used by frontend integration.
+
+## Prerequisites
+
+- Backend dependencies installed.
+- API reachable (default `http://localhost:3000`).
+- Runtime settings configured with valid module source and blob storage.
+- Test users available (`admin.user`, `builder.user`) when using in-memory auth defaults.
+
+## 1) Rebuild module cache (texture index included)
+
+This refresh uploads module snapshot and writes texture index file:
+`__aurora/meta/texture-index.v1.json`.
+
+```bash
+curl -X POST "http://localhost:3000/api/v1/settings/runtime/module-cache/rebuild?forceFull=false" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+## 2) Smoke-test texture index API (admin)
+
+Summary:
+
+```bash
+curl "http://localhost:3000/api/v1/settings/runtime/module-cache/textures/summary" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+Query:
+
+```bash
+curl "http://localhost:3000/api/v1/settings/runtime/module-cache/textures?resref=tno01_w01&limit=10&offset=0" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+Expected:
+- `data.available=true` after successful rebuild,
+- `data.entries[]` contains resolved texture records (`objectKey`, `sha256`, `source`).
+
+## 3) Smoke-test placeable delivery contract
+
+1. Process one placeable to get `cache.key`:
+
+```bash
+curl -X POST "http://localhost:3000/api/v1/catalog/placeables/process" \
+  -H "Authorization: Bearer <BUILDER_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d "{\"templateId\":\"<PLACEABLE_TEMPLATE_ID>\",\"bypassCache\":false,\"includeBenchmarkMetadata\":true}"
+```
+
+2. Read delivery contract:
+
+```bash
+curl "http://localhost:3000/api/v1/catalog/placeables/cache/<CACHE_KEY>/assets/contracts" \
+  -H "Authorization: Bearer <BUILDER_TOKEN>"
+```
+
+3. Download one asset via `deliveryPath`:
+
+```bash
+curl -L "http://localhost:3000/api/v1/catalog/placeables/cache/<CACHE_KEY>/assets/<ASSET_ID>" \
+  -H "Authorization: Bearer <BUILDER_TOKEN>" \
+  -o out.bin
+```
+
+## 4) Run end-to-end benchmark script
+
+From `backend/`:
+
+```bash
+npm run bench:cache:e2e
+```
+
+Useful tuning flags:
+
+```bash
+npm run bench:cache:e2e -- \
+  --maxCandidatesPerType 10 \
+  --processBypassIterations 100 \
+  --processHitIterations 250 \
+  --cacheReadIterations 350 \
+  --assetDeliveryIterations 150
+```
+
+Script output is JSON with:
+- global route-group latencies (`p50/p95/p99`),
+- per-type summaries,
+- per-candidate results (including asset delivery status).

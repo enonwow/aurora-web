@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Put, Query, Req } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags
 } from "@nestjs/swagger";
@@ -14,7 +15,10 @@ import { RuntimeSettingsApplicationService } from "../../../application/runtime-
 import {
   parseModuleCacheRebuildQuery,
   parseModuleCacheSummaryQuery,
-  parseReplaceRuntimeSettingsRequest
+  parseReplaceRuntimeSettingsRequest,
+  parseTextureIndexQuery,
+  TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+  TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
 } from "./runtime-settings.schemas";
 
 @Controller("settings/runtime")
@@ -67,13 +71,76 @@ export class RuntimeSettingsController {
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
+  @Get("module-cache/textures/summary")
+  @ApiOperation({
+    summary:
+      "Get texture index metadata summary stored in module cache blob under __aurora/meta/texture-index.v1.json."
+  })
+  @ApiResponse({ status: 200, description: "Texture index metadata summary." })
+  @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
+  async getTextureIndexSummary(@Req() request: AppRequest) {
+    const data = await this.settingsService.getTextureIndexMetadataSummary();
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("module-cache/textures")
+  @ApiOperation({
+    summary:
+      "List/query texture index entries from module cache blob. Supports exact resref filter (case-insensitive) with limit/offset pagination."
+  })
+  @ApiQuery({
+    name: "resref",
+    required: false,
+    type: String,
+    description:
+      "Exact texture resref filter (case-insensitive). Empty or whitespace-only values are treated as not provided."
+  })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    type: Number,
+    description: "Page size for texture index query.",
+    example: TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+    schema: {
+      default: TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+      minimum: 1,
+      maximum: 1000
+    }
+  })
+  @ApiQuery({
+    name: "offset",
+    required: false,
+    type: Number,
+    description: "Pagination offset for texture index query.",
+    example: TEXTURE_INDEX_QUERY_DEFAULT_OFFSET,
+    schema: {
+      default: TEXTURE_INDEX_QUERY_DEFAULT_OFFSET,
+      minimum: 0
+    }
+  })
+  @ApiResponse({ status: 200, description: "Texture index query result." })
+  @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async queryTextureIndex(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    const parsed = parseTextureIndexQuery(query);
+    const data = await this.settingsService.queryTextureIndex(parsed);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
   @Post("module-cache/rebuild")
   @Permissions("admin.config.write")
   @ApiOperation({
     summary:
       "Sync module cache in blob storage from configured module source (decompiled path preferred, otherwise packed module). Default mode is incremental by per-file hash; use forceFull=true for full rebuild."
   })
-  @ApiResponse({ status: 200, description: "Module cache sync completed." })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Module cache sync completed. Response includes per-source sync delta (module, hak, vanilla, index) in sourceDelta."
+  })
   @ApiResponse({ status: 422, description: "Validation or source configuration failed." })
   async rebuildModuleCache(
     @Req() request: AppRequest,

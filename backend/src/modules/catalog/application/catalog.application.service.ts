@@ -85,6 +85,22 @@ export interface PlaceableAssetBlobEnvelope {
   payload: ModuleBlobObjectPayload;
 }
 
+export interface PlaceableAssetDeliveryContract {
+  assetId: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  deliveryPath: string;
+  deliveryUrl: string;
+  s3Url?: string;
+}
+
+export interface PlaceableAssetDeliveryEnvelope {
+  cacheKey: string;
+  moduleHash?: string;
+  assets: PlaceableAssetDeliveryContract[];
+}
+
 @Injectable()
 export class CatalogApplicationService {
   private readonly inFlightPlaceableProcessing = new Map<
@@ -175,7 +191,7 @@ export class CatalogApplicationService {
     if (!query.bypassCache) {
       const cached = await this.placeableCache.get<PlaceableProcessingResult>(cacheKey);
       if (cached) {
-        const hydrated = await this.ensurePlaceableManifest(cached.value);
+        const hydrated = await this.ensurePlaceableManifest(cacheKey, cached.value);
         return {
           cache: {
             key: cacheKey,
@@ -250,7 +266,7 @@ export class CatalogApplicationService {
       });
     }
 
-    const hydrated = await this.ensurePlaceableManifest(cached.value);
+    const hydrated = await this.ensurePlaceableManifest(cacheKey, cached.value);
 
     return {
       cache: {
@@ -276,7 +292,7 @@ export class CatalogApplicationService {
       });
     }
 
-    const hydrated = await this.ensurePlaceableManifest(cached.value);
+    const hydrated = await this.ensurePlaceableManifest(cacheKey, cached.value);
     const normalizedAssetId = assetId.trim().toLowerCase();
     const asset = hydrated.assetManifest.assets.find(
       (entry) => entry.assetId.toLowerCase() === normalizedAssetId
@@ -303,6 +319,44 @@ export class CatalogApplicationService {
       asset,
       moduleHash: hydrated.assetManifest.moduleHash,
       payload
+    };
+  }
+
+  async getProcessedPlaceableAssetDelivery(
+    cacheKey: string,
+    assetIds?: string[]
+  ): Promise<PlaceableAssetDeliveryEnvelope> {
+    const cached = await this.placeableCache.get<PlaceableProcessingResult>(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "PLACEABLE_CACHE_NOT_FOUND",
+        message: "Placeable cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensurePlaceableManifest(cacheKey, cached.value);
+    const selectedAssets = this.selectAssetsForDelivery(
+      hydrated.assetManifest.assets,
+      assetIds
+    );
+    const blobSettings = await this.getBlobStorageSettings();
+
+    return {
+      cacheKey,
+      moduleHash: hydrated.assetManifest.moduleHash,
+      assets: selectedAssets.map((asset) => {
+        const deliveryPath = buildPlaceableAssetDeliveryPath(cacheKey, asset.assetId);
+        return {
+          assetId: asset.assetId,
+          objectKey: asset.objectKey,
+          contentType: asset.contentType,
+          sizeBytes: asset.sizeBytes,
+          deliveryPath,
+          deliveryUrl: deliveryPath,
+          s3Url: blobSettings ? buildS3ObjectUrl(blobSettings.bucket, asset.objectKey) : undefined
+        };
+      })
     };
   }
 
@@ -609,9 +663,19 @@ export class CatalogApplicationService {
   }
 
   private async ensurePlaceableManifest(
+    cacheKey: string,
     value: PlaceableProcessingResult
   ): Promise<PlaceableProcessingResult> {
-    if (value.assetManifest?.version === "placeable-asset-manifest/v1") {
+    const currentModuleHash = await this.getCurrentModuleHash();
+    const hasManifest = value.assetManifest?.version === "placeable-asset-manifest/v1";
+    const manifestModuleHash = hasManifest ? value.assetManifest.moduleHash : undefined;
+    const shouldRefreshManifest =
+      !hasManifest ||
+      (typeof currentModuleHash === "string" &&
+        currentModuleHash.length > 0 &&
+        manifestModuleHash !== currentModuleHash);
+
+    if (!shouldRefreshManifest) {
       return value;
     }
 
@@ -622,10 +686,12 @@ export class CatalogApplicationService {
       metadata: value.metadata
     });
 
-    return {
+    const refreshed: PlaceableProcessingResult = {
       ...value,
       assetManifest: manifest
     };
+    await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+    return refreshed;
   }
 
   private async buildPlaceableAssetManifest(input: {
@@ -687,6 +753,15 @@ export class CatalogApplicationService {
     return index;
   }
 
+  private async getCurrentModuleHash(): Promise<string | undefined> {
+    try {
+      const index = await this.getModuleSnapshotIndex();
+      return index?.moduleHash;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async listAllModuleSnapshotObjects(
     settings: BlobStorageSettings
   ): Promise<ModuleBlobSnapshotSummary> {
@@ -744,6 +819,42 @@ export class CatalogApplicationService {
     return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
   }
 
+  private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
+    if (!this.runtimeSettingsRepository) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return settings.blobStorage;
+  }
+
+  private selectAssetsForDelivery(
+    assets: PlaceableAssetEntry[],
+    assetIds?: string[]
+  ): PlaceableAssetEntry[] {
+    if (!assetIds || assetIds.length === 0) {
+      return assets;
+    }
+
+    const byId = new Map<string, PlaceableAssetEntry>();
+    for (const asset of assets) {
+      byId.set(asset.assetId.toLowerCase(), asset);
+    }
+
+    return assetIds.map((assetId) => {
+      const found = byId.get(assetId.trim().toLowerCase());
+      if (found) {
+        return found;
+      }
+
+      throw new AppException({
+        status: 404,
+        code: "PLACEABLE_ASSET_NOT_FOUND",
+        message: "Placeable asset was not found in cached manifest."
+      });
+    });
+  }
+
   private executeInFlight<T>(
     inFlight: Map<string, Promise<T>>,
     key: string,
@@ -777,4 +888,15 @@ export class CatalogApplicationService {
       item: data.value
     } as TemplateProcessingResultByKind<TKind>;
   }
+}
+
+function buildPlaceableAssetDeliveryPath(cacheKey: string, assetId: string): string {
+  const encodedCacheKey = encodeURIComponent(cacheKey);
+  const encodedAssetId = encodeURIComponent(assetId);
+  return `/api/v1/catalog/placeables/cache/${encodedCacheKey}/assets/${encodedAssetId}`;
+}
+
+function buildS3ObjectUrl(bucket: string, objectKey: string): string {
+  const normalizedObjectKey = objectKey.replace(/^\/+/u, "");
+  return `s3://${bucket}/${normalizedObjectKey}`;
 }

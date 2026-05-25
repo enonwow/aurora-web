@@ -7,6 +7,12 @@ import { setupCors } from "../src/common/http/cors";
 import { setupSwagger } from "../src/common/openapi/swagger";
 
 type BenchType = "placeable" | "creature" | "item" | "area";
+type RouteGroup = "processBypass" | "processHit" | "cacheRead" | "assetDelivery";
+type DeliveryStatus =
+  | "executed"
+  | "unsupported_type"
+  | "no_manifest_assets"
+  | "endpoint_unavailable";
 
 interface BenchCandidate {
   type: BenchType;
@@ -27,6 +33,24 @@ interface BenchConfig {
   processBypassIterations: number;
   processHitIterations: number;
   cacheReadIterations: number;
+  assetDeliveryIterations: number;
+}
+
+interface RouteSummary {
+  count: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+interface DeliveryBenchResult {
+  status: DeliveryStatus;
+  cacheKey: string;
+  requestCount: number;
+  assetId?: string;
+  routePath?: string;
+  reason?: string;
+  metrics?: DurationSummary;
 }
 
 interface CandidateBenchResult {
@@ -36,6 +60,7 @@ interface CandidateBenchResult {
   processBypass: DurationSummary;
   processHit: DurationSummary;
   cacheRead: DurationSummary;
+  assetDelivery: DeliveryBenchResult;
 }
 
 type HttpClient = ReturnType<typeof supertest.agent>;
@@ -66,9 +91,13 @@ async function main() {
     const candidates = await fetchCandidates(client, token, config.maxCandidatesPerType);
     const startedAt = new Date().toISOString();
     const results: CandidateBenchResult[] = [];
+    const routeDurations = createRouteDurationsBucket();
+    const routeDurationsByType = createRouteDurationsByTypeBucket();
+    let requestCount = 0;
 
     for (const candidate of candidates) {
       const cacheKey = await primeCache(client, token, candidate);
+      requestCount += 1;
 
       const processBypassDurations = await runIterations(
         config.processBypassIterations,
@@ -76,12 +105,38 @@ async function main() {
           await processCandidate(client, token, candidate, true);
         }
       );
+      requestCount += config.processBypassIterations;
+      routeDurations.processBypass.push(...processBypassDurations);
+      routeDurationsByType[candidate.type].processBypass.push(...processBypassDurations);
+
       const processHitDurations = await runIterations(config.processHitIterations, async () => {
         await processCandidate(client, token, candidate, false);
       });
+      requestCount += config.processHitIterations;
+      routeDurations.processHit.push(...processHitDurations);
+      routeDurationsByType[candidate.type].processHit.push(...processHitDurations);
+
       const cacheReadDurations = await runIterations(config.cacheReadIterations, async () => {
         await getCachedCandidate(client, token, candidate, cacheKey);
       });
+      requestCount += config.cacheReadIterations;
+      routeDurations.cacheRead.push(...cacheReadDurations);
+      routeDurationsByType[candidate.type].cacheRead.push(...cacheReadDurations);
+
+      const delivery = await benchmarkAssetDelivery(
+        client,
+        token,
+        candidate,
+        cacheKey,
+        config.assetDeliveryIterations
+      );
+      if (delivery.status === "executed" && delivery.metrics) {
+        routeDurations.assetDelivery.push(...(delivery as ExecutedDeliveryBenchResult).durations);
+        routeDurationsByType[candidate.type].assetDelivery.push(
+          ...(delivery as ExecutedDeliveryBenchResult).durations
+        );
+      }
+      requestCount += delivery.requestCount;
 
       results.push({
         type: candidate.type,
@@ -89,12 +144,14 @@ async function main() {
         cacheKey,
         processBypass: summarizeDurations(processBypassDurations),
         processHit: summarizeDurations(processHitDurations),
-        cacheRead: summarizeDurations(cacheReadDurations)
+        cacheRead: summarizeDurations(cacheReadDurations),
+        assetDelivery: stripDeliveryDurations(delivery)
       });
     }
 
     const finishedAt = new Date().toISOString();
     const grouped = groupByType(results);
+    const deliverySummary = summarizeDelivery(results);
     const output = {
       generatedAt: finishedAt,
       timing: {
@@ -104,14 +161,22 @@ async function main() {
       config,
       totals: {
         candidates: results.length,
-        requests:
-          results.length *
-          (1 +
-            config.processBypassIterations +
-            config.processHitIterations +
-            config.cacheReadIterations)
+        requests: requestCount,
+        delivery: deliverySummary
+      },
+      routeGroups: {
+        processBypass: summarizeRoute(routeDurations.processBypass),
+        processHit: summarizeRoute(routeDurations.processHit),
+        cacheRead: summarizeRoute(routeDurations.cacheRead),
+        assetDelivery: summarizeRoute(routeDurations.assetDelivery)
       },
       summaryByType: buildTypeSummary(grouped),
+      routeGroupsByType: {
+        placeable: summarizeRouteGroups(routeDurationsByType.placeable),
+        creature: summarizeRouteGroups(routeDurationsByType.creature),
+        item: summarizeRouteGroups(routeDurationsByType.item),
+        area: summarizeRouteGroups(routeDurationsByType.area)
+      },
       perCandidate: results
     };
 
@@ -159,7 +224,8 @@ function parseArgs(args: string[]): BenchConfig {
     maxCandidatesPerType: parsePositiveInt(values.get("maxCandidatesPerType"), 10),
     processBypassIterations: parsePositiveInt(values.get("processBypassIterations"), 100),
     processHitIterations: parsePositiveInt(values.get("processHitIterations"), 250),
-    cacheReadIterations: parsePositiveInt(values.get("cacheReadIterations"), 350)
+    cacheReadIterations: parsePositiveInt(values.get("cacheReadIterations"), 350),
+    assetDeliveryIterations: parsePositiveInt(values.get("assetDeliveryIterations"), 150)
   };
 }
 
@@ -298,6 +364,111 @@ async function getCachedCandidate(
     .expect(200);
 }
 
+interface ExecutedDeliveryBenchResult extends DeliveryBenchResult {
+  status: "executed";
+  durations: number[];
+  metrics: DurationSummary;
+}
+
+async function benchmarkAssetDelivery(
+  client: HttpClient,
+  token: string,
+  candidate: BenchCandidate,
+  cacheKey: string,
+  iterations: number
+): Promise<DeliveryBenchResult | ExecutedDeliveryBenchResult> {
+  if (candidate.type !== "placeable") {
+    return {
+      status: "unsupported_type",
+      cacheKey,
+      requestCount: 0,
+      reason: "delivery_endpoint_supported_for_placeables_only"
+    };
+  }
+
+  const cached = await getCachedCandidate(client, token, candidate, cacheKey);
+  const manifestAssets = extractPlaceableAssetIds(cached.body);
+  if (manifestAssets.length === 0) {
+    return {
+      status: "no_manifest_assets",
+      cacheKey,
+      requestCount: 1,
+      reason: "placeable_manifest_has_no_assets"
+    };
+  }
+
+  const assetId = manifestAssets[0];
+  const routePath = `/api/v1/catalog/placeables/cache/${cacheKey}/assets/${assetId}`;
+  const probe = await client
+    .get(routePath)
+    .set("Authorization", `Bearer ${token}`);
+
+  if (probe.status !== 200) {
+    return {
+      status: "endpoint_unavailable",
+      cacheKey,
+      requestCount: 2,
+      assetId,
+      routePath,
+      reason: `probe_status_${probe.status}`
+    };
+  }
+
+  const durations = await runIterations(iterations, async () => {
+    await client
+      .get(routePath)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+  });
+
+  return {
+    status: "executed",
+    cacheKey,
+    requestCount: 2 + iterations,
+    assetId,
+    routePath,
+    durations,
+    metrics: summarizeDurations(durations)
+  };
+}
+
+function extractPlaceableAssetIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  const data = record.data;
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  const placeable = (data as Record<string, unknown>).placeable;
+  if (!placeable || typeof placeable !== "object") {
+    return [];
+  }
+
+  const assetManifest = (placeable as Record<string, unknown>).assetManifest;
+  if (!assetManifest || typeof assetManifest !== "object") {
+    return [];
+  }
+
+  const assets = (assetManifest as Record<string, unknown>).assets;
+  if (!Array.isArray(assets)) {
+    return [];
+  }
+
+  return assets
+    .map((asset) => {
+      if (!asset || typeof asset !== "object") {
+        return null;
+      }
+      const value = (asset as Record<string, unknown>).assetId;
+      return typeof value === "string" && value.length > 0 ? value : null;
+    })
+    .filter((value): value is string => value !== null);
+}
+
 async function runIterations(iterations: number, operation: () => Promise<void>): Promise<number[]> {
   const durations: number[] = [];
   for (let index = 0; index < iterations; index += 1) {
@@ -370,7 +541,8 @@ function summarizeType(results: CandidateBenchResult[]) {
     candidates: results.length,
     processBypass,
     processHit,
-    cacheRead
+    cacheRead,
+    delivery: summarizeDeliveryForType(results)
   };
 }
 
@@ -384,6 +556,106 @@ function flattenMetric(
   });
 
   return summarizeDurations(values);
+}
+
+function createRouteDurationsBucket(): Record<RouteGroup, number[]> {
+  return {
+    processBypass: [],
+    processHit: [],
+    cacheRead: [],
+    assetDelivery: []
+  };
+}
+
+function createRouteDurationsByTypeBucket(): Record<BenchType, Record<RouteGroup, number[]>> {
+  return {
+    placeable: createRouteDurationsBucket(),
+    creature: createRouteDurationsBucket(),
+    item: createRouteDurationsBucket(),
+    area: createRouteDurationsBucket()
+  };
+}
+
+function summarizeRoute(values: number[]): RouteSummary {
+  const metrics = summarizeDurations(values);
+  return {
+    count: values.length,
+    p50Ms: metrics.p50Ms,
+    p95Ms: metrics.p95Ms,
+    p99Ms: metrics.p99Ms
+  };
+}
+
+function summarizeRouteGroups(groups: Record<RouteGroup, number[]>) {
+  return {
+    processBypass: summarizeRoute(groups.processBypass),
+    processHit: summarizeRoute(groups.processHit),
+    cacheRead: summarizeRoute(groups.cacheRead),
+    assetDelivery: summarizeRoute(groups.assetDelivery)
+  };
+}
+
+function summarizeDelivery(results: CandidateBenchResult[]) {
+  const eligible = results.filter((result) => result.type === "placeable");
+  const executed = eligible.filter((result) => result.assetDelivery.status === "executed");
+  const skippedByReason = eligible.reduce<Record<string, number>>((acc, result) => {
+    if (result.assetDelivery.status === "executed") {
+      return acc;
+    }
+    const reason = result.assetDelivery.reason ?? result.assetDelivery.status;
+    acc[reason] = (acc[reason] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    eligibleCandidates: eligible.length,
+    executedCandidates: executed.length,
+    skippedByReason
+  };
+}
+
+function summarizeDeliveryForType(results: CandidateBenchResult[]) {
+  const eligible = results.filter((result) => result.type === "placeable");
+  if (eligible.length === 0) {
+    return {
+      eligibleCandidates: 0,
+      executedCandidates: 0,
+      skippedByReason: {}
+    };
+  }
+
+  const executed = eligible.filter((result) => result.assetDelivery.status === "executed");
+  const skippedByReason = eligible.reduce<Record<string, number>>((acc, result) => {
+    if (result.assetDelivery.status === "executed") {
+      return acc;
+    }
+    const reason = result.assetDelivery.reason ?? result.assetDelivery.status;
+    acc[reason] = (acc[reason] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    eligibleCandidates: eligible.length,
+    executedCandidates: executed.length,
+    skippedByReason
+  };
+}
+
+function stripDeliveryDurations(
+  result: DeliveryBenchResult | ExecutedDeliveryBenchResult
+): DeliveryBenchResult {
+  if (result.status !== "executed") {
+    return result;
+  }
+
+  return {
+    status: result.status,
+    cacheKey: result.cacheKey,
+    requestCount: result.requestCount,
+    assetId: result.assetId,
+    routePath: result.routePath,
+    metrics: result.metrics
+  };
 }
 
 main().catch((error) => {

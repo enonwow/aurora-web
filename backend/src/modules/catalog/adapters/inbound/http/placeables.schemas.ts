@@ -51,6 +51,10 @@ const assetIdSchema = z
   .max(64)
   .regex(/^[a-f0-9]+$/iu, "assetId must be hexadecimal.");
 
+const assetDeliveryQuerySchema = z.object({
+  assetIds: z.union([z.string(), z.array(z.string())]).optional()
+});
+
 export function parsePlaceableProcessPayload(input: unknown) {
   const parsed = processPayloadSchema.safeParse(input);
   if (parsed.success) {
@@ -85,6 +89,45 @@ export function parsePlaceableAssetId(input: unknown): string {
   }
 
   throwValidationError(parsed.error.issues, "Placeable asset id validation failed.");
+}
+
+export function parsePlaceableAssetDeliveryQuery(
+  input: unknown
+): { assetIds?: string[] } {
+  const parsed = assetDeliveryQuerySchema.safeParse(input);
+  if (!parsed.success) {
+    throwValidationError(
+      parsed.error.issues,
+      "Placeable asset delivery query validation failed."
+    );
+  }
+
+  const rawAssetIds = parsed.data.assetIds;
+  if (!rawAssetIds) {
+    return {};
+  }
+
+  const tokens = (Array.isArray(rawAssetIds) ? rawAssetIds : [rawAssetIds])
+    .flatMap((entry) => entry.split(","))
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (tokens.length === 0) {
+    return {};
+  }
+
+  const assetIds = tokens.map((token) => {
+    const tokenParsed = assetIdSchema.safeParse(token);
+    if (tokenParsed.success) {
+      return tokenParsed.data;
+    }
+
+    throwValidationError(
+      tokenParsed.error.issues,
+      "Placeable asset delivery query validation failed."
+    );
+  });
+
+  return { assetIds };
 }
 
 function throwValidationError(

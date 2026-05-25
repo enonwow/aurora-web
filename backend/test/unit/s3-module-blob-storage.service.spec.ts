@@ -136,10 +136,27 @@ describe("S3ModuleBlobStorageService", () => {
     expect(result.deletedFiles).toBe(0);
     expect(result.unchangedFiles).toBe(0);
     expect(result.totalFiles).toBe(2);
+    expect(result.sourceDelta).toBeDefined();
+    expect(result.sourceDelta?.module.uploadedFiles).toBe(2);
+    expect(result.sourceDelta?.hak.uploadedFiles).toBe(0);
+    expect(result.sourceDelta?.vanilla.uploadedFiles).toBe(0);
+    expect(result.sourceDelta?.index.uploadedFiles).toBe(0);
     expect(result.moduleHash).toEqual(expect.any(String));
     expect(putCalls.some((key) => key.includes("__aurora/meta/module-snapshots/"))).toBe(
       true
     );
+    const manifestKey = putCalls.find((key) =>
+      key.includes("__aurora/meta/module-snapshots/")
+    );
+    expect(manifestKey).toBeDefined();
+    const manifestRaw = store.get(settings.bucket)?.get(manifestKey!)?.body.toString("utf-8");
+    expect(manifestRaw).toBeDefined();
+    const manifest = JSON.parse(manifestRaw!) as {
+      sourceTotals?: Record<string, { files: number; bytes: number }>;
+      sourceDelta?: Record<string, { uploadedFiles: number }>;
+    };
+    expect(manifest.sourceTotals?.module?.files).toBe(2);
+    expect(manifest.sourceDelta?.module?.uploadedFiles).toBe(2);
 
     const summary = await service.listModuleSnapshot(settings, { limit: 200 });
     expect(summary.totalFiles).toBe(2);
@@ -162,7 +179,38 @@ describe("S3ModuleBlobStorageService", () => {
     expect(result.uploadedFiles).toBe(0);
     expect(result.deletedFiles).toBe(0);
     expect(result.unchangedFiles).toBe(2);
+    expect(result.sourceDelta).toBeDefined();
+    expect(result.sourceDelta?.module.unchangedFiles).toBe(2);
+    expect(result.sourceDelta?.module.unchangedBytes).toBe(
+      Buffer.byteLength("area-v1", "utf-8") + Buffer.byteLength("texture-v1", "utf-8")
+    );
     expect(putCalls.length).toBe(previousPutCalls);
+  });
+
+  it("returns noop with unchanged classification for module, hak, vanilla and index", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("areas/test.are", "module-v1"),
+      file("__aurora/sources/hak/lc_core/h_fire.dds", "hak-v1"),
+      file("__aurora/sources/vanilla/textures/v_stone.tga", "vanilla-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":1}")
+    ]);
+
+    const result = await service.replaceModuleSnapshot(settings, [
+      file("areas/test.are", "module-v1"),
+      file("__aurora/sources/hak/lc_core/h_fire.dds", "hak-v1"),
+      file("__aurora/sources/vanilla/textures/v_stone.tga", "vanilla-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":1}")
+    ]);
+
+    expect(result.status).toBe("noop");
+    expect(result.sourceDelta?.module.unchangedFiles).toBe(1);
+    expect(result.sourceDelta?.hak.unchangedFiles).toBe(1);
+    expect(result.sourceDelta?.vanilla.unchangedFiles).toBe(1);
+    expect(result.sourceDelta?.index.unchangedFiles).toBe(1);
+    expect(result.sourceDelta?.module.unchangedBytes).toBe(byteLength("module-v1"));
+    expect(result.sourceDelta?.hak.unchangedBytes).toBe(byteLength("hak-v1"));
+    expect(result.sourceDelta?.vanilla.unchangedBytes).toBe(byteLength("vanilla-v1"));
+    expect(result.sourceDelta?.index.unchangedBytes).toBe(byteLength("{\"version\":1}"));
   });
 
   it("uploads only changed files and deletes removed files", async () => {
@@ -183,6 +231,139 @@ describe("S3ModuleBlobStorageService", () => {
     expect(result.deletedFiles).toBe(1);
     expect(result.unchangedFiles).toBe(1);
     expect(result.totalFiles).toBe(3);
+    expect(result.sourceDelta).toBeDefined();
+    expect(result.sourceDelta?.module.uploadedFiles).toBe(2);
+    expect(result.sourceDelta?.module.deletedFiles).toBe(1);
+    expect(result.sourceDelta?.module.unchangedFiles).toBe(1);
+  });
+
+  it("keeps top-level upload/delete counters equal to sourceDelta sums", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("areas/a.are", "module-a-v1"),
+      file("areas/b.are", "module-b-v1"),
+      file("__aurora/sources/hak/lc_core/h_01.dds", "hak-1-v1"),
+      file("__aurora/sources/hak/lc_core/h_02.dds", "hak-2-v1"),
+      file("__aurora/sources/vanilla/textures/v_01.tga", "vanilla-1-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":1}")
+    ]);
+
+    const result = await service.replaceModuleSnapshot(settings, [
+      file("areas/a.are", "module-a-v1"),
+      file("areas/b.are", "module-b-v2"),
+      file("__aurora/sources/hak/lc_core/h_01.dds", "hak-1-v2"),
+      file("__aurora/sources/vanilla/textures/v_02.tga", "vanilla-2-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":2}")
+    ]);
+
+    expect(result.sourceDelta).toBeDefined();
+    const buckets = Object.values(result.sourceDelta!);
+
+    const uploadedFilesFromSources = buckets.reduce(
+      (sum, item) => sum + item.uploadedFiles,
+      0
+    );
+    const uploadedBytesFromSources = buckets.reduce(
+      (sum, item) => sum + item.uploadedBytes,
+      0
+    );
+    const deletedFilesFromSources = buckets.reduce(
+      (sum, item) => sum + item.deletedFiles,
+      0
+    );
+    const deletedBytesFromSources = buckets.reduce(
+      (sum, item) => sum + item.deletedBytes,
+      0
+    );
+
+    expect(result.uploadedFiles).toBe(uploadedFilesFromSources);
+    expect(result.uploadedBytes).toBe(uploadedBytesFromSources);
+    expect(result.deletedFiles).toBe(deletedFilesFromSources);
+    expect(result.deletedBytes).toBe(deletedBytesFromSources);
+  });
+
+  it("classifies hak, vanilla and index namespaces in per-source delta", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("__aurora/sources/hak/lc_core/h_fire.dds", "hak-v1"),
+      file("__aurora/sources/vanilla/textures/v_stone.tga", "vanilla-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":1}"),
+      file("areas/test.are", "area-v1")
+    ]);
+
+    const result = await service.replaceModuleSnapshot(settings, [
+      file("__aurora/sources/hak/lc_core/h_fire.dds", "hak-v2"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":2}"),
+      file("areas/test.are", "area-v1")
+    ]);
+
+    expect(result.sourceDelta).toBeDefined();
+    expect(result.sourceDelta?.hak.uploadedFiles).toBe(1);
+    expect(result.sourceDelta?.hak.deletedFiles).toBe(0);
+    expect(result.sourceDelta?.hak.unchangedFiles).toBe(0);
+    expect(result.sourceDelta?.vanilla.deletedFiles).toBe(1);
+    expect(result.sourceDelta?.index.uploadedFiles).toBe(1);
+    expect(result.sourceDelta?.module.unchangedFiles).toBe(1);
+  });
+
+  it("stores sourceTotals with files and bytes for non-module namespaces", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("areas/test.are", "module-v1"),
+      file("__aurora/sources/hak/lc_core/h_fire.dds", "hak-v1"),
+      file("__aurora/sources/hak/lc_core/h_ice.dds", "hak-v2"),
+      file("__aurora/sources/vanilla/textures/v_stone.tga", "vanilla-v1"),
+      file("__aurora/meta/texture-index.v1.json", "{\"version\":1}")
+    ]);
+
+    const manifestKey = putCalls
+      .filter((key) => key.includes("__aurora/meta/module-snapshots/"))
+      .at(-1);
+    expect(manifestKey).toBeDefined();
+
+    const manifestRaw = store.get(settings.bucket)?.get(manifestKey!)?.body.toString("utf-8");
+    expect(manifestRaw).toBeDefined();
+    const manifest = JSON.parse(manifestRaw!) as {
+      sourceTotals?: Record<string, { files: number; bytes: number }>;
+    };
+
+    expect(manifest.sourceTotals?.hak?.files).toBe(2);
+    expect(manifest.sourceTotals?.hak?.bytes).toBe(
+      byteLength("hak-v1") + byteLength("hak-v2")
+    );
+    expect(manifest.sourceTotals?.vanilla?.files).toBe(1);
+    expect(manifest.sourceTotals?.vanilla?.bytes).toBe(byteLength("vanilla-v1"));
+    expect(manifest.sourceTotals?.index?.files).toBe(1);
+    expect(manifest.sourceTotals?.index?.bytes).toBe(byteLength("{\"version\":1}"));
+  });
+
+  it("keeps sync path operational when manifest contains negative file size", async () => {
+    await service.replaceModuleSnapshot(settings, [file("areas/test.are", "area-v1")]);
+
+    const manifestKey = putCalls
+      .filter((key) => key.includes("__aurora/meta/module-snapshots/"))
+      .at(-1);
+    expect(manifestKey).toBeDefined();
+
+    const bucketStore = store.get(settings.bucket);
+    expect(bucketStore).toBeDefined();
+    const manifestEntry = bucketStore!.get(manifestKey!);
+    expect(manifestEntry).toBeDefined();
+
+    const manifest = JSON.parse(manifestEntry!.body.toString("utf-8")) as {
+      files: Record<string, { sha256: string; size: number }>;
+    };
+    const firstKey = Object.keys(manifest.files)[0];
+    manifest.files[firstKey].size = -42;
+
+    bucketStore!.set(manifestKey!, {
+      body: Buffer.from(JSON.stringify(manifest), "utf-8"),
+      lastModified: new Date("2026-05-24T10:10:00.000Z"),
+      etag: "\"neg-size\""
+    });
+
+    const result = await service.replaceModuleSnapshot(settings, []);
+
+    expect(result.status).toBe("updated");
+    expect(result.deletedFiles).toBe(1);
+    expect(result.deletedBytes).toBe(-42);
   });
 
   it("returns object payload for existing module object key", async () => {
@@ -208,6 +389,10 @@ function file(fileName: string, content: string) {
     resourceType: 0,
     bytes: Buffer.from(content, "utf-8")
   };
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf-8");
 }
 
 function toBuffer(value: unknown): Buffer {

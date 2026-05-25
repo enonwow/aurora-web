@@ -19,6 +19,7 @@ import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { parseCatalogListQuery } from "./catalog.schemas";
 import {
   parsePlaceableAssetId,
+  parsePlaceableAssetDeliveryQuery,
   parsePlaceableBenchmarkPayload,
   parsePlaceableCacheKey,
   parsePlaceableProcessPayload
@@ -135,6 +136,37 @@ export class PlaceablesController {
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
+  @Get("cache/:cacheKey/assets/contracts")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({
+    summary:
+      "Get delivery contract for placeable assets from cached manifest without downloading payload bytes."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiQuery({
+    name: "assetIds",
+    required: false,
+    description:
+      "Optional list of asset ids (comma-separated string or repeated query param). When omitted, all manifest assets are returned."
+  })
+  @ApiResponse({ status: 200, description: "Placeable asset delivery contract list." })
+  @ApiResponse({ status: 404, description: "Cache entry or asset was not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedAssetContracts(
+    @Req() request: AppRequest,
+    @Param("cacheKey") rawCacheKey: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    const cacheKey = parsePlaceableCacheKey(rawCacheKey);
+    const parsedQuery = parsePlaceableAssetDeliveryQuery(query);
+    const data = await this.service.getProcessedPlaceableAssetDelivery(
+      cacheKey,
+      parsedQuery.assetIds
+    );
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
   @Get("cache/:cacheKey/assets/:assetId")
   @Permissions("scene.read")
   @ApiOperation({
@@ -145,6 +177,7 @@ export class PlaceablesController {
   @ApiParam({ name: "assetId", description: "Hex asset id from placeable assetManifest.assets[]" })
   @ApiResponse({ status: 200, description: "Binary asset payload." })
   @ApiResponse({ status: 404, description: "Asset or blob object not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
   async getCachedAsset(
     @Param("cacheKey") rawCacheKey: string,
     @Param("assetId") rawAssetId: string,
