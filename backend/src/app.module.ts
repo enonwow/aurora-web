@@ -11,6 +11,7 @@ import { RuntimeSettingsModule } from "./modules/runtime-settings/runtime-settin
 import { ProcessingGraphModule } from "./modules/processing-graph/processing-graph.module";
 import { HealthModule } from "./health/health.module";
 import { TilesModule } from "./modules/tiles/tiles.module";
+import { SoundsModule } from "./modules/sounds/sounds.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TilesModule } from "./modules/tiles/tiles.module";
     AuthModule,
     CatalogModule,
     TilesModule,
+    SoundsModule,
     AreasModule,
     ProcessingGraphModule,
     RuntimeSettingsModule,

@@ -1,0 +1,607 @@
+import { AppException } from "../../src/common/http/app-exception";
+import {
+  SoundsApplicationService,
+  __soundsApplicationServiceInternals
+} from "../../src/modules/sounds/application/sounds.application.service";
+import type { SoundProcessingCachePort } from "../../src/modules/sounds/application/ports/sound-processing-cache.port";
+import type { SoundRepositoryPort } from "../../src/modules/sounds/application/ports/sound-repository.port";
+import type { SoundListResult, SoundProcessingResult, SoundRecord } from "../../src/modules/sounds/domain/sound.types";
+
+describe("SoundsApplicationService", () => {
+  let repository: jest.Mocked<SoundRepositoryPort>;
+  let processingCache: jest.Mocked<SoundProcessingCachePort>;
+  let service: SoundsApplicationService;
+
+  beforeEach(() => {
+    repository = {
+      list: jest.fn(),
+      findById: jest.fn()
+    };
+    processingCache = {
+      get: jest.fn(),
+      set: jest.fn()
+    };
+    service = new SoundsApplicationService(repository, processingCache);
+  });
+
+  it("lists sounds through repository", async () => {
+    const result: SoundListResult = {
+      items: [
+        {
+          soundId: "sound_ambient_city_market_001",
+          resref: "amb_city_market_day",
+          name: "City Market Day Ambience",
+          category: "ambient",
+          tags: ["city"],
+          benchmark: true,
+          previewWaveformUrl: "/preview.webp",
+          spatialMode: "2d",
+          metrics: {
+            durationMs: 1000,
+            cues: 1,
+            emitters: 0
+          },
+          updatedAt: "2026-05-25T00:00:00.000Z"
+        }
+      ],
+      total: 1,
+      limit: 20,
+      offset: 0
+    };
+    repository.list.mockResolvedValue(result);
+
+    const response = await service.listSounds({
+      category: "ambient",
+      limit: 20,
+      offset: 0
+    });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      category: "ambient",
+      limit: 20,
+      offset: 0
+    });
+    expect(response).toEqual(result);
+  });
+
+  it("returns full sound payload", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+
+    const detail = await service.getSound("sound_ambient_city_market_001");
+
+    expect(detail.soundId).toBe("sound_ambient_city_market_001");
+    expect(detail.audio.assetId).toBe("audio/ambient/city-market-day");
+    expect(detail.audio.cacheKey).toBe("audio/ambient/city-market-day:sound_ambient_city_market_001");
+    expect(detail.audio.strategy).toBe("blob-cache");
+    expect(detail.spatial).toEqual({
+      mode: "2d",
+      loop: true
+    });
+    expect(detail.metrics.durationMs).toBeGreaterThan(0);
+  });
+
+  it("returns lightweight sound preview payload", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+
+    const preview = await service.getSoundPreview("sound_ambient_city_market_001");
+
+    expect(preview.soundId).toBe("sound_ambient_city_market_001");
+    expect(preview.category).toBe("ambient");
+    expect(preview.spatialMode).toBe("2d");
+  });
+
+  it("throws SOUND_NOT_FOUND when sound is missing", async () => {
+    repository.findById.mockResolvedValue(null);
+    await expectSoundNotFound(service.getSound("missing"));
+  });
+
+  it("throws SOUND_NOT_FOUND in preview when sound is missing", async () => {
+    repository.findById.mockResolvedValue(null);
+    await expectSoundNotFound(service.getSoundPreview("missing"));
+  });
+
+  it("processes sound and stores cache payload on miss", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.sound.soundId).toBe("sound_ambient_city_market_001");
+    expect(result.sound.audio.cacheKey).toBe("audio/ambient/city-market-day:sound_ambient_city_market_001");
+    expect(result.sound.render.backendType).toBe("sound");
+    expect(result.sound.processedAt).toEqual(expect.any(String));
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns processSound cache hit when bypassCache=false and cache exists", async () => {
+    const value = buildProcessedSoundResult("sound_ambient_city_market_001");
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.get.mockResolvedValue({
+      key: "c".repeat(64),
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 6
+    });
+
+    const result = await service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(6);
+    expect(result.sound.soundId).toBe("sound_ambient_city_market_001");
+    expect(processingCache.set).not.toHaveBeenCalled();
+  });
+
+  it("processSound bypassCache=true skips cache read and writes fresh payload", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(processingCache.get).not.toHaveBeenCalled();
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates concurrent sound processing misses by cache key", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        key,
+        value,
+        storedAt: "2026-05-25T11:00:00.000Z",
+        hits: 0
+      };
+    });
+
+    const firstPromise = service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+    const secondPromise = service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+    expect(first.cache.key).toBe(second.cache.key);
+    expect(first.sound.soundId).toBe("sound_ambient_city_market_001");
+    expect(second.sound.soundId).toBe("sound_ambient_city_market_001");
+  });
+
+  it("cleans in-flight sound map after completion so subsequent same-key miss reprocesses", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+    await service.processSound({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+
+    expect(processingCache.set).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns processed sound cache hit", async () => {
+    const value = buildProcessedSoundResult("sound_ambient_city_market_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await service.getProcessedSound("a".repeat(64));
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(3);
+    expect(result.sound.soundId).toBe("sound_ambient_city_market_001");
+  });
+
+  it("throws SOUND_CACHE_NOT_FOUND when processed sound key is missing", async () => {
+    processingCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedSound("b".repeat(64))).rejects.toMatchObject({
+      code: "SOUND_CACHE_NOT_FOUND",
+      message: "Sound cache entry was not found."
+    });
+  });
+
+  it("throws SOUND_NOT_FOUND from processSound when target sound is missing", async () => {
+    repository.findById.mockResolvedValue(null);
+
+    await expect(
+      service.processSound({
+        soundId: "missing",
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "SOUND_NOT_FOUND",
+      message: "Sound was not found."
+    });
+  });
+
+  it("runs benchmark and returns deterministic metrics envelope", async () => {
+    const sound = buildSound("sound_ambient_city_market_001");
+    repository.list.mockResolvedValue({
+      items: [
+        {
+          soundId: sound.soundId,
+          resref: sound.resref,
+          name: sound.name,
+          category: sound.category,
+          tags: sound.tags,
+          benchmark: true,
+          previewWaveformUrl: sound.previewWaveformUrl,
+          spatialMode: sound.spatialMode,
+          metrics: sound.metrics,
+          updatedAt: sound.updatedAt
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+    repository.findById.mockResolvedValue(sound);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.benchmarkSounds({
+      iterations: 3,
+      warmupIterations: 1,
+      bypassCache: true
+    });
+
+    expect(result.datasetFingerprint).toHaveLength(64);
+    expect(result.metrics.perCandidate).toHaveLength(1);
+    expect(result.config.candidates).toBe(1);
+  });
+
+  it("benchmark uses provided sound ids without listing benchmark defaults", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.benchmarkSounds({
+      soundIds: ["sound_ambient_city_market_001"],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(repository.list).not.toHaveBeenCalled();
+    expect(repository.findById).toHaveBeenCalledWith("sound_ambient_city_market_001");
+  });
+
+  it("benchmark with empty soundIds uses benchmark list query", async () => {
+    const sound = buildSound("sound_ambient_city_market_001");
+    repository.list.mockResolvedValue({
+      items: [
+        {
+          soundId: sound.soundId,
+          resref: sound.resref,
+          name: sound.name,
+          category: sound.category,
+          tags: sound.tags,
+          benchmark: true,
+          previewWaveformUrl: sound.previewWaveformUrl,
+          spatialMode: sound.spatialMode,
+          metrics: sound.metrics,
+          updatedAt: sound.updatedAt
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+    repository.findById.mockResolvedValue(sound);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.benchmarkSounds({
+      soundIds: [],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      benchmark: true,
+      limit: 200,
+      offset: 0
+    });
+  });
+
+  it("benchmark fails when no benchmark sounds are configured", async () => {
+    repository.list.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 200,
+      offset: 0
+    });
+
+    await expect(
+      service.benchmarkSounds({
+        iterations: 1,
+        warmupIterations: 0,
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "No benchmark sounds are configured."
+    });
+  });
+
+  it("benchmark calls processSound exact warmup and iteration counts with expected flags", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    const processSpy = jest.spyOn(service, "processSound").mockResolvedValue({
+      cache: {
+        key: "k".repeat(64),
+        hit: false,
+        storedAt: "2026-05-25T11:00:00.000Z",
+        hits: 0
+      },
+      sound: buildProcessedSoundResult("sound_ambient_city_market_001")
+    });
+
+    await service.benchmarkSounds({
+      soundIds: ["sound_ambient_city_market_001"],
+      iterations: 4,
+      warmupIterations: 2,
+      bypassCache: false
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(6);
+    expect(processSpy.mock.calls[0][0]).toEqual({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: true
+    });
+    expect(processSpy.mock.calls[1][0]).toEqual({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: true
+    });
+    expect(processSpy.mock.calls[2][0]).toEqual({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+    expect(processSpy.mock.calls[5][0]).toEqual({
+      soundId: "sound_ambient_city_market_001",
+      bypassCache: false
+    });
+  });
+
+  it("benchmark computes elapsed milliseconds from hrtime deltas", async () => {
+    repository.findById.mockResolvedValue(buildSound("sound_ambient_city_market_001"));
+    const processSpy = jest.spyOn(service, "processSound").mockResolvedValue({
+      cache: {
+        key: "k".repeat(64),
+        hit: false,
+        storedAt: "2026-05-25T11:00:00.000Z",
+        hits: 0
+      },
+      sound: buildProcessedSoundResult("sound_ambient_city_market_001")
+    });
+    const hrtimeSpy = jest
+      .spyOn(process.hrtime, "bigint")
+      .mockReturnValueOnce(1_000_000n)
+      .mockReturnValueOnce(2_000_000n)
+      .mockReturnValueOnce(10_000_000n)
+      .mockReturnValueOnce(13_000_000n);
+
+    const result = await service.benchmarkSounds({
+      soundIds: ["sound_ambient_city_market_001"],
+      iterations: 2,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(2);
+    expect(result.metrics.overall.minMs).toBe(1);
+    expect(result.metrics.overall.maxMs).toBe(3);
+    expect(result.metrics.overall.avgMs).toBe(2);
+    expect(result.metrics.perCandidate[0].metrics.p50Ms).toBe(1);
+    expect(result.metrics.perCandidate[0].metrics.p95Ms).toBe(1);
+    expect(result.metrics.perCandidate[0].metrics.p99Ms).toBe(1);
+    hrtimeSpy.mockRestore();
+  });
+
+  it("benchmark fingerprint changes when sound candidate set changes", async () => {
+    const soundA = buildSound("sound_ambient_city_market_001");
+    const soundB = buildSound("sound_music_city_theme_002");
+    repository.findById.mockImplementation(async (id) => {
+      if (id === soundA.soundId) {
+        return soundA;
+      }
+      if (id === soundB.soundId) {
+        return soundB;
+      }
+      return null;
+    });
+    const processSpy = jest.spyOn(service, "processSound").mockResolvedValue({
+      cache: {
+        key: "k".repeat(64),
+        hit: false,
+        storedAt: "2026-05-25T11:00:00.000Z",
+        hits: 0
+      },
+      sound: buildProcessedSoundResult("sound_ambient_city_market_001")
+    });
+
+    const first = await service.benchmarkSounds({
+      soundIds: [soundA.soundId],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+    const second = await service.benchmarkSounds({
+      soundIds: [soundB.soundId],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(2);
+    expect(first.datasetFingerprint).not.toBe(second.datasetFingerprint);
+  });
+
+  it("benchmark validation fails for unknown sound ids", async () => {
+    repository.findById.mockResolvedValue(null);
+
+    await expect(
+      service.benchmarkSounds({
+        soundIds: ["missing-sound"],
+        iterations: 1,
+        warmupIterations: 0,
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "Benchmark payload references unknown sound ids."
+    });
+  });
+
+  it("benchmark internals summarize empty durations as zero metrics", () => {
+    const summary = __soundsApplicationServiceInternals.summarizeDurations([]);
+    expect(summary).toEqual({
+      minMs: 0,
+      maxMs: 0,
+      avgMs: 0,
+      p50Ms: 0,
+      p95Ms: 0,
+      p99Ms: 0
+    });
+  });
+
+  it("benchmark internals sort durations before percentile calculations", () => {
+    const summary = __soundsApplicationServiceInternals.summarizeDurations([3, 1, 2]);
+    expect(summary.minMs).toBe(1);
+    expect(summary.maxMs).toBe(3);
+    expect(summary.avgMs).toBe(2);
+    expect(summary.p50Ms).toBe(2);
+    expect(summary.p95Ms).toBe(2);
+    expect(summary.p99Ms).toBe(2);
+  });
+
+  it("benchmark internals percentile clamps ratios outside [0,1]", () => {
+    expect(__soundsApplicationServiceInternals.percentile([], 0.5)).toBe(0);
+    expect(__soundsApplicationServiceInternals.percentile([1, 2, 3], -3)).toBe(1);
+    expect(__soundsApplicationServiceInternals.percentile([1, 2, 3], 5)).toBe(3);
+  });
+});
+
+function buildSound(soundId: string): SoundRecord {
+  return {
+    soundId,
+    resref: "amb_city_market_day",
+    name: "City Market Day Ambience",
+    category: "ambient",
+    tags: ["city", "market", "day", "crowd"],
+    benchmark: true,
+    previewWaveformUrl: `/previews/${soundId}.webp`,
+    audioAssetId: "audio/ambient/city-market-day",
+    format: "ogg",
+    sampleRateHz: 48000,
+    channels: 2,
+    spatialMode: "2d",
+    loop: true,
+    metrics: {
+      durationMs: 32210,
+      cues: 4,
+      emitters: 0
+    },
+    updatedAt: "2026-05-25T00:00:00.000Z"
+  };
+}
+
+function buildProcessedSoundResult(soundId: string): SoundProcessingResult {
+  const sound = buildSound(soundId);
+  return {
+    soundId: sound.soundId,
+    resref: sound.resref,
+    name: sound.name,
+    category: sound.category,
+    tags: sound.tags,
+    benchmark: sound.benchmark,
+    previewWaveformUrl: sound.previewWaveformUrl,
+    audio: {
+      assetId: sound.audioAssetId,
+      cacheKey: `${sound.audioAssetId}:${sound.soundId}`,
+      strategy: "blob-cache",
+      format: sound.format,
+      sampleRateHz: sound.sampleRateHz,
+      channels: sound.channels
+    },
+    spatial: {
+      mode: sound.spatialMode,
+      loop: sound.loop
+    },
+    metrics: sound.metrics,
+    render: {
+      backendType: "sound",
+      frontendType: "sound",
+      playbackPreset: "ambient-loop"
+    },
+    updatedAt: sound.updatedAt,
+    processedAt: "2026-05-25T10:59:00.000Z"
+  };
+}
+
+async function expectSoundNotFound(promise: Promise<unknown>): Promise<void> {
+  expect.assertions(4);
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toBeInstanceOf(AppException);
+    const appError = error as AppException;
+    expect(appError.code).toBe("SOUND_NOT_FOUND");
+    expect(appError.getStatus()).toBe(404);
+    expect((appError.getResponse() as { message: string }).message).toBe("Sound was not found.");
+  }
+}
