@@ -7,7 +7,7 @@ import {
   PutObjectCommand,
   S3Client
 } from "@aws-sdk/client-s3";
-import { Injectable } from "@nestjs/common";
+import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type {
   ModuleBlobSourceDeltaSummary,
@@ -61,7 +61,18 @@ interface ModuleSnapshotSourceMetrics {
 type ModuleSnapshotSourceTotals = Record<ModuleBlobSyncSource, ModuleSnapshotSourceMetrics>;
 
 @Injectable()
-export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
+export class S3ModuleBlobStorageService
+  implements ModuleBlobStoragePort, OnModuleDestroy
+{
+  private client: S3Client | null = null;
+  private clientSignature: string | null = null;
+
+  onModuleDestroy(): void {
+    this.client?.destroy();
+    this.client = null;
+    this.clientSignature = null;
+  }
+
   async replaceModuleSnapshot(
     settings: BlobStorageSettings,
     files: PackedModuleFile[],
@@ -76,154 +87,150 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       );
     }
 
-    const client = createClient(settings);
+    const client = this.resolveClient(settings);
 
-    try {
-      await ensureBucketExists(client, settings.bucket);
-      const digests = buildFileDigests(files, normalizedPrefix);
-      const manifest = buildManifest(digests);
-      manifest.sourceTotals = summarizeManifestSources(manifest.files, normalizedPrefix);
-      const manifestKey = buildManifestKey(normalizedPrefix);
-      const previousManifest = await readManifest(
-        client,
-        settings.bucket,
-        manifestKey
-      );
-      const previousModuleHash = previousManifest?.moduleHash;
-      const forceFull = options?.forceFull === true;
+    await ensureBucketExists(client, settings.bucket);
+    const digests = buildFileDigests(files, normalizedPrefix);
+    const manifest = buildManifest(digests);
+    manifest.sourceTotals = summarizeManifestSources(manifest.files, normalizedPrefix);
+    const manifestKey = buildManifestKey(normalizedPrefix);
+    const previousManifest = await readManifest(
+      client,
+      settings.bucket,
+      manifestKey
+    );
+    const previousModuleHash = previousManifest?.moduleHash;
+    const forceFull = options?.forceFull === true;
 
-      if (
-        !forceFull &&
-        previousManifest &&
-        previousManifest.moduleHash === manifest.moduleHash
-      ) {
-        const sourceDelta = buildNoopSourceDelta(previousManifest.files, normalizedPrefix);
-        return {
-          bucket: settings.bucket,
-          prefix: normalizedPrefix,
-          moduleHash: manifest.moduleHash,
-          previousModuleHash,
-          status: "noop",
-          uploadedFiles: 0,
-          uploadedBytes: 0,
-          deletedFiles: 0,
-          deletedBytes: 0,
-          unchangedFiles: manifest.fileCount,
-          totalFiles: manifest.fileCount,
-          sourceDelta
-        };
-      }
-
-      const currentKeySet = new Set(digests.map((digest) => digest.key));
-      const deletedKeys: string[] = [];
-      const deletedSizeByKey = new Map<string, number>();
-      const changedDigests: FileDigest[] = [];
-      let unchangedFiles = 0;
-      const sourceDelta = createEmptySourceDelta();
-
-      if (forceFull) {
-        changedDigests.push(...digests);
-        const previousEntries = previousManifest?.files ?? {};
-        for (const [key, entry] of Object.entries(previousEntries)) {
-          if (!currentKeySet.has(key)) {
-            deletedKeys.push(key);
-            deletedSizeByKey.set(key, entry.size);
-          }
-        }
-      } else if (previousManifest) {
-        for (const digest of digests) {
-          const previousEntry = previousManifest.files[digest.key];
-          if (
-            previousEntry &&
-            previousEntry.sha256 === digest.sha256 &&
-            previousEntry.size === digest.size
-          ) {
-            unchangedFiles += 1;
-            addUnchangedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
-            continue;
-          }
-          changedDigests.push(digest);
-        }
-
-        for (const [key, entry] of Object.entries(previousManifest.files)) {
-          if (!currentKeySet.has(key)) {
-            deletedKeys.push(key);
-            deletedSizeByKey.set(key, entry.size);
-          }
-        }
-      } else {
-        changedDigests.push(...digests);
-        const existing = await listPrefixObjects(client, settings.bucket, normalizedPrefix);
-        for (const entry of existing) {
-          if (!currentKeySet.has(entry.key)) {
-            deletedKeys.push(entry.key);
-            deletedSizeByKey.set(entry.key, entry.size);
-          }
-        }
-      }
-
-      let uploadedBytes = 0;
-      for (const digest of changedDigests) {
-        addUploadedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
-      }
-
-      for (let index = 0; index < changedDigests.length; index += DEFAULT_UPLOAD_CONCURRENCY) {
-        const batch = changedDigests.slice(index, index + DEFAULT_UPLOAD_CONCURRENCY);
-        uploadedBytes += batch.reduce((sum, item) => sum + item.size, 0);
-        await Promise.all(
-          batch.map((digest) =>
-            client.send(
-              new PutObjectCommand({
-                Bucket: settings.bucket,
-                Key: digest.key,
-                Body: digest.bytes,
-                ContentType: inferContentType(digest.key)
-              })
-            )
-          )
-        );
-      }
-
-      if (deletedKeys.length > 0) {
-        await deleteObjectKeys(client, settings.bucket, deletedKeys);
-      }
-      for (const key of deletedKeys) {
-        addDeletedMetric(sourceDelta, key, deletedSizeByKey.get(key) ?? 0, normalizedPrefix);
-      }
-
-      const deletedBytes = deletedKeys.reduce(
-        (sum, key) => sum + (deletedSizeByKey.get(key) ?? 0),
-        0
-      );
-      manifest.sourceDelta = sourceDelta;
-      const shouldPersistManifest =
-        !previousManifest || forceFull || changedDigests.length > 0 || deletedKeys.length > 0;
-
-      if (shouldPersistManifest) {
-        await writeManifest(client, settings.bucket, manifestKey, manifest);
-      }
-
-      const status: "noop" | "updated" =
-        changedDigests.length === 0 && deletedKeys.length === 0 && previousManifest
-          ? "noop"
-          : "updated";
+    if (
+      !forceFull &&
+      previousManifest &&
+      previousManifest.moduleHash === manifest.moduleHash
+    ) {
+      const sourceDelta = buildNoopSourceDelta(previousManifest.files, normalizedPrefix);
       return {
         bucket: settings.bucket,
         prefix: normalizedPrefix,
         moduleHash: manifest.moduleHash,
         previousModuleHash,
-        status,
-        uploadedFiles: changedDigests.length,
-        uploadedBytes,
-        deletedFiles: deletedKeys.length,
-        deletedBytes,
-        unchangedFiles,
+        status: "noop",
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        deletedFiles: 0,
+        deletedBytes: 0,
+        unchangedFiles: manifest.fileCount,
         totalFiles: manifest.fileCount,
         sourceDelta
       };
-    } finally {
-      client.destroy();
     }
+
+    const currentKeySet = new Set(digests.map((digest) => digest.key));
+    const deletedKeys: string[] = [];
+    const deletedSizeByKey = new Map<string, number>();
+    const changedDigests: FileDigest[] = [];
+    let unchangedFiles = 0;
+    const sourceDelta = createEmptySourceDelta();
+
+    if (forceFull) {
+      changedDigests.push(...digests);
+      const previousEntries = previousManifest?.files ?? {};
+      for (const [key, entry] of Object.entries(previousEntries)) {
+        if (!currentKeySet.has(key)) {
+          deletedKeys.push(key);
+          deletedSizeByKey.set(key, entry.size);
+        }
+      }
+    } else if (previousManifest) {
+      for (const digest of digests) {
+        const previousEntry = previousManifest.files[digest.key];
+        if (
+          previousEntry &&
+          previousEntry.sha256 === digest.sha256 &&
+          previousEntry.size === digest.size
+        ) {
+          unchangedFiles += 1;
+          addUnchangedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
+          continue;
+        }
+        changedDigests.push(digest);
+      }
+
+      for (const [key, entry] of Object.entries(previousManifest.files)) {
+        if (!currentKeySet.has(key)) {
+          deletedKeys.push(key);
+          deletedSizeByKey.set(key, entry.size);
+        }
+      }
+    } else {
+      changedDigests.push(...digests);
+      const existing = await listPrefixObjects(client, settings.bucket, normalizedPrefix);
+      for (const entry of existing) {
+        if (!currentKeySet.has(entry.key)) {
+          deletedKeys.push(entry.key);
+          deletedSizeByKey.set(entry.key, entry.size);
+        }
+      }
+    }
+
+    let uploadedBytes = 0;
+    for (const digest of changedDigests) {
+      addUploadedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
+    }
+
+    for (let index = 0; index < changedDigests.length; index += DEFAULT_UPLOAD_CONCURRENCY) {
+      const batch = changedDigests.slice(index, index + DEFAULT_UPLOAD_CONCURRENCY);
+      uploadedBytes += batch.reduce((sum, item) => sum + item.size, 0);
+      await Promise.all(
+        batch.map((digest) =>
+          client.send(
+            new PutObjectCommand({
+              Bucket: settings.bucket,
+              Key: digest.key,
+              Body: digest.bytes,
+              ContentType: inferContentType(digest.key)
+            })
+          )
+        )
+      );
+    }
+
+    if (deletedKeys.length > 0) {
+      await deleteObjectKeys(client, settings.bucket, deletedKeys);
+    }
+    for (const key of deletedKeys) {
+      addDeletedMetric(sourceDelta, key, deletedSizeByKey.get(key) ?? 0, normalizedPrefix);
+    }
+
+    const deletedBytes = deletedKeys.reduce(
+      (sum, key) => sum + (deletedSizeByKey.get(key) ?? 0),
+      0
+    );
+    manifest.sourceDelta = sourceDelta;
+    const shouldPersistManifest =
+      !previousManifest || forceFull || changedDigests.length > 0 || deletedKeys.length > 0;
+
+    if (shouldPersistManifest) {
+      await writeManifest(client, settings.bucket, manifestKey, manifest);
+    }
+
+    const status: "noop" | "updated" =
+      changedDigests.length === 0 && deletedKeys.length === 0 && previousManifest
+        ? "noop"
+        : "updated";
+    return {
+      bucket: settings.bucket,
+      prefix: normalizedPrefix,
+      moduleHash: manifest.moduleHash,
+      previousModuleHash,
+      status,
+      uploadedFiles: changedDigests.length,
+      uploadedBytes,
+      deletedFiles: deletedKeys.length,
+      deletedBytes,
+      unchangedFiles,
+      totalFiles: manifest.fileCount,
+      sourceDelta
+    };
   }
 
   async listModuleSnapshot(
@@ -240,7 +247,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       );
     }
 
-    const client = createClient(settings);
+    const client = this.resolveClient(settings);
     try {
       const limit = normalizeListLimit(options?.limit);
       const listed = await client.send(
@@ -290,8 +297,6 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
         };
       }
       throw error;
-    } finally {
-      client.destroy();
     }
   }
 
@@ -304,7 +309,7 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
       return null;
     }
 
-    const client = createClient(settings);
+    const client = this.resolveClient(settings);
     try {
       const response = await client.send(
         new GetObjectCommand({
@@ -327,9 +332,24 @@ export class S3ModuleBlobStorageService implements ModuleBlobStoragePort {
         return null;
       }
       throw error;
-    } finally {
-      client.destroy();
     }
+  }
+
+  private resolveClient(settings: BlobStorageSettings): S3Client {
+    const signature = buildSettingsSignature(settings);
+    if (!this.client) {
+      this.client = createClient(settings);
+      this.clientSignature = signature;
+      return this.client;
+    }
+
+    if (this.clientSignature !== signature) {
+      throw new Error(
+        "blobStorage settings changed during application lifetime; restart backend to apply new S3 client configuration."
+      );
+    }
+
+    return this.client;
   }
 }
 
@@ -453,6 +473,16 @@ function createClient(settings: BlobStorageSettings): S3Client {
       secretAccessKey: settings.secretAccessKey
     }
   });
+}
+
+function buildSettingsSignature(settings: BlobStorageSettings): string {
+  return [
+    settings.endpoint,
+    settings.region,
+    settings.accessKeyId,
+    settings.secretAccessKey,
+    String(settings.forcePathStyle)
+  ].join("|");
 }
 
 async function ensureBucketExists(client: S3Client, bucket: string): Promise<void> {

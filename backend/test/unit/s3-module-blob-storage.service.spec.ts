@@ -381,6 +381,19 @@ describe("S3ModuleBlobStorageService", () => {
     const object = await service.getModuleObject(settings, "modules/current/missing.file");
     expect(object).toBeNull();
   });
+
+  it("throws when blob settings signature changes during service lifetime", async () => {
+    await service.listModuleSnapshot(settings, { limit: 10 });
+
+    const changedSettings: BlobStorageSettings = {
+      ...settings,
+      endpoint: "http://localhost:9444"
+    };
+
+    await expect(service.listModuleSnapshot(changedSettings, { limit: 10 })).rejects.toThrow(
+      "blobStorage settings changed during application lifetime"
+    );
+  });
 });
 
 function file(fileName: string, content: string) {

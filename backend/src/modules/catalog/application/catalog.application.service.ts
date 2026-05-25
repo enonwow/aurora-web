@@ -33,6 +33,7 @@ import type {
   TemplateProcessQuery,
   TemplateProcessingResult,
   TemplateKind,
+  TemplateRecord,
   TemplateListQuery
 } from "../domain/template.types";
 import {
@@ -101,6 +102,22 @@ export interface PlaceableAssetDeliveryEnvelope {
   assets: PlaceableAssetDeliveryContract[];
 }
 
+const MODULE_HASH_PROBE_TTL_MS = 30_000;
+const TEMPLATE_LOOKUP_TTL_MS = 60_000;
+const PLACEABLE_MANIFEST_VALIDATION_TTL_MS = 30_000;
+const DEFAULT_TEMPLATE_LOOKUP_CACHE_MAX_ENTRIES = 2_500;
+const DEFAULT_MANIFEST_VALIDATION_CACHE_MAX_ENTRIES = 5_000;
+
+interface TemplateLookupCacheEntry {
+  template: TemplateRecord;
+  expiresAtMs: number;
+}
+
+interface PlaceableManifestValidationEntry {
+  moduleHash?: string;
+  expiresAtMs: number;
+}
+
 @Injectable()
 export class CatalogApplicationService {
   private readonly inFlightPlaceableProcessing = new Map<
@@ -120,6 +137,21 @@ export class CatalogApplicationService {
         fetchedAtMs: number;
       }
     | null = null;
+  private moduleHashProbeCache:
+    | {
+        value: string | undefined;
+        fetchedAtMs: number;
+      }
+    | null = null;
+  private moduleHashProbeInFlight: Promise<string | undefined> | null = null;
+  private readonly templateByIdCache = new Map<string, TemplateLookupCacheEntry>();
+  private readonly templateByResrefCache = new Map<string, TemplateLookupCacheEntry>();
+  private readonly placeableManifestValidationCache = new Map<
+    string,
+    PlaceableManifestValidationEntry
+  >();
+  private readonly templateLookupCacheMaxEntries: number;
+  private readonly manifestValidationCacheMaxEntries: number;
 
   constructor(
     @Inject(TEMPLATE_CATALOG_REPOSITORY)
@@ -131,7 +163,13 @@ export class CatalogApplicationService {
     private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
     private readonly moduleBlobStorage?: ModuleBlobStoragePort
-  ) {}
+  ) {
+    const configuredBase =
+      this.appConfig?.processingCacheL1CatalogMaxEntries ??
+      DEFAULT_TEMPLATE_LOOKUP_CACHE_MAX_ENTRIES;
+    this.templateLookupCacheMaxEntries = Math.max(500, configuredBase * 2);
+    this.manifestValidationCacheMaxEntries = Math.max(1000, configuredBase * 4);
+  }
 
   listPlaceables(query: TemplateListQuery) {
     return this.repository.listByKind("placeable", query);
@@ -228,6 +266,7 @@ export class CatalogApplicationService {
       };
 
       const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, processed);
+      this.rememberManifestValidation(cacheKey, processed.assetManifest.moduleHash);
       return {
         cache: {
           key: cacheKey,
@@ -485,15 +524,27 @@ export class CatalogApplicationService {
 
   private async resolvePlaceableTemplate(query: PlaceableProcessQuery) {
     if (query.templateId) {
+      const cachedById = this.getTemplateLookupById("placeable", query.templateId);
+      if (cachedById) {
+        return cachedById;
+      }
+
       const byId = await this.repository.findByKindAndId("placeable", query.templateId);
       if (byId) {
+        this.cacheTemplateLookup(byId);
         return byId;
       }
     }
 
     if (query.resref) {
+      const cachedByResref = this.getTemplateLookupByResref("placeable", query.resref);
+      if (cachedByResref) {
+        return cachedByResref;
+      }
+
       const byResref = await this.repository.findByKindAndResref("placeable", query.resref);
       if (byResref) {
+        this.cacheTemplateLookup(byResref);
         return byResref;
       }
     }
@@ -642,15 +693,27 @@ export class CatalogApplicationService {
 
   private async resolveTemplateByKind(kind: TemplateProcessingKind, query: TemplateProcessQuery) {
     if (query.templateId) {
+      const cachedById = this.getTemplateLookupById(kind, query.templateId);
+      if (cachedById) {
+        return cachedById;
+      }
+
       const byId = await this.repository.findByKindAndId(kind, query.templateId);
       if (byId) {
+        this.cacheTemplateLookup(byId);
         return byId;
       }
     }
 
     if (query.resref) {
+      const cachedByResref = this.getTemplateLookupByResref(kind, query.resref);
+      if (cachedByResref) {
+        return cachedByResref;
+      }
+
       const byResref = await this.repository.findByKindAndResref(kind, query.resref);
       if (byResref) {
+        this.cacheTemplateLookup(byResref);
         return byResref;
       }
     }
@@ -666,16 +729,42 @@ export class CatalogApplicationService {
     cacheKey: string,
     value: PlaceableProcessingResult
   ): Promise<PlaceableProcessingResult> {
-    const currentModuleHash = await this.getCurrentModuleHash();
     const hasManifest = value.assetManifest?.version === "placeable-asset-manifest/v1";
-    const manifestModuleHash = hasManifest ? value.assetManifest.moduleHash : undefined;
+    if (!hasManifest) {
+      const manifest = await this.buildPlaceableAssetManifest({
+        templateId: value.templateId,
+        resref: value.resref,
+        subtype: value.placeableSubtype,
+        metadata: value.metadata
+      });
+
+      const refreshed: PlaceableProcessingResult = {
+        ...value,
+        assetManifest: manifest
+      };
+      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      this.rememberManifestValidation(cacheKey, manifest.moduleHash);
+      return refreshed;
+    }
+
+    const manifestModuleHash = value.assetManifest.moduleHash;
+    if (this.isManifestValidationFresh(cacheKey, manifestModuleHash)) {
+      return value;
+    }
+
+    if (this.appConfig?.isTest) {
+      this.rememberManifestValidation(cacheKey, manifestModuleHash);
+      return value;
+    }
+
+    const currentModuleHash = await this.getCurrentModuleHash();
     const shouldRefreshManifest =
-      !hasManifest ||
-      (typeof currentModuleHash === "string" &&
+      typeof currentModuleHash === "string" &&
         currentModuleHash.length > 0 &&
-        manifestModuleHash !== currentModuleHash);
+        manifestModuleHash !== currentModuleHash;
 
     if (!shouldRefreshManifest) {
+      this.rememberManifestValidation(cacheKey, manifestModuleHash);
       return value;
     }
 
@@ -691,6 +780,7 @@ export class CatalogApplicationService {
       assetManifest: manifest
     };
     await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+    this.rememberManifestValidation(cacheKey, manifest.moduleHash);
     return refreshed;
   }
 
@@ -754,11 +844,168 @@ export class CatalogApplicationService {
   }
 
   private async getCurrentModuleHash(): Promise<string | undefined> {
-    try {
-      const index = await this.getModuleSnapshotIndex();
-      return index?.moduleHash;
-    } catch {
+    if (this.appConfig?.isTest) {
       return undefined;
+    }
+
+    const now = Date.now();
+    if (
+      this.moduleHashProbeCache &&
+      now - this.moduleHashProbeCache.fetchedAtMs < MODULE_HASH_PROBE_TTL_MS
+    ) {
+      return this.moduleHashProbeCache.value;
+    }
+
+    if (this.moduleHashProbeInFlight) {
+      return this.moduleHashProbeInFlight;
+    }
+
+    this.moduleHashProbeInFlight = (async () => {
+      try {
+        const index = await this.getModuleSnapshotIndex();
+        const value = index?.moduleHash;
+        this.moduleHashProbeCache = {
+          value,
+          fetchedAtMs: Date.now()
+        };
+        return value;
+      } catch {
+        this.moduleHashProbeCache = {
+          value: undefined,
+          fetchedAtMs: Date.now()
+        };
+        return undefined;
+      } finally {
+        this.moduleHashProbeInFlight = null;
+      }
+    })();
+
+    return this.moduleHashProbeInFlight;
+  }
+
+  private getTemplateLookupById(
+    kind: TemplateKind,
+    templateId: string
+  ): TemplateRecord | null {
+    return this.getTemplateLookup(this.templateByIdCache, `${kind}|${templateId}`);
+  }
+
+  private getTemplateLookupByResref(
+    kind: TemplateKind,
+    resref: string
+  ): TemplateRecord | null {
+    return this.getTemplateLookup(this.templateByResrefCache, `${kind}|${resref}`);
+  }
+
+  private getTemplateLookup(
+    store: Map<string, TemplateLookupCacheEntry>,
+    key: string
+  ): TemplateRecord | null {
+    const normalizedKey = normalizeLookupKey(key);
+    this.pruneExpiredTimedEntries(store);
+    const entry = store.get(normalizedKey);
+    if (!entry) {
+      return null;
+    }
+
+    const now = Date.now();
+    if (entry.expiresAtMs <= now) {
+      store.delete(normalizedKey);
+      return null;
+    }
+
+    store.delete(normalizedKey);
+    store.set(normalizedKey, {
+      template: entry.template,
+      expiresAtMs: now + TEMPLATE_LOOKUP_TTL_MS
+    });
+
+    return entry.template;
+  }
+
+  private cacheTemplateLookup(template: TemplateRecord): void {
+    const expiresAtMs = Date.now() + TEMPLATE_LOOKUP_TTL_MS;
+    this.upsertTimedEntry(this.templateByIdCache,
+      normalizeLookupKey(`${template.kind}|${template.templateId}`),
+      { template, expiresAtMs }
+    );
+    this.upsertTimedEntry(this.templateByResrefCache,
+      normalizeLookupKey(`${template.kind}|${template.resref}`),
+      { template, expiresAtMs }
+    );
+    this.pruneOverflow(this.templateByIdCache, this.templateLookupCacheMaxEntries);
+    this.pruneOverflow(this.templateByResrefCache, this.templateLookupCacheMaxEntries);
+  }
+
+  private isManifestValidationFresh(cacheKey: string, moduleHash?: string): boolean {
+    const normalizedCacheKey = normalizeLookupKey(cacheKey);
+    this.pruneExpiredTimedEntries(this.placeableManifestValidationCache);
+    const entry = this.placeableManifestValidationCache.get(normalizedCacheKey);
+    if (!entry) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (entry.expiresAtMs <= now) {
+      this.placeableManifestValidationCache.delete(normalizedCacheKey);
+      return false;
+    }
+
+    if ((entry.moduleHash ?? "") !== (moduleHash ?? "")) {
+      this.placeableManifestValidationCache.delete(normalizedCacheKey);
+      return false;
+    }
+
+    this.upsertTimedEntry(this.placeableManifestValidationCache, normalizedCacheKey, {
+      moduleHash: entry.moduleHash,
+      expiresAtMs: now + PLACEABLE_MANIFEST_VALIDATION_TTL_MS
+    });
+    return true;
+  }
+
+  private rememberManifestValidation(cacheKey: string, moduleHash?: string): void {
+    const normalizedCacheKey = normalizeLookupKey(cacheKey);
+    this.upsertTimedEntry(this.placeableManifestValidationCache, normalizedCacheKey, {
+      moduleHash,
+      expiresAtMs: Date.now() + PLACEABLE_MANIFEST_VALIDATION_TTL_MS
+    });
+    this.pruneOverflow(
+      this.placeableManifestValidationCache,
+      this.manifestValidationCacheMaxEntries
+    );
+  }
+
+  private upsertTimedEntry<TValue>(
+    store: Map<string, TValue>,
+    key: string,
+    value: TValue
+  ): void {
+    store.delete(key);
+    store.set(key, value);
+  }
+
+  private pruneOverflow<TValue>(store: Map<string, TValue>, maxEntries: number): void {
+    while (store.size > maxEntries) {
+      const oldestKey = store.keys().next().value;
+      if (!oldestKey) {
+        return;
+      }
+      store.delete(oldestKey);
+    }
+  }
+
+  private pruneExpiredTimedEntries<TValue extends { expiresAtMs: number }>(
+    store: Map<string, TValue>
+  ): void {
+    if (store.size === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const [key, value] of store) {
+      if (value.expiresAtMs <= now) {
+        store.delete(key);
+      }
     }
   }
 
@@ -899,4 +1146,8 @@ function buildPlaceableAssetDeliveryPath(cacheKey: string, assetId: string): str
 function buildS3ObjectUrl(bucket: string, objectKey: string): string {
   const normalizedObjectKey = objectKey.replace(/^\/+/u, "");
   return `s3://${bucket}/${normalizedObjectKey}`;
+}
+
+function normalizeLookupKey(value: string): string {
+  return value.trim().toLowerCase();
 }

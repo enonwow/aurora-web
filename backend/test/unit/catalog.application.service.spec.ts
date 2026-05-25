@@ -1,4 +1,5 @@
 import { AppException } from "../../src/common/http/app-exception";
+import type { AppConfigService } from "../../src/common/config/app-config.service";
 import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
 import type {
   PlaceableProcessingCachePort
@@ -263,6 +264,35 @@ describe("CatalogApplicationService", () => {
     expect(second.placeable.templateId).toBe("plc_vfx_001");
   });
 
+  it("reuses placeable template lookup cache by templateId across repeated processing calls", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_lookup_001"),
+      resref: "plc_lookup_001",
+      placeableSubtype: "generic"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.processPlaceable({
+      templateId: "plc_lookup_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    await service.processPlaceable({
+      templateId: "plc_lookup_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.findByKindAndId).toHaveBeenCalledTimes(1);
+  });
+
   it("cleans in-flight map after completion so subsequent same-key miss reprocesses", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("placeable", "plc_vfx_001"),
@@ -318,6 +348,34 @@ describe("CatalogApplicationService", () => {
       "ad_top_lion_1"
     );
     expect(result.placeable.templateId).toBe("plc_resref_001");
+  });
+
+  it("reuses creature template lookup cache by resref across repeated processing calls", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_lookup_001"),
+      resref: "cre_lookup_resref_001"
+    };
+    repository.findByKindAndResref.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.processCreature({
+      resref: "cre_lookup_resref_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    await service.processCreature({
+      resref: "cre_lookup_resref_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.findByKindAndResref).toHaveBeenCalledTimes(1);
   });
 
   it("returns cache hit for already processed placeable", async () => {
@@ -2277,6 +2335,114 @@ describe("CatalogApplicationService", () => {
     expect(firstIndex?.moduleHash).toBeUndefined();
     expect(secondIndex?.moduleHash).toBe("");
     expect(secondIndex?.byBasename.has("hashless_b")).toBe(true);
+  });
+
+  it("skips module hash probing in test mode when cached placeable already has manifest", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const appConfig = { isTest: true } as unknown as AppConfigService;
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      } as unknown as ReturnType<typeof buildTemplate> & { placeableSubtype: "door" }
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      appConfig,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    await serviceWithBlob.getProcessedPlaceable("f".repeat(64));
+
+    expect(moduleBlobStorage.listModuleSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("caches failed module hash probes to avoid repeated snapshot listing on consecutive reads", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockRejectedValue(new Error("blob_timeout"));
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      } as unknown as ReturnType<typeof buildTemplate> & { placeableSubtype: "door" }
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    await serviceWithBlob.getProcessedPlaceable("f".repeat(64));
+    await serviceWithBlob.getProcessedPlaceable("f".repeat(64));
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("reuses previous index object when cache key is unchanged after ttl refresh", async () => {
