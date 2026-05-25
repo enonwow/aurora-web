@@ -421,7 +421,7 @@ describe("CatalogApplicationService", () => {
       hits: 0
     }));
 
-    await service.processPlaceable({
+    const result = await service.processPlaceable({
       templateId: "plc_uncached_001",
       bypassCache: true,
       includeBenchmarkMetadata: true
@@ -429,6 +429,8 @@ describe("CatalogApplicationService", () => {
 
     expect(placeableCache.get).not.toHaveBeenCalled();
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(result.cache.hit).toBe(false);
+    expect(result.placeable.benchmarkCandidate).toBe(false);
   });
 
   it("returns explicit message when processed placeable cache key is missing", async () => {
@@ -759,6 +761,161 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("builds placeable asset manifest from paged module snapshot and preserves first module hash", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 6
+    });
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-1",
+        totalFiles: 2,
+        totalBytes: 20,
+        objects: [
+          {
+            key: "modules/current/models/plc_city_gate.mdl",
+            size: 12,
+            etag: "e1"
+          }
+        ],
+        truncated: true,
+        continuationToken: "page-2"
+      })
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-2",
+        totalFiles: 2,
+        totalBytes: 20,
+        objects: [
+          {
+            key: "modules/current/textures/plc_city_gate.dds",
+            size: 8,
+            etag: "e2"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "plc_city_gate_001"),
+      resref: "plc_city_gate",
+      placeableSubtype: "door"
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:31:00.000Z",
+      hits: 0
+    }));
+
+    const result = await serviceWithBlob.processPlaceable({
+      templateId: "plc_city_gate_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        bucket: "aurora-module-assets",
+        modulePrefix: "modules/current"
+      }),
+      {
+        limit: 1000,
+        continuationToken: undefined
+      }
+    );
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        bucket: "aurora-module-assets",
+        modulePrefix: "modules/current"
+      }),
+      {
+        limit: 1000,
+        continuationToken: "page-2"
+      }
+    );
+    expect(result.placeable.assetManifest.moduleHash).toBe("hash-1");
+    expect(result.placeable.assetManifest.candidatesScanned).toBe(2);
+    expect(result.placeable.assetManifest.assetCount).toBe(2);
+  });
+
+  it("stops snapshot pagination when continuation token is missing even if page is truncated", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-single",
+      totalFiles: 1,
+      totalBytes: 16,
+      objects: [
+        {
+          key: "modules/current/models/plc_city_gate.mdl",
+          size: 16,
+          etag: "e-single"
+        }
+      ],
+      truncated: true,
+      continuationToken: undefined
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const summary = await (
+      serviceWithBlob as unknown as {
+        listAllModuleSnapshotObjects: (
+          settings: ReturnType<typeof buildRuntimeSettingsRecord>["blobStorage"]
+        ) => Promise<{
+          moduleHash?: string;
+          totalFiles: number;
+          totalBytes: number;
+          truncated: boolean;
+        }>;
+      }
+    ).listAllModuleSnapshotObjects(buildRuntimeSettingsRecord().blobStorage);
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(1);
+    expect(summary.moduleHash).toBe("hash-single");
+    expect(summary.totalFiles).toBe(1);
+    expect(summary.totalBytes).toBe(16);
+    expect(summary.truncated).toBe(false);
+  });
+
   it("processes creature into cached contract", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("creature", "cre_guard_human_001"),
@@ -1068,6 +1225,735 @@ describe("CatalogApplicationService", () => {
       code: "VALIDATION_FAILED",
       message: "No benchmark placeables are configured."
     });
+  });
+
+  it("throws TEMPLATE_NOT_FOUND from processPlaceable when neither template id nor resref resolves", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.findByKindAndResref.mockResolvedValue(null);
+
+    await expect(
+      service.processPlaceable({
+        templateId: "missing_placeable",
+        resref: "missing_resref",
+        bypassCache: true,
+        includeBenchmarkMetadata: true
+      })
+    ).rejects.toMatchObject({
+      code: "TEMPLATE_NOT_FOUND",
+      message: "placeable template was not found."
+    });
+  });
+
+  it("throws PLACEABLE_CACHE_NOT_FOUND when getProcessedPlaceableAsset cache key is missing", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(
+      service.getProcessedPlaceableAsset("a".repeat(64), "asset-id")
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_NOT_FOUND",
+      message: "Placeable cache entry was not found."
+    });
+  });
+
+  it("returns processCreature cache hit when bypassCache=false and cache exists", async () => {
+    repository.findByKindAndId.mockResolvedValue(buildTemplate("creature", "cre_cached_001"));
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 6,
+      value: {
+        templateId: "cre_cached_001",
+        kind: "creature",
+        resref: "cre_cached_001",
+        name: "cached creature",
+        category: "npc",
+        benchmarkCandidate: false,
+        metadata: {},
+        render: {
+          backendType: "creature",
+          frontendType: "creature",
+          rendererPreset: "creature-standard"
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await service.processCreature({
+      templateId: "cre_cached_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(6);
+    expect(result.creature.templateId).toBe("cre_cached_001");
+    expect(placeableCache.set).not.toHaveBeenCalled();
+  });
+
+  it("processCreature bypassCache=true skips cache read and writes fresh payload", async () => {
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("creature", "cre_uncached_001"),
+      benchmarkCandidate: undefined
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:31:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processCreature({
+      templateId: "cre_uncached_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(placeableCache.get).not.toHaveBeenCalled();
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(result.cache.hit).toBe(false);
+    expect(result.creature.benchmarkCandidate).toBe(false);
+  });
+
+  it("resolves creature processing by resref", async () => {
+    repository.findByKindAndResref.mockResolvedValue({
+      ...buildTemplate("creature", "cre_resref_001"),
+      resref: "cre_guard_human_001"
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processCreature({
+      resref: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.findByKindAndResref).toHaveBeenCalledWith(
+      "creature",
+      "cre_guard_human_001"
+    );
+    expect(result.creature.templateId).toBe("cre_resref_001");
+  });
+
+  it("throws TEMPLATE_NOT_FOUND for processCreature when both id and resref are missing", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.findByKindAndResref.mockResolvedValue(null);
+
+    await expect(
+      service.processCreature({
+        templateId: "missing_creature",
+        resref: "missing_creature_resref",
+        bypassCache: true,
+        includeBenchmarkMetadata: true
+      })
+    ).rejects.toMatchObject({
+      code: "TEMPLATE_NOT_FOUND",
+      message: "creature template was not found."
+    });
+  });
+
+  it("throws creature cache not-found with explicit message", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedCreature("f".repeat(64))).rejects.toMatchObject({
+      code: "CREATURE_CACHE_NOT_FOUND",
+      message: "creature cache entry was not found."
+    });
+  });
+
+  it("benchmark with empty templateIds uses benchmark list query", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [
+        {
+          ...buildTemplate("placeable", "plc_bench_010"),
+          resref: "plc_bench_010",
+          placeableSubtype: "generic",
+          benchmarkCandidate: true
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+    jest.spyOn(service, "processPlaceable").mockResolvedValue({
+      cache: {
+        key: "f".repeat(64),
+        hit: false,
+        storedAt: "2026-05-24T10:15:00.000Z",
+        hits: 0
+      },
+      placeable: {
+        templateId: "plc_bench_010",
+        resref: "plc_bench_010",
+        name: "Bench",
+        category: "benchmark",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        benchmarkCandidate: true,
+        metadata: {},
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:14:00.000Z"
+      }
+    });
+
+    await service.benchmarkPlaceables({
+      templateIds: [],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(repository.listByKind).toHaveBeenCalledWith("placeable", {
+      benchmark: true,
+      limit: 200,
+      offset: 0
+    });
+  });
+
+  it("benchmark computes elapsed milliseconds from hrtime deltas", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [
+        {
+          ...buildTemplate("placeable", "plc_bench_011"),
+          resref: "plc_bench_011",
+          placeableSubtype: "generic",
+          benchmarkCandidate: true
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+    jest.spyOn(service, "processPlaceable").mockResolvedValue({
+      cache: {
+        key: "f".repeat(64),
+        hit: false,
+        storedAt: "2026-05-24T10:15:00.000Z",
+        hits: 0
+      },
+      placeable: {
+        templateId: "plc_bench_011",
+        resref: "plc_bench_011",
+        name: "Bench",
+        category: "benchmark",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        benchmarkCandidate: true,
+        metadata: {},
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:14:00.000Z"
+      }
+    });
+    const hrtimeSpy = jest
+      .spyOn(process.hrtime, "bigint")
+      .mockReturnValueOnce(1_000_000_000n)
+      .mockReturnValueOnce(1_001_000_000n)
+      .mockReturnValueOnce(2_000_000_000n)
+      .mockReturnValueOnce(2_001_000_000n);
+
+    const result = await service.benchmarkPlaceables({
+      iterations: 2,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(result.metrics.overall.minMs).toBe(1);
+    expect(result.metrics.overall.maxMs).toBe(1);
+    hrtimeSpy.mockRestore();
+  });
+
+  it("hydrates missing legacy placeable manifest from module snapshot", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 7
+    });
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-hydrate",
+      totalFiles: 1,
+      totalBytes: 12,
+      objects: [
+        {
+          key: "modules/current/models/plc_city_gate.mdl",
+          size: 12,
+          etag: "e1"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      } as unknown as ReturnType<typeof buildTemplate> & { placeableSubtype: "door" }
+    });
+
+    const result = await serviceWithBlob.getProcessedPlaceable("f".repeat(64));
+
+    expect(result.placeable.assetManifest.version).toBe("placeable-asset-manifest/v1");
+    expect(result.placeable.assetManifest.assetCount).toBe(1);
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns empty non-truncated snapshot when module blob storage is unavailable", async () => {
+    const summary = await (
+      service as unknown as {
+        listAllModuleSnapshotObjects: (
+          settings: ReturnType<typeof buildRuntimeSettingsRecord>["blobStorage"]
+        ) => Promise<{ totalFiles: number; totalBytes: number; truncated: boolean }>;
+      }
+    ).listAllModuleSnapshotObjects(buildRuntimeSettingsRecord().blobStorage);
+
+    expect(summary.totalFiles).toBe(0);
+    expect(summary.totalBytes).toBe(0);
+    expect(summary.truncated).toBe(false);
+  });
+
+  it("refreshes module snapshot index after ttl and when snapshot identity changes", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 8
+    });
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-a",
+        totalFiles: 1,
+        totalBytes: 12,
+        objects: [
+          {
+            key: "modules/current/models/plc_city_gate.mdl",
+            size: 12,
+            etag: "ea"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      })
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-b",
+        totalFiles: 2,
+        totalBytes: 20,
+        objects: [
+          {
+            key: "modules/current/models/plc_city_gate.mdl",
+            size: 12,
+            etag: "ea"
+          },
+          {
+            key: "modules/current/textures/plc_city_gate.dds",
+            size: 8,
+            etag: "eb"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ candidatesScanned: number }> }
+    ).getModuleSnapshotIndex();
+    fakeNow = 40_000;
+    const secondIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ candidatesScanned: number }> }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(2);
+    expect(firstIndex?.candidatesScanned).toBe(1);
+    expect(secondIndex?.candidatesScanned).toBe(2);
+    expect(secondIndex).not.toBe(firstIndex);
+  });
+
+  it("reuses module snapshot index within ttl and refreshes exactly at 30s boundary", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-a",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/a.mdl", size: 1, etag: "e1" }],
+        truncated: false,
+        continuationToken: undefined
+      })
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-b",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/b.mdl", size: 1, etag: "e2" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ moduleHash?: string }> }
+    ).getModuleSnapshotIndex();
+    fakeNow = 29_500;
+    const reusedIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ moduleHash?: string }> }
+    ).getModuleSnapshotIndex();
+    fakeNow = 31_000;
+    const refreshedIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ moduleHash?: string }> }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(2);
+    expect(reusedIndex).toBe(firstIndex);
+    expect(refreshedIndex).not.toBe(firstIndex);
+    expect(refreshedIndex?.moduleHash).toBe("hash-b");
+  });
+
+  it("refreshes module snapshot index when only module hash changes", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-a",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/shared.mdl", size: 1, etag: "e1" }],
+        truncated: false,
+        continuationToken: undefined
+      })
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-b",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/changed.mdl", size: 1, etag: "e2" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ moduleHash?: string }> }
+    ).getModuleSnapshotIndex();
+    fakeNow = 40_000;
+    const secondIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<{ moduleHash?: string }> }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(secondIndex).not.toBe(firstIndex);
+    expect(firstIndex?.moduleHash).toBe("hash-a");
+    expect(secondIndex?.moduleHash).toBe("hash-b");
+  });
+
+  it("refreshes module snapshot index when bucket/prefix identity changes", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get
+      .mockResolvedValueOnce({
+        ...buildRuntimeSettingsRecord(),
+        blobStorage: {
+          ...buildRuntimeSettingsRecord().blobStorage,
+          bucket: "ab",
+          modulePrefix: "c"
+        }
+      })
+      .mockResolvedValueOnce({
+        ...buildRuntimeSettingsRecord(),
+        blobStorage: {
+          ...buildRuntimeSettingsRecord().blobStorage,
+          bucket: "a",
+          modulePrefix: "bc"
+        }
+      });
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "ab",
+        prefix: "c/",
+        moduleHash: "h",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "c/first.mdl", size: 1, etag: "e1" }],
+        truncated: false,
+        continuationToken: undefined
+      })
+      .mockResolvedValueOnce({
+        bucket: "a",
+        prefix: "bc/",
+        moduleHash: "h",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "bc/second.mdl", size: 1, etag: "e2" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as {
+        getModuleSnapshotIndex: () => Promise<{ byBasename: Map<string, unknown> }>;
+      }
+    ).getModuleSnapshotIndex();
+    fakeNow = 40_000;
+    const secondIndex = await (
+      serviceWithBlob as unknown as {
+        getModuleSnapshotIndex: () => Promise<{ byBasename: Map<string, unknown> }>;
+      }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(secondIndex).not.toBe(firstIndex);
+    expect(secondIndex?.byBasename.has("second")).toBe(true);
+  });
+
+  it("treats undefined moduleHash differently than empty moduleHash when caching snapshot index", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: undefined,
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/hashless_a.mdl", size: 1, etag: "e1" }],
+        truncated: false,
+        continuationToken: undefined
+      })
+      .mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "",
+        totalFiles: 1,
+        totalBytes: 1,
+        objects: [{ key: "modules/current/models/hashless_b.mdl", size: 1, etag: "e2" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as {
+        getModuleSnapshotIndex: () => Promise<{ byBasename: Map<string, unknown>; moduleHash?: string }>;
+      }
+    ).getModuleSnapshotIndex();
+    fakeNow = 40_000;
+    const secondIndex = await (
+      serviceWithBlob as unknown as {
+        getModuleSnapshotIndex: () => Promise<{ byBasename: Map<string, unknown>; moduleHash?: string }>;
+      }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(secondIndex).not.toBe(firstIndex);
+    expect(firstIndex?.moduleHash).toBeUndefined();
+    expect(secondIndex?.moduleHash).toBe("");
+    expect(secondIndex?.byBasename.has("hashless_b")).toBe(true);
+  });
+
+  it("reuses previous index object when cache key is unchanged after ttl refresh", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "stable-hash",
+      totalFiles: 1,
+      totalBytes: 1,
+      objects: [{ key: "modules/current/models/stable.mdl", size: 1, etag: "e-stable" }],
+      truncated: false,
+      continuationToken: undefined
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    let fakeNow = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => fakeNow);
+    const firstIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<object> }
+    ).getModuleSnapshotIndex();
+    fakeNow = 40_000;
+    const secondIndex = await (
+      serviceWithBlob as unknown as { getModuleSnapshotIndex: () => Promise<object> }
+    ).getModuleSnapshotIndex();
+    dateNowSpy.mockRestore();
+
+    expect(moduleBlobStorage.listModuleSnapshot).toHaveBeenCalledTimes(2);
+    expect(secondIndex).toBe(firstIndex);
   });
 });
 

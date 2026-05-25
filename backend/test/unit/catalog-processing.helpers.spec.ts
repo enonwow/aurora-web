@@ -47,12 +47,14 @@ describe("catalog-processing.helpers", () => {
   it("extractExtension and extractBasename handle edge cases", () => {
     expect(extractExtension("a.mdl")).toBe("mdl");
     expect(extractExtension("A.TGA")).toBe("tga");
+    expect(extractExtension("  FILE.DDS  ")).toBe("dds");
     expect(extractExtension(".hidden")).toBe("");
     expect(extractExtension("noext")).toBe("");
     expect(extractExtension("noext.")).toBe("");
 
     expect(extractBasename("a.mdl")).toBe("a");
     expect(extractBasename("A.TGA")).toBe("a");
+    expect(extractBasename("  FILE.DDS  ")).toBe("file");
     expect(extractBasename(".hidden")).toBe(".hidden");
     expect(extractBasename("noext")).toBe("noext");
   });
@@ -72,6 +74,7 @@ describe("catalog-processing.helpers", () => {
 
   it("normalizePrefixForLookup trims slashes and keeps trailing slash", () => {
     expect(normalizePrefixForLookup(" modules/current ")).toBe("modules/current/");
+    expect(normalizePrefixForLookup("//modules/current")).toBe("modules/current/");
     expect(normalizePrefixForLookup("/modules/current/")).toBe("modules/current/");
     expect(normalizePrefixForLookup("assets////")).toBe("assets/");
     expect(normalizePrefixForLookup("///")).toBe("");
@@ -81,7 +84,11 @@ describe("catalog-processing.helpers", () => {
   it("normalizePlaceableSubtypeHint maps aliases and rejects invalid values", () => {
     expect(normalizePlaceableSubtypeHint("vvx")).toBe("vfx");
     expect(normalizePlaceableSubtypeHint("vvxy")).toBe("vfx");
+    expect(normalizePlaceableSubtypeHint("vfx")).toBe("vfx");
+    expect(normalizePlaceableSubtypeHint("generic")).toBe("generic");
     expect(normalizePlaceableSubtypeHint("door")).toBe("door");
+    expect(normalizePlaceableSubtypeHint("container")).toBe("container");
+    expect(normalizePlaceableSubtypeHint("light_source")).toBe("light_source");
     expect(normalizePlaceableSubtypeHint(" trigger_proxy ")).toBe("trigger_proxy");
     expect(normalizePlaceableSubtypeHint("bad")).toBeNull();
     expect(normalizePlaceableSubtypeHint(undefined)).toBeNull();
@@ -126,7 +133,9 @@ describe("catalog-processing.helpers", () => {
     });
     expect(buildRenderContract("container")).toMatchObject({
       frontendType: "placeable",
-      rendererPreset: "placeable-container"
+      rendererPreset: "placeable-container",
+      isDoor: false,
+      isVfx: false
     });
     expect(buildRenderContract("light_source")).toMatchObject({
       rendererPreset: "placeable-light",
@@ -134,10 +143,14 @@ describe("catalog-processing.helpers", () => {
       isVfx: false
     });
     expect(buildRenderContract("trigger_proxy")).toMatchObject({
-      rendererPreset: "placeable-trigger-proxy"
+      rendererPreset: "placeable-trigger-proxy",
+      isDoor: false,
+      isVfx: false
     });
     expect(buildRenderContract("generic")).toMatchObject({
-      rendererPreset: "placeable-generic"
+      rendererPreset: "placeable-generic",
+      isDoor: false,
+      isVfx: false
     });
   });
 
@@ -165,6 +178,12 @@ describe("catalog-processing.helpers", () => {
     expect(maybeStripBenchmarkMetadata(placeable, false)).toMatchObject({
       benchmarkBucket: undefined
     });
+
+    const withoutBucket = {
+      ...placeable,
+      benchmarkBucket: undefined
+    };
+    expect(maybeStripBenchmarkMetadata(withoutBucket, false)).toBe(withoutBucket);
   });
 
   it("strips template benchmark metadata only when requested", () => {
@@ -263,20 +282,33 @@ describe("catalog-processing.helpers", () => {
     );
   });
 
+  it("buildLookupSeeds adds vfx suffix only for vfx subtype", () => {
+    const genericSeeds = buildLookupSeeds({
+      templateId: "plc_generic_001",
+      resref: "plc_generic",
+      subtype: "generic",
+      metadata: {}
+    });
+
+    expect(genericSeeds).not.toContain("plc_generic_vfx");
+  });
+
   it("buildModuleSnapshotIndex groups by basename/prefix and counts scanned files", () => {
     const snapshot = buildSnapshot([
       { key: "modules/current/models/plc_gate.mdl", size: 10, etag: "e1" },
       { key: "modules/current/textures/plc_gate.dds", size: 20, etag: "e2" },
       { key: "modules/current/fx/plc_gate_vfx.vis", size: 30, etag: "e3" },
+      { key: "modules/current/misc/plc_gate.custom", size: 5, etag: "e5" },
       { key: "modules/current/fx/", size: 40, etag: "e4" }
     ]);
 
     const index = buildModuleSnapshotIndex(snapshot);
     expect(index.moduleHash).toBe("hash-v1");
-    expect(index.candidatesScanned).toBe(4);
-    expect(index.byBasename.get("plc_gate")?.length).toBe(2);
-    expect(index.byPrefix.get("plc_")?.length).toBe(3);
+    expect(index.candidatesScanned).toBe(5);
+    expect(index.byBasename.get("plc_gate")?.length).toBe(3);
+    expect(index.byPrefix.get("plc_")?.length).toBe(4);
     expect(index.byBasename.has("")).toBe(false);
+    expect(index.byBasename.get("plc_gate")?.some((asset) => asset.role === "unknown")).toBe(true);
   });
 
   it("collectPlaceableAssetsFromSnapshot deduplicates and sorts by role then name", () => {
@@ -313,6 +345,48 @@ describe("catalog-processing.helpers", () => {
       .map((entry) => entry.fileName);
     expect(textureNames).toHaveLength(3);
     expect(textureNames).toEqual([...textureNames].sort((left, right) => left.localeCompare(right)));
+  });
+
+  it("collectPlaceableAssetsFromSnapshot breaks ties with objectKey for identical file names", () => {
+    const snapshot = buildSnapshot([
+      { key: "modules/current/z/plc_gate.dds", size: 1, etag: "a" },
+      { key: "modules/current/a/plc_gate.dds", size: 1, etag: "b" }
+    ]);
+    const index = buildModuleSnapshotIndex(snapshot);
+
+    const result = collectPlaceableAssetsFromSnapshot(index, {
+      templateId: "plc_gate",
+      resref: "plc_gate",
+      subtype: "generic",
+      metadata: {}
+    });
+
+    const tie = result.filter((entry) => entry.fileName === "plc_gate.dds");
+    expect(tie).toHaveLength(2);
+    expect(tie.map((entry) => entry.objectKey)).toEqual([
+      "modules/current/a/plc_gate.dds",
+      "modules/current/z/plc_gate.dds"
+    ]);
+  });
+
+  it("collectPlaceableAssetsFromSnapshot sorts by file name before object key for same role", () => {
+    const snapshot = buildSnapshot([
+      { key: "modules/current/z/plc_gate_a.dds", size: 1, etag: "a" },
+      { key: "modules/current/0/plc_gate_b.dds", size: 1, etag: "b" }
+    ]);
+    const index = buildModuleSnapshotIndex(snapshot);
+
+    const result = collectPlaceableAssetsFromSnapshot(index, {
+      templateId: "plc_gate",
+      resref: "plc_gate",
+      subtype: "generic",
+      metadata: {}
+    });
+
+    expect(result.filter((entry) => entry.role === "texture").map((entry) => entry.fileName)).toEqual([
+      "plc_gate_a.dds",
+      "plc_gate_b.dds"
+    ]);
   });
 
   it("collectPlaceableAssetsFromSnapshot enforces 200 items cap", () => {

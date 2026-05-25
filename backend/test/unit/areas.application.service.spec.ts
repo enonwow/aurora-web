@@ -224,6 +224,28 @@ describe("AreasApplicationService", () => {
     expect(second.area.areaId).toBe("area_test_001");
   });
 
+  it("cleans in-flight area map after completion so subsequent same-key miss reprocesses", async () => {
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+    await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+
+    expect(processingCache.set).toHaveBeenCalledTimes(2);
+  });
+
   it("returns processed area cache hit", async () => {
     const value: AreaProcessingResult = {
       areaId: "area_test_001",

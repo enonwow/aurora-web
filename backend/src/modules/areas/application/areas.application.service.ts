@@ -212,9 +212,7 @@ export class AreasApplicationService {
     }
 
     const pending = operation().finally(() => {
-      if (inFlight.get(key) === pending) {
-        inFlight.delete(key);
-      }
+      inFlight.delete(key);
     });
     inFlight.set(key, pending);
     return pending;

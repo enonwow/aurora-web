@@ -100,11 +100,6 @@ export function collectPlaceableAssetsFromSnapshot(
   const uniqueByObjectKey = new Map<string, PlaceableAssetEntry>();
 
   for (const seed of seeds) {
-    const exact = index.byBasename.get(seed) ?? [];
-    for (const asset of exact) {
-      uniqueByObjectKey.set(asset.objectKey, asset);
-    }
-
     const prefixBucket = index.byPrefix.get(seed.slice(0, 4)) ?? [];
     for (const asset of prefixBucket) {
       const assetBasename = extractBasename(asset.fileName);
@@ -184,7 +179,7 @@ export function extractFileName(key: string): string {
 export function extractExtension(fileName: string): string {
   const normalized = fileName.trim().toLowerCase();
   const index = normalized.lastIndexOf(".");
-  if (index <= 0 || index === normalized.length - 1) {
+  if (index <= 0) {
     return "";
   }
   return normalized.slice(index + 1);
@@ -200,25 +195,13 @@ export function extractBasename(fileName: string): string {
 }
 
 export function inferContentTypeForExtension(extension: string): string {
-  switch (extension) {
-    case "dds":
-      return "image/vnd-ms.dds";
-    case "tga":
-      return "image/x-tga";
-    case "mdl":
-    case "mdb":
-    case "plt":
-    case "dwk":
-    case "pwk":
-    case "wok":
-    case "mtr":
-    case "txi":
-    case "vis":
-    case "pfx":
-      return "application/octet-stream";
-    default:
-      return "application/octet-stream";
+  if (extension === "dds") {
+    return "image/vnd-ms.dds";
   }
+  if (extension === "tga") {
+    return "image/x-tga";
+  }
+  return "application/octet-stream";
 }
 
 export function compareAssetRole(left: PlaceableAssetRole, right: PlaceableAssetRole): number {
