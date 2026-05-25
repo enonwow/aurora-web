@@ -69,6 +69,7 @@ describe("TilesApplicationService", () => {
 
     expect(detail.tileId).toBe("tile_city_street_001");
     expect(detail.textureAtlas.atlasId).toBe("atlas_tile_city_v1");
+    expect(detail.textureAtlas.cacheKey).toBe("atlas_tile_city_v1:tile_city_street_001");
     expect(detail.textureAtlas.strategy).toBe("blob-cache");
     expect(detail.metrics.triangles).toBeGreaterThan(0);
   });
@@ -112,6 +113,7 @@ describe("TilesApplicationService", () => {
 
     expect(result.cache.hit).toBe(false);
     expect(result.tile.tileId).toBe("tile_city_street_001");
+    expect(result.tile.textureAtlas.cacheKey).toBe("atlas_tile_city_v1:tile_city_street_001");
     expect(result.tile.render.backendType).toBe("tile");
     expect(result.tile.processedAt).toEqual(expect.any(String));
     expect(processingCache.set).toHaveBeenCalledTimes(1);
@@ -341,6 +343,287 @@ describe("TilesApplicationService", () => {
     expect(result.datasetFingerprint).toHaveLength(64);
     expect(result.metrics.perCandidate).toHaveLength(1);
     expect(result.config.candidates).toBe(1);
+  });
+
+  it("benchmark uses provided tile ids without listing benchmark defaults", async () => {
+    repository.findById.mockResolvedValue(buildTile("tile_city_street_001"));
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.benchmarkTiles({
+      tileIds: ["tile_city_street_001"],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(repository.list).not.toHaveBeenCalled();
+    expect(repository.findById).toHaveBeenCalledWith("tile_city_street_001");
+  });
+
+  it("benchmark with empty tileIds uses benchmark list query", async () => {
+    const tile = buildTile("tile_city_street_001");
+    repository.list.mockResolvedValue({
+      items: [
+        {
+          tileId: tile.tileId,
+          resref: tile.resref,
+          name: tile.name,
+          tileset: tile.tileset,
+          variant: tile.variant,
+          tags: tile.tags,
+          benchmark: true,
+          previewImageUrl: tile.previewImageUrl,
+          walkmesh: tile.walkmesh,
+          metrics: tile.metrics,
+          updatedAt: tile.updatedAt
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+    repository.findById.mockResolvedValue(tile);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.benchmarkTiles({
+      tileIds: [],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(repository.list).toHaveBeenCalledWith({
+      benchmark: true,
+      limit: 200,
+      offset: 0
+    });
+  });
+
+  it("benchmark fails when no benchmark tiles are configured", async () => {
+    repository.list.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 200,
+      offset: 0
+    });
+
+    await expect(
+      service.benchmarkTiles({
+        iterations: 1,
+        warmupIterations: 0,
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "No benchmark tiles are configured."
+    });
+  });
+
+  it("benchmark calls processTile exact warmup and iteration counts with expected flags", async () => {
+    repository.findById.mockResolvedValue(buildTile("tile_city_street_001"));
+    const processSpy = jest
+      .spyOn(service, "processTile")
+      .mockResolvedValue({
+        cache: {
+          key: "k".repeat(64),
+          hit: false,
+          storedAt: "2026-05-25T11:00:00.000Z",
+          hits: 0
+        },
+        tile: {
+          tileId: "tile_city_street_001",
+          resref: "tcn01_city_street",
+          name: "Tile",
+          tileset: "city",
+          variant: "street",
+          tags: ["urban"],
+          benchmark: true,
+          previewImageUrl: "/preview.webp",
+          textureAtlas: {
+            atlasId: "atlas_tile_city_v1",
+            cacheKey: "atlas_tile_city_v1:tile_city_street_001",
+            strategy: "blob-cache"
+          },
+          walkmesh: "walkable",
+          metrics: {
+            triangles: 10,
+            meshes: 2,
+            emitters: 0
+          },
+          render: {
+            backendType: "tile",
+            frontendType: "tile",
+            rendererPreset: "tile-standard"
+          },
+          updatedAt: "2026-05-25T00:00:00.000Z",
+          processedAt: "2026-05-25T10:59:00.000Z"
+        }
+      });
+
+    await service.benchmarkTiles({
+      tileIds: ["tile_city_street_001"],
+      iterations: 4,
+      warmupIterations: 2,
+      bypassCache: false
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(6);
+    expect(processSpy.mock.calls[0][0]).toEqual({
+      tileId: "tile_city_street_001",
+      bypassCache: true
+    });
+    expect(processSpy.mock.calls[1][0]).toEqual({
+      tileId: "tile_city_street_001",
+      bypassCache: true
+    });
+    expect(processSpy.mock.calls[2][0]).toEqual({
+      tileId: "tile_city_street_001",
+      bypassCache: false
+    });
+    expect(processSpy.mock.calls[5][0]).toEqual({
+      tileId: "tile_city_street_001",
+      bypassCache: false
+    });
+  });
+
+  it("benchmark computes elapsed milliseconds from hrtime deltas", async () => {
+    repository.findById.mockResolvedValue(buildTile("tile_city_street_001"));
+    const processSpy = jest
+      .spyOn(service, "processTile")
+      .mockResolvedValue({
+        cache: {
+          key: "k".repeat(64),
+          hit: false,
+          storedAt: "2026-05-25T11:00:00.000Z",
+          hits: 0
+        },
+        tile: {
+          tileId: "tile_city_street_001",
+          resref: "tcn01_city_street",
+          name: "Tile",
+          tileset: "city",
+          variant: "street",
+          tags: ["urban"],
+          benchmark: true,
+          previewImageUrl: "/preview.webp",
+          textureAtlas: {
+            atlasId: "atlas_tile_city_v1",
+            cacheKey: "atlas_tile_city_v1:tile_city_street_001",
+            strategy: "blob-cache"
+          },
+          walkmesh: "walkable",
+          metrics: {
+            triangles: 10,
+            meshes: 2,
+            emitters: 0
+          },
+          render: {
+            backendType: "tile",
+            frontendType: "tile",
+            rendererPreset: "tile-standard"
+          },
+          updatedAt: "2026-05-25T00:00:00.000Z",
+          processedAt: "2026-05-25T10:59:00.000Z"
+        }
+      });
+    const hrtimeSpy = jest
+      .spyOn(process.hrtime, "bigint")
+      .mockReturnValueOnce(1_000_000n)
+      .mockReturnValueOnce(2_000_000n)
+      .mockReturnValueOnce(10_000_000n)
+      .mockReturnValueOnce(13_000_000n);
+
+    const result = await service.benchmarkTiles({
+      tileIds: ["tile_city_street_001"],
+      iterations: 2,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(2);
+    expect(result.metrics.overall.minMs).toBe(1);
+    expect(result.metrics.overall.maxMs).toBe(3);
+    expect(result.metrics.overall.avgMs).toBe(2);
+    expect(result.metrics.perCandidate[0].metrics.p50Ms).toBe(1);
+    expect(result.metrics.perCandidate[0].metrics.p95Ms).toBe(1);
+    expect(result.metrics.perCandidate[0].metrics.p99Ms).toBe(1);
+    hrtimeSpy.mockRestore();
+  });
+
+  it("benchmark fingerprint changes when tile candidate set changes", async () => {
+    const tileA = buildTile("tile_city_street_001");
+    const tileB = buildTile("tile_city_gate_002");
+    repository.findById.mockImplementation(async (id) => {
+      if (id === tileA.tileId) {
+        return tileA;
+      }
+      if (id === tileB.tileId) {
+        return tileB;
+      }
+      return null;
+    });
+    const processSpy = jest
+      .spyOn(service, "processTile")
+      .mockResolvedValue({
+        cache: {
+          key: "k".repeat(64),
+          hit: false,
+          storedAt: "2026-05-25T11:00:00.000Z",
+          hits: 0
+        },
+        tile: {
+          tileId: tileA.tileId,
+          resref: tileA.resref,
+          name: tileA.name,
+          tileset: tileA.tileset,
+          variant: tileA.variant,
+          tags: tileA.tags,
+          benchmark: tileA.benchmark,
+          previewImageUrl: tileA.previewImageUrl,
+          textureAtlas: {
+            atlasId: tileA.textureAtlasId,
+            cacheKey: `${tileA.textureAtlasId}:${tileA.tileId}`,
+            strategy: "blob-cache"
+          },
+          walkmesh: tileA.walkmesh,
+          metrics: tileA.metrics,
+          render: {
+            backendType: "tile",
+            frontendType: "tile",
+            rendererPreset: "tile-standard"
+          },
+          updatedAt: tileA.updatedAt,
+          processedAt: "2026-05-25T10:59:00.000Z"
+        }
+      });
+
+    const first = await service.benchmarkTiles({
+      tileIds: [tileA.tileId],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+    const second = await service.benchmarkTiles({
+      tileIds: [tileB.tileId],
+      iterations: 1,
+      warmupIterations: 0,
+      bypassCache: true
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(2);
+    expect(first.datasetFingerprint).not.toBe(second.datasetFingerprint);
   });
 
   it("benchmark validation fails for unknown tile ids", async () => {
