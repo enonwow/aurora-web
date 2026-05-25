@@ -1,5 +1,8 @@
 import { AppException } from "../../src/common/http/app-exception";
-import { TilesApplicationService } from "../../src/modules/tiles/application/tiles.application.service";
+import {
+  TilesApplicationService,
+  __tilesApplicationServiceInternals
+} from "../../src/modules/tiles/application/tiles.application.service";
 import type { TileProcessingCachePort } from "../../src/modules/tiles/application/ports/tile-processing-cache.port";
 import type { TileRepositoryPort } from "../../src/modules/tiles/application/ports/tile-repository.port";
 import type { TileListResult, TileProcessingResult, TileRecord } from "../../src/modules/tiles/domain/tile.types";
@@ -624,6 +627,34 @@ describe("TilesApplicationService", () => {
 
     expect(processSpy).toHaveBeenCalledTimes(2);
     expect(first.datasetFingerprint).not.toBe(second.datasetFingerprint);
+  });
+
+  it("benchmark internals summarize empty durations as zero metrics", () => {
+    const summary = __tilesApplicationServiceInternals.summarizeDurations([]);
+    expect(summary).toEqual({
+      minMs: 0,
+      maxMs: 0,
+      avgMs: 0,
+      p50Ms: 0,
+      p95Ms: 0,
+      p99Ms: 0
+    });
+  });
+
+  it("benchmark internals sort durations before percentile calculations", () => {
+    const summary = __tilesApplicationServiceInternals.summarizeDurations([3, 1, 2]);
+    expect(summary.minMs).toBe(1);
+    expect(summary.maxMs).toBe(3);
+    expect(summary.avgMs).toBe(2);
+    expect(summary.p50Ms).toBe(2);
+    expect(summary.p95Ms).toBe(2);
+    expect(summary.p99Ms).toBe(2);
+  });
+
+  it("benchmark internals percentile clamps ratios outside [0,1]", () => {
+    expect(__tilesApplicationServiceInternals.percentile([], 0.5)).toBe(0);
+    expect(__tilesApplicationServiceInternals.percentile([1, 2, 3], -3)).toBe(1);
+    expect(__tilesApplicationServiceInternals.percentile([1, 2, 3], 5)).toBe(3);
   });
 
   it("benchmark validation fails for unknown tile ids", async () => {

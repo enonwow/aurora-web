@@ -357,3 +357,9 @@ function percentile(sorted: number[], ratio: number): number {
   const index = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * ratio)));
   return sorted[index];
 }
+
+export const __tilesApplicationServiceInternals = {
+  buildBenchmarkFingerprint,
+  summarizeDurations,
+  percentile
+} as const;
