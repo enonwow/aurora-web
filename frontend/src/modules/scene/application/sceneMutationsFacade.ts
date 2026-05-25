@@ -81,6 +81,7 @@ const VISUAL_TRANSFORM_OBJECT_KINDS = new Set<SceneObjectKind>([
 
 const SCENE_COORDINATE_MIN = 0;
 const SCENE_COORDINATE_EPSILON = 1e-4;
+const SCENE_OBJECT_MIN_Z = 0;
 const SCENE_OBJECT_MIN_OFFSET_Z = 0;
 const SCENE_VISUAL_SCALE_MIN = 0.01;
 
@@ -89,6 +90,10 @@ function clampNumber(value: number, min: number, max: number): number {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function resolveFiniteNumber(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function resolveSceneCoordinateMax(size: number): number {
@@ -119,15 +124,23 @@ function clampDeltaToBounds(delta: number, minDelta: number, maxDelta: number): 
 function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneObject {
   const maxX = resolveSceneCoordinateMax(scene.width);
   const maxY = resolveSceneCoordinateMax(scene.height);
-  const nextX = clampNumber(object.x, SCENE_COORDINATE_MIN, maxX);
-  const nextY = clampNumber(object.y, SCENE_COORDINATE_MIN, maxY);
+  const nextX = clampNumber(resolveFiniteNumber(object.x, 0), SCENE_COORDINATE_MIN, maxX);
+  const nextY = clampNumber(resolveFiniteNumber(object.y, 0), SCENE_COORDINATE_MIN, maxY);
+  const nextZ = Math.max(
+    SCENE_OBJECT_MIN_Z,
+    resolveFiniteNumber(object.z, resolveFiniteNumber(object.visualTransform.offsetZ, 0))
+  );
   const nextBearing = normalizeBearingRadians(object.bearing);
-  const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, object.visualTransform.offsetZ);
+  const nextOffsetZ = Math.max(
+    SCENE_OBJECT_MIN_OFFSET_Z,
+    resolveFiniteNumber(object.visualTransform.offsetZ, 0)
+  );
   const nextScale = Math.max(SCENE_VISUAL_SCALE_MIN, object.visualTransform.scale);
 
   if (
     nextX === object.x &&
     nextY === object.y &&
+    nextZ === object.z &&
     nextBearing === object.bearing &&
     nextOffsetZ === object.visualTransform.offsetZ &&
     nextScale === object.visualTransform.scale
@@ -139,6 +152,7 @@ function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneO
     ...object,
     x: nextX,
     y: nextY,
+    z: nextZ,
     bearing: nextBearing,
     visualTransform: {
       ...object.visualTransform,
@@ -416,11 +430,12 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       const maxY = resolveSceneCoordinateMax(scene.height);
       const requestedX = clampNumber(input.x, SCENE_COORDINATE_MIN, maxX);
       const requestedY = clampNumber(input.y, SCENE_COORDINATE_MIN, maxY);
-      const requestedOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.z);
+      const requestedZ = Math.max(SCENE_OBJECT_MIN_Z, input.z);
       const requestedBearing = normalizeBearingRadians(input.bearing);
       const requestedDeltaX = requestedX - primaryTarget.x;
       const requestedDeltaY = requestedY - primaryTarget.y;
-      const requestedDeltaZ = requestedOffsetZ - primaryTarget.visualTransform.offsetZ;
+      const requestedDeltaZ =
+        requestedZ - resolveFiniteNumber(primaryTarget.z, primaryTarget.visualTransform.offsetZ);
       const requestedDeltaBearing = requestedBearing - primaryTarget.bearing;
 
       const translationBounds = resolveTranslationBounds(scene, targets);
@@ -435,7 +450,11 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         translationBounds.maxDeltaY
       );
       const minDeltaZ = targets.reduce(
-        (bound, object) => Math.max(bound, SCENE_OBJECT_MIN_OFFSET_Z - object.visualTransform.offsetZ),
+        (bound, object) =>
+          Math.max(
+            bound,
+            SCENE_OBJECT_MIN_Z - resolveFiniteNumber(object.z, object.visualTransform.offsetZ)
+          ),
         Number.NEGATIVE_INFINITY
       );
       const clampedDeltaZ =
@@ -460,15 +479,13 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         }
         const nextX = clampNumber(object.x + clampedDeltaX, SCENE_COORDINATE_MIN, maxX);
         const nextY = clampNumber(object.y + clampedDeltaY, SCENE_COORDINATE_MIN, maxY);
-        const nextOffsetZ = Math.max(
-          SCENE_OBJECT_MIN_OFFSET_Z,
-          object.visualTransform.offsetZ + clampedDeltaZ
-        );
+        const currentZ = resolveFiniteNumber(object.z, object.visualTransform.offsetZ);
+        const nextZ = Math.max(SCENE_OBJECT_MIN_Z, currentZ + clampedDeltaZ);
         const nextBearing = normalizeBearingRadians(object.bearing + requestedDeltaBearing);
         if (
           object.x === nextX &&
           object.y === nextY &&
-          object.visualTransform.offsetZ === nextOffsetZ &&
+          currentZ === nextZ &&
           object.bearing === nextBearing
         ) {
           return object;
@@ -478,11 +495,8 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           ...object,
           x: nextX,
           y: nextY,
+          z: nextZ,
           bearing: nextBearing,
-          visualTransform: {
-            ...object.visualTransform,
-            offsetZ: nextOffsetZ
-          }
         };
       });
 
@@ -570,6 +584,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         if (
           object.x === snapshot.x &&
           object.y === snapshot.y &&
+          object.z === snapshot.z &&
           object.bearing === snapshot.bearing &&
           object.visualTransform.scale === snapshot.visualTransform.scale &&
           object.visualTransform.offsetX === snapshot.visualTransform.offsetX &&
@@ -586,6 +601,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           ...object,
           x: snapshot.x,
           y: snapshot.y,
+          z: snapshot.z,
           bearing: snapshot.bearing,
           visualTransform: { ...snapshot.visualTransform }
         });
@@ -656,7 +672,11 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       }
 
       const minDeltaZ = targets.reduce(
-        (bound, object) => Math.max(bound, SCENE_OBJECT_MIN_OFFSET_Z - object.visualTransform.offsetZ),
+        (bound, object) =>
+          Math.max(
+            bound,
+            SCENE_OBJECT_MIN_Z - resolveFiniteNumber(object.z, object.visualTransform.offsetZ)
+          ),
         Number.NEGATIVE_INFINITY
       );
       const clampedDeltaZ =
@@ -673,20 +693,15 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         if (!idSet.has(object.id)) {
           return object;
         }
-        const nextOffsetZ = Math.max(
-          SCENE_OBJECT_MIN_OFFSET_Z,
-          object.visualTransform.offsetZ + clampedDeltaZ
-        );
-        if (nextOffsetZ === object.visualTransform.offsetZ) {
+        const currentZ = resolveFiniteNumber(object.z, object.visualTransform.offsetZ);
+        const nextZ = Math.max(SCENE_OBJECT_MIN_Z, currentZ + clampedDeltaZ);
+        if (nextZ === currentZ) {
           return object;
         }
         changed = true;
         return {
           ...object,
-          visualTransform: {
-            ...object.visualTransform,
-            offsetZ: nextOffsetZ
-          }
+          z: nextZ
         };
       });
       if (!changed) {

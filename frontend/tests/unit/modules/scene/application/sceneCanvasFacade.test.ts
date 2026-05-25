@@ -4,6 +4,19 @@ import type { AreaScene } from "../../../../../src/modules/scene/contracts";
 import type { SceneDraftPort } from "../../../../../src/modules/scene/ports/sceneDraftPort";
 import { createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
 
+type SceneObjectLikeWithoutZ = {
+  z?: number;
+  visualTransform: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    offsetZ: number;
+    pitch: number;
+    roll: number;
+    yaw: number;
+  };
+};
+
 describe("sceneCanvasFacade", () => {
   it("creates 2x2 seed history when draft is missing", () => {
     const draftPort: SceneDraftPort = {
@@ -232,6 +245,39 @@ describe("sceneCanvasFacade", () => {
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
     });
+  });
+
+  it("migrates legacy drafts that only store offsetZ into split z + VT offsetZ", () => {
+    const seed = createSeedAreaScene();
+    const legacyLikeDraft = {
+      ...seed,
+      source: "local_draft",
+      objects: seed.objects.map((object) => {
+        if (object.id !== "plc_barrel_01") {
+          return object;
+        }
+        const clone = {
+          ...object,
+          visualTransform: {
+            ...object.visualTransform,
+            offsetZ: 1.75
+          }
+        } as SceneObjectLikeWithoutZ;
+        delete clone.z;
+        return clone;
+      })
+    } as unknown as AreaScene;
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => legacyLikeDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const migrated = history.present.objects.find((object) => object.id === "plc_barrel_01");
+    expect(migrated).toBeDefined();
+    expect(migrated?.z).toBeCloseTo(1.75, 6);
+    expect(migrated?.visualTransform.offsetZ).toBeCloseTo(0, 6);
   });
 
   it("does not migrate non-seed legacy-sized draft when scene id differs", () => {

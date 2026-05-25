@@ -174,7 +174,7 @@ describe("WorkspaceTopbar facades injection", () => {
     expect(onAction.mock.calls.filter(([action]) => action === "redo")).toHaveLength(2);
   });
 
-  it("switches gizmo mode with 1/2 and keeps 3 + W/E/R inactive", () => {
+  it("switches gizmo mode with 1/2/3/4/5 and keeps W/E/R inactive", () => {
     const groups: ToolbarGroup[] = [
       {
         key: "canvas",
@@ -182,7 +182,9 @@ describe("WorkspaceTopbar facades injection", () => {
         actions: [
           { key: "canvas_gizmo_translate", label: "Move", status: "mvp", supported: true },
           { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true },
-          { key: "canvas_gizmo_scale", label: "Scale", status: "post_mvp", supported: false }
+          { key: "canvas_gizmo_vt_rotate", label: "VT Rotate", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_translate", label: "VT Offset", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_scale", label: "VT Scale", status: "mvp", supported: true }
         ]
       }
     ];
@@ -211,17 +213,21 @@ describe("WorkspaceTopbar facades injection", () => {
     fireEvent.keyDown(window, { key: "1" });
     fireEvent.keyDown(window, { key: "2" });
     fireEvent.keyDown(window, { key: "3" });
+    fireEvent.keyDown(window, { key: "4" });
+    fireEvent.keyDown(window, { key: "5" });
     fireEvent.keyDown(window, { key: "w" });
     fireEvent.keyDown(window, { key: "e" });
     fireEvent.keyDown(window, { key: "r" });
 
     expect(onAction).toHaveBeenCalledWith("canvas_gizmo_translate");
     expect(onAction).toHaveBeenCalledWith("canvas_gizmo_rotate");
-    expect(onAction).not.toHaveBeenCalledWith("canvas_gizmo_scale");
-    expect(onAction.mock.calls).toHaveLength(2);
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_vt_rotate");
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_vt_translate");
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_vt_scale");
+    expect(onAction.mock.calls).toHaveLength(5);
   });
 
-  it("does not suggest scale shortcut in help when scale gizmo is reserved", () => {
+  it("filters VT shortcuts in help by supported actions", () => {
     const groups: ToolbarGroup[] = [
       {
         key: "canvas",
@@ -229,7 +235,9 @@ describe("WorkspaceTopbar facades injection", () => {
         actions: [
           { key: "canvas_gizmo_translate", label: "Move", status: "mvp", supported: true },
           { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true },
-          { key: "canvas_gizmo_scale", label: "Scale", status: "post_mvp", supported: false }
+          { key: "canvas_gizmo_vt_rotate", label: "VT Rotate", status: "mvp", supported: false },
+          { key: "canvas_gizmo_vt_translate", label: "VT Offset", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_scale", label: "VT Scale", status: "mvp", supported: false }
         ]
       }
     ];
@@ -255,13 +263,12 @@ describe("WorkspaceTopbar facades injection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
 
-    expect(
-      screen.queryByText("Reserved for Visual Transform scale mode (not active yet).")
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/^3$/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Switch gizmo to VT Rotate mode (XYZ).")).not.toBeInTheDocument();
+    expect(screen.getByText("Switch gizmo to VT Offset mode (XYZ).")).toBeInTheDocument();
+    expect(screen.queryByText("Switch gizmo to VT Scale mode.")).not.toBeInTheDocument();
   });
 
-  it("marks scale button as reserved with post-mvp tooltip in canvas drawer", () => {
+  it("renders VT gizmo buttons with MVP titles in canvas drawer", () => {
     const groups: ToolbarGroup[] = [
       {
         key: "canvas",
@@ -269,21 +276,39 @@ describe("WorkspaceTopbar facades injection", () => {
         actions: [
           {
             key: "canvas_gizmo_translate",
-            label: "Gizmo Move (1)",
+            label: "World Move (1)",
             status: "mvp",
             supported: true
           },
           {
             key: "canvas_gizmo_rotate",
-            label: "Gizmo Rotate (2)",
+            label: "World Bearing (2)",
             status: "mvp",
             supported: true
           },
           {
-            key: "canvas_gizmo_scale",
-            label: "Gizmo Scale (Reserved)",
-            status: "post_mvp",
-            supported: false
+            key: "canvas_gizmo_vt_rotate",
+            label: "VT Rotate (3)",
+            status: "mvp",
+            supported: true
+          },
+          {
+            key: "canvas_gizmo_vt_translate",
+            label: "VT Offset (4)",
+            status: "mvp",
+            supported: true
+          },
+          {
+            key: "canvas_gizmo_vt_scale",
+            label: "VT Scale (5)",
+            status: "mvp",
+            supported: true
+          },
+          {
+            key: "debug_show_vt_physical_anchor",
+            label: "Show VT Physical Anchor",
+            status: "mvp",
+            supported: true
           }
         ]
       }
@@ -310,9 +335,12 @@ describe("WorkspaceTopbar facades injection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
 
-    const scaleButton = screen.getByRole("button", { name: /scale \(reserved\)/i });
-    expect(scaleButton).toBeDisabled();
-    expect(scaleButton).toHaveAttribute("title", "Gizmo Scale (Reserved) (Post-MVP, Reserved)");
+    const vtScaleButton = screen.getByRole("button", { name: /vt scale \(5\)/i });
+    const vtPhysicalButton = screen.getByRole("button", { name: /vt physical/i });
+    expect(vtScaleButton).toBeEnabled();
+    expect(vtPhysicalButton).toBeEnabled();
+    expect(vtScaleButton).toHaveAttribute("title", "VT Scale (5) (MVP)");
+    expect(vtPhysicalButton).toHaveAttribute("title", "Show VT Physical Anchor (MVP)");
   });
 
   it("filters gizmo keyboard shortcuts by supported actions", () => {
@@ -322,7 +350,10 @@ describe("WorkspaceTopbar facades injection", () => {
         label: "Canvas",
         actions: [
           { key: "canvas_gizmo_translate", label: "Move", status: "post_mvp", supported: false },
-          { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true }
+          { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_rotate", label: "VT Rotate", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_translate", label: "VT Offset", status: "mvp", supported: false },
+          { key: "canvas_gizmo_vt_scale", label: "VT Scale", status: "mvp", supported: true }
         ]
       }
     ];
@@ -349,14 +380,20 @@ describe("WorkspaceTopbar facades injection", () => {
 
     fireEvent.keyDown(window, { key: "1", code: "Digit1" });
     fireEvent.keyDown(window, { key: "2", code: "Digit2" });
+    fireEvent.keyDown(window, { key: "3", code: "Digit3" });
+    fireEvent.keyDown(window, { key: "4", code: "Digit4" });
+    fireEvent.keyDown(window, { key: "5", code: "Digit5" });
     fireEvent.keyDown(window, { key: "1", code: "Numpad1" });
 
     expect(onAction).not.toHaveBeenCalledWith("canvas_gizmo_translate");
     expect(onAction).toHaveBeenCalledWith("canvas_gizmo_rotate");
-    expect(onAction.mock.calls).toHaveLength(1);
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_vt_rotate");
+    expect(onAction).toHaveBeenCalledWith("canvas_gizmo_vt_scale");
+    expect(onAction).not.toHaveBeenCalledWith("canvas_gizmo_vt_translate");
+    expect(onAction.mock.calls).toHaveLength(3);
   });
 
-  it("shows scale shortcut in help only when scale action is supported", () => {
+  it("shows VT shortcuts in help only when corresponding VT actions are supported", () => {
     const groups: ToolbarGroup[] = [
       {
         key: "canvas",
@@ -364,7 +401,9 @@ describe("WorkspaceTopbar facades injection", () => {
         actions: [
           { key: "canvas_gizmo_translate", label: "Move", status: "mvp", supported: true },
           { key: "canvas_gizmo_rotate", label: "Rotate", status: "mvp", supported: true },
-          { key: "canvas_gizmo_scale", label: "Scale", status: "mvp", supported: true }
+          { key: "canvas_gizmo_vt_rotate", label: "VT Rotate", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_translate", label: "VT Offset", status: "mvp", supported: true },
+          { key: "canvas_gizmo_vt_scale", label: "VT Scale", status: "mvp", supported: true }
         ]
       }
     ];
@@ -390,7 +429,11 @@ describe("WorkspaceTopbar facades injection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
 
-    expect(screen.getByText("Switch gizmo to Scale mode.")).toBeInTheDocument();
+    expect(screen.getByText("Switch gizmo to VT Rotate mode (XYZ).")).toBeInTheDocument();
+    expect(screen.getByText("Switch gizmo to VT Offset mode (XYZ).")).toBeInTheDocument();
+    expect(screen.getByText("Switch gizmo to VT Scale mode.")).toBeInTheDocument();
     expect(screen.getByText(/^3$/)).toBeInTheDocument();
+    expect(screen.getByText(/^4$/)).toBeInTheDocument();
+    expect(screen.getByText(/^5$/)).toBeInTheDocument();
   });
 });

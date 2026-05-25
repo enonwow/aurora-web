@@ -132,7 +132,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     )
       ? rawSoundPositioning.mode
       : DEFAULT_SOUND_POSITIONING_BASELINE.mode;
-    const fallbackElevation = clampMin(asFiniteNumber(object.visualTransform.offsetZ, 0), 0);
+    const fallbackElevation = clampMin(asFiniteNumber(object.z, 0), 0);
     const nextMaxVolumeDistance = clampMin(
       asFiniteNumber(
         rawSoundPositioning?.maxVolumeDistance,
@@ -227,7 +227,7 @@ export function rescaleSceneObjectsToSize(
 
 function createSeedObjects(width: number, height: number): SceneObject[] {
   const seedObjects: Array<
-    Omit<SceneObject, "visualTransform" | "bearing" | "tag" | "resRef"> & {
+    Omit<SceneObject, "visualTransform" | "bearing" | "tag" | "resRef" | "z"> & {
       resRef: string;
       tag: string;
       bearing?: number;
@@ -254,6 +254,7 @@ function createSeedObjects(width: number, height: number): SceneObject[] {
       isStatic: entry.kind === "placeables",
       x: scaleCoordinate(entry.x, LEGACY_SEED_SCENE_WIDTH_TILES, width),
       y: scaleCoordinate(entry.y, LEGACY_SEED_SCENE_HEIGHT_TILES, height),
+      z: 0,
       bearing: entry.bearing ?? 0,
       visualTransform: {
         scale: 1,
@@ -316,6 +317,7 @@ export function createNewSceneObject(
     isStatic: kind === "placeables",
     x,
     y,
+    z: 0,
     bearing: 0,
     visualTransform: {
       scale: 1,

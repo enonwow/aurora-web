@@ -101,13 +101,15 @@ describe("sceneHistory", () => {
     expect(afterUndoVisual?.visualTransform.scale).toBeCloseTo(1);
     expect(afterUndoVisual?.visualTransform.offsetX).toBeCloseTo(0);
     expect(afterUndoVisual?.visualTransform.offsetY).toBeCloseTo(0);
-    expect(afterUndoVisual?.visualTransform.offsetZ).toBeCloseTo(0.5);
+    expect(afterUndoVisual?.z).toBeCloseTo(0.5);
+    expect(afterUndoVisual?.visualTransform.offsetZ).toBeCloseTo(0);
 
     const undoAbsolute = undoSceneHistory(undoVisual);
     const afterUndoAbsolute = undoAbsolute.present.objects.find((object) => object.id === target!.id);
     expect(afterUndoAbsolute).toBeDefined();
     expect(afterUndoAbsolute?.x).toBeCloseTo(target!.x);
     expect(afterUndoAbsolute?.y).toBeCloseTo(target!.y);
+    expect(afterUndoAbsolute?.z).toBeCloseTo(target!.z);
     expect(afterUndoAbsolute?.bearing).toBeCloseTo(target!.bearing);
     expect(afterUndoAbsolute?.visualTransform.offsetZ).toBeCloseTo(target!.visualTransform.offsetZ);
 
@@ -116,8 +118,9 @@ describe("sceneHistory", () => {
     expect(afterRedoAbsolute).toBeDefined();
     expect(afterRedoAbsolute?.x).toBeCloseTo(1.2);
     expect(afterRedoAbsolute?.y).toBeCloseTo(1.1);
+    expect(afterRedoAbsolute?.z).toBeCloseTo(0.5);
     expect(afterRedoAbsolute?.bearing).toBeCloseTo(0.75);
-    expect(afterRedoAbsolute?.visualTransform.offsetZ).toBeCloseTo(0.5);
+    expect(afterRedoAbsolute?.visualTransform.offsetZ).toBeCloseTo(0);
 
     const redoVisual = redoSceneHistory(redoAbsolute);
     const afterRedoVisual = redoVisual.present.objects.find((object) => object.id === target!.id);
@@ -161,6 +164,7 @@ describe("sceneHistory", () => {
     expect(afterUndo).toBeDefined();
     expect(afterUndo?.x).toBeCloseTo(target!.x);
     expect(afterUndo?.y).toBeCloseTo(target!.y);
+    expect(afterUndo?.z).toBeCloseTo(target!.z);
     expect(afterUndo?.bearing).toBeCloseTo(target!.bearing);
     expect(afterUndo?.visualTransform.scale).toBeCloseTo(target!.visualTransform.scale);
     expect(afterUndo?.visualTransform.offsetZ).toBeCloseTo(target!.visualTransform.offsetZ);
@@ -170,6 +174,7 @@ describe("sceneHistory", () => {
     expect(afterRedo).toBeDefined();
     expect(afterRedo?.x).toBeCloseTo(1.25);
     expect(afterRedo?.y).toBeCloseTo(1.15);
+    expect(afterRedo?.z).toBeCloseTo(0.45);
     expect(afterRedo?.bearing).toBeCloseTo(0.6);
     expect(afterRedo?.visualTransform.scale).toBeCloseTo(1.35);
     expect(afterRedo?.visualTransform.offsetX).toBeCloseTo(0.2);

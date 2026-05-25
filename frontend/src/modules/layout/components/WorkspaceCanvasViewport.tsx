@@ -33,6 +33,17 @@ import {
   BASE_AXES_HELPER_SIZE,
   resolveAxesHelperTransform
 } from "../axesHelperFacade";
+import {
+  canUseVisualTransformGizmoForObject,
+  resolveGizmoTranslationDeltas,
+  isVisualTransformAppliedToObject,
+  isVisualTransformEditableForObject,
+  isVisualTransformGizmoMode,
+  resolveGizmoColorPalette,
+  resolveVisualTransformSelectionBlockedReason,
+  resolveVtScaleFactorFromAnchor,
+  type CanvasGizmoMode
+} from "../visualTransformGizmoRules";
 
 type WorkspaceCanvasViewportFacade = Pick<
   ViewportFacade,
@@ -184,36 +195,52 @@ const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 540;
 interface TransformGestureState {
   active: boolean;
   mode: "translate" | "rotate" | "scale" | null;
+  applyVisualTransform: boolean;
   axis: string | null;
   objectIds: string[];
   startAnchorPosition: THREE.Vector3;
   startAnchorRotationY: number;
+  startAnchorEuler: THREE.Euler;
   startAnchorQuaternion: THREE.Quaternion;
+  startAnchorScale: THREE.Vector3;
   sourceObjects: SceneObject[];
   sourceMeshPositions: Map<string, THREE.Vector3>;
   sourceMeshRotations: Map<string, THREE.Euler>;
+  sourceMeshScales: Map<string, THREE.Vector3>;
   deltaX: number;
   deltaY: number;
   deltaZ: number;
   deltaBearingRad: number;
+  deltaPitchRad: number;
+  deltaYawRad: number;
+  deltaRollRad: number;
+  deltaScaleFactor: number;
 }
 
 function createIdleTransformGestureState(): TransformGestureState {
   return {
     active: false,
     mode: null,
+    applyVisualTransform: false,
     axis: null,
     objectIds: [],
     startAnchorPosition: new THREE.Vector3(),
     startAnchorRotationY: 0,
+    startAnchorEuler: new THREE.Euler(),
     startAnchorQuaternion: new THREE.Quaternion(),
+    startAnchorScale: new THREE.Vector3(1, 1, 1),
     sourceObjects: [],
     sourceMeshPositions: new Map<string, THREE.Vector3>(),
     sourceMeshRotations: new Map<string, THREE.Euler>(),
+    sourceMeshScales: new Map<string, THREE.Vector3>(),
     deltaX: 0,
     deltaY: 0,
     deltaZ: 0,
-    deltaBearingRad: 0
+    deltaBearingRad: 0,
+    deltaPitchRad: 0,
+    deltaYawRad: 0,
+    deltaRollRad: 0,
+    deltaScaleFactor: 1
   };
 }
 
@@ -301,14 +328,10 @@ const MOVE_ALLOWED_KINDS = new Set<SceneObjectKind>([
   "items",
   "sounds"
 ]);
-const VISUAL_TRANSFORM_EDITABLE_KINDS = new Set<SceneObjectKind>([
-  "placeables",
-  "creatures",
-  "items"
-]);
 
 type DebugState = WorkspaceToolbarState["canvasDebug"];
 type MockRenderStatus = "ok" | "warning" | "error" | "non_render";
+const VT_PHYSICAL_ANCHOR_COLOR = "#45f7a2";
 
 const STATUS_COLOR: Record<MockRenderStatus, string> = {
   ok: "#4de083",
@@ -370,7 +393,11 @@ function buildAdjustLocationDraft(
   sceneWidth: number,
   sceneHeight: number
 ): AdjustLocationDraft {
-  const zInAdjustUnits = toAdjustLocationHeight(source.visualTransform.offsetZ, unitsPerTile);
+  const zInAdjustUnits = toAdjustLocationHeight(source.z, unitsPerTile);
+  const zTranslationInAdjustUnits = toAdjustLocationHeight(
+    source.visualTransform.offsetZ,
+    unitsPerTile
+  );
   return {
     x: toAdjustLocationCoordinate(source.x, sceneWidth, unitsPerTile),
     y: toAdjustLocationCoordinate(source.y, sceneHeight, unitsPerTile),
@@ -382,7 +409,7 @@ function buildAdjustLocationDraft(
     zRotationDeg: toDegrees(source.visualTransform.roll),
     xTranslation: source.visualTransform.offsetX,
     yTranslation: source.visualTransform.offsetY,
-    zTranslation: zInAdjustUnits
+    zTranslation: zTranslationInAdjustUnits
   };
 }
 
@@ -409,8 +436,59 @@ function resolveSceneObjectName(object: SceneObject): string {
   return object.tag;
 }
 
-function isVisualTransformEditableForObject(object: SceneObject): boolean {
-  return VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind);
+function applyTransformControlsPalette(
+  transformControls: TransformControls,
+  gizmoMode: CanvasGizmoMode
+): void {
+  if (typeof transformControls.setColors !== "function") {
+    return;
+  }
+
+  const palette = resolveGizmoColorPalette(gizmoMode);
+  transformControls.setColors(palette.x, palette.y, palette.z, palette.active);
+}
+
+function resolveGizmoModeBadge(mode: CanvasGizmoMode): {
+  label: string;
+  variant: "world" | "vt";
+} {
+  if (mode === "translate") {
+    return { label: "World Move (1)", variant: "world" };
+  }
+  if (mode === "rotate") {
+    return { label: "World Bearing (2)", variant: "world" };
+  }
+  if (mode === "vt_rotate") {
+    return { label: "VT Rotate (3)", variant: "vt" };
+  }
+  if (mode === "vt_translate") {
+    return { label: "VT Offset (4)", variant: "vt" };
+  }
+  if (mode === "vt_scale") {
+    return { label: "VT Scale (5)", variant: "vt" };
+  }
+  return { label: `Mode: ${mode}`, variant: "world" };
+}
+
+function resolveTransformControlsMode(
+  gizmoMode: CanvasGizmoMode
+): "translate" | "rotate" | "scale" | null {
+  if (gizmoMode === "translate") {
+    return "translate";
+  }
+  if (gizmoMode === "rotate") {
+    return "rotate";
+  }
+  if (gizmoMode === "vt_translate") {
+    return "translate";
+  }
+  if (gizmoMode === "vt_rotate") {
+    return "rotate";
+  }
+  if (gizmoMode === "vt_scale") {
+    return "scale";
+  }
+  return null;
 }
 
 function resolveAdjustLocationVisualTransformMeta(targets: SceneObject[]): {
@@ -612,7 +690,7 @@ function clampHeightDeltaToSurface(objects: SceneObject[], deltaZ: number): numb
   }
 
   const minDeltaZ = objects.reduce(
-    (bound, object) => Math.max(bound, -object.visualTransform.offsetZ),
+    (bound, object) => Math.max(bound, -object.z),
     Number.NEGATIVE_INFINITY
   );
 
@@ -835,6 +913,11 @@ function disposeRuntime(runtime: RuntimeState): void {
         const materials = Array.isArray(node.material) ? node.material : [node.material];
         materials.forEach((material) => material.dispose());
       }
+      if (node instanceof THREE.Line) {
+        node.geometry.dispose();
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach((material) => material.dispose());
+      }
       if (node instanceof THREE.Sprite) {
         const spriteMaterial = node.material;
         spriteMaterial.map?.dispose();
@@ -914,6 +997,11 @@ function clearObjectLayer(runtime: RuntimeState): void {
   runtime.objectLayer.children.forEach((child) => {
     child.traverse((node) => {
       if (node instanceof THREE.Mesh) {
+        node.geometry.dispose();
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach((material) => material.dispose());
+      }
+      if (node instanceof THREE.Line) {
         node.geometry.dispose();
         const materials = Array.isArray(node.material) ? node.material : [node.material];
         materials.forEach((material) => material.dispose());
@@ -1049,14 +1137,73 @@ function rebuildObjectMeshes(
     }
 
     const mesh = new THREE.Mesh(geometry, material);
+    const showPhysicalAnchor =
+      debugState.showVtPhysicalAnchor && isVisualTransformAppliedToObject(object);
+    if (showPhysicalAnchor) {
+      const physicalAnchorGeometry = new THREE.SphereGeometry(objectRadius * 0.94, 16, 16);
+      const physicalAnchorMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(VT_PHYSICAL_ANCHOR_COLOR),
+        transparent: true,
+        opacity: 0.72,
+        wireframe: true,
+        depthWrite: false,
+        depthTest: false
+      });
+      const physicalAnchorMesh = new THREE.Mesh(physicalAnchorGeometry, physicalAnchorMaterial);
+      physicalAnchorMesh.renderOrder = 20;
+      physicalAnchorMesh.raycast = () => undefined;
+      const physicalAnchorPosition = new THREE.Vector3(
+        object.x,
+        objectBaseY + object.z,
+        object.y
+      );
+      physicalAnchorMesh.position.set(
+        physicalAnchorPosition.x,
+        physicalAnchorPosition.y,
+        physicalAnchorPosition.z
+      );
+      physicalAnchorMesh.rotation.set(0, object.bearing, 0);
+      physicalAnchorMesh.userData = {
+        visualTransformPhysicalAnchor: true
+      };
+      runtime.objectLayer.add(physicalAnchorMesh);
+
+      const visualAnchorPosition = new THREE.Vector3(
+        object.x + object.visualTransform.offsetX,
+        objectBaseY + object.z + object.visualTransform.offsetZ,
+        object.y + object.visualTransform.offsetY
+      );
+      const displacement = visualAnchorPosition.clone().sub(physicalAnchorPosition);
+      if (displacement.lengthSq() > 1e-6) {
+        const connectorGeometry = new THREE.BufferGeometry().setFromPoints([
+          physicalAnchorPosition,
+          visualAnchorPosition
+        ]);
+        const connectorMaterial = new THREE.LineDashedMaterial({
+          color: new THREE.Color("#45f7a2"),
+          transparent: true,
+          opacity: 0.95,
+          dashSize: 0.08 * markerScale,
+          gapSize: 0.04 * markerScale,
+          depthTest: false,
+          depthWrite: false
+        });
+        const connector = new THREE.Line(connectorGeometry, connectorMaterial);
+        connector.computeLineDistances();
+        connector.renderOrder = 19;
+        connector.raycast = () => undefined;
+        runtime.objectLayer.add(connector);
+      }
+    }
+
     const effectiveVisualTransform =
       object.kind === "placeables" && (object.isStatic ?? true)
         ? {
             scale: 1,
             offsetX: 0,
             offsetY: 0,
-            // Aurora-first parity: static placeables still keep base Z/elevation from Adjust Location.
-            offsetZ: object.visualTransform.offsetZ,
+            // Aurora-first parity: static placeables ignore VT channels while keeping base position.
+            offsetZ: 0,
             pitch: 0,
             yaw: 0,
             roll: 0
@@ -1065,7 +1212,7 @@ function rebuildObjectMeshes(
     const visualScale = Math.max(0.01, effectiveVisualTransform.scale);
     mesh.position.set(
       object.x + effectiveVisualTransform.offsetX,
-      objectBaseY + effectiveVisualTransform.offsetZ,
+      objectBaseY + object.z + effectiveVisualTransform.offsetZ,
       object.y + effectiveVisualTransform.offsetY
     );
     mesh.rotation.set(
@@ -1223,8 +1370,7 @@ function rebuildGizmoOverlay(
 
   const usesInteractiveTransformControls =
     runtime.transformControls.enabled &&
-    Boolean(runtime.transformControls.object) &&
-    (debugState.gizmoMode === "translate" || debugState.gizmoMode === "rotate");
+    Boolean(runtime.transformControls.object);
   if (usesInteractiveTransformControls) {
     return;
   }
@@ -1606,10 +1752,11 @@ export function WorkspaceCanvasViewport({
         copy.tag = `${sourceObject.tag}_COPY`;
         copy.visualTransform = {
           ...sourceObject.visualTransform,
-          offsetZ: toolbarState.canvasDebug.snapHeight
-            ? snapHeightValue(sourceObject.visualTransform.offsetZ, workspaceOptions.snapHeightStep)
-            : sourceObject.visualTransform.offsetZ
+          offsetZ: sourceObject.visualTransform.offsetZ
         };
+        copy.z = toolbarState.canvasDebug.snapHeight
+          ? snapHeightValue(sourceObject.z, workspaceOptions.snapHeightStep)
+          : sourceObject.z;
         copy.bearing = toolbarState.canvasDebug.snapAngle
           ? snapAngleRadians(sourceObject.bearing, workspaceOptions.snapAngleStepDeg)
           : sourceObject.bearing;
@@ -2032,13 +2179,14 @@ export function WorkspaceCanvasViewport({
 
     const transformControls = runtime.transformControls;
     const gizmoMode = toolbarState.canvasDebug.gizmoMode;
-    const supportsTransformControls = gizmoMode === "translate" || gizmoMode === "rotate";
+    const transformControlsMode = resolveTransformControlsMode(gizmoMode);
+    const visualTransformMode = isVisualTransformGizmoMode(gizmoMode);
 
     if (transformControls.dragging && transformGestureRef.current.active) {
       return;
     }
 
-    if (!supportsTransformControls) {
+    if (!transformControlsMode) {
       transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
@@ -2048,29 +2196,49 @@ export function WorkspaceCanvasViewport({
     const selectedObjects = selectedObjectIds
       .map((id) => objectById.get(id))
       .filter((object): object is SceneObject => Boolean(object));
-    if (
-      selectedObjects.length === 0 ||
-      selectedObjects.some((object) => object.kind === "doors")
-    ) {
+    if (selectedObjects.length === 0) {
       transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
     }
 
-    const movableObjects = selectedObjects.filter(
-      (object) =>
-        MOVE_ALLOWED_KINDS.has(object.kind) &&
-        !isKindLocked(toolbarState.canvasDebug, object.kind)
-    );
-    if (movableObjects.length === 0) {
+    let transformableObjects: SceneObject[] = [];
+    if (visualTransformMode) {
+      const blockedReason = resolveVisualTransformSelectionBlockedReason(
+        selectedObjects,
+        toolbarState.canvasDebug
+      );
+      if (blockedReason) {
+        transformGestureRef.current = createIdleTransformGestureState();
+        transformControls.detach();
+        transformControls.enabled = false;
+        return;
+      }
+      transformableObjects = selectedObjects;
+    } else {
+      if (selectedObjects.some((object) => object.kind === "doors")) {
+        transformGestureRef.current = createIdleTransformGestureState();
+        transformControls.detach();
+        transformControls.enabled = false;
+        return;
+      }
+
+      transformableObjects = selectedObjects.filter(
+        (object) =>
+          MOVE_ALLOWED_KINDS.has(object.kind) &&
+          !isKindLocked(toolbarState.canvasDebug, object.kind)
+      );
+    }
+
+    if (transformableObjects.length === 0) {
       transformGestureRef.current = createIdleTransformGestureState();
       transformControls.detach();
       transformControls.enabled = false;
       return;
     }
 
-    const movableIdsSet = new Set(movableObjects.map((object) => object.id));
+    const movableIdsSet = new Set(transformableObjects.map((object) => object.id));
     const movableMeshes = selectedObjectIds
       .filter((id) => movableIdsSet.has(id))
       .map((id) => runtime.objectMeshById.get(id))
@@ -2089,11 +2257,13 @@ export function WorkspaceCanvasViewport({
     center.divideScalar(movableMeshes.length);
     runtime.transformAnchor.position.copy(center);
     runtime.transformAnchor.rotation.set(0, 0, 0);
+    runtime.transformAnchor.scale.set(1, 1, 1);
     runtime.transformAnchor.updateMatrixWorld();
 
     transformControls.enabled = true;
     transformControls.setSpace("world");
-    transformControls.setMode(gizmoMode);
+    transformControls.setMode(transformControlsMode);
+    applyTransformControlsPalette(transformControls, gizmoMode);
     const axisVisibility = resolveTransformControlAxisVisibility(gizmoMode);
     transformControls.showX = axisVisibility.showX;
     transformControls.showY = axisVisibility.showY;
@@ -2124,16 +2294,40 @@ export function WorkspaceCanvasViewport({
 
     const startTransformGesture = () => {
       const mode = transformControls.getMode() as "translate" | "rotate" | "scale";
-      const objectIds = selectedObjectIds.filter((id) => {
-        const object = objectById.get(id);
-        if (!object) {
-          return false;
-        }
-        return (
-          MOVE_ALLOWED_KINDS.has(object.kind) &&
-          !isKindLocked(toolbarState.canvasDebug, object.kind)
+      const applyVisualTransform = isVisualTransformGizmoMode(toolbarState.canvasDebug.gizmoMode);
+      const selectedObjects = selectedObjectIds
+        .map((id) => objectById.get(id))
+        .filter((object): object is SceneObject => Boolean(object));
+      if (selectedObjects.length === 0) {
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      if (applyVisualTransform) {
+        const blockedReason = resolveVisualTransformSelectionBlockedReason(
+          selectedObjects,
+          toolbarState.canvasDebug
         );
-      });
+        if (blockedReason) {
+          transformGestureRef.current = createIdleTransformGestureState();
+          return;
+        }
+      }
+
+      const objectIds = selectedObjects
+        .filter((object) => {
+          if (applyVisualTransform) {
+            return (
+              canUseVisualTransformGizmoForObject(object) &&
+              !isKindLocked(toolbarState.canvasDebug, object.kind)
+            );
+          }
+          return (
+            MOVE_ALLOWED_KINDS.has(object.kind) &&
+            !isKindLocked(toolbarState.canvasDebug, object.kind)
+          );
+        })
+        .map((object) => object.id);
       if (objectIds.length === 0) {
         transformGestureRef.current = createIdleTransformGestureState();
         return;
@@ -2150,6 +2344,7 @@ export function WorkspaceCanvasViewport({
 
       const sourceMeshPositions = new Map<string, THREE.Vector3>();
       const sourceMeshRotations = new Map<string, THREE.Euler>();
+      const sourceMeshScales = new Map<string, THREE.Vector3>();
       objectIds.forEach((id) => {
         const mesh = runtime.objectMeshById.get(id);
         if (!mesh) {
@@ -2157,6 +2352,7 @@ export function WorkspaceCanvasViewport({
         }
         sourceMeshPositions.set(id, mesh.position.clone());
         sourceMeshRotations.set(id, mesh.rotation.clone());
+        sourceMeshScales.set(id, mesh.scale.clone());
       });
 
       if (sourceMeshPositions.size === 0) {
@@ -2167,18 +2363,26 @@ export function WorkspaceCanvasViewport({
       transformGestureRef.current = {
         active: true,
         mode,
+        applyVisualTransform,
         axis: transformControls.axis,
         objectIds,
         startAnchorPosition: runtime.transformAnchor.position.clone(),
         startAnchorRotationY: runtime.transformAnchor.rotation.y,
+        startAnchorEuler: runtime.transformAnchor.rotation.clone(),
         startAnchorQuaternion: runtime.transformAnchor.quaternion.clone(),
+        startAnchorScale: runtime.transformAnchor.scale.clone(),
         sourceObjects,
         sourceMeshPositions,
         sourceMeshRotations,
+        sourceMeshScales,
         deltaX: 0,
         deltaY: 0,
         deltaZ: 0,
-        deltaBearingRad: 0
+        deltaBearingRad: 0,
+        deltaPitchRad: 0,
+        deltaYawRad: 0,
+        deltaRollRad: 0,
+        deltaScaleFactor: 1
       };
     };
 
@@ -2187,8 +2391,13 @@ export function WorkspaceCanvasViewport({
     };
 
     const handleMouseUp = () => {
+      const resetTransformAnchor = () => {
+        runtime.transformAnchor.scale.set(1, 1, 1);
+        runtime.transformAnchor.updateMatrixWorld();
+      };
       const gesture = transformGestureRef.current;
       if (!gesture.active || gesture.objectIds.length === 0) {
+        resetTransformAnchor();
         transformGestureRef.current = createIdleTransformGestureState();
         return;
       }
@@ -2201,66 +2410,192 @@ export function WorkspaceCanvasViewport({
           Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon || Math.abs(deltaZ) > epsilon;
 
         if (hasMoveDelta) {
-          setSceneHistory((current) => {
-            let nextScene = current.present;
-            if (Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon) {
-              nextScene = sceneViewportPort.translateObjectsByIds(nextScene, gesture.objectIds, {
-                x: deltaX,
-                y: deltaY
+          if (gesture.applyVisualTransform) {
+            const sourceById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
+            setSceneHistory((current) => {
+              let nextScene = current.present;
+              gesture.objectIds.forEach((id) => {
+                const sourceObject = sourceById.get(id);
+                if (!sourceObject) {
+                  return;
+                }
+                nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
+                  scale: sourceObject.visualTransform.scale,
+                  offsetX: sourceObject.visualTransform.offsetX + deltaX,
+                  offsetY: sourceObject.visualTransform.offsetY + deltaY,
+                  offsetZ: sourceObject.visualTransform.offsetZ + deltaZ,
+                  pitch: sourceObject.visualTransform.pitch,
+                  yaw: sourceObject.visualTransform.yaw,
+                  roll: sourceObject.visualTransform.roll
+                });
               });
-            }
-            if (Math.abs(deltaZ) > epsilon) {
-              nextScene = sceneViewportPort.adjustObjectsHeightByIds(
-                nextScene,
-                gesture.objectIds,
-                deltaZ
-              );
-            }
-            if (nextScene === current.present) {
-              return current;
-            }
-            return sceneViewportPort.commitHistory(current, nextScene);
-          });
-          setSelectedTileId(null);
-          trackTelemetry("scene.objects.move", {
-            userId,
-            source: "gizmo_translate",
-            movedCount: gesture.objectIds.length,
-            deltaX,
-            deltaY,
-            deltaZ
-          });
+              if (nextScene === current.present) {
+                return current;
+              }
+              return sceneViewportPort.commitHistory(current, nextScene);
+            });
+            setSelectedTileId(null);
+            trackTelemetry("scene.objects.vt_translate", {
+              userId,
+              source: "gizmo_vt_translate",
+              movedCount: gesture.objectIds.length,
+              deltaX,
+              deltaY,
+              deltaZ
+            });
+          } else {
+            setSceneHistory((current) => {
+              let nextScene = current.present;
+              if (Math.abs(deltaX) > epsilon || Math.abs(deltaY) > epsilon) {
+                nextScene = sceneViewportPort.translateObjectsByIds(nextScene, gesture.objectIds, {
+                  x: deltaX,
+                  y: deltaY
+                });
+              }
+              if (Math.abs(deltaZ) > epsilon) {
+                nextScene = sceneViewportPort.adjustObjectsHeightByIds(
+                  nextScene,
+                  gesture.objectIds,
+                  deltaZ
+                );
+              }
+              if (nextScene === current.present) {
+                return current;
+              }
+              return sceneViewportPort.commitHistory(current, nextScene);
+            });
+            setSelectedTileId(null);
+            trackTelemetry("scene.objects.move", {
+              userId,
+              source: "gizmo_translate",
+              movedCount: gesture.objectIds.length,
+              deltaX,
+              deltaY,
+              deltaZ
+            });
+          }
         }
 
+        resetTransformAnchor();
         transformGestureRef.current = createIdleTransformGestureState();
         return;
       }
 
       if (gesture.mode === "rotate") {
-        const deltaBearingRad = gesture.deltaBearingRad;
-        const hasRotationDelta = Math.abs(deltaBearingRad) > epsilon;
-        if (hasRotationDelta) {
-          setSceneHistory((current) => {
-            const nextScene = sceneViewportPort.rotateObjectsBearingByIds(
-              current.present,
-              gesture.objectIds,
+        if (gesture.applyVisualTransform) {
+          const deltaPitchRad = gesture.deltaPitchRad;
+          const deltaYawRad = gesture.deltaYawRad;
+          const deltaRollRad = gesture.deltaRollRad;
+          const hasRotationDelta =
+            Math.abs(deltaPitchRad) > epsilon ||
+            Math.abs(deltaYawRad) > epsilon ||
+            Math.abs(deltaRollRad) > epsilon;
+          if (hasRotationDelta) {
+            const sourceById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
+            setSceneHistory((current) => {
+              let nextScene = current.present;
+              gesture.objectIds.forEach((id) => {
+                const sourceObject = sourceById.get(id);
+                if (!sourceObject) {
+                  return;
+                }
+                nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
+                  scale: sourceObject.visualTransform.scale,
+                  offsetX: sourceObject.visualTransform.offsetX,
+                  offsetY: sourceObject.visualTransform.offsetY,
+                  offsetZ: sourceObject.visualTransform.offsetZ,
+                  pitch: sourceObject.visualTransform.pitch + deltaPitchRad,
+                  yaw: sourceObject.visualTransform.yaw + deltaYawRad,
+                  roll: sourceObject.visualTransform.roll + deltaRollRad
+                });
+              });
+              if (nextScene === current.present) {
+                return current;
+              }
+              return sceneViewportPort.commitHistory(current, nextScene);
+            });
+            setSelectedTileId(null);
+            trackTelemetry("scene.objects.vt_rotate", {
+              userId,
+              source: "gizmo_vt_rotate",
+              rotatedCount: gesture.objectIds.length,
+              deltaPitchRad,
+              deltaYawRad,
+              deltaRollRad
+            });
+          }
+        } else {
+          const deltaBearingRad = gesture.deltaBearingRad;
+          const hasRotationDelta = Math.abs(deltaBearingRad) > epsilon;
+          if (hasRotationDelta) {
+            setSceneHistory((current) => {
+              const nextScene = sceneViewportPort.rotateObjectsBearingByIds(
+                current.present,
+                gesture.objectIds,
+                deltaBearingRad
+              );
+              if (nextScene === current.present) {
+                return current;
+              }
+              return sceneViewportPort.commitHistory(current, nextScene);
+            });
+            setSelectedTileId(null);
+            trackTelemetry("scene.objects.rotate_bearing", {
+              userId,
+              source: "gizmo_rotate_bearing_y",
+              rotatedCount: gesture.objectIds.length,
               deltaBearingRad
-            );
+            });
+          }
+        }
+
+        resetTransformAnchor();
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
+      }
+
+      if (gesture.mode === "scale") {
+        const scaleFactor = gesture.deltaScaleFactor;
+        const hasScaleDelta = Math.abs(scaleFactor - 1) > epsilon;
+        if (hasScaleDelta && gesture.applyVisualTransform) {
+          const sourceById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
+          setSceneHistory((current) => {
+            let nextScene = current.present;
+            gesture.objectIds.forEach((id) => {
+              const sourceObject = sourceById.get(id);
+              if (!sourceObject) {
+                return;
+              }
+              nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
+                scale: sourceObject.visualTransform.scale * scaleFactor,
+                offsetX: sourceObject.visualTransform.offsetX,
+                offsetY: sourceObject.visualTransform.offsetY,
+                offsetZ: sourceObject.visualTransform.offsetZ,
+                pitch: sourceObject.visualTransform.pitch,
+                yaw: sourceObject.visualTransform.yaw,
+                roll: sourceObject.visualTransform.roll
+              });
+            });
             if (nextScene === current.present) {
               return current;
             }
             return sceneViewportPort.commitHistory(current, nextScene);
           });
           setSelectedTileId(null);
-          trackTelemetry("scene.objects.rotate_bearing", {
+          trackTelemetry("scene.objects.vt_scale", {
             userId,
-            source: "gizmo_rotate_bearing_y",
-            rotatedCount: gesture.objectIds.length,
-            deltaBearingRad
+            source: "gizmo_vt_scale",
+            scaledCount: gesture.objectIds.length,
+            scaleFactor
           });
         }
+
+        resetTransformAnchor();
+        transformGestureRef.current = createIdleTransformGestureState();
+        return;
       }
 
+      resetTransformAnchor();
       transformGestureRef.current = createIdleTransformGestureState();
     };
 
@@ -2278,39 +2613,47 @@ export function WorkspaceCanvasViewport({
         if (transformControls.axis) {
           gesture.axis = transformControls.axis;
         }
-        const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
-        const applyAllAxes = axis.length === 0 || axis === "XYZ" || axis === "XYZE" || axis === "E";
-        const rawDeltaX = runtime.transformAnchor.position.x - gesture.startAnchorPosition.x;
-        const rawDeltaY = runtime.transformAnchor.position.z - gesture.startAnchorPosition.z;
-        const rawDeltaZ = runtime.transformAnchor.position.y - gesture.startAnchorPosition.y;
-        const deltaX =
-          (applyAllAxes || axis.includes("X")) && Math.abs(rawDeltaX) > epsilon ? rawDeltaX : 0;
-        const deltaY =
-          (applyAllAxes || axis.includes("Z")) && Math.abs(rawDeltaY) > epsilon ? rawDeltaY : 0;
-        const deltaZ =
-          (applyAllAxes || axis.includes("Y")) && Math.abs(rawDeltaZ) > epsilon ? rawDeltaZ : 0;
-
-        const boundedDelta = clampTranslationDeltaToSceneBounds(
-          scene,
-          gesture.sourceObjects,
-          { x: deltaX, y: deltaY }
+        const axis = transformControls.axis ?? gesture.axis ?? "";
+        const deltas = resolveGizmoTranslationDeltas(
+          gesture.startAnchorPosition,
+          runtime.transformAnchor.position,
+          axis,
+          { vtMode: gesture.applyVisualTransform }
         );
+        const deltaX = Math.abs(deltas.deltaX) > epsilon ? deltas.deltaX : 0;
+        const deltaY = Math.abs(deltas.deltaY) > epsilon ? deltas.deltaY : 0;
+        const deltaZ = Math.abs(deltas.deltaZ) > epsilon ? deltas.deltaZ : 0;
+
+        const boundedDelta = gesture.applyVisualTransform
+          ? { x: deltaX, y: deltaY }
+          : clampTranslationDeltaToSceneBounds(scene, gesture.sourceObjects, {
+              x: deltaX,
+              y: deltaY
+            });
         const boundedDeltaZ = clampHeightDeltaToSurface(gesture.sourceObjects, deltaZ);
 
         gesture.deltaX = boundedDelta.x;
         gesture.deltaY = boundedDelta.y;
         gesture.deltaZ = boundedDeltaZ;
 
+        const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
         gesture.objectIds.forEach((id) => {
           const mesh = runtime.objectMeshById.get(id);
           const sourcePosition = gesture.sourceMeshPositions.get(id);
           if (!mesh || !sourcePosition) {
             return;
           }
+          const sourceObject = sourceObjectById.get(id);
+          const freezeVisualXY =
+            gesture.applyVisualTransform &&
+            sourceObject?.kind === "placeables" &&
+            (sourceObject.isStatic ?? true);
+          const previewDeltaX = freezeVisualXY ? 0 : boundedDelta.x;
+          const previewDeltaY = freezeVisualXY ? 0 : boundedDelta.y;
           mesh.position.set(
-            sourcePosition.x + boundedDelta.x,
+            sourcePosition.x + previewDeltaX,
             sourcePosition.y + boundedDeltaZ,
-            sourcePosition.z + boundedDelta.y
+            sourcePosition.z + previewDeltaY
           );
         });
 
@@ -2333,6 +2676,49 @@ export function WorkspaceCanvasViewport({
           gesture.axis = transformControls.axis;
         }
         const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
+        if (gesture.applyVisualTransform) {
+          const applyAllAxes = axis.length === 0 || axis === "XYZE" || axis === "E";
+          const deltaPitchRadRaw = runtime.transformAnchor.rotation.x - gesture.startAnchorEuler.x;
+          const deltaYawRadRaw = runtime.transformAnchor.rotation.y - gesture.startAnchorEuler.y;
+          const deltaRollRadRaw = runtime.transformAnchor.rotation.z - gesture.startAnchorEuler.z;
+          const deltaPitchRad =
+            (applyAllAxes || axis.includes("X")) && Math.abs(deltaPitchRadRaw) > epsilon
+              ? deltaPitchRadRaw
+              : 0;
+          const deltaYawRad =
+            (applyAllAxes || axis.includes("Y")) && Math.abs(deltaYawRadRaw) > epsilon
+              ? deltaYawRadRaw
+              : 0;
+          const deltaRollRad =
+            (applyAllAxes || axis.includes("Z")) && Math.abs(deltaRollRadRaw) > epsilon
+              ? deltaRollRadRaw
+              : 0;
+          gesture.deltaPitchRad = deltaPitchRad;
+          gesture.deltaYawRad = deltaYawRad;
+          gesture.deltaRollRad = deltaRollRad;
+
+          const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
+          gesture.objectIds.forEach((id) => {
+            const mesh = runtime.objectMeshById.get(id);
+            const sourceRotation = gesture.sourceMeshRotations.get(id);
+            if (!mesh || !sourceRotation) {
+              return;
+            }
+            const sourceObject = sourceObjectById.get(id);
+            const freezeVisualRotation =
+              sourceObject?.kind === "placeables" && (sourceObject.isStatic ?? true);
+            const previewDeltaPitch = freezeVisualRotation ? 0 : deltaPitchRad;
+            const previewDeltaYaw = freezeVisualRotation ? 0 : deltaYawRad;
+            const previewDeltaRoll = freezeVisualRotation ? 0 : deltaRollRad;
+            mesh.rotation.set(
+              sourceRotation.x + previewDeltaPitch,
+              sourceRotation.y + previewDeltaYaw,
+              sourceRotation.z + previewDeltaRoll
+            );
+          });
+          return;
+        }
+
         const supportsBearingDelta =
           axis.length === 0 || axis.includes("Y") || axis === "E" || axis === "XYZE";
         let deltaBearingRad = 0;
@@ -2370,6 +2756,42 @@ export function WorkspaceCanvasViewport({
             sourceRotation.x,
             sourceRotation.y + deltaBearingRad,
             sourceRotation.z
+          );
+        });
+        return;
+      }
+
+      if (gesture.mode === "scale") {
+        if (!gesture.applyVisualTransform) {
+          return;
+        }
+        if (transformControls.axis) {
+          gesture.axis = transformControls.axis;
+        }
+
+        const axis = (transformControls.axis ?? gesture.axis ?? "").toUpperCase();
+        const clampedScaleFactor = resolveVtScaleFactorFromAnchor(
+          gesture.startAnchorScale,
+          runtime.transformAnchor.scale,
+          axis
+        );
+        gesture.deltaScaleFactor = clampedScaleFactor;
+
+        const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
+        gesture.objectIds.forEach((id) => {
+          const mesh = runtime.objectMeshById.get(id);
+          const sourceScaleForMesh = gesture.sourceMeshScales.get(id);
+          if (!mesh || !sourceScaleForMesh) {
+            return;
+          }
+          const sourceObject = sourceObjectById.get(id);
+          const freezeVisualScale =
+            sourceObject?.kind === "placeables" && (sourceObject.isStatic ?? true);
+          const previewScaleFactor = freezeVisualScale ? 1 : clampedScaleFactor;
+          mesh.scale.set(
+            sourceScaleForMesh.x * previewScaleFactor,
+            sourceScaleForMesh.y * previewScaleFactor,
+            sourceScaleForMesh.z * previewScaleFactor
           );
         });
       }
@@ -2993,10 +3415,7 @@ export function WorkspaceCanvasViewport({
           created.bearing = snapAngleRadians(created.bearing, workspaceOptions.snapAngleStepDeg);
         }
         if (toolbarState.canvasDebug.snapHeight) {
-          created.visualTransform.offsetZ = snapHeightValue(
-            created.visualTransform.offsetZ,
-            workspaceOptions.snapHeightStep
-          );
+          created.z = snapHeightValue(created.z, workspaceOptions.snapHeightStep);
         }
 
         setSceneHistory((current) =>
@@ -3224,12 +3643,7 @@ export function WorkspaceCanvasViewport({
               ...current,
               draft: {
                 ...current.draft,
-                [field]: sanitizedValue,
-                ...(field === "z"
-                  ? { zTranslation: sanitizedValue }
-                  : field === "zTranslation"
-                    ? { z: sanitizedValue }
-                    : {})
+                [field]: sanitizedValue
               }
             }
           : current
@@ -3316,6 +3730,10 @@ export function WorkspaceCanvasViewport({
       const objectIds = adjustLocationDialog.objectIds;
       const includeVisualTransforms = adjustLocationDialog.showVisualTransforms;
       const draftZWorld = fromAdjustLocationHeight(draft.z, adjustLocationUnitsPerTile);
+      const draftVtZWorld = fromAdjustLocationHeight(
+        draft.zTranslation,
+        adjustLocationUnitsPerTile
+      );
 
       setSceneHistory((current) => {
         let nextScene = sceneViewportPort.setObjectsAbsoluteLocationByIds(
@@ -3333,7 +3751,7 @@ export function WorkspaceCanvasViewport({
             scale: draft.scale,
             offsetX: draft.xTranslation,
             offsetY: draft.yTranslation,
-            offsetZ: draftZWorld,
+            offsetZ: draftVtZWorld,
             pitch: toRadians(draft.xRotationDeg),
             yaw: toRadians(draft.yRotationDeg),
             roll: toRadians(draft.zRotationDeg)
@@ -3875,7 +4293,7 @@ export function WorkspaceCanvasViewport({
         const payload = JSON.stringify({
           x: contextObj.x,
           y: contextObj.y,
-          z: contextObj.visualTransform.offsetZ
+          z: contextObj.z
         });
         if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
           void navigator.clipboard.writeText(payload).then(
@@ -4162,6 +4580,16 @@ export function WorkspaceCanvasViewport({
       : selectedTile
         ? `tile ${selectedTile.col},${selectedTile.row}`
         : "none";
+  const selectedObjectsForTransform = selectedObjectIds
+    .map((id) => objectById.get(id) ?? null)
+    .filter((object): object is SceneObject => Boolean(object));
+  const gizmoModeBadge = resolveGizmoModeBadge(toolbarState.canvasDebug.gizmoMode);
+  const visualTransformBlockedReason = isVisualTransformGizmoMode(toolbarState.canvasDebug.gizmoMode)
+    ? resolveVisualTransformSelectionBlockedReason(
+        selectedObjectsForTransform,
+        toolbarState.canvasDebug
+      )
+    : null;
   const nonRenderCount = scene.objects.filter(
     (object) => resolveMockRenderStatus(object) === "non_render"
   ).length;
@@ -4184,7 +4612,7 @@ export function WorkspaceCanvasViewport({
     : "Not saved yet";
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: translate XYZ / rotate bearing (Y) | Canvas menu: gizmo/snap/layers/debug";
+    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: 1 world move / 2 world bearing / 3 VT rotate / 4 VT offset / 5 VT scale | Canvas menu: gizmo/snap/layers/debug";
   const hudLeftPx = leftPanelWidthPx + 14;
   const hudRightPx = rightPanelWidthPx + 14;
   const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;
@@ -4238,6 +4666,15 @@ export function WorkspaceCanvasViewport({
       {selectionBox.active && selectionBoxStyle ? (
         <div className="canvas-selection-box" style={selectionBoxStyle} aria-hidden="true" />
       ) : null}
+
+      <aside
+        className={`canvas-gizmo-mode-badge canvas-gizmo-mode-badge-${gizmoModeBadge.variant}`}
+        role="note"
+        aria-label="gizmo mode badge"
+        style={{ left: `${hudLeftPx}px` }}
+      >
+        {gizmoModeBadge.label}
+      </aside>
 
       {contextMenu ? (
         <article
@@ -4817,6 +5254,10 @@ export function WorkspaceCanvasViewport({
               Gizmo: <strong>{toolbarState.canvasDebug.gizmoMode}</strong>
             </p>
             <p>
+              VT physical:{" "}
+              <strong>{toolbarState.canvasDebug.showVtPhysicalAnchor ? "on" : "off"}</strong>
+            </p>
+            <p>
               Snap: <strong>{snapSummary || "off"}</strong>
             </p>
             <p>
@@ -4865,6 +5306,17 @@ export function WorkspaceCanvasViewport({
               </>
             ) : null}
           </article>
+        </aside>
+      ) : null}
+
+      {visualTransformBlockedReason ? (
+        <aside
+          className="canvas-vt-blocked-note"
+          role="note"
+          aria-label="visual transform blocked info"
+          style={{ right: `${hudRightPx}px`, maxWidth: hudMaxWidth }}
+        >
+          {visualTransformBlockedReason}
         </aside>
       ) : null}
 

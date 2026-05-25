@@ -25,4 +25,22 @@ describe("transformControlAxisVisibility", () => {
       showZ: false
     });
   });
+
+  it("shows all handles for VT rotate/translate/scale modes", () => {
+    expect(resolveTransformControlAxisVisibility("vt_rotate")).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true
+    });
+    expect(resolveTransformControlAxisVisibility("vt_translate")).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true
+    });
+    expect(resolveTransformControlAxisVisibility("vt_scale")).toEqual({
+      showX: true,
+      showY: true,
+      showZ: true
+    });
+  });
 });

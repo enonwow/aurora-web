@@ -241,7 +241,7 @@ describe("sceneMutationsFacade", () => {
     expect(movedFirst?.y).toBeLessThan(scene.height);
   });
 
-  it("adjusts movable object height via visual transform offsetZ", () => {
+  it("adjusts movable object height via base Z position", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const movable = scene.objects.find((object) => object.kind === "placeables");
@@ -250,9 +250,8 @@ describe("sceneMutationsFacade", () => {
     const nextScene = facade.adjustObjectsHeightByIds(scene, [movable!.id], 0.65);
     const changed = nextScene.objects.find((object) => object.id === movable!.id);
 
-    expect(changed?.visualTransform.offsetZ).toBeCloseTo(
-      (movable?.visualTransform.offsetZ ?? 0) + 0.65
-    );
+    expect(changed?.z).toBeCloseTo((movable?.z ?? 0) + 0.65);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(movable?.visualTransform.offsetZ ?? 0);
   });
 
   it("prevents lowering selected objects below surface while keeping shared delta", () => {
@@ -269,19 +268,13 @@ describe("sceneMutationsFacade", () => {
         if (object.id === first!.id) {
           return {
             ...object,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 0.2
-            }
+            z: 0.2
           };
         }
         if (object.id === second!.id) {
           return {
             ...object,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 1.0
-            }
+            z: 1
           };
         }
         return object;
@@ -298,8 +291,8 @@ describe("sceneMutationsFacade", () => {
     expect(nextFirst).toBeDefined();
     expect(nextSecond).toBeDefined();
 
-    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
-    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(0.8);
+    expect(nextFirst?.z).toBeCloseTo(0);
+    expect(nextSecond?.z).toBeCloseTo(0.8);
   });
 
   it("rotates movable object bearing around Y axis", () => {
@@ -394,7 +387,7 @@ describe("sceneMutationsFacade", () => {
     const targetBearing = 1.2;
     const deltaX = targetX - first!.x;
     const deltaY = targetY - first!.y;
-    const deltaZ = targetZ - first!.visualTransform.offsetZ;
+    const deltaZ = targetZ - first!.z;
     const deltaBearing = targetBearing - first!.bearing;
 
     const nextScene = facade.setObjectsAbsoluteLocationByIds(
@@ -409,13 +402,11 @@ describe("sceneMutationsFacade", () => {
     expect(changedFirst?.x).toBeCloseTo(targetX);
     expect(changedFirst?.y).toBeCloseTo(targetY);
     expect(changedFirst?.bearing).toBeCloseTo(targetBearing);
-    expect(changedFirst?.visualTransform.offsetZ).toBeCloseTo(targetZ);
+    expect(changedFirst?.z).toBeCloseTo(targetZ);
     expect(changedSecond?.x).toBeCloseTo((second?.x ?? 0) + deltaX);
     expect(changedSecond?.y).toBeCloseTo((second?.y ?? 0) + deltaY);
     expect(changedSecond?.bearing).toBeCloseTo((second?.bearing ?? 0) + deltaBearing);
-    expect(changedSecond?.visualTransform.offsetZ).toBeCloseTo(
-      (second?.visualTransform.offsetZ ?? 0) + deltaZ
-    );
+    expect(changedSecond?.z).toBeCloseTo((second?.z ?? 0) + deltaZ);
   });
 
   it("returns same scene reference for no-op absolute-location update", () => {
@@ -427,7 +418,7 @@ describe("sceneMutationsFacade", () => {
     const nextScene = facade.setObjectsAbsoluteLocationByIds(scene, [target!.id], {
       x: target!.x,
       y: target!.y,
-      z: target!.visualTransform.offsetZ,
+      z: target!.z,
       bearing: target!.bearing
     });
 
@@ -459,11 +450,11 @@ describe("sceneMutationsFacade", () => {
     expect(secondAsPrimary).toBeDefined();
     expect(firstAsPrimary?.x).toBeCloseTo(1.2);
     expect(firstAsPrimary?.y).toBeCloseTo(1.3);
-    expect(firstAsPrimary?.visualTransform.offsetZ).toBeCloseTo(0.4);
+    expect(firstAsPrimary?.z).toBeCloseTo(0.4);
     expect(firstAsPrimary?.bearing).toBeCloseTo(0.8);
     expect(secondAsPrimary?.x).toBeCloseTo(1.2);
     expect(secondAsPrimary?.y).toBeCloseTo(1.3);
-    expect(secondAsPrimary?.visualTransform.offsetZ).toBeCloseTo(0.4);
+    expect(secondAsPrimary?.z).toBeCloseTo(0.4);
     expect(secondAsPrimary?.bearing).toBeCloseTo(0.8);
   });
 
@@ -483,10 +474,7 @@ describe("sceneMutationsFacade", () => {
             ...object,
             x: 0.1,
             y: 1.9,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 0.2
-            }
+            z: 0.2
           };
         }
         if (object.id === second!.id) {
@@ -494,10 +482,7 @@ describe("sceneMutationsFacade", () => {
             ...object,
             x: 1.5,
             y: 0.4,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 1.3
-            }
+            z: 1.3
           };
         }
         return object;
@@ -518,8 +503,8 @@ describe("sceneMutationsFacade", () => {
     const deltaXSecond = (nextSecond?.x ?? 0) - 1.5;
     const deltaYFirst = (nextFirst?.y ?? 0) - 1.9;
     const deltaYSecond = (nextSecond?.y ?? 0) - 0.4;
-    const deltaZFirst = (nextFirst?.visualTransform.offsetZ ?? 0) - 0.2;
-    const deltaZSecond = (nextSecond?.visualTransform.offsetZ ?? 0) - 1.3;
+    const deltaZFirst = (nextFirst?.z ?? 0) - 0.2;
+    const deltaZSecond = (nextSecond?.z ?? 0) - 1.3;
 
     expect(deltaXFirst).toBeCloseTo(deltaXSecond, 6);
     expect(deltaYFirst).toBeCloseTo(deltaYSecond, 6);
@@ -527,8 +512,8 @@ describe("sceneMutationsFacade", () => {
     expect(nextFirst?.x).toBeCloseTo(0);
     expect(nextFirst?.y).toBeLessThan(scene.height);
     expect(nextFirst?.y).toBeGreaterThan(scene.height - 0.2);
-    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
-    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(1.1);
+    expect(nextFirst?.z).toBeCloseTo(0);
+    expect(nextSecond?.z).toBeCloseTo(1.1);
   });
 
   it("clamps absolute-location multi-selection movement to shared scene bounds delta", () => {
@@ -604,19 +589,13 @@ describe("sceneMutationsFacade", () => {
         if (object.id === first!.id) {
           return {
             ...object,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 0.2
-            }
+            z: 0.2
           };
         }
         if (object.id === second!.id) {
           return {
             ...object,
-            visualTransform: {
-              ...object.visualTransform,
-              offsetZ: 1.0
-            }
+            z: 1
           };
         }
         return object;
@@ -632,8 +611,8 @@ describe("sceneMutationsFacade", () => {
     const nextSecond = nextScene.objects.find((object) => object.id === second!.id);
     expect(nextFirst).toBeDefined();
     expect(nextSecond).toBeDefined();
-    expect(nextFirst?.visualTransform.offsetZ).toBeCloseTo(0);
-    expect(nextSecond?.visualTransform.offsetZ).toBeCloseTo(0.8);
+    expect(nextFirst?.z).toBeCloseTo(0);
+    expect(nextSecond?.z).toBeCloseTo(0.8);
   });
 
   it("normalizes absolute-location bearing input to 0..2pi", () => {
@@ -795,10 +774,10 @@ describe("sceneMutationsFacade", () => {
     expect(restoredFirst?.x).toBeCloseTo(first!.x);
     expect(restoredFirst?.y).toBeCloseTo(first!.y);
     expect(restoredFirst?.bearing).toBeCloseTo(first!.bearing);
-    expect(restoredFirst?.visualTransform.offsetZ).toBeCloseTo(first!.visualTransform.offsetZ);
+    expect(restoredFirst?.z).toBeCloseTo(first!.z);
     expect(restoredSecond?.x).toBeCloseTo(second!.x);
     expect(restoredSecond?.y).toBeCloseTo(second!.y);
     expect(restoredSecond?.bearing).toBeCloseTo(second!.bearing);
-    expect(restoredSecond?.visualTransform.offsetZ).toBeCloseTo(second!.visualTransform.offsetZ);
+    expect(restoredSecond?.z).toBeCloseTo(second!.z);
   });
 });

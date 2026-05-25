@@ -62,6 +62,7 @@ export type ToolbarActionKey =
   | "debug_bounds"
   | "debug_hidden_meshes"
   | "debug_show_non_render_meshes"
+  | "debug_show_vt_physical_anchor"
   | "debug_status_map_off"
   | "debug_status_map_placeables"
   | "debug_status_map_doors"
@@ -75,6 +76,9 @@ export type ToolbarActionKey =
   | "canvas_gizmo_translate"
   | "canvas_gizmo_rotate"
   | "canvas_gizmo_scale"
+  | "canvas_gizmo_vt_rotate"
+  | "canvas_gizmo_vt_translate"
+  | "canvas_gizmo_vt_scale"
   | "snap_grid_toggle"
   | "snap_angle_toggle"
   | "snap_height_toggle"
@@ -138,6 +142,7 @@ export interface WorkspaceToolbarState {
     bounds: boolean;
     hiddenMeshes: boolean;
     showNonRenderMeshes: boolean;
+    showVtPhysicalAnchor: boolean;
     statusMap:
       | "off"
       | "placeables"
@@ -147,7 +152,13 @@ export interface WorkspaceToolbarState {
       | "sounds"
       | "all";
     textureCompression: "none" | "etc1s" | "uastc";
-    gizmoMode: "translate" | "rotate" | "scale";
+    gizmoMode:
+      | "translate"
+      | "rotate"
+      | "scale"
+      | "vt_rotate"
+      | "vt_translate"
+      | "vt_scale";
     snapGrid: boolean;
     snapAngle: boolean;
     snapHeight: boolean;
@@ -276,9 +287,11 @@ const builderAndAdminGroups: ToolbarGroup[] = [
     key: "canvas",
     label: "Canvas",
     actions: [
-      action("canvas_gizmo_translate", "Gizmo Move (1)", "mvp"),
-      action("canvas_gizmo_rotate", "Gizmo Rotate (2)", "mvp"),
-      action("canvas_gizmo_scale", "Gizmo Scale (Reserved)", "post_mvp"),
+      action("canvas_gizmo_translate", "World Move (1)", "mvp"),
+      action("canvas_gizmo_rotate", "World Bearing (2)", "mvp"),
+      action("canvas_gizmo_vt_rotate", "VT Rotate (3)", "mvp"),
+      action("canvas_gizmo_vt_translate", "VT Offset (4)", "mvp"),
+      action("canvas_gizmo_vt_scale", "VT Scale (5)", "mvp"),
       action("snap_grid_toggle", "Snap Grid", "mvp"),
       action("snap_angle_toggle", "Snap Angle", "mvp"),
       action("snap_height_toggle", "Snap Height", "mvp"),
@@ -310,6 +323,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
       action("debug_object_labels", "Object Labels", "mvp"),
       action("debug_hidden_meshes", "Hidden Meshes", "mvp"),
       action("debug_show_non_render_meshes", "Show Non-render Meshes", "mvp"),
+      action("debug_show_vt_physical_anchor", "Show VT Physical Anchor", "mvp"),
       action("debug_perf_hud", "Perf HUD", "mvp"),
       action("debug_walkmesh_overlay", "Walkmesh Overlay", "mvp"),
       action("debug_collision_overlay", "Collision Overlay", "mvp"),
@@ -374,9 +388,11 @@ const dmGroups: ToolbarGroup[] = [
     key: "canvas",
     label: "Canvas",
     actions: [
-      action("canvas_gizmo_translate", "Gizmo Move (1)", "mvp"),
-      action("canvas_gizmo_rotate", "Gizmo Rotate (2)", "mvp"),
-      action("canvas_gizmo_scale", "Gizmo Scale (Reserved)", "post_mvp"),
+      action("canvas_gizmo_translate", "World Move (1)", "mvp"),
+      action("canvas_gizmo_rotate", "World Bearing (2)", "mvp"),
+      action("canvas_gizmo_vt_rotate", "VT Rotate (3)", "mvp"),
+      action("canvas_gizmo_vt_translate", "VT Offset (4)", "mvp"),
+      action("canvas_gizmo_vt_scale", "VT Scale (5)", "mvp"),
       action("snap_grid_toggle", "Snap Grid", "mvp"),
       action("snap_angle_toggle", "Snap Angle", "mvp"),
       action("camera_bookmark_save_1", "Save Bookmark #1", "mvp"),
@@ -386,6 +402,7 @@ const dmGroups: ToolbarGroup[] = [
       action("debug_grid", "Grid", "mvp"),
       action("debug_axes", "Axes", "mvp"),
       action("debug_bounds", "Bounds", "mvp"),
+      action("debug_show_vt_physical_anchor", "Show VT Physical Anchor", "mvp"),
       action("debug_chunks", "Chunk Bounds", "mvp"),
       action("debug_object_labels", "Object Labels", "mvp"),
       action("debug_perf_hud", "Perf HUD", "mvp"),
@@ -442,6 +459,7 @@ const viewerGroups: ToolbarGroup[] = [
       action("debug_grid", "Grid", "mvp"),
       action("debug_axes", "Axes", "mvp"),
       action("debug_bounds", "Bounds", "mvp"),
+      action("debug_show_vt_physical_anchor", "Show VT Physical Anchor", "mvp"),
       action("debug_chunks", "Chunk Bounds", "mvp"),
       action("debug_object_labels", "Object Labels", "mvp"),
       action("debug_perf_hud", "Perf HUD", "mvp"),
@@ -524,6 +542,7 @@ export function createDefaultToolbarState(): WorkspaceToolbarState {
       bounds: false,
       hiddenMeshes: false,
       showNonRenderMeshes: false,
+      showVtPhysicalAnchor: false,
       statusMap: "off",
       textureCompression: "uastc",
       gizmoMode: "translate",
@@ -782,6 +801,17 @@ export function applyToolbarAction(
     };
   }
 
+  if (actionKey === "debug_show_vt_physical_anchor") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        showVtPhysicalAnchor: !current.canvasDebug.showVtPhysicalAnchor
+      },
+      lastCommand: actionKey
+    };
+  }
+
   if (actionKey === "debug_status_map_off") {
     return {
       ...current,
@@ -917,6 +947,39 @@ export function applyToolbarAction(
   if (actionKey === "canvas_gizmo_scale") {
     return {
       ...current,
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "canvas_gizmo_vt_rotate") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        gizmoMode: "vt_rotate"
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "canvas_gizmo_vt_translate") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        gizmoMode: "vt_translate"
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "canvas_gizmo_vt_scale") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        gizmoMode: "vt_scale"
+      },
       lastCommand: actionKey
     };
   }

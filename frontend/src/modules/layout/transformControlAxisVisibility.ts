@@ -1,4 +1,10 @@
-export type GizmoMode = "translate" | "rotate" | "scale";
+export type GizmoMode =
+  | "translate"
+  | "rotate"
+  | "scale"
+  | "vt_rotate"
+  | "vt_translate"
+  | "vt_scale";
 
 export interface TransformControlAxisVisibility {
   showX: boolean;
@@ -16,6 +22,9 @@ export function resolveTransformControlAxisVisibility(
   }
   if (gizmoMode === "rotate") {
     return { showX: false, showY: true, showZ: false };
+  }
+  if (gizmoMode === "vt_rotate" || gizmoMode === "vt_translate" || gizmoMode === "vt_scale") {
+    return { showX: true, showY: true, showZ: true };
   }
   return { showX: false, showY: false, showZ: false };
 }

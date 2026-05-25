@@ -14,7 +14,10 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("debug_textures", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("debug_status_map_off", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("canvas_gizmo_translate", initial)).toBe(true);
-    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_rotate", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_translate", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_scale", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("debug_show_vt_physical_anchor", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("unlock_all_layers", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("clear_isolation", initial)).toBe(true);
   });
@@ -53,34 +56,39 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("clear_isolation", isolationCleared)).toBe(true);
   });
 
-  it("treats scale gizmo mode as reserved and not active in topbar action state", () => {
+  it("marks VT gizmo actions active only for matching VT mode", () => {
     const chromeFacade = createWorkspaceChromeFacade();
     const actionStateFacade = createWorkspaceTopbarActionStateFacade();
-    const scaleState = {
+    const vtRotateState = {
       ...chromeFacade.createDefaultToolbarState(),
       canvasDebug: {
         ...chromeFacade.createDefaultToolbarState().canvasDebug,
-        gizmoMode: "scale" as const
+        gizmoMode: "vt_rotate" as const
       }
     };
 
-    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", scaleState)).toBe(false);
-    expect(actionStateFacade.isActionActive("canvas_gizmo_translate", scaleState)).toBe(false);
-    expect(actionStateFacade.isActionActive("canvas_gizmo_rotate", scaleState)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_rotate", vtRotateState)).toBe(true);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_translate", vtRotateState)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_scale", vtRotateState)).toBe(false);
   });
 
-  it("keeps rotate active after reserved scale action is issued", () => {
+  it("switches active state when VT actions are issued", () => {
     const chromeFacade = createWorkspaceChromeFacade();
     const actionStateFacade = createWorkspaceTopbarActionStateFacade();
-    const rotateState = chromeFacade.applyToolbarAction(
+    const vtRotateState = chromeFacade.applyToolbarAction(
       chromeFacade.createDefaultToolbarState(),
-      "canvas_gizmo_rotate"
+      "canvas_gizmo_vt_rotate"
     );
-    const afterScale = chromeFacade.applyToolbarAction(rotateState, "canvas_gizmo_scale");
+    const afterVtTranslate = chromeFacade.applyToolbarAction(
+      vtRotateState,
+      "canvas_gizmo_vt_translate"
+    );
+    const afterVtScale = chromeFacade.applyToolbarAction(afterVtTranslate, "canvas_gizmo_vt_scale");
 
-    expect(afterScale.lastCommand).toBe("canvas_gizmo_scale");
-    expect(actionStateFacade.isActionActive("canvas_gizmo_scale", afterScale)).toBe(false);
-    expect(actionStateFacade.isActionActive("canvas_gizmo_rotate", afterScale)).toBe(true);
+    expect(afterVtScale.lastCommand).toBe("canvas_gizmo_vt_scale");
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_rotate", afterVtScale)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_translate", afterVtScale)).toBe(false);
+    expect(actionStateFacade.isActionActive("canvas_gizmo_vt_scale", afterVtScale)).toBe(true);
   });
 
   it("returns false for command-only and non-toggle action keys", () => {
@@ -93,5 +101,16 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("save_local_draft", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("debug_export_status_report", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("dm_spawn_creature", initial)).toBe(false);
+  });
+
+  it("marks VT physical anchor toggle active after action", () => {
+    const chromeFacade = createWorkspaceChromeFacade();
+    const actionStateFacade = createWorkspaceTopbarActionStateFacade();
+    const next = chromeFacade.applyToolbarAction(
+      chromeFacade.createDefaultToolbarState(),
+      "debug_show_vt_physical_anchor"
+    );
+
+    expect(actionStateFacade.isActionActive("debug_show_vt_physical_anchor", next)).toBe(true);
   });
 });

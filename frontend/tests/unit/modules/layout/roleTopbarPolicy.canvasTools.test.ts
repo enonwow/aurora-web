@@ -5,7 +5,7 @@ import {
 } from "../../../../src/modules/layout/roleTopbarPolicy";
 
 describe("roleTopbarPolicy canvas tools", () => {
-  it("switches gizmo mode across translate/rotate and keeps scale reserved", () => {
+  it("switches gizmo mode across base + VT gizmos", () => {
     const initial = createDefaultToolbarState();
 
     const translate = applyToolbarAction(initial, "canvas_gizmo_translate");
@@ -14,26 +14,30 @@ describe("roleTopbarPolicy canvas tools", () => {
     const rotate = applyToolbarAction(translate, "canvas_gizmo_rotate");
     expect(rotate.canvasDebug.gizmoMode).toBe("rotate");
 
-    const scaleReserved = applyToolbarAction(rotate, "canvas_gizmo_scale");
-    expect(scaleReserved.canvasDebug.gizmoMode).toBe("rotate");
-    expect(scaleReserved.lastCommand).toBe("canvas_gizmo_scale");
+    const vtRotate = applyToolbarAction(rotate, "canvas_gizmo_vt_rotate");
+    expect(vtRotate.canvasDebug.gizmoMode).toBe("vt_rotate");
+
+    const vtTranslate = applyToolbarAction(vtRotate, "canvas_gizmo_vt_translate");
+    expect(vtTranslate.canvasDebug.gizmoMode).toBe("vt_translate");
+
+    const vtScale = applyToolbarAction(vtTranslate, "canvas_gizmo_vt_scale");
+    expect(vtScale.canvasDebug.gizmoMode).toBe("vt_scale");
   });
 
-  it("keeps canvas scale action in toolbar as post_mvp (unsupported in Aurora First)", () => {
+  it("exposes VT gizmo actions in builder and dm canvas toolbars", () => {
     const builderCanvas = getRoleToolbarGroups("builder").find((group) => group.key === "canvas");
     const dmCanvas = getRoleToolbarGroups("dm").find((group) => group.key === "canvas");
 
     expect(builderCanvas).toBeDefined();
     expect(dmCanvas).toBeDefined();
-    expect(
-      builderCanvas?.actions.find((action) => action.key === "canvas_gizmo_scale")
-    ).toMatchObject({
-      status: "post_mvp",
-      supported: false,
-      label: "Gizmo Scale (Reserved)"
-    });
-    expect(dmCanvas?.actions.find((action) => action.key === "canvas_gizmo_scale")).toMatchObject(
-      { status: "post_mvp", supported: false, label: "Gizmo Scale (Reserved)" }
+    expect(builderCanvas?.actions.find((action) => action.key === "canvas_gizmo_vt_rotate"))
+      .toMatchObject({ status: "mvp", supported: true, label: "VT Rotate (3)" });
+    expect(builderCanvas?.actions.find((action) => action.key === "canvas_gizmo_vt_translate"))
+      .toMatchObject({ status: "mvp", supported: true, label: "VT Offset (4)" });
+    expect(builderCanvas?.actions.find((action) => action.key === "canvas_gizmo_vt_scale"))
+      .toMatchObject({ status: "mvp", supported: true, label: "VT Scale (5)" });
+    expect(dmCanvas?.actions.find((action) => action.key === "canvas_gizmo_vt_rotate")).toMatchObject(
+      { status: "mvp", supported: true, label: "VT Rotate (3)" }
     );
   });
 
@@ -98,9 +102,14 @@ describe("roleTopbarPolicy canvas tools", () => {
       !walkmesh.canvasDebug.collisionOverlay
     );
 
-    const controlsHint = applyToolbarAction(collision, "debug_controls_hint");
+    const vtPhysicalAnchor = applyToolbarAction(collision, "debug_show_vt_physical_anchor");
+    expect(vtPhysicalAnchor.canvasDebug.showVtPhysicalAnchor).toBe(
+      !collision.canvasDebug.showVtPhysicalAnchor
+    );
+
+    const controlsHint = applyToolbarAction(vtPhysicalAnchor, "debug_controls_hint");
     expect(controlsHint.canvasDebug.controlsHint).toBe(
-      !collision.canvasDebug.controlsHint
+      !vtPhysicalAnchor.canvasDebug.controlsHint
     );
 
     const runtimeHud = applyToolbarAction(controlsHint, "debug_runtime_hud");

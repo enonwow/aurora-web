@@ -70,7 +70,9 @@ function isCanvasDebugToggleActionActive(
     (actionKey === "debug_bounds" && toolbarState.canvasDebug.bounds) ||
     (actionKey === "debug_hidden_meshes" && toolbarState.canvasDebug.hiddenMeshes) ||
     (actionKey === "debug_show_non_render_meshes" &&
-      toolbarState.canvasDebug.showNonRenderMeshes)
+      toolbarState.canvasDebug.showNonRenderMeshes) ||
+    (actionKey === "debug_show_vt_physical_anchor" &&
+      toolbarState.canvasDebug.showVtPhysicalAnchor)
   );
 }
 
@@ -115,7 +117,12 @@ function isGizmoActionActive(
   return (
     (actionKey === "canvas_gizmo_translate" &&
       toolbarState.canvasDebug.gizmoMode === "translate") ||
-    (actionKey === "canvas_gizmo_rotate" && toolbarState.canvasDebug.gizmoMode === "rotate")
+    (actionKey === "canvas_gizmo_rotate" && toolbarState.canvasDebug.gizmoMode === "rotate") ||
+    (actionKey === "canvas_gizmo_vt_rotate" &&
+      toolbarState.canvasDebug.gizmoMode === "vt_rotate") ||
+    (actionKey === "canvas_gizmo_vt_translate" &&
+      toolbarState.canvasDebug.gizmoMode === "vt_translate") ||
+    (actionKey === "canvas_gizmo_vt_scale" && toolbarState.canvasDebug.gizmoMode === "vt_scale")
   );
 }
 

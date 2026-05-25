@@ -162,7 +162,7 @@ describe("Regression smoke: workspace interactions", () => {
     });
     fireEvent.change(zInput, {
       target: {
-        value: String((beforeObject?.visualTransform.offsetZ ?? 0) * MASTER_CELLS_PER_TILE + 12.5)
+        value: String((beforeObject?.z ?? 0) * MASTER_CELLS_PER_TILE + 12.5)
       }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
@@ -172,7 +172,7 @@ describe("Regression smoke: workspace interactions", () => {
     const afterApplyObject = afterApplyDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
     expect(afterApplyObject).toBeDefined();
     expect((afterApplyObject?.x ?? 0) - (beforeObject?.x ?? 0)).toBeGreaterThan(0.4);
-    expect((afterApplyObject?.visualTransform.offsetZ ?? 0) - (beforeObject?.visualTransform.offsetZ ?? 0)).toBeGreaterThan(1);
+    expect((afterApplyObject?.z ?? 0) - (beforeObject?.z ?? 0)).toBeGreaterThan(1);
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
     expect(screen.queryByRole("dialog", { name: /adjust location/i })).not.toBeInTheDocument();
@@ -182,10 +182,7 @@ describe("Regression smoke: workspace interactions", () => {
     const afterCancelObject = afterCancelDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
     expect(afterCancelObject).toBeDefined();
     expect(afterCancelObject?.x).toBeCloseTo(beforeObject?.x ?? 0, 6);
-    expect(afterCancelObject?.visualTransform.offsetZ).toBeCloseTo(
-      beforeObject?.visualTransform.offsetZ ?? 0,
-      6
-    );
+    expect(afterCancelObject?.z).toBeCloseTo(beforeObject?.z ?? 0, 6);
   });
 
   it("keeps Adjust Location fields in sync with canvas movement", async () => {
@@ -270,7 +267,7 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
   });
 
-  it("keeps Adjust Location Z and Z Translation synchronized across apply and reopen", async () => {
+  it("keeps Adjust Location Z independent from Z Translation across apply and reopen", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -284,6 +281,7 @@ describe("Regression smoke: workspace interactions", () => {
     const zTranslationInput = within(dialog).getByRole("spinbutton", {
       name: /^z translation$/i
     }) as HTMLInputElement;
+    const baselineZ = Number.parseFloat(zInput.value);
     const targetZ = Number.parseFloat(zInput.value) + 12.5;
 
     fireEvent.change(zTranslationInput, { target: { value: String(targetZ) } });
@@ -291,10 +289,18 @@ describe("Regression smoke: workspace interactions", () => {
     await waitFor(() => {
       expect(
         Number.parseFloat(
-          (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+          (
+            within(dialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement
+          ).value
         )
       ).toBeCloseTo(targetZ, 6);
     });
+
+    expect(
+      Number.parseFloat(
+        (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+      )
+    ).toBeCloseTo(baselineZ, 6);
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
     expect(screen.queryByRole("dialog", { name: /adjust location/i })).not.toBeInTheDocument();
@@ -319,8 +325,59 @@ describe("Regression smoke: workspace interactions", () => {
         within(reopenedDialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement
       ).value
     );
-    expect(reopenedZ).toBeCloseTo(targetZ, 6);
+    expect(reopenedZ).toBeCloseTo(baselineZ, 6);
     expect(reopenedZTranslation).toBeCloseTo(targetZ, 6);
+
+    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
+  });
+
+  it("keeps Z Translation unchanged when only Position Z is edited", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const zInput = within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement;
+    const zTranslationInput = within(dialog).getByRole("spinbutton", {
+      name: /^z translation$/i
+    }) as HTMLInputElement;
+
+    const baselineZ = Number.parseFloat(zInput.value);
+    const baselineZTranslation = Number.parseFloat(zTranslationInput.value);
+    const nextZ = baselineZ + 7.25;
+
+    fireEvent.change(zInput, { target: { value: String(nextZ) } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    expect(screen.queryByRole("dialog", { name: /adjust location/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+    const savedDraft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    const changed = savedDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
+    expect(changed).toBeDefined();
+    expect(changed?.z ?? 0).toBeCloseTo(nextZ / MASTER_CELLS_PER_TILE, 6);
+    expect(changed?.visualTransform.offsetZ ?? 0).toBeCloseTo(
+      baselineZTranslation / MASTER_CELLS_PER_TILE,
+      6
+    );
+
+    fireEvent.contextMenu(row, { clientX: 272, clientY: 208 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const reopenedDialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const reopenedZ = Number.parseFloat(
+      (within(reopenedDialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
+    );
+    const reopenedZTranslation = Number.parseFloat(
+      (
+        within(reopenedDialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement
+      ).value
+    );
+
+    expect(reopenedZ).toBeCloseTo(nextZ, 6);
+    expect(reopenedZTranslation).toBeCloseTo(baselineZTranslation, 6);
 
     fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
   });
@@ -469,6 +526,90 @@ describe("Regression smoke: workspace interactions", () => {
     expect(afterNonStaticObject?.isStatic ?? true).toBe(false);
   });
 
+  it("blocks VT gizmo on static placeable and unblocks after disabling Static", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (!staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+
+    await openCanvasCommands();
+    fireEvent.click(screen.getByRole("button", { name: /vt rotate \(3\)/i }));
+    fireEvent.click(row);
+
+    const blockedNote = await screen.findByLabelText(/visual transform blocked info/i);
+    expect(blockedNote).toHaveTextContent(/disabled for static placeables/i);
+
+    fireEvent.contextMenu(row, { clientX: 264, clientY: 206 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const reopenDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const reopenStaticCheckbox = within(reopenDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (reopenStaticCheckbox.checked) {
+      fireEvent.click(reopenStaticCheckbox);
+    }
+    fireEvent.click(within(reopenDialog).getByRole("button", { name: /^ok$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/visual transform blocked info/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps VT keyboard move from changing Z Translation in Adjust Location", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+
+    fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+
+    fireEvent.contextMenu(row, { clientX: 266, clientY: 206 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const beforeDialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const zTranslationBefore = Number.parseFloat(
+      (within(beforeDialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement)
+        .value
+    );
+    fireEvent.click(within(beforeDialog).getByRole("button", { name: /^cancel$/i }));
+
+    await openCanvasCommands();
+    fireEvent.click(screen.getByRole("button", { name: /vt offset \(4\)/i }));
+    fireEvent.click(row);
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+
+    fireEvent.contextMenu(row, { clientX: 274, clientY: 214 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
+    const afterDialog = await screen.findByRole("dialog", { name: /adjust location/i });
+    const zTranslationAfter = Number.parseFloat(
+      (within(afterDialog).getByRole("spinbutton", { name: /^z translation$/i }) as HTMLInputElement)
+        .value
+    );
+    expect(zTranslationAfter).toBeCloseTo(zTranslationBefore, 6);
+  });
+
   it("reopens Adjust Location with updated XY, Z and bearing after transform commits", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -489,6 +630,9 @@ describe("Regression smoke: workspace interactions", () => {
     );
     const movedY = Number.parseFloat(
       (within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
+    );
+    const movedZ = Number.parseFloat(
+      (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
     );
     const targetZ = 1.9 * MASTER_CELLS_PER_TILE;
     const targetBearing = 137.5;
@@ -519,7 +663,7 @@ describe("Regression smoke: workspace interactions", () => {
       Number.parseFloat(
         (within(reopenedDialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
       )
-    ).toBeCloseTo(targetZ, 6);
+    ).toBeCloseTo(movedZ, 6);
     expect(
       Number.parseFloat(
         (within(reopenedDialog).getByRole("spinbutton", { name: /bearing/i }) as HTMLInputElement).value
@@ -902,6 +1046,7 @@ describe("Regression smoke: workspace interactions", () => {
   it("saves local draft using Ctrl+S keyboard shortcut", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
+    await screen.findByLabelText(/right sidebar/i);
 
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
 
@@ -915,6 +1060,7 @@ describe("Regression smoke: workspace interactions", () => {
     window.localStorage.setItem("aurora-web.local-area-drafts.v1", "123");
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
+    await screen.findByLabelText(/right sidebar/i);
 
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
 

@@ -53,7 +53,11 @@ function statusLabel(status: "mvp" | "post_mvp" | "pending_estimate"): string {
 
 function resolveCanvasActionTitle(action: ToolbarAction): string {
   const status = statusLabel(action.status);
-  if (action.key === "canvas_gizmo_scale" && !action.supported && action.status === "post_mvp") {
+  if (
+    action.key === "canvas_gizmo_scale" &&
+    !action.supported &&
+    action.status === "post_mvp"
+  ) {
     return `${action.label} (${status}, Reserved)`;
   }
   return `${action.label} (${status})`;
@@ -134,7 +138,9 @@ export function WorkspaceTopbar({
         group.actions.filter((action) => action.supported).map((action) => action.key)
       )
     );
-    const hasGizmoScale = supportedActionKeys.has("canvas_gizmo_scale");
+    const hasGizmoVtRotate = supportedActionKeys.has("canvas_gizmo_vt_rotate");
+    const hasGizmoVtTranslate = supportedActionKeys.has("canvas_gizmo_vt_translate");
+    const hasGizmoVtScale = supportedActionKeys.has("canvas_gizmo_vt_scale");
 
     const viewportShortcuts: KeyboardShortcut[] = [
       { key: "MMB", description: "Rotate camera." },
@@ -144,19 +150,40 @@ export function WorkspaceTopbar({
     ];
     const canvasWorkflowShortcuts: KeyboardShortcut[] = [
       { key: "Canvas menu", description: "Gizmo / snap / lock / isolate / debug toggles." },
-      { key: "1", description: "Switch gizmo to Move mode." },
-      { key: "2", description: "Switch gizmo to Rotate (bearing) mode." },
+      { key: "1", description: "Switch gizmo to World Move mode." },
+      { key: "2", description: "Switch gizmo to World Bearing mode." },
       { key: "Arrow keys / Shift + Arrow", description: "Move selected object(s) in scene." },
       { key: "Ctrl/Cmd + C", description: "Copy selected object(s)." },
       { key: "Ctrl/Cmd + X", description: "Cut selected object(s)." },
       { key: "Ctrl/Cmd + V", description: "Paste copied or cut object(s)." },
       { key: "Del / Backspace", description: "Delete selected objects (unlocked layers only)." }
     ];
-    if (hasGizmoScale) {
-      canvasWorkflowShortcuts.splice(3, 0, {
+    const insertionIndex = 3;
+    if (hasGizmoVtRotate) {
+      canvasWorkflowShortcuts.splice(insertionIndex, 0, {
         key: "3",
-        description: "Switch gizmo to Scale mode."
+        description: "Switch gizmo to VT Rotate mode (XYZ)."
       });
+    }
+    if (hasGizmoVtTranslate) {
+      canvasWorkflowShortcuts.splice(
+        insertionIndex + (hasGizmoVtRotate ? 1 : 0),
+        0,
+        {
+          key: "4",
+          description: "Switch gizmo to VT Offset mode (XYZ)."
+        }
+      );
+    }
+    if (hasGizmoVtScale) {
+      canvasWorkflowShortcuts.splice(
+        insertionIndex + (hasGizmoVtRotate ? 1 : 0) + (hasGizmoVtTranslate ? 1 : 0),
+        0,
+        {
+          key: "5",
+          description: "Switch gizmo to VT Scale mode."
+        }
+      );
     }
 
     return [
@@ -235,6 +262,9 @@ export function WorkspaceTopbar({
     );
     const hasGizmoTranslate = supportedActionKeys.has("canvas_gizmo_translate");
     const hasGizmoRotate = supportedActionKeys.has("canvas_gizmo_rotate");
+    const hasGizmoVtRotate = supportedActionKeys.has("canvas_gizmo_vt_rotate");
+    const hasGizmoVtTranslate = supportedActionKeys.has("canvas_gizmo_vt_translate");
+    const hasGizmoVtScale = supportedActionKeys.has("canvas_gizmo_vt_scale");
 
     const handleKeyboardShortcuts = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
@@ -269,6 +299,30 @@ export function WorkspaceTopbar({
       if (!isMeta && !event.altKey && !event.shiftKey && isDigit2 && hasGizmoRotate) {
         event.preventDefault();
         onAction("canvas_gizmo_rotate");
+        return;
+      }
+
+      const isDigit3 =
+        event.key === "3" || event.code === "Digit3" || event.code === "Numpad3";
+      if (!isMeta && !event.altKey && !event.shiftKey && isDigit3 && hasGizmoVtRotate) {
+        event.preventDefault();
+        onAction("canvas_gizmo_vt_rotate");
+        return;
+      }
+
+      const isDigit4 =
+        event.key === "4" || event.code === "Digit4" || event.code === "Numpad4";
+      if (!isMeta && !event.altKey && !event.shiftKey && isDigit4 && hasGizmoVtTranslate) {
+        event.preventDefault();
+        onAction("canvas_gizmo_vt_translate");
+        return;
+      }
+
+      const isDigit5 =
+        event.key === "5" || event.code === "Digit5" || event.code === "Numpad5";
+      if (!isMeta && !event.altKey && !event.shiftKey && isDigit5 && hasGizmoVtScale) {
+        event.preventDefault();
+        onAction("canvas_gizmo_vt_scale");
         return;
       }
 
@@ -378,9 +432,11 @@ export function WorkspaceTopbar({
       <section className="canvas-drawer-group">
         <h3>Transform</h3>
         <div className="topbar-nav-buttons topbar-nav-buttons-compact">
-          {renderCanvasActionButton("canvas_gizmo_translate", "Move (1)")}
-          {renderCanvasActionButton("canvas_gizmo_rotate", "Rotate (2)")}
-          {renderCanvasActionButton("canvas_gizmo_scale", "Scale (Reserved)")}
+          {renderCanvasActionButton("canvas_gizmo_translate", "World Move (1)")}
+          {renderCanvasActionButton("canvas_gizmo_rotate", "World Bearing (2)")}
+          {renderCanvasActionButton("canvas_gizmo_vt_rotate", "VT Rotate (3)")}
+          {renderCanvasActionButton("canvas_gizmo_vt_translate", "VT Offset (4)")}
+          {renderCanvasActionButton("canvas_gizmo_vt_scale", "VT Scale (5)")}
           {renderCanvasActionButton("snap_grid_toggle", "Snap Grid")}
           {renderCanvasActionButton("snap_angle_toggle", "Snap Angle")}
           {renderCanvasActionButton("snap_height_toggle", "Snap Height")}
@@ -430,6 +486,7 @@ export function WorkspaceTopbar({
           {renderCanvasActionButton("debug_bounds", "Bounds")}
           {renderCanvasActionButton("debug_hidden_meshes", "Hidden")}
           {renderCanvasActionButton("debug_show_non_render_meshes", "Non-render")}
+          {renderCanvasActionButton("debug_show_vt_physical_anchor", "VT Physical")}
         </div>
       </section>
 

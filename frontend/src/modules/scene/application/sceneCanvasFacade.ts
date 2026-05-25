@@ -25,6 +25,8 @@ export interface SceneCanvasFacade {
   saveLocalDraft(userId: string, scene: AreaScene): void;
 }
 
+const SCENE_OBJECT_MIN_Z = 0;
+
 function isLegacySeedDraft(draft: AreaScene, fallback: AreaScene): boolean {
   return (
     draft.sceneId === fallback.sceneId &&
@@ -58,6 +60,14 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
   let changed = false;
   const normalizedObjects = scene.objects.map((object) => {
     const withMetadata = normalizeSceneObjectMetadata(object);
+    const hasNormalizedZ = Number.isFinite(withMetadata.z);
+    const nextZ = Math.max(
+      SCENE_OBJECT_MIN_Z,
+      hasNormalizedZ ? withMetadata.z : withMetadata.visualTransform.offsetZ
+    );
+    const nextOffsetZ = hasNormalizedZ
+      ? Math.max(SCENE_OBJECT_MIN_Z, withMetadata.visualTransform.offsetZ)
+      : 0;
     const currentScale = object.visualTransform.scale;
     const nextScale =
       typeof currentScale === "number" && Number.isFinite(currentScale) && currentScale > 0
@@ -65,8 +75,10 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
         : 1;
     const nextBearing = normalizeBearingRadians(object.bearing);
     if (
+      nextZ === withMetadata.z &&
       nextScale === currentScale &&
       nextBearing === object.bearing &&
+      nextOffsetZ === withMetadata.visualTransform.offsetZ &&
       withMetadata === object
     ) {
       return object;
@@ -74,10 +86,12 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
     changed = true;
     return {
       ...withMetadata,
+      z: nextZ,
       bearing: nextBearing,
       visualTransform: {
         ...withMetadata.visualTransform,
-        scale: nextScale
+        scale: nextScale,
+        offsetZ: nextOffsetZ
       }
     };
   });

@@ -67,6 +67,7 @@ export interface SceneObject {
   soundPositioning?: SceneObjectSoundPositioning;
   x: number;
   y: number;
+  z: number;
   bearing: number;
   visualTransform: SceneObjectVisualTransform;
 }
