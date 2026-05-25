@@ -111,7 +111,7 @@ export class SoundsApplicationService {
 
   async processSound(query: SoundProcessQuery) {
     const sound = await this.resolveSoundRecord(query.soundId);
-    const precomputed = this.repository.getPrecomputedSoundProcessing?.(sound.soundId);
+    const precomputed = await this.repository.getPrecomputedSoundProcessing?.(sound.soundId);
     const cacheKey = precomputed?.cacheKey ?? buildSoundProcessCacheKey(sound);
 
     if (!query.bypassCache) {

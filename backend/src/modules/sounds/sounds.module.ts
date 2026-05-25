@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
 import { SoundsController } from "./adapters/inbound/http/sounds.controller";
+import { ModuleSnapshotSoundRepository } from "./adapters/outbound/blob/module-snapshot-sound.repository";
 import { S3SoundProcessingCacheRepository } from "./adapters/outbound/blob/s3-sound-processing-cache.repository";
 import { LayeredSoundProcessingCacheRepository } from "./adapters/outbound/layered/layered-sound-processing-cache.repository";
 import { MemorySoundProcessingCacheRepository } from "./adapters/outbound/memory/memory-sound-processing-cache.repository";
@@ -16,12 +17,18 @@ import { SOUND_REPOSITORY } from "./application/ports/sound-repository.port";
   providers: [
     SoundsApplicationService,
     StaticSoundRepository,
+    ModuleSnapshotSoundRepository,
     MemorySoundProcessingCacheRepository,
     S3SoundProcessingCacheRepository,
     LayeredSoundProcessingCacheRepository,
     {
       provide: SOUND_REPOSITORY,
-      useExisting: StaticSoundRepository
+      inject: [AppConfigService, ModuleSnapshotSoundRepository, StaticSoundRepository],
+      useFactory: (
+        config: AppConfigService,
+        moduleSnapshotRepository: ModuleSnapshotSoundRepository,
+        staticRepository: StaticSoundRepository
+      ) => (config.isTest ? staticRepository : moduleSnapshotRepository)
     },
     {
       provide: SOUND_PROCESSING_CACHE,

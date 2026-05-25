@@ -1,0 +1,532 @@
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { ModuleBlobObjectSummary } from "../../../../runtime-settings/application/ports/module-blob-storage.port";
+import {
+  MODULE_BLOB_STORAGE,
+  type ModuleBlobSnapshotSummary,
+  type ModuleBlobStoragePort
+} from "../../../../runtime-settings/application/ports/module-blob-storage.port";
+import {
+  RUNTIME_SETTINGS_REPOSITORY,
+  type RuntimeSettingsRepositoryPort
+} from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
+import type { BlobStorageSettings } from "../../../../runtime-settings/domain/runtime-settings.types";
+import type { SoundRepositoryPort } from "../../../application/ports/sound-repository.port";
+import { buildSoundProcessCacheKey } from "../../../domain/sound-processing.builders";
+import type {
+  SoundCategory,
+  SoundListItem,
+  SoundListQuery,
+  SoundListResult,
+  SoundRecord
+} from "../../../domain/sound.types";
+
+interface IndexedSound {
+  record: SoundRecord;
+  listItem: SoundListItem;
+  processingCacheKey: string;
+  searchable: string;
+  categoryLower: string;
+  tagsLower: Set<string>;
+}
+
+interface SnapshotIndex {
+  cacheKey: string;
+  fetchedAtMs: number;
+  items: IndexedSound[];
+  byId: Map<string, SoundRecord>;
+  processingById: Map<string, { cacheKey: string }>;
+}
+
+interface SoundCandidate {
+  soundId: string;
+  resref: string;
+  name: string;
+  category: SoundCategory;
+  tags: string[];
+  previewWaveformUrl: string;
+  audioAssetId: string;
+  format: "wav" | "ogg";
+  sampleRateHz: number;
+  channels: 1 | 2;
+  spatialMode: "2d" | "3d";
+  loop: boolean;
+  durationMs: number;
+  cues: number;
+  emitters: number;
+  sourceSize: number;
+  updatedAt: string;
+}
+
+const SUPPORTED_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
+
+@Injectable()
+export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
+  private readonly logger = new Logger(ModuleSnapshotSoundRepository.name);
+  private snapshotIndex: SnapshotIndex | null = null;
+
+  constructor(
+    @Inject(RUNTIME_SETTINGS_REPOSITORY)
+    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
+    @Inject(MODULE_BLOB_STORAGE)
+    private readonly moduleBlobStorage: ModuleBlobStoragePort
+  ) {}
+
+  async list(query: SoundListQuery): Promise<SoundListResult> {
+    const index = await this.getSnapshotIndex();
+    const normalizedQuery = query.query?.toLowerCase().trim();
+    const normalizedCategory = query.category?.toLowerCase().trim();
+    const normalizedTag = query.tag?.toLowerCase().trim();
+
+    const filtered = index.items.filter((entry) => {
+      if (!query.query) {
+        return true;
+      }
+      return entry.searchable.includes(normalizedQuery ?? "");
+    })
+      .filter((entry) => {
+        if (!query.category) {
+          return true;
+        }
+        return entry.categoryLower === normalizedCategory;
+      })
+      .filter((entry) => {
+        if (!query.tag) {
+          return true;
+        }
+        return entry.tagsLower.has(normalizedTag ?? "");
+      })
+      .filter((entry) => {
+        if (typeof query.benchmark !== "boolean") {
+          return true;
+        }
+        return entry.record.benchmark === query.benchmark;
+      });
+
+    const items = filtered
+      .slice(query.offset, query.offset + query.limit)
+      .map((entry) => entry.listItem);
+
+    return {
+      items,
+      total: filtered.length,
+      limit: query.limit,
+      offset: query.offset
+    };
+  }
+
+  async findById(soundId: string): Promise<SoundRecord | null> {
+    const index = await this.getSnapshotIndex();
+    return index.byId.get(soundId) ?? null;
+  }
+
+  async getPrecomputedSoundProcessing(soundId: string): Promise<{ cacheKey: string } | null> {
+    const index = await this.getSnapshotIndex();
+    return index.processingById.get(soundId) ?? null;
+  }
+
+  private async getSnapshotIndex(): Promise<SnapshotIndex> {
+    const now = Date.now();
+    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < 30_000) {
+      return this.snapshotIndex;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
+    const records = buildSoundRecordsFromSnapshot(snapshot.objects);
+    const benchmarkCount = records.length > 0 ? Math.min(10, Math.max(1, Math.ceil(records.length * 0.2))) : 0;
+    const benchmarkIds = new Set(
+      records
+        .slice()
+        .sort((left, right) => right.sourceSize - left.sourceSize)
+        .slice(0, benchmarkCount)
+        .map((record) => record.soundId)
+    );
+
+    const items: IndexedSound[] = records
+      .map((record) => ({
+        ...record,
+        benchmark: benchmarkIds.has(record.soundId)
+      }))
+      .sort((left, right) => left.soundId.localeCompare(right.soundId))
+      .map((record) => {
+        const sound: SoundRecord = {
+          soundId: record.soundId,
+          resref: record.resref,
+          name: record.name,
+          category: record.category,
+          tags: record.tags,
+          benchmark: record.benchmark,
+          previewWaveformUrl: record.previewWaveformUrl,
+          audioAssetId: record.audioAssetId,
+          format: record.format,
+          sampleRateHz: record.sampleRateHz,
+          channels: record.channels,
+          spatialMode: record.spatialMode,
+          loop: record.loop,
+          metrics: {
+            durationMs: record.durationMs,
+            cues: record.cues,
+            emitters: record.emitters
+          },
+          updatedAt: record.updatedAt
+        };
+
+        return {
+          record: sound,
+          listItem: mapSoundToListItem(sound),
+          processingCacheKey: buildSoundProcessCacheKey(sound),
+          searchable: buildSoundSearchableText(sound),
+          categoryLower: sound.category.toLowerCase(),
+          tagsLower: new Set(sound.tags.map((tag) => tag.toLowerCase()))
+        };
+      });
+
+    const cacheKey = [
+      settings.blobStorage.bucket,
+      snapshot.prefix,
+      snapshot.moduleHash ?? "unknown",
+      String(snapshot.objects.length),
+      String(items.length)
+    ].join("|");
+
+    if (items.length === 0) {
+      this.logger.warn(
+        "No sound assets detected in module snapshot (supported: wav, ogg, bmu, mp3)."
+      );
+    }
+
+    this.snapshotIndex = {
+      cacheKey,
+      fetchedAtMs: now,
+      items,
+      byId: new Map(items.map((entry) => [entry.record.soundId, entry.record])),
+      processingById: new Map(
+        items.map((entry) => [entry.record.soundId, { cacheKey: entry.processingCacheKey }])
+      )
+    };
+
+    return this.snapshotIndex;
+  }
+
+  private async listAllModuleSnapshotObjects(
+    settings: BlobStorageSettings
+  ): Promise<ModuleBlobSnapshotSummary> {
+    const objects: ModuleBlobObjectSummary[] = [];
+    let continuationToken: string | undefined;
+    let moduleHash: string | undefined;
+    let prefix = normalizePrefixForLookup(settings.modulePrefix);
+
+    do {
+      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
+        limit: 1000,
+        continuationToken
+      });
+
+      moduleHash = moduleHash ?? page.moduleHash;
+      prefix = page.prefix;
+      objects.push(...page.objects);
+      continuationToken = page.continuationToken;
+
+      if (!page.truncated || !continuationToken) {
+        break;
+      }
+    } while (true);
+
+    const totalBytes = objects.reduce((sum, object) => sum + object.size, 0);
+    return {
+      bucket: settings.bucket,
+      prefix,
+      moduleHash,
+      totalFiles: objects.length,
+      totalBytes,
+      objects,
+      truncated: false
+    };
+  }
+}
+
+function buildSoundRecordsFromSnapshot(objects: ModuleBlobObjectSummary[]): SoundCandidate[] {
+  const bySoundId = new Map<string, SoundCandidate[]>();
+
+  for (const object of objects) {
+    const fileName = extractFileName(object.key);
+    const extension = extractExtension(fileName);
+    if (!SUPPORTED_EXTENSIONS.has(extension)) {
+      continue;
+    }
+
+    const basename = extractBasename(fileName);
+    if (basename.length < 2) {
+      continue;
+    }
+
+    const normalizedResref = normalizeResref(basename);
+    const category = classifyCategory(object.key, normalizedResref, extension);
+    const format = extension === "wav" ? "wav" : "ogg";
+    const sampleRateHz = inferSampleRate(category, format);
+    const channels = inferChannels(category);
+    const spatialMode = inferSpatialMode(category, object.key, normalizedResref);
+    const loop = inferLoop(category, object.key, normalizedResref);
+    const durationMs = estimateDurationMs(object.size, format, sampleRateHz, channels, category);
+    const tags = buildTags(category, extension, object.key, normalizedResref, loop, spatialMode);
+    const soundId = buildSoundId(normalizedResref);
+
+    const candidate: SoundCandidate = {
+      soundId,
+      resref: normalizedResref,
+      name: humanizeName(normalizedResref),
+      category,
+      tags,
+      previewWaveformUrl: `/assets/previews/sounds/${normalizedResref}.webp`,
+      audioAssetId: normalizeAudioAssetId(object.key, normalizedResref),
+      format,
+      sampleRateHz,
+      channels,
+      spatialMode,
+      loop,
+      durationMs,
+      cues: category === "effect" ? 2 : 1,
+      emitters: spatialMode === "3d" ? 1 : 0,
+      sourceSize: object.size,
+      updatedAt: object.lastModified ?? new Date().toISOString()
+    };
+
+    const bucket = bySoundId.get(soundId) ?? [];
+    bucket.push(candidate);
+    bySoundId.set(soundId, bucket);
+  }
+
+  const selected: SoundCandidate[] = [];
+  for (const candidates of bySoundId.values()) {
+    selected.push(selectBestCandidate(candidates));
+  }
+  return selected;
+}
+
+function selectBestCandidate(candidates: SoundCandidate[]): SoundCandidate {
+  return candidates
+    .slice()
+    .sort((left, right) => {
+      const formatScoreDelta = formatScore(right.format) - formatScore(left.format);
+      if (formatScoreDelta !== 0) {
+        return formatScoreDelta;
+      }
+
+      if (left.sourceSize !== right.sourceSize) {
+        return right.sourceSize - left.sourceSize;
+      }
+
+      return right.updatedAt.localeCompare(left.updatedAt);
+    })[0];
+}
+
+function formatScore(format: "wav" | "ogg"): number {
+  if (format === "wav") {
+    return 2;
+  }
+  return 1;
+}
+
+function classifyCategory(objectKey: string, resref: string, extension: string): SoundCategory {
+  const normalizedKey = objectKey.toLowerCase();
+  if (
+    extension === "bmu" ||
+    normalizedKey.includes("/music/") ||
+    normalizedKey.includes("/mus/") ||
+    resref.startsWith("mus_")
+  ) {
+    return "music";
+  }
+
+  if (
+    normalizedKey.includes("/ambient/") ||
+    normalizedKey.includes("/amb/") ||
+    resref.startsWith("amb_")
+  ) {
+    return "ambient";
+  }
+
+  return "effect";
+}
+
+function inferSampleRate(category: SoundCategory, format: "wav" | "ogg"): number {
+  if (category === "music") {
+    return 48000;
+  }
+  if (format === "ogg") {
+    return 48000;
+  }
+  return 44100;
+}
+
+function inferChannels(category: SoundCategory): 1 | 2 {
+  return category === "effect" ? 1 : 2;
+}
+
+function inferSpatialMode(category: SoundCategory, objectKey: string, resref: string): "2d" | "3d" {
+  if (category !== "effect") {
+    return "2d";
+  }
+
+  const normalized = `${objectKey}|${resref}`.toLowerCase();
+  if (
+    normalized.includes("2d") ||
+    normalized.includes("gui") ||
+    normalized.includes("ui") ||
+    normalized.includes("voice")
+  ) {
+    return "2d";
+  }
+  return "3d";
+}
+
+function inferLoop(category: SoundCategory, objectKey: string, resref: string): boolean {
+  if (category === "music" || category === "ambient") {
+    return true;
+  }
+
+  const normalized = `${objectKey}|${resref}`.toLowerCase();
+  return normalized.includes("loop");
+}
+
+function estimateDurationMs(
+  sizeBytes: number,
+  format: "wav" | "ogg",
+  sampleRateHz: number,
+  channels: 1 | 2,
+  category: SoundCategory
+): number {
+  if (format === "wav") {
+    const bytesPerSecond = sampleRateHz * channels * 2;
+    return clampDurationMs(Math.round((sizeBytes / Math.max(bytesPerSecond, 1)) * 1000));
+  }
+
+  const bitrateKbps = category === "music" ? 160 : category === "ambient" ? 128 : 96;
+  const seconds = (sizeBytes * 8) / (bitrateKbps * 1000);
+  return clampDurationMs(Math.round(seconds * 1000));
+}
+
+function clampDurationMs(value: number): number {
+  if (!Number.isFinite(value) || value < 250) {
+    return 250;
+  }
+  if (value > 600000) {
+    return 600000;
+  }
+  return value;
+}
+
+function buildTags(
+  category: SoundCategory,
+  extension: string,
+  objectKey: string,
+  resref: string,
+  loop: boolean,
+  spatialMode: "2d" | "3d"
+): string[] {
+  const tags = new Set<string>();
+  tags.add(category);
+  tags.add(extension === "bmu" ? "bmu" : extension);
+  tags.add(spatialMode);
+  if (loop) {
+    tags.add("loop");
+  }
+
+  const normalizedKey = objectKey.replace(/\\/gu, "/").toLowerCase();
+  const segments = normalizedKey.split("/").filter((segment) => segment.length > 0);
+  for (const segment of segments) {
+    if (segment === "music" || segment === "mus" || segment === "ambient" || segment === "amb") {
+      continue;
+    }
+    if (segment.length >= 3 && segment.length <= 24 && /^[a-z0-9_-]+$/u.test(segment)) {
+      tags.add(segment);
+    }
+  }
+
+  for (const token of resref.split(/[_-]+/u)) {
+    if (token.length >= 3 && token.length <= 24) {
+      tags.add(token);
+    }
+  }
+
+  return [...tags].slice(0, 12);
+}
+
+function mapSoundToListItem(sound: SoundRecord): SoundListItem {
+  return {
+    soundId: sound.soundId,
+    resref: sound.resref,
+    name: sound.name,
+    category: sound.category,
+    tags: sound.tags,
+    benchmark: sound.benchmark,
+    previewWaveformUrl: sound.previewWaveformUrl,
+    spatialMode: sound.spatialMode,
+    metrics: sound.metrics,
+    updatedAt: sound.updatedAt
+  };
+}
+
+function buildSoundSearchableText(sound: SoundRecord): string {
+  return [sound.name, sound.soundId, sound.resref, ...sound.tags].join("|").toLowerCase();
+}
+
+function extractFileName(key: string): string {
+  const normalized = key.replace(/\\/gu, "/");
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] ?? normalized;
+}
+
+function extractExtension(fileName: string): string {
+  const normalized = fileName.trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  if (index <= 0) {
+    return "";
+  }
+  return normalized.slice(index + 1);
+}
+
+function extractBasename(fileName: string): string {
+  const normalized = fileName.trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  if (index <= 0) {
+    return normalized;
+  }
+  return normalized.slice(0, index);
+}
+
+function normalizeResref(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_-]+/gu, "_");
+  return normalized.slice(0, 64);
+}
+
+function buildSoundId(resref: string): string {
+  if (resref.startsWith("sound_")) {
+    return resref.slice(0, 72);
+  }
+  return `sound_${resref}`.slice(0, 72);
+}
+
+function humanizeName(resref: string): string {
+  return resref
+    .split(/[_-]+/u)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeAudioAssetId(objectKey: string, resref: string): string {
+  const normalizedKey = objectKey.replace(/\\/gu, "/").toLowerCase();
+  if (normalizedKey.startsWith("audio/")) {
+    return normalizedKey.slice(0, 128);
+  }
+  return `audio/module/${resref}`.slice(0, 128);
+}
+
+function normalizePrefixForLookup(value: string): string {
+  const trimmed = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
+  if (!trimmed) {
+    return "";
+  }
+  return `${trimmed}/`;
+}
