@@ -1,25 +1,42 @@
 # Aurora Sound Positioning Parity Notes
 
-Date: 2026-05-24
+Date: 2026-05-25
 Source: Aurora UI screenshots (Basic/Positioning/Advanced) + in-editor visual captures.
 
 ## Purpose
 Lock one shared interpretation of Aurora sound positioning visuals so mock/runtime behavior does not drift.
 
 ## Current Implementation Status (aurora-web)
-Status: `SHELL_ONLY` for sound objects, `NOT_IMPLEMENTED` for sound-positioning modes.
+Status: `PARTIAL` (Sound Properties shell + mode gating), `NOT_IMPLEMENTED` for runtime guides/extended payload.
 
 Implemented now:
 1. `sounds` exist as scene objects in the same selection/move pipeline as other movable objects.
 2. Sounds are visible in catalog/filter/layer tooling and can be transformed via generic object controls.
+3. Sound Properties dialog shell is active (`Basic`, `Positioning`, `Advanced`) with `Apply/OK/Cancel`.
+4. Deterministic mode gating is active for:
+   - `Plays everywhere in area`,
+   - `Plays from random position each play`,
+   - `Plays from specific position`.
+5. Existing `soundPositioning` payload fields are bound in UI without adding speculative runtime semantics.
 
 Not implemented yet:
-1. Dedicated Sound Properties dialog (`Basic/Positioning/Advanced`) with Aurora mode controls.
-2. Mode payload and behavior (`everywhere`, `random each play`, `specific position`).
-3. Attenuation/random-range viewport guides tied to real sound properties.
+1. Attenuation/random-range viewport guides tied to sound properties.
+2. Extended payload surface (schedule/variation semantics) beyond current baseline fields.
 
 Interpretation rule:
-1. This file is the parity target contract for upcoming implementation, not a claim that all behavior is already live.
+1. This file documents Aurora-first shell/state gating now implemented in frontend.
+2. It does not claim retail runtime semantics beyond currently wired data and tests.
+
+## Gate Tests
+Current:
+1. `frontend/tests/regression-smoke/workspace/Workspace.sound-properties.regression-smoke.test.tsx`
+2. `frontend/tests/regression-smoke/workspace/Workspace.sound-properties.mode-parity.regression-smoke.test.tsx`
+3. `frontend/tests/unit/modules/scene/domain/sceneFactory.soundPositioning.test.ts`
+4. `frontend/tests/unit/modules/scene/application/sceneCanvasFacade.test.ts`
+
+Pending:
+1. Viewport-guide parity tests (editor-only glyph/anchor/range overlays).
+2. Import/export roundtrip tests for extended payload fields (when fields are added).
 
 ## Positioning Modes
 
@@ -54,10 +71,9 @@ When reproducing Aurora behavior, do not reinterpret `specific position` as rand
 
 ## Backlog Hooks
 Code now:
-1. Extend scene schema with sound positioning payload (mode + ranges + attenuation + schedule + variation).
-2. Implement Sound Properties shell and mode-gated controls.
-3. Add editor-only sound guides (glyph/anchor/range/box) that never serialize as runtime entities.
-4. Add tests for strict mode gating and payload roundtrip.
+1. Extend payload with schedule/variation fields using preserve-first strategy (no runtime guessing).
+2. Add editor-only sound guides (glyph/anchor/range/box) that never serialize as runtime entities.
+3. Expand tests from shell/gating into viewport-guide coverage.
 
 Retail-hard-confirm later:
 1. Confirm runtime edge semantics for attenuation and scheduling.

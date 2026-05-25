@@ -13,6 +13,11 @@ import {
 } from "../domain/sceneFactory";
 import { normalizeBearingRadians } from "../domain/bearing";
 import { createSceneHistory } from "../domain/sceneHistory";
+import {
+  normalizeWalkmeshPayload,
+  validateWalkmeshDomainModel,
+  type WalkmeshDomainModel
+} from "../domain/walkmesh";
 import type { SceneDraftPort } from "../ports/sceneDraftPort";
 
 interface SceneCanvasFacadeDependencies {
@@ -26,6 +31,21 @@ export interface SceneCanvasFacade {
 }
 
 const SCENE_OBJECT_MIN_Z = 0;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isWalkmeshDomainModelLike(value: unknown): value is WalkmeshDomainModel {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.schemaVersion === "number" &&
+    Array.isArray(value.vertices) &&
+    Array.isArray(value.triangles)
+  );
+}
 
 function isLegacySeedDraft(draft: AreaScene, fallback: AreaScene): boolean {
   return (
@@ -57,8 +77,29 @@ function migrateLegacySeedDraft(draft: AreaScene, now: () => number): AreaScene 
 }
 
 function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
+  const normalizeWalkmesh = (): AreaScene => {
+    const currentWalkmesh = scene.walkmesh;
+    if (currentWalkmesh === undefined) {
+      return scene;
+    }
+
+    if (
+      isWalkmeshDomainModelLike(currentWalkmesh) &&
+      validateWalkmeshDomainModel(currentWalkmesh).isValid
+    ) {
+      return scene;
+    }
+
+    const normalizedWalkmesh = normalizeWalkmeshPayload(currentWalkmesh).model;
+    return {
+      ...scene,
+      walkmesh: normalizedWalkmesh
+    };
+  };
+
+  const sceneWithWalkmesh = normalizeWalkmesh();
   let changed = false;
-  const normalizedObjects = scene.objects.map((object) => {
+  const normalizedObjects = sceneWithWalkmesh.objects.map((object) => {
     const withMetadata = normalizeSceneObjectMetadata(object);
     const hasNormalizedZ = Number.isFinite(withMetadata.z);
     const nextZ = Math.max(
@@ -97,10 +138,10 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
   });
 
   if (!changed) {
-    return scene;
+    return sceneWithWalkmesh;
   }
   return {
-    ...scene,
+    ...sceneWithWalkmesh,
     objects: normalizedObjects
   };
 }

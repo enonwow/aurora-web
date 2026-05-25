@@ -247,6 +247,67 @@ describe("sceneCanvasFacade", () => {
     });
   });
 
+  it("normalizes malformed walkmesh payload when loading draft", () => {
+    const draft = createSeedAreaScene();
+    const corruptedDraft: AreaScene = {
+      ...draft,
+      walkmesh: {
+        schemaVersion: "x",
+        vertices: "bad",
+        triangles: null
+      } as unknown as AreaScene["walkmesh"]
+    };
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => corruptedDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.walkmesh).toBeDefined();
+    expect(history.present.walkmesh?.schemaVersion).toBe(1);
+    expect(history.present.walkmesh?.vertices).toEqual([]);
+    expect(history.present.walkmesh?.triangles).toEqual([]);
+  });
+
+  it("roundtrips valid walkmesh payload through save/load flow", () => {
+    const serializedByUserId = new Map<string, string>();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: (userId) => {
+        const serialized = serializedByUserId.get(userId);
+        if (!serialized) {
+          return null;
+        }
+        return JSON.parse(serialized) as AreaScene;
+      },
+      saveByUserId: (userId, scene) => {
+        serializedByUserId.set(userId, JSON.stringify(scene));
+      }
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const source = createSeedAreaScene();
+    const sceneWithWalkmesh: AreaScene = {
+      ...source,
+      source: "local_draft",
+      walkmesh: {
+        schemaVersion: 2,
+        vertices: [
+          { x: 0, y: 0, z: 0 },
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 1, z: 0 }
+        ],
+        triangles: [{ a: 0, b: 1, c: 2 }],
+        metadata: { group: "room_a" }
+      }
+    };
+
+    facade.saveLocalDraft("u_builder_001", sceneWithWalkmesh);
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.walkmesh).toEqual(sceneWithWalkmesh.walkmesh);
+  });
+
   it("migrates legacy drafts that only store offsetZ into split z + VT offsetZ", () => {
     const seed = createSeedAreaScene();
     const legacyLikeDraft = {

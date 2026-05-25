@@ -110,6 +110,8 @@ interface ContextMenuState {
   y: number;
   objectId: string;
   objectKind: SceneObjectKind;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
 }
 
 interface AdjustLocationDraft {
@@ -156,11 +158,56 @@ type PlaceablePropertiesTab =
   | "description"
   | "comments";
 
+type SoundPropertiesTab = "basic" | "positioning" | "advanced";
+type SoundPositioningMode = "everywhere" | "random" | "specific";
+type DoorPropertiesTab = "basic" | "transition" | "comments";
+type PlaceableScriptSlotKey =
+  | "onClick"
+  | "onClosed"
+  | "onDamaged"
+  | "onDeath"
+  | "onHeartbeat"
+  | "onInvDisturbed"
+  | "onLock"
+  | "onMeleeAttacked"
+  | "onOpen"
+  | "onSpellCastAt"
+  | "onUnlock"
+  | "onUsed"
+  | "onUserDefined";
+
+const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
+  "onClick",
+  "onClosed",
+  "onDamaged",
+  "onDeath",
+  "onHeartbeat",
+  "onInvDisturbed",
+  "onLock",
+  "onMeleeAttacked",
+  "onOpen",
+  "onSpellCastAt",
+  "onUnlock",
+  "onUsed",
+  "onUserDefined"
+];
+
 interface PlaceablePropertiesDraft {
   name: string;
   tag: string;
   resRef: string;
   isStatic: boolean;
+  plot: boolean;
+  useable: boolean;
+  hasInventory: boolean;
+  scriptSlotsEnabled: boolean;
+  scriptSlots: Record<PlaceableScriptSlotKey, string>;
+  disabledFlagsEnabled: boolean;
+  disabledFlags: {
+    plot: boolean;
+    useable: boolean;
+    hasInventory: boolean;
+  };
 }
 
 interface PlaceablePropertiesDialogState {
@@ -180,6 +227,64 @@ interface PlaceablePropertiesDialogDragState {
   offsetY: number;
 }
 
+interface SoundPropertiesDraft {
+  name: string;
+  tag: string;
+  resRef: string;
+  mode: SoundPositioningMode;
+  elevation: number;
+  maxVolumeDistance: number;
+  cutoffDistance: number;
+  randomRangeWestEast: number;
+  randomRangeNorthSouth: number;
+}
+
+interface SoundPropertiesDialogState {
+  objectId: string;
+  snapshotObject: SceneObject;
+  draft: SoundPropertiesDraft;
+  activeTab: SoundPropertiesTab;
+  windowX: number;
+  windowY: number;
+  collapsed: boolean;
+}
+
+interface SoundPropertiesDialogDragState {
+  active: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface DoorPropertiesDraft {
+  name: string;
+  tag: string;
+  resRef: string;
+  linkedTarget: string;
+  linkedModule: string;
+  linkedTag: string;
+  linkedWaypoint: string;
+  loadScreen: string;
+  flagsSummary: string;
+}
+
+interface DoorPropertiesDialogState {
+  objectId: string;
+  snapshotObject: SceneObject;
+  draft: DoorPropertiesDraft;
+  activeTab: DoorPropertiesTab;
+  windowX: number;
+  windowY: number;
+  collapsed: boolean;
+}
+
+interface DoorPropertiesDialogDragState {
+  active: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+}
+
 interface DragMoveState {
   active: boolean;
   lastWorld: { x: number; y: number } | null;
@@ -187,10 +292,20 @@ interface DragMoveState {
 }
 
 const ADJUST_LOCATION_DIALOG_MARGIN_PX = 12;
+const CONTEXT_MENU_MARGIN_PX = 12;
+const CONTEXT_MENU_FALLBACK_WIDTH_PX = 260;
+const CONTEXT_MENU_FALLBACK_HEIGHT_PX = 320;
+const CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX = 14;
+const CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX = 12;
+const CONTEXT_MENU_MAX_ANCHOR_OFFSET_PX = 72;
 const ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX = 520;
 const ADJUST_LOCATION_DIALOG_FALLBACK_HEIGHT_PX = 420;
 const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 820;
 const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 540;
+const SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
+const SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 520;
+const DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
+const DOOR_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 520;
 
 interface TransformGestureState {
   active: boolean;
@@ -515,12 +630,112 @@ function resolveAdjustLocationVisualTransformMeta(targets: SceneObject[]): {
   };
 }
 
+function buildEmptyPlaceableScriptSlots(): Record<PlaceableScriptSlotKey, string> {
+  return {
+    onClick: "",
+    onClosed: "",
+    onDamaged: "",
+    onDeath: "",
+    onHeartbeat: "",
+    onInvDisturbed: "",
+    onLock: "",
+    onMeleeAttacked: "",
+    onOpen: "",
+    onSpellCastAt: "",
+    onUnlock: "",
+    onUsed: "",
+    onUserDefined: ""
+  };
+}
+
+function buildPlaceableScriptSlotsDraft(source: SceneObject["placeableProperties"]): Record<PlaceableScriptSlotKey, string> {
+  const draft = buildEmptyPlaceableScriptSlots();
+  const sourceSlots = source?.scriptSlots;
+  if (!sourceSlots) {
+    return draft;
+  }
+  for (const key of PLACEABLE_SCRIPT_SLOT_KEYS) {
+    draft[key] = sourceSlots[key] ?? "";
+  }
+  return draft;
+}
+
+function arePlaceableScriptSlotsEqual(
+  left: Record<PlaceableScriptSlotKey, string>,
+  right: Record<PlaceableScriptSlotKey, string>
+): boolean {
+  return PLACEABLE_SCRIPT_SLOT_KEYS.every((key) => left[key] === right[key]);
+}
+
+function arePlaceableDisabledFlagsEqual(
+  left: PlaceablePropertiesDraft["disabledFlags"],
+  right: PlaceablePropertiesDraft["disabledFlags"]
+): boolean {
+  return (
+    left.plot === right.plot &&
+    left.useable === right.useable &&
+    left.hasInventory === right.hasInventory
+  );
+}
+
 function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePropertiesDraft {
+  const placeableProperties = source.placeableProperties;
+  const disabledFlags = placeableProperties?.disabledFlags;
   return {
     name: resolveSceneObjectName(source),
     tag: source.tag,
     resRef: source.resRef,
-    isStatic: source.isStatic ?? true
+    isStatic: source.isStatic ?? true,
+    plot: placeableProperties?.plot ?? false,
+    useable: placeableProperties?.useable ?? false,
+    hasInventory: placeableProperties?.hasInventory ?? false,
+    scriptSlotsEnabled: placeableProperties?.scriptSlots !== undefined,
+    scriptSlots: buildPlaceableScriptSlotsDraft(placeableProperties),
+    disabledFlagsEnabled: disabledFlags !== undefined,
+    disabledFlags: {
+      plot: disabledFlags?.plot ?? false,
+      useable: disabledFlags?.useable ?? false,
+      hasInventory: disabledFlags?.hasInventory ?? false
+    }
+  };
+}
+
+function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesDraft {
+  const positioning = source.soundPositioning;
+  const mode = positioning?.mode ?? "specific";
+  return {
+    name: resolveSceneObjectName(source),
+    tag: source.tag,
+    resRef: source.resRef,
+    mode,
+    elevation: positioning?.elevation ?? source.visualTransform.offsetZ ?? 0,
+    maxVolumeDistance: positioning?.maxVolumeDistance ?? 8,
+    cutoffDistance: positioning?.cutoffDistance ?? 16,
+    randomRangeWestEast: positioning?.randomRangeWestEast ?? 0,
+    randomRangeNorthSouth: positioning?.randomRangeNorthSouth ?? 0
+  };
+}
+
+function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDraft {
+  const transition = source.doorTransition;
+  const flagsSummary =
+    transition && Object.keys(transition.flags).length > 0
+      ? Object.entries(transition.flags)
+          .map(([key, value]) => `${key}=${value ? "1" : "0"}`)
+          .sort((left, right) => left.localeCompare(right))
+          .join(", ")
+      : "none";
+
+  return {
+    name: resolveSceneObjectName(source),
+    tag: source.tag,
+    resRef: source.resRef,
+    linkedTarget: transition?.linkedTarget ?? "",
+    linkedModule: transition?.linkedModule ?? "",
+    linkedTag: transition?.linkedTag ?? "",
+    linkedWaypoint: transition?.linkedWaypoint ?? "",
+    loadScreen: transition?.loadScreen ?? "",
+    flagsSummary
   };
 }
 
@@ -532,7 +747,48 @@ function arePlaceablePropertiesDraftsEqual(
     left.name === right.name &&
     left.tag === right.tag &&
     left.resRef === right.resRef &&
-    left.isStatic === right.isStatic
+    left.isStatic === right.isStatic &&
+    left.plot === right.plot &&
+    left.useable === right.useable &&
+    left.hasInventory === right.hasInventory &&
+    left.scriptSlotsEnabled === right.scriptSlotsEnabled &&
+    arePlaceableScriptSlotsEqual(left.scriptSlots, right.scriptSlots) &&
+    left.disabledFlagsEnabled === right.disabledFlagsEnabled &&
+    arePlaceableDisabledFlagsEqual(left.disabledFlags, right.disabledFlags)
+  );
+}
+
+function areSoundPropertiesDraftsEqual(
+  left: SoundPropertiesDraft,
+  right: SoundPropertiesDraft
+): boolean {
+  return (
+    left.name === right.name &&
+    left.tag === right.tag &&
+    left.resRef === right.resRef &&
+    left.mode === right.mode &&
+    left.elevation === right.elevation &&
+    left.maxVolumeDistance === right.maxVolumeDistance &&
+    left.cutoffDistance === right.cutoffDistance &&
+    left.randomRangeWestEast === right.randomRangeWestEast &&
+    left.randomRangeNorthSouth === right.randomRangeNorthSouth
+  );
+}
+
+function areDoorPropertiesDraftsEqual(
+  left: DoorPropertiesDraft,
+  right: DoorPropertiesDraft
+): boolean {
+  return (
+    left.name === right.name &&
+    left.tag === right.tag &&
+    left.resRef === right.resRef &&
+    left.linkedTarget === right.linkedTarget &&
+    left.linkedModule === right.linkedModule &&
+    left.linkedTag === right.linkedTag &&
+    left.linkedWaypoint === right.linkedWaypoint &&
+    left.loadScreen === right.loadScreen &&
+    left.flagsSummary === right.flagsSummary
   );
 }
 
@@ -1446,13 +1702,97 @@ function pointerToLocal(
 }
 
 function worldToScreen(runtime: RuntimeState, worldX: number, worldY: number): { x: number; y: number } {
+  const projected = new THREE.Vector3(worldX, WORLD_OBJECT_Y, worldY);
+  return worldVectorToScreen(runtime, projected);
+}
+
+function worldVectorToScreen(runtime: RuntimeState, worldPosition: THREE.Vector3): { x: number; y: number } {
   const width = runtime.renderer.domElement.clientWidth;
   const height = runtime.renderer.domElement.clientHeight;
-  const projected = new THREE.Vector3(worldX, WORLD_OBJECT_Y, worldY).project(runtime.camera);
+  const projected = worldPosition.clone().project(runtime.camera);
   return {
     x: ((projected.x + 1) * 0.5) * width,
     y: ((-projected.y + 1) * 0.5) * height
   };
+}
+
+function resolveContextMenuAnchorScreen(
+  runtime: RuntimeState,
+  object: Pick<SceneObject, "x" | "y">,
+  objectId?: string
+): { x: number; y: number } {
+  if (objectId) {
+    const objectMesh = runtime.objectMeshById.get(objectId);
+    if (objectMesh) {
+      const meshWorldPosition = new THREE.Vector3();
+      objectMesh.getWorldPosition(meshWorldPosition);
+      return worldVectorToScreen(runtime, meshWorldPosition);
+    }
+  }
+  return worldToScreen(runtime, object.x, object.y);
+}
+
+function normalizeContextMenuAnchorOffset(
+  anchorOffsetX: number,
+  anchorOffsetY: number
+): { x: number; y: number } {
+  const length = Math.hypot(anchorOffsetX, anchorOffsetY);
+  if (length <= CONTEXT_MENU_MAX_ANCHOR_OFFSET_PX || length === 0) {
+    return { x: anchorOffsetX, y: anchorOffsetY };
+  }
+  const scale = CONTEXT_MENU_MAX_ANCHOR_OFFSET_PX / length;
+  return {
+    x: anchorOffsetX * scale,
+    y: anchorOffsetY * scale
+  };
+}
+
+function clampContextMenuPosition(
+  x: number,
+  y: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  menuWidth: number,
+  menuHeight: number
+): { x: number; y: number } {
+  const minX = CONTEXT_MENU_MARGIN_PX;
+  const minY = CONTEXT_MENU_MARGIN_PX;
+  const maxX = Math.max(
+    CONTEXT_MENU_MARGIN_PX,
+    viewportWidth - menuWidth - CONTEXT_MENU_MARGIN_PX
+  );
+  const maxY = Math.max(
+    CONTEXT_MENU_MARGIN_PX,
+    viewportHeight - menuHeight - CONTEXT_MENU_MARGIN_PX
+  );
+  return {
+    x: Math.max(minX, Math.min(maxX, x)),
+    y: Math.max(minY, Math.min(maxY, y))
+  };
+}
+
+function resolveAnchoredContextMenuPosition(
+  runtime: RuntimeState,
+  object: Pick<SceneObject, "x" | "y">,
+  objectId: string | undefined,
+  anchorOffsetX: number,
+  anchorOffsetY: number,
+  menuWidth = CONTEXT_MENU_FALLBACK_WIDTH_PX,
+  menuHeight = CONTEXT_MENU_FALLBACK_HEIGHT_PX
+): { x: number; y: number } {
+  const anchorScreen = resolveContextMenuAnchorScreen(runtime, object, objectId);
+  const preferredX = anchorScreen.x + anchorOffsetX;
+  const preferredY = anchorScreen.y + anchorOffsetY;
+  const viewportWidth = runtime.renderer.domElement.clientWidth;
+  const viewportHeight = runtime.renderer.domElement.clientHeight;
+  return clampContextMenuPosition(
+    preferredX,
+    preferredY,
+    viewportWidth,
+    viewportHeight,
+    menuWidth,
+    menuHeight
+  );
 }
 
 function intersectionOnGround(runtime: RuntimeState, ndc: THREE.Vector2): THREE.Vector3 | null {
@@ -1483,6 +1823,7 @@ export function WorkspaceCanvasViewport({
   const commandRevisionRef = useRef(0);
   const nextObjectSequenceRef = useRef(1);
   const clipboardObjectsRef = useRef<SceneObject[]>([]);
+  const contextMenuRef = useRef<HTMLElement | null>(null);
   const adjustLocationDialogRef = useRef<HTMLElement | null>(null);
   const adjustLocationDialogDragRef = useRef<AdjustLocationDialogDragState>({
     active: false,
@@ -1492,6 +1833,20 @@ export function WorkspaceCanvasViewport({
   });
   const placeablePropertiesDialogRef = useRef<HTMLElement | null>(null);
   const placeablePropertiesDialogDragRef = useRef<PlaceablePropertiesDialogDragState>({
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0
+  });
+  const soundPropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const soundPropertiesDialogDragRef = useRef<SoundPropertiesDialogDragState>({
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0
+  });
+  const doorPropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const doorPropertiesDialogDragRef = useRef<DoorPropertiesDialogDragState>({
     active: false,
     pointerId: null,
     offsetX: 0,
@@ -1535,6 +1890,10 @@ export function WorkspaceCanvasViewport({
     useState<AdjustLocationDialogState | null>(null);
   const [placeablePropertiesDialog, setPlaceablePropertiesDialog] =
     useState<PlaceablePropertiesDialogState | null>(null);
+  const [soundPropertiesDialog, setSoundPropertiesDialog] =
+    useState<SoundPropertiesDialogState | null>(null);
+  const [doorPropertiesDialog, setDoorPropertiesDialog] =
+    useState<DoorPropertiesDialogState | null>(null);
   const [runtimePopupPinned, setRuntimePopupPinned] = useState(false);
   const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot>({
     fps: 0,
@@ -1605,30 +1964,29 @@ export function WorkspaceCanvasViewport({
     }
 
     const runtime = runtimeRef.current;
-    let localX = 24;
-    let localY = 24;
-
-    if (runtime) {
-      const rect = runtime.container.getBoundingClientRect();
-      localX = Math.max(
-        12,
-        Math.min(rect.width - 12, sidebarContextMenuSignal.clientX - rect.left)
-      );
-      localY = Math.max(
-        12,
-        Math.min(rect.height - 12, sidebarContextMenuSignal.clientY - rect.top)
-      );
-    }
+    const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+    const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+    const anchoredPosition = runtime
+      ? resolveAnchoredContextMenuPosition(
+          runtime,
+          selectedObject,
+          selectedObject.id,
+          anchorOffsetX,
+          anchorOffsetY
+        )
+      : { x: 24, y: 24 };
 
     setSelectedTileId(null);
     setSelectedObjectIds((current) =>
       current.includes(selectedObject.id) ? current : [selectedObject.id]
     );
     setContextMenu({
-      x: localX,
-      y: localY,
+      x: anchoredPosition.x,
+      y: anchoredPosition.y,
       objectId: selectedObject.id,
-      objectKind: selectedObject.kind
+      objectKind: selectedObject.kind,
+      anchorOffsetX,
+      anchorOffsetY
     });
     trackTelemetry("scene.context_menu.open_from_scene_object_list", {
       userId,
@@ -1673,7 +2031,27 @@ export function WorkspaceCanvasViewport({
   const cloneSceneObject = useCallback((object: SceneObject): SceneObject => {
     return {
       ...object,
-      visualTransform: { ...object.visualTransform }
+      visualTransform: { ...object.visualTransform },
+      placeableProperties: object.placeableProperties
+        ? {
+            ...object.placeableProperties,
+            scriptSlots: object.placeableProperties.scriptSlots
+              ? { ...object.placeableProperties.scriptSlots }
+              : undefined,
+            disabledFlags: object.placeableProperties.disabledFlags
+              ? { ...object.placeableProperties.disabledFlags }
+              : undefined
+          }
+        : undefined,
+      doorTransition: object.doorTransition
+        ? {
+            ...object.doorTransition,
+            flags: { ...object.doorTransition.flags }
+          }
+        : undefined,
+      soundPositioning: object.soundPositioning
+        ? { ...object.soundPositioning }
+        : undefined
     };
   }, []);
 
@@ -3266,11 +3644,33 @@ export function WorkspaceCanvasViewport({
           setSelectedObjectIds((current) =>
             current.includes(hitObject.id) ? current : [hitObject.id]
           );
+          const clickedDirectlyOnTarget = hitObjectId === hitObject.id;
+          const anchorScreen = resolveContextMenuAnchorScreen(runtime, hitObject, hitObject.id);
+          const relativeOffset = clickedDirectlyOnTarget
+            ? normalizeContextMenuAnchorOffset(
+                local.x - anchorScreen.x,
+                local.y - anchorScreen.y
+              )
+            : {
+                x: CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX,
+                y: CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX
+              };
+          const anchorOffsetX = relativeOffset.x;
+          const anchorOffsetY = relativeOffset.y;
+          const anchoredPosition = resolveAnchoredContextMenuPosition(
+            runtime,
+            hitObject,
+            hitObject.id,
+            anchorOffsetX,
+            anchorOffsetY
+          );
           setContextMenu({
-            x: local.x,
-            y: local.y,
+            x: anchoredPosition.x,
+            y: anchoredPosition.y,
             objectId: hitObject.id,
-            objectKind: hitObject.kind
+            objectKind: hitObject.kind,
+            anchorOffsetX,
+            anchorOffsetY
           });
           trackTelemetry("scene.context_menu.open", {
             userId,
@@ -3952,7 +4352,19 @@ export function WorkspaceCanvasViewport({
   );
 
   const updatePlaceablePropertiesDraftField = useCallback(
-    (field: keyof PlaceablePropertiesDraft, value: string | boolean) => {
+    (
+      field:
+        | "name"
+        | "tag"
+        | "resRef"
+        | "isStatic"
+        | "plot"
+        | "useable"
+        | "hasInventory"
+        | "scriptSlotsEnabled"
+        | "disabledFlagsEnabled",
+      value: string | boolean
+    ) => {
       setPlaceablePropertiesDialog((current) => {
         if (!current) {
           return current;
@@ -3967,6 +4379,54 @@ export function WorkspaceCanvasViewport({
         return {
           ...current,
           draft: nextDraft
+        };
+      });
+    },
+    []
+  );
+
+  const updatePlaceableScriptSlotDraftField = useCallback(
+    (field: PlaceableScriptSlotKey, value: string) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        if (current.draft.scriptSlots[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            scriptSlots: {
+              ...current.draft.scriptSlots,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updatePlaceableDisabledFlagDraftField = useCallback(
+    (field: keyof PlaceablePropertiesDraft["disabledFlags"], value: boolean) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        if (current.draft.disabledFlags[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            disabledFlags: {
+              ...current.draft.disabledFlags,
+              [field]: value
+            }
+          }
         };
       });
     },
@@ -3993,19 +4453,67 @@ export function WorkspaceCanvasViewport({
       const draft = placeablePropertiesDialog.draft;
       const objectId = placeablePropertiesDialog.objectId;
       setSceneHistory((current) => {
-        const nextScene = sceneViewportPort.setPlaceablePropertiesByIds(
-          current.present,
-          [objectId],
-          {
-            name: draft.name,
-            tag: draft.tag,
-            resRef: draft.resRef,
-            isStatic: draft.isStatic
-          }
-        );
-        if (nextScene === current.present) {
+        const sourceObject = current.present.objects.find((object) => object.id === objectId);
+        if (!sourceObject || sourceObject.kind !== "placeables") {
           return current;
         }
+        const nextName = draft.name.trim();
+        const nextTag = draft.tag.trim();
+        const nextResRef = draft.resRef.trim();
+        const nextPlaceableProperties: NonNullable<SceneObject["placeableProperties"]> = {
+          plot: draft.plot,
+          useable: draft.useable,
+          hasInventory: draft.hasInventory
+        };
+        if (draft.scriptSlotsEnabled) {
+          nextPlaceableProperties.scriptSlots = { ...draft.scriptSlots };
+        }
+        if (draft.disabledFlagsEnabled) {
+          nextPlaceableProperties.disabledFlags = { ...draft.disabledFlags };
+        }
+        const sourcePlaceableProperties = sourceObject.placeableProperties;
+        const isScriptSlotsUnchanged = draft.scriptSlotsEnabled
+          ? sourcePlaceableProperties?.scriptSlots !== undefined &&
+            arePlaceableScriptSlotsEqual(sourcePlaceableProperties.scriptSlots, draft.scriptSlots)
+          : sourcePlaceableProperties?.scriptSlots === undefined;
+        const isDisabledFlagsUnchanged = draft.disabledFlagsEnabled
+          ? sourcePlaceableProperties?.disabledFlags !== undefined &&
+            sourcePlaceableProperties.disabledFlags.plot === draft.disabledFlags.plot &&
+            sourcePlaceableProperties.disabledFlags.useable === draft.disabledFlags.useable &&
+            sourcePlaceableProperties.disabledFlags.hasInventory === draft.disabledFlags.hasInventory
+          : sourcePlaceableProperties?.disabledFlags === undefined;
+        const sourceName = sourceObject.name ?? sourceObject.tag;
+        const sourceIsStatic = sourceObject.isStatic ?? true;
+        if (
+          sourceName === nextName &&
+          sourceObject.tag === nextTag &&
+          sourceObject.resRef === nextResRef &&
+          sourceIsStatic === draft.isStatic &&
+          sourcePlaceableProperties?.plot === draft.plot &&
+          sourcePlaceableProperties?.useable === draft.useable &&
+          sourcePlaceableProperties?.hasInventory === draft.hasInventory &&
+          isScriptSlotsUnchanged &&
+          isDisabledFlagsUnchanged
+        ) {
+          return current;
+        }
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === objectId
+            ? {
+                ...object,
+                name: nextName,
+                tag: nextTag,
+                resRef: nextResRef,
+                isStatic: draft.isStatic,
+                placeableProperties: nextPlaceableProperties,
+                soundPositioning: undefined
+              }
+            : object
+        );
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
         return sceneViewportPort.commitHistory(current, nextScene);
       });
 
@@ -4026,19 +4534,47 @@ export function WorkspaceCanvasViewport({
     if (placeablePropertiesDialog) {
       const snapshot = placeablePropertiesDialog.snapshotObject;
       setSceneHistory((current) => {
-        const nextScene = sceneViewportPort.setPlaceablePropertiesByIds(
-          current.present,
-          [snapshot.id],
-          {
-            name: resolveSceneObjectName(snapshot),
-            tag: snapshot.tag,
-            resRef: snapshot.resRef,
-            isStatic: snapshot.isStatic ?? true
-          }
-        );
-        if (nextScene === current.present) {
+        const sourceObject = current.present.objects.find((object) => object.id === snapshot.id);
+        if (!sourceObject || sourceObject.kind !== "placeables") {
           return current;
         }
+        const snapshotPlaceable = snapshot.placeableProperties;
+        const sourcePlaceable = sourceObject.placeableProperties;
+        const isSourceScriptSlotsEqual = (() => {
+          if (!sourcePlaceable?.scriptSlots && !snapshotPlaceable?.scriptSlots) {
+            return true;
+          }
+          if (!sourcePlaceable?.scriptSlots || !snapshotPlaceable?.scriptSlots) {
+            return false;
+          }
+          return arePlaceableScriptSlotsEqual(
+            sourcePlaceable.scriptSlots,
+            snapshotPlaceable.scriptSlots
+          );
+        })();
+        if (
+          sourceObject.name === snapshot.name &&
+          sourceObject.tag === snapshot.tag &&
+          sourceObject.resRef === snapshot.resRef &&
+          (sourceObject.isStatic ?? true) === (snapshot.isStatic ?? true) &&
+          sourcePlaceable?.plot === snapshotPlaceable?.plot &&
+          sourcePlaceable?.useable === snapshotPlaceable?.useable &&
+          sourcePlaceable?.hasInventory === snapshotPlaceable?.hasInventory &&
+          sourcePlaceable?.disabledFlags?.plot === snapshotPlaceable?.disabledFlags?.plot &&
+          sourcePlaceable?.disabledFlags?.useable === snapshotPlaceable?.disabledFlags?.useable &&
+          sourcePlaceable?.disabledFlags?.hasInventory ===
+            snapshotPlaceable?.disabledFlags?.hasInventory &&
+          isSourceScriptSlotsEqual
+        ) {
+          return current;
+        }
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === snapshot.id ? cloneSceneObject(snapshot) : object
+        );
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
         return sceneViewportPort.commitHistory(current, nextScene);
       });
       trackTelemetry("scene.placeable_properties.cancel", {
@@ -4047,7 +4583,7 @@ export function WorkspaceCanvasViewport({
       });
     }
     setPlaceablePropertiesDialog(null);
-  }, [placeablePropertiesDialog, sceneViewportPort, trackTelemetry, userId]);
+  }, [cloneSceneObject, placeablePropertiesDialog, sceneViewportPort, trackTelemetry, userId]);
 
   const togglePlaceablePropertiesDialogCollapsed = useCallback(() => {
     setPlaceablePropertiesDialog((current) =>
@@ -4140,6 +4676,489 @@ export function WorkspaceCanvasViewport({
     []
   );
 
+  const clampSoundPropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) => {
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return { x, y };
+      }
+      const measuredRect = panelRect ?? soundPropertiesDialogRef.current?.getBoundingClientRect() ?? null;
+      const panelWidth = measuredRect?.width ?? SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+      const panelHeight = measuredRect?.height ?? SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+      const maxX = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.width - panelWidth - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      const maxY = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.height - panelHeight - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      return {
+        x: Math.min(Math.max(x, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxX),
+        y: Math.min(Math.max(y, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxY)
+      };
+    },
+    []
+  );
+
+  const openSoundPropertiesDialog = useCallback(
+    (target: SceneObject) => {
+      if (target.kind !== "sounds") {
+        return;
+      }
+
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const preferredX = hostRect
+        ? hostRect.width - SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
+        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const initialDialogPosition = clampSoundPropertiesDialogPosition(preferredX, preferredY);
+      setSoundPropertiesDialog({
+        objectId: target.id,
+        snapshotObject: cloneSceneObject(target),
+        draft: buildSoundPropertiesDraft(target),
+        activeTab: "basic",
+        windowX: initialDialogPosition.x,
+        windowY: initialDialogPosition.y,
+        collapsed: false
+      });
+      trackTelemetry("scene.sound_properties.open", {
+        userId,
+        objectId: target.id
+      });
+    },
+    [clampSoundPropertiesDialogPosition, cloneSceneObject, trackTelemetry, userId]
+  );
+
+  const updateSoundPropertiesDraftField = useCallback(
+    (field: keyof SoundPropertiesDraft, value: string | number) => {
+      setSoundPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+
+        let nextDraft = current.draft;
+        if (field === "mode") {
+          const nextMode = value as SoundPositioningMode;
+          nextDraft = {
+            ...current.draft,
+            mode: nextMode
+          };
+        } else if (field === "name" || field === "tag" || field === "resRef") {
+          nextDraft = {
+            ...current.draft,
+            [field]: String(value)
+          };
+        } else {
+          const numericValue = typeof value === "number" ? value : Number(value);
+          if (!Number.isFinite(numericValue)) {
+            return current;
+          }
+          nextDraft = {
+            ...current.draft,
+            [field]: numericValue
+          };
+        }
+
+        if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: nextDraft
+        };
+      });
+    },
+    []
+  );
+
+  const setSoundPropertiesActiveTab = useCallback((nextTab: SoundPropertiesTab) => {
+    setSoundPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            activeTab: nextTab
+          }
+        : current
+    );
+  }, []);
+
+  const applySoundPropertiesDraft = useCallback(
+    (closeAfterApply: boolean) => {
+      if (!soundPropertiesDialog) {
+        return;
+      }
+
+      const draft = soundPropertiesDialog.draft;
+      const objectId = soundPropertiesDialog.objectId;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === objectId);
+        if (!sourceObject || sourceObject.kind !== "sounds") {
+          return current;
+        }
+        const normalizedRandomRangeWestEast = draft.mode === "random" ? draft.randomRangeWestEast : 0;
+        const normalizedRandomRangeNorthSouth = draft.mode === "random" ? draft.randomRangeNorthSouth : 0;
+        const nextSoundPositioning = {
+          mode: draft.mode,
+          elevation: draft.elevation,
+          maxVolumeDistance: draft.maxVolumeDistance,
+          cutoffDistance: draft.cutoffDistance,
+          randomRangeWestEast: normalizedRandomRangeWestEast,
+          randomRangeNorthSouth: normalizedRandomRangeNorthSouth
+        };
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === objectId
+            ? {
+                ...object,
+                name: draft.name,
+                tag: draft.tag,
+                resRef: draft.resRef,
+                soundPositioning: nextSoundPositioning
+              }
+            : object
+        );
+        const nextTarget = nextObjects.find((object) => object.id === objectId);
+        if (
+          nextTarget &&
+          nextTarget.name === sourceObject.name &&
+          nextTarget.tag === sourceObject.tag &&
+          nextTarget.resRef === sourceObject.resRef &&
+          nextTarget.soundPositioning?.mode === sourceObject.soundPositioning?.mode &&
+          nextTarget.soundPositioning?.elevation === sourceObject.soundPositioning?.elevation &&
+          nextTarget.soundPositioning?.maxVolumeDistance === sourceObject.soundPositioning?.maxVolumeDistance &&
+          nextTarget.soundPositioning?.cutoffDistance === sourceObject.soundPositioning?.cutoffDistance &&
+          nextTarget.soundPositioning?.randomRangeWestEast ===
+            sourceObject.soundPositioning?.randomRangeWestEast &&
+          nextTarget.soundPositioning?.randomRangeNorthSouth ===
+            sourceObject.soundPositioning?.randomRangeNorthSouth
+        ) {
+          return current;
+        }
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+
+      trackTelemetry("scene.sound_properties.apply", {
+        userId,
+        objectId,
+        closeAfterApply
+      });
+
+      if (closeAfterApply) {
+        setSoundPropertiesDialog(null);
+      }
+    },
+    [sceneViewportPort, soundPropertiesDialog, trackTelemetry, userId]
+  );
+
+  const cancelSoundPropertiesDialog = useCallback(() => {
+    if (soundPropertiesDialog) {
+      const snapshot = soundPropertiesDialog.snapshotObject;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === snapshot.id);
+        if (!sourceObject || sourceObject.kind !== "sounds") {
+          return current;
+        }
+        const snapshotSound = snapshot.soundPositioning;
+        if (
+          sourceObject.name === snapshot.name &&
+          sourceObject.tag === snapshot.tag &&
+          sourceObject.resRef === snapshot.resRef &&
+          sourceObject.soundPositioning?.mode === snapshotSound?.mode &&
+          sourceObject.soundPositioning?.elevation === snapshotSound?.elevation &&
+          sourceObject.soundPositioning?.maxVolumeDistance === snapshotSound?.maxVolumeDistance &&
+          sourceObject.soundPositioning?.cutoffDistance === snapshotSound?.cutoffDistance &&
+          sourceObject.soundPositioning?.randomRangeWestEast === snapshotSound?.randomRangeWestEast &&
+          sourceObject.soundPositioning?.randomRangeNorthSouth === snapshotSound?.randomRangeNorthSouth
+        ) {
+          return current;
+        }
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === snapshot.id ? cloneSceneObject(snapshot) : object
+        );
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+      trackTelemetry("scene.sound_properties.cancel", {
+        userId,
+        objectId: snapshot.id
+      });
+    }
+    setSoundPropertiesDialog(null);
+  }, [cloneSceneObject, sceneViewportPort, soundPropertiesDialog, trackTelemetry, userId]);
+
+  const toggleSoundPropertiesDialogCollapsed = useCallback(() => {
+    setSoundPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            collapsed: !current.collapsed
+          }
+        : current
+    );
+  }, []);
+
+  const startSoundPropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !soundPropertiesDialog) {
+        return;
+      }
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button")) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const panelRect = soundPropertiesDialogRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+
+      const resolvedX = panelRect ? panelRect.left - hostRect.left : soundPropertiesDialog.windowX;
+      const resolvedY = panelRect ? panelRect.top - hostRect.top : soundPropertiesDialog.windowY;
+
+      soundPropertiesDialogDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - (hostRect.left + resolvedX),
+        offsetY: event.clientY - (hostRect.top + resolvedY)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [soundPropertiesDialog]
+  );
+
+  const moveSoundPropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = soundPropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+      const desiredX = event.clientX - hostRect.left - drag.offsetX;
+      const desiredY = event.clientY - hostRect.top - drag.offsetY;
+      const nextPosition = clampSoundPropertiesDialogPosition(desiredX, desiredY);
+      setSoundPropertiesDialog((current) =>
+        current
+          ? {
+              ...current,
+              windowX: nextPosition.x,
+              windowY: nextPosition.y
+            }
+          : current
+      );
+      event.preventDefault();
+    },
+    [clampSoundPropertiesDialogPosition]
+  );
+
+  const endSoundPropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = soundPropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      soundPropertiesDialogDragRef.current = {
+        active: false,
+        pointerId: null,
+        offsetX: 0,
+        offsetY: 0
+      };
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    []
+  );
+
+  const clampDoorPropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) => {
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return { x, y };
+      }
+      const measuredRect =
+        panelRect ?? doorPropertiesDialogRef.current?.getBoundingClientRect() ?? null;
+      const panelWidth = measuredRect?.width ?? DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+      const panelHeight = measuredRect?.height ?? DOOR_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+      const maxX = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.width - panelWidth - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      const maxY = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.height - panelHeight - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      return {
+        x: Math.min(Math.max(x, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxX),
+        y: Math.min(Math.max(y, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxY)
+      };
+    },
+    []
+  );
+
+  const openDoorPropertiesDialog = useCallback(
+    (target: SceneObject) => {
+      if (target.kind !== "doors") {
+        return;
+      }
+
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const preferredX = hostRect
+        ? hostRect.width - DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
+        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
+      const initialDialogPosition = clampDoorPropertiesDialogPosition(preferredX, preferredY);
+      setDoorPropertiesDialog({
+        objectId: target.id,
+        snapshotObject: cloneSceneObject(target),
+        draft: buildDoorPropertiesDraft(target),
+        activeTab: "basic",
+        windowX: initialDialogPosition.x,
+        windowY: initialDialogPosition.y,
+        collapsed: false
+      });
+      trackTelemetry("scene.door_properties.open", {
+        userId,
+        objectId: target.id
+      });
+    },
+    [clampDoorPropertiesDialogPosition, cloneSceneObject, trackTelemetry, userId]
+  );
+
+  const setDoorPropertiesActiveTab = useCallback((nextTab: DoorPropertiesTab) => {
+    setDoorPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            activeTab: nextTab
+          }
+        : current
+    );
+  }, []);
+
+  const applyDoorPropertiesDraft = useCallback(
+    (closeAfterApply: boolean) => {
+      if (!doorPropertiesDialog) {
+        return;
+      }
+
+      trackTelemetry("scene.door_properties.apply", {
+        userId,
+        objectId: doorPropertiesDialog.objectId,
+        closeAfterApply
+      });
+
+      if (closeAfterApply) {
+        setDoorPropertiesDialog(null);
+      }
+    },
+    [doorPropertiesDialog, trackTelemetry, userId]
+  );
+
+  const cancelDoorPropertiesDialog = useCallback(() => {
+    if (doorPropertiesDialog) {
+      trackTelemetry("scene.door_properties.cancel", {
+        userId,
+        objectId: doorPropertiesDialog.objectId
+      });
+    }
+    setDoorPropertiesDialog(null);
+  }, [doorPropertiesDialog, trackTelemetry, userId]);
+
+  const toggleDoorPropertiesDialogCollapsed = useCallback(() => {
+    setDoorPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            collapsed: !current.collapsed
+          }
+        : current
+    );
+  }, []);
+
+  const startDoorPropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !doorPropertiesDialog) {
+        return;
+      }
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button")) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const panelRect = doorPropertiesDialogRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+
+      const resolvedX = panelRect ? panelRect.left - hostRect.left : doorPropertiesDialog.windowX;
+      const resolvedY = panelRect ? panelRect.top - hostRect.top : doorPropertiesDialog.windowY;
+
+      doorPropertiesDialogDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - (hostRect.left + resolvedX),
+        offsetY: event.clientY - (hostRect.top + resolvedY)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [doorPropertiesDialog]
+  );
+
+  const moveDoorPropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = doorPropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+      const desiredX = event.clientX - hostRect.left - drag.offsetX;
+      const desiredY = event.clientY - hostRect.top - drag.offsetY;
+      const nextPosition = clampDoorPropertiesDialogPosition(desiredX, desiredY);
+      setDoorPropertiesDialog((current) =>
+        current
+          ? {
+              ...current,
+              windowX: nextPosition.x,
+              windowY: nextPosition.y
+            }
+          : current
+      );
+      event.preventDefault();
+    },
+    [clampDoorPropertiesDialogPosition]
+  );
+
+  const endDoorPropertiesDialogDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const drag = doorPropertiesDialogDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    doorPropertiesDialogDragRef.current = {
+      active: false,
+      pointerId: null,
+      offsetX: 0,
+      offsetY: 0
+    };
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -4210,6 +5229,8 @@ export function WorkspaceCanvasViewport({
         setSelectedTileId(null);
         setSelectedObjectIds(editableTargets.map((object) => object.id));
         setPlaceablePropertiesDialog(null);
+        setSoundPropertiesDialog(null);
+        setDoorPropertiesDialog(null);
         openAdjustLocationDialog(editableTargets);
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -4222,8 +5243,12 @@ export function WorkspaceCanvasViewport({
       }
 
       if (action === "properties") {
-        if (contextObj.kind !== "placeables") {
-          trackTelemetry("scene.placeable_properties.blocked_kind", {
+        if (
+          contextObj.kind !== "placeables" &&
+          contextObj.kind !== "sounds" &&
+          contextObj.kind !== "doors"
+        ) {
+          trackTelemetry("scene.object_properties.blocked_kind", {
             userId,
             objectId: contextObj.id,
             objectKind: contextObj.kind
@@ -4235,7 +5260,19 @@ export function WorkspaceCanvasViewport({
         setSelectedTileId(null);
         setSelectedObjectIds([contextObj.id]);
         setAdjustLocationDialog(null);
-        openPlaceablePropertiesDialog(contextObj);
+        if (contextObj.kind === "placeables") {
+          setSoundPropertiesDialog(null);
+          setDoorPropertiesDialog(null);
+          openPlaceablePropertiesDialog(contextObj);
+        } else if (contextObj.kind === "sounds") {
+          setPlaceablePropertiesDialog(null);
+          setDoorPropertiesDialog(null);
+          openSoundPropertiesDialog(contextObj);
+        } else {
+          setPlaceablePropertiesDialog(null);
+          setSoundPropertiesDialog(null);
+          openDoorPropertiesDialog(contextObj);
+        }
         trackTelemetry("scene.context_menu.action", {
           userId,
           objectId: contextObj.id,
@@ -4341,7 +5378,9 @@ export function WorkspaceCanvasViewport({
     },
     [
       openAdjustLocationDialog,
+      openDoorPropertiesDialog,
       openPlaceablePropertiesDialog,
+      openSoundPropertiesDialog,
       closeContextMenu,
       contextMenu,
       duplicateObjects,
@@ -4366,8 +5405,57 @@ export function WorkspaceCanvasViewport({
     };
 
     window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [closeContextMenu, contextMenu]);
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return () => {
+        window.removeEventListener("keydown", handleEscape);
+      };
+    }
+
+    const syncContextMenuToObject = () => {
+      setContextMenu((current) => {
+        if (!current) {
+          return current;
+        }
+        const targetObject = scene.objects.find((object) => object.id === current.objectId) ?? null;
+        if (!targetObject) {
+          return null;
+        }
+        const menuWidth = contextMenuRef.current?.offsetWidth ?? CONTEXT_MENU_FALLBACK_WIDTH_PX;
+        const menuHeight = contextMenuRef.current?.offsetHeight ?? CONTEXT_MENU_FALLBACK_HEIGHT_PX;
+        const anchoredPosition = resolveAnchoredContextMenuPosition(
+          runtime,
+          targetObject,
+          current.objectId,
+          current.anchorOffsetX,
+          current.anchorOffsetY,
+          menuWidth,
+          menuHeight
+        );
+        if (
+          Math.abs(anchoredPosition.x - current.x) < 0.5 &&
+          Math.abs(anchoredPosition.y - current.y) < 0.5
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          x: anchoredPosition.x,
+          y: anchoredPosition.y
+        };
+      });
+    };
+
+    syncContextMenuToObject();
+    runtime.controls.addEventListener("change", syncContextMenuToObject);
+    window.addEventListener("resize", syncContextMenuToObject);
+
+    return () => {
+      runtime.controls.removeEventListener("change", syncContextMenuToObject);
+      window.removeEventListener("resize", syncContextMenuToObject);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [closeContextMenu, contextMenu, leftPanelWidthPx, rightPanelWidthPx, scene.objects]);
 
   useEffect(() => {
     if (!adjustLocationDialog) {
@@ -4398,6 +5486,36 @@ export function WorkspaceCanvasViewport({
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [cancelPlaceablePropertiesDialog, placeablePropertiesDialog]);
+
+  useEffect(() => {
+    if (!soundPropertiesDialog) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelSoundPropertiesDialog();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [cancelSoundPropertiesDialog, soundPropertiesDialog]);
+
+  useEffect(() => {
+    if (!doorPropertiesDialog) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelDoorPropertiesDialog();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [cancelDoorPropertiesDialog, doorPropertiesDialog]);
 
   useEffect(() => {
     setAdjustLocationDialog((current) => {
@@ -4450,6 +5568,52 @@ export function WorkspaceCanvasViewport({
 
       const nextDraft = buildPlaceablePropertiesDraft(liveObject);
       if (arePlaceablePropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, [scene.objects]);
+
+  useEffect(() => {
+    setSoundPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const liveObject = scene.objects.find((object) => object.id === current.objectId);
+      if (!liveObject || liveObject.kind !== "sounds") {
+        return null;
+      }
+
+      const nextDraft = buildSoundPropertiesDraft(liveObject);
+      if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, [scene.objects]);
+
+  useEffect(() => {
+    setDoorPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const liveObject = scene.objects.find((object) => object.id === current.objectId);
+      if (!liveObject || liveObject.kind !== "doors") {
+        return null;
+      }
+
+      const nextDraft = buildDoorPropertiesDraft(liveObject);
+      if (areDoorPropertiesDraftsEqual(current.draft, nextDraft)) {
         return current;
       }
 
@@ -4523,6 +5687,68 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
+    if (!soundPropertiesDialog) {
+      return;
+    }
+    const clampedPosition = clampSoundPropertiesDialogPosition(
+      soundPropertiesDialog.windowX,
+      soundPropertiesDialog.windowY
+    );
+    if (
+      clampedPosition.x === soundPropertiesDialog.windowX &&
+      clampedPosition.y === soundPropertiesDialog.windowY
+    ) {
+      return;
+    }
+    setSoundPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            windowX: clampedPosition.x,
+            windowY: clampedPosition.y
+          }
+        : current
+    );
+  }, [
+    clampSoundPropertiesDialogPosition,
+    soundPropertiesDialog,
+    soundPropertiesDialog?.collapsed,
+    soundPropertiesDialog?.windowX,
+    soundPropertiesDialog?.windowY
+  ]);
+
+  useEffect(() => {
+    if (!doorPropertiesDialog) {
+      return;
+    }
+    const clampedPosition = clampDoorPropertiesDialogPosition(
+      doorPropertiesDialog.windowX,
+      doorPropertiesDialog.windowY
+    );
+    if (
+      clampedPosition.x === doorPropertiesDialog.windowX &&
+      clampedPosition.y === doorPropertiesDialog.windowY
+    ) {
+      return;
+    }
+    setDoorPropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            windowX: clampedPosition.x,
+            windowY: clampedPosition.y
+          }
+        : current
+    );
+  }, [
+    clampDoorPropertiesDialogPosition,
+    doorPropertiesDialog,
+    doorPropertiesDialog?.collapsed,
+    doorPropertiesDialog?.windowX,
+    doorPropertiesDialog?.windowY
+  ]);
+
+  useEffect(() => {
     if (!adjustLocationDialog) {
       return;
     }
@@ -4569,6 +5795,54 @@ export function WorkspaceCanvasViewport({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [clampPlaceablePropertiesDialogPosition, placeablePropertiesDialog]);
+
+  useEffect(() => {
+    if (!soundPropertiesDialog) {
+      return;
+    }
+    const handleResize = () => {
+      setSoundPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const clamped = clampSoundPropertiesDialogPosition(current.windowX, current.windowY);
+        if (clamped.x === current.windowX && clamped.y === current.windowY) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: clamped.x,
+          windowY: clamped.y
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampSoundPropertiesDialogPosition, soundPropertiesDialog]);
+
+  useEffect(() => {
+    if (!doorPropertiesDialog) {
+      return;
+    }
+    const handleResize = () => {
+      setDoorPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const clamped = clampDoorPropertiesDialogPosition(current.windowX, current.windowY);
+        if (clamped.x === current.windowX && clamped.y === current.windowY) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: clamped.x,
+          windowY: clamped.y
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampDoorPropertiesDialogPosition, doorPropertiesDialog]);
 
   const selectedTile = selectedTileId
     ? scene.tiles.find((tile) => tile.id === selectedTileId) ?? null
@@ -4646,7 +5920,15 @@ export function WorkspaceCanvasViewport({
   const isContextObjectLocked = contextObject
     ? isKindLocked(toolbarState.canvasDebug, contextObject.kind)
     : false;
-  const isContextPlaceable = contextObject?.kind === "placeables";
+  const isContextPropertiesSupported =
+    contextObject?.kind === "placeables" ||
+    contextObject?.kind === "sounds" ||
+    contextObject?.kind === "doors";
+  const soundPositioningMode = soundPropertiesDialog?.draft.mode ?? "specific";
+  const soundGating = {
+    positioningDisabled: soundPositioningMode === "everywhere",
+    randomRangeEnabled: soundPositioningMode === "random"
+  };
 
   return (
     <section className="canvas-stage-real">
@@ -4678,6 +5960,7 @@ export function WorkspaceCanvasViewport({
 
       {contextMenu ? (
         <article
+          ref={contextMenuRef}
           className="canvas-context-menu"
           role="menu"
           aria-label="object context menu"
@@ -4728,7 +6011,7 @@ export function WorkspaceCanvasViewport({
           <button
             type="button"
             role="menuitem"
-            disabled={isContextObjectLocked || !isContextPlaceable}
+            disabled={isContextObjectLocked || !isContextPropertiesSupported}
             onClick={() => handleContextAction("properties")}
           >
             Properties
@@ -5118,19 +6401,37 @@ export function WorkspaceCanvasViewport({
                     <fieldset className="canvas-placeable-properties-group">
                       <legend>Basic Flags</legend>
                       <label className="canvas-placeable-properties-toggle">
-                        <input type="checkbox" disabled />
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.plot}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("plot", event.target.checked)
+                          }
+                        />
                         Plot
-                        <span>Post-MVP</span>
+                        <span>ACTIVE_NOW</span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
-                        <input type="checkbox" disabled />
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.useable}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("useable", event.target.checked)
+                          }
+                        />
                         Useable
-                        <span>Post-MVP</span>
+                        <span>ACTIVE_NOW</span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
-                        <input type="checkbox" disabled />
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.hasInventory}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("hasInventory", event.target.checked)
+                          }
+                        />
                         Has Inventory
-                        <span>Post-MVP</span>
+                        <span>ACTIVE_NOW</span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
                         <input
@@ -5146,41 +6447,123 @@ export function WorkspaceCanvasViewport({
                     </fieldset>
 
                     <fieldset className="canvas-placeable-properties-group">
-                      <legend>Stats</legend>
-                      <label>
-                        Hardness
-                        <input type="number" disabled value="5" />
-                      </label>
-                      <label>
-                        Hit Points
-                        <input type="number" disabled value="15" />
-                      </label>
-                      <label>
-                        Fortitude Save
-                        <input type="number" disabled value="0" />
-                      </label>
-                      <label>
-                        Reflex Save
-                        <input type="number" disabled value="0" />
-                      </label>
-                      <label>
-                        Will Save
-                        <input type="number" disabled value="0" />
-                      </label>
+                      <legend>Phase-1 Scope</legend>
                       <p className="canvas-placeable-properties-note">
-                        Remaining controls in this section are <strong>Post-MVP</strong>.
+                        Placeable identity and Aurora contract flags are writable in this phase.
                       </p>
                     </fieldset>
                   </div>
                 </section>
-              ) : (
+              ) : null}
+
+              {placeablePropertiesDialog.activeTab === "scripts" ? (
+                <section className="canvas-placeable-properties-basic">
+                  <fieldset className="canvas-placeable-properties-group">
+                    <legend>Script Slots</legend>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={placeablePropertiesDialog.draft.scriptSlotsEnabled}
+                        onChange={(event) =>
+                          updatePlaceablePropertiesDraftField(
+                            "scriptSlotsEnabled",
+                            event.target.checked
+                          )
+                        }
+                      />
+                      Enable Script Slots Payload
+                      <span>PRESERVE_FIRST</span>
+                    </label>
+                    {PLACEABLE_SCRIPT_SLOT_KEYS.map((slotKey) => (
+                      <label key={slotKey}>
+                        {`${slotKey} Script`}
+                        <input
+                          type="text"
+                          value={placeablePropertiesDialog.draft.scriptSlots[slotKey]}
+                          disabled={!placeablePropertiesDialog.draft.scriptSlotsEnabled}
+                          onChange={(event) =>
+                            updatePlaceableScriptSlotDraftField(slotKey, event.target.value)
+                          }
+                        />
+                      </label>
+                    ))}
+                    <p className="canvas-placeable-properties-note">
+                      Script slot values are stored in existing Aurora payload fields only.
+                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {placeablePropertiesDialog.activeTab === "advanced" ? (
+                <section className="canvas-placeable-properties-basic">
+                  <fieldset className="canvas-placeable-properties-group">
+                    <legend>Disabled Flags</legend>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                        onChange={(event) =>
+                          updatePlaceablePropertiesDraftField(
+                            "disabledFlagsEnabled",
+                            event.target.checked
+                          )
+                        }
+                      />
+                      Enable Disabled Flags Payload
+                      <span>PRESERVE_FIRST</span>
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={placeablePropertiesDialog.draft.disabledFlags.plot}
+                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                        onChange={(event) =>
+                          updatePlaceableDisabledFlagDraftField("plot", event.target.checked)
+                        }
+                      />
+                      Plot Disabled
+                      <span>CONTRACT</span>
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={placeablePropertiesDialog.draft.disabledFlags.useable}
+                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                        onChange={(event) =>
+                          updatePlaceableDisabledFlagDraftField("useable", event.target.checked)
+                        }
+                      />
+                      Useable Disabled
+                      <span>CONTRACT</span>
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={placeablePropertiesDialog.draft.disabledFlags.hasInventory}
+                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                        onChange={(event) =>
+                          updatePlaceableDisabledFlagDraftField("hasInventory", event.target.checked)
+                        }
+                      />
+                      Inventory Disabled
+                      <span>CONTRACT</span>
+                    </label>
+                    <p className="canvas-placeable-properties-note">
+                      Advanced flags remain payload-only and do not introduce new runtime behavior.
+                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {placeablePropertiesDialog.activeTab === "description" ||
+              placeablePropertiesDialog.activeTab === "comments" ? (
                 <section className="canvas-placeable-properties-tab-placeholder">
                   <p>
                     This Aurora tab shell is present for parity. Runtime behavior for this tab is
-                    <strong> Post-MVP</strong>.
+                    <strong> Preserve-only</strong>.
                   </p>
                 </section>
-              )}
+              ) : null}
 
               <footer className="canvas-placeable-properties-actions">
                 <button type="button" onClick={() => applyPlaceablePropertiesDraft(false)}>
@@ -5190,6 +6573,418 @@ export function WorkspaceCanvasViewport({
                   OK
                 </button>
                 <button type="button" onClick={() => cancelPlaceablePropertiesDialog()}>
+                  Cancel
+                </button>
+              </footer>
+            </>
+          ) : null}
+        </article>
+      ) : null}
+
+      {soundPropertiesDialog ? (
+        <article
+          ref={soundPropertiesDialogRef}
+          className={`canvas-sound-properties-dialog ${
+            soundPropertiesDialog.collapsed ? "is-collapsed" : ""
+          }`}
+          role="dialog"
+          aria-label="Sound properties"
+          style={{
+            left: `${soundPropertiesDialog.windowX}px`,
+            top: `${soundPropertiesDialog.windowY}px`
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <header
+            className="canvas-sound-properties-header"
+            onPointerDown={startSoundPropertiesDialogDrag}
+            onPointerMove={moveSoundPropertiesDialogDrag}
+            onPointerUp={endSoundPropertiesDialogDrag}
+            onPointerCancel={endSoundPropertiesDialogDrag}
+          >
+            <div className="canvas-sound-properties-header-copy">
+              <h2>Sound Properties</h2>
+              <p>{soundPropertiesDialog.draft.tag || soundPropertiesDialog.objectId}</p>
+            </div>
+            <div className="canvas-sound-properties-header-actions">
+              <button
+                type="button"
+                onClick={() => toggleSoundPropertiesDialogCollapsed()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={
+                  soundPropertiesDialog.collapsed
+                    ? "Expand sound properties dialog"
+                    : "Collapse sound properties dialog"
+                }
+              >
+                {soundPropertiesDialog.collapsed ? "+" : "-"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelSoundPropertiesDialog()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label="Close sound properties dialog"
+              >
+                x
+              </button>
+            </div>
+          </header>
+
+          {!soundPropertiesDialog.collapsed ? (
+            <>
+              <nav className="canvas-sound-properties-tabs" aria-label="sound properties tabs">
+                {(["basic", "positioning", "advanced"] as SoundPropertiesTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={soundPropertiesDialog.activeTab === tab ? "is-active" : undefined}
+                    onClick={() => setSoundPropertiesActiveTab(tab)}
+                  >
+                    {tab === "basic" ? "Basic" : tab === "positioning" ? "Positioning" : "Advanced"}
+                  </button>
+                ))}
+              </nav>
+
+              {soundPropertiesDialog.activeTab === "basic" ? (
+                <section className="canvas-sound-properties-shell">
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Identity</legend>
+                    <label>
+                      Name
+                      <input
+                        type="text"
+                        value={soundPropertiesDialog.draft.name}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("name", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Tag
+                      <input
+                        type="text"
+                        value={soundPropertiesDialog.draft.tag}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("tag", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      ResRef
+                      <input
+                        type="text"
+                        value={soundPropertiesDialog.draft.resRef}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("resRef", event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Positioning Mode</legend>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "everywhere"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "everywhere")}
+                      />
+                      Plays everywhere in area
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "random"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "random")}
+                      />
+                      Plays from random position each play
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "specific"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "specific")}
+                      />
+                      Plays from specific position
+                    </label>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {soundPropertiesDialog.activeTab === "positioning" ? (
+                <section className="canvas-sound-properties-shell">
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Mode</legend>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "everywhere"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "everywhere")}
+                      />
+                      Plays everywhere in area
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "random"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "random")}
+                      />
+                      Plays from random position each play
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-positioning-mode"
+                        checked={soundPropertiesDialog.draft.mode === "specific"}
+                        onChange={() => updateSoundPropertiesDraftField("mode", "specific")}
+                      />
+                      Plays from specific position
+                    </label>
+                  </fieldset>
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Attenuation</legend>
+                    <label>
+                      Elevation
+                      <input
+                        type="number"
+                        value={soundPropertiesDialog.draft.elevation}
+                        step="0.1"
+                        disabled={soundGating.positioningDisabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("elevation", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Max Volume Distance
+                      <input
+                        type="number"
+                        value={soundPropertiesDialog.draft.maxVolumeDistance}
+                        step="0.1"
+                        disabled={soundGating.positioningDisabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("maxVolumeDistance", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Cutoff Distance
+                      <input
+                        type="number"
+                        value={soundPropertiesDialog.draft.cutoffDistance}
+                        step="0.1"
+                        disabled={soundGating.positioningDisabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("cutoffDistance", event.target.value)
+                        }
+                      />
+                    </label>
+                  </fieldset>
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Random Range</legend>
+                    <label>
+                      West-East
+                      <input
+                        type="number"
+                        value={soundPropertiesDialog.draft.randomRangeWestEast}
+                        step="0.1"
+                        disabled={!soundGating.randomRangeEnabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("randomRangeWestEast", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      North-South
+                      <input
+                        type="number"
+                        value={soundPropertiesDialog.draft.randomRangeNorthSouth}
+                        step="0.1"
+                        disabled={!soundGating.randomRangeEnabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField("randomRangeNorthSouth", event.target.value)
+                        }
+                      />
+                    </label>
+                    <p className="canvas-sound-properties-note">
+                      Mode gating is Aurora-first: <strong>everywhere</strong> disables positioning,
+                      <strong> random</strong> enables random range, and <strong>specific</strong>
+                      keeps fixed anchor behavior.
+                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {soundPropertiesDialog.activeTab === "advanced" ? (
+                <section className="canvas-sound-properties-tab-placeholder">
+                  <p>
+                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
+                    <strong> Post-MVP</strong>.
+                  </p>
+                </section>
+              ) : null}
+
+              <footer className="canvas-sound-properties-actions">
+                <button type="button" onClick={() => applySoundPropertiesDraft(false)}>
+                  Apply
+                </button>
+                <button type="button" onClick={() => applySoundPropertiesDraft(true)}>
+                  OK
+                </button>
+                <button type="button" onClick={() => cancelSoundPropertiesDialog()}>
+                  Cancel
+                </button>
+              </footer>
+            </>
+          ) : null}
+        </article>
+      ) : null}
+
+      {doorPropertiesDialog ? (
+        <article
+          ref={doorPropertiesDialogRef}
+          className={`canvas-door-properties-dialog ${
+            doorPropertiesDialog.collapsed ? "is-collapsed" : ""
+          }`}
+          role="dialog"
+          aria-label="Door properties"
+          style={{
+            left: `${doorPropertiesDialog.windowX}px`,
+            top: `${doorPropertiesDialog.windowY}px`
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <header
+            className="canvas-door-properties-header"
+            onPointerDown={startDoorPropertiesDialogDrag}
+            onPointerMove={moveDoorPropertiesDialogDrag}
+            onPointerUp={endDoorPropertiesDialogDrag}
+            onPointerCancel={endDoorPropertiesDialogDrag}
+          >
+            <div className="canvas-door-properties-header-copy">
+              <h2>Door Properties</h2>
+              <p>{doorPropertiesDialog.draft.tag || doorPropertiesDialog.objectId}</p>
+            </div>
+            <div className="canvas-door-properties-header-actions">
+              <button
+                type="button"
+                onClick={() => toggleDoorPropertiesDialogCollapsed()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={
+                  doorPropertiesDialog.collapsed
+                    ? "Expand door properties dialog"
+                    : "Collapse door properties dialog"
+                }
+              >
+                {doorPropertiesDialog.collapsed ? "+" : "-"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelDoorPropertiesDialog()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label="Close door properties dialog"
+              >
+                x
+              </button>
+            </div>
+          </header>
+
+          {!doorPropertiesDialog.collapsed ? (
+            <>
+              <nav className="canvas-door-properties-tabs" aria-label="door properties tabs">
+                {(["basic", "transition", "comments"] as DoorPropertiesTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={doorPropertiesDialog.activeTab === tab ? "is-active" : undefined}
+                    onClick={() => setDoorPropertiesActiveTab(tab)}
+                  >
+                    {tab === "basic" ? "Basic" : tab === "transition" ? "Transition" : "Comments"}
+                  </button>
+                ))}
+              </nav>
+
+              {doorPropertiesDialog.activeTab === "basic" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Identity</legend>
+                    <label>
+                      Name
+                      <input type="text" value={doorPropertiesDialog.draft.name} readOnly />
+                    </label>
+                    <label>
+                      Tag
+                      <input type="text" value={doorPropertiesDialog.draft.tag} readOnly />
+                    </label>
+                    <label>
+                      ResRef
+                      <input type="text" value={doorPropertiesDialog.draft.resRef} readOnly />
+                    </label>
+                    <p className="canvas-door-properties-note">
+                      Aurora-first shell: values are shown in <strong>preserve-first</strong> mode.
+                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "transition" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Transition Payload</legend>
+                    <label>
+                      Linked Target
+                      <input type="text" value={doorPropertiesDialog.draft.linkedTarget} readOnly />
+                    </label>
+                    <label>
+                      Linked Module
+                      <input type="text" value={doorPropertiesDialog.draft.linkedModule} readOnly />
+                    </label>
+                    <label>
+                      Linked Tag
+                      <input type="text" value={doorPropertiesDialog.draft.linkedTag} readOnly />
+                    </label>
+                    <label>
+                      Linked Waypoint
+                      <input type="text" value={doorPropertiesDialog.draft.linkedWaypoint} readOnly />
+                    </label>
+                    <label>
+                      Load Screen
+                      <input type="text" value={doorPropertiesDialog.draft.loadScreen} readOnly />
+                    </label>
+                    <label>
+                      Flags
+                      <input type="text" value={doorPropertiesDialog.draft.flagsSummary} readOnly />
+                    </label>
+                    <p className="canvas-door-properties-note">
+                      Transition fields are currently read-only for payload preservation.
+                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "comments" ? (
+                <section className="canvas-door-properties-tab-placeholder">
+                  <p>
+                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
+                    <strong> Preserve-only</strong>.
+                  </p>
+                </section>
+              ) : null}
+
+              <footer className="canvas-door-properties-actions">
+                <button type="button" onClick={() => applyDoorPropertiesDraft(false)}>
+                  Apply
+                </button>
+                <button type="button" onClick={() => applyDoorPropertiesDraft(true)}>
+                  OK
+                </button>
+                <button type="button" onClick={() => cancelDoorPropertiesDialog()}>
                   Cancel
                 </button>
               </footer>

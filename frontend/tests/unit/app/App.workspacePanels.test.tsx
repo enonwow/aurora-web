@@ -204,6 +204,36 @@ describe("App workspace side panels", () => {
     expect(screen.getByRole("menuitem", { name: /^delete$/i })).toBeInTheDocument();
   });
 
+  it("renders placeable and door properties panels from context flow", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.contextMenu(placeableRow, { clientX: 240, clientY: 180 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+
+    const placeableDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    expect(within(placeableDialog).getByRole("button", { name: /^basic$/i })).toBeInTheDocument();
+    expect(within(placeableDialog).getByRole("button", { name: /^scripts$/i })).toBeInTheDocument();
+    expect(within(placeableDialog).getByRole("button", { name: /^advanced$/i })).toBeInTheDocument();
+    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^scripts$/i }));
+    expect(within(placeableDialog).getByRole("textbox", { name: /onclick script/i })).toBeInTheDocument();
+    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^cancel$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
+    });
+
+    const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
+    fireEvent.contextMenu(doorRow, { clientX: 280, clientY: 210 });
+    expect(screen.queryByRole("menuitem", { name: /^adjust location$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+
+    const doorDialog = await screen.findByRole("dialog", { name: /door properties/i });
+    fireEvent.click(within(doorDialog).getByRole("button", { name: /^transition$/i }));
+    expect(within(doorDialog).getByRole("textbox", { name: /linked target/i })).toBeInTheDocument();
+  });
+
   it("restores collapsed sidebars after logout and next login", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -290,6 +320,16 @@ describe("App workspace side panels", () => {
     const rightSidebar = screen.getByLabelText(/right sidebar/i);
     const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
     fireEvent.click(placeableRow);
+    fireEvent.contextMenu(placeableRow, { clientX: 260, clientY: 200 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
 
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     const beforeMove = loadLocalSceneDraft("u_builder_001", window.localStorage);

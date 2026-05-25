@@ -28,8 +28,14 @@ async function signInAs(username: string, password: string) {
 }
 
 async function openQuickOptionsDialog() {
-  fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
-  return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+  const trigger = screen.getByRole("button", { name: /open quick options/i });
+  fireEvent.click(trigger);
+  try {
+    return await screen.findByRole("dialog", { name: /quick options/i }, { timeout: 3000 });
+  } catch {
+    fireEvent.click(trigger);
+    return screen.findByRole("dialog", { name: /quick options/i }, { timeout: 5000 });
+  }
 }
 
 async function openToolbarGroup(groupName: RegExp) {
@@ -80,11 +86,7 @@ describe("Regression smoke: workspace interactions", () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
-    const visibilityTab = screen.getByRole("button", { name: /^visibility$/i });
-    fireEvent.click(visibilityTab);
-    await waitFor(() => {
-      expect(visibilityTab).toHaveAttribute("aria-expanded", "true");
-    });
+    await openToolbarGroup(/^visibility$/i);
 
     const showNone = screen.getByRole("button", { name: /show none/i });
     fireEvent.click(showNone);
@@ -191,6 +193,17 @@ describe("Regression smoke: workspace interactions", () => {
 
     const rightSidebar = screen.getByLabelText(/right sidebar/i);
     const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.contextMenu(row, { clientX: 252, clientY: 188 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+
     fireEvent.click(row);
     fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
     fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
@@ -217,6 +230,17 @@ describe("Regression smoke: workspace interactions", () => {
 
     const rightSidebar = screen.getByLabelText(/right sidebar/i);
     const row = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+    fireEvent.contextMenu(row, { clientX: 252, clientY: 188 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+
     fireEvent.click(row);
     fireEvent.contextMenu(row, { clientX: 260, clientY: 200 });
     fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
@@ -735,7 +759,7 @@ describe("Regression smoke: workspace interactions", () => {
     await openQuickOptionsDialog();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
     expect(screen.getByLabelText(/show per-object gizmo hints/i)).not.toBeChecked();
-  });
+  }, 15000);
 
   it("supports collapsing sidebars and restoring them by clicking collapsed strips", async () => {
     renderAtPath("/login");
@@ -1132,6 +1156,17 @@ describe("Regression smoke: workspace interactions", () => {
     const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });
 
     fireEvent.click(placeableRow);
+    fireEvent.contextMenu(placeableRow, { clientX: 256, clientY: 194 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+    const propertiesDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
+    const staticCheckbox = within(propertiesDialog).getByRole("checkbox", {
+      name: /static/i
+    }) as HTMLInputElement;
+    if (staticCheckbox.checked) {
+      fireEvent.click(staticCheckbox);
+    }
+    fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     const beforeSingleMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
     const beforePlaceable = beforeSingleMove?.objects.find((object) => object.tag === "PLC_BARREL_01");

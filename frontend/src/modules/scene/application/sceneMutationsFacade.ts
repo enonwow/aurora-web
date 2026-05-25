@@ -233,6 +233,20 @@ function resolveMovableTargets(scene: AreaScene, objectIds: string[]): SceneObje
   return targets;
 }
 
+function resolveGenericTransformTargets(scene: AreaScene, objectIds: string[]): SceneObject[] {
+  const targets = resolveMovableTargets(scene, objectIds);
+  if (targets.length === 0) {
+    return [];
+  }
+
+  // AFEB-03: static placeables cannot move/rotate through generic world transform flows.
+  if (targets.some((object) => object.kind === "placeables" && (object.isStatic ?? true))) {
+    return [];
+  }
+
+  return targets;
+}
+
 function resolveVisualTransformTargets(scene: AreaScene, objectIds: string[]): SceneObject[] {
   if (objectIds.length === 0) {
     return [];
@@ -623,7 +637,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const targets = resolveMovableTargets(scene, objectIds);
+      const targets = resolveGenericTransformTargets(scene, objectIds);
       if (targets.length === 0) {
         return scene;
       }
@@ -666,7 +680,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const targets = resolveMovableTargets(scene, objectIds);
+      const targets = resolveGenericTransformTargets(scene, objectIds);
       if (targets.length === 0) {
         return scene;
       }
@@ -718,7 +732,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const targets = resolveMovableTargets(scene, objectIds);
+      const targets = resolveGenericTransformTargets(scene, objectIds);
       if (targets.length === 0) {
         return scene;
       }

@@ -1614,6 +1614,380 @@ input {
   background: #17365d;
 }
 
+.canvas-sound-properties-dialog {
+  position: absolute;
+  z-index: 9;
+  width: min(780px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+  border: 1px solid #355170;
+  border-radius: 10px;
+  background: #102033;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-sound-properties-dialog.is-collapsed {
+  width: min(420px, calc(100% - 1.5rem));
+}
+
+.canvas-sound-properties-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  cursor: grab;
+}
+
+.canvas-sound-properties-header:active {
+  cursor: grabbing;
+}
+
+.canvas-sound-properties-header-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.canvas-sound-properties-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #e2efff;
+}
+
+.canvas-sound-properties-header p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #a8bfdd;
+}
+
+.canvas-sound-properties-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.canvas-sound-properties-header-actions button {
+  border: 1px solid #355170;
+  border-radius: 6px;
+  background: #0e2540;
+  color: #e4f0ff;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.canvas-sound-properties-header-actions button:hover {
+  background: #163458;
+}
+
+.canvas-sound-properties-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+}
+
+.canvas-sound-properties-tabs button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #0e2540;
+  color: #d7e7ff;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.canvas-sound-properties-tabs button:hover {
+  background: #163458;
+}
+
+.canvas-sound-properties-tabs button.is-active {
+  border-color: #6f93bf;
+  background: #1b3a61;
+  color: #f1f7ff;
+}
+
+.canvas-sound-properties-shell {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.canvas-sound-properties-group {
+  border: 1px solid #355170;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.canvas-sound-properties-group legend {
+  color: #d5e8ff;
+  font-size: 0.78rem;
+  padding: 0 0.25rem;
+}
+
+.canvas-sound-properties-group label {
+  display: grid;
+  gap: 0.2rem;
+  color: #bdd0eb;
+  font-size: 0.75rem;
+}
+
+.canvas-sound-properties-group input[type="text"],
+.canvas-sound-properties-group input[type="number"] {
+  width: 100%;
+  border: 1px solid #39597d;
+  border-radius: 6px;
+  background: #081a2d;
+  color: #e0ecfa;
+  padding: 0.28rem 0.38rem;
+  font-size: 0.78rem;
+}
+
+.canvas-sound-properties-group input[disabled] {
+  opacity: 0.58;
+}
+
+.canvas-sound-properties-mode {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.canvas-sound-properties-mode input[type="radio"] {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.canvas-sound-properties-note {
+  margin: 0.15rem 0 0;
+  color: #9db5d3;
+  font-size: 0.72rem;
+}
+
+.canvas-sound-properties-tab-placeholder {
+  border: 1px dashed #3a5a7f;
+  border-radius: 9px;
+  padding: 0.6rem 0.75rem;
+  background: rgba(11, 28, 48, 0.55);
+}
+
+.canvas-sound-properties-tab-placeholder p {
+  margin: 0;
+  color: #c2d7f4;
+  font-size: 0.78rem;
+}
+
+.canvas-sound-properties-tab-placeholder strong {
+  color: #ecf4ff;
+}
+
+.canvas-sound-properties-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.canvas-sound-properties-actions button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #122a45;
+  color: #e4f0ff;
+  padding: 0.36rem 0.72rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.canvas-sound-properties-actions button:hover {
+  background: #17365d;
+}
+
+.canvas-door-properties-dialog {
+  position: absolute;
+  z-index: 9;
+  width: min(780px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+  border: 1px solid #355170;
+  border-radius: 10px;
+  background: #102033;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-door-properties-dialog.is-collapsed {
+  width: min(420px, calc(100% - 1.5rem));
+}
+
+.canvas-door-properties-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  cursor: grab;
+}
+
+.canvas-door-properties-header:active {
+  cursor: grabbing;
+}
+
+.canvas-door-properties-header-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.canvas-door-properties-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #e2efff;
+}
+
+.canvas-door-properties-header p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #a8bfdd;
+}
+
+.canvas-door-properties-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.canvas-door-properties-header-actions button {
+  border: 1px solid #355170;
+  border-radius: 6px;
+  background: #0e2540;
+  color: #e4f0ff;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.canvas-door-properties-header-actions button:hover {
+  background: #163458;
+}
+
+.canvas-door-properties-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+}
+
+.canvas-door-properties-tabs button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #0e2540;
+  color: #d7e7ff;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.canvas-door-properties-tabs button:hover {
+  background: #163458;
+}
+
+.canvas-door-properties-tabs button.is-active {
+  border-color: #6f93bf;
+  background: #1b3a61;
+  color: #f1f7ff;
+}
+
+.canvas-door-properties-shell {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.canvas-door-properties-group {
+  border: 1px solid #355170;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.canvas-door-properties-group legend {
+  color: #d5e8ff;
+  font-size: 0.78rem;
+  padding: 0 0.25rem;
+}
+
+.canvas-door-properties-group label {
+  display: grid;
+  gap: 0.2rem;
+  color: #bdd0eb;
+  font-size: 0.75rem;
+}
+
+.canvas-door-properties-group input[type="text"] {
+  width: 100%;
+  border: 1px solid #39597d;
+  border-radius: 6px;
+  background: #081a2d;
+  color: #e0ecfa;
+  padding: 0.28rem 0.38rem;
+  font-size: 0.78rem;
+}
+
+.canvas-door-properties-group input[readonly] {
+  opacity: 0.76;
+}
+
+.canvas-door-properties-note {
+  margin: 0.15rem 0 0;
+  color: #9db5d3;
+  font-size: 0.72rem;
+}
+
+.canvas-door-properties-tab-placeholder {
+  border: 1px dashed #3a5a7f;
+  border-radius: 9px;
+  padding: 0.6rem 0.75rem;
+  background: rgba(11, 28, 48, 0.55);
+}
+
+.canvas-door-properties-tab-placeholder p {
+  margin: 0;
+  color: #c2d7f4;
+  font-size: 0.78rem;
+}
+
+.canvas-door-properties-tab-placeholder strong {
+  color: #ecf4ff;
+}
+
+.canvas-door-properties-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.canvas-door-properties-actions button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #122a45;
+  color: #e4f0ff;
+  padding: 0.36rem 0.72rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.canvas-door-properties-actions button:hover {
+  background: #17365d;
+}
+
 .canvas-runtime-hud {
   position: absolute;
   left: 0.85rem;

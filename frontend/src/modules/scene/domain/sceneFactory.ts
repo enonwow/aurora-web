@@ -1,12 +1,19 @@
 import type {
   AreaScene,
+  SceneObjectDoorTransitionPayload,
   SceneObject,
+  SceneObjectPlaceableDisabledFlags,
   SceneObjectPlaceableProperties,
+  SceneObjectPlaceableScriptSlots,
+  SceneObjectSoundPositioningPreservePayload,
   SceneObjectSoundPositioning,
+  SceneObjectVfxPreservePayload,
+  ScenePreservePrimitive,
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
+import { createWalkmeshDomainModel } from "./walkmesh";
 
 const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "corridor",
@@ -29,6 +36,28 @@ const DEFAULT_PLACEABLE_PROPERTIES: SceneObjectPlaceableProperties = {
   hasInventory: false
 };
 
+const DEFAULT_PLACEABLE_SCRIPT_SLOTS: SceneObjectPlaceableScriptSlots = {
+  onClick: "",
+  onClosed: "",
+  onDamaged: "",
+  onDeath: "",
+  onHeartbeat: "",
+  onInvDisturbed: "",
+  onLock: "",
+  onMeleeAttacked: "",
+  onOpen: "",
+  onSpellCastAt: "",
+  onUnlock: "",
+  onUsed: "",
+  onUserDefined: ""
+};
+
+const DEFAULT_PLACEABLE_DISABLED_FLAGS: SceneObjectPlaceableDisabledFlags = {
+  plot: true,
+  useable: true,
+  hasInventory: true
+};
+
 const DEFAULT_SOUND_POSITIONING_BASELINE: Omit<
   SceneObjectSoundPositioning,
   "elevation"
@@ -38,6 +67,27 @@ const DEFAULT_SOUND_POSITIONING_BASELINE: Omit<
   cutoffDistance: 16,
   randomRangeWestEast: 0,
   randomRangeNorthSouth: 0
+};
+
+const DEFAULT_SOUND_POSITIONING_PRESERVE: SceneObjectSoundPositioningPreservePayload = {
+  timeWindow: "",
+  hourMask: "",
+  intervalMs: 0,
+  intervalVariationMs: 0,
+  volume: 0,
+  volumeVariation: 0,
+  pitchVariation: 0,
+  priority: 0,
+  flags: {},
+  extra: {}
+};
+
+const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
+  profile: "",
+  emitter: "",
+  script: "",
+  flags: {},
+  extra: {}
 };
 
 const SOUND_POSITIONING_MODES = new Set<SceneObjectSoundPositioning["mode"]>([
@@ -50,12 +100,182 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 function asFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function clampMin(value: number, min: number): number {
   return value < min ? min : value;
+}
+
+function isPreservePrimitive(value: unknown): value is ScenePreservePrimitive {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  );
+}
+
+function normalizeDoorTransitionFlags(value: unknown): Record<string, boolean> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const normalized: Record<string, boolean> = {};
+  Object.entries(value).forEach(([key, candidate]) => {
+    if (typeof candidate === "boolean") {
+      normalized[key] = candidate;
+    }
+  });
+  return normalized;
+}
+
+function normalizePreserveBooleanMap(value: unknown): Record<string, boolean> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const normalized: Record<string, boolean> = {};
+  Object.entries(value).forEach(([key, candidate]) => {
+    if (typeof candidate === "boolean") {
+      normalized[key] = candidate;
+    }
+  });
+  return normalized;
+}
+
+function normalizePreservePrimitiveMap(
+  value: unknown
+): Record<string, ScenePreservePrimitive> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const normalized: Record<string, ScenePreservePrimitive> = {};
+  Object.entries(value).forEach(([key, candidate]) => {
+    if (isPreservePrimitive(candidate)) {
+      normalized[key] = candidate;
+    }
+  });
+  return normalized;
+}
+
+function normalizeSoundPositioningPreservePayload(
+  value: unknown
+): SceneObjectSoundPositioningPreservePayload | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    timeWindow: asString(value.timeWindow, DEFAULT_SOUND_POSITIONING_PRESERVE.timeWindow),
+    hourMask: asString(value.hourMask, DEFAULT_SOUND_POSITIONING_PRESERVE.hourMask),
+    intervalMs: asFiniteNumber(value.intervalMs, DEFAULT_SOUND_POSITIONING_PRESERVE.intervalMs),
+    intervalVariationMs: asFiniteNumber(
+      value.intervalVariationMs,
+      DEFAULT_SOUND_POSITIONING_PRESERVE.intervalVariationMs
+    ),
+    volume: asFiniteNumber(value.volume, DEFAULT_SOUND_POSITIONING_PRESERVE.volume),
+    volumeVariation: asFiniteNumber(
+      value.volumeVariation,
+      DEFAULT_SOUND_POSITIONING_PRESERVE.volumeVariation
+    ),
+    pitchVariation: asFiniteNumber(
+      value.pitchVariation,
+      DEFAULT_SOUND_POSITIONING_PRESERVE.pitchVariation
+    ),
+    priority: asFiniteNumber(value.priority, DEFAULT_SOUND_POSITIONING_PRESERVE.priority),
+    flags: normalizePreserveBooleanMap(value.flags),
+    extra: normalizePreservePrimitiveMap(value.extra)
+  };
+}
+
+function normalizeVfxPayload(value: unknown): SceneObjectVfxPreservePayload | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    profile: asString(value.profile, DEFAULT_VFX_PAYLOAD.profile),
+    emitter: asString(value.emitter, DEFAULT_VFX_PAYLOAD.emitter),
+    script: asString(value.script, DEFAULT_VFX_PAYLOAD.script),
+    flags: normalizePreserveBooleanMap(value.flags),
+    extra: normalizePreservePrimitiveMap(value.extra)
+  };
+}
+
+function areBooleanMapsEqual(left: Record<string, boolean>, right: Record<string, boolean>): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => right[key] === value);
+}
+
+function arePrimitiveMapsEqual(
+  left: Record<string, ScenePreservePrimitive>,
+  right: Record<string, ScenePreservePrimitive>
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => right[key] === value);
+}
+
+function areSoundPositioningPreservePayloadEqual(
+  left: SceneObjectSoundPositioningPreservePayload | undefined,
+  right: SceneObjectSoundPositioningPreservePayload | undefined
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return (
+    left.timeWindow === right.timeWindow &&
+    left.hourMask === right.hourMask &&
+    left.intervalMs === right.intervalMs &&
+    left.intervalVariationMs === right.intervalVariationMs &&
+    left.volume === right.volume &&
+    left.volumeVariation === right.volumeVariation &&
+    left.pitchVariation === right.pitchVariation &&
+    left.priority === right.priority &&
+    areBooleanMapsEqual(left.flags, right.flags) &&
+    arePrimitiveMapsEqual(left.extra, right.extra)
+  );
+}
+
+function areVfxPayloadsEqual(
+  left: SceneObjectVfxPreservePayload | undefined,
+  right: SceneObjectVfxPreservePayload | undefined
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return (
+    left.profile === right.profile &&
+    left.emitter === right.emitter &&
+    left.script === right.script &&
+    areBooleanMapsEqual(left.flags, right.flags) &&
+    arePrimitiveMapsEqual(left.extra, right.extra)
+  );
+}
+
+function areDoorTransitionFlagsEqual(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => right[key] === value);
 }
 
 function isSoundPositioningMode(value: unknown): value is SceneObjectSoundPositioning["mode"] {
@@ -89,11 +309,89 @@ function scaleCoordinate(value: number, from: number, to: number): number {
 }
 
 export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
-  if (object.kind === "placeables") {
+  const rawVfxPayload =
+    (object.vfxPayload as Partial<Record<keyof SceneObjectVfxPreservePayload, unknown>> | undefined) ??
+    undefined;
+  const shouldNormalizeVfxPayload = isRecord(rawVfxPayload) || object.vfxPayload !== undefined;
+  const nextVfxPayload: SceneObjectVfxPreservePayload | undefined = shouldNormalizeVfxPayload
+    ? normalizeVfxPayload(rawVfxPayload) ?? { ...DEFAULT_VFX_PAYLOAD }
+    : undefined;
+  const hasVfxChanged = !areVfxPayloadsEqual(object.vfxPayload, nextVfxPayload);
+  const normalizedObject = hasVfxChanged
+    ? {
+        ...object,
+        vfxPayload: nextVfxPayload
+      }
+    : object;
+
+  if (normalizedObject.kind === "placeables") {
     const rawPlaceableProperties =
-      (object.placeableProperties as
+      (normalizedObject.placeableProperties as
         | Partial<Record<keyof SceneObjectPlaceableProperties, unknown>>
         | undefined) ?? undefined;
+    const hasRawScriptSlots = isRecord(rawPlaceableProperties?.scriptSlots);
+    const hasRawDisabledFlags = isRecord(rawPlaceableProperties?.disabledFlags);
+    const rawScriptSlots = hasRawScriptSlots
+      ? (rawPlaceableProperties?.scriptSlots as Partial<
+          Record<keyof SceneObjectPlaceableScriptSlots, unknown>
+        >)
+      : undefined;
+    const rawDisabledFlags = hasRawDisabledFlags
+      ? (rawPlaceableProperties?.disabledFlags as Partial<
+          Record<keyof SceneObjectPlaceableDisabledFlags, unknown>
+        >)
+      : undefined;
+    const currentPlaceableProperties = normalizedObject.placeableProperties;
+    const shouldNormalizeScriptSlots =
+      hasRawScriptSlots || currentPlaceableProperties?.scriptSlots !== undefined;
+    const shouldNormalizeDisabledFlags =
+      hasRawDisabledFlags || currentPlaceableProperties?.disabledFlags !== undefined;
+
+    const nextScriptSlots: SceneObjectPlaceableScriptSlots | undefined = shouldNormalizeScriptSlots
+      ? {
+          onClick: asString(rawScriptSlots?.onClick, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onClick),
+          onClosed: asString(rawScriptSlots?.onClosed, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onClosed),
+          onDamaged: asString(rawScriptSlots?.onDamaged, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onDamaged),
+          onDeath: asString(rawScriptSlots?.onDeath, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onDeath),
+          onHeartbeat: asString(rawScriptSlots?.onHeartbeat, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onHeartbeat),
+          onInvDisturbed: asString(
+            rawScriptSlots?.onInvDisturbed,
+            DEFAULT_PLACEABLE_SCRIPT_SLOTS.onInvDisturbed
+          ),
+          onLock: asString(rawScriptSlots?.onLock, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onLock),
+          onMeleeAttacked: asString(
+            rawScriptSlots?.onMeleeAttacked,
+            DEFAULT_PLACEABLE_SCRIPT_SLOTS.onMeleeAttacked
+          ),
+          onOpen: asString(rawScriptSlots?.onOpen, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onOpen),
+          onSpellCastAt: asString(
+            rawScriptSlots?.onSpellCastAt,
+            DEFAULT_PLACEABLE_SCRIPT_SLOTS.onSpellCastAt
+          ),
+          onUnlock: asString(rawScriptSlots?.onUnlock, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onUnlock),
+          onUsed: asString(rawScriptSlots?.onUsed, DEFAULT_PLACEABLE_SCRIPT_SLOTS.onUsed),
+          onUserDefined: asString(
+            rawScriptSlots?.onUserDefined,
+            DEFAULT_PLACEABLE_SCRIPT_SLOTS.onUserDefined
+          )
+        }
+      : undefined;
+
+    const nextDisabledFlags: SceneObjectPlaceableDisabledFlags | undefined =
+      shouldNormalizeDisabledFlags
+        ? {
+            plot: isBoolean(rawDisabledFlags?.plot)
+              ? rawDisabledFlags.plot
+              : DEFAULT_PLACEABLE_DISABLED_FLAGS.plot,
+            useable: isBoolean(rawDisabledFlags?.useable)
+              ? rawDisabledFlags.useable
+              : DEFAULT_PLACEABLE_DISABLED_FLAGS.useable,
+            hasInventory: isBoolean(rawDisabledFlags?.hasInventory)
+              ? rawDisabledFlags.hasInventory
+              : DEFAULT_PLACEABLE_DISABLED_FLAGS.hasInventory
+          }
+        : undefined;
+
     const nextPlaceableProperties: SceneObjectPlaceableProperties = {
       plot: isBoolean(rawPlaceableProperties?.plot)
         ? rawPlaceableProperties.plot
@@ -105,26 +403,102 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         ? rawPlaceableProperties.hasInventory
         : DEFAULT_PLACEABLE_PROPERTIES.hasInventory
     };
-    const currentPlaceableProperties = object.placeableProperties;
+    if (nextScriptSlots !== undefined) {
+      nextPlaceableProperties.scriptSlots = nextScriptSlots;
+    }
+    if (nextDisabledFlags !== undefined) {
+      nextPlaceableProperties.disabledFlags = nextDisabledFlags;
+    }
+
+    const currentScriptSlots = currentPlaceableProperties?.scriptSlots;
+    const currentDisabledFlags = currentPlaceableProperties?.disabledFlags;
+    const isScriptSlotsUnchanged =
+      nextScriptSlots === undefined
+        ? currentScriptSlots === undefined
+        : currentScriptSlots?.onClick === nextScriptSlots.onClick &&
+          currentScriptSlots?.onClosed === nextScriptSlots.onClosed &&
+          currentScriptSlots?.onDamaged === nextScriptSlots.onDamaged &&
+          currentScriptSlots?.onDeath === nextScriptSlots.onDeath &&
+          currentScriptSlots?.onHeartbeat === nextScriptSlots.onHeartbeat &&
+          currentScriptSlots?.onInvDisturbed === nextScriptSlots.onInvDisturbed &&
+          currentScriptSlots?.onLock === nextScriptSlots.onLock &&
+          currentScriptSlots?.onMeleeAttacked === nextScriptSlots.onMeleeAttacked &&
+          currentScriptSlots?.onOpen === nextScriptSlots.onOpen &&
+          currentScriptSlots?.onSpellCastAt === nextScriptSlots.onSpellCastAt &&
+          currentScriptSlots?.onUnlock === nextScriptSlots.onUnlock &&
+          currentScriptSlots?.onUsed === nextScriptSlots.onUsed &&
+          currentScriptSlots?.onUserDefined === nextScriptSlots.onUserDefined;
+    const isDisabledFlagsUnchanged =
+      nextDisabledFlags === undefined
+        ? currentDisabledFlags === undefined
+        : currentDisabledFlags?.plot === nextDisabledFlags.plot &&
+          currentDisabledFlags?.useable === nextDisabledFlags.useable &&
+          currentDisabledFlags?.hasInventory === nextDisabledFlags.hasInventory;
+
     if (
       currentPlaceableProperties?.plot === nextPlaceableProperties.plot &&
       currentPlaceableProperties?.useable === nextPlaceableProperties.useable &&
       currentPlaceableProperties?.hasInventory === nextPlaceableProperties.hasInventory &&
-      object.soundPositioning === undefined
+      isScriptSlotsUnchanged &&
+      isDisabledFlagsUnchanged &&
+      normalizedObject.soundPositioning === undefined
     ) {
-      return object;
+      return normalizedObject;
     }
 
     return {
-      ...object,
+      ...normalizedObject,
       placeableProperties: nextPlaceableProperties,
       soundPositioning: undefined
     };
   }
 
-  if (object.kind === "sounds") {
+  if (normalizedObject.kind === "doors") {
+    const rawDoorTransition =
+      (normalizedObject.doorTransition as
+        | Partial<Record<keyof SceneObjectDoorTransitionPayload, unknown>>
+        | undefined) ?? undefined;
+    const shouldNormalizeDoorTransition = rawDoorTransition !== undefined;
+    const nextDoorTransition: SceneObjectDoorTransitionPayload | undefined = shouldNormalizeDoorTransition
+      ? {
+          linkedTarget: asString(rawDoorTransition?.linkedTarget, ""),
+          linkedModule: asString(rawDoorTransition?.linkedModule, ""),
+          linkedTag: asString(rawDoorTransition?.linkedTag, ""),
+          linkedWaypoint: asString(rawDoorTransition?.linkedWaypoint, ""),
+          loadScreen: asString(rawDoorTransition?.loadScreen, ""),
+          flags: normalizeDoorTransitionFlags(rawDoorTransition?.flags)
+        }
+      : undefined;
+    const currentDoorTransition = normalizedObject.doorTransition;
+    const isDoorTransitionUnchanged =
+      nextDoorTransition === undefined
+        ? currentDoorTransition === undefined
+        : currentDoorTransition?.linkedTarget === nextDoorTransition.linkedTarget &&
+          currentDoorTransition?.linkedModule === nextDoorTransition.linkedModule &&
+          currentDoorTransition?.linkedTag === nextDoorTransition.linkedTag &&
+          currentDoorTransition?.linkedWaypoint === nextDoorTransition.linkedWaypoint &&
+          currentDoorTransition?.loadScreen === nextDoorTransition.loadScreen &&
+          areDoorTransitionFlagsEqual(currentDoorTransition?.flags ?? {}, nextDoorTransition.flags);
+
+    if (
+      normalizedObject.placeableProperties === undefined &&
+      normalizedObject.soundPositioning === undefined &&
+      isDoorTransitionUnchanged
+    ) {
+      return normalizedObject;
+    }
+
+    return {
+      ...normalizedObject,
+      placeableProperties: undefined,
+      soundPositioning: undefined,
+      doorTransition: nextDoorTransition
+    };
+  }
+
+  if (normalizedObject.kind === "sounds") {
     const rawSoundPositioning =
-      (object.soundPositioning as
+      (normalizedObject.soundPositioning as
         | Partial<Record<keyof SceneObjectSoundPositioning, unknown>>
         | undefined) ?? undefined;
     const nextMode: SceneObjectSoundPositioning["mode"] = isSoundPositioningMode(
@@ -132,7 +506,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     )
       ? rawSoundPositioning.mode
       : DEFAULT_SOUND_POSITIONING_BASELINE.mode;
-    const fallbackElevation = clampMin(asFiniteNumber(object.z, 0), 0);
+    const fallbackElevation = clampMin(asFiniteNumber(normalizedObject.z, 0), 0);
     const nextMaxVolumeDistance = clampMin(
       asFiniteNumber(
         rawSoundPositioning?.maxVolumeDistance,
@@ -168,6 +542,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             0
           )
         : 0;
+    const shouldNormalizePreservePayload =
+      isRecord(rawSoundPositioning?.preserve) ||
+      normalizedObject.soundPositioning?.preserve !== undefined;
+    const nextPreservePayload: SceneObjectSoundPositioningPreservePayload | undefined =
+      shouldNormalizePreservePayload
+        ? normalizeSoundPositioningPreservePayload(rawSoundPositioning?.preserve) ?? {
+            ...DEFAULT_SOUND_POSITIONING_PRESERVE
+          }
+        : undefined;
     const nextSoundPositioning: SceneObjectSoundPositioning = {
       mode: nextMode,
       elevation: clampMin(asFiniteNumber(rawSoundPositioning?.elevation, fallbackElevation), 0),
@@ -176,7 +559,10 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       randomRangeWestEast: nextRandomRangeWestEast,
       randomRangeNorthSouth: nextRandomRangeNorthSouth
     };
-    const currentSoundPositioning = object.soundPositioning;
+    if (nextPreservePayload !== undefined) {
+      nextSoundPositioning.preserve = nextPreservePayload;
+    }
+    const currentSoundPositioning = normalizedObject.soundPositioning;
     if (
       currentSoundPositioning?.mode === nextSoundPositioning.mode &&
       currentSoundPositioning?.elevation === nextSoundPositioning.elevation &&
@@ -184,26 +570,33 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       currentSoundPositioning?.cutoffDistance === nextSoundPositioning.cutoffDistance &&
       currentSoundPositioning?.randomRangeWestEast === nextSoundPositioning.randomRangeWestEast &&
       currentSoundPositioning?.randomRangeNorthSouth === nextSoundPositioning.randomRangeNorthSouth &&
-      object.placeableProperties === undefined
+      areSoundPositioningPreservePayloadEqual(
+        currentSoundPositioning?.preserve,
+        nextSoundPositioning.preserve
+      ) &&
+      normalizedObject.placeableProperties === undefined
     ) {
-      return object;
+      return normalizedObject;
     }
 
     return {
-      ...object,
+      ...normalizedObject,
       placeableProperties: undefined,
       soundPositioning: nextSoundPositioning
     };
   }
 
-  if (object.placeableProperties === undefined && object.soundPositioning === undefined) {
-    return object;
+  if (
+    normalizedObject.placeableProperties === undefined &&
+    normalizedObject.soundPositioning === undefined
+  ) {
+    return normalizedObject;
   }
 
   // Defensive cleanup for corrupted drafts where metadata ended up on unsupported kinds.
   // This keeps runtime behavior deterministic without changing public API contracts.
   return {
-    ...object,
+    ...normalizedObject,
     placeableProperties: undefined,
     soundPositioning: undefined
   };
@@ -287,6 +680,7 @@ export function createSeedAreaScene(
     height,
     tiles,
     objects: createSeedObjects(width, height),
+    walkmesh: createWalkmeshDomainModel({}),
     updatedAtUnixMs: Date.now(),
     source: "seed"
   };

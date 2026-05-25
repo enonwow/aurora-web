@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { createSceneMutationsFacade } from "../../../../../src/modules/scene/application/sceneMutationsFacade";
 import { createNewSceneObject, createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
 
+function withDynamicPlaceables(scene: ReturnType<typeof createSeedAreaScene>) {
+  return {
+    ...scene,
+    objects: scene.objects.map((object) =>
+      object.kind === "placeables"
+        ? {
+            ...object,
+            isStatic: false
+          }
+        : object
+    )
+  };
+}
+
 describe("sceneMutationsFacade", () => {
   it("appends objects to scene", () => {
     const facade = createSceneMutationsFacade();
@@ -162,7 +176,7 @@ describe("sceneMutationsFacade", () => {
 
   it("translates movable objects by delta", () => {
     const facade = createSceneMutationsFacade();
-    const scene = createSeedAreaScene();
+    const scene = withDynamicPlaceables(createSeedAreaScene());
     const movable = scene.objects.find((object) => object.kind === "placeables");
     expect(movable).toBeDefined();
     const other = scene.objects.find((object) => object.id !== movable?.id);
@@ -200,7 +214,7 @@ describe("sceneMutationsFacade", () => {
 
   it("clamps group translation at scene bounds while preserving relative offset", () => {
     const facade = createSceneMutationsFacade();
-    const scene = createSeedAreaScene();
+    const scene = withDynamicPlaceables(createSeedAreaScene());
     const first = scene.objects.find((object) => object.id === "plc_barrel_01");
     const second = scene.objects.find((object) => object.id === "plc_table_02");
     expect(first).toBeDefined();
@@ -243,7 +257,7 @@ describe("sceneMutationsFacade", () => {
 
   it("adjusts movable object height via base Z position", () => {
     const facade = createSceneMutationsFacade();
-    const scene = createSeedAreaScene();
+    const scene = withDynamicPlaceables(createSeedAreaScene());
     const movable = scene.objects.find((object) => object.kind === "placeables");
     expect(movable).toBeDefined();
 
@@ -256,7 +270,7 @@ describe("sceneMutationsFacade", () => {
 
   it("prevents lowering selected objects below surface while keeping shared delta", () => {
     const facade = createSceneMutationsFacade();
-    const scene = createSeedAreaScene();
+    const scene = withDynamicPlaceables(createSeedAreaScene());
     const first = scene.objects.find((object) => object.id === "plc_barrel_01");
     const second = scene.objects.find((object) => object.id === "plc_table_02");
     expect(first).toBeDefined();
@@ -305,6 +319,67 @@ describe("sceneMutationsFacade", () => {
     const changed = nextScene.objects.find((object) => object.id === movable!.id);
 
     expect(changed?.bearing).toBeCloseTo((movable?.bearing ?? 0) + 0.3);
+  });
+
+  it("blocks generic transform flows for static placeables", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const staticPlaceable = scene.objects.find((object) => object.kind === "placeables");
+    expect(staticPlaceable).toBeDefined();
+
+    const translated = facade.translateObjectsByIds(scene, [staticPlaceable!.id], {
+      x: 0.2,
+      y: -0.1
+    });
+    const raised = facade.adjustObjectsHeightByIds(scene, [staticPlaceable!.id], 0.4);
+    const rotated = facade.rotateObjectsBearingByIds(scene, [staticPlaceable!.id], 0.2);
+
+    expect(translated).toBe(scene);
+    expect(raised).toBe(scene);
+    expect(rotated).toBe(scene);
+  });
+
+  it("blocks generic transform flows when selection mixes static placeable with movable object", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const staticPlaceable = scene.objects.find((object) => object.kind === "placeables");
+    const creature = scene.objects.find((object) => object.kind === "creatures");
+    expect(staticPlaceable).toBeDefined();
+    expect(staticPlaceable?.isStatic ?? true).toBe(true);
+    expect(creature).toBeDefined();
+
+    const translated = facade.translateObjectsByIds(
+      scene,
+      [staticPlaceable!.id, creature!.id],
+      { x: 0.2, y: -0.1 }
+    );
+    const raised = facade.adjustObjectsHeightByIds(
+      scene,
+      [staticPlaceable!.id, creature!.id],
+      0.4
+    );
+    const rotated = facade.rotateObjectsBearingByIds(
+      scene,
+      [staticPlaceable!.id, creature!.id],
+      0.2
+    );
+
+    expect(translated).toBe(scene);
+    expect(raised).toBe(scene);
+    expect(rotated).toBe(scene);
+  });
+
+  it("rotates non-static placeable bearing around Y axis", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = withDynamicPlaceables(createSeedAreaScene());
+    const dynamicPlaceable = scene.objects.find((object) => object.kind === "placeables");
+    expect(dynamicPlaceable).toBeDefined();
+
+    const nextScene = facade.rotateObjectsBearingByIds(scene, [dynamicPlaceable!.id], 0.25);
+    const changed = nextScene.objects.find((object) => object.id === dynamicPlaceable!.id);
+
+    expect(changed).toBeDefined();
+    expect(changed?.bearing).toBeCloseTo((dynamicPlaceable?.bearing ?? 0) + 0.25);
   });
 
   it("normalizes bearing after rotation and keeps it within 0..2pi", () => {

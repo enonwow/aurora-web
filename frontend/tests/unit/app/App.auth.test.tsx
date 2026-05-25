@@ -87,7 +87,7 @@ describe("App auth mock flow", () => {
     expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^redo$/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^module$/i }));
+    await openToolbarGroup(/^module$/i);
     expect(screen.getByRole("button", { name: /save \(local draft\)/i })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /create new module/i })
@@ -96,11 +96,11 @@ describe("App auth mock flow", () => {
       screen.queryByRole("button", { name: /open existing module/i })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^selection$/i }));
+    await openToolbarGroup(/^selection$/i);
     expect(screen.getByRole("button", { name: /select terrain/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /select object/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^visibility$/i }));
+    await openToolbarGroup(/^visibility$/i);
     const showNoneButton = screen.getByRole("button", { name: /show none/i });
     expect(showNoneButton).toBeEnabled();
     fireEvent.click(showNoneButton);
@@ -124,7 +124,7 @@ describe("App auth mock flow", () => {
     expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: /^canvas$/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^canvas$/i }));
+    await openToolbarGroup(/^canvas$/i);
     expect(screen.getByLabelText(/canvas runtime/i)).toBeInTheDocument();
     expect(screen.getByRole("note", { name: /controls hint/i })).toBeInTheDocument();
     const wireframeButton = screen.getByRole("button", { name: /wireframe/i });
