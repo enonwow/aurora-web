@@ -127,7 +127,71 @@ describe("AreasApplicationService", () => {
 
     expect(result.cache.hit).toBe(false);
     expect(result.area.areaId).toBe("area_test_001");
+    expect(result.area.textureAtlas.cacheKey).toBe("atlas_urban_v1:12x12");
     expect(result.area.processedAt).toEqual(expect.any(String));
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns processArea cache hit when bypassCache=false and cache exists", async () => {
+    const value: AreaProcessingResult = {
+      areaId: "area_test_001",
+      name: "Test Area",
+      biome: "urban",
+      width: 12,
+      height: 12,
+      tags: ["benchmark", "city"],
+      benchmark: true,
+      previewImageUrl: "/previews/area_test_001.webp",
+      textureAtlas: {
+        atlasId: "atlas_urban_v1",
+        cacheKey: "atlas_urban_v1:12x12",
+        strategy: "blob-cache"
+      },
+      composition: {
+        placeables: 1,
+        creatures: 2,
+        items: 1,
+        total: 4
+      },
+      objects: [],
+      updatedAt: "2026-05-23T00:00:00.000Z",
+      processedAt: "2026-05-24T10:59:00.000Z"
+    };
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    processingCache.get.mockResolvedValue({
+      key: "c".repeat(64),
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 6
+    });
+
+    const result = await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(6);
+    expect(result.area.areaId).toBe("area_test_001");
+    expect(processingCache.set).not.toHaveBeenCalled();
+  });
+
+  it("processArea bypassCache=true skips cache read and writes fresh payload", async () => {
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(processingCache.get).not.toHaveBeenCalled();
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
@@ -203,7 +267,22 @@ describe("AreasApplicationService", () => {
     processingCache.get.mockResolvedValue(null);
 
     await expect(service.getProcessedArea("b".repeat(64))).rejects.toMatchObject({
-      code: "AREA_CACHE_NOT_FOUND"
+      code: "AREA_CACHE_NOT_FOUND",
+      message: "Area cache entry was not found."
+    });
+  });
+
+  it("throws AREA_NOT_FOUND from processArea when target area is missing", async () => {
+    repository.findById.mockResolvedValue(null);
+
+    await expect(
+      service.processArea({
+        areaId: "missing",
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "AREA_NOT_FOUND",
+      message: "Area was not found."
     });
   });
 });

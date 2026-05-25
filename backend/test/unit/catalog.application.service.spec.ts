@@ -263,6 +263,35 @@ describe("CatalogApplicationService", () => {
     expect(second.placeable.templateId).toBe("plc_vfx_001");
   });
 
+  it("cleans in-flight map after completion so subsequent same-key miss reprocesses", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_vfx_001"),
+      resref: "plc_vfx_001",
+      placeableSubtype: "vfx"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:00:00.000Z",
+      hits: 0
+    }));
+
+    await service.processPlaceable({
+      templateId: "plc_vfx_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    await service.processPlaceable({
+      templateId: "plc_vfx_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(placeableCache.set).toHaveBeenCalledTimes(2);
+  });
+
   it("resolves placeable processing by resref", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("placeable", "plc_resref_001"),
@@ -335,6 +364,79 @@ describe("CatalogApplicationService", () => {
 
     await expect(service.getProcessedPlaceable("b".repeat(64))).rejects.toMatchObject({
       code: "PLACEABLE_CACHE_NOT_FOUND"
+    });
+  });
+
+  it("processPlaceable returns cache hit payload when cached entry exists", async () => {
+    placeableCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 4,
+      value: {
+        templateId: "plc_cached_002",
+        resref: "plc_cached_002",
+        name: "Cached Placeable 2",
+        category: "benchmark",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        benchmarkCandidate: true,
+        benchmarkBucket: "bucket-a",
+        metadata: { sample: true },
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+    repository.findByKindAndId.mockResolvedValue(buildTemplate("placeable", "plc_cached_002"));
+
+    const result = await service.processPlaceable({
+      templateId: "plc_cached_002",
+      bypassCache: false,
+      includeBenchmarkMetadata: false
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.hits).toBe(4);
+    expect(result.placeable.templateId).toBe("plc_cached_002");
+    expect(result.placeable.benchmarkBucket).toBeUndefined();
+    expect(placeableCache.set).not.toHaveBeenCalled();
+  });
+
+  it("processPlaceable bypassCache=true skips cache read/write", async () => {
+    repository.findByKindAndId.mockResolvedValue(buildTemplate("placeable", "plc_uncached_001"));
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:31:00.000Z",
+      hits: 0
+    }));
+
+    await service.processPlaceable({
+      templateId: "plc_uncached_001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(placeableCache.get).not.toHaveBeenCalled();
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns explicit message when processed placeable cache key is missing", async () => {
+    placeableCache.get.mockResolvedValue(null);
+
+    await expect(service.getProcessedPlaceable("b".repeat(64))).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_NOT_FOUND",
+      message: "Placeable cache entry was not found."
     });
   });
 
@@ -426,6 +528,235 @@ describe("CatalogApplicationService", () => {
     );
     expect(result.asset.assetId).toBe(assetId);
     expect(result.payload.bytes.toString("utf-8")).toBe("model-bytes");
+  });
+
+  it("resolves cached placeable asset ids case-insensitively and with trimmed input", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 4
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: "modules/current/models/plc_city_gate_01.mdl",
+      size: 12,
+      contentType: "application/octet-stream",
+      bytes: Buffer.from("asset-bytes", "utf-8")
+    });
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    placeableCache.get.mockResolvedValue({
+      key: "d".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 2,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "other-id",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            },
+            {
+              assetId: "abcDEF012345",
+              role: "model",
+              fileName: "plc_city_gate_01.mdl",
+              objectKey: "modules/current/models/plc_city_gate_01.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    const result = await serviceWithBlob.getProcessedPlaceableAsset(
+      "d".repeat(64),
+      "  AbCdEf012345  "
+    );
+
+    expect(result.asset.assetId).toBe("abcDEF012345");
+    expect(result.payload.bytes.toString("utf-8")).toBe("asset-bytes");
+  });
+
+  it("throws explicit asset-not-found error when asset id is missing in manifest", async () => {
+    placeableCache.get.mockResolvedValue({
+      key: "e".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 1,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "only-id",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    await expect(
+      service.getProcessedPlaceableAsset("e".repeat(64), "missing-id")
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_ASSET_NOT_FOUND",
+      message: "Placeable asset was not found in cached manifest."
+    });
+  });
+
+  it("throws explicit blob-not-found error when module object payload is missing", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue({
+      ...buildRuntimeSettingsRecord(),
+      revision: 5
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 1,
+      value: {
+        templateId: "plc_city_gate_001",
+        resref: "plc_city_gate",
+        name: "City Gate",
+        category: "urban",
+        placeableSubtype: "door",
+        render: {
+          backendType: "door",
+          frontendType: "door",
+          rendererPreset: "door-standard",
+          isDoor: true,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: { sample: true },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:00:00.000Z",
+          moduleHash: "hash-v1",
+          assetCount: 1,
+          candidatesScanned: 50,
+          assets: [
+            {
+              assetId: "only-id",
+              role: "model",
+              fileName: "plc_city_gate_00.mdl",
+              objectKey: "modules/current/models/plc_city_gate_00.mdl",
+              extension: "mdl",
+              sizeBytes: 12,
+              contentType: "application/octet-stream"
+            }
+          ]
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "door",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+
+    await expect(
+      serviceWithBlob.getProcessedPlaceableAsset("f".repeat(64), "only-id")
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_ASSET_BLOB_NOT_FOUND",
+      message: "Placeable asset blob object was not found."
+    });
   });
 
   it("processes creature into cached contract", async () => {
@@ -633,6 +964,110 @@ describe("CatalogApplicationService", () => {
     expect(result.metrics.perCandidate).toHaveLength(1);
     expect(result.metrics.overall.p95Ms).toBeGreaterThanOrEqual(0);
     expect(processSpy).toHaveBeenCalled();
+  });
+
+  it("benchmark invokes processPlaceable exact warmup and iteration counts with expected flags", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [
+        {
+          ...buildTemplate("placeable", "plc_bench_002"),
+          resref: "plc_bench_002",
+          placeableSubtype: "vfx",
+          benchmarkCandidate: true
+        }
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0
+    });
+
+    const processSpy = jest.spyOn(service, "processPlaceable").mockResolvedValue({
+      cache: {
+        key: "c".repeat(64),
+        hit: false,
+        storedAt: "2026-05-24T10:15:00.000Z",
+        hits: 0
+      },
+      placeable: {
+        templateId: "plc_bench_002",
+        resref: "plc_bench_002",
+        name: "Bench",
+        category: "benchmark",
+        placeableSubtype: "vfx",
+        render: {
+          backendType: "vfx",
+          frontendType: "vfx",
+          rendererPreset: "vfx-emitter",
+          isDoor: false,
+          isVfx: true
+        },
+        benchmarkCandidate: true,
+        metadata: { sample: true },
+        assetManifest: buildEmptyManifest(),
+        classification: {
+          source: "template",
+          normalizedSubtype: "vfx",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:14:00.000Z"
+      }
+    });
+
+    await service.benchmarkPlaceables({
+      iterations: 4,
+      warmupIterations: 2,
+      bypassCache: false
+    });
+
+    expect(processSpy).toHaveBeenCalledTimes(6);
+    const [warmupCallA, warmupCallB, runCall1] = processSpy.mock.calls;
+    expect(warmupCallA[0]).toMatchObject({
+      templateId: "plc_bench_002",
+      subtypeHint: "vfx",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    expect(warmupCallB[0]).toMatchObject({
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    expect(runCall1[0]).toMatchObject({
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+  });
+
+  it("benchmark validation fails for unknown template ids and empty benchmark configuration", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    await expect(
+      service.benchmarkPlaceables({
+        templateIds: ["missing-id"],
+        iterations: 1,
+        warmupIterations: 0,
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "Benchmark payload references unknown placeable template ids."
+    });
+
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.listByKind.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 200,
+      offset: 0
+    });
+    await expect(
+      service.benchmarkPlaceables({
+        iterations: 1,
+        warmupIterations: 0,
+        bypassCache: true
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "No benchmark placeables are configured."
+    });
   });
 });
 
