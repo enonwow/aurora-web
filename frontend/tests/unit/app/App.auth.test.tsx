@@ -173,6 +173,8 @@ describe("App auth mock flow", () => {
     expect(screen.getByLabelText(/height step/i)).toHaveValue(0.5);
     expect(screen.getByLabelText(/selection box mode/i)).toHaveValue("replace");
     expect(screen.getByLabelText(/show per-object gizmo hints/i)).toBeChecked();
+    expect(screen.getByLabelText(/enable runtime sound preview/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/show now-playing marker for active sounds/i)).toBeChecked();
     expect(screen.getByLabelText(/camera rotate speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera zoom speed/i)).toHaveValue(1);
     expect(screen.getByLabelText(/camera pan speed/i)).toHaveValue(1);
@@ -243,6 +245,9 @@ describe("App auth mock flow", () => {
       target: { value: "intersect" }
     });
     fireEvent.click(screen.getByLabelText(/show per-object gizmo hints/i));
+    fireEvent.click(screen.getByLabelText(/display tile grid overlay/i));
+    fireEvent.click(screen.getByLabelText(/enable runtime sound preview/i));
+    fireEvent.click(screen.getByLabelText(/show now-playing marker for active sounds/i));
     fireEvent.change(screen.getByLabelText(/camera rotate speed/i), {
       target: { value: "1.5" }
     });
@@ -265,6 +270,9 @@ describe("App auth mock flow", () => {
     expect(parsed.snapHeightStep).toBe(1);
     expect(parsed.selectionBoxMode).toBe("intersect");
     expect(parsed.showPerObjectGizmoHints).toBe(false);
+    expect(parsed.showTileGridOverlay).toBe(true);
+    expect(parsed.enableRuntimeSoundPreview).toBe(true);
+    expect(parsed.showRuntimeSoundNowPlaying).toBe(false);
     expect(parsed.cameraRotateSpeed).toBe(1.5);
     expect(parsed.cameraZoomSpeed).toBe(1.4);
     expect(parsed.cameraPanSpeed).toBe(1.3);

@@ -26,8 +26,8 @@ export const SOUND_GUIDE_NON_SERIALIZABLE_KEYS: readonly SoundGuideNonSerializab
 const DEFAULT_SOUND_GUIDE_POSITIONING: Readonly<SceneObjectSoundPositioning> = {
   mode: "specific",
   elevation: 0,
-  maxVolumeDistance: 8,
-  cutoffDistance: 16,
+  maxVolumeDistance: 1,
+  cutoffDistance: 10,
   randomRangeWestEast: 0,
   randomRangeNorthSouth: 0
 };

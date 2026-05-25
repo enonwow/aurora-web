@@ -887,6 +887,49 @@ export function WorkspaceTopbar({
                   />
                   Show per-object gizmo hints (multi-select)
                 </label>
+
+                <label className="topbar-options-checkbox" htmlFor="show-tile-grid-overlay">
+                  <input
+                    id="show-tile-grid-overlay"
+                    type="checkbox"
+                    checked={workspaceOptions.showTileGridOverlay}
+                    onChange={(event) =>
+                      onWorkspaceOptionsChange({
+                        showTileGridOverlay: event.target.checked
+                      })
+                    }
+                  />
+                  Display tile grid overlay (Aurora-style)
+                </label>
+
+                <label className="topbar-options-checkbox" htmlFor="enable-runtime-sound-preview">
+                  <input
+                    id="enable-runtime-sound-preview"
+                    type="checkbox"
+                    checked={workspaceOptions.enableRuntimeSoundPreview}
+                    onChange={(event) =>
+                      onWorkspaceOptionsChange({
+                        enableRuntimeSoundPreview: event.target.checked
+                      })
+                    }
+                  />
+                  Enable runtime sound preview (Aurora mock)
+                </label>
+
+                <label className="topbar-options-checkbox" htmlFor="show-runtime-sound-now-playing">
+                  <input
+                    id="show-runtime-sound-now-playing"
+                    type="checkbox"
+                    checked={workspaceOptions.showRuntimeSoundNowPlaying}
+                    onChange={(event) =>
+                      onWorkspaceOptionsChange({
+                        showRuntimeSoundNowPlaying: event.target.checked
+                      })
+                    }
+                    disabled={!workspaceOptions.enableRuntimeSoundPreview}
+                  />
+                  Show now-playing marker for active sounds
+                </label>
               </div>
             </details>
 

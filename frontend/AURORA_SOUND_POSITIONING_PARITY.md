@@ -18,6 +18,8 @@ Implemented now:
    - `Plays from random position each play`,
    - `Plays from specific position`.
 5. Existing `soundPositioning` payload fields are bound in UI without adding speculative runtime semantics.
+6. Sound `Play/Stop` buttons in `Basic` tab can preview a bundled mock test tone (`/sounds/mock_test_tone.wav`) for manual QA.
+7. Preview playback uses selected list entry/resref as trigger context, but routes to one deterministic test asset in mock mode.
 
 Not implemented yet:
 1. Attenuation/random-range viewport guides tied to sound properties.
@@ -78,3 +80,8 @@ Code now:
 Retail-hard-confirm later:
 1. Confirm runtime edge semantics for attenuation and scheduling.
 2. Confirm any Aurora-specific randomization constraints not visible in screenshot-only evidence.
+
+## Mock Test Asset
+1. Bundled asset path: `frontend/public/sounds/mock_test_tone.wav`.
+2. Purpose: deterministic local QA for `Sound Properties -> Basic -> Play/Stop` until real sound bank integration lands.
+3. Cleanup rule: keep only as long as mock playback exists; replace with real resource resolution in backend-integrated phase.

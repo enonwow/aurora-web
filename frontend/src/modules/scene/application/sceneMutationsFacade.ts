@@ -1,11 +1,18 @@
 import type {
   AreaScene,
   SceneObject,
+  SceneSoundPropertiesModel,
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
 import { normalizeBearingRadians } from "../domain/bearing";
+import {
+  areSceneSoundPropertiesEqual,
+  normalizeSceneSoundPropertiesInput,
+  normalizeSoundPositioningPreservePayload,
+  toSceneSoundPropertiesModel
+} from "../domain/sound";
 
 export interface SceneObjectTranslationDelta {
   x: number;
@@ -44,6 +51,12 @@ export interface SceneMutationsFacade {
     scene: AreaScene,
     objectIds: string[],
     input: SceneObjectPlaceablePropertiesInput
+  ): AreaScene;
+  getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null;
+  setSoundPropertiesByIds(
+    scene: AreaScene,
+    objectIds: string[],
+    input: SceneSoundPropertiesModel
   ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
@@ -238,12 +251,8 @@ function resolveGenericTransformTargets(scene: AreaScene, objectIds: string[]): 
   if (targets.length === 0) {
     return [];
   }
-
-  // AFEB-03: static placeables cannot move/rotate through generic world transform flows.
-  if (targets.some((object) => object.kind === "placeables" && (object.isStatic ?? true))) {
-    return [];
-  }
-
+  // Aurora-first parity: generic world transforms (move/height/bearing) apply to placeables
+  // regardless of Static flag. Static only gates visual-transform rendering channels.
   return targets;
 }
 
@@ -355,6 +364,76 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           tag: nextTag,
           resRef: nextResRef,
           isStatic: nextIsStatic
+        };
+      });
+
+      if (!changed) {
+        return scene;
+      }
+      return replaceSceneObjects(scene, nextObjects);
+    },
+    getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null {
+      const sound = scene.objects.find((object) => object.id === objectId);
+      if (!sound || sound.kind !== "sounds") {
+        return null;
+      }
+      return toSceneSoundPropertiesModel(sound);
+    },
+    setSoundPropertiesByIds(
+      scene: AreaScene,
+      objectIds: string[],
+      input: SceneSoundPropertiesModel
+    ): AreaScene {
+      if (objectIds.length === 0) {
+        return scene;
+      }
+      const idSet = new Set(objectIds);
+      if (!scene.objects.some((object) => idSet.has(object.id) && object.kind === "sounds")) {
+        return scene;
+      }
+
+      const normalizedInput = normalizeSceneSoundPropertiesInput(input);
+      let changed = false;
+      const nextObjects = scene.objects.map((object) => {
+        if (!idSet.has(object.id) || object.kind !== "sounds") {
+          return object;
+        }
+
+        const currentModel = toSceneSoundPropertiesModel(object);
+        if (currentModel && areSceneSoundPropertiesEqual(currentModel, normalizedInput)) {
+          return object;
+        }
+
+        changed = true;
+        const preserve = normalizeSoundPositioningPreservePayload({
+          ...(object.soundPositioning?.preserve ?? {}),
+          active: normalizedInput.active,
+          whenToPlay: normalizedInput.whenToPlay,
+          dayNight: normalizedInput.dayNight,
+          hoursStart: normalizedInput.hoursStart,
+          hoursEnd: normalizedInput.hoursEnd,
+          playStyle: normalizedInput.playStyle,
+          playOrder: normalizedInput.playOrder,
+          intervalMs: normalizedInput.intervalMs,
+          intervalVariationMs: normalizedInput.intervalVariationMs,
+          volumeVariation: normalizedInput.volumeVariation,
+          pitchVariation: normalizedInput.pitchVariation
+        });
+
+        return {
+          ...object,
+          name: normalizedInput.name,
+          tag: normalizedInput.tag,
+          resRef: normalizedInput.resRef,
+          soundPositioning: {
+            mode: normalizedInput.mode,
+            elevation: normalizedInput.elevation,
+            maxVolumeDistance: normalizedInput.maxVolumeDistance,
+            cutoffDistance: normalizedInput.cutoffDistance,
+            randomRangeWestEast: normalizedInput.randomRangeWestEast,
+            randomRangeNorthSouth: normalizedInput.randomRangeNorthSouth,
+            preserve
+          }
         };
       });
 

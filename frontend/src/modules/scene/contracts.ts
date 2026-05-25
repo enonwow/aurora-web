@@ -55,6 +55,11 @@ export type SceneSoundPositioningMode =
   | "random"
   | "specific";
 
+export type SceneSoundWhenToPlay = "always" | "dayNight" | "hours";
+export type SceneSoundDayNight = "both" | "day" | "night";
+export type SceneSoundPlayStyle = "once" | "repeat" | "loop";
+export type SceneSoundPlayOrder = "sequential" | "random";
+
 export type ScenePreservePrimitive = string | number | boolean | null;
 
 export interface SceneObjectSoundPositioningPreservePayload {
@@ -62,6 +67,13 @@ export interface SceneObjectSoundPositioningPreservePayload {
   // Runtime behavior must not infer additional semantics from these values yet.
   timeWindow: string;
   hourMask: string;
+  active?: boolean;
+  whenToPlay?: SceneSoundWhenToPlay;
+  dayNight?: SceneSoundDayNight;
+  hoursStart?: number;
+  hoursEnd?: number;
+  playStyle?: SceneSoundPlayStyle;
+  playOrder?: SceneSoundPlayOrder;
   intervalMs: number;
   intervalVariationMs: number;
   volume: number;
@@ -81,6 +93,29 @@ export interface SceneObjectSoundPositioning {
   randomRangeWestEast: number;
   randomRangeNorthSouth: number;
   preserve?: SceneObjectSoundPositioningPreservePayload;
+}
+
+export interface SceneSoundPropertiesModel {
+  name: string;
+  tag: string;
+  resRef: string;
+  mode: SceneSoundPositioningMode;
+  elevation: number;
+  maxVolumeDistance: number;
+  cutoffDistance: number;
+  randomRangeWestEast: number;
+  randomRangeNorthSouth: number;
+  active: boolean;
+  whenToPlay: SceneSoundWhenToPlay;
+  dayNight: SceneSoundDayNight;
+  hoursStart: number;
+  hoursEnd: number;
+  playStyle: SceneSoundPlayStyle;
+  playOrder: SceneSoundPlayOrder;
+  intervalMs: number;
+  intervalVariationMs: number;
+  volumeVariation: number;
+  pitchVariation: number;
 }
 
 export interface SceneObjectDoorTransitionPayload {

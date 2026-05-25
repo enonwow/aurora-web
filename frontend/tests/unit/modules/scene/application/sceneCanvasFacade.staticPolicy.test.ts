@@ -21,7 +21,7 @@ function createMemoryDraftPort(initialScene: AreaScene | null = null): SceneDraf
 }
 
 describe("sceneCanvasFacade static placeable movement policy integration", () => {
-  it("persists unchanged static placeable when movement is attempted via high-level viewport port", () => {
+  it("persists moved static placeable when movement is applied via high-level viewport port", () => {
     const initialScene = createSeedAreaScene();
     const staticPlaceable = initialScene.objects.find((object) => object.kind === "placeables");
     expect(staticPlaceable).toBeDefined();
@@ -37,18 +37,21 @@ describe("sceneCanvasFacade static placeable movement policy integration", () =>
       [staticPlaceable!.id],
       { x: 0.5, y: 0.25 }
     );
-    expect(movedAttemptScene).toBe(initialScene);
+    const movedPlaceable = movedAttemptScene.objects.find((object) => object.id === staticPlaceable!.id);
+    expect(movedAttemptScene).not.toBe(initialScene);
+    expect(movedPlaceable?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.5);
+    expect(movedPlaceable?.y).toBeCloseTo((staticPlaceable?.y ?? 0) + 0.25);
 
     canvasFacade.saveLocalDraft("u_builder_001", movedAttemptScene);
     const reloaded = canvasFacade.createInitialHistory("u_builder_001").present;
     const reloadedPlaceable = reloaded.objects.find((object) => object.id === staticPlaceable!.id);
 
     expect(reloadedPlaceable).toBeDefined();
-    expect(reloadedPlaceable?.x).toBeCloseTo(staticPlaceable?.x ?? 0);
-    expect(reloadedPlaceable?.y).toBeCloseTo(staticPlaceable?.y ?? 0);
+    expect(reloadedPlaceable?.x).toBeCloseTo(movedPlaceable?.x ?? 0);
+    expect(reloadedPlaceable?.y).toBeCloseTo(movedPlaceable?.y ?? 0);
   });
 
-  it("persists unchanged mixed selection when static placeable is included in generic transforms", () => {
+  it("persists moved mixed selection when static placeable is included in generic transforms", () => {
     const initialScene = createSeedAreaScene();
     const staticPlaceable = initialScene.objects.find((object) => object.kind === "placeables");
     const creature = initialScene.objects.find((object) => object.kind === "creatures");
@@ -68,9 +71,25 @@ describe("sceneCanvasFacade static placeable movement policy integration", () =>
     });
     const raisedAttemptScene = viewportPort.adjustObjectsHeightByIds(initialScene, objectIds, 0.4);
     const rotatedAttemptScene = viewportPort.rotateObjectsBearingByIds(initialScene, objectIds, 0.2);
-    expect(translatedAttemptScene).toBe(initialScene);
-    expect(raisedAttemptScene).toBe(initialScene);
-    expect(rotatedAttemptScene).toBe(initialScene);
+    const translatedPlaceable = translatedAttemptScene.objects.find(
+      (object) => object.id === staticPlaceable!.id
+    );
+    const translatedCreature = translatedAttemptScene.objects.find((object) => object.id === creature!.id);
+    const raisedPlaceable = raisedAttemptScene.objects.find((object) => object.id === staticPlaceable!.id);
+    const raisedCreature = raisedAttemptScene.objects.find((object) => object.id === creature!.id);
+    const rotatedPlaceable = rotatedAttemptScene.objects.find((object) => object.id === staticPlaceable!.id);
+    const rotatedCreature = rotatedAttemptScene.objects.find((object) => object.id === creature!.id);
+    expect(translatedAttemptScene).not.toBe(initialScene);
+    expect(raisedAttemptScene).not.toBe(initialScene);
+    expect(rotatedAttemptScene).not.toBe(initialScene);
+    expect(translatedPlaceable?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.5);
+    expect(translatedPlaceable?.y).toBeCloseTo((staticPlaceable?.y ?? 0) + 0.25);
+    expect(translatedCreature?.x).toBeCloseTo((creature?.x ?? 0) + 0.5);
+    expect(translatedCreature?.y).toBeCloseTo((creature?.y ?? 0) + 0.25);
+    expect(raisedPlaceable?.z).toBeCloseTo((staticPlaceable?.z ?? 0) + 0.4);
+    expect(raisedCreature?.z).toBeCloseTo((creature?.z ?? 0) + 0.4);
+    expect(rotatedPlaceable?.bearing).toBeCloseTo((staticPlaceable?.bearing ?? 0) + 0.2);
+    expect(rotatedCreature?.bearing).toBeCloseTo((creature?.bearing ?? 0) + 0.2);
 
     canvasFacade.saveLocalDraft("u_builder_001", rotatedAttemptScene);
     const reloaded = canvasFacade.createInitialHistory("u_builder_001").present;
@@ -79,14 +98,14 @@ describe("sceneCanvasFacade static placeable movement policy integration", () =>
 
     expect(reloadedPlaceable).toBeDefined();
     expect(reloadedCreature).toBeDefined();
-    expect(reloadedPlaceable?.x).toBeCloseTo(staticPlaceable?.x ?? 0);
-    expect(reloadedPlaceable?.y).toBeCloseTo(staticPlaceable?.y ?? 0);
-    expect(reloadedPlaceable?.z).toBeCloseTo(staticPlaceable?.z ?? 0);
-    expect(reloadedPlaceable?.bearing).toBeCloseTo(staticPlaceable?.bearing ?? 0);
-    expect(reloadedCreature?.x).toBeCloseTo(creature?.x ?? 0);
-    expect(reloadedCreature?.y).toBeCloseTo(creature?.y ?? 0);
-    expect(reloadedCreature?.z).toBeCloseTo(creature?.z ?? 0);
-    expect(reloadedCreature?.bearing).toBeCloseTo(creature?.bearing ?? 0);
+    expect(reloadedPlaceable?.x).toBeCloseTo(rotatedPlaceable?.x ?? 0);
+    expect(reloadedPlaceable?.y).toBeCloseTo(rotatedPlaceable?.y ?? 0);
+    expect(reloadedPlaceable?.z).toBeCloseTo(rotatedPlaceable?.z ?? 0);
+    expect(reloadedPlaceable?.bearing).toBeCloseTo(rotatedPlaceable?.bearing ?? 0);
+    expect(reloadedCreature?.x).toBeCloseTo(rotatedCreature?.x ?? 0);
+    expect(reloadedCreature?.y).toBeCloseTo(rotatedCreature?.y ?? 0);
+    expect(reloadedCreature?.z).toBeCloseTo(rotatedCreature?.z ?? 0);
+    expect(reloadedCreature?.bearing).toBeCloseTo(rotatedCreature?.bearing ?? 0);
   });
 
   it("persists moved non-static placeable through canvas save/load after viewport-port move", () => {

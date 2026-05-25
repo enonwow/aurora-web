@@ -44,6 +44,10 @@ import {
   resolveVtScaleFactorFromAnchor,
   type CanvasGizmoMode
 } from "../visualTransformGizmoRules";
+import {
+  normalizeSoundGuidePositioning,
+  resolveSoundGuideOverlayFlagsFromPositioning
+} from "../soundGuideDomain";
 
 type WorkspaceCanvasViewportFacade = Pick<
   ViewportFacade,
@@ -160,6 +164,10 @@ type PlaceablePropertiesTab =
 
 type SoundPropertiesTab = "basic" | "positioning" | "advanced";
 type SoundPositioningMode = "everywhere" | "random" | "specific";
+type SoundWhenToPlay = "always" | "dayNight" | "hours";
+type SoundDayNight = "both" | "day" | "night";
+type SoundPlayStyle = "once" | "repeat" | "loop";
+type SoundPlayOrder = "sequential" | "random";
 type DoorPropertiesTab = "basic" | "transition" | "comments";
 type PlaceableScriptSlotKey =
   | "onClick"
@@ -217,6 +225,8 @@ interface PlaceablePropertiesDialogState {
   activeTab: PlaceablePropertiesTab;
   windowX: number;
   windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
   collapsed: boolean;
 }
 
@@ -231,12 +241,32 @@ interface SoundPropertiesDraft {
   name: string;
   tag: string;
   resRef: string;
+  comments: string;
+  soundList: string[];
+  selectedSoundIndex: number;
   mode: SoundPositioningMode;
   elevation: number;
   maxVolumeDistance: number;
   cutoffDistance: number;
   randomRangeWestEast: number;
   randomRangeNorthSouth: number;
+  active: boolean;
+  whenToPlay: SoundWhenToPlay;
+  dayNight: SoundDayNight;
+  hoursStart: number;
+  hoursEnd: number;
+  playStyle: SoundPlayStyle;
+  playOrder: SoundPlayOrder;
+  timeWindow: string;
+  hourMask: string;
+  intervalMs: number;
+  intervalVariationMs: number;
+  volume: number;
+  volumeVariation: number;
+  pitchVariation: number;
+  priority: number;
+  flagsSummary: string;
+  extraSummary: string;
 }
 
 interface SoundPropertiesDialogState {
@@ -246,6 +276,8 @@ interface SoundPropertiesDialogState {
   activeTab: SoundPropertiesTab;
   windowX: number;
   windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
   collapsed: boolean;
 }
 
@@ -275,6 +307,8 @@ interface DoorPropertiesDialogState {
   activeTab: DoorPropertiesTab;
   windowX: number;
   windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
   collapsed: boolean;
 }
 
@@ -378,6 +412,7 @@ interface RuntimeState {
   chunkLayer: THREE.Group;
   gizmoLayer: THREE.Group;
   gridLayer: THREE.Group;
+  tileOverlayLayer: THREE.Group;
   axesHelper: THREE.AxesHelper;
   frameId: number | null;
   resizeObserver: ResizeObserver | null;
@@ -389,6 +424,30 @@ interface PerfSnapshot {
   triangles: number;
   geometries: number;
   textures: number;
+}
+
+interface RuntimeSoundPlaybackState {
+  nextPlayAtUnixMs: number;
+  nextSequentialIndex: number;
+  playedOnce: boolean;
+}
+
+interface RuntimeSoundLoopChannel {
+  audio: HTMLAudioElement;
+  sourceX: number;
+  sourceY: number;
+  sourceZ: number;
+  label: string;
+}
+
+interface RuntimeSoundNowPlayingState {
+  expiresAtUnixMs: number;
+  label: string;
+}
+
+interface RuntimeSoundNowPlayingBadge {
+  objectId: string;
+  label: string;
 }
 
 interface CameraBookmark {
@@ -458,6 +517,157 @@ const STATUS_COLOR: Record<MockRenderStatus, string> = {
 const CHUNK_SIZE = 4;
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 const RADIANS_PER_DEGREE = Math.PI / 180;
+const SOUND_MARKER_ICON = "\u266A";
+const SOUND_SPECIFIC_ICON = "\u2B07";
+const SOUND_RANDOM_RANGE_COLOR = "#dff0ff";
+const SOUND_HEIGHT_COLOR = "#83c7ff";
+const SOUND_DOME_COLOR = "#9fd5ff";
+const SOUND_EVERYWHERE_RING_COLOR = "#ff6d7f";
+const SOUND_PRESERVE_DEFAULTS = {
+  timeWindow: "",
+  hourMask: "",
+  active: true,
+  whenToPlay: "always" as SoundWhenToPlay,
+  dayNight: "both" as SoundDayNight,
+  hoursStart: 0,
+  hoursEnd: 23,
+  playStyle: "repeat" as SoundPlayStyle,
+  playOrder: "sequential" as SoundPlayOrder,
+  intervalMs: 6000,
+  intervalVariationMs: 0,
+  volume: 1,
+  volumeVariation: 0,
+  pitchVariation: 0,
+  priority: 0
+} as const;
+const SOUND_PRESERVE_EXTRA_COMMENTS_KEY = "auroraComments";
+const SOUND_PRESERVE_EXTRA_LIST_KEY = "auroraSoundList";
+const SOUND_HOUR_COUNT = 24;
+const TILE_OVERLAY_GRID_COLOR = 0xff3f51;
+const SOUND_TEST_PREVIEW_ASSET_URL = "/sounds/mock_test_tone.wav";
+const SOUND_RUNTIME_TICK_MS = 200;
+const SOUND_NOW_PLAYING_BADGE_TTL_MS = 1200;
+const SOUND_NOW_PLAYING_BADGE_LABEL = "PLAY";
+const SOUND_HOUR_LABELS = [
+  "12",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11"
+] as const;
+
+function clampSoundHourIndex(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(Math.max(Math.trunc(value), 0), SOUND_HOUR_COUNT - 1);
+}
+
+function parseSoundHourMask(
+  hourMask: string,
+  fallbackStartHour: number,
+  fallbackEndHour: number
+): boolean[] {
+  const trimmedMask = hourMask.trim();
+  if (/^[01]{24}$/.test(trimmedMask)) {
+    return trimmedMask.split("").map((entry) => entry === "1");
+  }
+  if (trimmedMask.length === 0) {
+    return new Array<boolean>(SOUND_HOUR_COUNT).fill(false);
+  }
+
+  const flags = new Array<boolean>(SOUND_HOUR_COUNT).fill(false);
+  const start = clampSoundHourIndex(fallbackStartHour);
+  const end = clampSoundHourIndex(fallbackEndHour);
+  if (start <= end) {
+    for (let index = start; index <= end; index += 1) {
+      flags[index] = true;
+    }
+  } else {
+    for (let index = start; index < SOUND_HOUR_COUNT; index += 1) {
+      flags[index] = true;
+    }
+    for (let index = 0; index <= end; index += 1) {
+      flags[index] = true;
+    }
+  }
+  return flags;
+}
+
+function encodeSoundHourMask(flags: boolean[]): string {
+  return Array.from({ length: SOUND_HOUR_COUNT }, (_, index) => (flags[index] ? "1" : "0")).join("");
+}
+
+function resolveSoundHourBounds(flags: boolean[]): { start: number; end: number } {
+  const activeIndexes = flags
+    .map((isActive, index) => (isActive ? index : -1))
+    .filter((index) => index >= 0);
+  if (activeIndexes.length === 0) {
+    return {
+      start: SOUND_PRESERVE_DEFAULTS.hoursStart,
+      end: SOUND_PRESERVE_DEFAULTS.hoursEnd
+    };
+  }
+  return {
+    start: activeIndexes[0],
+    end: activeIndexes[activeIndexes.length - 1]
+  };
+}
+
+function formatSoundFixed(value: number, fractionDigits: number): string {
+  if (!Number.isFinite(value)) {
+    return (0).toFixed(fractionDigits);
+  }
+  const normalized = Object.is(value, -0) ? 0 : value;
+  return normalized.toFixed(fractionDigits);
+}
+
+function formatSoundSeconds(milliseconds: number, fractionDigits = 2): string {
+  if (!Number.isFinite(milliseconds)) {
+    return (0).toFixed(fractionDigits);
+  }
+  return formatSoundFixed(Math.max(milliseconds, 0) / 1000, fractionDigits);
+}
+
+function parseSoundNumericInput(value: string | number): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const normalized = value.trim().replace(",", ".");
+  if (normalized.length === 0) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function deriveMaxVolumeDistanceFromCutoff(cutoffDistance: number): number {
+  if (!Number.isFinite(cutoffDistance)) {
+    return 0;
+  }
+  return Math.max(0, cutoffDistance) / 10;
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJsonStringify(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJsonStringify(entry)}`)
+      .join(",")}}`;
+  }
+  const serialized = JSON.stringify(value);
+  return serialized ?? "null";
+}
 
 function toDegrees(radians: number): number {
   return normalizeBearingDegrees(radians * DEGREES_PER_RADIAN);
@@ -542,6 +752,41 @@ function areAdjustLocationDraftsEqual(left: AdjustLocationDraft, right: AdjustLo
     left.yTranslation === right.yTranslation &&
     left.zTranslation === right.zTranslation
   );
+}
+
+function areObjectPlacementsEqual(
+  leftScene: AreaScene,
+  rightScene: AreaScene,
+  objectIds: string[],
+  includeVisualTransforms: boolean
+): boolean {
+  return objectIds.every((id) => {
+    const leftObject = leftScene.objects.find((object) => object.id === id);
+    const rightObject = rightScene.objects.find((object) => object.id === id);
+    if (!leftObject || !rightObject) {
+      return false;
+    }
+    if (
+      leftObject.x !== rightObject.x ||
+      leftObject.y !== rightObject.y ||
+      leftObject.z !== rightObject.z ||
+      leftObject.bearing !== rightObject.bearing
+    ) {
+      return false;
+    }
+    if (!includeVisualTransforms) {
+      return true;
+    }
+    return (
+      leftObject.visualTransform.scale === rightObject.visualTransform.scale &&
+      leftObject.visualTransform.offsetX === rightObject.visualTransform.offsetX &&
+      leftObject.visualTransform.offsetY === rightObject.visualTransform.offsetY &&
+      leftObject.visualTransform.offsetZ === rightObject.visualTransform.offsetZ &&
+      leftObject.visualTransform.pitch === rightObject.visualTransform.pitch &&
+      leftObject.visualTransform.yaw === rightObject.visualTransform.yaw &&
+      leftObject.visualTransform.roll === rightObject.visualTransform.roll
+    );
+  });
 }
 
 function resolveSceneObjectName(object: SceneObject): string {
@@ -700,19 +945,141 @@ function buildPlaceablePropertiesDraft(source: SceneObject): PlaceableProperties
   };
 }
 
+function buildSoundListFallback(resRef: string): string[] {
+  const trimmedResRef = resRef.trim();
+  if (trimmedResRef.length === 0) {
+    return [];
+  }
+  return [trimmedResRef, `${trimmedResRef}1`, `${trimmedResRef}2`, `${trimmedResRef}3`];
+}
+
+function resolveSelectedSoundPreviewKey(draft: SoundPropertiesDraft): string {
+  const selectedEntry =
+    draft.selectedSoundIndex >= 0 && draft.selectedSoundIndex < draft.soundList.length
+      ? draft.soundList[draft.selectedSoundIndex]
+      : "";
+  const fallback = selectedEntry.trim().length > 0 ? selectedEntry : draft.resRef;
+  return fallback.trim();
+}
+
+function resolveSoundPreviewAssetUrl(previewKey: string): string | null {
+  if (previewKey.trim().length === 0) {
+    return null;
+  }
+  return SOUND_TEST_PREVIEW_ASSET_URL;
+}
+
+function resolveRuntimeSoundNowPlayingLabel(soundKey: string): string {
+  const normalized = soundKey.trim();
+  if (normalized.length === 0) {
+    return SOUND_NOW_PLAYING_BADGE_LABEL;
+  }
+  return `${SOUND_NOW_PLAYING_BADGE_LABEL} - ${normalized}`;
+}
+
+function clampUnitInterval(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 1) {
+    return 1;
+  }
+  return value;
+}
+
+function resolveSoundPlaybackList(object: SceneObject): string[] {
+  const listValue = object.soundPositioning?.preserve?.extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
+  const parsed =
+    typeof listValue === "string"
+      ? listValue
+          .split(/\r?\n|[,;]+/)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+  return parsed.length > 0 ? parsed : buildSoundListFallback(object.resRef);
+}
+
+function resolveEffectiveSoundPlayOrder(playOrder: SoundPlayOrder): SoundPlayOrder {
+  return playOrder;
+}
+
+function resolveNextRuntimeSoundDelayMs(intervalMs: number, intervalVariationMs: number): number {
+  const base = Math.max(250, intervalMs);
+  const variance = Math.max(0, intervalVariationMs);
+  if (variance <= 0) {
+    return base;
+  }
+  const randomOffset = (Math.random() * 2 - 1) * variance;
+  return Math.max(250, base + randomOffset);
+}
+
+function resolveDistanceAttenuation(
+  mode: SoundPositioningMode,
+  distance: number,
+  maxDistance: number,
+  cutoffDistance: number
+): number {
+  if (mode === "everywhere") {
+    return 1;
+  }
+  if (distance <= maxDistance) {
+    return 1;
+  }
+  if (distance >= cutoffDistance) {
+    return 0;
+  }
+  if (cutoffDistance <= maxDistance) {
+    return 0;
+  }
+  return 1 - (distance - maxDistance) / (cutoffDistance - maxDistance);
+}
+
 function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesDraft {
-  const positioning = source.soundPositioning;
-  const mode = positioning?.mode ?? "specific";
+  const positioning = normalizeSoundGuidePositioning(source.soundPositioning);
+  const normalizedCutoffDistance = Math.max(0, positioning.cutoffDistance);
+  const preserve = source.soundPositioning?.preserve;
+  const commentsValue = preserve?.extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY];
+  const soundList = resolveSoundPlaybackList(source);
   return {
     name: resolveSceneObjectName(source),
     tag: source.tag,
     resRef: source.resRef,
-    mode,
-    elevation: positioning?.elevation ?? source.visualTransform.offsetZ ?? 0,
-    maxVolumeDistance: positioning?.maxVolumeDistance ?? 8,
-    cutoffDistance: positioning?.cutoffDistance ?? 16,
-    randomRangeWestEast: positioning?.randomRangeWestEast ?? 0,
-    randomRangeNorthSouth: positioning?.randomRangeNorthSouth ?? 0
+    comments: typeof commentsValue === "string" ? commentsValue : "",
+    soundList,
+    selectedSoundIndex: soundList.length > 0 ? 0 : -1,
+    mode: positioning.mode,
+    elevation: positioning.elevation,
+    maxVolumeDistance: deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance),
+    cutoffDistance: normalizedCutoffDistance,
+    randomRangeWestEast: positioning.randomRangeWestEast,
+    randomRangeNorthSouth: positioning.randomRangeNorthSouth,
+    active: preserve?.active ?? SOUND_PRESERVE_DEFAULTS.active,
+    whenToPlay: preserve?.whenToPlay ?? SOUND_PRESERVE_DEFAULTS.whenToPlay,
+    dayNight: preserve?.dayNight ?? SOUND_PRESERVE_DEFAULTS.dayNight,
+    hoursStart: preserve?.hoursStart ?? SOUND_PRESERVE_DEFAULTS.hoursStart,
+    hoursEnd: preserve?.hoursEnd ?? SOUND_PRESERVE_DEFAULTS.hoursEnd,
+    playStyle: preserve?.playStyle ?? SOUND_PRESERVE_DEFAULTS.playStyle,
+    playOrder: preserve?.playOrder ?? SOUND_PRESERVE_DEFAULTS.playOrder,
+    timeWindow: preserve?.timeWindow ?? SOUND_PRESERVE_DEFAULTS.timeWindow,
+    hourMask: preserve?.hourMask ?? SOUND_PRESERVE_DEFAULTS.hourMask,
+    intervalMs: preserve?.intervalMs ?? SOUND_PRESERVE_DEFAULTS.intervalMs,
+    intervalVariationMs:
+      preserve?.intervalVariationMs ?? SOUND_PRESERVE_DEFAULTS.intervalVariationMs,
+    volume: preserve?.volume ?? SOUND_PRESERVE_DEFAULTS.volume,
+    volumeVariation: preserve?.volumeVariation ?? SOUND_PRESERVE_DEFAULTS.volumeVariation,
+    pitchVariation: preserve?.pitchVariation ?? SOUND_PRESERVE_DEFAULTS.pitchVariation,
+    priority: preserve?.priority ?? SOUND_PRESERVE_DEFAULTS.priority,
+    flagsSummary:
+      preserve && Object.keys(preserve.flags).length > 0
+        ? stableJsonStringify(preserve.flags)
+        : "none",
+    extraSummary:
+      preserve && Object.keys(preserve.extra).length > 0
+        ? stableJsonStringify(preserve.extra)
+        : "none"
   };
 }
 
@@ -762,16 +1129,38 @@ function areSoundPropertiesDraftsEqual(
   left: SoundPropertiesDraft,
   right: SoundPropertiesDraft
 ): boolean {
+  const leftSoundList = left.soundList.join("\n");
+  const rightSoundList = right.soundList.join("\n");
   return (
     left.name === right.name &&
     left.tag === right.tag &&
     left.resRef === right.resRef &&
+    left.comments === right.comments &&
+    left.selectedSoundIndex === right.selectedSoundIndex &&
+    leftSoundList === rightSoundList &&
     left.mode === right.mode &&
     left.elevation === right.elevation &&
     left.maxVolumeDistance === right.maxVolumeDistance &&
     left.cutoffDistance === right.cutoffDistance &&
     left.randomRangeWestEast === right.randomRangeWestEast &&
-    left.randomRangeNorthSouth === right.randomRangeNorthSouth
+    left.randomRangeNorthSouth === right.randomRangeNorthSouth &&
+    left.active === right.active &&
+    left.whenToPlay === right.whenToPlay &&
+    left.dayNight === right.dayNight &&
+    left.hoursStart === right.hoursStart &&
+    left.hoursEnd === right.hoursEnd &&
+    left.playStyle === right.playStyle &&
+    left.playOrder === right.playOrder &&
+    left.timeWindow === right.timeWindow &&
+    left.hourMask === right.hourMask &&
+    left.intervalMs === right.intervalMs &&
+    left.intervalVariationMs === right.intervalVariationMs &&
+    left.volume === right.volume &&
+    left.volumeVariation === right.volumeVariation &&
+    left.pitchVariation === right.pitchVariation &&
+    left.priority === right.priority &&
+    left.flagsSummary === right.flagsSummary &&
+    left.extraSummary === right.extraSummary
   );
 }
 
@@ -790,6 +1179,24 @@ function areDoorPropertiesDraftsEqual(
     left.loadScreen === right.loadScreen &&
     left.flagsSummary === right.flagsSummary
   );
+}
+
+function areNowPlayingBadgesEqual(
+  left: readonly RuntimeSoundNowPlayingBadge[],
+  right: readonly RuntimeSoundNowPlayingBadge[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (
+      left[index]?.objectId !== right[index]?.objectId ||
+      left[index]?.label !== right[index]?.label
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -953,22 +1360,61 @@ function clampHeightDeltaToSurface(objects: SceneObject[], deltaZ: number): numb
   return clampDeltaToBounds(deltaZ, minDeltaZ, Number.POSITIVE_INFINITY);
 }
 
-function createTextSprite(text: string, scaleFactor = 1): THREE.Sprite {
+interface TextSpriteOptions {
+  fillColor?: string;
+  strokeColor?: string;
+  backgroundFill?: string;
+  backgroundStroke?: string;
+  autoWidth?: boolean;
+  minWidthPx?: number;
+  maxWidthPx?: number;
+  horizontalPaddingPx?: number;
+}
+
+function createTextSprite(
+  text: string,
+  scaleFactor = 1,
+  options: TextSpriteOptions = {}
+): THREE.Sprite {
+  const labelHeightPx = 96;
+  const defaultLabelWidthPx = 256;
+  const horizontalPaddingPx = options.horizontalPaddingPx ?? 24;
+  const minWidthPx = options.minWidthPx ?? defaultLabelWidthPx;
+  const maxWidthPx = options.maxWidthPx ?? 1400;
+  const font = "700 30px Segoe UI";
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 96;
+  let resolvedWidthPx = defaultLabelWidthPx;
+  if (options.autoWidth) {
+    const measureCanvas = document.createElement("canvas");
+    const measureCtx = measureCanvas.getContext("2d");
+    if (measureCtx) {
+      measureCtx.font = font;
+      const measuredTextWidth = Math.ceil(measureCtx.measureText(text).width);
+      resolvedWidthPx = Math.min(
+        Math.max(measuredTextWidth + horizontalPaddingPx * 2, minWidthPx),
+        maxWidthPx
+      );
+    }
+  }
+  canvas.width = resolvedWidthPx;
+  canvas.height = labelHeightPx;
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(8, 20, 38, 0.92)";
+    ctx.fillStyle = options.backgroundFill ?? "rgba(8, 20, 38, 0.92)";
     ctx.fillRect(0, 26, canvas.width, 44);
-    ctx.strokeStyle = "rgba(95, 142, 194, 0.9)";
+    ctx.strokeStyle = options.backgroundStroke ?? "rgba(95, 142, 194, 0.9)";
     ctx.lineWidth = 2;
     ctx.strokeRect(2, 28, canvas.width - 4, 40);
-    ctx.font = "700 30px Segoe UI";
-    ctx.fillStyle = "#e6f1ff";
+    ctx.font = font;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    if (options.strokeColor) {
+      ctx.strokeStyle = options.strokeColor;
+      ctx.lineWidth = 2;
+      ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+    }
+    ctx.fillStyle = options.fillColor ?? "#e6f1ff";
     ctx.fillText(text, canvas.width / 2, canvas.height / 2);
   }
 
@@ -980,9 +1426,210 @@ function createTextSprite(text: string, scaleFactor = 1): THREE.Sprite {
     depthTest: false
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.6 * scaleFactor, 0.6 * scaleFactor, 1);
+  const spriteHeight = 0.6 * scaleFactor;
+  const spriteWidth = spriteHeight * (canvas.width / canvas.height);
+  sprite.scale.set(spriteWidth, spriteHeight, 1);
   sprite.renderOrder = 1000;
   return sprite;
+}
+
+interface GlyphSpriteOptions {
+  color: string;
+  strokeColor?: string;
+  fontSizePx?: number;
+  weight?: number;
+}
+
+function createGlyphSprite(
+  glyph: string,
+  scaleFactor = 1,
+  options: GlyphSpriteOptions
+): THREE.Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 192;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const fontSizePx = options.fontSizePx ?? 128;
+    const weight = options.weight ?? 700;
+    ctx.font = `${weight} ${fontSizePx}px "Segoe UI Symbol", "Segoe UI Emoji", "Segoe UI", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (options.strokeColor) {
+      ctx.strokeStyle = options.strokeColor;
+      ctx.lineWidth = Math.max(3, Math.round(fontSizePx * 0.07));
+      ctx.strokeText(glyph, canvas.width / 2, canvas.height / 2);
+    }
+    ctx.fillStyle = options.color;
+    ctx.fillText(glyph, canvas.width / 2, canvas.height / 2);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.64 * scaleFactor, 0.64 * scaleFactor, 1);
+  sprite.renderOrder = 1002;
+  return sprite;
+}
+
+function createDiceSprite(scaleFactor = 1): THREE.Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 192;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width * 0.5, canvas.height * 0.58);
+    ctx.rotate(-0.26);
+
+    const size = 70;
+    const half = size / 2;
+    ctx.fillStyle = "#f4f8ff";
+    ctx.strokeStyle = "#0f1725";
+    ctx.lineWidth = 6;
+    ctx.fillRect(-half, -half, size, size);
+    ctx.strokeRect(-half, -half, size, size);
+
+    ctx.fillStyle = "#121c2d";
+    const pipRadius = 4.6;
+    const pipOffset = size * 0.24;
+    const pips: ReadonlyArray<readonly [number, number]> = [
+      [-pipOffset, -pipOffset],
+      [pipOffset, -pipOffset],
+      [0, 0],
+      [-pipOffset, pipOffset],
+      [pipOffset, pipOffset]
+    ];
+    pips.forEach(([x, y]) => {
+      ctx.beginPath();
+      ctx.arc(x, y, pipRadius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.52 * scaleFactor, 0.52 * scaleFactor, 1);
+  sprite.renderOrder = 1004;
+  return sprite;
+}
+
+function createSoundModeMarkerGroup(
+  mode: "everywhere" | "random" | "specific",
+  markerScale: number
+): THREE.Group {
+  const marker = new THREE.Group();
+  const noteSprite = createGlyphSprite(SOUND_MARKER_ICON, markerScale * 0.74, {
+    color: "#0e1219",
+    strokeColor: "#f2f8ff",
+    fontSizePx: 126
+  });
+  noteSprite.position.set(0, markerScale * 0.42, 0);
+  marker.add(noteSprite);
+
+  if (mode === "random") {
+    const diceGroup = new THREE.Group();
+    const cubeSize = Math.max(0.26, markerScale * 0.52);
+    const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    const cubeMaterial = new THREE.MeshLambertMaterial({
+      color: new THREE.Color("#f6f8ff"),
+      emissive: new THREE.Color("#101926"),
+      emissiveIntensity: 0.08,
+      depthTest: false,
+      depthWrite: false
+    });
+    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    cube.raycast = () => undefined;
+    diceGroup.add(cube);
+
+    const edgeLines = new THREE.LineSegments(
+      new THREE.EdgesGeometry(cubeGeometry),
+      new THREE.LineBasicMaterial({
+        color: new THREE.Color("#0f1622"),
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    edgeLines.raycast = () => undefined;
+    diceGroup.add(edgeLines);
+
+    const pipRadius = Math.max(0.004, cubeSize * 0.1);
+    const pipGeometry = new THREE.SphereGeometry(pipRadius, 10, 10);
+    const pipMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#111826"),
+      depthTest: false,
+      depthWrite: false
+    });
+    const pipOffset = cubeSize * 0.25;
+    const pipZ = cubeSize * 0.52;
+    const pipLayout: ReadonlyArray<readonly [number, number]> = [
+      [-pipOffset, pipOffset],
+      [pipOffset, pipOffset],
+      [0, 0],
+      [-pipOffset, -pipOffset],
+      [pipOffset, -pipOffset]
+    ];
+    pipLayout.forEach(([offsetX, offsetY]) => {
+      const pip = new THREE.Mesh(pipGeometry, pipMaterial);
+      pip.position.set(offsetX, offsetY, pipZ);
+      pip.raycast = () => undefined;
+      diceGroup.add(pip);
+    });
+
+    diceGroup.position.set(markerScale * 0.03, markerScale * -0.24, markerScale * 0.04);
+    diceGroup.rotation.set(-0.36, 0.68, 0.24);
+    diceGroup.renderOrder = 1003;
+    marker.add(diceGroup);
+
+    // Keep a sprite fallback for visibility from far zoom/certain camera angles.
+    const diceSprite = createDiceSprite(markerScale * 0.78);
+    diceSprite.position.set(markerScale * 0.04, markerScale * -0.24, markerScale * 0.05);
+    marker.add(diceSprite);
+  } else if (mode === "specific") {
+    const arrowSprite = createGlyphSprite(SOUND_SPECIFIC_ICON, markerScale * 0.5, {
+      color: "#ff3f55",
+      strokeColor: "#0e1219",
+      fontSizePx: 106
+    });
+    arrowSprite.position.set(0, markerScale * -0.08, 0);
+    marker.add(arrowSprite);
+  } else {
+    const everywhereRing = new THREE.Mesh(
+      new THREE.TorusGeometry(Math.max(0.08, markerScale * 0.22), Math.max(0.01, markerScale * 0.03), 8, 36),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(SOUND_EVERYWHERE_RING_COLOR),
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+        depthTest: false
+      })
+    );
+    everywhereRing.rotation.x = Math.PI / 2;
+    everywhereRing.position.set(0, markerScale * -0.1, 0);
+    everywhereRing.raycast = () => undefined;
+    marker.add(everywhereRing);
+  }
+
+  marker.renderOrder = 1002;
+  return marker;
 }
 
 function applyOrbitPointerBindings(
@@ -1013,9 +1660,11 @@ function disposeGridLayer(gridLayer: THREE.Group): void {
 function rebuildGridLayer(
   runtime: RuntimeState,
   sceneData: AreaScene,
-  viewportFacade: WorkspaceCanvasViewportFacade
+  viewportFacade: WorkspaceCanvasViewportFacade,
+  showTileGridOverlay: boolean
 ): void {
   disposeGridLayer(runtime.gridLayer);
+  disposeGridLayer(runtime.tileOverlayLayer);
 
   const segments = viewportFacade.buildGridSegments(
     sceneData.width,
@@ -1052,6 +1701,23 @@ function rebuildGridLayer(
   const majorLines = new THREE.LineSegments(majorGeometry, majorMaterial);
   majorLines.position.set(0, -0.002, 0);
   runtime.gridLayer.add(majorLines);
+
+  if (!showTileGridOverlay || majorPoints.length === 0) {
+    return;
+  }
+
+  const overlayGeometry = new THREE.BufferGeometry();
+  overlayGeometry.setAttribute("position", new THREE.Float32BufferAttribute(majorPoints, 3));
+  const overlayMaterial = new THREE.LineBasicMaterial({
+    color: TILE_OVERLAY_GRID_COLOR,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false
+  });
+  const overlayLines = new THREE.LineSegments(overlayGeometry, overlayMaterial);
+  overlayLines.position.set(0, 0.004, 0);
+  overlayLines.renderOrder = 950;
+  runtime.tileOverlayLayer.add(overlayLines);
 }
 
 function createRuntime(container: HTMLDivElement): RuntimeState {
@@ -1102,6 +1768,10 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
   gridLayer.name = "scene-grid";
   scene.add(gridLayer);
 
+  const tileOverlayLayer = new THREE.Group();
+  tileOverlayLayer.name = "scene-tile-grid-overlay";
+  scene.add(tileOverlayLayer);
+
   const axesHelper = new THREE.AxesHelper(BASE_AXES_HELPER_SIZE);
   axesHelper.position.set(0, 0.02, 0);
   scene.add(axesHelper);
@@ -1141,6 +1811,7 @@ function createRuntime(container: HTMLDivElement): RuntimeState {
     chunkLayer,
     gizmoLayer,
     gridLayer,
+    tileOverlayLayer,
     axesHelper,
     frameId: null,
     resizeObserver: null
@@ -1195,6 +1866,7 @@ function disposeRuntime(runtime: RuntimeState): void {
   });
   runtime.chunkLayer.clear();
   disposeGridLayer(runtime.gridLayer);
+  disposeGridLayer(runtime.tileOverlayLayer);
   runtime.gizmoLayer.children.forEach((child) => {
     if ("geometry" in child && (child as THREE.Mesh).geometry) {
       (child as THREE.Mesh).geometry.dispose();
@@ -1345,17 +2017,25 @@ function rebuildObjectMeshes(
   objects: SceneObject[],
   selectedObjectIds: string[],
   debugState: DebugState,
-  sceneScale: number
+  sceneScale: number,
+  soundUnitsPerTile: number,
+  runtimeSoundNowPlayingBadges: readonly RuntimeSoundNowPlayingBadge[],
+  showRuntimeSoundNowPlaying: boolean
 ): void {
   clearObjectLayer(runtime);
   const selectedSet = new Set(selectedObjectIds);
+  const nowPlayingLabelById = new Map<string, string>(
+    runtimeSoundNowPlayingBadges.map((badge) => [badge.objectId, badge.label])
+  );
   const markerScale = sceneScale;
+  const soundMetersToWorldScale = 1 / Math.max(1, soundUnitsPerTile);
   const objectRadius = 0.24 * markerScale;
   const collisionRadius = 0.33 * markerScale;
   const collisionThickness = Math.max(0.014, 0.04 * markerScale);
   const labelScale = markerScale;
   const labelHeight = objectRadius + 0.08 * markerScale;
   const objectBaseY = objectRadius + 0.012;
+  const toWorldSoundDistance = (meters: number) => Math.max(0, meters) * soundMetersToWorldScale;
 
   objects.forEach((object) => {
     const renderStatus = resolveMockRenderStatus(object);
@@ -1368,7 +2048,10 @@ function rebuildObjectMeshes(
       return;
     }
 
-    const geometry = new THREE.SphereGeometry(objectRadius, 22, 22);
+    const geometry =
+      object.kind === "sounds"
+        ? new THREE.SphereGeometry(objectRadius * 0.82, 18, 18)
+        : new THREE.SphereGeometry(objectRadius, 22, 22);
     let colorHex = OBJECT_COLORS[object.kind];
     const isStatusMapped =
       debugState.statusMap !== "off" &&
@@ -1394,7 +2077,9 @@ function rebuildObjectMeshes(
 
     const mesh = new THREE.Mesh(geometry, material);
     const showPhysicalAnchor =
-      debugState.showVtPhysicalAnchor && isVisualTransformAppliedToObject(object);
+      object.kind !== "sounds" &&
+      debugState.showVtPhysicalAnchor &&
+      isVisualTransformAppliedToObject(object);
     if (showPhysicalAnchor) {
       const physicalAnchorGeometry = new THREE.SphereGeometry(objectRadius * 0.94, 16, 16);
       const physicalAnchorMaterial = new THREE.MeshBasicMaterial({
@@ -1465,6 +2150,12 @@ function rebuildObjectMeshes(
             roll: 0
           }
         : object.visualTransform;
+    const soundPositioning =
+      object.kind === "sounds" ? normalizeSoundGuidePositioning(object.soundPositioning) : null;
+    const soundOverlayFlags =
+      object.kind === "sounds"
+        ? resolveSoundGuideOverlayFlagsFromPositioning(soundPositioning)
+        : null;
     const visualScale = Math.max(0.01, effectiveVisualTransform.scale);
     mesh.position.set(
       object.x + effectiveVisualTransform.offsetX,
@@ -1481,6 +2172,226 @@ function rebuildObjectMeshes(
     if (selectedSet.has(object.id)) {
       material.emissive = new THREE.Color("#ffd87f");
       mesh.scale.setScalar(visualScale * 1.16);
+    }
+
+    if (object.kind === "sounds") {
+      const soundGuidePositioning =
+        soundPositioning ?? normalizeSoundGuidePositioning(object.soundPositioning);
+      const markerMode = soundGuidePositioning.mode;
+      const soundModeMarker = createSoundModeMarkerGroup(markerMode, markerScale);
+      soundModeMarker.position.set(0, labelHeight * 0.8, 0);
+      mesh.add(soundModeMarker);
+
+      const physicalAnchorY = objectBaseY + object.z;
+      const elevatedAnchorY =
+        physicalAnchorY + toWorldSoundDistance(soundGuidePositioning.elevation);
+      const physicalAnchorMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(objectRadius * 0.32, 12, 12),
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(SOUND_HEIGHT_COLOR),
+          transparent: true,
+          opacity: selectedSet.has(object.id) ? 1 : 0.9,
+          depthWrite: false
+        })
+      );
+      physicalAnchorMesh.position.set(object.x, physicalAnchorY, object.y);
+      physicalAnchorMesh.renderOrder = 14;
+      physicalAnchorMesh.raycast = () => undefined;
+      runtime.objectLayer.add(physicalAnchorMesh);
+      const visualAnchorPosition = new THREE.Vector3(mesh.position.x, mesh.position.y, mesh.position.z);
+      if (visualAnchorPosition.distanceToSquared(physicalAnchorMesh.position) > 1e-6) {
+        const anchorConnector = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            physicalAnchorMesh.position.clone(),
+            visualAnchorPosition
+          ]),
+          new THREE.LineDashedMaterial({
+            color: new THREE.Color(SOUND_HEIGHT_COLOR),
+            transparent: true,
+            opacity: selectedSet.has(object.id) ? 0.92 : 0.72,
+            dashSize: Math.max(0.06, markerScale * 0.11),
+            gapSize: Math.max(0.03, markerScale * 0.07),
+            depthWrite: false
+          })
+        );
+        anchorConnector.computeLineDistances();
+        anchorConnector.raycast = () => undefined;
+        runtime.objectLayer.add(anchorConnector);
+      }
+
+      if (soundOverlayFlags?.range) {
+        const maxRange = toWorldSoundDistance(soundGuidePositioning.maxVolumeDistance);
+        const cutoffRange = Math.max(
+          maxRange,
+          toWorldSoundDistance(soundGuidePositioning.cutoffDistance)
+        );
+        const rangeOpacity = selectedSet.has(object.id) ? 0.84 : 0.64;
+        const createHorizontalRing = (
+          radius: number,
+          color: string,
+          opacity: number,
+          dashed: boolean
+        ) => {
+          const segments = 80;
+          const ringPoints: THREE.Vector3[] = [];
+          for (let segment = 0; segment <= segments; segment += 1) {
+            const angle = (segment / segments) * Math.PI * 2;
+            ringPoints.push(
+              new THREE.Vector3(
+                object.x + Math.cos(angle) * radius,
+                elevatedAnchorY,
+                object.y + Math.sin(angle) * radius
+              )
+            );
+          }
+          const ringGeometry = new THREE.BufferGeometry().setFromPoints(ringPoints);
+          const ringMaterial = dashed
+            ? new THREE.LineDashedMaterial({
+                color: new THREE.Color(color),
+                transparent: true,
+                opacity,
+                dashSize: Math.max(0.06, markerScale * 0.14),
+                gapSize: Math.max(0.03, markerScale * 0.09),
+                depthWrite: false
+              })
+            : new THREE.LineBasicMaterial({
+                color: new THREE.Color(color),
+                transparent: true,
+                opacity,
+                depthWrite: false
+              });
+          const ring = new THREE.Line(ringGeometry, ringMaterial);
+          if (dashed) {
+            ring.computeLineDistances();
+          }
+          ring.raycast = () => undefined;
+          runtime.objectLayer.add(ring);
+        };
+
+        if (cutoffRange > 0.001) {
+          createHorizontalRing(cutoffRange, "#8fd3ff", rangeOpacity + 0.05, false);
+        }
+        if (maxRange > 0.001) {
+          createHorizontalRing(maxRange, "#5f80b8", Math.min(1, rangeOpacity + 0.12), true);
+        }
+        if (cutoffRange > 0.001) {
+          const domeRange = cutoffRange;
+          const domeOpacity = selectedSet.has(object.id) ? 0.44 : 0.31;
+          const domeDashSize = Math.max(0.05, markerScale * 0.12);
+          const domeGapSize = Math.max(0.02, markerScale * 0.08);
+
+          const latitudeHeights = [-0.8, -0.45, -0.2, 0.2, 0.45, 0.8];
+          latitudeHeights.forEach((normalizedHeight) => {
+            const bandY = elevatedAnchorY + domeRange * normalizedHeight;
+            const bandRadius = domeRange * Math.sqrt(Math.max(0, 1 - normalizedHeight ** 2));
+            if (bandRadius <= 0.001) {
+              return;
+            }
+            const bandPoints: THREE.Vector3[] = [];
+            const segmentCount = 56;
+            for (let segment = 0; segment <= segmentCount; segment += 1) {
+              const angle = (segment / segmentCount) * Math.PI * 2;
+              bandPoints.push(
+                new THREE.Vector3(
+                  object.x + Math.cos(angle) * bandRadius,
+                  bandY,
+                  object.y + Math.sin(angle) * bandRadius
+                )
+              );
+            }
+            const bandLine = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(bandPoints),
+              new THREE.LineDashedMaterial({
+                color: new THREE.Color(SOUND_DOME_COLOR),
+                transparent: true,
+                opacity: domeOpacity,
+                dashSize: domeDashSize,
+                gapSize: domeGapSize,
+                depthWrite: false
+              })
+            );
+            bandLine.computeLineDistances();
+            bandLine.raycast = () => undefined;
+            runtime.objectLayer.add(bandLine);
+          });
+
+          for (let meridianIndex = 0; meridianIndex < 6; meridianIndex += 1) {
+            const azimuth = (meridianIndex / 6) * Math.PI;
+            const meridianPoints: THREE.Vector3[] = [];
+            const segmentCount = 48;
+            for (let step = 0; step <= segmentCount; step += 1) {
+              // Full 360deg meridian loop so both left and right hemispheres are visible.
+              const angle = (step / segmentCount) * Math.PI * 2;
+              const radial = domeRange * Math.cos(angle);
+              meridianPoints.push(
+                new THREE.Vector3(
+                  object.x + Math.cos(azimuth) * radial,
+                  elevatedAnchorY + domeRange * Math.sin(angle),
+                  object.y + Math.sin(azimuth) * radial
+                )
+              );
+            }
+            const meridianLine = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(meridianPoints),
+              new THREE.LineDashedMaterial({
+                color: new THREE.Color(SOUND_DOME_COLOR),
+                transparent: true,
+                opacity: domeOpacity,
+                dashSize: domeDashSize,
+                gapSize: domeGapSize,
+                depthWrite: false
+              })
+            );
+            meridianLine.computeLineDistances();
+            meridianLine.raycast = () => undefined;
+            runtime.objectLayer.add(meridianLine);
+          }
+        }
+      }
+
+      if (
+        soundOverlayFlags?.randBox &&
+        soundGuidePositioning.randomRangeWestEast > 0 &&
+        soundGuidePositioning.randomRangeNorthSouth > 0
+      ) {
+        const halfWidth = toWorldSoundDistance(soundGuidePositioning.randomRangeWestEast) / 2;
+        const halfHeight = toWorldSoundDistance(soundGuidePositioning.randomRangeNorthSouth) / 2;
+        const randomRangePoints = [
+          new THREE.Vector3(object.x - halfWidth, elevatedAnchorY, object.y - halfHeight),
+          new THREE.Vector3(object.x + halfWidth, elevatedAnchorY, object.y - halfHeight),
+          new THREE.Vector3(object.x + halfWidth, elevatedAnchorY, object.y + halfHeight),
+          new THREE.Vector3(object.x - halfWidth, elevatedAnchorY, object.y + halfHeight),
+          new THREE.Vector3(object.x - halfWidth, elevatedAnchorY, object.y - halfHeight)
+        ];
+        const randomRangeGeometry = new THREE.BufferGeometry().setFromPoints(randomRangePoints);
+        const randomRangeMaterial = new THREE.LineBasicMaterial({
+          color: new THREE.Color(SOUND_RANDOM_RANGE_COLOR),
+          transparent: true,
+          opacity: selectedSet.has(object.id) ? 0.92 : 0.75,
+          depthWrite: false
+        });
+        const randomRangeRect = new THREE.Line(randomRangeGeometry, randomRangeMaterial);
+        randomRangeRect.raycast = () => undefined;
+        runtime.objectLayer.add(randomRangeRect);
+      }
+
+      if (soundOverlayFlags?.height && Math.abs(elevatedAnchorY - physicalAnchorY) > 1e-4) {
+        const heightGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(object.x, physicalAnchorY, object.y),
+          new THREE.Vector3(object.x, elevatedAnchorY, object.y)
+        ]);
+        const heightLine = new THREE.Line(
+          heightGeometry,
+          new THREE.LineBasicMaterial({
+            color: new THREE.Color(SOUND_HEIGHT_COLOR),
+            transparent: true,
+            opacity: selectedSet.has(object.id) ? 0.96 : 0.82,
+            depthWrite: false
+          })
+        );
+        heightLine.raycast = () => undefined;
+        runtime.objectLayer.add(heightLine);
+      }
     }
 
     mesh.userData = {
@@ -1509,6 +2420,24 @@ function rebuildObjectMeshes(
       const labelSprite = createTextSprite(OBJECT_LABELS[object.kind], labelScale);
       labelSprite.position.set(0, labelHeight, 0);
       mesh.add(labelSprite);
+    }
+    if (
+      showRuntimeSoundNowPlaying &&
+      object.kind === "sounds" &&
+      nowPlayingLabelById.has(object.id)
+    ) {
+      const nowPlayingSprite = createTextSprite(
+        nowPlayingLabelById.get(object.id) ?? SOUND_NOW_PLAYING_BADGE_LABEL,
+        markerScale * 0.74,
+        {
+          fillColor: "#d9ffe8",
+          backgroundFill: "rgba(7, 35, 20, 0.92)",
+          backgroundStroke: "rgba(74, 227, 153, 0.92)",
+          autoWidth: true
+        }
+      );
+      nowPlayingSprite.position.set(0, labelHeight + markerScale * 0.56, 0);
+      mesh.add(nowPlayingSprite);
     }
 
     if (debugState.bounds) {
@@ -1821,6 +2750,8 @@ export function WorkspaceCanvasViewport({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
   const commandRevisionRef = useRef(0);
+  const sidebarSelectRevisionRef = useRef<number | null>(null);
+  const sidebarContextMenuRevisionRef = useRef<number | null>(null);
   const nextObjectSequenceRef = useRef(1);
   const clipboardObjectsRef = useRef<SceneObject[]>([]);
   const contextMenuRef = useRef<HTMLElement | null>(null);
@@ -1845,6 +2776,17 @@ export function WorkspaceCanvasViewport({
     offsetX: 0,
     offsetY: 0
   });
+  const soundPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const runtimeSoundPlaybackStateRef = useRef<Map<string, RuntimeSoundPlaybackState>>(
+    new Map<string, RuntimeSoundPlaybackState>()
+  );
+  const runtimeSoundLoopChannelsRef = useRef<Map<string, RuntimeSoundLoopChannel>>(
+    new Map<string, RuntimeSoundLoopChannel>()
+  );
+  const runtimeSoundOneShotChannelsRef = useRef<Set<HTMLAudioElement>>(new Set<HTMLAudioElement>());
+  const runtimeSoundNowPlayingRef = useRef<Map<string, RuntimeSoundNowPlayingState>>(
+    new Map<string, RuntimeSoundNowPlayingState>()
+  );
   const doorPropertiesDialogRef = useRef<HTMLElement | null>(null);
   const doorPropertiesDialogDragRef = useRef<DoorPropertiesDialogDragState>({
     active: false,
@@ -1894,6 +2836,9 @@ export function WorkspaceCanvasViewport({
     useState<SoundPropertiesDialogState | null>(null);
   const [doorPropertiesDialog, setDoorPropertiesDialog] =
     useState<DoorPropertiesDialogState | null>(null);
+  const [runtimeSoundNowPlayingBadges, setRuntimeSoundNowPlayingBadges] = useState<
+    RuntimeSoundNowPlayingBadge[]
+  >([]);
   const [runtimePopupPinned, setRuntimePopupPinned] = useState(false);
   const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot>({
     fps: 0,
@@ -1918,6 +2863,9 @@ export function WorkspaceCanvasViewport({
     if (!sidebarSelectSignal) {
       return;
     }
+    if (sidebarSelectRevisionRef.current === sidebarSelectSignal.revision) {
+      return;
+    }
 
     const selectedObject = scene.objects.find(
       (object) => object.id === sidebarSelectSignal.objectId
@@ -1925,6 +2873,7 @@ export function WorkspaceCanvasViewport({
     if (!selectedObject) {
       return;
     }
+    sidebarSelectRevisionRef.current = sidebarSelectSignal.revision;
 
     setSelectedTileId(null);
     setSelectedObjectIds((current) => {
@@ -1955,6 +2904,9 @@ export function WorkspaceCanvasViewport({
     if (!sidebarContextMenuSignal) {
       return;
     }
+    if (sidebarContextMenuRevisionRef.current === sidebarContextMenuSignal.revision) {
+      return;
+    }
 
     const selectedObject = scene.objects.find(
       (object) => object.id === sidebarContextMenuSignal.objectId
@@ -1962,6 +2914,7 @@ export function WorkspaceCanvasViewport({
     if (!selectedObject) {
       return;
     }
+    sidebarContextMenuRevisionRef.current = sidebarContextMenuSignal.revision;
 
     const runtime = runtimeRef.current;
     const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
@@ -2119,6 +3072,7 @@ export function WorkspaceCanvasViewport({
       const copies = sourceObjects.map((sourceObject) => {
         const nextSequence = nextObjectSequenceRef.current;
         nextObjectSequenceRef.current += 1;
+        const sourceSnapshot = cloneSceneObject(sourceObject);
 
         const copy = sceneViewportPort.createObject(
           sourceObject.kind,
@@ -2126,12 +3080,47 @@ export function WorkspaceCanvasViewport({
           sourceObject.y + translation.y,
           nextSequence
         );
+        copy.name = sourceSnapshot.name;
         copy.resRef = sourceObject.resRef;
         copy.tag = `${sourceObject.tag}_COPY`;
-        copy.visualTransform = {
-          ...sourceObject.visualTransform,
-          offsetZ: sourceObject.visualTransform.offsetZ
-        };
+        copy.isStatic = sourceSnapshot.isStatic;
+        copy.visualTransform = { ...sourceSnapshot.visualTransform };
+        copy.placeableProperties = sourceSnapshot.placeableProperties
+          ? {
+              ...sourceSnapshot.placeableProperties,
+              scriptSlots: sourceSnapshot.placeableProperties.scriptSlots
+                ? { ...sourceSnapshot.placeableProperties.scriptSlots }
+                : undefined,
+              disabledFlags: sourceSnapshot.placeableProperties.disabledFlags
+                ? { ...sourceSnapshot.placeableProperties.disabledFlags }
+                : undefined
+            }
+          : undefined;
+        copy.soundPositioning = sourceSnapshot.soundPositioning
+          ? {
+              ...sourceSnapshot.soundPositioning,
+              preserve: sourceSnapshot.soundPositioning.preserve
+                ? {
+                    ...sourceSnapshot.soundPositioning.preserve,
+                    flags: { ...sourceSnapshot.soundPositioning.preserve.flags },
+                    extra: { ...sourceSnapshot.soundPositioning.preserve.extra }
+                  }
+                : undefined
+            }
+          : undefined;
+        copy.doorTransition = sourceSnapshot.doorTransition
+          ? {
+              ...sourceSnapshot.doorTransition,
+              flags: { ...sourceSnapshot.doorTransition.flags }
+            }
+          : undefined;
+        copy.vfxPayload = sourceSnapshot.vfxPayload
+          ? {
+              ...sourceSnapshot.vfxPayload,
+              flags: { ...sourceSnapshot.vfxPayload.flags },
+              extra: { ...sourceSnapshot.vfxPayload.extra }
+            }
+          : undefined;
         copy.z = toolbarState.canvasDebug.snapHeight
           ? snapHeightValue(sourceObject.z, workspaceOptions.snapHeightStep)
           : sourceObject.z;
@@ -2160,6 +3149,7 @@ export function WorkspaceCanvasViewport({
       return copies;
     },
     [
+      cloneSceneObject,
       resolveCopyAnchor,
       sceneViewportPort,
       toolbarState.canvasDebug.snapAngle,
@@ -2517,6 +3507,7 @@ export function WorkspaceCanvasViewport({
     const sceneScale = sceneViewportPort.getSceneScale(scene.width, scene.height);
 
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
+    runtime.tileOverlayLayer.visible = workspaceOptions.showTileGridOverlay;
     runtime.axesHelper.visible = toolbarState.canvasDebug.axes;
     updateAxesHelperForScene(runtime, scene, sceneScale);
 
@@ -2526,7 +3517,10 @@ export function WorkspaceCanvasViewport({
       visibleObjects,
       selectedObjectIds,
       toolbarState.canvasDebug,
-      sceneScale
+      sceneScale,
+      adjustLocationUnitsPerTile,
+      runtimeSoundNowPlayingBadges,
+      workspaceOptions.showRuntimeSoundNowPlaying
     );
     rebuildChunkBounds(runtime, scene, toolbarState.canvasDebug.chunkBounds);
     rebuildGizmoOverlay(
@@ -2536,8 +3530,9 @@ export function WorkspaceCanvasViewport({
       toolbarState.canvasDebug,
       sceneScale
     );
-    rebuildGridLayer(runtime, scene, viewportFacade);
+    rebuildGridLayer(runtime, scene, viewportFacade, workspaceOptions.showTileGridOverlay);
     runtime.gridLayer.visible = toolbarState.canvasDebug.grid;
+    runtime.tileOverlayLayer.visible = workspaceOptions.showTileGridOverlay;
   }, [
     objectById,
     sceneViewportPort,
@@ -2546,6 +3541,9 @@ export function WorkspaceCanvasViewport({
     selectedTileId,
     toolbarState.canvasDebug,
     viewportFacade,
+    runtimeSoundNowPlayingBadges,
+    workspaceOptions.showRuntimeSoundNowPlaying,
+    workspaceOptions.showTileGridOverlay,
     visibleObjects
   ]);
 
@@ -3987,6 +4985,7 @@ export function WorkspaceCanvasViewport({
       if (targets.length === 0) {
         return;
       }
+      const targetIds = targets.map((object) => object.id);
 
       const source = targets[0];
       const hostRect = hostRef.current?.getBoundingClientRect();
@@ -3997,8 +4996,9 @@ export function WorkspaceCanvasViewport({
       const initialDialogPosition = clampAdjustLocationDialogPosition(preferredX, preferredY);
       const visualTransformMeta = resolveAdjustLocationVisualTransformMeta(targets);
       const snapshotObjects = targets.map(cloneSceneObject);
+      setSelectedObjectIds(targetIds);
       setAdjustLocationDialog({
-        objectIds: targets.map((object) => object.id),
+        objectIds: targetIds,
         snapshotObjects,
         showVisualTransforms: visualTransformMeta.showVisualTransforms,
         mixedStaticPlaceables: visualTransformMeta.mixedStaticPlaceables,
@@ -4120,47 +5120,109 @@ export function WorkspaceCanvasViewport({
     }
   }, []);
 
+  const resolveSceneWithAdjustLocationDraft = useCallback(
+    (sourceScene: AreaScene, dialogState: AdjustLocationDialogState): AreaScene => {
+      const draft = dialogState.draft;
+      const objectIds = dialogState.objectIds;
+      const includeVisualTransforms = dialogState.showVisualTransforms;
+      const draftZWorld = fromAdjustLocationHeight(draft.z, adjustLocationUnitsPerTile);
+      const draftVtZWorld = fromAdjustLocationHeight(
+        draft.zTranslation,
+        adjustLocationUnitsPerTile
+      );
+      let nextScene = sceneViewportPort.setObjectsAbsoluteLocationByIds(
+        sourceScene,
+        objectIds,
+        {
+          x: fromAdjustLocationCoordinate(draft.x, scene.width, adjustLocationUnitsPerTile),
+          y: fromAdjustLocationCoordinate(draft.y, scene.height, adjustLocationUnitsPerTile),
+          z: draftZWorld,
+          bearing: toRadians(draft.bearingDeg)
+        }
+      );
+      if (includeVisualTransforms) {
+        nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, objectIds, {
+          scale: draft.scale,
+          offsetX: draft.xTranslation,
+          offsetY: draft.yTranslation,
+          offsetZ: draftVtZWorld,
+          pitch: toRadians(draft.xRotationDeg),
+          yaw: toRadians(draft.yRotationDeg),
+          roll: toRadians(draft.zRotationDeg)
+        });
+      }
+      return nextScene;
+    },
+    [adjustLocationUnitsPerTile, scene.height, scene.width, sceneViewportPort]
+  );
+
+  useEffect(() => {
+    if (!adjustLocationDialog || adjustLocationDialog.objectIds.length === 0) {
+      return;
+    }
+    setSceneHistory((current) => {
+      const baseScene = sceneViewportPort.restoreObjectsPlacementBySnapshots(
+        current.present,
+        adjustLocationDialog.snapshotObjects
+      );
+      const nextPreviewScene = resolveSceneWithAdjustLocationDraft(baseScene, adjustLocationDialog);
+      if (
+        areObjectPlacementsEqual(
+          current.present,
+          nextPreviewScene,
+          adjustLocationDialog.objectIds,
+          adjustLocationDialog.showVisualTransforms
+        )
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        present: nextPreviewScene
+      };
+    });
+  }, [
+    adjustLocationDialog,
+    adjustLocationDialog?.draft,
+    adjustLocationDialog?.objectIds,
+    adjustLocationDialog?.showVisualTransforms,
+    adjustLocationDialog?.snapshotObjects,
+    resolveSceneWithAdjustLocationDraft,
+    sceneViewportPort
+  ]);
+
   const applyAdjustLocationDraft = useCallback(
     (closeAfterApply: boolean) => {
       if (!adjustLocationDialog || adjustLocationDialog.objectIds.length === 0) {
         return;
       }
 
-      const draft = adjustLocationDialog.draft;
       const objectIds = adjustLocationDialog.objectIds;
       const includeVisualTransforms = adjustLocationDialog.showVisualTransforms;
-      const draftZWorld = fromAdjustLocationHeight(draft.z, adjustLocationUnitsPerTile);
-      const draftVtZWorld = fromAdjustLocationHeight(
-        draft.zTranslation,
-        adjustLocationUnitsPerTile
-      );
 
       setSceneHistory((current) => {
-        let nextScene = sceneViewportPort.setObjectsAbsoluteLocationByIds(
+        const baseScene = sceneViewportPort.restoreObjectsPlacementBySnapshots(
           current.present,
-          objectIds,
-          {
-            x: fromAdjustLocationCoordinate(draft.x, scene.width, adjustLocationUnitsPerTile),
-            y: fromAdjustLocationCoordinate(draft.y, scene.height, adjustLocationUnitsPerTile),
-            z: draftZWorld,
-            bearing: toRadians(draft.bearingDeg)
-          }
+          adjustLocationDialog.snapshotObjects
         );
-        if (includeVisualTransforms) {
-          nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, objectIds, {
-            scale: draft.scale,
-            offsetX: draft.xTranslation,
-            offsetY: draft.yTranslation,
-            offsetZ: draftVtZWorld,
-            pitch: toRadians(draft.xRotationDeg),
-            yaw: toRadians(draft.yRotationDeg),
-            roll: toRadians(draft.zRotationDeg)
-          });
-        }
-        if (nextScene === current.present) {
+        const finalScene = resolveSceneWithAdjustLocationDraft(baseScene, adjustLocationDialog);
+        if (
+          areObjectPlacementsEqual(
+            baseScene,
+            finalScene,
+            objectIds,
+            includeVisualTransforms
+          )
+        ) {
           return current;
         }
-        return sceneViewportPort.commitHistory(current, nextScene);
+        return sceneViewportPort.commitHistory(
+          {
+            ...current,
+            present: baseScene
+          },
+          finalScene
+        );
       });
 
       trackTelemetry("scene.adjust_location.apply", {
@@ -4176,12 +5238,10 @@ export function WorkspaceCanvasViewport({
     },
     [
       adjustLocationDialog,
-      adjustLocationUnitsPerTile,
-      scene.height,
-      scene.width,
       sceneViewportPort,
       trackTelemetry,
-      userId
+      userId,
+      resolveSceneWithAdjustLocationDraft
     ]
   );
 
@@ -4192,10 +5252,20 @@ export function WorkspaceCanvasViewport({
           current.present,
           adjustLocationDialog.snapshotObjects
         );
-        if (restoredScene === current.present) {
+        if (
+          areObjectPlacementsEqual(
+            current.present,
+            restoredScene,
+            adjustLocationDialog.objectIds,
+            adjustLocationDialog.showVisualTransforms
+          )
+        ) {
           return current;
         }
-        return sceneViewportPort.commitHistory(current, restoredScene);
+        return {
+          ...current,
+          present: restoredScene
+        };
       });
       trackTelemetry("scene.adjust_location.cancel", {
         userId,
@@ -4328,12 +5398,23 @@ export function WorkspaceCanvasViewport({
         return;
       }
 
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const preferredX = hostRect
-        ? hostRect.width - PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
-        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const initialDialogPosition = clampPlaceablePropertiesDialogPosition(preferredX, preferredY);
+      const runtime = runtimeRef.current;
+      const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+      const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+      const initialDialogPosition = runtime
+        ? resolveAnchoredContextMenuPosition(
+            runtime,
+            target,
+            target.id,
+            anchorOffsetX,
+            anchorOffsetY,
+            PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+            PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX
+          )
+        : clampPlaceablePropertiesDialogPosition(
+            ADJUST_LOCATION_DIALOG_MARGIN_PX,
+            ADJUST_LOCATION_DIALOG_MARGIN_PX
+          );
       setPlaceablePropertiesDialog({
         objectId: target.id,
         snapshotObject: cloneSceneObject(target),
@@ -4341,6 +5422,8 @@ export function WorkspaceCanvasViewport({
         activeTab: "basic",
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
+        anchorOffsetX,
+        anchorOffsetY,
         collapsed: false
       });
       trackTelemetry("scene.placeable_properties.open", {
@@ -4645,16 +5728,35 @@ export function WorkspaceCanvasViewport({
       const nextPosition = clampPlaceablePropertiesDialogPosition(desiredX, desiredY);
       setPlaceablePropertiesDialog((current) =>
         current
-          ? {
-              ...current,
-              windowX: nextPosition.x,
-              windowY: nextPosition.y
-            }
+          ? (() => {
+              const runtime = runtimeRef.current;
+              const targetObject =
+                scene.objects.find((object) => object.id === current.objectId) ?? null;
+              if (!runtime || !targetObject) {
+                return {
+                  ...current,
+                  windowX: nextPosition.x,
+                  windowY: nextPosition.y
+                };
+              }
+              const anchorScreen = resolveContextMenuAnchorScreen(
+                runtime,
+                targetObject,
+                current.objectId
+              );
+              return {
+                ...current,
+                windowX: nextPosition.x,
+                windowY: nextPosition.y,
+                anchorOffsetX: nextPosition.x - anchorScreen.x,
+                anchorOffsetY: nextPosition.y - anchorScreen.y
+              };
+            })()
           : current
       );
       event.preventDefault();
     },
-    [clampPlaceablePropertiesDialogPosition]
+    [clampPlaceablePropertiesDialogPosition, scene.objects]
   );
 
   const endPlaceablePropertiesDialogDrag = useCallback(
@@ -4707,12 +5809,23 @@ export function WorkspaceCanvasViewport({
         return;
       }
 
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const preferredX = hostRect
-        ? hostRect.width - SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
-        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const initialDialogPosition = clampSoundPropertiesDialogPosition(preferredX, preferredY);
+      const runtime = runtimeRef.current;
+      const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+      const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+      const initialDialogPosition = runtime
+        ? resolveAnchoredContextMenuPosition(
+            runtime,
+            target,
+            target.id,
+            anchorOffsetX,
+            anchorOffsetY,
+            SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+            SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX
+          )
+        : clampSoundPropertiesDialogPosition(
+            ADJUST_LOCATION_DIALOG_MARGIN_PX,
+            ADJUST_LOCATION_DIALOG_MARGIN_PX
+          );
       setSoundPropertiesDialog({
         objectId: target.id,
         snapshotObject: cloneSceneObject(target),
@@ -4720,6 +5833,8 @@ export function WorkspaceCanvasViewport({
         activeTab: "basic",
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
+        anchorOffsetX,
+        anchorOffsetY,
         collapsed: false
       });
       trackTelemetry("scene.sound_properties.open", {
@@ -4738,20 +5853,43 @@ export function WorkspaceCanvasViewport({
         }
 
         let nextDraft = current.draft;
+        if (field === "maxVolumeDistance") {
+          return current;
+        }
         if (field === "mode") {
           const nextMode = value as SoundPositioningMode;
           nextDraft = {
             ...current.draft,
             mode: nextMode
           };
-        } else if (field === "name" || field === "tag" || field === "resRef") {
+        } else if (field === "cutoffDistance") {
+          const numericValue = parseSoundNumericInput(value);
+          if (numericValue === null) {
+            return current;
+          }
+          const nextCutoffDistance = Math.max(0, numericValue);
+          nextDraft = {
+            ...current.draft,
+            cutoffDistance: nextCutoffDistance,
+            maxVolumeDistance: deriveMaxVolumeDistanceFromCutoff(nextCutoffDistance)
+          };
+        } else if (
+          field === "name" ||
+          field === "tag" ||
+          field === "resRef" ||
+          field === "comments" ||
+          field === "timeWindow" ||
+          field === "hourMask"
+        ) {
           nextDraft = {
             ...current.draft,
             [field]: String(value)
           };
+        } else if (field === "flagsSummary" || field === "extraSummary") {
+          return current;
         } else {
-          const numericValue = typeof value === "number" ? value : Number(value);
-          if (!Number.isFinite(numericValue)) {
+          const numericValue = parseSoundNumericInput(value);
+          if (numericValue === null) {
             return current;
           }
           nextDraft = {
@@ -4771,6 +5909,327 @@ export function WorkspaceCanvasViewport({
     },
     []
   );
+
+  const patchSoundPropertiesDraft = useCallback((patch: Partial<SoundPropertiesDraft>) => {
+    setSoundPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextDraft = {
+        ...current.draft,
+        ...patch
+      };
+      if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, []);
+
+  const toggleSoundPropertiesActive = useCallback(() => {
+    setSoundPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextDraft = {
+        ...current.draft,
+        active: !current.draft.active
+      };
+      if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, []);
+
+  const setSoundWhenToPlay = useCallback((nextWhenToPlay: SoundWhenToPlay, nextDayNight?: SoundDayNight) => {
+    setSoundPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextDraft: SoundPropertiesDraft = {
+        ...current.draft,
+        whenToPlay: nextWhenToPlay,
+        dayNight:
+          nextDayNight ?? (nextWhenToPlay === "always" ? "both" : current.draft.dayNight)
+      };
+      if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, []);
+
+  const toggleSoundHour = useCallback(
+    (hourIndex: number) => {
+      setSoundPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const currentMaskFlags = parseSoundHourMask(
+          current.draft.hourMask,
+          current.draft.hoursStart,
+          current.draft.hoursEnd
+        );
+        const safeIndex = clampSoundHourIndex(hourIndex);
+        currentMaskFlags[safeIndex] = !currentMaskFlags[safeIndex];
+        const bounds = resolveSoundHourBounds(currentMaskFlags);
+        const nextDraft: SoundPropertiesDraft = {
+          ...current.draft,
+          whenToPlay: "hours",
+          hourMask: encodeSoundHourMask(currentMaskFlags),
+          hoursStart: bounds.start,
+          hoursEnd: bounds.end
+        };
+        if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: nextDraft
+        };
+      });
+    },
+    []
+  );
+
+  const selectSoundListEntry = useCallback((index: number) => {
+    setSoundPropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+      const safeIndex =
+        current.draft.soundList.length === 0 ? -1 : Math.min(Math.max(index, 0), current.draft.soundList.length - 1);
+      if (safeIndex === current.draft.selectedSoundIndex) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          selectedSoundIndex: safeIndex
+        }
+      };
+    });
+  }, []);
+
+  const mutateSoundListDraft = useCallback(
+    (
+      recipe: (list: string[], selectedIndex: number) => { list: string[]; selectedIndex: number }
+    ) => {
+      setSoundPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const { list, selectedIndex } = recipe(
+          [...current.draft.soundList],
+          current.draft.selectedSoundIndex
+        );
+        const clampedSelectedIndex =
+          list.length === 0 ? -1 : Math.min(Math.max(selectedIndex, 0), list.length - 1);
+        if (
+          list.join("\n") === current.draft.soundList.join("\n") &&
+          clampedSelectedIndex === current.draft.selectedSoundIndex
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            soundList: list,
+            selectedSoundIndex: clampedSelectedIndex
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const addSoundListEntry = useCallback(() => {
+    mutateSoundListDraft((list) => {
+      const nextNameBase = "as_mock_sound";
+      let counter = list.length + 1;
+      let nextValue = `${nextNameBase}${counter}`;
+      while (list.includes(nextValue)) {
+        counter += 1;
+        nextValue = `${nextNameBase}${counter}`;
+      }
+      const nextList = [...list, nextValue];
+      return {
+        list: nextList,
+        selectedIndex: nextList.length - 1
+      };
+    });
+  }, [mutateSoundListDraft]);
+
+  const removeSelectedSoundListEntry = useCallback(() => {
+    mutateSoundListDraft((list, selectedIndex) => {
+      if (list.length === 0 || selectedIndex < 0 || selectedIndex >= list.length) {
+        return { list, selectedIndex };
+      }
+      const nextList = list.filter((_, index) => index !== selectedIndex);
+      return {
+        list: nextList,
+        selectedIndex: Math.min(selectedIndex, nextList.length - 1)
+      };
+    });
+  }, [mutateSoundListDraft]);
+
+  const moveSoundListEntryUp = useCallback(() => {
+    mutateSoundListDraft((list, selectedIndex) => {
+      if (selectedIndex <= 0 || selectedIndex >= list.length) {
+        return { list, selectedIndex };
+      }
+      const nextList = [...list];
+      const previous = nextList[selectedIndex - 1];
+      nextList[selectedIndex - 1] = nextList[selectedIndex];
+      nextList[selectedIndex] = previous;
+      return {
+        list: nextList,
+        selectedIndex: selectedIndex - 1
+      };
+    });
+  }, [mutateSoundListDraft]);
+
+  const moveSoundListEntryDown = useCallback(() => {
+    mutateSoundListDraft((list, selectedIndex) => {
+      if (selectedIndex < 0 || selectedIndex >= list.length - 1) {
+        return { list, selectedIndex };
+      }
+      const nextList = [...list];
+      const next = nextList[selectedIndex + 1];
+      nextList[selectedIndex + 1] = nextList[selectedIndex];
+      nextList[selectedIndex] = next;
+      return {
+        list: nextList,
+        selectedIndex: selectedIndex + 1
+      };
+    });
+  }, [mutateSoundListDraft]);
+
+  const syncRuntimeSoundNowPlayingState = useCallback((nowUnixMs: number) => {
+    const nowPlayingMap = runtimeSoundNowPlayingRef.current;
+    let changed = false;
+    for (const [objectId, state] of nowPlayingMap.entries()) {
+      if (state.expiresAtUnixMs <= nowUnixMs) {
+        nowPlayingMap.delete(objectId);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      const nextBadges = Array.from(nowPlayingMap.entries())
+        .map(([objectId, state]) => ({ objectId, label: state.label }))
+        .sort((left, right) => left.objectId.localeCompare(right.objectId));
+      setRuntimeSoundNowPlayingBadges((current) =>
+        areNowPlayingBadgesEqual(current, nextBadges) ? current : nextBadges
+      );
+    }
+  }, []);
+
+  const markRuntimeSoundAsNowPlaying = useCallback(
+    (objectId: string, nowUnixMs: number, soundKey: string) => {
+      const nowPlayingMap = runtimeSoundNowPlayingRef.current;
+      const label = resolveRuntimeSoundNowPlayingLabel(soundKey);
+      nowPlayingMap.set(objectId, {
+        expiresAtUnixMs: nowUnixMs + SOUND_NOW_PLAYING_BADGE_TTL_MS,
+        label
+      });
+      const nextBadges = Array.from(nowPlayingMap.entries())
+        .map(([entryObjectId, state]) => ({ objectId: entryObjectId, label: state.label }))
+        .sort((left, right) => left.objectId.localeCompare(right.objectId));
+      setRuntimeSoundNowPlayingBadges((current) =>
+        areNowPlayingBadgesEqual(current, nextBadges) ? current : nextBadges
+      );
+    },
+    []
+  );
+
+  const stopRuntimeLoopSoundChannelById = useCallback((objectId: string) => {
+    const channel = runtimeSoundLoopChannelsRef.current.get(objectId);
+    if (!channel) {
+      return;
+    }
+    channel.audio.pause();
+    channel.audio.currentTime = 0;
+    runtimeSoundLoopChannelsRef.current.delete(objectId);
+  }, []);
+
+  const stopAllRuntimeSoundChannels = useCallback(() => {
+    runtimeSoundLoopChannelsRef.current.forEach((channel) => {
+      channel.audio.pause();
+      channel.audio.currentTime = 0;
+    });
+    runtimeSoundLoopChannelsRef.current.clear();
+
+    runtimeSoundOneShotChannelsRef.current.forEach((audio) => {
+      audio.pause();
+      audio.currentTime = 0;
+    });
+    runtimeSoundOneShotChannelsRef.current.clear();
+
+    runtimeSoundPlaybackStateRef.current.clear();
+    runtimeSoundNowPlayingRef.current.clear();
+    setRuntimeSoundNowPlayingBadges((current) => (current.length === 0 ? current : []));
+  }, []);
+
+  const stopSoundPreviewPlayback = useCallback(() => {
+    const currentAudio = soundPreviewAudioRef.current;
+    if (!currentAudio) {
+      return;
+    }
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    soundPreviewAudioRef.current = null;
+  }, []);
+
+  const playSelectedSoundPreview = useCallback(() => {
+    if (typeof window === "undefined" || !soundPropertiesDialog) {
+      return;
+    }
+    const previewKey = resolveSelectedSoundPreviewKey(soundPropertiesDialog.draft);
+    const previewAssetUrl = resolveSoundPreviewAssetUrl(previewKey);
+    if (!previewAssetUrl) {
+      return;
+    }
+
+    const previousAudio = soundPreviewAudioRef.current;
+    if (previousAudio) {
+      previousAudio.pause();
+      previousAudio.currentTime = 0;
+    }
+
+    const audio = new Audio(previewAssetUrl);
+    audio.volume = Math.min(1, Math.max(0, soundPropertiesDialog.draft.volume));
+    audio.loop = soundPropertiesDialog.draft.playStyle === "loop";
+    audio.onended = () => {
+      if (soundPreviewAudioRef.current === audio) {
+        soundPreviewAudioRef.current = null;
+      }
+    };
+    audio.onerror = () => {
+      if (soundPreviewAudioRef.current === audio) {
+        soundPreviewAudioRef.current = null;
+      }
+    };
+    soundPreviewAudioRef.current = audio;
+
+    void audio.play().catch(() => {
+      if (soundPreviewAudioRef.current === audio) {
+        soundPreviewAudioRef.current = null;
+      }
+    });
+  }, [soundPropertiesDialog]);
 
   const setSoundPropertiesActiveTab = useCallback((nextTab: SoundPropertiesTab) => {
     setSoundPropertiesDialog((current) =>
@@ -4796,16 +6255,92 @@ export function WorkspaceCanvasViewport({
         if (!sourceObject || sourceObject.kind !== "sounds") {
           return current;
         }
-        const normalizedRandomRangeWestEast = draft.mode === "random" ? draft.randomRangeWestEast : 0;
-        const normalizedRandomRangeNorthSouth = draft.mode === "random" ? draft.randomRangeNorthSouth : 0;
-        const nextSoundPositioning = {
+        const normalizedCutoffDistance = Math.max(0, draft.cutoffDistance);
+        const normalizedMaxVolumeDistance =
+          deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance);
+        const nextSoundPositioning = normalizeSoundGuidePositioning({
           mode: draft.mode,
           elevation: draft.elevation,
-          maxVolumeDistance: draft.maxVolumeDistance,
-          cutoffDistance: draft.cutoffDistance,
-          randomRangeWestEast: normalizedRandomRangeWestEast,
-          randomRangeNorthSouth: normalizedRandomRangeNorthSouth
+          maxVolumeDistance: normalizedMaxVolumeDistance,
+          cutoffDistance: normalizedCutoffDistance,
+          randomRangeWestEast:
+            draft.mode === "random" ? draft.randomRangeWestEast : 0,
+          randomRangeNorthSouth:
+            draft.mode === "random" ? draft.randomRangeNorthSouth : 0
+        });
+        const sourcePreserve = sourceObject.soundPositioning?.preserve;
+        const nextPreserveCore = {
+          timeWindow: draft.timeWindow,
+          hourMask: draft.hourMask,
+          active: draft.active,
+          whenToPlay: draft.whenToPlay,
+          dayNight: draft.dayNight,
+          hoursStart: draft.hoursStart,
+          hoursEnd: draft.hoursEnd,
+          playStyle: draft.playStyle,
+          playOrder: draft.playOrder,
+          intervalMs: draft.intervalMs,
+          intervalVariationMs: draft.intervalVariationMs,
+          volume: draft.volume,
+          volumeVariation: draft.volumeVariation,
+          pitchVariation: draft.pitchVariation,
+          priority: draft.priority
         };
+        const isPreserveDefault =
+          nextPreserveCore.timeWindow === SOUND_PRESERVE_DEFAULTS.timeWindow &&
+          nextPreserveCore.hourMask === SOUND_PRESERVE_DEFAULTS.hourMask &&
+          nextPreserveCore.active === SOUND_PRESERVE_DEFAULTS.active &&
+          nextPreserveCore.whenToPlay === SOUND_PRESERVE_DEFAULTS.whenToPlay &&
+          nextPreserveCore.dayNight === SOUND_PRESERVE_DEFAULTS.dayNight &&
+          nextPreserveCore.hoursStart === SOUND_PRESERVE_DEFAULTS.hoursStart &&
+          nextPreserveCore.hoursEnd === SOUND_PRESERVE_DEFAULTS.hoursEnd &&
+          nextPreserveCore.playStyle === SOUND_PRESERVE_DEFAULTS.playStyle &&
+          nextPreserveCore.playOrder === SOUND_PRESERVE_DEFAULTS.playOrder &&
+          nextPreserveCore.intervalMs === SOUND_PRESERVE_DEFAULTS.intervalMs &&
+          nextPreserveCore.intervalVariationMs ===
+            SOUND_PRESERVE_DEFAULTS.intervalVariationMs &&
+          nextPreserveCore.volume === SOUND_PRESERVE_DEFAULTS.volume &&
+          nextPreserveCore.volumeVariation === SOUND_PRESERVE_DEFAULTS.volumeVariation &&
+          nextPreserveCore.pitchVariation === SOUND_PRESERVE_DEFAULTS.pitchVariation &&
+          nextPreserveCore.priority === SOUND_PRESERVE_DEFAULTS.priority;
+        const sourceCommentsValue = sourcePreserve?.extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY];
+        const sourceHasCommentsValue = typeof sourceCommentsValue === "string";
+        const sourceListValue = sourcePreserve?.extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
+        const sourceHasListValue = typeof sourceListValue === "string";
+        const nextCommentsValue = draft.comments.trim();
+        const normalizedSoundList = draft.soundList
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+        const defaultSoundList = buildSoundListFallback(sourceObject.resRef);
+        const shouldPersistSoundList =
+          sourceHasListValue || normalizedSoundList.join("\n") !== defaultSoundList.join("\n");
+        const nextSoundListValue = shouldPersistSoundList ? normalizedSoundList.join("\n") : "";
+        const hasAuroraBasicPreserve =
+          nextCommentsValue.length > 0 ||
+          sourceHasCommentsValue ||
+          nextSoundListValue.length > 0 ||
+          sourceHasListValue;
+        const nextPreserve =
+          sourcePreserve || !isPreserveDefault || hasAuroraBasicPreserve
+            ? {
+                ...nextPreserveCore,
+                flags: sourcePreserve?.flags ? { ...sourcePreserve.flags } : {},
+                extra: (() => {
+                  const extra = sourcePreserve?.extra ? { ...sourcePreserve.extra } : {};
+                  if (nextCommentsValue.length > 0) {
+                    extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY] = nextCommentsValue;
+                  } else {
+                    delete extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY];
+                  }
+                  if (nextSoundListValue.length > 0) {
+                    extra[SOUND_PRESERVE_EXTRA_LIST_KEY] = nextSoundListValue;
+                  } else {
+                    delete extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
+                  }
+                  return extra;
+                })()
+              }
+            : undefined;
         const nextObjects = current.present.objects.map((object) =>
           object.id === objectId
             ? {
@@ -4813,7 +6348,10 @@ export function WorkspaceCanvasViewport({
                 name: draft.name,
                 tag: draft.tag,
                 resRef: draft.resRef,
-                soundPositioning: nextSoundPositioning
+                soundPositioning: {
+                  ...nextSoundPositioning,
+                  preserve: nextPreserve
+                }
               }
             : object
         );
@@ -4830,7 +6368,29 @@ export function WorkspaceCanvasViewport({
           nextTarget.soundPositioning?.randomRangeWestEast ===
             sourceObject.soundPositioning?.randomRangeWestEast &&
           nextTarget.soundPositioning?.randomRangeNorthSouth ===
-            sourceObject.soundPositioning?.randomRangeNorthSouth
+            sourceObject.soundPositioning?.randomRangeNorthSouth &&
+          nextTarget.soundPositioning?.preserve?.timeWindow === sourcePreserve?.timeWindow &&
+          nextTarget.soundPositioning?.preserve?.hourMask === sourcePreserve?.hourMask &&
+          nextTarget.soundPositioning?.preserve?.active === sourcePreserve?.active &&
+          nextTarget.soundPositioning?.preserve?.whenToPlay === sourcePreserve?.whenToPlay &&
+          nextTarget.soundPositioning?.preserve?.dayNight === sourcePreserve?.dayNight &&
+          nextTarget.soundPositioning?.preserve?.hoursStart === sourcePreserve?.hoursStart &&
+          nextTarget.soundPositioning?.preserve?.hoursEnd === sourcePreserve?.hoursEnd &&
+          nextTarget.soundPositioning?.preserve?.playStyle === sourcePreserve?.playStyle &&
+          nextTarget.soundPositioning?.preserve?.playOrder === sourcePreserve?.playOrder &&
+          nextTarget.soundPositioning?.preserve?.intervalMs === sourcePreserve?.intervalMs &&
+          nextTarget.soundPositioning?.preserve?.intervalVariationMs ===
+            sourcePreserve?.intervalVariationMs &&
+          nextTarget.soundPositioning?.preserve?.volume === sourcePreserve?.volume &&
+          nextTarget.soundPositioning?.preserve?.volumeVariation ===
+            sourcePreserve?.volumeVariation &&
+          nextTarget.soundPositioning?.preserve?.pitchVariation ===
+            sourcePreserve?.pitchVariation &&
+          nextTarget.soundPositioning?.preserve?.priority === sourcePreserve?.priority &&
+          stableJsonStringify(nextTarget.soundPositioning?.preserve?.flags ?? {}) ===
+            stableJsonStringify(sourcePreserve?.flags ?? {}) &&
+          stableJsonStringify(nextTarget.soundPositioning?.preserve?.extra ?? {}) ===
+            stableJsonStringify(sourcePreserve?.extra ?? {})
         ) {
           return current;
         }
@@ -4863,6 +6423,8 @@ export function WorkspaceCanvasViewport({
           return current;
         }
         const snapshotSound = snapshot.soundPositioning;
+        const snapshotPreserve = snapshotSound?.preserve;
+        const sourcePreserve = sourceObject.soundPositioning?.preserve;
         if (
           sourceObject.name === snapshot.name &&
           sourceObject.tag === snapshot.tag &&
@@ -4872,7 +6434,26 @@ export function WorkspaceCanvasViewport({
           sourceObject.soundPositioning?.maxVolumeDistance === snapshotSound?.maxVolumeDistance &&
           sourceObject.soundPositioning?.cutoffDistance === snapshotSound?.cutoffDistance &&
           sourceObject.soundPositioning?.randomRangeWestEast === snapshotSound?.randomRangeWestEast &&
-          sourceObject.soundPositioning?.randomRangeNorthSouth === snapshotSound?.randomRangeNorthSouth
+          sourceObject.soundPositioning?.randomRangeNorthSouth === snapshotSound?.randomRangeNorthSouth &&
+          sourcePreserve?.timeWindow === snapshotPreserve?.timeWindow &&
+          sourcePreserve?.hourMask === snapshotPreserve?.hourMask &&
+          sourcePreserve?.active === snapshotPreserve?.active &&
+          sourcePreserve?.whenToPlay === snapshotPreserve?.whenToPlay &&
+          sourcePreserve?.dayNight === snapshotPreserve?.dayNight &&
+          sourcePreserve?.hoursStart === snapshotPreserve?.hoursStart &&
+          sourcePreserve?.hoursEnd === snapshotPreserve?.hoursEnd &&
+          sourcePreserve?.playStyle === snapshotPreserve?.playStyle &&
+          sourcePreserve?.playOrder === snapshotPreserve?.playOrder &&
+          sourcePreserve?.intervalMs === snapshotPreserve?.intervalMs &&
+          sourcePreserve?.intervalVariationMs === snapshotPreserve?.intervalVariationMs &&
+          sourcePreserve?.volume === snapshotPreserve?.volume &&
+          sourcePreserve?.volumeVariation === snapshotPreserve?.volumeVariation &&
+          sourcePreserve?.pitchVariation === snapshotPreserve?.pitchVariation &&
+          sourcePreserve?.priority === snapshotPreserve?.priority &&
+          stableJsonStringify(sourcePreserve?.flags ?? {}) ===
+            stableJsonStringify(snapshotPreserve?.flags ?? {}) &&
+          stableJsonStringify(sourcePreserve?.extra ?? {}) ===
+            stableJsonStringify(snapshotPreserve?.extra ?? {})
         ) {
           return current;
         }
@@ -4892,6 +6473,241 @@ export function WorkspaceCanvasViewport({
     }
     setSoundPropertiesDialog(null);
   }, [cloneSceneObject, sceneViewportPort, soundPropertiesDialog, trackTelemetry, userId]);
+
+  useEffect(() => {
+    if (!soundPropertiesDialog) {
+      stopSoundPreviewPlayback();
+    }
+  }, [soundPropertiesDialog, stopSoundPreviewPlayback]);
+
+  useEffect(() => () => stopSoundPreviewPlayback(), [stopSoundPreviewPlayback]);
+
+  useEffect(() => {
+    if (!workspaceOptions.enableRuntimeSoundPreview) {
+      stopAllRuntimeSoundChannels();
+      return;
+    }
+
+    const playTick = () => {
+      const runtime = runtimeRef.current;
+      const nowUnixMs = Date.now();
+      syncRuntimeSoundNowPlayingState(nowUnixMs);
+
+      if (!runtime) {
+        return;
+      }
+
+      const listenerX = runtime.camera.position.x;
+      const listenerY = runtime.camera.position.y;
+      const listenerZ = runtime.camera.position.z;
+      const soundMetersToWorldScale = 1 / Math.max(1, adjustLocationUnitsPerTile);
+      const toWorldSoundDistance = (meters: number) =>
+        Math.max(0, meters) * soundMetersToWorldScale;
+
+      const candidateSounds = scene.objects.filter(
+        (object) =>
+          object.kind === "sounds" &&
+          isObjectVisible(object, toolbarState) &&
+          isKindVisibleWithIsolation(toolbarState.canvasDebug, object.kind)
+      );
+      const candidateIds = new Set(candidateSounds.map((object) => object.id));
+
+      runtimeSoundPlaybackStateRef.current.forEach((_state, objectId) => {
+        if (!candidateIds.has(objectId)) {
+          runtimeSoundPlaybackStateRef.current.delete(objectId);
+        }
+      });
+      runtimeSoundNowPlayingRef.current.forEach((_expiresAt, objectId) => {
+        if (!candidateIds.has(objectId)) {
+          runtimeSoundNowPlayingRef.current.delete(objectId);
+        }
+      });
+      runtimeSoundLoopChannelsRef.current.forEach((_channel, objectId) => {
+        if (!candidateIds.has(objectId)) {
+          stopRuntimeLoopSoundChannelById(objectId);
+        }
+      });
+
+      for (const object of candidateSounds) {
+        const positioning = normalizeSoundGuidePositioning(object.soundPositioning);
+        const preserve = object.soundPositioning?.preserve;
+        const isActive = preserve?.active ?? SOUND_PRESERVE_DEFAULTS.active;
+        const soundList = resolveSoundPlaybackList(object);
+        const playStyle = preserve?.playStyle ?? SOUND_PRESERVE_DEFAULTS.playStyle;
+        const playOrder = resolveEffectiveSoundPlayOrder(
+          preserve?.playOrder ?? SOUND_PRESERVE_DEFAULTS.playOrder
+        );
+        const baseVolume = clampUnitInterval(preserve?.volume ?? SOUND_PRESERVE_DEFAULTS.volume);
+        const intervalMs = Math.max(250, preserve?.intervalMs ?? SOUND_PRESERVE_DEFAULTS.intervalMs);
+        const intervalVariationMs = Math.max(
+          0,
+          preserve?.intervalVariationMs ?? SOUND_PRESERVE_DEFAULTS.intervalVariationMs
+        );
+
+        if (!isActive || soundList.length === 0 || baseVolume <= 0) {
+          stopRuntimeLoopSoundChannelById(object.id);
+          runtimeSoundPlaybackStateRef.current.delete(object.id);
+          runtimeSoundNowPlayingRef.current.delete(object.id);
+          continue;
+        }
+
+        const resolveSourcePosition = () => {
+          const baseX = object.x;
+          const baseY = object.z + toWorldSoundDistance(positioning.elevation);
+          const baseZ = object.y;
+          if (positioning.mode !== "random") {
+            return { x: baseX, y: baseY, z: baseZ };
+          }
+          const randomOffsetX = toWorldSoundDistance(positioning.randomRangeWestEast) * (Math.random() - 0.5);
+          const randomOffsetZ =
+            toWorldSoundDistance(positioning.randomRangeNorthSouth) * (Math.random() - 0.5);
+          return {
+            x: baseX + randomOffsetX,
+            y: baseY,
+            z: baseZ + randomOffsetZ
+          };
+        };
+
+        const resolveEffectiveVolume = (sourceX: number, sourceY: number, sourceZ: number) => {
+          const maxDistance = toWorldSoundDistance(positioning.maxVolumeDistance);
+          const cutoffDistance = Math.max(
+            maxDistance,
+            toWorldSoundDistance(positioning.cutoffDistance)
+          );
+          const distance =
+            positioning.mode === "everywhere"
+              ? 0
+              : Math.sqrt(
+                  (listenerX - sourceX) ** 2 +
+                    (listenerY - sourceY) ** 2 +
+                    (listenerZ - sourceZ) ** 2
+                );
+          const attenuation = clampUnitInterval(
+            resolveDistanceAttenuation(positioning.mode, distance, maxDistance, cutoffDistance)
+          );
+          return clampUnitInterval(baseVolume * attenuation);
+        };
+
+        let playbackState = runtimeSoundPlaybackStateRef.current.get(object.id);
+        if (!playbackState) {
+          playbackState = {
+            nextPlayAtUnixMs: nowUnixMs + 200,
+            nextSequentialIndex: 0,
+            playedOnce: false
+          };
+          runtimeSoundPlaybackStateRef.current.set(object.id, playbackState);
+        }
+
+        const loopChannel = runtimeSoundLoopChannelsRef.current.get(object.id);
+        if (playStyle === "loop") {
+          if (loopChannel) {
+            const volume = resolveEffectiveVolume(
+              loopChannel.sourceX,
+              loopChannel.sourceY,
+              loopChannel.sourceZ
+            );
+            loopChannel.audio.volume = volume;
+            if (volume > 0) {
+              markRuntimeSoundAsNowPlaying(object.id, nowUnixMs, loopChannel.label);
+            }
+            continue;
+          }
+          if (nowUnixMs < playbackState.nextPlayAtUnixMs) {
+            continue;
+          }
+        } else if (playStyle === "once" && playbackState.playedOnce) {
+          continue;
+        } else if (nowUnixMs < playbackState.nextPlayAtUnixMs) {
+          continue;
+        }
+
+        const selectedListIndex =
+          playOrder === "random"
+            ? Math.floor(Math.random() * soundList.length)
+            : playbackState.nextSequentialIndex % soundList.length;
+        if (playOrder === "sequential") {
+          playbackState.nextSequentialIndex =
+            (playbackState.nextSequentialIndex + 1) % soundList.length;
+        }
+        const previewKey = soundList[selectedListIndex] ?? object.resRef;
+        const previewAssetUrl = resolveSoundPreviewAssetUrl(previewKey);
+        if (!previewAssetUrl) {
+          playbackState.nextPlayAtUnixMs =
+            nowUnixMs + resolveNextRuntimeSoundDelayMs(intervalMs, intervalVariationMs);
+          continue;
+        }
+
+        const sourcePosition = resolveSourcePosition();
+        const effectiveVolume = resolveEffectiveVolume(
+          sourcePosition.x,
+          sourcePosition.y,
+          sourcePosition.z
+        );
+        if (effectiveVolume <= 0) {
+          playbackState.nextPlayAtUnixMs =
+            nowUnixMs + resolveNextRuntimeSoundDelayMs(intervalMs, intervalVariationMs);
+          continue;
+        }
+
+        const audio = new Audio(previewAssetUrl);
+        audio.volume = effectiveVolume;
+        if (playStyle === "loop") {
+          audio.loop = true;
+          runtimeSoundLoopChannelsRef.current.set(object.id, {
+            audio,
+            sourceX: sourcePosition.x,
+            sourceY: sourcePosition.y,
+            sourceZ: sourcePosition.z,
+            label: previewKey
+          });
+        } else {
+          runtimeSoundOneShotChannelsRef.current.add(audio);
+          audio.onended = () => {
+            runtimeSoundOneShotChannelsRef.current.delete(audio);
+          };
+          audio.onerror = () => {
+            runtimeSoundOneShotChannelsRef.current.delete(audio);
+          };
+        }
+        markRuntimeSoundAsNowPlaying(object.id, nowUnixMs, previewKey);
+        void audio.play().catch(() => {
+          runtimeSoundOneShotChannelsRef.current.delete(audio);
+          if (playStyle === "loop") {
+            stopRuntimeLoopSoundChannelById(object.id);
+          }
+        });
+
+        if (playStyle === "once") {
+          playbackState.playedOnce = true;
+          playbackState.nextPlayAtUnixMs = Number.POSITIVE_INFINITY;
+        } else if (playStyle === "loop") {
+          playbackState.playedOnce = true;
+          playbackState.nextPlayAtUnixMs = Number.POSITIVE_INFINITY;
+        } else {
+          playbackState.nextPlayAtUnixMs =
+            nowUnixMs + resolveNextRuntimeSoundDelayMs(intervalMs, intervalVariationMs);
+        }
+      }
+
+      syncRuntimeSoundNowPlayingState(nowUnixMs);
+    };
+
+    playTick();
+    const timerId = window.setInterval(playTick, SOUND_RUNTIME_TICK_MS);
+    return () => {
+      window.clearInterval(timerId);
+      stopAllRuntimeSoundChannels();
+    };
+  }, [
+    adjustLocationUnitsPerTile,
+    markRuntimeSoundAsNowPlaying,
+    scene.objects,
+    stopAllRuntimeSoundChannels,
+    stopRuntimeLoopSoundChannelById,
+    syncRuntimeSoundNowPlayingState,
+    toolbarState,
+    workspaceOptions.enableRuntimeSoundPreview
+  ]);
 
   const toggleSoundPropertiesDialogCollapsed = useCallback(() => {
     setSoundPropertiesDialog((current) =>
@@ -4949,16 +6765,35 @@ export function WorkspaceCanvasViewport({
       const nextPosition = clampSoundPropertiesDialogPosition(desiredX, desiredY);
       setSoundPropertiesDialog((current) =>
         current
-          ? {
-              ...current,
-              windowX: nextPosition.x,
-              windowY: nextPosition.y
-            }
+          ? (() => {
+              const runtime = runtimeRef.current;
+              const targetObject =
+                scene.objects.find((object) => object.id === current.objectId) ?? null;
+              if (!runtime || !targetObject) {
+                return {
+                  ...current,
+                  windowX: nextPosition.x,
+                  windowY: nextPosition.y
+                };
+              }
+              const anchorScreen = resolveContextMenuAnchorScreen(
+                runtime,
+                targetObject,
+                current.objectId
+              );
+              return {
+                ...current,
+                windowX: nextPosition.x,
+                windowY: nextPosition.y,
+                anchorOffsetX: nextPosition.x - anchorScreen.x,
+                anchorOffsetY: nextPosition.y - anchorScreen.y
+              };
+            })()
           : current
       );
       event.preventDefault();
     },
-    [clampSoundPropertiesDialogPosition]
+    [clampSoundPropertiesDialogPosition, scene.objects]
   );
 
   const endSoundPropertiesDialogDrag = useCallback(
@@ -5012,12 +6847,23 @@ export function WorkspaceCanvasViewport({
         return;
       }
 
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const preferredX = hostRect
-        ? hostRect.width - DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX - ADJUST_LOCATION_DIALOG_MARGIN_PX
-        : ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const preferredY = ADJUST_LOCATION_DIALOG_MARGIN_PX;
-      const initialDialogPosition = clampDoorPropertiesDialogPosition(preferredX, preferredY);
+      const runtime = runtimeRef.current;
+      const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+      const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+      const initialDialogPosition = runtime
+        ? resolveAnchoredContextMenuPosition(
+            runtime,
+            target,
+            target.id,
+            anchorOffsetX,
+            anchorOffsetY,
+            DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+            DOOR_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX
+          )
+        : clampDoorPropertiesDialogPosition(
+            ADJUST_LOCATION_DIALOG_MARGIN_PX,
+            ADJUST_LOCATION_DIALOG_MARGIN_PX
+          );
       setDoorPropertiesDialog({
         objectId: target.id,
         snapshotObject: cloneSceneObject(target),
@@ -5025,6 +6871,8 @@ export function WorkspaceCanvasViewport({
         activeTab: "basic",
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
+        anchorOffsetX,
+        anchorOffsetY,
         collapsed: false
       });
       trackTelemetry("scene.door_properties.open", {
@@ -5131,16 +6979,35 @@ export function WorkspaceCanvasViewport({
       const nextPosition = clampDoorPropertiesDialogPosition(desiredX, desiredY);
       setDoorPropertiesDialog((current) =>
         current
-          ? {
-              ...current,
-              windowX: nextPosition.x,
-              windowY: nextPosition.y
-            }
+          ? (() => {
+              const runtime = runtimeRef.current;
+              const targetObject =
+                scene.objects.find((object) => object.id === current.objectId) ?? null;
+              if (!runtime || !targetObject) {
+                return {
+                  ...current,
+                  windowX: nextPosition.x,
+                  windowY: nextPosition.y
+                };
+              }
+              const anchorScreen = resolveContextMenuAnchorScreen(
+                runtime,
+                targetObject,
+                current.objectId
+              );
+              return {
+                ...current,
+                windowX: nextPosition.x,
+                windowY: nextPosition.y,
+                anchorOffsetX: nextPosition.x - anchorScreen.x,
+                anchorOffsetY: nextPosition.y - anchorScreen.y
+              };
+            })()
           : current
       );
       event.preventDefault();
     },
-    [clampDoorPropertiesDialogPosition]
+    [clampDoorPropertiesDialogPosition, scene.objects]
   );
 
   const endDoorPropertiesDialogDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -5456,6 +7323,190 @@ export function WorkspaceCanvasViewport({
       window.removeEventListener("keydown", handleEscape);
     };
   }, [closeContextMenu, contextMenu, leftPanelWidthPx, rightPanelWidthPx, scene.objects]);
+
+  useEffect(() => {
+    if (!soundPropertiesDialog) {
+      return;
+    }
+
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const syncSoundPropertiesDialogToObject = () => {
+      setSoundPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const targetObject = scene.objects.find((object) => object.id === current.objectId) ?? null;
+        if (!targetObject || targetObject.kind !== "sounds") {
+          return null;
+        }
+        const panelWidth = soundPropertiesDialogRef.current?.offsetWidth ?? SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+        const panelHeight =
+          soundPropertiesDialogRef.current?.offsetHeight ?? SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+        const anchoredPosition = resolveAnchoredContextMenuPosition(
+          runtime,
+          targetObject,
+          current.objectId,
+          current.anchorOffsetX,
+          current.anchorOffsetY,
+          panelWidth,
+          panelHeight
+        );
+        if (
+          Math.abs(anchoredPosition.x - current.windowX) < 0.5 &&
+          Math.abs(anchoredPosition.y - current.windowY) < 0.5
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: anchoredPosition.x,
+          windowY: anchoredPosition.y
+        };
+      });
+    };
+
+    syncSoundPropertiesDialogToObject();
+    runtime.controls.addEventListener("change", syncSoundPropertiesDialogToObject);
+    window.addEventListener("resize", syncSoundPropertiesDialogToObject);
+    return () => {
+      runtime.controls.removeEventListener("change", syncSoundPropertiesDialogToObject);
+      window.removeEventListener("resize", syncSoundPropertiesDialogToObject);
+    };
+  }, [
+    scene.objects,
+    soundPropertiesDialog,
+    soundPropertiesDialog?.anchorOffsetX,
+    soundPropertiesDialog?.anchorOffsetY,
+    soundPropertiesDialog?.collapsed,
+    soundPropertiesDialog?.objectId
+  ]);
+
+  useEffect(() => {
+    if (!placeablePropertiesDialog) {
+      return;
+    }
+
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const syncPlaceablePropertiesDialogToObject = () => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const targetObject = scene.objects.find((object) => object.id === current.objectId) ?? null;
+        if (!targetObject || targetObject.kind !== "placeables") {
+          return null;
+        }
+        const panelWidth =
+          placeablePropertiesDialogRef.current?.offsetWidth ?? PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+        const panelHeight =
+          placeablePropertiesDialogRef.current?.offsetHeight ?? PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+        const anchoredPosition = resolveAnchoredContextMenuPosition(
+          runtime,
+          targetObject,
+          current.objectId,
+          current.anchorOffsetX,
+          current.anchorOffsetY,
+          panelWidth,
+          panelHeight
+        );
+        if (
+          Math.abs(anchoredPosition.x - current.windowX) < 0.5 &&
+          Math.abs(anchoredPosition.y - current.windowY) < 0.5
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: anchoredPosition.x,
+          windowY: anchoredPosition.y
+        };
+      });
+    };
+
+    syncPlaceablePropertiesDialogToObject();
+    runtime.controls.addEventListener("change", syncPlaceablePropertiesDialogToObject);
+    window.addEventListener("resize", syncPlaceablePropertiesDialogToObject);
+    return () => {
+      runtime.controls.removeEventListener("change", syncPlaceablePropertiesDialogToObject);
+      window.removeEventListener("resize", syncPlaceablePropertiesDialogToObject);
+    };
+  }, [
+    placeablePropertiesDialog,
+    placeablePropertiesDialog?.anchorOffsetX,
+    placeablePropertiesDialog?.anchorOffsetY,
+    placeablePropertiesDialog?.collapsed,
+    placeablePropertiesDialog?.objectId,
+    scene.objects
+  ]);
+
+  useEffect(() => {
+    if (!doorPropertiesDialog) {
+      return;
+    }
+
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const syncDoorPropertiesDialogToObject = () => {
+      setDoorPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const targetObject = scene.objects.find((object) => object.id === current.objectId) ?? null;
+        if (!targetObject || targetObject.kind !== "doors") {
+          return null;
+        }
+        const panelWidth = doorPropertiesDialogRef.current?.offsetWidth ?? DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+        const panelHeight =
+          doorPropertiesDialogRef.current?.offsetHeight ?? DOOR_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+        const anchoredPosition = resolveAnchoredContextMenuPosition(
+          runtime,
+          targetObject,
+          current.objectId,
+          current.anchorOffsetX,
+          current.anchorOffsetY,
+          panelWidth,
+          panelHeight
+        );
+        if (
+          Math.abs(anchoredPosition.x - current.windowX) < 0.5 &&
+          Math.abs(anchoredPosition.y - current.windowY) < 0.5
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: anchoredPosition.x,
+          windowY: anchoredPosition.y
+        };
+      });
+    };
+
+    syncDoorPropertiesDialogToObject();
+    runtime.controls.addEventListener("change", syncDoorPropertiesDialogToObject);
+    window.addEventListener("resize", syncDoorPropertiesDialogToObject);
+    return () => {
+      runtime.controls.removeEventListener("change", syncDoorPropertiesDialogToObject);
+      window.removeEventListener("resize", syncDoorPropertiesDialogToObject);
+    };
+  }, [
+    doorPropertiesDialog,
+    doorPropertiesDialog?.anchorOffsetX,
+    doorPropertiesDialog?.anchorOffsetY,
+    doorPropertiesDialog?.collapsed,
+    doorPropertiesDialog?.objectId,
+    scene.objects
+  ]);
 
   useEffect(() => {
     if (!adjustLocationDialog) {
@@ -5929,6 +7980,30 @@ export function WorkspaceCanvasViewport({
     positioningDisabled: soundPositioningMode === "everywhere",
     randomRangeEnabled: soundPositioningMode === "random"
   };
+  const soundRandomRangeDisplay = soundPropertiesDialog
+    ? {
+        westEast:
+          soundGating.randomRangeEnabled || soundPropertiesDialog.draft.randomRangeWestEast > 0
+            ? soundPropertiesDialog.draft.randomRangeWestEast
+            : 10,
+        northSouth:
+          soundGating.randomRangeEnabled || soundPropertiesDialog.draft.randomRangeNorthSouth > 0
+            ? soundPropertiesDialog.draft.randomRangeNorthSouth
+            : 10
+      }
+    : { westEast: 10, northSouth: 10 };
+  const canPreviewSelectedSound = soundPropertiesDialog
+    ? resolveSoundPreviewAssetUrl(resolveSelectedSoundPreviewKey(soundPropertiesDialog.draft)) !== null
+    : false;
+  const soundHourMaskFlags = soundPropertiesDialog
+    ? parseSoundHourMask(
+        soundPropertiesDialog.draft.hourMask,
+        soundPropertiesDialog.draft.hoursStart,
+        soundPropertiesDialog.draft.hoursEnd
+      )
+    : new Array<boolean>(SOUND_HOUR_COUNT).fill(false);
+  const soundAdvancedWhenToPlay = soundPropertiesDialog?.draft.whenToPlay ?? "always";
+  const isSoundSpecificHoursEnabled = soundAdvancedWhenToPlay === "hours";
 
   return (
     <section className="canvas-stage-real">
@@ -6647,21 +8722,25 @@ export function WorkspaceCanvasViewport({
               </nav>
 
               {soundPropertiesDialog.activeTab === "basic" ? (
-                <section className="canvas-sound-properties-shell">
-                  <fieldset className="canvas-sound-properties-group">
-                    <legend>Identity</legend>
-                    <label>
-                      Name
-                      <input
-                        type="text"
-                        value={soundPropertiesDialog.draft.name}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("name", event.target.value)
-                        }
-                      />
+                <section className="canvas-sound-properties-shell canvas-sound-properties-basic-shell">
+                  <div className="canvas-sound-properties-basic-top">
+                    <label className="canvas-sound-properties-inline-input">
+                      <span>Name</span>
+                      <span className="canvas-sound-properties-inline-input-row">
+                        <input
+                          type="text"
+                          value={soundPropertiesDialog.draft.name}
+                          onChange={(event) =>
+                            updateSoundPropertiesDraftField("name", event.target.value)
+                          }
+                        />
+                        <button type="button" className="canvas-sound-properties-inline-button">
+                          ...
+                        </button>
+                      </span>
                     </label>
-                    <label>
-                      Tag
+                    <label className="canvas-sound-properties-inline-input">
+                      <span>Tag</span>
                       <input
                         type="text"
                         value={soundPropertiesDialog.draft.tag}
@@ -6670,52 +8749,102 @@ export function WorkspaceCanvasViewport({
                         }
                       />
                     </label>
-                    <label>
-                      ResRef
-                      <input
-                        type="text"
-                        value={soundPropertiesDialog.draft.resRef}
+                    <label className="canvas-sound-properties-inline-input">
+                      <span>Comments</span>
+                      <textarea
+                        value={soundPropertiesDialog.draft.comments}
                         onChange={(event) =>
-                          updateSoundPropertiesDraftField("resRef", event.target.value)
+                          updateSoundPropertiesDraftField("comments", event.target.value)
                         }
                       />
                     </label>
-                  </fieldset>
-                  <fieldset className="canvas-sound-properties-group">
-                    <legend>Positioning Mode</legend>
-                    <label className="canvas-sound-properties-mode">
-                      <input
-                        type="radio"
-                        name="sound-positioning-mode"
-                        checked={soundPropertiesDialog.draft.mode === "everywhere"}
-                        onChange={() => updateSoundPropertiesDraftField("mode", "everywhere")}
-                      />
-                      Plays everywhere in area
+                  </div>
+                  <div className="canvas-sound-properties-basic-middle">
+                    <label className="canvas-sound-properties-sound-list">
+                      <span>List of Sounds to Play</span>
+                      <select
+                        size={8}
+                        value={
+                          soundPropertiesDialog.draft.selectedSoundIndex >= 0
+                            ? String(soundPropertiesDialog.draft.selectedSoundIndex)
+                            : ""
+                        }
+                        onChange={(event) => selectSoundListEntry(Number(event.target.value))}
+                      >
+                        {soundPropertiesDialog.draft.soundList.map((entry, index) => (
+                          <option key={`${entry}_${index}`} value={String(index)}>
+                            {entry}
+                          </option>
+                        ))}
+                      </select>
                     </label>
-                    <label className="canvas-sound-properties-mode">
-                      <input
-                        type="radio"
-                        name="sound-positioning-mode"
-                        checked={soundPropertiesDialog.draft.mode === "random"}
-                        onChange={() => updateSoundPropertiesDraftField("mode", "random")}
-                      />
-                      Plays from random position each play
+                    <div className="canvas-sound-properties-sound-actions">
+                      <button
+                        type="button"
+                        onClick={() => playSelectedSoundPreview()}
+                        disabled={!canPreviewSelectedSound}
+                      >
+                        Play
+                      </button>
+                      <button type="button" onClick={() => stopSoundPreviewPlayback()}>
+                        Stop
+                      </button>
+                      <button type="button" onClick={() => addSoundListEntry()}>
+                        Add Sounds...
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedSoundListEntry()}
+                        disabled={soundPropertiesDialog.draft.selectedSoundIndex < 0}
+                      >
+                        Remove
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveSoundListEntryUp()}
+                        disabled={soundPropertiesDialog.draft.selectedSoundIndex <= 0}
+                      >
+                        Move Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveSoundListEntryDown()}
+                        disabled={
+                          soundPropertiesDialog.draft.selectedSoundIndex < 0 ||
+                          soundPropertiesDialog.draft.selectedSoundIndex >=
+                            soundPropertiesDialog.draft.soundList.length - 1
+                        }
+                      >
+                        Move Down
+                      </button>
+                    </div>
+                  </div>
+                  <div className="canvas-sound-properties-basic-bottom">
+                    <label className="canvas-sound-properties-volume-slider">
+                      <span>Volume</span>
+                      <div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={10}
+                          step={0.1}
+                          value={Math.min(10, Math.max(0, soundPropertiesDialog.draft.volume * 10))}
+                          onChange={(event) =>
+                            updateSoundPropertiesDraftField(
+                              "volume",
+                              Number(event.target.value) / 10
+                            )
+                          }
+                        />
+                        <span className="canvas-sound-properties-volume-scale">0 5 10</span>
+                      </div>
                     </label>
-                    <label className="canvas-sound-properties-mode">
-                      <input
-                        type="radio"
-                        name="sound-positioning-mode"
-                        checked={soundPropertiesDialog.draft.mode === "specific"}
-                        onChange={() => updateSoundPropertiesDraftField("mode", "specific")}
-                      />
-                      Plays from specific position
-                    </label>
-                  </fieldset>
+                  </div>
                 </section>
               ) : null}
 
               {soundPropertiesDialog.activeTab === "positioning" ? (
-                <section className="canvas-sound-properties-shell">
+                <section className="canvas-sound-properties-shell canvas-sound-properties-shell-positioning">
                   <fieldset className="canvas-sound-properties-group">
                     <legend>Mode</legend>
                     <label className="canvas-sound-properties-mode">
@@ -6747,85 +8876,369 @@ export function WorkspaceCanvasViewport({
                     </label>
                   </fieldset>
                   <fieldset className="canvas-sound-properties-group">
-                    <legend>Attenuation</legend>
-                    <label>
-                      Elevation
-                      <input
-                        type="number"
-                        value={soundPropertiesDialog.draft.elevation}
-                        step="0.1"
-                        disabled={soundGating.positioningDisabled}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("elevation", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Max Volume Distance
-                      <input
-                        type="number"
-                        value={soundPropertiesDialog.draft.maxVolumeDistance}
-                        step="0.1"
-                        disabled={soundGating.positioningDisabled}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("maxVolumeDistance", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Cutoff Distance
-                      <input
-                        type="number"
-                        value={soundPropertiesDialog.draft.cutoffDistance}
-                        step="0.1"
-                        disabled={soundGating.positioningDisabled}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("cutoffDistance", event.target.value)
-                        }
-                      />
-                    </label>
+                    <legend>Volume Distances</legend>
+                    <div className="canvas-sound-properties-positioning-aurora-row">
+                      <div className="canvas-sound-properties-volume-visual" aria-hidden="true">
+                        <span className="outer-ring" />
+                        <span className="inner-ring" />
+                        <span className="center-dot" />
+                        <span className="center-guide" />
+                        <span className="max-distance-arrow" />
+                        <span className="cutoff-distance-arrow" />
+                      </div>
+                      <div className="canvas-sound-properties-volume-inputs">
+                        <label>
+                          Cutoff distance (m)
+                          <input
+                            type="number"
+                            aria-label="Cutoff Distance"
+                            value={formatSoundFixed(soundPropertiesDialog.draft.cutoffDistance, 1)}
+                            step="0.1"
+                            disabled={soundGating.positioningDisabled}
+                            onChange={(event) =>
+                              updateSoundPropertiesDraftField("cutoffDistance", event.target.value)
+                            }
+                          />
+                        </label>
+                        <label>
+                          Max Volume Distance (m)
+                          <input
+                            type="number"
+                            aria-label="Max Volume Distance"
+                            value={formatSoundFixed(
+                              deriveMaxVolumeDistanceFromCutoff(
+                                soundPropertiesDialog.draft.cutoffDistance
+                              ),
+                              1
+                            )}
+                            step="0.1"
+                            disabled
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </fieldset>
-                  <fieldset className="canvas-sound-properties-group">
-                    <legend>Random Range</legend>
-                    <label>
-                      West-East
-                      <input
-                        type="number"
-                        value={soundPropertiesDialog.draft.randomRangeWestEast}
-                        step="0.1"
-                        disabled={!soundGating.randomRangeEnabled}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("randomRangeWestEast", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      North-South
-                      <input
-                        type="number"
-                        value={soundPropertiesDialog.draft.randomRangeNorthSouth}
-                        step="0.1"
-                        disabled={!soundGating.randomRangeEnabled}
-                        onChange={(event) =>
-                          updateSoundPropertiesDraftField("randomRangeNorthSouth", event.target.value)
-                        }
-                      />
-                    </label>
-                    <p className="canvas-sound-properties-note">
-                      Mode gating is Aurora-first: <strong>everywhere</strong> disables positioning,
-                      <strong> random</strong> enables random range, and <strong>specific</strong>
-                      keeps fixed anchor behavior.
-                    </p>
-                  </fieldset>
+                  <div className="canvas-sound-properties-positioning-grid">
+                    <fieldset className="canvas-sound-properties-group">
+                      <legend>Height (m)</legend>
+                      <div className="canvas-sound-properties-positioning-aurora-row canvas-sound-properties-positioning-aurora-row-height">
+                        <div className="canvas-sound-properties-height-visual" aria-hidden="true">
+                          <span className="height-circle" />
+                          <span className="height-inner-circle" />
+                          <span className="height-arrow" />
+                          <span className="height-plane" />
+                        </div>
+                        <div className="canvas-sound-properties-height-input">
+                          <label>
+                            Height (m)
+                            <input
+                              type="number"
+                              aria-label="Elevation"
+                              value={formatSoundFixed(soundPropertiesDialog.draft.elevation, 1)}
+                              step="0.1"
+                              disabled={soundGating.positioningDisabled}
+                              onChange={(event) =>
+                                updateSoundPropertiesDraftField("elevation", event.target.value)
+                              }
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </fieldset>
+                    <fieldset className="canvas-sound-properties-group">
+                      <legend>Random Range</legend>
+                      <div className="canvas-sound-properties-positioning-aurora-row canvas-sound-properties-positioning-aurora-row-random">
+                        <div className="canvas-sound-properties-random-visual" aria-hidden="true">
+                          {soundPropertiesDialog.draft.mode === "random" ? (
+                            <span className="random-dice">{"\u2684"}</span>
+                          ) : null}
+                          <span className="ns-arrow" />
+                          <span className="we-arrow" />
+                          <span className="ns-label">N-S</span>
+                          <span className="we-label">W-E</span>
+                        </div>
+                        <div className="canvas-sound-properties-random-inputs">
+                          <label>
+                            North-South Random Range (m)
+                            <input
+                              type="number"
+                              aria-label="North-South"
+                              value={formatSoundFixed(soundRandomRangeDisplay.northSouth, 1)}
+                              step="0.1"
+                              disabled={!soundGating.randomRangeEnabled}
+                              onChange={(event) =>
+                                updateSoundPropertiesDraftField(
+                                  "randomRangeNorthSouth",
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            West-East Random Range (m)
+                            <input
+                              type="number"
+                              aria-label="West-East"
+                              value={formatSoundFixed(soundRandomRangeDisplay.westEast, 1)}
+                              step="0.1"
+                              disabled={!soundGating.randomRangeEnabled}
+                              onChange={(event) =>
+                                updateSoundPropertiesDraftField(
+                                  "randomRangeWestEast",
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </fieldset>
+                  </div>
+                  <p className="canvas-sound-properties-note">
+                    Aurora-first gating: <strong>everywhere</strong> disables positioning,{" "}
+                    <strong>random</strong> enables random range, and <strong>specific</strong> keeps
+                    fixed anchor behavior.
+                  </p>
                 </section>
               ) : null}
 
               {soundPropertiesDialog.activeTab === "advanced" ? (
-                <section className="canvas-sound-properties-tab-placeholder">
-                  <p>
-                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
-                    <strong> Post-MVP</strong>.
-                  </p>
+                <section className="canvas-sound-properties-shell canvas-sound-properties-advanced-shell">
+                  <div className="canvas-sound-properties-advanced-resref-row">
+                    <label className="canvas-sound-properties-inline-input">
+                      <span>Blueprint ResRef</span>
+                      <input type="text" value={soundPropertiesDialog.draft.resRef} readOnly />
+                    </label>
+                    <button type="button" className="canvas-sound-properties-inline-button">
+                      Variables
+                    </button>
+                  </div>
+
+                  <label className="canvas-sound-properties-mode canvas-sound-properties-active-toggle">
+                    <input
+                      type="checkbox"
+                      checked={soundPropertiesDialog.draft.active}
+                      onChange={() => toggleSoundPropertiesActive()}
+                    />
+                    Active
+                  </label>
+
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>When to play</legend>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-advanced-when-to-play"
+                        checked={
+                          soundAdvancedWhenToPlay === "dayNight" &&
+                          soundPropertiesDialog.draft.dayNight === "day"
+                        }
+                        onChange={() => setSoundWhenToPlay("dayNight", "day")}
+                      />
+                      Play during the day
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-advanced-when-to-play"
+                        checked={
+                          soundAdvancedWhenToPlay === "dayNight" &&
+                          soundPropertiesDialog.draft.dayNight === "night"
+                        }
+                        onChange={() => setSoundWhenToPlay("dayNight", "night")}
+                      />
+                      Play at night
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-advanced-when-to-play"
+                        checked={soundAdvancedWhenToPlay === "always"}
+                        onChange={() => setSoundWhenToPlay("always", "both")}
+                      />
+                      Play at all times
+                    </label>
+                    <label className="canvas-sound-properties-mode">
+                      <input
+                        type="radio"
+                        name="sound-advanced-when-to-play"
+                        checked={soundAdvancedWhenToPlay === "hours"}
+                        onChange={() => setSoundWhenToPlay("hours")}
+                      />
+                      Specific Hours
+                    </label>
+                    <div
+                      className={`canvas-sound-properties-hour-grid ${
+                        isSoundSpecificHoursEnabled ? "" : "is-disabled"
+                      }`}
+                    >
+                      <span className="canvas-sound-properties-hour-grid-label" />
+                      {SOUND_HOUR_LABELS.map((label) => (
+                        <span key={`hour_head_${label}`} className="canvas-sound-properties-hour-grid-label">
+                          {label}
+                        </span>
+                      ))}
+                      <span className="canvas-sound-properties-hour-grid-label">AM</span>
+                      {SOUND_HOUR_LABELS.map((_, hourIndex) => (
+                        <input
+                          key={`hour_am_${hourIndex}`}
+                          type="checkbox"
+                          checked={soundHourMaskFlags[hourIndex]}
+                          disabled={!isSoundSpecificHoursEnabled}
+                          onChange={() => toggleSoundHour(hourIndex)}
+                        />
+                      ))}
+                      <span className="canvas-sound-properties-hour-grid-label">PM</span>
+                      {SOUND_HOUR_LABELS.map((_, hourIndex) => (
+                        <input
+                          key={`hour_pm_${hourIndex}`}
+                          type="checkbox"
+                          checked={soundHourMaskFlags[hourIndex + 12]}
+                          disabled={!isSoundSpecificHoursEnabled}
+                          onChange={() => toggleSoundHour(hourIndex + 12)}
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <div className="canvas-sound-properties-advanced-grid">
+                    <fieldset className="canvas-sound-properties-group">
+                      <legend>Play Style</legend>
+                      <label className="canvas-sound-properties-mode">
+                        <input
+                          type="radio"
+                          name="sound-advanced-play-style"
+                          checked={soundPropertiesDialog.draft.playStyle === "once"}
+                          onChange={() => patchSoundPropertiesDraft({ playStyle: "once" })}
+                        />
+                        Once
+                      </label>
+                      <label className="canvas-sound-properties-mode">
+                        <input
+                          type="radio"
+                          name="sound-advanced-play-style"
+                          checked={soundPropertiesDialog.draft.playStyle === "repeat"}
+                          onChange={() => patchSoundPropertiesDraft({ playStyle: "repeat" })}
+                        />
+                        Repeating
+                      </label>
+                      <label className="canvas-sound-properties-mode">
+                        <input
+                          type="radio"
+                          name="sound-advanced-play-style"
+                          checked={soundPropertiesDialog.draft.playStyle === "loop"}
+                          onChange={() => patchSoundPropertiesDraft({ playStyle: "loop" })}
+                        />
+                        Seamlessly looping
+                      </label>
+                    </fieldset>
+
+                    <fieldset className="canvas-sound-properties-group">
+                      <legend>Play Order</legend>
+                      <label className="canvas-sound-properties-mode">
+                        <input
+                          type="radio"
+                          name="sound-advanced-play-order"
+                          checked={soundPropertiesDialog.draft.playOrder === "sequential"}
+                          onChange={() => patchSoundPropertiesDraft({ playOrder: "sequential" })}
+                        />
+                        Sequential
+                      </label>
+                      <label className="canvas-sound-properties-mode">
+                        <input
+                          type="radio"
+                          name="sound-advanced-play-order"
+                          checked={soundPropertiesDialog.draft.playOrder === "random"}
+                          onChange={() => patchSoundPropertiesDraft({ playOrder: "random" })}
+                        />
+                        Random
+                      </label>
+                    </fieldset>
+                  </div>
+
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Interval</legend>
+                    <label>
+                      Interval between playing sounds (seconds)
+                      <input
+                        type="number"
+                        value={formatSoundSeconds(soundPropertiesDialog.draft.intervalMs)}
+                        step="0.01"
+                        min={0}
+                        onChange={(event) => {
+                          const seconds = parseSoundNumericInput(event.target.value);
+                          if (seconds === null || seconds < 0) {
+                            return;
+                          }
+                          updateSoundPropertiesDraftField("intervalMs", seconds * 1000);
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Interval Variation (seconds)
+                      <input
+                        type="number"
+                        value={formatSoundSeconds(soundPropertiesDialog.draft.intervalVariationMs)}
+                        step="0.01"
+                        min={0}
+                        onChange={(event) => {
+                          const seconds = parseSoundNumericInput(event.target.value);
+                          if (seconds === null || seconds < 0) {
+                            return;
+                          }
+                          updateSoundPropertiesDraftField("intervalVariationMs", seconds * 1000);
+                        }}
+                      />
+                    </label>
+                  </fieldset>
+
+                  <fieldset className="canvas-sound-properties-group">
+                    <legend>Variation</legend>
+                    <label className="canvas-sound-properties-volume-slider">
+                      <span>Volume Variation</span>
+                      <div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={10}
+                          step={0.1}
+                          value={Math.min(10, Math.max(0, soundPropertiesDialog.draft.volumeVariation * 10))}
+                          onChange={(event) =>
+                            updateSoundPropertiesDraftField(
+                              "volumeVariation",
+                              Number(event.target.value) / 10
+                            )
+                          }
+                        />
+                        <span className="canvas-sound-properties-volume-scale">0 5 10</span>
+                      </div>
+                    </label>
+                    <label className="canvas-sound-properties-pitch-variation">
+                      <span>Pitch Variation (octaves)</span>
+                      <div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          max={1}
+                          value={formatSoundFixed(soundPropertiesDialog.draft.pitchVariation, 2)}
+                          onChange={(event) =>
+                            updateSoundPropertiesDraftField("pitchVariation", event.target.value)
+                          }
+                        />
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={soundPropertiesDialog.draft.pitchVariation}
+                          onChange={(event) =>
+                            updateSoundPropertiesDraftField("pitchVariation", event.target.value)
+                          }
+                        />
+                      </div>
+                    </label>
+                  </fieldset>
                 </section>
               ) : null}
 
@@ -7140,5 +9553,8 @@ export function WorkspaceCanvasViewport({
     </section>
   );
 }
+
+
+
 
 

@@ -16,8 +16,8 @@ describe("soundGuideDomain normalizeSoundGuidePositioning", () => {
     expect(normalizeSoundGuidePositioning(undefined)).toEqual({
       mode: "specific",
       elevation: 0,
-      maxVolumeDistance: 8,
-      cutoffDistance: 16,
+      maxVolumeDistance: 1,
+      cutoffDistance: 10,
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
     });
@@ -93,6 +93,22 @@ describe("soundGuideDomain normalizeSoundGuidePositioning", () => {
       randomRangeWestEast: 3,
       randomRangeNorthSouth: 4
     });
+  });
+
+  it("is stable across normalize -> serialize -> normalize roundtrip", () => {
+    const normalized = normalizeSoundGuidePositioning({
+      mode: "random",
+      elevation: 1.5,
+      maxVolumeDistance: 9,
+      cutoffDistance: 12,
+      randomRangeWestEast: 2,
+      randomRangeNorthSouth: 3
+    });
+
+    const roundtripped = normalizeSoundGuidePositioning(
+      JSON.parse(JSON.stringify(normalized)) as Record<string, unknown>
+    );
+    expect(roundtripped).toEqual(normalized);
   });
 });
 

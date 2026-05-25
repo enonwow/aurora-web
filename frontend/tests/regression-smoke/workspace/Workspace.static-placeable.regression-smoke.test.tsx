@@ -63,14 +63,14 @@ async function saveDraftAndReadPlaceable() {
   return placeable!;
 }
 
-describe("Regression smoke: static placeable move policy (AFEB-04)", () => {
+describe("Regression smoke: placeable world-move parity", () => {
   beforeEach(() => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
   });
 
-  it("blocks keyboard arrow movement for static placeable", async () => {
+  it("allows keyboard arrow movement for static placeable", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -85,11 +85,11 @@ describe("Regression smoke: static placeable move policy (AFEB-04)", () => {
     fireEvent.keyDown(window, { key: "ArrowUp" });
     const after = await saveDraftAndReadPlaceable();
 
-    expect(after.x).toBeCloseTo(before.x, 6);
-    expect(after.y).toBeCloseTo(before.y, 6);
+    const deltaMagnitude = Math.abs(after.x - before.x) + Math.abs(after.y - before.y);
+    expect(deltaMagnitude).toBeGreaterThan(1e-6);
   });
 
-  it("blocks movement in World Move mode for static placeable", async () => {
+  it("allows movement in World Move mode for static placeable", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -106,11 +106,11 @@ describe("Regression smoke: static placeable move policy (AFEB-04)", () => {
     fireEvent.keyDown(window, { key: "ArrowDown" });
     const after = await saveDraftAndReadPlaceable();
 
-    expect(after.x).toBeCloseTo(before.x, 6);
-    expect(after.y).toBeCloseTo(before.y, 6);
+    const deltaMagnitude = Math.abs(after.x - before.x) + Math.abs(after.y - before.y);
+    expect(deltaMagnitude).toBeGreaterThan(1e-6);
   });
 
-  it("blocks movement after selecting static placeable through context-menu flow", async () => {
+  it("keeps movement enabled after selecting static placeable through context-menu flow", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -130,8 +130,8 @@ describe("Regression smoke: static placeable move policy (AFEB-04)", () => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
     fireEvent.keyDown(window, { key: "ArrowUp" });
     const after = await saveDraftAndReadPlaceable();
-    expect(after.x).toBeCloseTo(before.x, 6);
-    expect(after.y).toBeCloseTo(before.y, 6);
+    const deltaMagnitude = Math.abs(after.x - before.x) + Math.abs(after.y - before.y);
+    expect(deltaMagnitude).toBeGreaterThan(1e-6);
   });
 
   it("allows movement again after disabling static on placeable", async () => {

@@ -90,8 +90,8 @@ describe("sceneFactory sound positioning normalization parity", () => {
     const belowFloor = normalizeSoundObject({
       mode: "specific",
       elevation: -3,
-      maxVolumeDistance: 8,
-      cutoffDistance: 16,
+      maxVolumeDistance: 1,
+      cutoffDistance: 10,
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
     });
@@ -101,8 +101,8 @@ describe("sceneFactory sound positioning normalization parity", () => {
       {
         mode: "specific",
         elevation: Number.NaN,
-        maxVolumeDistance: 8,
-        cutoffDistance: 16,
+        maxVolumeDistance: 1,
+        cutoffDistance: 10,
         randomRangeWestEast: 0,
         randomRangeNorthSouth: 0
       },
@@ -151,8 +151,8 @@ describe("sceneFactory sound positioning normalization parity", () => {
           randomRangeNorthSouth: 5
         },
         expected: {
-          maxVolumeDistance: 8,
-          cutoffDistance: 16
+          maxVolumeDistance: 1,
+          cutoffDistance: 10
         }
       }
     ] as const;
@@ -219,6 +219,13 @@ describe("sceneFactory sound positioning normalization parity", () => {
     expect(normalized?.preserve).toEqual({
       timeWindow: "night",
       hourMask: "",
+      active: true,
+      whenToPlay: "always",
+      dayNight: "both",
+      hoursStart: 0,
+      hoursEnd: 23,
+      playStyle: "repeat",
+      playOrder: "sequential",
       intervalMs: 1500,
       intervalVariationMs: 0,
       volume: 0.4,
@@ -251,6 +258,13 @@ describe("sceneFactory sound positioning normalization parity", () => {
         preserve: {
           timeWindow: "dusk",
           hourMask: "11110000",
+          active: false,
+          whenToPlay: "hours",
+          dayNight: "night",
+          hoursStart: 20,
+          hoursEnd: 3,
+          playStyle: "loop",
+          playOrder: "random",
           intervalMs: 1200,
           intervalVariationMs: 200,
           volume: 0.6,
@@ -269,5 +283,44 @@ describe("sceneFactory sound positioning normalization parity", () => {
 
     const second = normalizeSceneObjectMetadata(first);
     expect(second).toBe(first);
+  });
+
+  it("keeps sound positioning payload stable across JSON serialization roundtrip", () => {
+    const normalized = normalizeSceneObjectMetadata({
+      ...createNewSceneObject("sounds", 0.8, 1.1, 990),
+      soundPositioning: {
+        mode: "random",
+        elevation: 1.25,
+        maxVolumeDistance: 9.5,
+        cutoffDistance: 12.75,
+        randomRangeWestEast: 4.25,
+        randomRangeNorthSouth: 5.5,
+        preserve: {
+          timeWindow: "night",
+          hourMask: "10100000",
+          intervalMs: 900,
+          intervalVariationMs: 100,
+          volume: 0.5,
+          volumeVariation: 0.15,
+          pitchVariation: 0.05,
+          priority: 3,
+          flags: {
+            looping: false,
+            positional: true
+          },
+          extra: {
+            cue: "forest",
+            seed: 42,
+            enabled: true
+          }
+        }
+      }
+    });
+
+    const roundtripped = normalizeSceneObjectMetadata(
+      JSON.parse(JSON.stringify(normalized)) as ReturnType<typeof createNewSceneObject>
+    );
+
+    expect(roundtripped.soundPositioning).toEqual(normalized.soundPositioning);
   });
 });

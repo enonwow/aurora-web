@@ -71,8 +71,8 @@ describe("sceneCanvasFacade", () => {
     expect(sound?.soundPositioning).toEqual({
       mode: "specific",
       elevation: 0,
-      maxVolumeDistance: 8,
-      cutoffDistance: 16,
+      maxVolumeDistance: 1,
+      cutoffDistance: 10,
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
     });
@@ -116,8 +116,8 @@ describe("sceneCanvasFacade", () => {
     expect(sound?.soundPositioning).toEqual({
       mode: "specific",
       elevation: 0,
-      maxVolumeDistance: 8,
-      cutoffDistance: 16,
+      maxVolumeDistance: 1,
+      cutoffDistance: 10,
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
     });
@@ -187,6 +187,190 @@ describe("sceneCanvasFacade", () => {
       cutoffDistance: 22,
       randomRangeWestEast: 2,
       randomRangeNorthSouth: 3
+    });
+  });
+
+  it("normalizes corrupted sound payload on save and preserves deterministic baseline", () => {
+    const serializedByUserId = new Map<string, string>();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: (userId) => {
+        const serialized = serializedByUserId.get(userId);
+        if (!serialized) {
+          return null;
+        }
+        return JSON.parse(serialized) as AreaScene;
+      },
+      saveByUserId: (userId, scene) => {
+        serializedByUserId.set(userId, JSON.stringify(scene));
+      }
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const source = createSeedAreaScene();
+    const corruptedScene: AreaScene = {
+      ...source,
+      source: "local_draft",
+      objects: source.objects.map((object) =>
+        object.id === "snd_amb_01"
+          ? {
+              ...object,
+              soundPositioning: {
+                mode: "random",
+                elevation: Number.NEGATIVE_INFINITY,
+                maxVolumeDistance: -5,
+                cutoffDistance: -10,
+                randomRangeWestEast: -4,
+                randomRangeNorthSouth: Number.NaN,
+                preserve: {
+                  timeWindow: 77,
+                  hourMask: true,
+                  intervalMs: "bad",
+                  intervalVariationMs: 90,
+                  volume: 0.2,
+                  volumeVariation: "bad",
+                  pitchVariation: Number.NaN,
+                  priority: 4,
+                  flags: {
+                    looping: true,
+                    positional: "bad"
+                  },
+                  extra: {
+                    cue: "forest",
+                    nested: { invalid: true },
+                    seed: 9
+                  }
+                } as unknown as NonNullable<typeof object.soundPositioning>["preserve"]
+              } as unknown as NonNullable<typeof object.soundPositioning>
+            }
+          : object
+      )
+    };
+
+    facade.saveLocalDraft("u_builder_001", corruptedScene);
+    const history = facade.createInitialHistory("u_builder_001");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(sound?.soundPositioning).toEqual({
+      mode: "random",
+      elevation: 0,
+      maxVolumeDistance: 0,
+      cutoffDistance: 0,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0,
+      preserve: {
+        timeWindow: "",
+        hourMask: "",
+        active: true,
+        whenToPlay: "always",
+        dayNight: "both",
+        hoursStart: 0,
+        hoursEnd: 23,
+        playStyle: "repeat",
+        playOrder: "sequential",
+        intervalMs: 6000,
+        intervalVariationMs: 90,
+        volume: 0.2,
+        volumeVariation: 0,
+        pitchVariation: 0,
+        priority: 4,
+        flags: {
+          looping: true
+        },
+        extra: {
+          cue: "forest",
+          seed: 9
+        }
+      }
+    });
+  });
+
+  it("roundtrips valid sound preserve payload through draft save/load", () => {
+    const serializedByUserId = new Map<string, string>();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: (userId) => {
+        const serialized = serializedByUserId.get(userId);
+        if (!serialized) {
+          return null;
+        }
+        return JSON.parse(serialized) as AreaScene;
+      },
+      saveByUserId: (userId, scene) => {
+        serializedByUserId.set(userId, JSON.stringify(scene));
+      }
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const source = createSeedAreaScene();
+    const withPreserve: AreaScene = {
+      ...source,
+      source: "local_draft",
+      objects: source.objects.map((object) =>
+        object.id === "snd_amb_01"
+          ? {
+              ...object,
+              soundPositioning: {
+                mode: "specific",
+                elevation: 2.1,
+                maxVolumeDistance: 12.2,
+                cutoffDistance: 16.4,
+                randomRangeWestEast: 9,
+                randomRangeNorthSouth: 9,
+                preserve: {
+                  timeWindow: "dawn",
+                  hourMask: "11110000",
+                  intervalMs: 1200,
+                  intervalVariationMs: 200,
+                  volume: 0.6,
+                  volumeVariation: 0.1,
+                  pitchVariation: 0.2,
+                  priority: 5,
+                  flags: {
+                    audibleThroughWalls: false
+                  },
+                  extra: {
+                    profile: "amb_forest",
+                    seed: 1
+                  }
+                }
+              }
+            }
+          : object
+      )
+    };
+
+    facade.saveLocalDraft("u_builder_001", withPreserve);
+    const history = facade.createInitialHistory("u_builder_001");
+    const sound = history.present.objects.find((object) => object.id === "snd_amb_01");
+
+    expect(sound?.soundPositioning).toEqual({
+      mode: "specific",
+      elevation: 2.1,
+      maxVolumeDistance: 12.2,
+      cutoffDistance: 16.4,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0,
+      preserve: {
+        timeWindow: "dawn",
+        hourMask: "11110000",
+        active: true,
+        whenToPlay: "always",
+        dayNight: "both",
+        hoursStart: 0,
+        hoursEnd: 23,
+        playStyle: "repeat",
+        playOrder: "sequential",
+        intervalMs: 1200,
+        intervalVariationMs: 200,
+        volume: 0.6,
+        volumeVariation: 0.1,
+        pitchVariation: 0.2,
+        priority: 5,
+        flags: {
+          audibleThroughWalls: false
+        },
+        extra: {
+          profile: "amb_forest",
+          seed: 1
+        }
+      }
     });
   });
 

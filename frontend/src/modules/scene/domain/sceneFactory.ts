@@ -14,6 +14,10 @@ import type {
   TerrainBrushKind
 } from "../contracts";
 import { createWalkmeshDomainModel } from "./walkmesh";
+import {
+  normalizeSoundPositioning,
+  normalizeSoundPositioningPreservePayload
+} from "./sound";
 
 const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "corridor",
@@ -58,30 +62,6 @@ const DEFAULT_PLACEABLE_DISABLED_FLAGS: SceneObjectPlaceableDisabledFlags = {
   hasInventory: true
 };
 
-const DEFAULT_SOUND_POSITIONING_BASELINE: Omit<
-  SceneObjectSoundPositioning,
-  "elevation"
-> = {
-  mode: "specific",
-  maxVolumeDistance: 8,
-  cutoffDistance: 16,
-  randomRangeWestEast: 0,
-  randomRangeNorthSouth: 0
-};
-
-const DEFAULT_SOUND_POSITIONING_PRESERVE: SceneObjectSoundPositioningPreservePayload = {
-  timeWindow: "",
-  hourMask: "",
-  intervalMs: 0,
-  intervalVariationMs: 0,
-  volume: 0,
-  volumeVariation: 0,
-  pitchVariation: 0,
-  priority: 0,
-  flags: {},
-  extra: {}
-};
-
 const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
   profile: "",
   emitter: "",
@@ -89,12 +69,6 @@ const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
   flags: {},
   extra: {}
 };
-
-const SOUND_POSITIONING_MODES = new Set<SceneObjectSoundPositioning["mode"]>([
-  "everywhere",
-  "random",
-  "specific"
-]);
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
@@ -166,35 +140,6 @@ function normalizePreservePrimitiveMap(
   return normalized;
 }
 
-function normalizeSoundPositioningPreservePayload(
-  value: unknown
-): SceneObjectSoundPositioningPreservePayload | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  return {
-    timeWindow: asString(value.timeWindow, DEFAULT_SOUND_POSITIONING_PRESERVE.timeWindow),
-    hourMask: asString(value.hourMask, DEFAULT_SOUND_POSITIONING_PRESERVE.hourMask),
-    intervalMs: asFiniteNumber(value.intervalMs, DEFAULT_SOUND_POSITIONING_PRESERVE.intervalMs),
-    intervalVariationMs: asFiniteNumber(
-      value.intervalVariationMs,
-      DEFAULT_SOUND_POSITIONING_PRESERVE.intervalVariationMs
-    ),
-    volume: asFiniteNumber(value.volume, DEFAULT_SOUND_POSITIONING_PRESERVE.volume),
-    volumeVariation: asFiniteNumber(
-      value.volumeVariation,
-      DEFAULT_SOUND_POSITIONING_PRESERVE.volumeVariation
-    ),
-    pitchVariation: asFiniteNumber(
-      value.pitchVariation,
-      DEFAULT_SOUND_POSITIONING_PRESERVE.pitchVariation
-    ),
-    priority: asFiniteNumber(value.priority, DEFAULT_SOUND_POSITIONING_PRESERVE.priority),
-    flags: normalizePreserveBooleanMap(value.flags),
-    extra: normalizePreservePrimitiveMap(value.extra)
-  };
-}
-
 function normalizeVfxPayload(value: unknown): SceneObjectVfxPreservePayload | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -239,6 +184,13 @@ function areSoundPositioningPreservePayloadEqual(
   return (
     left.timeWindow === right.timeWindow &&
     left.hourMask === right.hourMask &&
+    left.active === right.active &&
+    left.whenToPlay === right.whenToPlay &&
+    left.dayNight === right.dayNight &&
+    left.hoursStart === right.hoursStart &&
+    left.hoursEnd === right.hoursEnd &&
+    left.playStyle === right.playStyle &&
+    left.playOrder === right.playOrder &&
     left.intervalMs === right.intervalMs &&
     left.intervalVariationMs === right.intervalVariationMs &&
     left.volume === right.volume &&
@@ -276,11 +228,6 @@ function areDoorTransitionFlagsEqual(
     return false;
   }
   return leftEntries.every(([key, value]) => right[key] === value);
-}
-
-function isSoundPositioningMode(value: unknown): value is SceneObjectSoundPositioning["mode"] {
-  return typeof value === "string" &&
-    SOUND_POSITIONING_MODES.has(value as SceneObjectSoundPositioning["mode"]);
 }
 
 function terrainByIndex(index: number): TerrainBrushKind {
@@ -501,64 +448,16 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       (normalizedObject.soundPositioning as
         | Partial<Record<keyof SceneObjectSoundPositioning, unknown>>
         | undefined) ?? undefined;
-    const nextMode: SceneObjectSoundPositioning["mode"] = isSoundPositioningMode(
-      rawSoundPositioning?.mode
-    )
-      ? rawSoundPositioning.mode
-      : DEFAULT_SOUND_POSITIONING_BASELINE.mode;
     const fallbackElevation = clampMin(asFiniteNumber(normalizedObject.z, 0), 0);
-    const nextMaxVolumeDistance = clampMin(
-      asFiniteNumber(
-        rawSoundPositioning?.maxVolumeDistance,
-        DEFAULT_SOUND_POSITIONING_BASELINE.maxVolumeDistance
-      ),
-      0
-    );
-    const nextCutoffDistanceBase = clampMin(
-      asFiniteNumber(
-        rawSoundPositioning?.cutoffDistance,
-        DEFAULT_SOUND_POSITIONING_BASELINE.cutoffDistance
-      ),
-      0
-    );
-    const nextCutoffDistance = Math.max(nextCutoffDistanceBase, nextMaxVolumeDistance);
-    const nextRandomRangeWestEast =
-      nextMode === "random"
-        ? clampMin(
-            asFiniteNumber(
-              rawSoundPositioning?.randomRangeWestEast,
-              DEFAULT_SOUND_POSITIONING_BASELINE.randomRangeWestEast
-            ),
-            0
-          )
-        : 0;
-    const nextRandomRangeNorthSouth =
-      nextMode === "random"
-        ? clampMin(
-            asFiniteNumber(
-              rawSoundPositioning?.randomRangeNorthSouth,
-              DEFAULT_SOUND_POSITIONING_BASELINE.randomRangeNorthSouth
-            ),
-            0
-          )
-        : 0;
+    const normalizedSoundPositioning = normalizeSoundPositioning(rawSoundPositioning, fallbackElevation);
     const shouldNormalizePreservePayload =
       isRecord(rawSoundPositioning?.preserve) ||
       normalizedObject.soundPositioning?.preserve !== undefined;
     const nextPreservePayload: SceneObjectSoundPositioningPreservePayload | undefined =
       shouldNormalizePreservePayload
-        ? normalizeSoundPositioningPreservePayload(rawSoundPositioning?.preserve) ?? {
-            ...DEFAULT_SOUND_POSITIONING_PRESERVE
-          }
+        ? normalizeSoundPositioningPreservePayload(rawSoundPositioning?.preserve)
         : undefined;
-    const nextSoundPositioning: SceneObjectSoundPositioning = {
-      mode: nextMode,
-      elevation: clampMin(asFiniteNumber(rawSoundPositioning?.elevation, fallbackElevation), 0),
-      maxVolumeDistance: nextMaxVolumeDistance,
-      cutoffDistance: nextCutoffDistance,
-      randomRangeWestEast: nextRandomRangeWestEast,
-      randomRangeNorthSouth: nextRandomRangeNorthSouth
-    };
+    const nextSoundPositioning: SceneObjectSoundPositioning = { ...normalizedSoundPositioning };
     if (nextPreservePayload !== undefined) {
       nextSoundPositioning.preserve = nextPreservePayload;
     }

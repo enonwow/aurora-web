@@ -6,6 +6,9 @@ export interface WorkspaceOptionSettings {
   snapHeightStep: number;
   selectionBoxMode: SelectionBoxMode;
   showPerObjectGizmoHints: boolean;
+  showTileGridOverlay: boolean;
+  enableRuntimeSoundPreview: boolean;
+  showRuntimeSoundNowPlaying: boolean;
   cameraRotateSpeed: number;
   cameraZoomSpeed: number;
   cameraPanSpeed: number;
@@ -21,6 +24,9 @@ export const DEFAULT_WORKSPACE_OPTION_SETTINGS: WorkspaceOptionSettings = {
   snapHeightStep: 0.5,
   selectionBoxMode: "replace",
   showPerObjectGizmoHints: true,
+  showTileGridOverlay: false,
+  enableRuntimeSoundPreview: false,
+  showRuntimeSoundNowPlaying: true,
   cameraRotateSpeed: 1,
   cameraZoomSpeed: 1,
   cameraPanSpeed: 1,
@@ -79,6 +85,18 @@ function sanitizeSettings(value: Partial<WorkspaceOptionSettings>): WorkspaceOpt
     showPerObjectGizmoHints: coerceBoolean(
       value.showPerObjectGizmoHints,
       DEFAULT_WORKSPACE_OPTION_SETTINGS.showPerObjectGizmoHints
+    ),
+    showTileGridOverlay: coerceBoolean(
+      value.showTileGridOverlay,
+      DEFAULT_WORKSPACE_OPTION_SETTINGS.showTileGridOverlay
+    ),
+    enableRuntimeSoundPreview: coerceBoolean(
+      value.enableRuntimeSoundPreview,
+      DEFAULT_WORKSPACE_OPTION_SETTINGS.enableRuntimeSoundPreview
+    ),
+    showRuntimeSoundNowPlaying: coerceBoolean(
+      value.showRuntimeSoundNowPlaying,
+      DEFAULT_WORKSPACE_OPTION_SETTINGS.showRuntimeSoundNowPlaying
     ),
     cameraRotateSpeed: clampNumber(
       coerceNumber(value.cameraRotateSpeed, DEFAULT_WORKSPACE_OPTION_SETTINGS.cameraRotateSpeed),

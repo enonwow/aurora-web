@@ -321,7 +321,7 @@ describe("sceneMutationsFacade", () => {
     expect(changed?.bearing).toBeCloseTo((movable?.bearing ?? 0) + 0.3);
   });
 
-  it("blocks generic transform flows for static placeables", () => {
+  it("applies generic transform flows for static placeables", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const staticPlaceable = scene.objects.find((object) => object.kind === "placeables");
@@ -334,12 +334,20 @@ describe("sceneMutationsFacade", () => {
     const raised = facade.adjustObjectsHeightByIds(scene, [staticPlaceable!.id], 0.4);
     const rotated = facade.rotateObjectsBearingByIds(scene, [staticPlaceable!.id], 0.2);
 
-    expect(translated).toBe(scene);
-    expect(raised).toBe(scene);
-    expect(rotated).toBe(scene);
+    const translatedPlaceable = translated.objects.find((object) => object.id === staticPlaceable!.id);
+    const raisedPlaceable = raised.objects.find((object) => object.id === staticPlaceable!.id);
+    const rotatedPlaceable = rotated.objects.find((object) => object.id === staticPlaceable!.id);
+
+    expect(translated).not.toBe(scene);
+    expect(raised).not.toBe(scene);
+    expect(rotated).not.toBe(scene);
+    expect(translatedPlaceable?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.2);
+    expect(translatedPlaceable?.y).toBeCloseTo((staticPlaceable?.y ?? 0) - 0.1);
+    expect(raisedPlaceable?.z).toBeCloseTo((staticPlaceable?.z ?? 0) + 0.4);
+    expect(rotatedPlaceable?.bearing).toBeCloseTo((staticPlaceable?.bearing ?? 0) + 0.2);
   });
 
-  it("blocks generic transform flows when selection mixes static placeable with movable object", () => {
+  it("applies generic transform flows when selection mixes static placeable with movable object", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const staticPlaceable = scene.objects.find((object) => object.kind === "placeables");
@@ -364,9 +372,24 @@ describe("sceneMutationsFacade", () => {
       0.2
     );
 
-    expect(translated).toBe(scene);
-    expect(raised).toBe(scene);
-    expect(rotated).toBe(scene);
+    const translatedPlaceable = translated.objects.find((object) => object.id === staticPlaceable!.id);
+    const translatedCreature = translated.objects.find((object) => object.id === creature!.id);
+    const raisedPlaceable = raised.objects.find((object) => object.id === staticPlaceable!.id);
+    const raisedCreature = raised.objects.find((object) => object.id === creature!.id);
+    const rotatedPlaceable = rotated.objects.find((object) => object.id === staticPlaceable!.id);
+    const rotatedCreature = rotated.objects.find((object) => object.id === creature!.id);
+
+    expect(translated).not.toBe(scene);
+    expect(raised).not.toBe(scene);
+    expect(rotated).not.toBe(scene);
+    expect(translatedPlaceable?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.2);
+    expect(translatedPlaceable?.y).toBeCloseTo((staticPlaceable?.y ?? 0) - 0.1);
+    expect(translatedCreature?.x).toBeCloseTo((creature?.x ?? 0) + 0.2);
+    expect(translatedCreature?.y).toBeCloseTo((creature?.y ?? 0) - 0.1);
+    expect(raisedPlaceable?.z).toBeCloseTo((staticPlaceable?.z ?? 0) + 0.4);
+    expect(raisedCreature?.z).toBeCloseTo((creature?.z ?? 0) + 0.4);
+    expect(rotatedPlaceable?.bearing).toBeCloseTo((staticPlaceable?.bearing ?? 0) + 0.2);
+    expect(rotatedCreature?.bearing).toBeCloseTo((creature?.bearing ?? 0) + 0.2);
   });
 
   it("rotates non-static placeable bearing around Y axis", () => {
@@ -709,6 +732,45 @@ describe("sceneMutationsFacade", () => {
     expect(changed!.bearing).toBeCloseTo((Math.PI * 2) - 0.5, 6);
   });
 
+  it("applies absolute-location deltas for sound selection and preserves sound positioning payload", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const sound = scene.objects.find((object) => object.id === "snd_amb_01");
+    const creature = scene.objects.find((object) => object.id === "crt_devo_01");
+    expect(sound).toBeDefined();
+    expect(creature).toBeDefined();
+    const targetX = 1.1;
+    const targetY = 0.8;
+    const targetZ = 0.6;
+    const targetBearing = 1.4;
+
+    const nextScene = facade.setObjectsAbsoluteLocationByIds(
+      scene,
+      [sound!.id, creature!.id],
+      { x: targetX, y: targetY, z: targetZ, bearing: targetBearing }
+    );
+    const nextSound = nextScene.objects.find((object) => object.id === sound!.id);
+    const nextCreature = nextScene.objects.find((object) => object.id === creature!.id);
+    expect(nextSound).toBeDefined();
+    expect(nextCreature).toBeDefined();
+
+    const deltaX = targetX - sound!.x;
+    const deltaBearing = targetBearing - sound!.bearing;
+    expect(nextSound?.x).toBeCloseTo(targetX, 6);
+    expect(nextSound?.y).toBeGreaterThanOrEqual(0);
+    expect(nextSound?.z).toBeGreaterThanOrEqual(0);
+    expect(nextSound?.bearing).toBeCloseTo(targetBearing, 6);
+    expect(nextCreature?.x).toBeCloseTo(creature!.x + deltaX, 6);
+    const appliedDeltaYForSound = (nextSound?.y ?? 0) - sound!.y;
+    const appliedDeltaYForCreature = (nextCreature?.y ?? 0) - creature!.y;
+    const appliedDeltaZForSound = (nextSound?.z ?? 0) - sound!.z;
+    const appliedDeltaZForCreature = (nextCreature?.z ?? 0) - creature!.z;
+    expect(appliedDeltaYForSound).toBeCloseTo(appliedDeltaYForCreature, 6);
+    expect(appliedDeltaZForSound).toBeCloseTo(appliedDeltaZForCreature, 6);
+    expect(nextCreature?.bearing).toBeCloseTo(creature!.bearing + deltaBearing, 6);
+    expect(nextSound?.soundPositioning).toEqual(sound?.soundPositioning);
+  });
+
   it("sets visual transform values and clamps scale/height floor", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
@@ -854,5 +916,27 @@ describe("sceneMutationsFacade", () => {
     expect(restoredSecond?.y).toBeCloseTo(second!.y);
     expect(restoredSecond?.bearing).toBeCloseTo(second!.bearing);
     expect(restoredSecond?.z).toBeCloseTo(second!.z);
+  });
+
+  it("restores sound placement from snapshot without touching sound metadata", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const sound = scene.objects.find((object) => object.id === "snd_amb_01");
+    expect(sound).toBeDefined();
+
+    const moved = facade.setObjectsAbsoluteLocationByIds(scene, [sound!.id], {
+      x: 1.4,
+      y: 0.4,
+      z: 0.5,
+      bearing: 1.1
+    });
+    const restored = facade.restoreObjectsPlacementBySnapshots(moved, [sound!]);
+    const restoredSound = restored.objects.find((object) => object.id === sound!.id);
+
+    expect(restoredSound?.x).toBeCloseTo(sound!.x, 6);
+    expect(restoredSound?.y).toBeCloseTo(sound!.y, 6);
+    expect(restoredSound?.z).toBeCloseTo(sound!.z, 6);
+    expect(restoredSound?.bearing).toBeCloseTo(sound!.bearing, 6);
+    expect(restoredSound?.soundPositioning).toEqual(sound?.soundPositioning);
   });
 });

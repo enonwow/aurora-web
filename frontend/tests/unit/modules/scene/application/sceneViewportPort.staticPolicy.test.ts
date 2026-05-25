@@ -16,7 +16,7 @@ function createMemoryDraftPort(initialScene: AreaScene | null = null): SceneDraf
 }
 
 describe("sceneViewportPort static placeable movement policy", () => {
-  it("blocks generic movement APIs for static placeables through viewport port", () => {
+  it("allows generic movement APIs for static placeables through viewport port", () => {
     const seed = createSeedAreaScene();
     const staticPlaceable = seed.objects.find((object) => object.kind === "placeables");
     expect(staticPlaceable).toBeDefined();
@@ -31,13 +31,20 @@ describe("sceneViewportPort static placeable movement policy", () => {
     const translated = port.translateObjectsByIds(seed, objectIds, { x: 0.35, y: -0.2 });
     const heightAdjusted = port.adjustObjectsHeightByIds(seed, objectIds, 0.6);
     const bearingRotated = port.rotateObjectsBearingByIds(seed, objectIds, 0.4);
+    const translatedObject = translated.objects.find((object) => object.id === staticPlaceable!.id);
+    const heightAdjustedObject = heightAdjusted.objects.find((object) => object.id === staticPlaceable!.id);
+    const bearingRotatedObject = bearingRotated.objects.find((object) => object.id === staticPlaceable!.id);
 
-    expect(translated).toBe(seed);
-    expect(heightAdjusted).toBe(seed);
-    expect(bearingRotated).toBe(seed);
+    expect(translated).not.toBe(seed);
+    expect(heightAdjusted).not.toBe(seed);
+    expect(bearingRotated).not.toBe(seed);
+    expect(translatedObject?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.35);
+    expect(translatedObject?.y).toBeCloseTo((staticPlaceable?.y ?? 0) - 0.2);
+    expect(heightAdjustedObject?.z).toBeCloseTo((staticPlaceable?.z ?? 0) + 0.6);
+    expect(bearingRotatedObject?.bearing).toBeCloseTo((staticPlaceable?.bearing ?? 0) + 0.4);
   });
 
-  it("blocks generic movement APIs for mixed static+movable selection through viewport port", () => {
+  it("allows generic movement APIs for mixed static+movable selection through viewport port", () => {
     const seed = createSeedAreaScene();
     const staticPlaceable = seed.objects.find((object) => object.kind === "placeables");
     const creature = seed.objects.find((object) => object.kind === "creatures");
@@ -54,10 +61,24 @@ describe("sceneViewportPort static placeable movement policy", () => {
     const translated = port.translateObjectsByIds(seed, objectIds, { x: 0.35, y: -0.2 });
     const heightAdjusted = port.adjustObjectsHeightByIds(seed, objectIds, 0.6);
     const bearingRotated = port.rotateObjectsBearingByIds(seed, objectIds, 0.4);
+    const translatedPlaceable = translated.objects.find((object) => object.id === staticPlaceable!.id);
+    const translatedCreature = translated.objects.find((object) => object.id === creature!.id);
+    const raisedPlaceable = heightAdjusted.objects.find((object) => object.id === staticPlaceable!.id);
+    const raisedCreature = heightAdjusted.objects.find((object) => object.id === creature!.id);
+    const rotatedPlaceable = bearingRotated.objects.find((object) => object.id === staticPlaceable!.id);
+    const rotatedCreature = bearingRotated.objects.find((object) => object.id === creature!.id);
 
-    expect(translated).toBe(seed);
-    expect(heightAdjusted).toBe(seed);
-    expect(bearingRotated).toBe(seed);
+    expect(translated).not.toBe(seed);
+    expect(heightAdjusted).not.toBe(seed);
+    expect(bearingRotated).not.toBe(seed);
+    expect(translatedPlaceable?.x).toBeCloseTo((staticPlaceable?.x ?? 0) + 0.35);
+    expect(translatedPlaceable?.y).toBeCloseTo((staticPlaceable?.y ?? 0) - 0.2);
+    expect(translatedCreature?.x).toBeCloseTo((creature?.x ?? 0) + 0.35);
+    expect(translatedCreature?.y).toBeCloseTo((creature?.y ?? 0) - 0.2);
+    expect(raisedPlaceable?.z).toBeCloseTo((staticPlaceable?.z ?? 0) + 0.6);
+    expect(raisedCreature?.z).toBeCloseTo((creature?.z ?? 0) + 0.6);
+    expect(rotatedPlaceable?.bearing).toBeCloseTo((staticPlaceable?.bearing ?? 0) + 0.4);
+    expect(rotatedCreature?.bearing).toBeCloseTo((creature?.bearing ?? 0) + 0.4);
   });
 
   it("still allows generic movement APIs for non-static placeables through viewport port", () => {

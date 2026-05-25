@@ -67,9 +67,9 @@ describe("Regression smoke: sound properties mode parity", () => {
     const cutoffInput = within(dialog).getByRole("spinbutton", { name: /^cutoff distance$/i });
     const westEastInput = within(dialog).getByRole("spinbutton", { name: /^west-east$/i });
     const northSouthInput = within(dialog).getByRole("spinbutton", { name: /^north-south$/i });
+    expect(maxVolumeInput).toBeDisabled();
 
     fireEvent.click(randomMode);
-    fireEvent.change(maxVolumeInput, { target: { value: "10.5" } });
     fireEvent.change(cutoffInput, { target: { value: "13.25" } });
     fireEvent.change(westEastInput, { target: { value: "3.5" } });
     fireEvent.change(northSouthInput, { target: { value: "4.5" } });
@@ -78,7 +78,7 @@ describe("Regression smoke: sound properties mode parity", () => {
 
     const randomState = findSoundFromDraft("SOUND_FOREST_01");
     expect(randomState?.soundPositioning?.mode).toBe("random");
-    expect(randomState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(10.5, 6);
+    expect(randomState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
     expect(randomState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(randomState?.soundPositioning?.randomRangeWestEast).toBeCloseTo(3.5, 6);
     expect(randomState?.soundPositioning?.randomRangeNorthSouth).toBeCloseTo(4.5, 6);
@@ -88,7 +88,7 @@ describe("Regression smoke: sound properties mode parity", () => {
     await saveDraft();
     const specificState = findSoundFromDraft("SOUND_FOREST_01");
     expect(specificState?.soundPositioning?.mode).toBe("specific");
-    expect(specificState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(10.5, 6);
+    expect(specificState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
     expect(specificState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(specificState?.soundPositioning?.randomRangeWestEast).toBe(0);
     expect(specificState?.soundPositioning?.randomRangeNorthSouth).toBe(0);
@@ -100,10 +100,47 @@ describe("Regression smoke: sound properties mode parity", () => {
 
     const everywhereState = findSoundFromDraft("SOUND_FOREST_01");
     expect(everywhereState?.soundPositioning?.mode).toBe("everywhere");
-    expect(everywhereState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(10.5, 6);
+    expect(everywhereState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
     expect(everywhereState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(everywhereState?.soundPositioning?.randomRangeWestEast).toBe(0);
     expect(everywhereState?.soundPositioning?.randomRangeNorthSouth).toBe(0);
   });
-});
 
+  it("keeps mode and random ranges in sync when switching between Basic and Positioning tabs", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const dialog = await openSoundPropertiesDialog(/sound_forest_01/i);
+    fireEvent.click(within(dialog).getByRole("button", { name: /^basic$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("radio", { name: /plays from random position each play/i })
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
+    const westEastInput = within(dialog).getByRole("spinbutton", { name: /^west-east$/i });
+    const northSouthInput = within(dialog).getByRole("spinbutton", { name: /^north-south$/i });
+    expect(westEastInput).not.toBeDisabled();
+    expect(northSouthInput).not.toBeDisabled();
+
+    fireEvent.change(westEastInput, { target: { value: "8" } });
+    fireEvent.change(northSouthInput, { target: { value: "2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^basic$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("radio", { name: /plays from specific position/i })
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
+
+    expect(within(dialog).getByRole("spinbutton", { name: /^west-east$/i })).toBeDisabled();
+    expect(within(dialog).getByRole("spinbutton", { name: /^north-south$/i })).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    await saveDraft();
+
+    const state = findSoundFromDraft("SOUND_FOREST_01");
+    expect(state?.soundPositioning?.mode).toBe("specific");
+    expect(state?.soundPositioning?.randomRangeWestEast).toBe(0);
+    expect(state?.soundPositioning?.randomRangeNorthSouth).toBe(0);
+  });
+});

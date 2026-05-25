@@ -1,5 +1,6 @@
 import type {
   AreaScene,
+  SceneSoundPropertiesModel,
   SceneHistoryState
 } from "../contracts";
 import {
@@ -18,6 +19,7 @@ import {
   validateWalkmeshDomainModel,
   type WalkmeshDomainModel
 } from "../domain/walkmesh";
+import { toSceneSoundPropertiesModel } from "../domain/sound";
 import type { SceneDraftPort } from "../ports/sceneDraftPort";
 
 interface SceneCanvasFacadeDependencies {
@@ -28,6 +30,7 @@ interface SceneCanvasFacadeDependencies {
 export interface SceneCanvasFacade {
   createInitialHistory(userId: string): SceneHistoryState;
   saveLocalDraft(userId: string, scene: AreaScene): void;
+  getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null;
 }
 
 const SCENE_OBJECT_MIN_Z = 0;
@@ -170,6 +173,13 @@ export function createSceneCanvasFacade(
     },
     saveLocalDraft(userId: string, scene: AreaScene): void {
       dependencies.draftPort.saveByUserId(userId, normalizeDraftVisualTransform(scene));
+    },
+    getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null {
+      const object = scene.objects.find((candidate) => candidate.id === objectId);
+      if (!object) {
+        return null;
+      }
+      return toSceneSoundPropertiesModel(object);
     }
   };
 }
