@@ -1355,7 +1355,15 @@ describe("CatalogApplicationService", () => {
   it("processes creature into cached contract", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("creature", "cre_guard_human_001"),
-      resref: "cre_guard_human_001"
+      resref: "cre_guard_human_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_guard_human_001").metadata,
+        firstName: "City",
+        lastName: "Guard",
+        appearanceId: 17,
+        appearanceHead: 22,
+        colorSkin: 9
+      }
     };
     repository.findByKindAndId.mockResolvedValue(template);
     placeableCache.get.mockResolvedValue(null);
@@ -1376,7 +1384,12 @@ describe("CatalogApplicationService", () => {
     expect(result.creature.kind).toBe("creature");
     expect(result.creature.render.frontendType).toBe("creature");
     expect(result.creature.creatureRuntime).toBeDefined();
+    expect(result.creature.creatureRuntime?.identity.firstName).toBe("City");
+    expect(result.creature.creatureRuntime?.appearance.appearanceHead).toBe(22);
     expect(Array.isArray(result.creature.creatureValidationIssues)).toBe(true);
+    expect(result.creature.creatureValidationIssues?.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["CREATURE_COLORS_PARTIAL"])
+    );
   });
 
   it("deduplicates concurrent creature processing misses by cache key", async () => {
@@ -1718,6 +1731,8 @@ describe("CatalogApplicationService", () => {
           source: {},
           identity: {},
           appearance: {},
+          bodyParts: {},
+          colors: {},
           faction: {},
           stats: {},
           lists: {},

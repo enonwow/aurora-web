@@ -440,6 +440,8 @@ function mapCandidateToTemplateRecord(
     candidate.parsedBlueprint?.sourceStructTypeId
   );
   addOptionalMetadata(metadata, "templateResRef", candidate.parsedBlueprint?.templateResRef);
+  addOptionalMetadata(metadata, "firstName", candidate.parsedBlueprint?.firstName);
+  addOptionalMetadata(metadata, "lastName", candidate.parsedBlueprint?.lastName);
   addOptionalMetadata(metadata, "displayName", candidate.parsedBlueprint?.displayName);
   addOptionalMetadata(metadata, "description", candidate.parsedBlueprint?.description);
   addOptionalMetadata(metadata, "tag", candidate.parsedBlueprint?.tag);
@@ -487,6 +489,30 @@ function mapCandidateToTemplateRecord(
   addOptionalMetadata(metadata, "portraitId", candidate.parsedBlueprint?.portraitId);
   addOptionalMetadata(metadata, "portraitResRef", candidate.parsedBlueprint?.portraitResRef);
   addOptionalMetadata(metadata, "soundSetFile", candidate.parsedBlueprint?.soundSetFile);
+  addOptionalMetadata(metadata, "appearanceHead", candidate.parsedBlueprint?.appearanceHead);
+  addOptionalMetadata(metadata, "bodyPartRFoot", candidate.parsedBlueprint?.bodyPartRFoot);
+  addOptionalMetadata(metadata, "bodyPartLFoot", candidate.parsedBlueprint?.bodyPartLFoot);
+  addOptionalMetadata(metadata, "bodyPartRShin", candidate.parsedBlueprint?.bodyPartRShin);
+  addOptionalMetadata(metadata, "bodyPartLShin", candidate.parsedBlueprint?.bodyPartLShin);
+  addOptionalMetadata(metadata, "bodyPartLThigh", candidate.parsedBlueprint?.bodyPartLThigh);
+  addOptionalMetadata(metadata, "bodyPartRThigh", candidate.parsedBlueprint?.bodyPartRThigh);
+  addOptionalMetadata(metadata, "bodyPartPelvis", candidate.parsedBlueprint?.bodyPartPelvis);
+  addOptionalMetadata(metadata, "bodyPartTorso", candidate.parsedBlueprint?.bodyPartTorso);
+  addOptionalMetadata(metadata, "bodyPartBelt", candidate.parsedBlueprint?.bodyPartBelt);
+  addOptionalMetadata(metadata, "bodyPartNeck", candidate.parsedBlueprint?.bodyPartNeck);
+  addOptionalMetadata(metadata, "bodyPartRFArm", candidate.parsedBlueprint?.bodyPartRFArm);
+  addOptionalMetadata(metadata, "bodyPartLFArm", candidate.parsedBlueprint?.bodyPartLFArm);
+  addOptionalMetadata(metadata, "bodyPartRBicep", candidate.parsedBlueprint?.bodyPartRBicep);
+  addOptionalMetadata(metadata, "bodyPartLBicep", candidate.parsedBlueprint?.bodyPartLBicep);
+  addOptionalMetadata(metadata, "bodyPartRShoul", candidate.parsedBlueprint?.bodyPartRShoul);
+  addOptionalMetadata(metadata, "bodyPartLShoul", candidate.parsedBlueprint?.bodyPartLShoul);
+  addOptionalMetadata(metadata, "bodyPartRHand", candidate.parsedBlueprint?.bodyPartRHand);
+  addOptionalMetadata(metadata, "bodyPartLHand", candidate.parsedBlueprint?.bodyPartLHand);
+  addOptionalMetadata(metadata, "bodyPartRobe", candidate.parsedBlueprint?.bodyPartRobe);
+  addOptionalMetadata(metadata, "colorSkin", candidate.parsedBlueprint?.colorSkin);
+  addOptionalMetadata(metadata, "colorHair", candidate.parsedBlueprint?.colorHair);
+  addOptionalMetadata(metadata, "colorTattoo1", candidate.parsedBlueprint?.colorTattoo1);
+  addOptionalMetadata(metadata, "colorTattoo2", candidate.parsedBlueprint?.colorTattoo2);
   addOptionalMetadata(metadata, "wingsNew", candidate.parsedBlueprint?.wingsNew);
   addOptionalMetadata(metadata, "tailNew", candidate.parsedBlueprint?.tailNew);
   addOptionalMetadata(metadata, "factionId", candidate.parsedBlueprint?.factionId);
@@ -534,6 +560,11 @@ function mapCandidateToTemplateRecord(
     metadata,
     "specAbilityListCount",
     candidate.parsedBlueprint?.specAbilityListCount
+  );
+  addOptionalMetadata(
+    metadata,
+    "equipItemListCount",
+    candidate.parsedBlueprint?.equipItemListCount
   );
   if (candidate.parsedBlueprint) {
     addOptionalMetadata(

@@ -509,6 +509,9 @@ export function buildCreatureRuntimeProjection(
     },
     identity: {
       templateResRef: readMetadataString(metadata, "templateResRef"),
+      firstName: readMetadataString(metadata, "firstName"),
+      lastName: readMetadataString(metadata, "lastName"),
+      description: readMetadataString(metadata, "description"),
       tag: readMetadataString(metadata, "tag"),
       conversation: readMetadataString(metadata, "conversation"),
       gender: readMetadataNumber(metadata, "gender"),
@@ -522,8 +525,36 @@ export function buildCreatureRuntimeProjection(
       portraitId: readMetadataNumber(metadata, "portraitId"),
       portraitResRef: readMetadataString(metadata, "portraitResRef"),
       soundSetFile: readMetadataNumber(metadata, "soundSetFile"),
+      appearanceHead: readMetadataNumber(metadata, "appearanceHead"),
       wingsNew: readMetadataNumber(metadata, "wingsNew"),
       tailNew: readMetadataNumber(metadata, "tailNew")
+    },
+    bodyParts: {
+      rFoot: readMetadataNumber(metadata, "bodyPartRFoot"),
+      lFoot: readMetadataNumber(metadata, "bodyPartLFoot"),
+      rShin: readMetadataNumber(metadata, "bodyPartRShin"),
+      lShin: readMetadataNumber(metadata, "bodyPartLShin"),
+      lThigh: readMetadataNumber(metadata, "bodyPartLThigh"),
+      rThigh: readMetadataNumber(metadata, "bodyPartRThigh"),
+      pelvis: readMetadataNumber(metadata, "bodyPartPelvis"),
+      torso: readMetadataNumber(metadata, "bodyPartTorso"),
+      belt: readMetadataNumber(metadata, "bodyPartBelt"),
+      neck: readMetadataNumber(metadata, "bodyPartNeck"),
+      rFArm: readMetadataNumber(metadata, "bodyPartRFArm"),
+      lFArm: readMetadataNumber(metadata, "bodyPartLFArm"),
+      rBicep: readMetadataNumber(metadata, "bodyPartRBicep"),
+      lBicep: readMetadataNumber(metadata, "bodyPartLBicep"),
+      rShoul: readMetadataNumber(metadata, "bodyPartRShoul"),
+      lShoul: readMetadataNumber(metadata, "bodyPartLShoul"),
+      rHand: readMetadataNumber(metadata, "bodyPartRHand"),
+      lHand: readMetadataNumber(metadata, "bodyPartLHand"),
+      robe: readMetadataNumber(metadata, "bodyPartRobe")
+    },
+    colors: {
+      skin: readMetadataNumber(metadata, "colorSkin"),
+      hair: readMetadataNumber(metadata, "colorHair"),
+      tattoo1: readMetadataNumber(metadata, "colorTattoo1"),
+      tattoo2: readMetadataNumber(metadata, "colorTattoo2")
     },
     faction: {
       factionId: readMetadataNumber(metadata, "factionId")
@@ -547,7 +578,8 @@ export function buildCreatureRuntimeProjection(
       skillListCount: readMetadataNumber(metadata, "skillListCount"),
       featListCount: readMetadataNumber(metadata, "featListCount"),
       templateListCount: readMetadataNumber(metadata, "templateListCount"),
-      specAbilityListCount: readMetadataNumber(metadata, "specAbilityListCount")
+      specAbilityListCount: readMetadataNumber(metadata, "specAbilityListCount"),
+      equipItemListCount: readMetadataNumber(metadata, "equipItemListCount")
     },
     scripts
   };
@@ -579,6 +611,30 @@ export function buildCreatureValidationIssues(
       code: "CREATURE_FACTION_MISSING",
       severity: "warn",
       message: "FactionID is missing; Aurora palette flow falls back to Faction=0."
+    });
+  }
+
+  if (runtime.appearance.appearanceType !== undefined && runtime.appearance.appearanceHead === undefined) {
+    issues.push({
+      code: "CREATURE_APPEARANCE_HEAD_MISSING",
+      severity: "warn",
+      message: "Appearance_Head is missing while appearance data is present."
+    });
+  }
+
+  const colorValues = [
+    runtime.colors.skin,
+    runtime.colors.hair,
+    runtime.colors.tattoo1,
+    runtime.colors.tattoo2
+  ];
+  const hasAnyColor = colorValues.some((value) => typeof value === "number");
+  const hasAllColors = colorValues.every((value) => typeof value === "number");
+  if (hasAnyColor && !hasAllColors) {
+    issues.push({
+      code: "CREATURE_COLORS_PARTIAL",
+      severity: "warn",
+      message: "Color_Skin/Hair/Tattoo fields are only partially populated."
     });
   }
 

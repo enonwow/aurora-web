@@ -168,6 +168,75 @@ describe("aurora-gff-template-parser", () => {
     });
   });
 
+  it("extracts creature visual body/color fields and equip list count", () => {
+    const bytes = buildGffBuffer(
+      [
+        { label: "TemplateResRef", type: "resref", value: "cre_drow_scout_01" },
+        { label: "FirstName", type: "cexolocstring", value: "Drow" },
+        { label: "LastName", type: "cexolocstring", value: "Scout" },
+        { label: "Appearance_Head", type: "dword", value: 22 },
+        { label: "BodyPart_RFoot", type: "dword", value: 1 },
+        { label: "BodyPart_LFoot", type: "dword", value: 2 },
+        { label: "BodyPart_RShin", type: "dword", value: 3 },
+        { label: "BodyPart_LShin", type: "dword", value: 4 },
+        { label: "BodyPart_LThigh", type: "dword", value: 5 },
+        { label: "BodyPart_RThigh", type: "dword", value: 6 },
+        { label: "BodyPart_Pelvis", type: "dword", value: 7 },
+        { label: "BodyPart_Torso", type: "dword", value: 8 },
+        { label: "BodyPart_Belt", type: "dword", value: 9 },
+        { label: "BodyPart_Neck", type: "dword", value: 10 },
+        { label: "BodyPart_RFArm", type: "dword", value: 11 },
+        { label: "BodyPart_LFArm", type: "dword", value: 12 },
+        { label: "BodyPart_RBicep", type: "dword", value: 13 },
+        { label: "BodyPart_LBicep", type: "dword", value: 14 },
+        { label: "BodyPart_RShoul", type: "dword", value: 15 },
+        { label: "BodyPart_LShoul", type: "dword", value: 16 },
+        { label: "BodyPart_RHand", type: "dword", value: 17 },
+        { label: "BodyPart_LHand", type: "dword", value: 18 },
+        { label: "BodyPart_Robe", type: "dword", value: 19 },
+        { label: "Color_Skin", type: "dword", value: 20 },
+        { label: "Color_Hair", type: "dword", value: 21 },
+        { label: "Color_Tattoo1", type: "dword", value: 22 },
+        { label: "Color_Tattoo2", type: "dword", value: 23 },
+        { label: "Equip_ItemList", type: "list", value: 4 }
+      ],
+      "UTC "
+    );
+
+    const parsed = parseTemplateBlueprintFromGff(bytes);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toMatchObject({
+      firstName: "Drow",
+      lastName: "Scout",
+      displayName: "Drow Scout",
+      appearanceHead: 22,
+      bodyPartRFoot: 1,
+      bodyPartLFoot: 2,
+      bodyPartRShin: 3,
+      bodyPartLShin: 4,
+      bodyPartLThigh: 5,
+      bodyPartRThigh: 6,
+      bodyPartPelvis: 7,
+      bodyPartTorso: 8,
+      bodyPartBelt: 9,
+      bodyPartNeck: 10,
+      bodyPartRFArm: 11,
+      bodyPartLFArm: 12,
+      bodyPartRBicep: 13,
+      bodyPartLBicep: 14,
+      bodyPartRShoul: 15,
+      bodyPartLShoul: 16,
+      bodyPartRHand: 17,
+      bodyPartLHand: 18,
+      bodyPartRobe: 19,
+      colorSkin: 20,
+      colorHair: 21,
+      colorTattoo1: 22,
+      colorTattoo2: 23,
+      equipItemListCount: 4
+    });
+  });
+
   it("returns null for invalid payload", () => {
     expect(parseTemplateBlueprintFromGff(Buffer.from([0x01, 0x02, 0x03]))).toBeNull();
   });

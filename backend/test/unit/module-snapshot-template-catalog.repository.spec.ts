@@ -170,8 +170,12 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
 
     const creatureBytes = buildGffBuffer([
       { label: "TemplateResRef", type: "resref", value: "cre_guard" },
+      { label: "FirstName", type: "cexolocstring", value: "City" },
+      { label: "LastName", type: "cexolocstring", value: "Guard" },
       { label: "LocName", type: "cexolocstring", value: "Guard" },
       { label: "Appearance_Type", type: "dword", value: 17 },
+      { label: "Appearance_Head", type: "dword", value: 22 },
+      { label: "Color_Skin", type: "dword", value: 8 },
       { label: "FactionID", type: "dword", value: 3 },
       { label: "ChallengeRating", type: "dword", value: 6 },
       { label: "ScriptHeartbeat", type: "resref", value: "hb_guard" }
@@ -284,6 +288,10 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(door?.metadata?.closeLockDc).toBe(20);
     expect(door?.metadata?.["script.onlock"]).toBe("script_city_gate_lock");
     expect(creatures.items[0]?.metadata?.appearanceId).toBe(17);
+    expect(creatures.items[0]?.metadata?.appearanceHead).toBe(22);
+    expect(creatures.items[0]?.metadata?.firstName).toBe("City");
+    expect(creatures.items[0]?.metadata?.lastName).toBe("Guard");
+    expect(creatures.items[0]?.metadata?.colorSkin).toBe(8);
     expect(creatures.items[0]?.metadata?.factionId).toBe(3);
     expect(creatures.items[0]?.metadata?.challengeRating).toBe(6);
     expect(creatures.items[0]?.metadata?.["script.scriptheartbeat"]).toBe("hb_guard");

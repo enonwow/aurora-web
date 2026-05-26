@@ -335,12 +335,24 @@ describe("catalog-processing.helpers", () => {
       sourceFileVersion: "V3.2",
       sourceStructTypeId: 42,
       templateResRef: "cre_guard_human_001",
+      firstName: "City",
+      lastName: "Guard",
+      description: "Guard stationed at city gate",
       tag: "city_guard",
       conversation: "conv_city_guard",
       appearanceId: 17,
+      appearanceHead: 44,
+      bodyPartRFoot: 1,
+      bodyPartLFoot: 2,
+      bodyPartRobe: 3,
+      colorSkin: 10,
+      colorHair: 11,
+      colorTattoo1: 12,
+      colorTattoo2: 13,
       factionId: 3,
       challengeRating: 6,
       classListCount: 2,
+      equipItemListCount: 5,
       scriptCount: 2,
       "script.scriptheartbeat": "hb_city_guard",
       "script.scriptonblocked": "block_city_guard"
@@ -348,10 +360,19 @@ describe("catalog-processing.helpers", () => {
 
     expect(runtime.source.fileType).toBe("UTC");
     expect(runtime.identity.templateResRef).toBe("cre_guard_human_001");
+    expect(runtime.identity.firstName).toBe("City");
+    expect(runtime.identity.lastName).toBe("Guard");
     expect(runtime.appearance.appearanceType).toBe(17);
+    expect(runtime.appearance.appearanceHead).toBe(44);
+    expect(runtime.bodyParts.rFoot).toBe(1);
+    expect(runtime.bodyParts.lFoot).toBe(2);
+    expect(runtime.bodyParts.robe).toBe(3);
+    expect(runtime.colors.skin).toBe(10);
+    expect(runtime.colors.hair).toBe(11);
     expect(runtime.faction.factionId).toBe(3);
     expect(runtime.stats.challengeRating).toBe(6);
     expect(runtime.lists.classListCount).toBe(2);
+    expect(runtime.lists.equipItemListCount).toBe(5);
     expect(runtime.scripts).toMatchObject({
       scriptheartbeat: "hb_city_guard",
       scriptonblocked: "block_city_guard"
@@ -371,6 +392,19 @@ describe("catalog-processing.helpers", () => {
         "CREATURE_FACTION_MISSING",
         "CREATURE_SCRIPTS_EMPTY"
       ])
+    );
+  });
+
+  it("buildCreatureValidationIssues reports partial color and missing appearance head", () => {
+    const runtime = buildCreatureRuntimeProjection({
+      templateResRef: "cre_guard_human_001",
+      appearanceId: 17,
+      colorSkin: 10
+    });
+
+    const issues = buildCreatureValidationIssues(runtime);
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["CREATURE_APPEARANCE_HEAD_MISSING", "CREATURE_COLORS_PARTIAL"])
     );
   });
 

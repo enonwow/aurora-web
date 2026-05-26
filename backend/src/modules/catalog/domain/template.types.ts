@@ -167,6 +167,9 @@ export interface CreatureRuntimeProjection {
   };
   identity: {
     templateResRef?: string;
+    firstName?: string;
+    lastName?: string;
+    description?: string;
     tag?: string;
     conversation?: string;
     gender?: number;
@@ -180,8 +183,36 @@ export interface CreatureRuntimeProjection {
     portraitId?: number;
     portraitResRef?: string;
     soundSetFile?: number;
+    appearanceHead?: number;
     wingsNew?: number;
     tailNew?: number;
+  };
+  bodyParts: {
+    rFoot?: number;
+    lFoot?: number;
+    rShin?: number;
+    lShin?: number;
+    lThigh?: number;
+    rThigh?: number;
+    pelvis?: number;
+    torso?: number;
+    belt?: number;
+    neck?: number;
+    rFArm?: number;
+    lFArm?: number;
+    rBicep?: number;
+    lBicep?: number;
+    rShoul?: number;
+    lShoul?: number;
+    rHand?: number;
+    lHand?: number;
+    robe?: number;
+  };
+  colors: {
+    skin?: number;
+    hair?: number;
+    tattoo1?: number;
+    tattoo2?: number;
   };
   faction: {
     factionId?: number;
@@ -206,6 +237,7 @@ export interface CreatureRuntimeProjection {
     featListCount?: number;
     templateListCount?: number;
     specAbilityListCount?: number;
+    equipItemListCount?: number;
   };
   scripts: Record<string, string>;
 }

@@ -45,6 +45,8 @@ export interface ParsedTemplateBlueprint {
   sourceFileVersion: string;
   sourceStructTypeId: number;
   templateResRef?: string;
+  firstName?: string;
+  lastName?: string;
   displayName?: string;
   description?: string;
   tag?: string;
@@ -82,6 +84,30 @@ export interface ParsedTemplateBlueprint {
   portraitId?: number;
   portraitResRef?: string;
   soundSetFile?: number;
+  appearanceHead?: number;
+  bodyPartRFoot?: number;
+  bodyPartLFoot?: number;
+  bodyPartRShin?: number;
+  bodyPartLShin?: number;
+  bodyPartLThigh?: number;
+  bodyPartRThigh?: number;
+  bodyPartPelvis?: number;
+  bodyPartTorso?: number;
+  bodyPartBelt?: number;
+  bodyPartNeck?: number;
+  bodyPartRFArm?: number;
+  bodyPartLFArm?: number;
+  bodyPartRBicep?: number;
+  bodyPartLBicep?: number;
+  bodyPartRShoul?: number;
+  bodyPartLShoul?: number;
+  bodyPartRHand?: number;
+  bodyPartLHand?: number;
+  bodyPartRobe?: number;
+  colorSkin?: number;
+  colorHair?: number;
+  colorTattoo1?: number;
+  colorTattoo2?: number;
   wingsNew?: number;
   tailNew?: number;
   factionId?: number;
@@ -102,6 +128,7 @@ export interface ParsedTemplateBlueprint {
   featListCount?: number;
   templateListCount?: number;
   specAbilityListCount?: number;
+  equipItemListCount?: number;
   scripts: Record<string, string>;
   dependencyRefs: string[];
   dependencyFingerprint: string;
@@ -466,6 +493,8 @@ function mapFieldsToTemplateBlueprint(
     "resref",
     "tagresref"
   ]);
+  const firstName = readNameField(fields, ["firstname"]);
+  const lastName = readNameField(fields, ["lastname"]);
   const displayName = readNameField(fields, [
     "locname",
     "name",
@@ -507,6 +536,30 @@ function mapFieldsToTemplateBlueprint(
   const portraitId = readNumberField(fields, ["portraitid"]);
   const portraitResRef = readStringField(fields, ["portrait"]);
   const soundSetFile = readNumberField(fields, ["soundsetfile"]);
+  const appearanceHead = readNumberField(fields, ["appearance_head", "appearancehead"]);
+  const bodyPartRFoot = readNumberField(fields, ["bodypart_rfoot", "armorpart_rfoot"]);
+  const bodyPartLFoot = readNumberField(fields, ["bodypart_lfoot", "armorpart_lfoot"]);
+  const bodyPartRShin = readNumberField(fields, ["bodypart_rshin", "armorpart_rshin"]);
+  const bodyPartLShin = readNumberField(fields, ["bodypart_lshin", "armorpart_lshin"]);
+  const bodyPartLThigh = readNumberField(fields, ["bodypart_lthigh", "armorpart_lthigh"]);
+  const bodyPartRThigh = readNumberField(fields, ["bodypart_rthigh", "armorpart_rthigh"]);
+  const bodyPartPelvis = readNumberField(fields, ["bodypart_pelvis", "armorpart_pelvis"]);
+  const bodyPartTorso = readNumberField(fields, ["bodypart_torso", "armorpart_torso"]);
+  const bodyPartBelt = readNumberField(fields, ["bodypart_belt", "armorpart_belt"]);
+  const bodyPartNeck = readNumberField(fields, ["bodypart_neck", "armorpart_neck"]);
+  const bodyPartRFArm = readNumberField(fields, ["bodypart_rfarm", "armorpart_rfarm"]);
+  const bodyPartLFArm = readNumberField(fields, ["bodypart_lfarm", "armorpart_lfarm"]);
+  const bodyPartRBicep = readNumberField(fields, ["bodypart_rbicep", "armorpart_rbicep"]);
+  const bodyPartLBicep = readNumberField(fields, ["bodypart_lbicep", "armorpart_lbicep"]);
+  const bodyPartRShoul = readNumberField(fields, ["bodypart_rshoul", "armorpart_rshoul"]);
+  const bodyPartLShoul = readNumberField(fields, ["bodypart_lshoul", "armorpart_lshoul"]);
+  const bodyPartRHand = readNumberField(fields, ["bodypart_rhand", "armorpart_rhand"]);
+  const bodyPartLHand = readNumberField(fields, ["bodypart_lhand", "armorpart_lhand"]);
+  const bodyPartRobe = readNumberField(fields, ["bodypart_robe", "armorpart_robe"]);
+  const colorSkin = readNumberField(fields, ["color_skin"]);
+  const colorHair = readNumberField(fields, ["color_hair"]);
+  const colorTattoo1 = readNumberField(fields, ["color_tattoo1"]);
+  const colorTattoo2 = readNumberField(fields, ["color_tattoo2"]);
   const wingsNew = readNumberField(fields, ["wings_new", "wingsnew"]);
   const tailNew = readNumberField(fields, ["tail_new", "tailnew"]);
   const factionId = readNumberField(fields, ["factionid", "faction"]);
@@ -527,11 +580,13 @@ function mapFieldsToTemplateBlueprint(
   const featListCount = readListCountField(fields, ["featlist"]);
   const templateListCount = readListCountField(fields, ["templatelist"]);
   const specAbilityListCount = readListCountField(fields, ["specabilitylist"]);
+  const equipItemListCount = readListCountField(fields, ["equip_itemlist", "equipitemlist"]);
   const scripts = readScriptFields(fields);
 
   const dependencyRefs = dedupeStrings([
     modelResRef,
     conversation,
+    portraitResRef,
     ...Object.values(scripts),
     templateResRef,
     tag
@@ -545,13 +600,16 @@ function mapFieldsToTemplateBlueprint(
   });
 
   const dependencyFingerprint = buildDependencyFingerprint(dependencyRefs);
+  const resolvedDisplayName = displayName ?? buildCreatureDisplayName(firstName, lastName);
 
   return {
     sourceFileType: header.fileType,
     sourceFileVersion: header.fileVersion,
     sourceStructTypeId: rootStructTypeId,
     templateResRef,
-    displayName,
+    firstName,
+    lastName,
+    displayName: resolvedDisplayName,
     description,
     tag,
     conversation,
@@ -587,6 +645,34 @@ function mapFieldsToTemplateBlueprint(
     portraitId: Number.isFinite(portraitId ?? Number.NaN) ? portraitId : undefined,
     portraitResRef,
     soundSetFile: Number.isFinite(soundSetFile ?? Number.NaN) ? soundSetFile : undefined,
+    appearanceHead: Number.isFinite(appearanceHead ?? Number.NaN) ? appearanceHead : undefined,
+    bodyPartRFoot: Number.isFinite(bodyPartRFoot ?? Number.NaN) ? bodyPartRFoot : undefined,
+    bodyPartLFoot: Number.isFinite(bodyPartLFoot ?? Number.NaN) ? bodyPartLFoot : undefined,
+    bodyPartRShin: Number.isFinite(bodyPartRShin ?? Number.NaN) ? bodyPartRShin : undefined,
+    bodyPartLShin: Number.isFinite(bodyPartLShin ?? Number.NaN) ? bodyPartLShin : undefined,
+    bodyPartLThigh: Number.isFinite(bodyPartLThigh ?? Number.NaN)
+      ? bodyPartLThigh
+      : undefined,
+    bodyPartRThigh: Number.isFinite(bodyPartRThigh ?? Number.NaN)
+      ? bodyPartRThigh
+      : undefined,
+    bodyPartPelvis: Number.isFinite(bodyPartPelvis ?? Number.NaN) ? bodyPartPelvis : undefined,
+    bodyPartTorso: Number.isFinite(bodyPartTorso ?? Number.NaN) ? bodyPartTorso : undefined,
+    bodyPartBelt: Number.isFinite(bodyPartBelt ?? Number.NaN) ? bodyPartBelt : undefined,
+    bodyPartNeck: Number.isFinite(bodyPartNeck ?? Number.NaN) ? bodyPartNeck : undefined,
+    bodyPartRFArm: Number.isFinite(bodyPartRFArm ?? Number.NaN) ? bodyPartRFArm : undefined,
+    bodyPartLFArm: Number.isFinite(bodyPartLFArm ?? Number.NaN) ? bodyPartLFArm : undefined,
+    bodyPartRBicep: Number.isFinite(bodyPartRBicep ?? Number.NaN) ? bodyPartRBicep : undefined,
+    bodyPartLBicep: Number.isFinite(bodyPartLBicep ?? Number.NaN) ? bodyPartLBicep : undefined,
+    bodyPartRShoul: Number.isFinite(bodyPartRShoul ?? Number.NaN) ? bodyPartRShoul : undefined,
+    bodyPartLShoul: Number.isFinite(bodyPartLShoul ?? Number.NaN) ? bodyPartLShoul : undefined,
+    bodyPartRHand: Number.isFinite(bodyPartRHand ?? Number.NaN) ? bodyPartRHand : undefined,
+    bodyPartLHand: Number.isFinite(bodyPartLHand ?? Number.NaN) ? bodyPartLHand : undefined,
+    bodyPartRobe: Number.isFinite(bodyPartRobe ?? Number.NaN) ? bodyPartRobe : undefined,
+    colorSkin: Number.isFinite(colorSkin ?? Number.NaN) ? colorSkin : undefined,
+    colorHair: Number.isFinite(colorHair ?? Number.NaN) ? colorHair : undefined,
+    colorTattoo1: Number.isFinite(colorTattoo1 ?? Number.NaN) ? colorTattoo1 : undefined,
+    colorTattoo2: Number.isFinite(colorTattoo2 ?? Number.NaN) ? colorTattoo2 : undefined,
     wingsNew: Number.isFinite(wingsNew ?? Number.NaN) ? wingsNew : undefined,
     tailNew: Number.isFinite(tailNew ?? Number.NaN) ? tailNew : undefined,
     factionId: Number.isFinite(factionId ?? Number.NaN) ? factionId : undefined,
@@ -620,6 +706,9 @@ function mapFieldsToTemplateBlueprint(
       : undefined,
     specAbilityListCount: Number.isFinite(specAbilityListCount ?? Number.NaN)
       ? specAbilityListCount
+      : undefined,
+    equipItemListCount: Number.isFinite(equipItemListCount ?? Number.NaN)
+      ? equipItemListCount
       : undefined,
     lightState: Number.isFinite(lightState ?? Number.NaN) ? lightState : undefined,
     scripts,
@@ -724,6 +813,20 @@ function readScriptFields(fields: ParsedGffFieldMap): Record<string, string> {
     scripts[label] = normalized;
   }
   return scripts;
+}
+
+function buildCreatureDisplayName(
+  firstName?: string,
+  lastName?: string
+): string | undefined {
+  const combined = [firstName, lastName]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .trim();
+  if (combined.length === 0) {
+    return undefined;
+  }
+  return combined;
 }
 
 function collectVfxEvidence(input: {
