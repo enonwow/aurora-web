@@ -432,9 +432,18 @@ function mapCandidateToTemplateRecord(
   };
 
   addOptionalMetadata(metadata, "sourceEtag", candidate.sourceEtag);
+  addOptionalMetadata(metadata, "sourceFileType", candidate.parsedBlueprint?.sourceFileType);
+  addOptionalMetadata(metadata, "sourceFileVersion", candidate.parsedBlueprint?.sourceFileVersion);
+  addOptionalMetadata(
+    metadata,
+    "sourceStructTypeId",
+    candidate.parsedBlueprint?.sourceStructTypeId
+  );
   addOptionalMetadata(metadata, "templateResRef", candidate.parsedBlueprint?.templateResRef);
   addOptionalMetadata(metadata, "displayName", candidate.parsedBlueprint?.displayName);
   addOptionalMetadata(metadata, "description", candidate.parsedBlueprint?.description);
+  addOptionalMetadata(metadata, "tag", candidate.parsedBlueprint?.tag);
+  addOptionalMetadata(metadata, "conversation", candidate.parsedBlueprint?.conversation);
   addOptionalMetadata(metadata, "modelResRef", candidate.parsedBlueprint?.modelResRef);
   addOptionalMetadata(
     metadata,
@@ -451,6 +460,73 @@ function mapCandidateToTemplateRecord(
   addOptionalMetadata(metadata, "useable", candidate.parsedBlueprint?.useable);
   addOptionalMetadata(metadata, "isStatic", candidate.parsedBlueprint?.isStatic);
   addOptionalMetadata(metadata, "lightState", candidate.parsedBlueprint?.lightState);
+  addOptionalMetadata(metadata, "gender", candidate.parsedBlueprint?.gender);
+  addOptionalMetadata(metadata, "race", candidate.parsedBlueprint?.race);
+  addOptionalMetadata(metadata, "subrace", candidate.parsedBlueprint?.subrace);
+  addOptionalMetadata(metadata, "deity", candidate.parsedBlueprint?.deity);
+  addOptionalMetadata(metadata, "phenotype", candidate.parsedBlueprint?.phenotype);
+  addOptionalMetadata(metadata, "portraitId", candidate.parsedBlueprint?.portraitId);
+  addOptionalMetadata(metadata, "portraitResRef", candidate.parsedBlueprint?.portraitResRef);
+  addOptionalMetadata(metadata, "soundSetFile", candidate.parsedBlueprint?.soundSetFile);
+  addOptionalMetadata(metadata, "wingsNew", candidate.parsedBlueprint?.wingsNew);
+  addOptionalMetadata(metadata, "tailNew", candidate.parsedBlueprint?.tailNew);
+  addOptionalMetadata(metadata, "factionId", candidate.parsedBlueprint?.factionId);
+  addOptionalMetadata(
+    metadata,
+    "challengeRating",
+    candidate.parsedBlueprint?.challengeRating
+  );
+  addOptionalMetadata(metadata, "crAdjust", candidate.parsedBlueprint?.crAdjust);
+  addOptionalMetadata(
+    metadata,
+    "perceptionRange",
+    candidate.parsedBlueprint?.perceptionRange
+  );
+  addOptionalMetadata(metadata, "naturalAc", candidate.parsedBlueprint?.naturalAc);
+  addOptionalMetadata(metadata, "hitPoints", candidate.parsedBlueprint?.hitPoints);
+  addOptionalMetadata(
+    metadata,
+    "currentHitPoints",
+    candidate.parsedBlueprint?.currentHitPoints
+  );
+  addOptionalMetadata(metadata, "maxHitPoints", candidate.parsedBlueprint?.maxHitPoints);
+  addOptionalMetadata(metadata, "reflexBonus", candidate.parsedBlueprint?.reflexBonus);
+  addOptionalMetadata(metadata, "willBonus", candidate.parsedBlueprint?.willBonus);
+  addOptionalMetadata(
+    metadata,
+    "fortitudeBonus",
+    candidate.parsedBlueprint?.fortitudeBonus
+  );
+  addOptionalMetadata(metadata, "goodEvil", candidate.parsedBlueprint?.goodEvil);
+  addOptionalMetadata(
+    metadata,
+    "lawfulChaotic",
+    candidate.parsedBlueprint?.lawfulChaotic
+  );
+  addOptionalMetadata(metadata, "classListCount", candidate.parsedBlueprint?.classListCount);
+  addOptionalMetadata(metadata, "skillListCount", candidate.parsedBlueprint?.skillListCount);
+  addOptionalMetadata(metadata, "featListCount", candidate.parsedBlueprint?.featListCount);
+  addOptionalMetadata(
+    metadata,
+    "templateListCount",
+    candidate.parsedBlueprint?.templateListCount
+  );
+  addOptionalMetadata(
+    metadata,
+    "specAbilityListCount",
+    candidate.parsedBlueprint?.specAbilityListCount
+  );
+  if (candidate.parsedBlueprint) {
+    addOptionalMetadata(
+      metadata,
+      "scriptCount",
+      Object.keys(candidate.parsedBlueprint.scripts).length
+    );
+  }
+
+  for (const [label, scriptResref] of Object.entries(candidate.parsedBlueprint?.scripts ?? {})) {
+    addOptionalMetadata(metadata, `script.${label}`, scriptResref);
+  }
 
   return {
     templateId: buildTemplateId(candidate.kind, resolvedResref),

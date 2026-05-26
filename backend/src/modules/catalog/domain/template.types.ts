@@ -103,6 +103,63 @@ export interface TemplateRenderContract {
   rendererPreset: "creature-standard" | "item-standard";
 }
 
+export interface CreatureRuntimeProjection {
+  source: {
+    fileType?: string;
+    fileVersion?: string;
+    structTypeId?: number;
+  };
+  identity: {
+    templateResRef?: string;
+    tag?: string;
+    conversation?: string;
+    gender?: number;
+    race?: number;
+    subrace?: string;
+    deity?: string;
+    phenotype?: number;
+  };
+  appearance: {
+    appearanceType?: number;
+    portraitId?: number;
+    portraitResRef?: string;
+    soundSetFile?: number;
+    wingsNew?: number;
+    tailNew?: number;
+  };
+  faction: {
+    factionId?: number;
+  };
+  stats: {
+    challengeRating?: number;
+    crAdjust?: number;
+    perceptionRange?: number;
+    naturalAc?: number;
+    hitPoints?: number;
+    currentHitPoints?: number;
+    maxHitPoints?: number;
+    reflexBonus?: number;
+    willBonus?: number;
+    fortitudeBonus?: number;
+    goodEvil?: number;
+    lawfulChaotic?: number;
+  };
+  lists: {
+    classListCount?: number;
+    skillListCount?: number;
+    featListCount?: number;
+    templateListCount?: number;
+    specAbilityListCount?: number;
+  };
+  scripts: Record<string, string>;
+}
+
+export interface CreatureValidationIssue {
+  code: string;
+  severity: "warn" | "error";
+  message: string;
+}
+
 export interface TemplateProcessingResult {
   templateId: string;
   kind: "creature" | "item";
@@ -113,6 +170,8 @@ export interface TemplateProcessingResult {
   benchmarkBucket?: string;
   metadata: Record<string, string | number | boolean>;
   render: TemplateRenderContract;
+  creatureRuntime?: CreatureRuntimeProjection;
+  creatureValidationIssues?: CreatureValidationIssue[];
   processedAt: string;
 }
 

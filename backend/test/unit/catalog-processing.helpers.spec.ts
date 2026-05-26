@@ -2,6 +2,8 @@ import {
   addSeed,
   buildAssetId,
   buildBenchmarkFingerprint,
+  buildCreatureRuntimeProjection,
+  buildCreatureValidationIssues,
   buildEmptyPlaceableAssetManifest,
   buildLookupSeeds,
   buildModuleSnapshotIndex,
@@ -223,6 +225,51 @@ describe("catalog-processing.helpers", () => {
       frontendType: "item",
       rendererPreset: "item-standard"
     });
+  });
+
+  it("buildCreatureRuntimeProjection maps creature metadata and scripts", () => {
+    const runtime = buildCreatureRuntimeProjection({
+      sourceFileType: "UTC ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 42,
+      templateResRef: "cre_guard_human_001",
+      tag: "city_guard",
+      conversation: "conv_city_guard",
+      appearanceId: 17,
+      factionId: 3,
+      challengeRating: 6,
+      classListCount: 2,
+      scriptCount: 2,
+      "script.scriptheartbeat": "hb_city_guard",
+      "script.scriptonblocked": "block_city_guard"
+    });
+
+    expect(runtime.source.fileType).toBe("UTC");
+    expect(runtime.identity.templateResRef).toBe("cre_guard_human_001");
+    expect(runtime.appearance.appearanceType).toBe(17);
+    expect(runtime.faction.factionId).toBe(3);
+    expect(runtime.stats.challengeRating).toBe(6);
+    expect(runtime.lists.classListCount).toBe(2);
+    expect(runtime.scripts).toMatchObject({
+      scriptheartbeat: "hb_city_guard",
+      scriptonblocked: "block_city_guard"
+    });
+  });
+
+  it("buildCreatureValidationIssues reports Aurora fallback warnings", () => {
+    const runtime = buildCreatureRuntimeProjection({
+      templateResRef: "cre_guard_human_001"
+    });
+
+    const issues = buildCreatureValidationIssues(runtime);
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "CREATURE_APPEARANCE_MISSING",
+        "CREATURE_CHALLENGE_RATING_MISSING",
+        "CREATURE_FACTION_MISSING",
+        "CREATURE_SCRIPTS_EMPTY"
+      ])
+    );
   });
 
   it("buildLookupSeeds and addSeed include expected values and skip short ones", () => {

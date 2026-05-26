@@ -1365,6 +1365,8 @@ describe("CatalogApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(result.creature.kind).toBe("creature");
     expect(result.creature.render.frontendType).toBe("creature");
+    expect(result.creature.creatureRuntime).toBeDefined();
+    expect(Array.isArray(result.creature.creatureValidationIssues)).toBe(true);
   });
 
   it("deduplicates concurrent creature processing misses by cache key", async () => {
@@ -1474,6 +1476,8 @@ describe("CatalogApplicationService", () => {
     const item = await service.getProcessedItem("d".repeat(64));
 
     expect(creature.creature.templateId).toBe("cre_guard_human_001");
+    expect(creature.creature.creatureRuntime).toBeDefined();
+    expect(creature.creature.creatureValidationIssues).toBeDefined();
     expect(item.item.templateId).toBe("itm_health_potion_001");
   });
 
@@ -1700,6 +1704,16 @@ describe("CatalogApplicationService", () => {
           frontendType: "creature",
           rendererPreset: "creature-standard"
         },
+        creatureRuntime: {
+          source: {},
+          identity: {},
+          appearance: {},
+          faction: {},
+          stats: {},
+          lists: {},
+          scripts: {}
+        },
+        creatureValidationIssues: [],
         processedAt: "2026-05-24T10:09:00.000Z"
       }
     });

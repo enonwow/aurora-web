@@ -27,7 +27,16 @@ interface ParsedCExoLocString {
   entries: string[];
 }
 
-type ParsedGffValue = string | number | boolean | ParsedCExoLocString;
+interface ParsedGffListSummary {
+  count: number;
+}
+
+type ParsedGffValue =
+  | string
+  | number
+  | boolean
+  | ParsedCExoLocString
+  | ParsedGffListSummary;
 
 type ParsedGffFieldMap = Map<string, ParsedGffValue>;
 
@@ -46,6 +55,34 @@ export interface ParsedTemplateBlueprint {
   useable?: boolean;
   isStatic?: boolean;
   lightState?: number;
+  gender?: number;
+  race?: number;
+  subrace?: string;
+  deity?: string;
+  phenotype?: number;
+  portraitId?: number;
+  portraitResRef?: string;
+  soundSetFile?: number;
+  wingsNew?: number;
+  tailNew?: number;
+  factionId?: number;
+  challengeRating?: number;
+  crAdjust?: number;
+  perceptionRange?: number;
+  naturalAc?: number;
+  hitPoints?: number;
+  currentHitPoints?: number;
+  maxHitPoints?: number;
+  reflexBonus?: number;
+  willBonus?: number;
+  fortitudeBonus?: number;
+  goodEvil?: number;
+  lawfulChaotic?: number;
+  classListCount?: number;
+  skillListCount?: number;
+  featListCount?: number;
+  templateListCount?: number;
+  specAbilityListCount?: number;
   scripts: Record<string, string>;
   dependencyRefs: string[];
   dependencyFingerprint: string;
@@ -96,7 +133,20 @@ const SCRIPT_FIELD_LABELS = [
   "ondisarm",
   "ontraptriggered",
   "ontrapdisarmed",
-  "oninventorydisturbed"
+  "oninventorydisturbed",
+  "scriptheartbeat",
+  "scriptonnotice",
+  "scriptspellat",
+  "scriptattacked",
+  "scriptdamaged",
+  "scriptdisturbed",
+  "scriptendround",
+  "scriptdialogue",
+  "scriptspawn",
+  "scriptrested",
+  "scriptdeath",
+  "scriptuserdefine",
+  "scriptonblocked"
 ] as const;
 
 const VFX_TEXT_PATTERN = /(vfx|vvx|emit|emitter|particle|fx_)/iu;
@@ -277,6 +327,9 @@ function parseFieldValue(
   if (typeId === FIELD_TYPE.CEXOLOCSTRING) {
     return readCExoLocString(bytes, header, dataOrOffset);
   }
+  if (typeId === FIELD_TYPE.LIST) {
+    return readListSummary(bytes, header, dataOrOffset);
+  }
 
   return undefined;
 }
@@ -363,6 +416,25 @@ function readCExoLocString(
   };
 }
 
+function readListSummary(
+  bytes: Buffer,
+  header: GffHeader,
+  dataOrOffset: number
+): ParsedGffListSummary | undefined {
+  const offset = header.listIndicesOffset + dataOrOffset;
+  if (!isRangeWithinBuffer(bytes, offset, 4)) {
+    return undefined;
+  }
+
+  const count = bytes.readUInt32LE(offset);
+  const bodyOffset = offset + 4;
+  if (!isRangeWithinBuffer(bytes, bodyOffset, count * 4)) {
+    return undefined;
+  }
+
+  return { count };
+}
+
 function mapFieldsToTemplateBlueprint(
   header: GffHeader,
   rootStructTypeId: number,
@@ -387,6 +459,34 @@ function mapFieldsToTemplateBlueprint(
   const useable = readBooleanField(fields, ["useable", "usable"]);
   const isStatic = readBooleanField(fields, ["static"]);
   const lightState = readNumberField(fields, ["lightstate", "light"]);
+  const gender = readNumberField(fields, ["gender"]);
+  const race = readNumberField(fields, ["race"]);
+  const subrace = readStringField(fields, ["subrace"]);
+  const deity = readStringField(fields, ["deity"]);
+  const phenotype = readNumberField(fields, ["phenotype"]);
+  const portraitId = readNumberField(fields, ["portraitid"]);
+  const portraitResRef = readStringField(fields, ["portrait"]);
+  const soundSetFile = readNumberField(fields, ["soundsetfile"]);
+  const wingsNew = readNumberField(fields, ["wings_new", "wingsnew"]);
+  const tailNew = readNumberField(fields, ["tail_new", "tailnew"]);
+  const factionId = readNumberField(fields, ["factionid", "faction"]);
+  const challengeRating = readNumberField(fields, ["challengerating"]);
+  const crAdjust = readNumberField(fields, ["cradjust"]);
+  const perceptionRange = readNumberField(fields, ["perceptionrange"]);
+  const naturalAc = readNumberField(fields, ["naturalac"]);
+  const hitPoints = readNumberField(fields, ["hitpoints"]);
+  const currentHitPoints = readNumberField(fields, ["currenthitpoints"]);
+  const maxHitPoints = readNumberField(fields, ["maxhitpoints"]);
+  const reflexBonus = readNumberField(fields, ["refbonus"]);
+  const willBonus = readNumberField(fields, ["willbonus"]);
+  const fortitudeBonus = readNumberField(fields, ["fortbonus"]);
+  const goodEvil = readNumberField(fields, ["goodevil"]);
+  const lawfulChaotic = readNumberField(fields, ["lawfulchaotic"]);
+  const classListCount = readListCountField(fields, ["classlist"]);
+  const skillListCount = readListCountField(fields, ["skilllist"]);
+  const featListCount = readListCountField(fields, ["featlist"]);
+  const templateListCount = readListCountField(fields, ["templatelist"]);
+  const specAbilityListCount = readListCountField(fields, ["specabilitylist"]);
   const scripts = readScriptFields(fields);
 
   const dependencyRefs = dedupeStrings([
@@ -420,6 +520,48 @@ function mapFieldsToTemplateBlueprint(
     hasInventory,
     useable,
     isStatic,
+    gender: Number.isFinite(gender ?? Number.NaN) ? gender : undefined,
+    race: Number.isFinite(race ?? Number.NaN) ? race : undefined,
+    subrace,
+    deity,
+    phenotype: Number.isFinite(phenotype ?? Number.NaN) ? phenotype : undefined,
+    portraitId: Number.isFinite(portraitId ?? Number.NaN) ? portraitId : undefined,
+    portraitResRef,
+    soundSetFile: Number.isFinite(soundSetFile ?? Number.NaN) ? soundSetFile : undefined,
+    wingsNew: Number.isFinite(wingsNew ?? Number.NaN) ? wingsNew : undefined,
+    tailNew: Number.isFinite(tailNew ?? Number.NaN) ? tailNew : undefined,
+    factionId: Number.isFinite(factionId ?? Number.NaN) ? factionId : undefined,
+    challengeRating: Number.isFinite(challengeRating ?? Number.NaN)
+      ? challengeRating
+      : undefined,
+    crAdjust: Number.isFinite(crAdjust ?? Number.NaN) ? crAdjust : undefined,
+    perceptionRange: Number.isFinite(perceptionRange ?? Number.NaN)
+      ? perceptionRange
+      : undefined,
+    naturalAc: Number.isFinite(naturalAc ?? Number.NaN) ? naturalAc : undefined,
+    hitPoints: Number.isFinite(hitPoints ?? Number.NaN) ? hitPoints : undefined,
+    currentHitPoints: Number.isFinite(currentHitPoints ?? Number.NaN)
+      ? currentHitPoints
+      : undefined,
+    maxHitPoints: Number.isFinite(maxHitPoints ?? Number.NaN) ? maxHitPoints : undefined,
+    reflexBonus: Number.isFinite(reflexBonus ?? Number.NaN) ? reflexBonus : undefined,
+    willBonus: Number.isFinite(willBonus ?? Number.NaN) ? willBonus : undefined,
+    fortitudeBonus: Number.isFinite(fortitudeBonus ?? Number.NaN)
+      ? fortitudeBonus
+      : undefined,
+    goodEvil: Number.isFinite(goodEvil ?? Number.NaN) ? goodEvil : undefined,
+    lawfulChaotic: Number.isFinite(lawfulChaotic ?? Number.NaN)
+      ? lawfulChaotic
+      : undefined,
+    classListCount: Number.isFinite(classListCount ?? Number.NaN) ? classListCount : undefined,
+    skillListCount: Number.isFinite(skillListCount ?? Number.NaN) ? skillListCount : undefined,
+    featListCount: Number.isFinite(featListCount ?? Number.NaN) ? featListCount : undefined,
+    templateListCount: Number.isFinite(templateListCount ?? Number.NaN)
+      ? templateListCount
+      : undefined,
+    specAbilityListCount: Number.isFinite(specAbilityListCount ?? Number.NaN)
+      ? specAbilityListCount
+      : undefined,
     lightState: Number.isFinite(lightState ?? Number.NaN) ? lightState : undefined,
     scripts,
     dependencyRefs,
@@ -457,8 +599,8 @@ function readNameField(
       }
       continue;
     }
-    if (raw && typeof raw === "object") {
-      const loc = raw as ParsedCExoLocString;
+    if (isParsedLocString(raw)) {
+      const loc = raw;
       if (typeof loc.text === "string" && loc.text.trim().length > 0) {
         return sanitizeUtf8(loc.text);
       }
@@ -491,6 +633,19 @@ function readBooleanField(
     }
     if (typeof raw === "boolean") {
       return raw;
+    }
+  }
+  return undefined;
+}
+
+function readListCountField(
+  fields: ParsedGffFieldMap,
+  aliases: readonly string[]
+): number | undefined {
+  for (const alias of aliases) {
+    const raw = fields.get(alias);
+    if (isParsedListSummary(raw)) {
+      return raw.count;
     }
   }
   return undefined;
@@ -559,6 +714,22 @@ function isRangeWithinBuffer(bytes: Buffer, offset: number, length: number): boo
 
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function isParsedLocString(value: ParsedGffValue | undefined): value is ParsedCExoLocString {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "strRef" in value &&
+    "entries" in value &&
+    "text" in value
+  );
+}
+
+function isParsedListSummary(
+  value: ParsedGffValue | undefined
+): value is ParsedGffListSummary {
+  return typeof value === "object" && value !== null && "count" in value;
 }
 
 function sanitizeAscii(value: string): string {

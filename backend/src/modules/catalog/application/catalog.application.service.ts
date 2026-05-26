@@ -41,6 +41,8 @@ import {
   buildTemplateProcessCacheKey
 } from "../domain/cache-key.builders";
 import {
+  buildCreatureRuntimeProjection,
+  buildCreatureValidationIssues,
   buildBenchmarkFingerprint,
   buildModuleSnapshotIndex,
   buildRenderContract,
@@ -612,6 +614,7 @@ export class CatalogApplicationService {
     if (!query.bypassCache) {
       const cached = await this.placeableCache.get<TemplateProcessingResult>(cacheKey);
       if (cached) {
+        const hydrated = await this.ensureTemplateProjection(kind, cacheKey, cached.value);
         return {
           cache: {
             key: cacheKey,
@@ -620,7 +623,7 @@ export class CatalogApplicationService {
             hits: cached.hits
           },
           value: maybeStripTemplateBenchmarkMetadata(
-            cached.value,
+            hydrated,
             query.includeBenchmarkMetadata
           )
         };
@@ -628,6 +631,13 @@ export class CatalogApplicationService {
     }
 
     const processMiss = async (): Promise<TemplateProcessingEnvelope> => {
+      const creatureRuntime =
+        kind === "creature" ? buildCreatureRuntimeProjection(template.metadata) : undefined;
+      const creatureValidationIssues =
+        kind === "creature" && creatureRuntime
+          ? buildCreatureValidationIssues(creatureRuntime)
+          : undefined;
+
       const processed: TemplateProcessingResult = {
         templateId: template.templateId,
         kind,
@@ -638,6 +648,8 @@ export class CatalogApplicationService {
         benchmarkBucket: template.benchmarkBucket,
         metadata: template.metadata,
         render: buildTemplateRenderContract(kind),
+        creatureRuntime,
+        creatureValidationIssues,
         processedAt: new Date().toISOString()
       };
 
@@ -686,6 +698,8 @@ export class CatalogApplicationService {
       });
     }
 
+    const hydrated = await this.ensureTemplateProjection(kind, cacheKey, cached.value);
+
     return {
       cache: {
         key: cacheKey,
@@ -693,7 +707,7 @@ export class CatalogApplicationService {
         storedAt: cached.storedAt,
         hits: cached.hits
       },
-      value: cached.value
+      value: hydrated
     };
   }
 
@@ -1138,6 +1152,31 @@ export class CatalogApplicationService {
     });
     inFlight.set(key, pending);
     return pending;
+  }
+
+  private async ensureTemplateProjection(
+    kind: TemplateProcessingKind,
+    cacheKey: string,
+    value: TemplateProcessingResult
+  ): Promise<TemplateProcessingResult> {
+    if (kind !== "creature") {
+      return value;
+    }
+
+    if (value.creatureRuntime && value.creatureValidationIssues) {
+      return value;
+    }
+
+    const creatureRuntime = buildCreatureRuntimeProjection(value.metadata);
+    const creatureValidationIssues = buildCreatureValidationIssues(creatureRuntime);
+    const refreshed: TemplateProcessingResult = {
+      ...value,
+      creatureRuntime,
+      creatureValidationIssues
+    };
+
+    await this.placeableCache.set<TemplateProcessingResult>(cacheKey, refreshed);
+    return refreshed;
   }
 
   private mapTemplateResultByKind<TKind extends TemplateProcessingKind>(

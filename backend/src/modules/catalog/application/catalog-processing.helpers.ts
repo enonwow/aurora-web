@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { ModuleBlobSnapshotSummary } from "../../runtime-settings/application/ports/module-blob-storage.port";
 import type {
   BenchmarkDurationSummary,
+  CreatureRuntimeProjection,
+  CreatureValidationIssue,
   PlaceableAssetEntry,
   PlaceableAssetManifest,
   PlaceableAssetRole,
@@ -386,6 +388,153 @@ export function buildTemplateRenderContract(
     frontendType: "item",
     rendererPreset: "item-standard"
   };
+}
+
+export function buildCreatureRuntimeProjection(
+  metadata: Record<string, string | number | boolean>
+): CreatureRuntimeProjection {
+  const scripts = extractScriptMap(metadata);
+
+  return {
+    source: {
+      fileType: readMetadataString(metadata, "sourceFileType"),
+      fileVersion: readMetadataString(metadata, "sourceFileVersion"),
+      structTypeId: readMetadataNumber(metadata, "sourceStructTypeId")
+    },
+    identity: {
+      templateResRef: readMetadataString(metadata, "templateResRef"),
+      tag: readMetadataString(metadata, "tag"),
+      conversation: readMetadataString(metadata, "conversation"),
+      gender: readMetadataNumber(metadata, "gender"),
+      race: readMetadataNumber(metadata, "race"),
+      subrace: readMetadataString(metadata, "subrace"),
+      deity: readMetadataString(metadata, "deity"),
+      phenotype: readMetadataNumber(metadata, "phenotype")
+    },
+    appearance: {
+      appearanceType: readMetadataNumber(metadata, "appearanceId"),
+      portraitId: readMetadataNumber(metadata, "portraitId"),
+      portraitResRef: readMetadataString(metadata, "portraitResRef"),
+      soundSetFile: readMetadataNumber(metadata, "soundSetFile"),
+      wingsNew: readMetadataNumber(metadata, "wingsNew"),
+      tailNew: readMetadataNumber(metadata, "tailNew")
+    },
+    faction: {
+      factionId: readMetadataNumber(metadata, "factionId")
+    },
+    stats: {
+      challengeRating: readMetadataNumber(metadata, "challengeRating"),
+      crAdjust: readMetadataNumber(metadata, "crAdjust"),
+      perceptionRange: readMetadataNumber(metadata, "perceptionRange"),
+      naturalAc: readMetadataNumber(metadata, "naturalAc"),
+      hitPoints: readMetadataNumber(metadata, "hitPoints"),
+      currentHitPoints: readMetadataNumber(metadata, "currentHitPoints"),
+      maxHitPoints: readMetadataNumber(metadata, "maxHitPoints"),
+      reflexBonus: readMetadataNumber(metadata, "reflexBonus"),
+      willBonus: readMetadataNumber(metadata, "willBonus"),
+      fortitudeBonus: readMetadataNumber(metadata, "fortitudeBonus"),
+      goodEvil: readMetadataNumber(metadata, "goodEvil"),
+      lawfulChaotic: readMetadataNumber(metadata, "lawfulChaotic")
+    },
+    lists: {
+      classListCount: readMetadataNumber(metadata, "classListCount"),
+      skillListCount: readMetadataNumber(metadata, "skillListCount"),
+      featListCount: readMetadataNumber(metadata, "featListCount"),
+      templateListCount: readMetadataNumber(metadata, "templateListCount"),
+      specAbilityListCount: readMetadataNumber(metadata, "specAbilityListCount")
+    },
+    scripts
+  };
+}
+
+export function buildCreatureValidationIssues(
+  runtime: CreatureRuntimeProjection
+): CreatureValidationIssue[] {
+  const issues: CreatureValidationIssue[] = [];
+
+  if (typeof runtime.appearance.appearanceType !== "number") {
+    issues.push({
+      code: "CREATURE_APPEARANCE_MISSING",
+      severity: "warn",
+      message: "Appearance_Type is missing in creature source metadata."
+    });
+  }
+
+  if (typeof runtime.stats.challengeRating !== "number") {
+    issues.push({
+      code: "CREATURE_CHALLENGE_RATING_MISSING",
+      severity: "warn",
+      message: "ChallengeRating is missing; Aurora palette flow falls back to CR=1."
+    });
+  }
+
+  if (typeof runtime.faction.factionId !== "number") {
+    issues.push({
+      code: "CREATURE_FACTION_MISSING",
+      severity: "warn",
+      message: "FactionID is missing; Aurora palette flow falls back to Faction=0."
+    });
+  }
+
+  if (Object.keys(runtime.scripts).length === 0) {
+    issues.push({
+      code: "CREATURE_SCRIPTS_EMPTY",
+      severity: "warn",
+      message: "No creature scripts were extracted from source metadata."
+    });
+  }
+
+  return issues;
+}
+
+function readMetadataString(
+  metadata: Record<string, string | number | boolean>,
+  key: string
+): string | undefined {
+  const raw = metadata[key];
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function readMetadataNumber(
+  metadata: Record<string, string | number | boolean>,
+  key: string
+): number | undefined {
+  const raw = metadata[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function extractScriptMap(
+  metadata: Record<string, string | number | boolean>
+): Record<string, string> {
+  const scripts: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!key.startsWith("script.") || typeof value !== "string") {
+      continue;
+    }
+    const scriptKey = key.slice("script.".length);
+    if (!scriptKey) {
+      continue;
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
+    }
+    scripts[scriptKey] = normalized;
+  }
+  return scripts;
 }
 
 export function summarizeDurations(values: number[]): BenchmarkDurationSummary {

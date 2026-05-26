@@ -237,6 +237,8 @@ describe("Catalog API v1 (e2e)", () => {
     expect(response.body.data.cache.key).toEqual(expect.any(String));
     expect(response.body.data.creature.kind).toBe("creature");
     expect(response.body.data.creature.render.frontendType).toBe("creature");
+    expect(response.body.data.creature.creatureRuntime).toEqual(expect.any(Object));
+    expect(Array.isArray(response.body.data.creature.creatureValidationIssues)).toBe(true);
   });
 
   it("GET /api/v1/catalog/creatures/cache/:cacheKey returns cached creature payload", async () => {

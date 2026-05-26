@@ -1,12 +1,15 @@
 import { ModuleSnapshotTemplateCatalogRepository } from "../../src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository";
 import type {
+  ModuleBlobObjectSummary,
   ModuleBlobObjectPayload,
   ModuleBlobStoragePort
 } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 
 describe("ModuleSnapshotTemplateCatalogRepository", () => {
-  function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
+  function createRuntimeSettingsRepository(
+    modulePrefix = "modules/current"
+  ): jest.Mocked<RuntimeSettingsRepositoryPort> {
     return {
       get: jest.fn().mockResolvedValue({
         revision: 1,
@@ -24,7 +27,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
           endpoint: "http://seaweedfs:8333",
           region: "us-east-1",
           bucket: "aurora-module-assets",
-          modulePrefix: "modules/current",
+          modulePrefix,
           accessKeyId: "seaweedfs",
           secretAccessKey: "secret",
           forcePathStyle: true
@@ -97,8 +100,53 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     };
   }
 
+  interface CreateModuleBlobStorageOptions {
+    snapshotObjects?: ModuleBlobObjectSummary[];
+    payloadOverrides?: Map<string, ModuleBlobObjectPayload>;
+    throwOnGetKeys?: Set<string>;
+    pageSize?: number;
+    moduleHash?: string;
+    prefix?: string;
+  }
+
+  function buildDefaultSnapshotObjects(etagSeed = "v1"): ModuleBlobObjectSummary[] {
+    return [
+      {
+        key: "modules/current/blueprints/placeables/plc_city_gate.utd",
+        size: 220,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: `p1-${etagSeed}`
+      },
+      {
+        key: "modules/current/blueprints/placeables/plc_anchor_generic.utp",
+        size: 200,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: `p2-${etagSeed}`
+      },
+      {
+        key: "modules/current/blueprints/creatures/cre_guard.utc",
+        size: 180,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "c1"
+      },
+      {
+        key: "modules/current/blueprints/items/itm_scroll_fire.utI",
+        size: 160,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "i1"
+      },
+      {
+        key: "modules/current/readme.txt",
+        size: 80,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "x1"
+      }
+    ];
+  }
+
   function createModuleBlobStorage(
-    etagSeed = "v1"
+    etagSeed = "v1",
+    options: CreateModuleBlobStorageOptions = {}
   ): jest.Mocked<ModuleBlobStoragePort> {
     const vfxBytes = buildGffBuffer([
       { label: "TemplateResRef", type: "resref", value: "plc_anchor_generic" },
@@ -113,6 +161,15 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       { label: "LocName", type: "cexolocstring", value: "City Gate" },
       { label: "Tag", type: "cexostring", value: "city_gate_main" }
     ], "UTD ");
+
+    const creatureBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "cre_guard" },
+      { label: "LocName", type: "cexolocstring", value: "Guard" },
+      { label: "Appearance_Type", type: "dword", value: 17 },
+      { label: "FactionID", type: "dword", value: 3 },
+      { label: "ChallengeRating", type: "dword", value: 6 },
+      { label: "ScriptHeartbeat", type: "resref", value: "hb_guard" }
+    ], "UTC ");
 
     const byKey = new Map<string, ModuleBlobObjectPayload>([
       [
@@ -136,52 +193,54 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
           lastModified: "2026-05-25T10:00:00.000Z",
           bytes: vfxBytes
         }
+      ],
+      [
+        "modules/current/blueprints/creatures/cre_guard.utc",
+        {
+          key: "modules/current/blueprints/creatures/cre_guard.utc",
+          size: creatureBytes.length,
+          contentType: "application/octet-stream",
+          etag: `creature-${etagSeed}`,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          bytes: creatureBytes
+        }
       ]
     ]);
 
+    for (const [key, payload] of options.payloadOverrides ?? []) {
+      byKey.set(key, payload);
+    }
+
+    const snapshotObjects = options.snapshotObjects ?? buildDefaultSnapshotObjects(etagSeed);
+    const pageSize = Math.max(1, options.pageSize ?? snapshotObjects.length);
+    const prefix = options.prefix ?? "modules/current/";
+
     return {
       replaceModuleSnapshot: jest.fn(),
-      getModuleObject: jest.fn(async (_settings, key) => byKey.get(key) ?? null),
-      listModuleSnapshot: jest.fn().mockResolvedValue({
-        bucket: "aurora-module-assets",
-        prefix: "modules/current/",
-        moduleHash: `hash-${etagSeed}`,
-        totalFiles: 5,
-        totalBytes: 1000,
-        truncated: false,
-        continuationToken: undefined,
-        objects: [
-          {
-            key: "modules/current/blueprints/placeables/plc_city_gate.utd",
-            size: 220,
-            lastModified: "2026-05-25T10:00:00.000Z",
-            etag: `p1-${etagSeed}`
-          },
-          {
-            key: "modules/current/blueprints/placeables/plc_anchor_generic.utp",
-            size: 200,
-            lastModified: "2026-05-25T10:00:00.000Z",
-            etag: `p2-${etagSeed}`
-          },
-          {
-            key: "modules/current/blueprints/creatures/cre_guard.utc",
-            size: 180,
-            lastModified: "2026-05-25T10:00:00.000Z",
-            etag: "c1"
-          },
-          {
-            key: "modules/current/blueprints/items/itm_scroll_fire.utI",
-            size: 160,
-            lastModified: "2026-05-25T10:00:00.000Z",
-            etag: "i1"
-          },
-          {
-            key: "modules/current/readme.txt",
-            size: 80,
-            lastModified: "2026-05-25T10:00:00.000Z",
-            etag: "x1"
-          }
-        ]
+      getModuleObject: jest.fn(async (_settings, key) => {
+        if (options.throwOnGetKeys?.has(key)) {
+          throw new Error(`cannot read ${key}`);
+        }
+        return byKey.get(key) ?? null;
+      }),
+      listModuleSnapshot: jest.fn().mockImplementation(async (_settings, query) => {
+        const start = query.continuationToken ? Number(query.continuationToken) : 0;
+        const safeStart = Number.isFinite(start) && start >= 0 ? start : 0;
+        const limit = Math.max(1, Math.min(query.limit, pageSize));
+        const objects = snapshotObjects.slice(safeStart, safeStart + limit);
+        const nextToken =
+          safeStart + limit < snapshotObjects.length ? String(safeStart + limit) : undefined;
+
+        return {
+          bucket: "aurora-module-assets",
+          prefix,
+          moduleHash: options.moduleHash ?? `hash-${etagSeed}`,
+          totalFiles: snapshotObjects.length,
+          totalBytes: snapshotObjects.reduce((sum, object) => sum + object.size, 0),
+          truncated: Boolean(nextToken),
+          continuationToken: nextToken,
+          objects
+        };
       })
     };
   }
@@ -211,6 +270,40 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(items.total).toBe(1);
     expect(placeables.items.some((item) => item.placeableSubtype === "door")).toBe(true);
     expect(placeables.items.some((item) => item.placeableSubtype === "vfx")).toBe(true);
+    expect(creatures.items[0]?.metadata?.appearanceId).toBe(17);
+    expect(creatures.items[0]?.metadata?.factionId).toBe(3);
+    expect(creatures.items[0]?.metadata?.challengeRating).toBe(6);
+    expect(creatures.items[0]?.metadata?.["script.scriptheartbeat"]).toBe("hb_guard");
+  });
+
+  it("applies category, tag, subtype and benchmark filters for placeables", async () => {
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage()
+    );
+
+    const benchmarkDoor = await repository.listByKind("placeable", {
+      category: "door",
+      tag: "door",
+      subtype: "door",
+      benchmark: true,
+      limit: 20,
+      offset: 0
+    });
+
+    const nonBenchmarkVfx = await repository.listByKind("placeable", {
+      category: "effects",
+      tag: "vfx",
+      subtype: "vfx",
+      benchmark: false,
+      limit: 20,
+      offset: 0
+    });
+
+    expect(benchmarkDoor.total).toBe(1);
+    expect(benchmarkDoor.items[0]?.placeableSubtype).toBe("door");
+    expect(nonBenchmarkVfx.total).toBe(1);
+    expect(nonBenchmarkVfx.items[0]?.placeableSubtype).toBe("vfx");
   });
 
   it("resolves by id and resref and returns precomputed cache keys", async () => {
@@ -258,6 +351,269 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(keyA).toBeDefined();
     expect(keyB).toBeDefined();
     expect(keyA).not.toBe(keyB);
+  });
+
+  it("uses fallback lookup and cache-key providers when snapshot has no templates", async () => {
+    const runtimeSettings = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage("fallback", {
+      snapshotObjects: [
+        {
+          key: "modules/current/readme",
+          size: 20,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "x3"
+        }
+      ]
+    });
+    const repository = new ModuleSnapshotTemplateCatalogRepository(runtimeSettings, moduleBlobStorage);
+
+    await expect(
+      repository.findByKindAndId("placeable", "plc_missing_template")
+    ).resolves.toBeNull();
+    await expect(
+      repository.findByKindAndResref("item", "missing_item_template")
+    ).resolves.toBeNull();
+    expect(repository.getPrecomputedPlaceableCacheKey("plc_missing_template", "generic")).toBeNull();
+    expect(repository.getPrecomputedTemplateCacheKey("creature", "cre_missing_template")).toBeNull();
+  });
+
+  it("walks paged snapshots and keeps best duplicate candidate by size then timestamp", async () => {
+    const snapshotObjects: ModuleBlobObjectSummary[] = [
+      {
+        key: "modules/current/chunk-a/plc_dupe_size.utp",
+        size: 120,
+        lastModified: "2026-05-25T09:00:00.000Z",
+        etag: "dup-small"
+      },
+      {
+        key: "modules/current/chunk-b/plc_dupe_size.utp",
+        size: 140,
+        lastModified: "2026-05-25T08:00:00.000Z",
+        etag: "dup-large"
+      },
+      {
+        key: "modules/current/chunk-a/plc_dupe_time.utp",
+        size: 90,
+        lastModified: "2026-05-25T09:00:00.000Z",
+        etag: "dup-time-old"
+      },
+      {
+        key: "modules/current/chunk-b/plc_dupe_time.utp",
+        size: 90,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "dup-time-new"
+      },
+      {
+        key: "modules/current/chunk-z/a.utp",
+        size: 50,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "short-resref"
+      },
+      {
+        key: "modules/current/chunk-z/readme",
+        size: 12,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "no-extension"
+      }
+    ];
+
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(""),
+      createModuleBlobStorage("dupes", {
+        snapshotObjects,
+        pageSize: 2
+      })
+    );
+
+    const placeables = await repository.listByKind("placeable", { limit: 20, offset: 0 });
+
+    const byResref = new Map(placeables.items.map((item) => [item.resref, item]));
+    expect(byResref.get("plc_dupe_size")?.metadata?.sourceObjectKey).toBe(
+      "modules/current/chunk-b/plc_dupe_size.utp"
+    );
+    expect(byResref.get("plc_dupe_time")?.metadata?.sourceObjectKey).toBe(
+      "modules/current/chunk-b/plc_dupe_time.utp"
+    );
+    expect(placeables.items.some((item) => item.resref === "a")).toBe(false);
+  });
+
+  it("infers advanced placeable subtypes and creature/item categories", async () => {
+    const snapshotObjects: ModuleBlobObjectSummary[] = [
+      {
+        key: "modules/current/blueprints/placeables/city/plc_urban_statue.utp",
+        size: 500,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "urban"
+      },
+      {
+        key: "modules/current/blueprints/placeables/fx/plc_vfx_fire.utp",
+        size: 700,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "vfx"
+      },
+      {
+        key: "modules/current/blueprints/placeables/dungeon/plc_dungeon_statue.utp",
+        size: 300,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "dungeon"
+      },
+      {
+        key: "modules/current/blueprints/placeables/forest/plc_forest_statue.utp",
+        size: 280,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "forest"
+      },
+      {
+        key: "modules/current/blueprints/placeables/misc/plc_plain_statue.utp",
+        size: 260,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "plain"
+      },
+      {
+        key: "modules/current/blueprints/placeables/misc/plc_magicdoor_prop.utp",
+        size: 250,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "door-by-pattern"
+      },
+      {
+        key: "modules/current/blueprints/placeables/misc/plc_container_crate.utp",
+        size: 240,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "container"
+      },
+      {
+        key: "modules/current/blueprints/placeables/misc/plc_lantern_post.utp",
+        size: 230,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "light"
+      },
+      {
+        key: "modules/current/blueprints/placeables/misc/plc_trigger_proxy.utp",
+        size: 220,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "trigger"
+      },
+      {
+        key: "modules/current/blueprints/creatures/undead/cre_ghoul.utc",
+        size: 210,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "cre-undead"
+      },
+      {
+        key: "modules/current/blueprints/creatures/beast/cre_wolf.utc",
+        size: 205,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "cre-beast"
+      },
+      {
+        key: "modules/current/blueprints/items/weapon/itm_sword.uti",
+        size: 195,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "itm-weapon"
+      },
+      {
+        key: "modules/current/blueprints/items/armor/itm_mail.uti",
+        size: 185,
+        lastModified: "2026-05-25T10:00:00.000Z",
+        etag: "itm-armor"
+      }
+    ];
+
+    const payloadOverrides = new Map<string, ModuleBlobObjectPayload>();
+
+    const vfxKey = "modules/current/blueprints/placeables/fx/plc_vfx_fire.utp";
+    const vfxBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_vfx_fire" },
+      { label: "ModelName", type: "resref", value: "fx_fire_anchor" }
+    ]);
+    payloadOverrides.set(vfxKey, {
+      key: vfxKey,
+      size: vfxBytes.length,
+      contentType: "application/octet-stream",
+      etag: "vfx-bytes",
+      lastModified: "2026-05-25T10:00:00.000Z",
+      bytes: vfxBytes
+    });
+
+    const containerKey = "modules/current/blueprints/placeables/misc/plc_container_crate.utp";
+    const containerBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_container_crate" },
+      { label: "HasInventory", type: "byte", value: 1 }
+    ]);
+    payloadOverrides.set(containerKey, {
+      key: containerKey,
+      size: containerBytes.length,
+      contentType: "application/octet-stream",
+      etag: "container-bytes",
+      lastModified: "2026-05-25T10:00:00.000Z",
+      bytes: containerBytes
+    });
+
+    const lightKey = "modules/current/blueprints/placeables/misc/plc_lantern_post.utp";
+    const lightBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_lantern_post" },
+      { label: "LightState", type: "dword", value: 2 }
+    ]);
+    payloadOverrides.set(lightKey, {
+      key: lightKey,
+      size: lightBytes.length,
+      contentType: "application/octet-stream",
+      etag: "light-bytes",
+      lastModified: "2026-05-25T10:00:00.000Z",
+      bytes: lightBytes
+    });
+
+    const triggerKey = "modules/current/blueprints/placeables/misc/plc_trigger_proxy.utp";
+    const triggerBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_trigger_proxy" },
+      { label: "OnTrapTriggered", type: "resref", value: "script_trigger_proxy" }
+    ]);
+    payloadOverrides.set(triggerKey, {
+      key: triggerKey,
+      size: triggerBytes.length,
+      contentType: "application/octet-stream",
+      etag: "trigger-bytes",
+      lastModified: "2026-05-25T10:00:00.000Z",
+      bytes: triggerBytes
+    });
+
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("rich", { snapshotObjects, payloadOverrides })
+    );
+
+    const placeables = await repository.listByKind("placeable", { limit: 60, offset: 0 });
+    const creatures = await repository.listByKind("creature", { limit: 20, offset: 0 });
+    const items = await repository.listByKind("item", { limit: 20, offset: 0 });
+
+    const placeablesByResref = new Map(placeables.items.map((item) => [item.resref, item]));
+
+    expect(placeablesByResref.get("plc_magicdoor_prop")?.placeableSubtype).toBe("door");
+    expect(placeablesByResref.get("plc_vfx_fire")?.placeableSubtype).toBe("vfx");
+    expect(placeablesByResref.get("plc_container_crate")?.placeableSubtype).toBe("container");
+    expect(placeablesByResref.get("plc_lantern_post")?.placeableSubtype).toBe("light_source");
+    expect(placeablesByResref.get("plc_trigger_proxy")?.placeableSubtype).toBe("trigger_proxy");
+
+    expect(placeablesByResref.get("plc_urban_statue")?.category).toBe("urban");
+    expect(placeablesByResref.get("plc_dungeon_statue")?.category).toBe("dungeon");
+    expect(placeablesByResref.get("plc_forest_statue")?.category).toBe("forest");
+    expect(placeablesByResref.get("plc_plain_statue")?.category).toBe("placeable");
+    expect(placeablesByResref.get("plc_vfx_fire")?.category).toBe("effects");
+
+    expect(placeablesByResref.get("plc_vfx_fire")?.benchmarkBucket).toBe(
+      "placeable_vfx_candidate"
+    );
+    expect(placeablesByResref.get("plc_urban_statue")?.benchmarkBucket).toBe(
+      "placeable_heavy_candidate"
+    );
+
+    const creatureCategories = new Set(creatures.items.map((item) => item.category));
+    expect(creatureCategories.has("undead")).toBe(true);
+    expect(creatureCategories.has("beast")).toBe(true);
+
+    const itemCategories = new Set(items.items.map((item) => item.category));
+    expect(itemCategories.has("weapon")).toBe(true);
+    expect(itemCategories.has("armor")).toBe(true);
   });
 
   it("falls back to static repository when snapshot has no template files", async () => {
