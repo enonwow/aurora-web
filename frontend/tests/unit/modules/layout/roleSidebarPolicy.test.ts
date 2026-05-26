@@ -23,19 +23,10 @@ describe("roleSidebarPolicy", () => {
     });
   });
 
-  it("keeps builder right sidebar reserved for scene objects runtime panel", () => {
+  it("keeps builder sidebars reserved for runtime object panels", () => {
     const builderPanels = getRoleWorkspacePanels("builder");
     expect(builderPanels.right).toEqual([]);
-    expect(builderPanels.left.map((section) => section.title)).toEqual([
-      "Tile Catalog",
-      "Paint Tools",
-      "Asset Browser"
-    ]);
-    expect(builderPanels.left.map((section) => section.key)).toEqual([
-      "builder-tiles",
-      "builder-paint",
-      "builder-assets"
-    ]);
+    expect(builderPanels.left).toEqual([]);
   });
 
   it("contains DM operational sections for queue delivery flow", () => {

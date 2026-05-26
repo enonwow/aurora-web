@@ -56,4 +56,34 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
     expect(firstViewportProps.sceneViewportPort).toBe(sceneViewportPort);
   });
+
+  it("renders builder left panel with only Add Objects runtime section", () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+
+    render(
+      <WorkspaceMockLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Add Objects" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Tile Catalog" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Paint Tools" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Asset Browser" })).not.toBeInTheDocument();
+  });
 });

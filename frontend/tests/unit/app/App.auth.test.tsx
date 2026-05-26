@@ -75,7 +75,7 @@ describe("App auth mock flow", () => {
     expect(window.location.pathname).toBe("/app");
     expect(screen.getByLabelText(/workspace render canvas/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /^tile catalog$/i })
+      screen.getByRole("heading", { name: /^add objects$/i })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });

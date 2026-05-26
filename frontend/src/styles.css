@@ -1094,6 +1094,123 @@ input {
   color: #9eb5d3;
 }
 
+.scene-object-add-panel,
+.scene-objects-add-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.scene-object-add-panel-header,
+.scene-objects-add-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.scene-object-add-panel-header h2,
+.scene-objects-add-panel-header h2 {
+  margin: 0;
+}
+
+.scene-object-add-panel-note,
+.scene-objects-add-panel-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #9db3cf;
+}
+
+.scene-object-add-list,
+.scene-objects-add-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.scene-object-add-list > li,
+.scene-objects-add-list > li {
+  margin: 0;
+  padding: 0;
+}
+
+.scene-object-add-row,
+.scene-objects-add-row {
+  width: 100%;
+  border: 1px solid #355173;
+  border-radius: 8px;
+  background: #0d253d;
+  color: #deebfa;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.34rem;
+  text-align: left;
+}
+
+.scene-object-add-row:hover,
+.scene-objects-add-row:hover {
+  background: #12314f;
+}
+
+.scene-object-add-row.is-selected,
+.scene-objects-add-row.is-selected {
+  border-color: #5e8cc3;
+  box-shadow: 0 0 0 1px rgba(86, 129, 179, 0.35) inset;
+}
+
+.scene-object-add-row img,
+.scene-objects-add-row img {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  border: 1px solid #3e5f86;
+  background: #0a1526;
+  flex: 0 0 auto;
+}
+
+.scene-object-add-row-meta,
+.scene-objects-add-row-meta {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.scene-object-add-row-meta strong,
+.scene-objects-add-row-meta strong {
+  color: #f2f7ff;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-object-add-row-meta small,
+.scene-objects-add-row-meta small {
+  color: #a9c0de;
+  font-size: 0.69rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-object-add-row[draggable="true"],
+.scene-objects-add-row[draggable="true"],
+.scene-objects-section .scene-object-row[draggable="true"] {
+  cursor: grab;
+}
+
+.scene-object-add-row[draggable="true"]:active,
+.scene-objects-add-row[draggable="true"]:active,
+.scene-objects-section .scene-object-row[draggable="true"]:active {
+  cursor: grabbing;
+  filter: brightness(1.06);
+}
+
 .workspace-canvas-layer {
   position: absolute;
   inset: 0;
@@ -2698,6 +2815,30 @@ input {
   line-height: 1.35;
   padding: 0.42rem 0.58rem;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+
+.canvas-object-add-drop-feedback {
+  position: absolute;
+  left: 0.85rem;
+  bottom: 3.35rem;
+  z-index: 6;
+  border-radius: 9px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  padding: 0.44rem 0.62rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+
+.canvas-object-add-drop-feedback-warning {
+  border: 1px solid #8a6241;
+  background: rgba(43, 28, 16, 0.95);
+  color: #ffd7b4;
+}
+
+.canvas-object-add-drop-feedback-success {
+  border: 1px solid #4f7f65;
+  background: rgba(16, 36, 22, 0.94);
+  color: #d6f2c8;
 }
 
 @media (max-width: 980px) {

@@ -33,7 +33,7 @@ const rolePanelExpectations = [
     label: "builder",
     username: "builder.user",
     password: "builder123",
-    left: ["Tile Catalog", "Paint Tools", "Asset Browser"],
+    left: ["Add Objects"],
     right: ["Scene Objects"]
   },
   {
@@ -204,6 +204,25 @@ describe("App workspace side panels", () => {
     expect(screen.getByRole("menuitem", { name: /^delete$/i })).toBeInTheDocument();
   });
 
+  it("renders add panel type selector without all option", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const leftSidebar = screen.getByLabelText(/left sidebar/i);
+    const addObjectsSection = within(leftSidebar).getByRole("article", {
+      name: /add objects section/i
+    });
+
+    const addPanelSelector = within(addObjectsSection).getByRole("combobox", {
+      name: /add object type selector/i
+    }) as HTMLSelectElement;
+
+    const optionValues = Array.from(addPanelSelector.options).map((option) =>
+      option.value.toLowerCase()
+    );
+    expect(optionValues).not.toContain("all");
+  });
+
   it("renders placeable and door properties panels from context flow", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
@@ -255,7 +274,7 @@ describe("App workspace side panels", () => {
     const leftSidebarAfterRelogin = screen.getByLabelText(/left sidebar/i);
     const rightSidebarAfterRelogin = screen.getByLabelText(/right sidebar/i);
     expect(
-      within(leftSidebarAfterRelogin).queryByRole("heading", { name: /^tile catalog$/i })
+      within(leftSidebarAfterRelogin).queryByRole("heading", { name: /^add objects$/i })
     ).not.toBeInTheDocument();
     expect(
       within(rightSidebarAfterRelogin).queryByRole("heading", { name: /^properties$/i })

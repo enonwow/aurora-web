@@ -9,6 +9,7 @@ import type {
 } from "../application/workspaceChromeFacade";
 import type { SceneObjectCatalogQueryFacade } from "../application/sceneObjectCatalogQueryFacade";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
+import { SceneObjectAddPanel } from "./SceneObjectAddPanel";
 import { SceneObjectListPanel } from "./SceneObjectListPanel";
 import type { SceneObjectCatalogType } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
@@ -189,6 +190,7 @@ export function WorkspaceMockLayout({
     : SIDEBAR_EXPANDED_WIDTH_PX;
 
   const shouldRenderSceneObjectsPanel = role === "builder";
+  const shouldRenderSceneObjectAddPanel = role === "builder";
   const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
     setSceneObjectsSnapshot(objects);
   }, []);
@@ -250,6 +252,16 @@ export function WorkspaceMockLayout({
         side="left"
         title="left sidebar"
         sections={panels.left}
+        customContent={
+          shouldRenderSceneObjectAddPanel ? (
+            <SceneObjectAddPanel
+              userId={userId}
+              objects={sceneObjectsSnapshot}
+              sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+              trackTelemetryEvent={trackTelemetryEvent}
+            />
+          ) : undefined
+        }
         collapsed={leftCollapsed}
         onToggle={onToggleLeftCollapsed}
       />

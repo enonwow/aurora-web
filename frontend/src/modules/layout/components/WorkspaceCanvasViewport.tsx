@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
+  DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from "react";
@@ -48,6 +49,13 @@ import {
   normalizeSoundGuidePositioning,
   resolveSoundGuideOverlayFlagsFromPositioning
 } from "../soundGuideDomain";
+import {
+  getCurrentObjectAddDragPayload,
+  OBJECT_ADD_DRAG_MIME,
+  type ObjectAddDragPayload,
+  setCurrentObjectAddDragPayload,
+  tryParseObjectAddPayload
+} from "./objectAddDragPayload";
 
 type WorkspaceCanvasViewportFacade = Pick<
   ViewportFacade,
@@ -325,6 +333,33 @@ interface DragMoveState {
   objectIds: string[];
 }
 
+interface CanvasObjectAddPreviewState {
+  payload: ObjectAddDragPayload;
+  placementX: number;
+  placementY: number;
+  screenX: number;
+  screenY: number;
+}
+
+interface ObjectAddPlacementCacheState {
+  payloadKey: string;
+  placementX: number;
+  placementY: number;
+  tileId: string | null;
+  updatedAtUnixMs: number;
+}
+
+interface ObjectAddGhostState {
+  payloadKey: string;
+  mesh: THREE.Mesh;
+  sceneScale: number;
+}
+
+interface ObjectAddDropFeedbackState {
+  message: string;
+  variant: "warning" | "success";
+}
+
 const ADJUST_LOCATION_DIALOG_MARGIN_PX = 12;
 const CONTEXT_MENU_MARGIN_PX = 12;
 const CONTEXT_MENU_FALLBACK_WIDTH_PX = 260;
@@ -562,7 +597,6 @@ const SOUND_HOUR_LABELS = [
   "10",
   "11"
 ] as const;
-
 function clampSoundHourIndex(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
@@ -1294,12 +1328,84 @@ function snapGridValue(value: number, step: number): number {
 
 const SCENE_COORDINATE_MIN = 0;
 const SCENE_COORDINATE_EPSILON = 1e-4;
+const OBJECT_ADD_PLACEMENT_CACHE_MAX_AGE_MS = 2000;
 
 function resolveSceneCoordinateMax(size: number): number {
   if (!Number.isFinite(size)) {
     return SCENE_COORDINATE_MIN;
   }
   return Math.max(SCENE_COORDINATE_MIN, size - SCENE_COORDINATE_EPSILON);
+}
+
+function clampPlacementToSceneBounds(
+  scene: AreaScene,
+  placementX: number,
+  placementY: number
+): { x: number; y: number } {
+  const maxX = resolveSceneCoordinateMax(scene.width);
+  const maxY = resolveSceneCoordinateMax(scene.height);
+  return {
+    x: Math.min(maxX, Math.max(SCENE_COORDINATE_MIN, placementX)),
+    y: Math.min(maxY, Math.max(SCENE_COORDINATE_MIN, placementY))
+  };
+}
+
+function resolveObjectPlacementFromWorldPoint(
+  scene: AreaScene,
+  rawX: number,
+  rawY: number,
+  snapGrid: boolean,
+  snapGridStep: number
+): { x: number; y: number } {
+  const snappedX = snapGrid ? snapGridValue(rawX, snapGridStep) : rawX;
+  const snappedY = snapGrid ? snapGridValue(rawY, snapGridStep) : rawY;
+  return clampPlacementToSceneBounds(scene, snappedX, snappedY);
+}
+
+function resolveObjectAddPayloadKey(payload: ObjectAddDragPayload): string {
+  return `${payload.kind}::${payload.resRef.trim().toLowerCase()}::${payload.tag.trim().toLowerCase()}`;
+}
+
+export function resolveObjectAddDropPlacement(args: {
+  payload: ObjectAddDragPayload;
+  scene: AreaScene;
+  preview:
+    | { payload: ObjectAddDragPayload; placementX: number; placementY: number }
+    | null
+    | undefined;
+  cachedPlacement:
+    | {
+        payloadKey: string;
+        placementX: number;
+        placementY: number;
+        tileId: string | null;
+        updatedAtUnixMs: number;
+      }
+    | null
+    | undefined;
+  dropPlacement: { x: number; y: number; tileId: string | null } | null;
+  nowUnixMs: number;
+}): { x: number; y: number; tileId: string | null } | null {
+  const payloadKey = resolveObjectAddPayloadKey(args.payload);
+  const previewPlacement =
+    args.preview && resolveObjectAddPayloadKey(args.preview.payload) === payloadKey
+      ? {
+          x: args.preview.placementX,
+          y: args.preview.placementY,
+          tileId: findTileAtWorld(args.scene, args.preview.placementX, args.preview.placementY)?.id ?? null
+        }
+      : null;
+  const cachedPlacement =
+    args.cachedPlacement &&
+    args.cachedPlacement.payloadKey === payloadKey &&
+    args.nowUnixMs - args.cachedPlacement.updatedAtUnixMs <= OBJECT_ADD_PLACEMENT_CACHE_MAX_AGE_MS
+      ? {
+          x: args.cachedPlacement.placementX,
+          y: args.cachedPlacement.placementY,
+          tileId: args.cachedPlacement.tileId
+        }
+      : null;
+  return previewPlacement ?? cachedPlacement ?? args.dropPlacement;
 }
 
 function clampDeltaToBounds(delta: number, minDelta: number, maxDelta: number): number {
@@ -2815,6 +2921,11 @@ export function WorkspaceCanvasViewport({
   );
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
+  const [objectAddPreview, setObjectAddPreview] = useState<CanvasObjectAddPreviewState | null>(
+    null
+  );
+  const objectAddPlacementCacheRef = useRef<ObjectAddPlacementCacheState | null>(null);
+  const objectAddGhostRef = useRef<ObjectAddGhostState | null>(null);
   const terrainBrush: TerrainBrushKind = "corridor";
   const [objectBrush, setObjectBrush] = useState<SceneObjectKind>("placeables");
   const [lastSavedAtUnixMs, setLastSavedAtUnixMs] = useState<number | null>(null);
@@ -2840,6 +2951,7 @@ export function WorkspaceCanvasViewport({
     RuntimeSoundNowPlayingBadge[]
   >([]);
   const [runtimePopupPinned, setRuntimePopupPinned] = useState(false);
+  const [objectAddDropFeedback, setObjectAddDropFeedback] = useState<ObjectAddDropFeedbackState | null>(null);
   const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot>({
     fps: 0,
     drawCalls: 0,
@@ -2850,6 +2962,67 @@ export function WorkspaceCanvasViewport({
   const trackTelemetry = trackTelemetryEvent;
   const scene = sceneHistory.present;
   const adjustLocationUnitsPerTile = Math.max(1, viewportFacade.defaultMasterCellsPerTile);
+  const clearObjectAddGhost = useCallback(() => {
+    const current = objectAddGhostRef.current;
+    if (!current) {
+      return;
+    }
+    current.mesh.removeFromParent();
+    current.mesh.geometry.dispose();
+    const materials = Array.isArray(current.mesh.material) ? current.mesh.material : [current.mesh.material];
+    materials.forEach((material) => material.dispose());
+    objectAddGhostRef.current = null;
+  }, []);
+  const syncObjectAddGhost = useCallback(
+    (payload: ObjectAddDragPayload, placementX: number, placementY: number, isInsideCanvasArea: boolean) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        return;
+      }
+      const payloadKey = resolveObjectAddPayloadKey(payload);
+      const sceneScale = sceneViewportPort.getSceneScale(scene.width, scene.height);
+      const markerRadius = 0.24 * sceneScale;
+      const sphereRadius = payload.kind === "sounds" ? markerRadius * 0.82 : markerRadius;
+      const existingGhost = objectAddGhostRef.current;
+      const shouldRecreateGhost =
+        !existingGhost ||
+        existingGhost.payloadKey !== payloadKey ||
+        Math.abs(existingGhost.sceneScale - sceneScale) > 1e-6;
+
+      if (shouldRecreateGhost) {
+        clearObjectAddGhost();
+        const ghostMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(sphereRadius, payload.kind === "sounds" ? 18 : 22, payload.kind === "sounds" ? 18 : 22),
+          new THREE.MeshLambertMaterial({
+            color: new THREE.Color(OBJECT_COLORS[payload.kind]),
+            transparent: true,
+            opacity: 0.7,
+            wireframe: toolbarState.canvasDebug.wireframe,
+            depthWrite: false
+          })
+        );
+        ghostMesh.renderOrder = 30;
+        ghostMesh.raycast = () => undefined;
+        runtime.gizmoLayer.add(ghostMesh);
+        objectAddGhostRef.current = {
+          payloadKey,
+          mesh: ghostMesh,
+          sceneScale
+        };
+      }
+
+      const activeGhost = objectAddGhostRef.current?.mesh;
+      if (!activeGhost) {
+        return;
+      }
+      const activeGhostMaterial = activeGhost.material as THREE.MeshLambertMaterial;
+      activeGhostMaterial.color.set(isInsideCanvasArea ? OBJECT_COLORS[payload.kind] : "#ff5e73");
+      activeGhostMaterial.opacity = isInsideCanvasArea ? 0.7 : 0.42;
+      activeGhostMaterial.needsUpdate = true;
+      activeGhost.position.set(placementX, markerRadius + 0.012, placementY);
+    },
+    [clearObjectAddGhost, scene.height, scene.width, sceneViewportPort, toolbarState.canvasDebug.wireframe]
+  );
 
   useEffect(() => {
     onSceneObjectsSnapshotChange?.(scene.objects);
@@ -2858,6 +3031,40 @@ export function WorkspaceCanvasViewport({
   useEffect(() => {
     onSelectionSnapshotChange?.(selectedObjectIds);
   }, [onSelectionSnapshotChange, selectedObjectIds]);
+
+  useEffect(() => {
+    const clearObjectAddPreview = () => {
+      setObjectAddPreview(null);
+      setCurrentObjectAddDragPayload(null);
+      objectAddPlacementCacheRef.current = null;
+      clearObjectAddGhost();
+    };
+    window.addEventListener("dragend", clearObjectAddPreview);
+    window.addEventListener("drop", clearObjectAddPreview);
+    return () => {
+      window.removeEventListener("dragend", clearObjectAddPreview);
+      window.removeEventListener("drop", clearObjectAddPreview);
+    };
+  }, [clearObjectAddGhost]);
+
+  useEffect(
+    () => () => {
+      clearObjectAddGhost();
+    },
+    [clearObjectAddGhost]
+  );
+
+  useEffect(() => {
+    if (!objectAddDropFeedback) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setObjectAddDropFeedback(null);
+    }, 2600);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [objectAddDropFeedback]);
 
   useEffect(() => {
     if (!sidebarSelectSignal) {
@@ -4796,12 +5003,15 @@ export function WorkspaceCanvasViewport({
 
         const rawPlacementX = groundHit?.x ?? tile.col + 0.5;
         const rawPlacementY = groundHit?.z ?? tile.row + 0.5;
-        const placementX = toolbarState.canvasDebug.snapGrid
-          ? snapGridValue(rawPlacementX, workspaceOptions.snapGridStep)
-          : rawPlacementX;
-        const placementY = toolbarState.canvasDebug.snapGrid
-          ? snapGridValue(rawPlacementY, workspaceOptions.snapGridStep)
-          : rawPlacementY;
+        const placement = resolveObjectPlacementFromWorldPoint(
+          scene,
+          rawPlacementX,
+          rawPlacementY,
+          toolbarState.canvasDebug.snapGrid,
+          workspaceOptions.snapGridStep
+        );
+        const placementX = placement.x;
+        const placementY = placement.y;
 
         const created = sceneViewportPort.createObject(
           kind,
@@ -8004,9 +8214,244 @@ export function WorkspaceCanvasViewport({
     : new Array<boolean>(SOUND_HOUR_COUNT).fill(false);
   const soundAdvancedWhenToPlay = soundPropertiesDialog?.draft.whenToPlay ?? "always";
   const isSoundSpecificHoursEnabled = soundAdvancedWhenToPlay === "hours";
+  const resolveCanvasObjectAddPlacement = useCallback(
+    (clientX: number, clientY: number): { x: number; y: number; tileId: string | null } | null => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        return null;
+      }
+
+      const rect = runtime.renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+      }
+
+      const boundedClientX = Math.min(rect.right, Math.max(rect.left, clientX));
+      const boundedClientY = Math.min(rect.bottom, Math.max(rect.top, clientY));
+      const ndc = new THREE.Vector2(
+        ((boundedClientX - rect.left) / rect.width) * 2 - 1,
+        -((boundedClientY - rect.top) / rect.height) * 2 + 1
+      );
+      const groundHit = intersectionOnGround(runtime, ndc);
+      if (!groundHit) {
+        return null;
+      }
+
+      const placementX = groundHit.x;
+      const placementY = groundHit.z;
+      const tile = findTileAtWorld(scene, placementX, placementY);
+      return {
+        x: placementX,
+        y: placementY,
+        tileId: tile?.id ?? null
+      };
+    },
+    [scene]
+  );
+
+  const handleCanvasDragOver = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      const payload =
+        tryParseObjectAddPayload(event.dataTransfer.getData(OBJECT_ADD_DRAG_MIME)) ??
+        getCurrentObjectAddDragPayload();
+      if (!payload) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+
+      if (isKindLocked(toolbarState.canvasDebug, payload.kind)) {
+        setObjectAddPreview(null);
+        objectAddPlacementCacheRef.current = null;
+        clearObjectAddGhost();
+        return;
+      }
+      const payloadKey = resolveObjectAddPayloadKey(payload);
+
+      const placement = resolveCanvasObjectAddPlacement(event.clientX, event.clientY);
+      if (!placement) {
+        setObjectAddPreview(null);
+        clearObjectAddGhost();
+        return;
+      }
+      objectAddPlacementCacheRef.current = {
+        payloadKey,
+        placementX: placement.x,
+        placementY: placement.y,
+        tileId: placement.tileId,
+        updatedAtUnixMs: Date.now()
+      };
+
+      setObjectAddPreview({
+        payload,
+        placementX: placement.x,
+        placementY: placement.y,
+        screenX: event.clientX,
+        screenY: event.clientY
+      });
+      syncObjectAddGhost(payload, placement.x, placement.y, placement.tileId !== null);
+    },
+    [
+      clearObjectAddGhost,
+      resolveCanvasObjectAddPlacement,
+      setObjectAddPreview,
+      syncObjectAddGhost,
+      toolbarState.canvasDebug
+    ]
+  );
+
+  const handleCanvasDragLeave = useCallback(() => {
+    setObjectAddPreview(null);
+    clearObjectAddGhost();
+  }, [clearObjectAddGhost]);
+
+  const handleCanvasDrop = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      const payload =
+        tryParseObjectAddPayload(event.dataTransfer.getData(OBJECT_ADD_DRAG_MIME)) ??
+        getCurrentObjectAddDragPayload();
+      if (!payload) {
+        objectAddPlacementCacheRef.current = null;
+        setCurrentObjectAddDragPayload(null);
+        clearObjectAddGhost();
+        return;
+      }
+      event.preventDefault();
+      if (isKindLocked(toolbarState.canvasDebug, payload.kind)) {
+        objectAddPlacementCacheRef.current = null;
+        setCurrentObjectAddDragPayload(null);
+        clearObjectAddGhost();
+        return;
+      }
+
+      const canResolveFromDropPoint =
+        Number.isFinite(event.clientX) &&
+        Number.isFinite(event.clientY) &&
+        (event.clientX !== 0 || event.clientY !== 0);
+      const dropPlacement = canResolveFromDropPoint
+        ? resolveCanvasObjectAddPlacement(event.clientX, event.clientY)
+        : null;
+      const resolvedPlacement = resolveObjectAddDropPlacement({
+        payload,
+        scene,
+        preview: objectAddPreview,
+        cachedPlacement: objectAddPlacementCacheRef.current,
+        dropPlacement,
+        nowUnixMs: Date.now()
+      });
+      setObjectAddPreview(null);
+      objectAddPlacementCacheRef.current = null;
+      setCurrentObjectAddDragPayload(null);
+      clearObjectAddGhost();
+      if (!resolvedPlacement || !resolvedPlacement.tileId) {
+        setObjectAddDropFeedback({
+          variant: "warning",
+          message: "Obiekt upuszczono poza obszarem canvasu. Przenieś go nad tile i spróbuj ponownie."
+        });
+        trackTelemetry("scene.objects.add_from_panel_blocked_outside_canvas", {
+          userId,
+          kind: payload.kind
+        });
+        return;
+      }
+
+      setObjectAddDropFeedback(null);
+
+      const placementX = resolvedPlacement.x;
+      const placementY = resolvedPlacement.y;
+
+      const newObjectSequence = nextObjectSequenceRef.current;
+      nextObjectSequenceRef.current += 1;
+      const created = sceneViewportPort.createObject(
+        payload.kind,
+        placementX,
+        placementY,
+        newObjectSequence
+      );
+      if (toolbarState.canvasDebug.snapAngle) {
+        created.bearing = snapAngleRadians(created.bearing, workspaceOptions.snapAngleStepDeg);
+      }
+      if (toolbarState.canvasDebug.snapHeight) {
+        created.z = snapHeightValue(created.z, workspaceOptions.snapHeightStep);
+      }
+
+      created.resRef = payload.resRef;
+      created.name = payload.name;
+
+      const sourceTemplate = scene.objects.find((object) => object.id === payload.id);
+      if (sourceTemplate) {
+        created.resRef = sourceTemplate.resRef;
+        created.name = sourceTemplate.name;
+        created.isStatic = sourceTemplate.isStatic;
+        created.placeableProperties = sourceTemplate.placeableProperties
+          ? {
+              ...sourceTemplate.placeableProperties,
+              scriptSlots: sourceTemplate.placeableProperties.scriptSlots
+                ? { ...sourceTemplate.placeableProperties.scriptSlots }
+                : undefined,
+              disabledFlags: sourceTemplate.placeableProperties.disabledFlags
+                ? { ...sourceTemplate.placeableProperties.disabledFlags }
+                : undefined
+            }
+          : undefined;
+        created.soundPositioning = sourceTemplate.soundPositioning
+          ? {
+              ...sourceTemplate.soundPositioning,
+              preserve: sourceTemplate.soundPositioning.preserve
+                ? {
+                    ...sourceTemplate.soundPositioning.preserve,
+                    flags: { ...sourceTemplate.soundPositioning.preserve.flags },
+                    extra: { ...sourceTemplate.soundPositioning.preserve.extra }
+                  }
+                : undefined
+            }
+          : undefined;
+        created.doorTransition = sourceTemplate.doorTransition
+          ? {
+              ...sourceTemplate.doorTransition,
+              flags: { ...sourceTemplate.doorTransition.flags }
+            }
+          : undefined;
+      }
+
+      setSceneHistory((current) =>
+        sceneViewportPort.commitHistory(
+          current,
+          sceneViewportPort.appendObjects(current.present, [created])
+        )
+      );
+      setSelectedObjectIds([created.id]);
+      setSelectedTileId(resolvedPlacement.tileId);
+      trackTelemetry("scene.objects.add_from_panel", {
+        userId,
+        kind: payload.kind,
+        objectId: created.id,
+        sourceTemplateId: payload.id ?? null
+      });
+    },
+    [
+      clearObjectAddGhost,
+      scene,
+      scene.objects,
+      sceneViewportPort,
+      toolbarState.canvasDebug,
+      trackTelemetry,
+      userId,
+      objectAddPreview,
+      resolveCanvasObjectAddPlacement,
+      workspaceOptions.snapAngleStepDeg,
+      workspaceOptions.snapGridStep,
+      workspaceOptions.snapHeightStep
+    ]
+  );
 
   return (
-    <section className="canvas-stage-real">
+    <section
+      className="canvas-stage-real"
+      onDragOver={handleCanvasDragOver}
+      onDragLeave={handleCanvasDragLeave}
+      onDrop={handleCanvasDrop}
+    >
       <div
         ref={hostRef}
         className="workspace-render-canvas"
@@ -9514,6 +9959,17 @@ export function WorkspaceCanvasViewport({
               </>
             ) : null}
           </article>
+        </aside>
+      ) : null}
+
+      {objectAddDropFeedback ? (
+        <aside
+          className={`canvas-object-add-drop-feedback canvas-object-add-drop-feedback-${objectAddDropFeedback.variant}`}
+          role="status"
+          aria-live="polite"
+          style={{ left: `${hudLeftPx}px`, maxWidth: hudMaxWidth }}
+        >
+          {objectAddDropFeedback.message}
         </aside>
       ) : null}
 

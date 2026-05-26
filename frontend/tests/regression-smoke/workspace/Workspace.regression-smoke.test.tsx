@@ -8,6 +8,7 @@ import { MASTER_CELLS_PER_TILE } from "../../../src/modules/layout/canvasGrid";
 import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
+import { OBJECT_ADD_DRAG_MIME } from "../../../src/modules/layout/components/objectAddDragPayload";
 import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
@@ -779,7 +780,7 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.click(leftSidebar);
     fireEvent.click(rightSidebar);
 
-    expect(within(leftSidebar).getByRole("heading", { name: /^tile catalog$/i })).toBeInTheDocument();
+    expect(within(leftSidebar).getByRole("heading", { name: /^add objects$/i })).toBeInTheDocument();
     expect(within(rightSidebar).getByRole("heading", { name: /^scene objects$/i })).toBeInTheDocument();
 
     const storedRaw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
@@ -1047,6 +1048,30 @@ describe("Regression smoke: workspace interactions", () => {
       expect(rowA).toHaveAttribute("aria-selected", "true");
       expect(rowB).toHaveAttribute("aria-selected", "false");
     });
+  });
+
+  it("exposes draggable add-panel rows and sets payload mime key on dragstart", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const leftSidebar = screen.getByLabelText(/left sidebar/i);
+    const addObjectsSection = within(leftSidebar).getByRole("article", {
+      name: /add objects section/i
+    });
+
+    const dragRows = Array.from(
+      addObjectsSection.querySelectorAll('[draggable="true"]')
+    ) as HTMLElement[];
+    expect(dragRows.length).toBeGreaterThan(0);
+
+    const setData = vi.fn();
+    fireEvent.dragStart(dragRows[0], {
+      dataTransfer: { setData, effectAllowed: "" }
+    });
+
+    expect(setData).toHaveBeenCalled();
+    const firstCallMimeKey = String(setData.mock.calls[0]?.[0] ?? "");
+    expect(firstCallMimeKey).toBe(OBJECT_ADD_DRAG_MIME);
   });
 
   it("opens keyboard shortcuts with '?' and closes with Escape", async () => {

@@ -12,7 +12,8 @@ describe("workspaceChromeFacade", () => {
     expect(builderGroups.length).toBeGreaterThan(0);
     expect(builderGroups.some((group) => group.key === "canvas")).toBe(true);
     expect(builderShortcuts.some((shortcut) => shortcut.key === "?")).toBe(true);
-    expect(builderPanels.left.length).toBeGreaterThan(0);
+    expect(builderPanels.left).toEqual([]);
+    expect(builderPanels.right).toEqual([]);
   });
 
   it("creates and mutates toolbar state through facade actions", () => {
@@ -27,4 +28,3 @@ describe("workspaceChromeFacade", () => {
     expect(toTerrain.selectionMode).toBe("terrain");
   });
 });
-

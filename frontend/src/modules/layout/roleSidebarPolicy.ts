@@ -39,30 +39,7 @@ const rolePanels: Record<WorkspaceUserRole, RoleWorkspacePanels> = {
     ]
   },
   builder: {
-    left: [
-      {
-        key: "builder-tiles",
-        title: "Tile Catalog",
-        items: ["Features", "Groups", "Terrain", "Rotate texture", "Show plot"]
-      },
-      {
-        key: "builder-paint",
-        title: "Paint Tools",
-        items: [
-          "Paint terrain",
-          "Paint creatures",
-          "Paint doors",
-          "Paint items",
-          "Paint placeables",
-          "Paint sounds"
-        ]
-      },
-      {
-        key: "builder-assets",
-        title: "Asset Browser",
-        items: ["Placeables", "Creatures", "Doors", "Items", "Sounds"]
-      }
-    ],
+    left: [],
     right: []
   },
   dm: {
