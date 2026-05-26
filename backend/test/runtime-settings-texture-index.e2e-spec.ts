@@ -93,10 +93,24 @@ class InMemoryModuleBlobStorage implements ModuleBlobStoragePort {
     return {
       key,
       size: bytes.length,
-      contentType: "application/json",
+      contentType: inferContentTypeFromKey(key),
       bytes: Buffer.from(bytes)
     };
   }
+}
+
+function inferContentTypeFromKey(key: string): string {
+  const normalized = key.toLowerCase();
+  if (normalized.endsWith(".dds")) {
+    return "image/vnd-ms.dds";
+  }
+  if (normalized.endsWith(".tga")) {
+    return "image/x-tga";
+  }
+  if (normalized.endsWith(".json")) {
+    return "application/json";
+  }
+  return "application/octet-stream";
 }
 
 function normalizePrefix(value: string): string {
@@ -305,6 +319,97 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
       })
     );
     expect(summary.body.data.totalTextures).toBeGreaterThan(0);
+  });
+
+  it("exposes texture delivery contracts and blob download for scene.read role", async () => {
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+
+    const currentSettings = await supertest(httpServer)
+      .get("/api/v1/settings/runtime")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .expect(200);
+
+    const current = currentSettings.body.data as {
+      paths: Record<string, string>;
+      blobStorage: Record<string, unknown>;
+      telemetryDebugMode: "off" | "basic" | "full";
+      hakProfiles: Record<string, string[]>;
+      sources: Record<string, Record<string, unknown>>;
+      benchmarkCandidates: Record<string, unknown>;
+    };
+
+    await supertest(httpServer)
+      .put("/api/v1/settings/runtime")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        paths: {
+          ...current.paths,
+          moduleDecompiledPath: moduleFixtureRoot,
+          modulePackedPath: "",
+          hakDirectoryPath: moduleFixtureRoot,
+          vanillaDataPath: moduleFixtureRoot
+        },
+        blobStorage: {
+          ...current.blobStorage,
+          modulePrefix: "modules/e2e-runtime-texture-delivery"
+        },
+        telemetryDebugMode: current.telemetryDebugMode,
+        hakProfiles: current.hakProfiles,
+        sources: {
+          placeable: {
+            ...current.sources.placeable,
+            includeHaks: false,
+            includeVanilla: false
+          },
+          tile: {
+            ...current.sources.tile,
+            includeHaks: false,
+            includeVanilla: false
+          },
+          area: {
+            ...current.sources.area,
+            includeHaks: false,
+            includeVanilla: false
+          },
+          sound: {
+            ...current.sources.sound,
+            includeHaks: false,
+            includeVanilla: false
+          }
+        },
+        benchmarkCandidates: current.benchmarkCandidates
+      })
+      .expect(200);
+
+    await supertest(httpServer)
+      .post("/api/v1/settings/runtime/module-cache/rebuild")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .expect(201);
+
+    const contracts = await supertest(httpServer)
+      .get("/api/v1/settings/runtime/module-cache/textures/contracts?limit=1&offset=0")
+      .set("Authorization", `Bearer ${builderToken}`)
+      .expect(200);
+
+    expect(contracts.body.data.available).toBe(true);
+    expect(contracts.body.data.assets.length).toBeGreaterThan(0);
+    const asset = contracts.body.data.assets[0] as {
+      textureId: string;
+      deliveryPath: string;
+      objectKey: string;
+    };
+    expect(asset.textureId).toMatch(/^[a-f0-9]{24}$/u);
+    expect(asset.deliveryPath).toContain("/api/v1/settings/runtime/module-cache/textures/");
+
+    const blob = await supertest(httpServer)
+      .get(asset.deliveryPath)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .expect(200);
+
+    expect(blob.headers["x-aurora-texture-id"]).toBe(asset.textureId);
+    expect(blob.headers["x-aurora-texture-object-key"]).toBe(asset.objectKey);
+    expect(Number(blob.headers["content-length"])).toBeGreaterThan(0);
   });
 
   async function loginAndGetToken(username: string, password: string): Promise<string> {

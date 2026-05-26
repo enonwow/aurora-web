@@ -1,21 +1,26 @@
-import { Body, Controller, Get, Post, Put, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Put, Query, Req, Res } from "@nestjs/common";
 import {
   ApiBearerAuth,
+  ApiParam,
   ApiOperation,
   ApiQuery,
   ApiResponse,
   ApiTags
 } from "@nestjs/swagger";
+import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
+import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { RuntimeSettingsApplicationService } from "../../../application/runtime-settings.application.service";
 import {
   parseModuleCacheRebuildQuery,
   parseModuleCacheSummaryQuery,
   parseReplaceRuntimeSettingsRequest,
+  parseTextureDeliveryQuery,
+  parseTextureIdParam,
   parseTextureIndexQuery,
   TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
   TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
@@ -130,6 +135,95 @@ export class RuntimeSettingsController {
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
+  @Get("module-cache/textures/contracts")
+  @Roles(...ALL_ROLES)
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary:
+      "Build binary delivery contracts for texture index entries (delivery path + S3 key metadata)."
+  })
+  @ApiQuery({
+    name: "textureIds",
+    required: false,
+    type: String,
+    description:
+      "Optional list of texture ids (comma-separated string or repeated query param)."
+  })
+  @ApiQuery({
+    name: "resref",
+    required: false,
+    type: String,
+    description: "Optional exact texture resref filter (case-insensitive)."
+  })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    type: Number,
+    schema: {
+      default: TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+      minimum: 1,
+      maximum: 1000
+    }
+  })
+  @ApiQuery({
+    name: "offset",
+    required: false,
+    type: Number,
+    schema: {
+      default: TEXTURE_INDEX_QUERY_DEFAULT_OFFSET,
+      minimum: 0
+    }
+  })
+  @ApiResponse({ status: 200, description: "Texture delivery contract list." })
+  @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getTextureDeliveryContracts(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    const parsed = parseTextureDeliveryQuery(query);
+    const data = await this.settingsService.getTextureDeliveryContracts(parsed);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("module-cache/textures/:textureId")
+  @Roles(...ALL_ROLES)
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary:
+      "Download texture blob from module cache by texture id from texture-index.v1."
+  })
+  @ApiParam({
+    name: "textureId",
+    description: "24-char texture id from texture-index entries."
+  })
+  @ApiResponse({ status: 200, description: "Binary texture payload." })
+  @ApiResponse({ status: 404, description: "Texture index, entry, or blob was not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getTextureBlob(
+    @Param("textureId") rawTextureId: string,
+    @Res() response: FastifyReply
+  ) {
+    const textureId = parseTextureIdParam(rawTextureId);
+    const data = await this.settingsService.getTextureBlobById(textureId);
+
+    response.header("Content-Type", data.payload.contentType);
+    response.header("Content-Length", String(data.payload.size));
+    response.header("Cache-Control", "private, max-age=120");
+    if (data.payload.etag) {
+      response.header("ETag", data.payload.etag);
+    }
+    response.header("X-Aurora-Texture-Id", data.texture.textureId);
+    response.header("X-Aurora-Texture-Resref", data.texture.resref);
+    response.header("X-Aurora-Texture-Object-Key", data.texture.objectKey);
+    response.header(
+      "Content-Disposition",
+      `inline; filename="${sanitizeHeaderFileName(data.texture.resref)}.${sanitizeHeaderFileName(data.texture.extension)}"`
+    );
+
+    return response.send(data.payload.bytes);
+  }
+
   @Post("module-cache/rebuild")
   @Permissions("admin.config.write")
   @ApiOperation({
@@ -175,4 +269,8 @@ export class RuntimeSettingsController {
     );
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
+}
+
+function sanitizeHeaderFileName(value: string): string {
+  return value.replace(/["\\\r\n]/gu, "_");
 }

@@ -43,8 +43,7 @@ describe("AppConfigService", () => {
     expect(config.databaseUrl).toBe("postgres://user:pass@localhost:5432/db");
     expect(config.contractVersion).toBe("9.9.9");
     expect(config.corsAllowedOrigins).toEqual(["http://a.local", "http://b.local"]);
-    // z.coerce.boolean treats non-empty strings (including "false") as true.
-    expect(config.swaggerEnabled).toBe(true);
+    expect(config.swaggerEnabled).toBe(false);
     expect(config.swaggerPath).toBe("swagger-ui");
     expect(config.swaggerJsonPath).toBe("swagger-json");
     expect(config.authRepositoryDriver).toBe("memory");
@@ -59,6 +58,18 @@ describe("AppConfigService", () => {
     expect(config.processingCacheL1AdmissionWindowSeconds).toBe(60);
     expect(config.runtimeSettingsFile).toBe("./tmp/runtime-settings.json");
     expect(config.processingGraphSnapshotFile).toBe("./tmp/graph-snapshot.json");
+  });
+
+  it("parses boolean env aliases for true/false", () => {
+    process.env = {
+      ...process.env,
+      SWAGGER_ENABLED: "on",
+      ENABLE_BLOB_ASSET_LOOKUP_IN_TEST: "0"
+    };
+
+    const config = new AppConfigService();
+    expect(config.swaggerEnabled).toBe(true);
+    expect(config.enableBlobAssetLookupInTest).toBe(false);
   });
 
   it("declares config module providers", () => {

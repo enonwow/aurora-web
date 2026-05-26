@@ -238,6 +238,113 @@ describe("RuntimeSettingsApplicationService", () => {
     expect(paged.entries[0]!.resref).toBe("h_fire");
   });
 
+  it("builds texture delivery contracts and filters by texture ids", async () => {
+    const current = buildSettingsRecord();
+    repository.get.mockResolvedValue(current);
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: "modules/current/__aurora/meta/texture-index.v1.json",
+      size: 123,
+      contentType: "application/json",
+      bytes: Buffer.from(
+        JSON.stringify({
+          version: "texture-index/v1",
+          generatedAt: "2026-05-25T12:00:00.000Z",
+          settingsRevision: 7,
+          modulePrefix: "modules/current/",
+          totalTextures: 2,
+          totalBytes: 19,
+          entries: [
+            {
+              textureId: "abcdefabcdefabcdefabcdef",
+              resref: "M_Module",
+              extension: "dds",
+              objectKey: "modules/current/textures/m_module.dds",
+              sizeBytes: 10,
+              sha256: "a".repeat(64),
+              source: "module",
+              sourcePath: "textures/m_module.dds"
+            },
+            {
+              textureId: "1234567890abcdef12345678",
+              resref: "h_fire",
+              extension: "tga",
+              objectKey: "modules/current/__aurora/sources/hak/lc_core/h_fire.tga",
+              sizeBytes: 9,
+              sha256: "b".repeat(64),
+              source: "hak",
+              sourcePath: "lc_core.hak"
+            }
+          ],
+          byResref: {}
+        }),
+        "utf-8"
+      )
+    });
+
+    const contracts = await service.getTextureDeliveryContracts({
+      textureIds: ["1234567890abcdef12345678"]
+    });
+
+    expect(contracts.available).toBe(true);
+    expect(contracts.assets).toHaveLength(1);
+    expect(contracts.assets[0]).toMatchObject({
+      textureId: "1234567890abcdef12345678",
+      objectKey: "modules/current/__aurora/sources/hak/lc_core/h_fire.tga",
+      deliveryPath: "/api/v1/settings/runtime/module-cache/textures/1234567890abcdef12345678",
+      s3Url: "s3://aurora-module-assets/modules/current/__aurora/sources/hak/lc_core/h_fire.tga"
+    });
+  });
+
+  it("resolves texture blob payload by texture id", async () => {
+    const current = buildSettingsRecord();
+    repository.get.mockResolvedValue(current);
+    moduleBlobStorage.getModuleObject
+      .mockResolvedValueOnce({
+        key: "modules/current/__aurora/meta/texture-index.v1.json",
+        size: 123,
+        contentType: "application/json",
+        bytes: Buffer.from(
+          JSON.stringify({
+            version: "texture-index/v1",
+            generatedAt: "2026-05-25T12:00:00.000Z",
+            settingsRevision: 7,
+            modulePrefix: "modules/current/",
+            totalTextures: 1,
+            totalBytes: 10,
+            entries: [
+              {
+                textureId: "abcdefabcdefabcdefabcdef",
+                resref: "m_module",
+                extension: "dds",
+                objectKey: "modules/current/textures/m_module.dds",
+                sizeBytes: 10,
+                sha256: "a".repeat(64),
+                source: "module",
+                sourcePath: "textures/m_module.dds"
+              }
+            ],
+            byResref: {}
+          }),
+          "utf-8"
+        )
+      })
+      .mockResolvedValueOnce({
+        key: "modules/current/textures/m_module.dds",
+        size: 10,
+        contentType: "image/vnd-ms.dds",
+        bytes: Buffer.from([1, 2, 3, 4])
+      });
+
+    const blob = await service.getTextureBlobById("abcdefabcdefabcdefabcdef");
+
+    expect(blob.texture.textureId).toBe("abcdefabcdefabcdefabcdef");
+    expect(blob.deliveryPath).toBe(
+      "/api/v1/settings/runtime/module-cache/textures/abcdefabcdefabcdefabcdef"
+    );
+    expect(blob.payload.size).toBe(10);
+    expect(blob.payload.contentType).toBe("image/vnd-ms.dds");
+  });
+
   it("returns empty texture index response when index object does not exist", async () => {
     const current = buildSettingsRecord();
     repository.get.mockResolvedValue(current);

@@ -195,6 +195,7 @@ function applyEnv() {
   setDefaultEnv("SWAGGER_PATH", "docs");
   setDefaultEnv("SWAGGER_JSON_PATH", "docs-json");
   setDefaultEnv("CORS_ALLOWED_ORIGINS", "http://localhost:5173");
+  setDefaultEnv("ENABLE_BLOB_ASSET_LOOKUP_IN_TEST", "true");
 }
 
 function setDefaultEnv(name: string, value: string): void {
@@ -389,12 +390,13 @@ async function benchmarkAssetDelivery(
   const cached = await getCachedCandidate(client, token, candidate, cacheKey);
   const manifestAssets = extractPlaceableAssetIds(cached.body);
   if (manifestAssets.length === 0) {
-    return {
-      status: "no_manifest_assets",
+    return benchmarkTextureFallbackDelivery(
+      client,
+      token,
       cacheKey,
-      requestCount: 1,
-      reason: "placeable_manifest_has_no_assets"
-    };
+      iterations,
+      1
+    );
   }
 
   const assetId = manifestAssets[0];
@@ -426,6 +428,72 @@ async function benchmarkAssetDelivery(
     cacheKey,
     requestCount: 2 + iterations,
     assetId,
+    routePath,
+    durations,
+    metrics: summarizeDurations(durations)
+  };
+}
+
+async function benchmarkTextureFallbackDelivery(
+  client: HttpClient,
+  token: string,
+  cacheKey: string,
+  iterations: number,
+  requestCountSoFar: number
+): Promise<DeliveryBenchResult | ExecutedDeliveryBenchResult> {
+  const contractsResponse = await client
+    .get("/api/v1/settings/runtime/module-cache/textures/contracts?limit=1&offset=0")
+    .set("Authorization", `Bearer ${token}`);
+
+  requestCountSoFar += 1;
+  if (contractsResponse.status !== 200) {
+    return {
+      status: "endpoint_unavailable",
+      cacheKey,
+      requestCount: requestCountSoFar,
+      routePath: "/api/v1/settings/runtime/module-cache/textures/contracts",
+      reason: `texture_contract_probe_status_${contractsResponse.status}`
+    };
+  }
+
+  const textureContract = extractFirstTextureContract(contractsResponse.body);
+  if (!textureContract) {
+    return {
+      status: "no_manifest_assets",
+      cacheKey,
+      requestCount: requestCountSoFar,
+      reason: "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+    };
+  }
+
+  const routePath = textureContract.deliveryPath;
+  const probe = await client
+    .get(routePath)
+    .set("Authorization", `Bearer ${token}`);
+  requestCountSoFar += 1;
+  if (probe.status !== 200) {
+    return {
+      status: "endpoint_unavailable",
+      cacheKey,
+      requestCount: requestCountSoFar,
+      assetId: textureContract.textureId,
+      routePath,
+      reason: `texture_fallback_probe_status_${probe.status}`
+    };
+  }
+
+  const durations = await runIterations(iterations, async () => {
+    await client
+      .get(routePath)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+  });
+
+  return {
+    status: "executed",
+    cacheKey,
+    requestCount: requestCountSoFar + iterations,
+    assetId: textureContract.textureId,
     routePath,
     durations,
     metrics: summarizeDurations(durations)
@@ -467,6 +535,46 @@ function extractPlaceableAssetIds(payload: unknown): string[] {
       return typeof value === "string" && value.length > 0 ? value : null;
     })
     .filter((value): value is string => value !== null);
+}
+
+function extractFirstTextureContract(
+  payload: unknown
+): { textureId: string; deliveryPath: string } | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const root = payload as Record<string, unknown>;
+  const data = root.data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const assets = (data as Record<string, unknown>).assets;
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return null;
+  }
+
+  const first = assets[0];
+  if (!first || typeof first !== "object") {
+    return null;
+  }
+
+  const textureId = (first as Record<string, unknown>).textureId;
+  const deliveryPath = (first as Record<string, unknown>).deliveryPath;
+  if (
+    typeof textureId !== "string" ||
+    textureId.length === 0 ||
+    typeof deliveryPath !== "string" ||
+    deliveryPath.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    textureId,
+    deliveryPath
+  };
 }
 
 async function runIterations(iterations: number, operation: () => Promise<void>): Promise<number[]> {

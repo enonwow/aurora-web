@@ -47,6 +47,36 @@ const textureIndexQuerySchema = z
     };
   });
 
+const textureDeliveryQuerySchema = z
+  .object({
+    textureIds: z
+      .union([z.string(), z.array(z.string())])
+      .optional(),
+    resref: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    offset: z.coerce.number().int().min(0).optional()
+  })
+  .transform((input) => {
+    const normalizedTextureIds = normalizeTextureIds(input.textureIds);
+    const trimmedResref =
+      typeof input.resref === "string" ? input.resref.trim().toLowerCase() : undefined;
+
+    return {
+      textureIds: normalizedTextureIds.length > 0 ? normalizedTextureIds : undefined,
+      resref: trimmedResref && trimmedResref.length > 0 ? trimmedResref : undefined,
+      limit: input.limit ?? TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
+      offset: input.offset ?? TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
+    };
+  });
+
+const textureIdParamSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-f0-9]{24}$/u, {
+    message: "Texture id must be a 24-character lowercase hex string."
+  });
+
 export function parseReplaceRuntimeSettingsRequest(
   input: unknown
 ): RuntimeSettingsPayloadDto {
@@ -119,4 +149,82 @@ export function parseTextureIndexQuery(input: unknown): {
       reason: issue.message
     }))
   });
+}
+
+export function parseTextureDeliveryQuery(input: unknown): {
+  textureIds?: string[];
+  resref?: string;
+  limit: number;
+  offset: number;
+} {
+  const parsed = textureDeliveryQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Texture delivery query validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseTextureIdParam(input: unknown): string {
+  const parsed = textureIdParamSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Texture id validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+function normalizeTextureIds(input: string | string[] | undefined): string[] {
+  if (!input) {
+    return [];
+  }
+
+  const source = Array.isArray(input) ? input : [input];
+  const output: string[] = [];
+  const unique = new Set<string>();
+
+  for (const value of source) {
+    for (const part of value.split(",")) {
+      const normalized = part.trim().toLowerCase();
+      if (!normalized) {
+        continue;
+      }
+      if (!/^[a-f0-9]{24}$/u.test(normalized)) {
+        throw new AppException({
+          status: 422,
+          code: "VALIDATION_FAILED",
+          message: "Texture delivery query validation failed.",
+          details: [
+            {
+              path: "textureIds",
+              reason: "Each texture id must be a 24-character lowercase hex string."
+            }
+          ]
+        });
+      }
+      if (unique.has(normalized)) {
+        continue;
+      }
+      unique.add(normalized);
+      output.push(normalized);
+    }
+  }
+
+  return output;
 }

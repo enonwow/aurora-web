@@ -1,5 +1,7 @@
 import {
   parseModuleCacheRebuildQuery,
+  parseTextureDeliveryQuery,
+  parseTextureIdParam,
   parseReplaceRuntimeSettingsRequest
 } from "../../src/modules/runtime-settings/adapters/inbound/http/runtime-settings.schemas";
 import { buildDefaultRuntimeSettings } from "../../src/modules/runtime-settings/domain/runtime-settings.defaults";
@@ -62,6 +64,60 @@ describe("module cache rebuild query schema", () => {
     expect(() => parseModuleCacheRebuildQuery({ forceFull: "abc" })).toThrow(
       "Module cache rebuild query validation failed."
     );
+  });
+});
+
+describe("texture delivery query schema", () => {
+  it("parses comma-separated texture ids and normalizes case", () => {
+    const parsed = parseTextureDeliveryQuery({
+      textureIds: "ABCDEFABCDEFABCDEFABCDEF,1234567890abcdef12345678",
+      limit: "5",
+      offset: "2"
+    });
+
+    expect(parsed).toEqual({
+      textureIds: ["abcdefabcdefabcdefabcdef", "1234567890abcdef12345678"],
+      resref: undefined,
+      limit: 5,
+      offset: 2
+    });
+  });
+
+  it("parses repeated texture ids and de-duplicates them", () => {
+    const parsed = parseTextureDeliveryQuery({
+      textureIds: [
+        "abcdefabcdefabcdefabcdef",
+        "abcdefabcdefabcdefabcdef",
+        "1234567890abcdef12345678"
+      ]
+    });
+
+    expect(parsed.textureIds).toEqual([
+      "abcdefabcdefabcdefabcdef",
+      "1234567890abcdef12345678"
+    ]);
+    expect(parsed.limit).toBe(100);
+    expect(parsed.offset).toBe(0);
+  });
+
+  it("rejects malformed texture id", () => {
+    expect(() =>
+      parseTextureDeliveryQuery({
+        textureIds: "invalid"
+      })
+    ).toThrow("Texture delivery query validation failed.");
+  });
+});
+
+describe("texture id param schema", () => {
+  it("accepts valid 24-char hex id", () => {
+    expect(parseTextureIdParam("ABCDEFABCDEFABCDEFABCDEF")).toBe(
+      "abcdefabcdefabcdefabcdef"
+    );
+  });
+
+  it("rejects invalid id shape", () => {
+    expect(() => parseTextureIdParam("xyz")).toThrow("Texture id validation failed.");
   });
 });
 

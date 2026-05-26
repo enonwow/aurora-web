@@ -95,4 +95,8 @@ export class AppConfigService {
   get processingGraphSnapshotFile() {
     return this.env.PROCESSING_GRAPH_SNAPSHOT_FILE;
   }
+
+  get enableBlobAssetLookupInTest() {
+    return this.env.ENABLE_BLOB_ASSET_LOOKUP_IN_TEST;
+  }
 }

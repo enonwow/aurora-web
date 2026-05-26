@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, extname, isAbsolute, resolve } from "node:path";
+import { AppException } from "../../../common/http/app-exception";
 import type {
   RuntimeAssetKind,
   RuntimeSourceSettings,
@@ -10,6 +11,7 @@ import type {
 } from "../domain/runtime-settings.types";
 import {
   MODULE_BLOB_STORAGE,
+  type ModuleBlobObjectPayload,
   type ModuleBlobSnapshotSummary,
   type ModuleBlobStoragePort,
   type ModuleBlobSyncResult
@@ -88,6 +90,44 @@ export interface TextureSyncSummary {
   hakTextures: number;
   vanillaTextures: number;
   textureIndexObjectKey: string;
+}
+
+export interface TextureDeliveryContract {
+  textureId: string;
+  resref: string;
+  objectKey: string;
+  extension: string;
+  contentType: string;
+  sizeBytes: number;
+  source: "module" | "hak" | "vanilla";
+  sourcePath: string;
+  deliveryPath: string;
+  deliveryUrl: string;
+  s3Url: string;
+}
+
+export interface TextureDeliveryContractsEnvelope {
+  indexObjectKey: string;
+  available: boolean;
+  modulePrefix?: string;
+  totalEntries: number;
+  query: {
+    textureIds?: string[];
+    resref?: string;
+    limit: number;
+    offset: number;
+  };
+  assets: TextureDeliveryContract[];
+}
+
+export interface TextureBlobDeliveryEnvelope {
+  indexObjectKey: string;
+  modulePrefix: string;
+  texture: TextureIndexEntry;
+  deliveryPath: string;
+  deliveryUrl: string;
+  s3Url: string;
+  payload: ModuleBlobObjectPayload;
 }
 
 export interface ModuleBlobSyncEnvelope {
@@ -243,6 +283,110 @@ export class RuntimeSettingsApplicationService {
       },
       totalEntries: sourceEntries.length,
       entries: paged
+    };
+  }
+
+  async getTextureDeliveryContracts(options?: {
+    textureIds?: string[];
+    resref?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<TextureDeliveryContractsEnvelope> {
+    const query = await this.queryTextureIndex({
+      resref: options?.resref,
+      limit: options?.limit,
+      offset: options?.offset
+    });
+
+    if (!query.available) {
+      return {
+        indexObjectKey: query.indexObjectKey,
+        available: false,
+        totalEntries: 0,
+        query: {
+          textureIds: options?.textureIds,
+          resref: query.query.resref,
+          limit: query.query.limit,
+          offset: query.query.offset
+        },
+        assets: []
+      };
+    }
+
+    const sourceEntries = this.selectTextureEntries(query.entries, options?.textureIds);
+    const settings = await this.repository.get();
+    return {
+      indexObjectKey: query.indexObjectKey,
+      available: true,
+      modulePrefix: query.modulePrefix,
+      totalEntries: sourceEntries.length,
+      query: {
+        textureIds: options?.textureIds,
+        resref: query.query.resref,
+        limit: query.query.limit,
+        offset: query.query.offset
+      },
+      assets: sourceEntries.map((entry) => ({
+        textureId: entry.textureId,
+        resref: entry.resref,
+        objectKey: entry.objectKey,
+        extension: entry.extension,
+        contentType: inferTextureContentType(entry.extension),
+        sizeBytes: entry.sizeBytes,
+        source: entry.source,
+        sourcePath: entry.sourcePath,
+        deliveryPath: buildTextureDeliveryPath(entry.textureId),
+        deliveryUrl: buildTextureDeliveryPath(entry.textureId),
+        s3Url: buildS3ObjectUrl(settings.blobStorage.bucket, entry.objectKey)
+      }))
+    };
+  }
+
+  async getTextureBlobById(textureId: string): Promise<TextureBlobDeliveryEnvelope> {
+    const settings = await this.repository.get();
+    const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
+    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+
+    if (!record) {
+      throw new AppException({
+        status: 404,
+        code: "TEXTURE_INDEX_NOT_AVAILABLE",
+        message: "Texture index was not found in module cache."
+      });
+    }
+
+    const entry = record.entries.find((candidate) => candidate.textureId === textureId);
+    if (!entry) {
+      throw new AppException({
+        status: 404,
+        code: "TEXTURE_NOT_FOUND",
+        message: "Texture id was not found in texture index."
+      });
+    }
+
+    const payload = await this.moduleBlobStorage.getModuleObject(
+      settings.blobStorage,
+      entry.objectKey
+    );
+    if (!payload) {
+      throw new AppException({
+        status: 404,
+        code: "TEXTURE_BLOB_NOT_FOUND",
+        message: "Texture blob object was not found in module cache."
+      });
+    }
+
+    return {
+      indexObjectKey,
+      modulePrefix: record.modulePrefix,
+      texture: entry,
+      deliveryPath: buildTextureDeliveryPath(entry.textureId),
+      deliveryUrl: buildTextureDeliveryPath(entry.textureId),
+      s3Url: buildS3ObjectUrl(settings.blobStorage.bucket, entry.objectKey),
+      payload: {
+        ...payload,
+        contentType: payload.contentType || inferTextureContentType(entry.extension)
+      }
     };
   }
 
@@ -418,10 +562,20 @@ export class RuntimeSettingsApplicationService {
     settings: RuntimeSettingsRecord,
     indexObjectKey: string
   ): Promise<TextureIndexRecord | null> {
-    const payload = await this.moduleBlobStorage.getModuleObject(
-      settings.blobStorage,
-      indexObjectKey
-    );
+    let payload: ModuleBlobObjectPayload | null;
+    try {
+      payload = await this.moduleBlobStorage.getModuleObject(
+        settings.blobStorage,
+        indexObjectKey
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Texture index payload could not be loaded from blob storage; falling back to unavailable index. objectKey=${indexObjectKey}; error=${stringifyError(
+          error
+        )}`
+      );
+      return null;
+    }
     if (!payload) {
       return null;
     }
@@ -448,6 +602,29 @@ export class RuntimeSettingsApplicationService {
       );
       return null;
     }
+  }
+
+  private selectTextureEntries(
+    entries: TextureIndexEntry[],
+    textureIds?: string[]
+  ): TextureIndexEntry[] {
+    if (!textureIds || textureIds.length === 0) {
+      return entries;
+    }
+
+    const byId = new Map(entries.map((entry) => [entry.textureId, entry]));
+    return textureIds.map((textureId) => {
+      const found = byId.get(textureId);
+      if (found) {
+        return found;
+      }
+
+      throw new AppException({
+        status: 404,
+        code: "TEXTURE_NOT_FOUND",
+        message: `Texture id was not found in texture index: ${textureId}`
+      });
+    });
   }
 }
 
@@ -741,6 +918,35 @@ function normalizeBlobPrefix(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function buildTextureDeliveryPath(textureId: string): string {
+  return `/api/v1/settings/runtime/module-cache/textures/${encodeURIComponent(textureId)}`;
+}
+
+function buildS3ObjectUrl(bucket: string, objectKey: string): string {
+  const normalizedObjectKey = objectKey.replace(/^\/+/u, "");
+  return `s3://${bucket}/${normalizedObjectKey}`;
+}
+
+function inferTextureContentType(extension: string): string {
+  const normalized = extension.trim().toLowerCase();
+  if (normalized === "dds") {
+    return "image/vnd-ms.dds";
+  }
+  if (normalized === "tga") {
+    return "image/x-tga";
+  }
+  if (normalized === "bmp") {
+    return "image/bmp";
+  }
+  if (normalized === "plt") {
+    return "application/octet-stream";
+  }
+  if (normalized === "txi" || normalized === "mtr") {
+    return "text/plain; charset=utf-8";
+  }
+  return "application/octet-stream";
 }
 
 function stringifyError(error: unknown): string {

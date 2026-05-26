@@ -1,5 +1,33 @@
 import { z } from "zod";
 
+function parseBooleanValue(input: unknown): unknown {
+  if (typeof input === "boolean") {
+    return input;
+  }
+  if (typeof input === "number") {
+    if (input === 1) {
+      return true;
+    }
+    if (input === 0) {
+      return false;
+    }
+  }
+  if (typeof input === "string") {
+    const normalized = input.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+  return input;
+}
+
+function booleanEnvSchema(defaultValue: boolean) {
+  return z.preprocess(parseBooleanValue, z.boolean()).default(defaultValue);
+}
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -9,7 +37,7 @@ export const envSchema = z.object({
     .default("postgres://aurora:aurora@postgres:5432/aurora_web"),
   CORS_ALLOWED_ORIGINS: z.string().min(1).default("http://localhost:5173"),
   CONTRACT_VERSION: z.string().min(1).default("1.0.0"),
-  SWAGGER_ENABLED: z.coerce.boolean().default(true),
+  SWAGGER_ENABLED: booleanEnvSchema(true),
   SWAGGER_PATH: z.string().min(1).default("docs"),
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["postgres", "memory"]).default("postgres"),
@@ -38,7 +66,8 @@ export const envSchema = z.object({
   PROCESSING_GRAPH_SNAPSHOT_FILE: z
     .string()
     .min(1)
-    .default("./config/processing-graph-snapshot.json")
+    .default("./config/processing-graph-snapshot.json"),
+  ENABLE_BLOB_ASSET_LOOKUP_IN_TEST: booleanEnvSchema(false)
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

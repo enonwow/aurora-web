@@ -103,6 +103,7 @@ export interface PlaceableAssetDeliveryEnvelope {
 }
 
 const MODULE_HASH_PROBE_TTL_MS = 30_000;
+const MODULE_SNAPSHOT_INDEX_FAILURE_TTL_MS = 30_000;
 const TEMPLATE_LOOKUP_TTL_MS = 60_000;
 const PLACEABLE_MANIFEST_VALIDATION_TTL_MS = 30_000;
 const DEFAULT_TEMPLATE_LOOKUP_CACHE_MAX_ENTRIES = 2_500;
@@ -135,6 +136,11 @@ export class CatalogApplicationService {
         key: string;
         index: ModuleSnapshotIndex;
         fetchedAtMs: number;
+      }
+    | null = null;
+  private moduleSnapshotIndexFailureCache:
+    | {
+        expiresAtMs: number;
       }
     | null = null;
   private moduleHashProbeCache:
@@ -752,7 +758,7 @@ export class CatalogApplicationService {
       return value;
     }
 
-    if (this.appConfig?.isTest) {
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
       this.rememberManifestValidation(cacheKey, manifestModuleHash);
       return value;
     }
@@ -790,7 +796,7 @@ export class CatalogApplicationService {
     subtype: PlaceableSubtype;
     metadata: Record<string, string | number | boolean>;
   }): Promise<PlaceableAssetManifest> {
-    if (this.appConfig?.isTest) {
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
       return buildEmptyPlaceableAssetManifest();
     }
 
@@ -820,31 +826,46 @@ export class CatalogApplicationService {
     if (this.moduleSnapshotIndexCache && now - this.moduleSnapshotIndexCache.fetchedAtMs < 30_000) {
       return this.moduleSnapshotIndexCache.index;
     }
-
-    const settings = await this.runtimeSettingsRepository.get();
-    const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
-    const cacheKey = [
-      settings.blobStorage.bucket,
-      snapshot.prefix,
-      snapshot.moduleHash ?? "unknown",
-      String(snapshot.objects.length)
-    ].join("|");
-
-    if (this.moduleSnapshotIndexCache?.key === cacheKey) {
-      return this.moduleSnapshotIndexCache.index;
+    if (
+      this.moduleSnapshotIndexFailureCache &&
+      this.moduleSnapshotIndexFailureCache.expiresAtMs > now
+    ) {
+      return null;
     }
 
-    const index = buildModuleSnapshotIndex(snapshot);
-    this.moduleSnapshotIndexCache = {
-      key: cacheKey,
-      index,
-      fetchedAtMs: now
-    };
-    return index;
+    try {
+      const settings = await this.runtimeSettingsRepository.get();
+      const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
+      const cacheKey = [
+        settings.blobStorage.bucket,
+        snapshot.prefix,
+        snapshot.moduleHash ?? "unknown",
+        String(snapshot.objects.length)
+      ].join("|");
+
+      if (this.moduleSnapshotIndexCache?.key === cacheKey) {
+        this.moduleSnapshotIndexFailureCache = null;
+        return this.moduleSnapshotIndexCache.index;
+      }
+
+      const index = buildModuleSnapshotIndex(snapshot);
+      this.moduleSnapshotIndexCache = {
+        key: cacheKey,
+        index,
+        fetchedAtMs: now
+      };
+      this.moduleSnapshotIndexFailureCache = null;
+      return index;
+    } catch {
+      this.moduleSnapshotIndexFailureCache = {
+        expiresAtMs: now + MODULE_SNAPSHOT_INDEX_FAILURE_TTL_MS
+      };
+      return null;
+    }
   }
 
   private async getCurrentModuleHash(): Promise<string | undefined> {
-    if (this.appConfig?.isTest) {
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
       return undefined;
     }
 
