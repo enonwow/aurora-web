@@ -4,6 +4,8 @@ import { AppException } from "../../../../../common/http/app-exception";
 const listQuerySchema = z.object({
   query: z.string().trim().min(1).optional(),
   tileset: z.string().trim().min(1).optional(),
+  variant: z.string().trim().min(1).optional(),
+  walkmesh: z.enum(["walkable", "blocked", "water"]).optional(),
   tag: z.string().trim().min(1).optional(),
   benchmark: z
     .enum(["true", "false"])
@@ -30,6 +32,10 @@ const tileCacheKeySchema = z
   .min(16)
   .max(128)
   .regex(/^[a-f0-9]+$/iu, "cacheKey must be hexadecimal.");
+
+const tileTextureDeliveryQuerySchema = z.object({
+  mode: z.enum(["proxy", "direct"]).default("proxy")
+});
 
 export function parseTileListQuery(input: unknown) {
   const parsed = listQuerySchema.safeParse(input);
@@ -92,6 +98,25 @@ export function parseTileCacheKey(input: unknown): string {
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Tile cache key validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseTileTextureDeliveryQuery(
+  input: unknown
+): { mode: "proxy" | "direct" } {
+  const parsed = tileTextureDeliveryQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Tile delivery query validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   ModuleBlobObjectSummary,
@@ -25,6 +26,8 @@ interface IndexedTile {
   listItem: TileListItem;
   searchable: string;
   tilesetLower: string;
+  variantLower: string;
+  walkmeshLower: string;
   tagsLower: Set<string>;
   processingCacheKey: string;
 }
@@ -41,6 +44,7 @@ interface TileCandidate {
   sourceKey: string;
   extension: string;
   sourceSize: number;
+  sourceEtag?: string;
   updatedAt: string;
 }
 
@@ -67,6 +71,8 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
 
     const normalizedQuery = query.query?.toLowerCase().trim();
     const normalizedTileset = query.tileset?.toLowerCase().trim();
+    const normalizedVariant = query.variant?.toLowerCase().trim();
+    const normalizedWalkmesh = query.walkmesh?.toLowerCase().trim();
     const normalizedTag = query.tag?.toLowerCase().trim();
 
     const filtered = index.items
@@ -81,6 +87,18 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
           return true;
         }
         return tile.tilesetLower === normalizedTileset;
+      })
+      .filter((tile) => {
+        if (!query.variant) {
+          return true;
+        }
+        return tile.variantLower === normalizedVariant;
+      })
+      .filter((tile) => {
+        if (!query.walkmesh) {
+          return true;
+        }
+        return tile.walkmeshLower === normalizedWalkmesh;
       })
       .filter((tile) => {
         if (!query.tag) {
@@ -148,6 +166,8 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
         listItem: mapTileToListItem(record),
         searchable: buildTileSearchableText(record),
         tilesetLower: record.tileset.toLowerCase(),
+        variantLower: record.variant.toLowerCase(),
+        walkmeshLower: record.walkmesh.toLowerCase(),
         tagsLower: new Set(record.tags.map((tag) => tag.toLowerCase())),
         processingCacheKey: buildTileProcessCacheKey(record)
       }));
@@ -219,6 +239,7 @@ function buildTilesFromSnapshot(objects: ModuleBlobObjectSummary[]): TileCandida
       sourceKey: object.key,
       extension,
       sourceSize: object.size,
+      sourceEtag: object.etag,
       updatedAt: object.lastModified ?? new Date().toISOString()
     };
 
@@ -265,6 +286,11 @@ function mapCandidateToTileRecord(candidate: TileCandidate, benchmarkIds: Set<st
     benchmark,
     previewImageUrl: `/assets/previews/tiles/${candidate.resref}.webp`,
     textureAtlasId: `atlas_tile_${tileset}_v1`,
+    textureAtlasObjectKey: candidate.sourceKey,
+    textureAtlasContentType: inferAtlasContentType(candidate.extension),
+    textureAtlasSizeBytes: candidate.sourceSize,
+    textureAtlasEtag: candidate.sourceEtag,
+    textureAtlasFingerprint: buildAtlasFingerprint(candidate),
     walkmesh,
     metrics,
     updatedAt: candidate.updatedAt
@@ -384,6 +410,28 @@ function mapTileToListItem(tile: TileRecord): TileListItem {
     metrics: tile.metrics,
     updatedAt: tile.updatedAt
   };
+}
+
+function inferAtlasContentType(extension: string): string {
+  if (extension === "set" || extension === "itp") {
+    return "text/plain";
+  }
+  return "application/octet-stream";
+}
+
+function buildAtlasFingerprint(candidate: TileCandidate): string {
+  return createHash("sha256")
+    .update(
+      [
+        candidate.resref,
+        candidate.sourceKey,
+        candidate.extension,
+        String(candidate.sourceSize),
+        candidate.sourceEtag ?? "",
+        candidate.updatedAt
+      ].join("|")
+    )
+    .digest("hex");
 }
 
 function buildTileSearchableText(tile: TileRecord): string {

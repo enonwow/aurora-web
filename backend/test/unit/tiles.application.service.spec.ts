@@ -3,6 +3,8 @@ import {
   TilesApplicationService,
   __tilesApplicationServiceInternals
 } from "../../src/modules/tiles/application/tiles.application.service";
+import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { TileProcessingCachePort } from "../../src/modules/tiles/application/ports/tile-processing-cache.port";
 import type { TileRepositoryPort } from "../../src/modules/tiles/application/ports/tile-repository.port";
 import type { TileListResult, TileProcessingResult, TileRecord } from "../../src/modules/tiles/domain/tile.types";
@@ -74,6 +76,9 @@ describe("TilesApplicationService", () => {
     expect(detail.textureAtlas.atlasId).toBe("atlas_tile_city_v1");
     expect(detail.textureAtlas.cacheKey).toBe("atlas_tile_city_v1:tile_city_street_001");
     expect(detail.textureAtlas.strategy).toBe("blob-cache");
+    expect(detail.textureAtlas.objectKey).toBe("modules/current/tiles/atlases/atlas_tile_city_v1.webp");
+    expect(detail.textureAtlas.contentType).toBe("image/webp");
+    expect(detail.textureAtlas.sizeBytes).toBe(262144);
     expect(detail.metrics.triangles).toBeGreaterThan(0);
   });
 
@@ -167,7 +172,8 @@ describe("TilesApplicationService", () => {
     expect(result.cache.hit).toBe(true);
     expect(result.cache.hits).toBe(6);
     expect(result.tile.tileId).toBe("tile_city_street_001");
-    expect(processingCache.set).not.toHaveBeenCalled();
+    expect(result.tile.textureAtlas.objectKey).toBe("modules/current/tiles/atlases/atlas_tile_city_v1.webp");
+    expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
   it("processTile bypassCache=true skips cache read and writes fresh payload", async () => {
@@ -289,6 +295,119 @@ describe("TilesApplicationService", () => {
     await expect(service.getProcessedTile("b".repeat(64))).rejects.toMatchObject({
       code: "TILE_CACHE_NOT_FOUND",
       message: "Tile cache entry was not found."
+    });
+  });
+
+  it("returns processed tile texture payload from blob storage", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedTileResult("tile_city_street_001");
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: cached.textureAtlas.objectKey ?? "modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+      size: cached.textureAtlas.sizeBytes ?? 262144,
+      contentType: cached.textureAtlas.contentType ?? "image/webp",
+      etag: cached.textureAtlas.etag,
+      bytes: Buffer.from([0x01, 0x02, 0x03])
+    });
+
+    const result = await serviceWithBlob.getProcessedTileTexture("a".repeat(64));
+
+    expect(result.cacheKey).toBe("a".repeat(64));
+    expect(result.textureAtlas.atlasId).toBe(cached.textureAtlas.atlasId);
+    expect(result.payload.size).toBe(cached.textureAtlas.sizeBytes);
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "aurora-module-assets"
+      }),
+      cached.textureAtlas.objectKey
+    );
+  });
+
+  it("builds proxy tile texture delivery contract for cached tile", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedTileResult("tile_city_street_001");
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedTileTextureDelivery("a".repeat(64), "proxy");
+
+    expect(result.textureAtlas.mode).toBe("proxy");
+    expect(result.textureAtlas.proxyPath).toBe(
+      `/api/v1/catalog/tiles/cache/${"a".repeat(64)}/textures`
+    );
+    expect(result.textureAtlas.s3Url).toBe(
+      `s3://aurora-module-assets/${cached.textureAtlas.objectKey}`
+    );
+    expect(result.textureAtlas.directUrl).toBeUndefined();
+  });
+
+  it("builds direct tile texture delivery contract for cached tile", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedTileResult("tile_city_street_001");
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedTileTextureDelivery("a".repeat(64), "direct");
+
+    expect(result.textureAtlas.mode).toBe("direct");
+    expect(result.textureAtlas.directUrl).toBe(
+      `http://seaweedfs:8333/aurora-module-assets/${encodeURIComponent("modules")}/${encodeURIComponent("current")}/${encodeURIComponent("tiles")}/${encodeURIComponent("atlases")}/${encodeURIComponent("atlas_tile_city_v1.webp")}`
+    );
+  });
+
+  it("rejects direct tile delivery when blob settings are unavailable", async () => {
+    const cached = buildProcessedTileResult("tile_city_street_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    await expect(
+      service.getProcessedTileTextureDelivery("a".repeat(64), "direct")
+    ).rejects.toMatchObject({
+      code: "TILE_DIRECT_DELIVERY_UNAVAILABLE"
     });
   });
 
@@ -685,6 +804,11 @@ function buildTile(id: string): TileRecord {
     benchmark: true,
     previewImageUrl: `/previews/${id}.webp`,
     textureAtlasId: "atlas_tile_city_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 262144,
+    textureAtlasEtag: "atlas-city-v1",
+    textureAtlasFingerprint: "static:atlas:tile_city_v1",
     walkmesh: "walkable",
     metrics: {
       triangles: 1240,
@@ -692,6 +816,137 @@ function buildTile(id: string): TileRecord {
       emitters: 0
     },
     updatedAt: "2026-05-25T00:00:00.000Z"
+  };
+}
+
+function buildProcessedTileResult(tileId: string): TileProcessingResult {
+  const tile = buildTile(tileId);
+  return {
+    tileId: tile.tileId,
+    resref: tile.resref,
+    name: tile.name,
+    tileset: tile.tileset,
+    variant: tile.variant,
+    tags: tile.tags,
+    benchmark: tile.benchmark,
+    previewImageUrl: tile.previewImageUrl,
+    textureAtlas: {
+      atlasId: tile.textureAtlasId,
+      cacheKey: `${tile.textureAtlasId}:${tile.tileId}`,
+      strategy: "blob-cache",
+      objectKey: tile.textureAtlasObjectKey,
+      contentType: tile.textureAtlasContentType,
+      sizeBytes: tile.textureAtlasSizeBytes,
+      etag: tile.textureAtlasEtag
+    },
+    walkmesh: tile.walkmesh,
+    metrics: tile.metrics,
+    render: {
+      backendType: "tile",
+      frontendType: "tile",
+      rendererPreset: "tile-standard"
+    },
+    updatedAt: tile.updatedAt,
+    processedAt: "2026-05-25T10:59:00.000Z"
+  };
+}
+
+function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
+  return {
+    get: jest.fn().mockResolvedValue({
+      revision: 1,
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      updatedBy: "test",
+      paths: {
+        vanillaDataPath: "",
+        hakDirectoryPath: "",
+        moduleDecompiledPath: "",
+        modulePackedPath: "",
+        tlkBasePath: "",
+        tlkCustomPath: ""
+      },
+      blobStorage: {
+        endpoint: "http://seaweedfs:8333",
+        region: "us-east-1",
+        bucket: "aurora-module-assets",
+        modulePrefix: "modules/current",
+        accessKeyId: "seaweedfs",
+        secretAccessKey: "secret",
+        forcePathStyle: true
+      },
+      telemetryDebugMode: "off",
+      hakProfiles: {},
+      sources: {
+        placeable: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        tile: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        area: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        sound: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        }
+      },
+      benchmarkCandidates: {
+        placeableHeavyNoVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableHeavyVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableVfxPlcAlternative: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavyInstance: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavySingleMesh: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        }
+      }
+    }),
+    save: jest.fn()
+  };
+}
+
+function createModuleBlobStorage(): jest.Mocked<ModuleBlobStoragePort> {
+  return {
+    replaceModuleSnapshot: jest.fn(),
+    listModuleSnapshot: jest.fn(),
+    getModuleObject: jest.fn()
   };
 }
 

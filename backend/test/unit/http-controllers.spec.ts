@@ -67,10 +67,39 @@ describe("HTTP controllers", () => {
       getTilePreview: jest.fn().mockResolvedValue({ tileId: "tile-1" }),
       processTile: jest.fn().mockResolvedValue({ cacheKey: "b".repeat(64) }),
       benchmarkTiles: jest.fn().mockResolvedValue({ stats: [] }),
-      getProcessedTile: jest.fn().mockResolvedValue({ cacheKey: "b".repeat(64) })
+      getProcessedTile: jest.fn().mockResolvedValue({ cacheKey: "b".repeat(64) }),
+      getProcessedTileTextureDelivery: jest.fn().mockResolvedValue({
+        cacheKey: "b".repeat(64),
+        textureAtlas: {
+          mode: "direct",
+          atlasId: "atlas_tile_city_v1",
+          objectKey: "modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+          contentType: "image/webp",
+          sizeBytes: 4,
+          proxyPath: "/api/v1/catalog/tiles/cache/b/textures",
+          proxyUrl: "/api/v1/catalog/tiles/cache/b/textures",
+          directUrl:
+            "http://seaweedfs:8333/aurora-module-assets/modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+          s3Url: "s3://aurora-module-assets/modules/current/tiles/atlases/atlas_tile_city_v1.webp"
+        }
+      }),
+      getProcessedTileTexture: jest.fn().mockResolvedValue({
+        cacheKey: "b".repeat(64),
+        textureAtlas: {
+          atlasId: "atlas_tile_city_v1",
+          objectKey: "modules/current/tiles/atlases/atlas_tile_city_v1.webp"
+        },
+        payload: {
+          contentType: "image/webp",
+          size: 4,
+          etag: "etag-1",
+          bytes: Buffer.from([0x01, 0x02, 0x03, 0x04])
+        }
+      })
     } as unknown as jest.Mocked<TilesApplicationService>;
     const controller = new TilesController(service, config);
     const request = appRequest();
+    const response = createReply();
 
     await controller.list(request, {});
     await controller.getById(request, "tile-1");
@@ -82,6 +111,8 @@ describe("HTTP controllers", () => {
       warmupIterations: 0
     });
     await controller.getCached(request, "b".repeat(16));
+    await controller.getCachedTextureContract(request, "b".repeat(16), { mode: "direct" });
+    await controller.getCachedTexture("b".repeat(16), response as unknown as FastifyReply);
 
     expect(service.listTiles).toHaveBeenCalledWith({
       limit: 20,
@@ -97,6 +128,8 @@ describe("HTTP controllers", () => {
       warmupIterations: 0,
       bypassCache: true
     });
+    expect(service.getProcessedTileTextureDelivery).toHaveBeenCalledWith("b".repeat(16), "direct");
+    expect(service.getProcessedTileTexture).toHaveBeenCalledWith("b".repeat(16));
   });
 
   it("delegates sound controller calls", async () => {

@@ -1,6 +1,17 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { AppException } from "../../../common/http/app-exception";
+import { AppConfigService } from "../../../common/config/app-config.service";
+import {
+  MODULE_BLOB_STORAGE,
+  type ModuleBlobObjectPayload,
+  type ModuleBlobStoragePort
+} from "../../runtime-settings/application/ports/module-blob-storage.port";
+import {
+  RUNTIME_SETTINGS_REPOSITORY,
+  type RuntimeSettingsRepositoryPort
+} from "../../runtime-settings/application/ports/runtime-settings-repository.port";
+import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
 import {
   TILE_PROCESSING_CACHE,
   type TileProcessingCachePort
@@ -13,6 +24,8 @@ import type {
   BenchmarkDurationSummary,
   TileBenchmarkResult,
   TileBenchmarkRunQuery,
+  TileDeliveryMode,
+  TileListQuery,
   TileProcessQuery,
   TileProcessingResult,
   TileRecord
@@ -29,6 +42,30 @@ export interface TileProcessingEnvelope {
   tile: TileProcessingResult;
 }
 
+export interface TileTextureBlobEnvelope {
+  cacheKey: string;
+  textureAtlas: TileProcessingResult["textureAtlas"];
+  payload: ModuleBlobObjectPayload;
+}
+
+export interface TileTextureDeliveryContract {
+  mode: TileDeliveryMode;
+  atlasId: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  etag?: string;
+  proxyPath: string;
+  proxyUrl: string;
+  directUrl?: string;
+  s3Url?: string;
+}
+
+export interface TileTextureDeliveryEnvelope {
+  cacheKey: string;
+  textureAtlas: TileTextureDeliveryContract;
+}
+
 @Injectable()
 export class TilesApplicationService {
   private readonly inFlightTileProcessing = new Map<string, Promise<TileProcessingEnvelope>>();
@@ -37,17 +74,15 @@ export class TilesApplicationService {
     @Inject(TILE_REPOSITORY)
     private readonly repository: TileRepositoryPort,
     @Inject(TILE_PROCESSING_CACHE)
-    private readonly processingCache: TileProcessingCachePort
+    private readonly processingCache: TileProcessingCachePort,
+    private readonly appConfig?: AppConfigService,
+    @Inject(RUNTIME_SETTINGS_REPOSITORY)
+    private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
+    @Inject(MODULE_BLOB_STORAGE)
+    private readonly moduleBlobStorage?: ModuleBlobStoragePort
   ) {}
 
-  listTiles(query: {
-    query?: string;
-    tileset?: string;
-    tag?: string;
-    benchmark?: boolean;
-    limit: number;
-    offset: number;
-  }) {
+  listTiles(query: TileListQuery) {
     return this.repository.list(query);
   }
 
@@ -73,7 +108,11 @@ export class TilesApplicationService {
       textureAtlas: {
         atlasId: tile.textureAtlasId,
         cacheKey: `${tile.textureAtlasId}:${tile.tileId}`,
-        strategy: "blob-cache" as const
+        strategy: "blob-cache" as const,
+        objectKey: tile.textureAtlasObjectKey,
+        contentType: tile.textureAtlasContentType,
+        sizeBytes: tile.textureAtlasSizeBytes,
+        etag: tile.textureAtlasEtag
       },
       walkmesh: tile.walkmesh,
       metrics: tile.metrics,
@@ -113,6 +152,7 @@ export class TilesApplicationService {
     if (!query.bypassCache) {
       const cached = await this.processingCache.get(cacheKey);
       if (cached) {
+        const hydrated = await this.ensureTileTextureAtlas(cacheKey, cached.value);
         return {
           cache: {
             key: cacheKey,
@@ -120,7 +160,7 @@ export class TilesApplicationService {
             storedAt: cached.storedAt,
             hits: cached.hits
           },
-          tile: cached.value
+          tile: hydrated
         };
       }
     }
@@ -139,7 +179,11 @@ export class TilesApplicationService {
         textureAtlas: {
           atlasId: tile.textureAtlasId,
           cacheKey: `${tile.textureAtlasId}:${tile.tileId}`,
-          strategy: "blob-cache"
+          strategy: "blob-cache",
+          objectKey: tile.textureAtlasObjectKey,
+          contentType: tile.textureAtlasContentType,
+          sizeBytes: tile.textureAtlasSizeBytes,
+          etag: tile.textureAtlasEtag
         },
         walkmesh: tile.walkmesh,
         metrics: tile.metrics,
@@ -179,6 +223,7 @@ export class TilesApplicationService {
       });
     }
 
+    const hydrated = await this.ensureTileTextureAtlas(cacheKey, cached.value);
     return {
       cache: {
         key: cacheKey,
@@ -186,7 +231,104 @@ export class TilesApplicationService {
         storedAt: cached.storedAt,
         hits: cached.hits
       },
-      tile: cached.value
+      tile: hydrated
+    };
+  }
+
+  async getProcessedTileTexture(cacheKey: string): Promise<TileTextureBlobEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "TILE_CACHE_NOT_FOUND",
+        message: "Tile cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureTileTextureAtlas(cacheKey, cached.value);
+    if (
+      !hydrated.textureAtlas.objectKey ||
+      !hydrated.textureAtlas.contentType ||
+      !hydrated.textureAtlas.sizeBytes
+    ) {
+      throw new AppException({
+        status: 404,
+        code: "TILE_TEXTURE_BLOB_NOT_FOUND",
+        message: "Tile texture blob metadata is missing in cache entry."
+      });
+    }
+
+    const payload = await this.readModuleBlobObject(hydrated.textureAtlas.objectKey);
+    if (!payload) {
+      throw new AppException({
+        status: 404,
+        code: "TILE_TEXTURE_BLOB_NOT_FOUND",
+        message: "Tile texture blob object was not found."
+      });
+    }
+
+    return {
+      cacheKey,
+      textureAtlas: hydrated.textureAtlas,
+      payload
+    };
+  }
+
+  async getProcessedTileTextureDelivery(
+    cacheKey: string,
+    mode: TileDeliveryMode
+  ): Promise<TileTextureDeliveryEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "TILE_CACHE_NOT_FOUND",
+        message: "Tile cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureTileTextureAtlas(cacheKey, cached.value);
+    if (
+      !hydrated.textureAtlas.objectKey ||
+      !hydrated.textureAtlas.contentType ||
+      !hydrated.textureAtlas.sizeBytes
+    ) {
+      throw new AppException({
+        status: 404,
+        code: "TILE_TEXTURE_BLOB_NOT_FOUND",
+        message: "Tile texture blob metadata is missing in cache entry."
+      });
+    }
+
+    const blobSettings = await this.getBlobStorageSettings();
+    if (mode === "direct" && !blobSettings) {
+      throw new AppException({
+        status: 422,
+        code: "TILE_DIRECT_DELIVERY_UNAVAILABLE",
+        message: "Direct tile delivery is unavailable without blob storage settings."
+      });
+    }
+
+    const proxyPath = buildTileTextureDeliveryPath(cacheKey);
+    return {
+      cacheKey,
+      textureAtlas: {
+        mode,
+        atlasId: hydrated.textureAtlas.atlasId,
+        objectKey: hydrated.textureAtlas.objectKey,
+        contentType: hydrated.textureAtlas.contentType,
+        sizeBytes: hydrated.textureAtlas.sizeBytes,
+        etag: hydrated.textureAtlas.etag,
+        proxyPath,
+        proxyUrl: proxyPath,
+        directUrl:
+          mode === "direct" && blobSettings
+            ? buildBlobObjectHttpUrl(blobSettings, hydrated.textureAtlas.objectKey)
+            : undefined,
+        s3Url: blobSettings
+          ? buildS3ObjectUrl(blobSettings.bucket, hydrated.textureAtlas.objectKey)
+          : undefined
+      }
     };
   }
 
@@ -293,6 +435,60 @@ export class TilesApplicationService {
     return resolved.filter((value): value is TileRecord => Boolean(value));
   }
 
+  private async ensureTileTextureAtlas(
+    cacheKey: string,
+    value: TileProcessingResult
+  ): Promise<TileProcessingResult> {
+    if (
+      value.textureAtlas.objectKey &&
+      value.textureAtlas.contentType &&
+      (value.textureAtlas.sizeBytes ?? 0) > 0
+    ) {
+      return value;
+    }
+
+    const tile = await this.repository.findById(value.tileId);
+    if (!tile) {
+      return value;
+    }
+
+    const refreshed: TileProcessingResult = {
+      ...value,
+      textureAtlas: {
+        ...value.textureAtlas,
+        objectKey: tile.textureAtlasObjectKey,
+        contentType: tile.textureAtlasContentType,
+        sizeBytes: tile.textureAtlasSizeBytes,
+        etag: tile.textureAtlasEtag
+      }
+    };
+
+    await this.processingCache.set(cacheKey, refreshed);
+    return refreshed;
+  }
+
+  private async readModuleBlobObject(key: string): Promise<ModuleBlobObjectPayload | null> {
+    if (!this.runtimeSettingsRepository || !this.moduleBlobStorage) {
+      return null;
+    }
+
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+  }
+
+  private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
+    if (!this.runtimeSettingsRepository) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return settings.blobStorage;
+  }
+
   private executeInFlight<T>(
     inFlight: Map<string, Promise<T>>,
     key: string,
@@ -358,8 +554,35 @@ function percentile(sorted: number[], ratio: number): number {
   return sorted[index];
 }
 
+function buildTileTextureDeliveryPath(cacheKey: string): string {
+  const encodedCacheKey = encodeURIComponent(cacheKey);
+  return `/api/v1/catalog/tiles/cache/${encodedCacheKey}/textures`;
+}
+
+function buildS3ObjectUrl(bucket: string, objectKey: string): string {
+  const normalizedObjectKey = objectKey.replace(/^\/+/, "");
+  return `s3://${bucket}/${normalizedObjectKey}`;
+}
+
+function buildBlobObjectHttpUrl(settings: BlobStorageSettings, objectKey: string): string {
+  const endpoint = settings.endpoint.replace(/\/+$/u, "");
+  const encodedSegments = objectKey
+    .replace(/^\/+|\/+$/gu, "")
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  if (settings.forcePathStyle) {
+    return `${endpoint}/${encodeURIComponent(settings.bucket)}/${encodedSegments}`;
+  }
+
+  return `${endpoint}/${encodedSegments}`;
+}
+
 export const __tilesApplicationServiceInternals = {
   buildBenchmarkFingerprint,
   summarizeDurations,
-  percentile
+  percentile,
+  buildBlobObjectHttpUrl
 } as const;

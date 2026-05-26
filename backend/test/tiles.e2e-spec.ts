@@ -69,6 +69,20 @@ describe("Tiles API v1 (e2e)", () => {
     }
   });
 
+  it("GET /api/v1/catalog/tiles supports walkmesh filter", async () => {
+    const token = await loginAndGetToken("viewer.user", "viewer123");
+
+    const response = await supertest(httpServer)
+      .get("/api/v1/catalog/tiles?walkmesh=water")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.items.length).toBeGreaterThan(0);
+    for (const item of response.body.data.items as Array<{ walkmesh: string }>) {
+      expect(item.walkmesh).toBe("water");
+    }
+  });
+
   it("GET /api/v1/catalog/tiles rejects invalid benchmark filter", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 
@@ -165,6 +179,62 @@ describe("Tiles API v1 (e2e)", () => {
 
     expect(response.body.data.cache.hit).toBe(true);
     expect(response.body.data.tile.tileId).toBe("tile_city_street_001");
+  });
+
+  it("GET /api/v1/catalog/tiles/cache/:cacheKey/textures/contracts returns proxy contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/tiles/tile_city_street_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/tiles/cache/${cacheKey}/textures/contracts?mode=proxy`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.textureAtlas.mode).toBe("proxy");
+    expect(response.body.data.textureAtlas.proxyPath).toBe(
+      `/api/v1/catalog/tiles/cache/${cacheKey}/textures`
+    );
+  });
+
+  it("GET /api/v1/catalog/tiles/cache/:cacheKey/textures/contracts returns direct contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/tiles/tile_city_street_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/tiles/cache/${cacheKey}/textures/contracts?mode=direct`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.textureAtlas.mode).toBe("direct");
+    expect(response.body.data.textureAtlas.directUrl).toEqual(expect.any(String));
+    expect(response.body.data.textureAtlas.s3Url).toEqual(expect.any(String));
+  });
+
+  it("GET /api/v1/catalog/tiles/cache/:cacheKey/textures returns 404 when blob lookup is unavailable in test", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/tiles/tile_city_street_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/tiles/cache/${cacheKey}/textures`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(404);
+
+    expect(response.body.error.code).toBe("TILE_TEXTURE_BLOB_NOT_FOUND");
   });
 
   it("GET /api/v1/catalog/tiles/:tileId returns 404 for unknown tile", async () => {

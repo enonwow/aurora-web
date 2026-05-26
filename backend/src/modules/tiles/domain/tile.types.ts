@@ -1,4 +1,5 @@
 export type TileWalkmeshKind = "walkable" | "blocked" | "water";
+export type TileDeliveryMode = "proxy" | "direct";
 
 export interface TileMetrics {
   triangles: number;
@@ -16,6 +17,11 @@ export interface TileRecord {
   benchmark: boolean;
   previewImageUrl: string;
   textureAtlasId: string;
+  textureAtlasObjectKey: string;
+  textureAtlasContentType: string;
+  textureAtlasSizeBytes: number;
+  textureAtlasEtag?: string;
+  textureAtlasFingerprint: string;
   walkmesh: TileWalkmeshKind;
   metrics: TileMetrics;
   updatedAt: string;
@@ -38,6 +44,8 @@ export interface TileListItem {
 export interface TileListQuery {
   query?: string;
   tileset?: string;
+  variant?: string;
+  walkmesh?: TileWalkmeshKind;
   tag?: string;
   benchmark?: boolean;
   limit: number;
@@ -69,6 +77,10 @@ export interface TileProcessingResult {
     atlasId: string;
     cacheKey: string;
     strategy: "blob-cache";
+    objectKey?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    etag?: string;
   };
   walkmesh: TileWalkmeshKind;
   metrics: TileMetrics;

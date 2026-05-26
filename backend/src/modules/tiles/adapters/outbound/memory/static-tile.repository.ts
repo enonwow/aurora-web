@@ -14,6 +14,8 @@ interface IndexedTile {
   processingCacheKey: string;
   searchable: string;
   tilesetLower: string;
+  variantLower: string;
+  walkmeshLower: string;
   tagsLower: Set<string>;
 }
 
@@ -28,6 +30,11 @@ const TILES: TileRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/tiles/city-street.webp",
     textureAtlasId: "atlas_tile_city_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 262144,
+    textureAtlasEtag: "atlas-city-v1",
+    textureAtlasFingerprint: "static:atlas:tile_city_v1",
     walkmesh: "walkable",
     metrics: {
       triangles: 1240,
@@ -46,6 +53,11 @@ const TILES: TileRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/tiles/city-gate.webp",
     textureAtlasId: "atlas_tile_city_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_city_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 262144,
+    textureAtlasEtag: "atlas-city-v1",
+    textureAtlasFingerprint: "static:atlas:tile_city_v1",
     walkmesh: "walkable",
     metrics: {
       triangles: 1680,
@@ -64,6 +76,11 @@ const TILES: TileRecord[] = [
     benchmark: false,
     previewImageUrl: "/assets/previews/tiles/swamp-water.webp",
     textureAtlasId: "atlas_tile_swamp_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_swamp_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 233472,
+    textureAtlasEtag: "atlas-swamp-v1",
+    textureAtlasFingerprint: "static:atlas:tile_swamp_v1",
     walkmesh: "water",
     metrics: {
       triangles: 920,
@@ -82,6 +99,11 @@ const TILES: TileRecord[] = [
     benchmark: false,
     previewImageUrl: "/assets/previews/tiles/dungeon-corner.webp",
     textureAtlasId: "atlas_tile_dungeon_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_dungeon_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 229376,
+    textureAtlasEtag: "atlas-dungeon-v1",
+    textureAtlasFingerprint: "static:atlas:tile_dungeon_v1",
     walkmesh: "walkable",
     metrics: {
       triangles: 1060,
@@ -100,6 +122,11 @@ const TILES: TileRecord[] = [
     benchmark: false,
     previewImageUrl: "/assets/previews/tiles/dungeon-blocked.webp",
     textureAtlasId: "atlas_tile_dungeon_v1",
+    textureAtlasObjectKey: "modules/current/tiles/atlases/atlas_tile_dungeon_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 229376,
+    textureAtlasEtag: "atlas-dungeon-v1",
+    textureAtlasFingerprint: "static:atlas:tile_dungeon_v1",
     walkmesh: "blocked",
     metrics: {
       triangles: 870,
@@ -116,6 +143,8 @@ const INDEXED_TILES: IndexedTile[] = TILES.map((tile) => ({
   processingCacheKey: buildTileProcessCacheKey(tile),
   searchable: buildTileSearchableText(tile),
   tilesetLower: tile.tileset.toLowerCase(),
+  variantLower: tile.variant.toLowerCase(),
+  walkmeshLower: tile.walkmesh.toLowerCase(),
   tagsLower: new Set(tile.tags.map((tag) => tag.toLowerCase()))
 }));
 
@@ -132,6 +161,8 @@ export class StaticTileRepository implements TileRepositoryPort {
   async list(query: TileListQuery): Promise<TileListResult> {
     const normalizedQuery = query.query?.toLowerCase().trim();
     const normalizedTileset = query.tileset?.toLowerCase().trim();
+    const normalizedVariant = query.variant?.toLowerCase().trim();
+    const normalizedWalkmesh = query.walkmesh?.toLowerCase().trim();
     const normalizedTag = query.tag?.toLowerCase().trim();
 
     const filtered = INDEXED_TILES.filter((tile) => {
@@ -145,6 +176,18 @@ export class StaticTileRepository implements TileRepositoryPort {
           return true;
         }
         return tile.tilesetLower === normalizedTileset;
+      })
+      .filter((tile) => {
+        if (!query.variant) {
+          return true;
+        }
+        return tile.variantLower === normalizedVariant;
+      })
+      .filter((tile) => {
+        if (!query.walkmesh) {
+          return true;
+        }
+        return tile.walkmeshLower === normalizedWalkmesh;
       })
       .filter((tile) => {
         if (!query.tag) {

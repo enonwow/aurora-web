@@ -159,6 +159,25 @@ describe("ModuleSnapshotTileRepository", () => {
     });
   });
 
+  it("supports variant and walkmesh filtering", async () => {
+    const repository = new ModuleSnapshotTileRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage()
+    );
+
+    const waterOnly = await repository.list({
+      walkmesh: "water",
+      variant: "swamp",
+      limit: 20,
+      offset: 0
+    });
+
+    expect(waterOnly.total).toBe(1);
+    expect(waterOnly.items[0]).toMatchObject({
+      walkmesh: "water"
+    });
+  });
+
   it("falls back to static repository when no tile candidates found", async () => {
     const runtimeSettings = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();

@@ -3,7 +3,8 @@ import {
   parseTileBenchmarkPayload,
   parseTileCacheKey,
   parseTileListQuery,
-  parseTileProcessPayload
+  parseTileProcessPayload,
+  parseTileTextureDeliveryQuery
 } from "../../src/modules/tiles/adapters/inbound/http/tiles.schemas";
 
 describe("tiles.schemas", () => {
@@ -12,6 +13,15 @@ describe("tiles.schemas", () => {
 
     expect(parsed.limit).toBe(20);
     expect(parsed.offset).toBe(0);
+  });
+
+  it("parses tile list walkmesh and variant filters", () => {
+    const parsed = parseTileListQuery({
+      walkmesh: "water",
+      variant: "street"
+    });
+    expect(parsed.walkmesh).toBe("water");
+    expect(parsed.variant).toBe("street");
   });
 
   it("parses tile process payload defaults", () => {
@@ -33,5 +43,19 @@ describe("tiles.schemas", () => {
 
   it("rejects invalid tile cache key", () => {
     expect(() => parseTileCacheKey("invalid:key")).toThrow(AppException);
+  });
+
+  it("parses tile texture delivery query defaults", () => {
+    const parsed = parseTileTextureDeliveryQuery({});
+    expect(parsed.mode).toBe("proxy");
+  });
+
+  it("parses tile texture delivery direct mode", () => {
+    const parsed = parseTileTextureDeliveryQuery({ mode: "direct" });
+    expect(parsed.mode).toBe("direct");
+  });
+
+  it("rejects invalid tile texture delivery mode", () => {
+    expect(() => parseTileTextureDeliveryQuery({ mode: "invalid" })).toThrow(AppException);
   });
 });
