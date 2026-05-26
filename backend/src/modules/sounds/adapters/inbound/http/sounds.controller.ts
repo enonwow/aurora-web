@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiBody,
@@ -8,6 +8,7 @@ import {
   ApiResponse,
   ApiTags
 } from "@nestjs/swagger";
+import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
@@ -17,6 +18,7 @@ import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { SoundsApplicationService } from "../../../application/sounds.application.service";
 import {
   parseSoundBenchmarkPayload,
+  parseSoundAudioDeliveryQuery,
   parseSoundCacheKey,
   parseSoundListQuery,
   parseSoundProcessPayload
@@ -136,4 +138,160 @@ export class SoundsController {
     const data = await this.service.getProcessedSound(cacheKey);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
+
+  @Get("cache/:cacheKey/audio/contracts")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({
+    summary: "Get hybrid audio delivery contract for processed sound cache entry."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiQuery({
+    name: "mode",
+    required: false,
+    enum: ["proxy", "direct"],
+    description:
+      "Delivery mode. `proxy` streams bytes through API; `direct` returns direct blob HTTP/S3 URLs."
+  })
+  @ApiResponse({ status: 200, description: "Sound audio delivery contract." })
+  @ApiResponse({ status: 404, description: "Cache entry not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedAudioContract(
+    @Req() request: AppRequest,
+    @Param("cacheKey") rawCacheKey: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    const cacheKey = parseSoundCacheKey(rawCacheKey);
+    const parsed = parseSoundAudioDeliveryQuery(query);
+    const data = await this.service.getProcessedSoundAudioDelivery(cacheKey, parsed.mode);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("cache/:cacheKey/audio")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Download processed sound audio payload through backend proxy."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiResponse({ status: 200, description: "Binary audio payload." })
+  @ApiResponse({ status: 206, description: "Partial audio payload for range request." })
+  @ApiResponse({ status: 404, description: "Cache entry or audio blob not found." })
+  @ApiResponse({ status: 416, description: "Invalid byte range." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedAudio(
+    @Param("cacheKey") rawCacheKey: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Res() response: FastifyReply
+  ) {
+    const cacheKey = parseSoundCacheKey(rawCacheKey);
+    const data = await this.service.getProcessedSoundAudio(cacheKey);
+    const range = parseSingleByteRange(rangeHeader, data.payload.size);
+
+    response.header("Content-Type", data.payload.contentType);
+    response.header("Accept-Ranges", "bytes");
+    response.header("Cache-Control", "private, max-age=120");
+    response.header("X-Aurora-Sound-Asset-Id", data.audio.assetId);
+    response.header("X-Aurora-Sound-Object-Key", data.audio.objectKey);
+    response.header("X-Aurora-Cache-Key", data.cacheKey);
+    if (data.payload.etag) {
+      response.header("ETag", data.payload.etag);
+    }
+
+    if (range && range.kind === "invalid") {
+      response.code(416);
+      response.header("Content-Range", `bytes */${data.payload.size}`);
+      return response.send();
+    }
+
+    if (range && range.kind === "partial") {
+      const chunk = data.payload.bytes.subarray(range.start, range.end + 1);
+      response.code(206);
+      response.header("Content-Length", String(chunk.length));
+      response.header("Content-Range", `bytes ${range.start}-${range.end}/${data.payload.size}`);
+      response.header(
+        "Content-Disposition",
+        `inline; filename="${sanitizeHeaderFileName(data.audio.assetId)}.${sanitizeHeaderFileName(data.audio.format)}"`
+      );
+      return response.send(chunk);
+    }
+
+    response.header("Content-Length", String(data.payload.size));
+    response.header(
+      "Content-Disposition",
+      `inline; filename="${sanitizeHeaderFileName(data.audio.assetId)}.${sanitizeHeaderFileName(data.audio.format)}"`
+    );
+    return response.send(data.payload.bytes);
+  }
+}
+
+function sanitizeHeaderFileName(value: string): string {
+  return value.replace(/["\\\r\n]/gu, "_");
+}
+
+function parseSingleByteRange(
+  rawValue: string | undefined,
+  totalSize: number
+):
+  | { kind: "partial"; start: number; end: number }
+  | { kind: "invalid" }
+  | null {
+  if (!rawValue || rawValue.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = rawValue.trim().toLowerCase();
+  if (!normalized.startsWith("bytes=")) {
+    return { kind: "invalid" };
+  }
+
+  const spec = normalized.slice("bytes=".length).trim();
+  if (spec.includes(",")) {
+    return { kind: "invalid" };
+  }
+
+  const [rawStart, rawEnd] = spec.split("-", 2);
+  if (typeof rawStart !== "string" || typeof rawEnd !== "string") {
+    return { kind: "invalid" };
+  }
+
+  if (rawStart.length === 0) {
+    const suffixLength = Number(rawEnd);
+    if (!Number.isInteger(suffixLength) || suffixLength <= 0) {
+      return { kind: "invalid" };
+    }
+    const effectiveLength = Math.min(suffixLength, totalSize);
+    if (effectiveLength <= 0) {
+      return { kind: "invalid" };
+    }
+    return {
+      kind: "partial",
+      start: totalSize - effectiveLength,
+      end: totalSize - 1
+    };
+  }
+
+  const start = Number(rawStart);
+  if (!Number.isInteger(start) || start < 0 || start >= totalSize) {
+    return { kind: "invalid" };
+  }
+
+  if (rawEnd.length === 0) {
+    return {
+      kind: "partial",
+      start,
+      end: totalSize - 1
+    };
+  }
+
+  const end = Number(rawEnd);
+  if (!Number.isInteger(end) || end < start) {
+    return { kind: "invalid" };
+  }
+
+  return {
+    kind: "partial",
+    start,
+    end: Math.min(end, totalSize - 1)
+  };
 }

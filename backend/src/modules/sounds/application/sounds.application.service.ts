@@ -1,6 +1,17 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { AppException } from "../../../common/http/app-exception";
+import { AppConfigService } from "../../../common/config/app-config.service";
+import {
+  MODULE_BLOB_STORAGE,
+  type ModuleBlobObjectPayload,
+  type ModuleBlobStoragePort
+} from "../../runtime-settings/application/ports/module-blob-storage.port";
+import {
+  RUNTIME_SETTINGS_REPOSITORY,
+  type RuntimeSettingsRepositoryPort
+} from "../../runtime-settings/application/ports/runtime-settings-repository.port";
+import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
 import {
   SOUND_PROCESSING_CACHE,
   type SoundProcessingCachePort
@@ -13,6 +24,7 @@ import type {
   BenchmarkDurationSummary,
   SoundBenchmarkResult,
   SoundBenchmarkRunQuery,
+  SoundDeliveryMode,
   SoundProcessQuery,
   SoundProcessingResult,
   SoundRecord
@@ -29,6 +41,30 @@ export interface SoundProcessingEnvelope {
   sound: SoundProcessingResult;
 }
 
+export interface SoundAudioBlobEnvelope {
+  cacheKey: string;
+  audio: SoundProcessingResult["audio"];
+  payload: ModuleBlobObjectPayload;
+}
+
+export interface SoundAudioDeliveryContract {
+  mode: SoundDeliveryMode;
+  assetId: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  etag?: string;
+  proxyPath: string;
+  proxyUrl: string;
+  directUrl?: string;
+  s3Url?: string;
+}
+
+export interface SoundAudioDeliveryEnvelope {
+  cacheKey: string;
+  audio: SoundAudioDeliveryContract;
+}
+
 @Injectable()
 export class SoundsApplicationService {
   private readonly inFlightSoundProcessing = new Map<string, Promise<SoundProcessingEnvelope>>();
@@ -37,7 +73,12 @@ export class SoundsApplicationService {
     @Inject(SOUND_REPOSITORY)
     private readonly repository: SoundRepositoryPort,
     @Inject(SOUND_PROCESSING_CACHE)
-    private readonly processingCache: SoundProcessingCachePort
+    private readonly processingCache: SoundProcessingCachePort,
+    private readonly appConfig?: AppConfigService,
+    @Inject(RUNTIME_SETTINGS_REPOSITORY)
+    private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
+    @Inject(MODULE_BLOB_STORAGE)
+    private readonly moduleBlobStorage?: ModuleBlobStoragePort
   ) {}
 
   listSounds(query: {
@@ -73,6 +114,10 @@ export class SoundsApplicationService {
         assetId: sound.audioAssetId,
         cacheKey: `${sound.audioAssetId}:${sound.soundId}`,
         strategy: "blob-cache" as const,
+        objectKey: sound.sourceObjectKey,
+        contentType: sound.sourceContentType,
+        sizeBytes: sound.sourceSizeBytes,
+        etag: sound.sourceEtag,
         format: sound.format,
         sampleRateHz: sound.sampleRateHz,
         channels: sound.channels
@@ -80,6 +125,15 @@ export class SoundsApplicationService {
       spatial: {
         mode: sound.spatialMode,
         loop: sound.loop
+      },
+      playback: sound.playback,
+      reverseMapping: sound.reverseMapping,
+      source: {
+        fingerprint: sound.sourceFingerprint,
+        objectKey: sound.sourceObjectKey,
+        contentType: sound.sourceContentType,
+        sizeBytes: sound.sourceSizeBytes,
+        etag: sound.sourceEtag
       },
       metrics: sound.metrics,
       updatedAt: sound.updatedAt
@@ -104,6 +158,7 @@ export class SoundsApplicationService {
       benchmark: sound.benchmark,
       category: sound.category,
       spatialMode: sound.spatialMode,
+      playbackMode: sound.playback.mode,
       metrics: sound.metrics,
       updatedAt: sound.updatedAt
     };
@@ -117,6 +172,7 @@ export class SoundsApplicationService {
     if (!query.bypassCache) {
       const cached = await this.processingCache.get(cacheKey);
       if (cached) {
+        const hydrated = await this.ensureSoundSource(cacheKey, cached.value);
         return {
           cache: {
             key: cacheKey,
@@ -124,7 +180,7 @@ export class SoundsApplicationService {
             storedAt: cached.storedAt,
             hits: cached.hits
           },
-          sound: cached.value
+          sound: hydrated
         };
       }
     }
@@ -143,6 +199,10 @@ export class SoundsApplicationService {
           assetId: sound.audioAssetId,
           cacheKey: `${sound.audioAssetId}:${sound.soundId}`,
           strategy: "blob-cache",
+          objectKey: sound.sourceObjectKey,
+          contentType: sound.sourceContentType,
+          sizeBytes: sound.sourceSizeBytes,
+          etag: sound.sourceEtag,
           format: sound.format,
           sampleRateHz: sound.sampleRateHz,
           channels: sound.channels
@@ -151,6 +211,8 @@ export class SoundsApplicationService {
           mode: sound.spatialMode,
           loop: sound.loop
         },
+        playback: sound.playback,
+        reverseMapping: sound.reverseMapping,
         metrics: sound.metrics,
         render: {
           backendType: "sound",
@@ -188,6 +250,7 @@ export class SoundsApplicationService {
       });
     }
 
+    const hydrated = await this.ensureSoundSource(cacheKey, cached.value);
     return {
       cache: {
         key: cacheKey,
@@ -195,7 +258,78 @@ export class SoundsApplicationService {
         storedAt: cached.storedAt,
         hits: cached.hits
       },
-      sound: cached.value
+      sound: hydrated
+    };
+  }
+
+  async getProcessedSoundAudio(cacheKey: string): Promise<SoundAudioBlobEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "SOUND_CACHE_NOT_FOUND",
+        message: "Sound cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureSoundSource(cacheKey, cached.value);
+    const payload = await this.readModuleBlobObject(hydrated.audio.objectKey);
+    if (!payload) {
+      throw new AppException({
+        status: 404,
+        code: "SOUND_AUDIO_BLOB_NOT_FOUND",
+        message: "Sound audio blob object was not found."
+      });
+    }
+
+    return {
+      cacheKey,
+      audio: hydrated.audio,
+      payload
+    };
+  }
+
+  async getProcessedSoundAudioDelivery(
+    cacheKey: string,
+    mode: SoundDeliveryMode
+  ): Promise<SoundAudioDeliveryEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "SOUND_CACHE_NOT_FOUND",
+        message: "Sound cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureSoundSource(cacheKey, cached.value);
+    const blobSettings = await this.getBlobStorageSettings();
+    if (mode === "direct" && !blobSettings) {
+      throw new AppException({
+        status: 422,
+        code: "SOUND_DIRECT_DELIVERY_UNAVAILABLE",
+        message: "Direct sound delivery is unavailable without blob storage settings."
+      });
+    }
+    const proxyPath = buildSoundAudioDeliveryPath(cacheKey);
+
+    return {
+      cacheKey,
+      audio: {
+        mode,
+        assetId: hydrated.audio.assetId,
+        objectKey: hydrated.audio.objectKey,
+        contentType: hydrated.audio.contentType,
+        sizeBytes: hydrated.audio.sizeBytes,
+        etag: hydrated.audio.etag,
+        proxyPath,
+        proxyUrl: proxyPath,
+        directUrl:
+          mode === "direct" && blobSettings
+            ? buildBlobObjectHttpUrl(blobSettings, hydrated.audio.objectKey)
+            : undefined,
+        s3Url: blobSettings ? buildS3ObjectUrl(blobSettings.bucket, hydrated.audio.objectKey) : undefined
+      }
     };
   }
 
@@ -302,6 +436,58 @@ export class SoundsApplicationService {
     return resolved.filter((value): value is SoundRecord => Boolean(value));
   }
 
+  private async ensureSoundSource(
+    cacheKey: string,
+    value: SoundProcessingResult
+  ): Promise<SoundProcessingResult> {
+    if (value.audio.objectKey && value.audio.contentType && value.audio.sizeBytes > 0) {
+      return value;
+    }
+
+    const sound = await this.repository.findById(value.soundId);
+    if (!sound) {
+      return value;
+    }
+
+    const refreshed: SoundProcessingResult = {
+      ...value,
+      audio: {
+        ...value.audio,
+        objectKey: sound.sourceObjectKey,
+        contentType: sound.sourceContentType,
+        sizeBytes: sound.sourceSizeBytes,
+        etag: sound.sourceEtag
+      },
+      playback: sound.playback,
+      reverseMapping: sound.reverseMapping
+    };
+
+    await this.processingCache.set(cacheKey, refreshed);
+    return refreshed;
+  }
+
+  private async readModuleBlobObject(key: string): Promise<ModuleBlobObjectPayload | null> {
+    if (!this.runtimeSettingsRepository || !this.moduleBlobStorage) {
+      return null;
+    }
+
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+  }
+
+  private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
+    if (!this.runtimeSettingsRepository) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return settings.blobStorage;
+  }
+
   private executeInFlight<T>(
     inFlight: Map<string, Promise<T>>,
     key: string,
@@ -367,8 +553,35 @@ function percentile(sorted: number[], ratio: number): number {
   return sorted[index];
 }
 
+function buildSoundAudioDeliveryPath(cacheKey: string): string {
+  const encodedCacheKey = encodeURIComponent(cacheKey);
+  return `/api/v1/catalog/sounds/cache/${encodedCacheKey}/audio`;
+}
+
+function buildS3ObjectUrl(bucket: string, objectKey: string): string {
+  const normalizedObjectKey = objectKey.replace(/^\/+/, "");
+  return `s3://${bucket}/${normalizedObjectKey}`;
+}
+
+function buildBlobObjectHttpUrl(settings: BlobStorageSettings, objectKey: string): string {
+  const endpoint = settings.endpoint.replace(/\/+$/u, "");
+  const encodedSegments = objectKey
+    .replace(/^\/+|\/+$/gu, "")
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  if (settings.forcePathStyle) {
+    return `${endpoint}/${encodeURIComponent(settings.bucket)}/${encodedSegments}`;
+  }
+
+  return `${endpoint}/${encodedSegments}`;
+}
+
 export const __soundsApplicationServiceInternals = {
   buildBenchmarkFingerprint,
   summarizeDurations,
-  percentile
+  percentile,
+  buildBlobObjectHttpUrl
 } as const;

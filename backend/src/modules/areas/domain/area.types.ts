@@ -17,6 +17,27 @@ export interface AreaObjectCounts {
   total: number;
 }
 
+export interface AreaSoundBindingKeys {
+  areaKey: "GI_sound_area";
+  randomKey: "GI_sound_rndm";
+  positionalKey: "GI_sound_pos";
+}
+
+export interface AreaSoundReference {
+  soundId: string;
+  resref: string;
+  category: "ambient" | "music" | "effect";
+  playbackMode: "looping" | "continuous" | "random" | "interval";
+  ambientOnly: boolean;
+}
+
+export interface AreaSoundscape {
+  bindingKeys: AreaSoundBindingKeys;
+  area: AreaSoundReference[];
+  random: AreaSoundReference[];
+  positional: AreaSoundReference[];
+}
+
 export interface AreaRecord {
   areaId: string;
   name: string;
@@ -28,6 +49,7 @@ export interface AreaRecord {
   previewImageUrl: string;
   textureAtlasId: string;
   objects: AreaObjectPlacement[];
+  soundscape: AreaSoundscape;
   updatedAt: string;
 }
 
@@ -80,6 +102,7 @@ export interface AreaProcessingResult {
     cacheKey: string;
     strategy: "blob-cache";
   };
+  soundscape: AreaSoundscape;
   composition: AreaObjectCounts;
   objects: AreaObjectPlacement[];
   updatedAt: string;

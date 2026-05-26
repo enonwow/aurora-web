@@ -43,6 +43,12 @@ interface AreaCandidate {
   updatedAt: string;
 }
 
+const DEFAULT_SOUND_BINDING_KEYS = {
+  areaKey: "GI_sound_area" as const,
+  randomKey: "GI_sound_rndm" as const,
+  positionalKey: "GI_sound_pos" as const
+};
+
 @Injectable()
 export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
   private readonly logger = new Logger(ModuleSnapshotAreaRepository.name);
@@ -263,6 +269,7 @@ function mapCandidateToAreaRecord(candidate: AreaCandidate, benchmarkIds: Set<st
     previewImageUrl: `/assets/previews/areas/${candidate.resref}.webp`,
     textureAtlasId: `atlas_${biome}_v1`,
     objects: [],
+    soundscape: buildAreaSoundscape(candidate, biome),
     updatedAt: candidate.updatedAt
   };
 }
@@ -315,6 +322,57 @@ function buildTags(candidate: AreaCandidate, biome: string): string[] {
   }
 
   return [...tags].slice(0, 12);
+}
+
+function buildAreaSoundscape(
+  candidate: AreaCandidate,
+  biome: string
+): AreaRecord["soundscape"] {
+  const normalized = `${candidate.resref}|${candidate.sourceKey}|${biome}`.toLowerCase();
+  const areaAmbientResref = normalized.includes("city")
+    ? "amb_city_market_day"
+    : normalized.includes("swamp")
+      ? "amb_swamp_night"
+      : "amb_forest_day";
+
+  const area: AreaRecord["soundscape"]["area"] = [
+    {
+      soundId: `sound_${areaAmbientResref}`.slice(0, 72),
+      resref: areaAmbientResref,
+      category: "ambient",
+      playbackMode: "interval",
+      ambientOnly: true
+    }
+  ];
+
+  const random: AreaRecord["soundscape"]["random"] = [
+    {
+      soundId: "sound_sfx_door_creak_long",
+      resref: "sfx_door_creak_long",
+      category: "effect",
+      playbackMode: "random",
+      ambientOnly: false
+    }
+  ];
+
+  const positional: AreaRecord["soundscape"]["positional"] = normalized.includes("city")
+    ? [
+        {
+          soundId: "sound_sfx_forge_loop_heavy",
+          resref: "sfx_forge_loop_heavy",
+          category: "effect",
+          playbackMode: "looping",
+          ambientOnly: false
+        }
+      ]
+    : [];
+
+  return {
+    bindingKeys: DEFAULT_SOUND_BINDING_KEYS,
+    area,
+    random,
+    positional
+  };
 }
 
 function mapAreaToListItem(area: AreaRecord, composition: AreaObjectCounts): AreaListItem {

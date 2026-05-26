@@ -66,6 +66,10 @@ function buildSoundResult(soundId: string): SoundProcessingResult {
       assetId: "audio/effects/test",
       cacheKey: "audio/effects/test:sound",
       strategy: "blob-cache",
+      objectKey: "modules/current/audio/effects/test.wav",
+      contentType: "audio/wav",
+      sizeBytes: 1024,
+      etag: "etag-test",
       format: "wav",
       sampleRateHz: 44100,
       channels: 1
@@ -73,6 +77,23 @@ function buildSoundResult(soundId: string): SoundProcessingResult {
     spatial: {
       mode: "3d",
       loop: false
+    },
+    playback: {
+      mode: "random",
+      ambientOnly: false
+    },
+    reverseMapping: {
+      palette: "soundpalstd",
+      soundPalette: "soundpal",
+      soundSetTable: "soundset",
+      soundSetTypeTable: "soundsettype",
+      soundTypesTable: "soundtypes",
+      categoryFilterTable: "soundcatfilters",
+      areaBinding: {
+        areaKey: "GI_sound_area",
+        randomKey: "GI_sound_rndm",
+        positionalKey: "GI_sound_pos"
+      }
     },
     metrics: {
       durationMs: 1000,

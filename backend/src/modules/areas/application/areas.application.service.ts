@@ -76,6 +76,7 @@ export class AreasApplicationService {
         cacheKey: `${area.textureAtlasId}:${area.width}x${area.height}`,
         strategy: "blob-cache"
       },
+      soundscape: area.soundscape,
       composition: counts,
       objects: area.objects,
       updatedAt: area.updatedAt
@@ -103,6 +104,7 @@ export class AreasApplicationService {
         height: area.height
       },
       textureAtlasId: area.textureAtlasId,
+      soundscape: area.soundscape,
       objectCounts: precomputed?.composition ?? countAreaObjectsByKind(area.objects),
       updatedAt: area.updatedAt
     };
@@ -161,6 +163,7 @@ export class AreasApplicationService {
           cacheKey: textureAtlasCacheKey,
           strategy: "blob-cache"
         },
+        soundscape: area.soundscape,
         composition,
         objects: area.objects,
         updatedAt: area.updatedAt,

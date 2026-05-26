@@ -70,6 +70,16 @@ function buildAreaResult(areaId: string): AreaProcessingResult {
       cacheKey: "atlas:10x10",
       strategy: "blob-cache"
     },
+    soundscape: {
+      bindingKeys: {
+        areaKey: "GI_sound_area",
+        randomKey: "GI_sound_rndm",
+        positionalKey: "GI_sound_pos"
+      },
+      area: [],
+      random: [],
+      positional: []
+    },
     composition: {
       placeables: 0,
       creatures: 0,

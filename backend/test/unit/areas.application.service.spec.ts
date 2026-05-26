@@ -148,6 +148,7 @@ describe("AreasApplicationService", () => {
         cacheKey: "atlas_urban_v1:12x12",
         strategy: "blob-cache"
       },
+      soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
         creatures: 2,
@@ -193,6 +194,7 @@ describe("AreasApplicationService", () => {
         cacheKey: "atlas_urban_v1:12x12",
         strategy: "blob-cache"
       },
+      soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
         creatures: 2,
@@ -312,6 +314,7 @@ describe("AreasApplicationService", () => {
         cacheKey: "atlas_urban_v1:12x12",
         strategy: "blob-cache"
       },
+      soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
         creatures: 2,
@@ -371,6 +374,7 @@ function buildArea(id: string): AreaRecord {
     benchmark: true,
     previewImageUrl: `/previews/${id}.webp`,
     textureAtlasId: "atlas_urban_v1",
+    soundscape: buildAreaSoundscape(),
     objects: [
       {
         objectId: "obj_plc_001",
@@ -410,6 +414,43 @@ function buildArea(id: string): AreaRecord {
       }
     ],
     updatedAt: "2026-05-23T00:00:00.000Z"
+  };
+}
+
+function buildAreaSoundscape(): AreaRecord["soundscape"] {
+  return {
+    bindingKeys: {
+      areaKey: "GI_sound_area",
+      randomKey: "GI_sound_rndm",
+      positionalKey: "GI_sound_pos"
+    },
+    area: [
+      {
+        soundId: "sound_ambient_city_market_001",
+        resref: "amb_city_market_day",
+        category: "ambient",
+        playbackMode: "interval",
+        ambientOnly: true
+      }
+    ],
+    random: [
+      {
+        soundId: "sound_effect_door_creak_005",
+        resref: "sfx_door_creak_long",
+        category: "effect",
+        playbackMode: "random",
+        ambientOnly: false
+      }
+    ],
+    positional: [
+      {
+        soundId: "sound_effect_forge_loop_003",
+        resref: "sfx_forge_loop_heavy",
+        category: "effect",
+        playbackMode: "looping",
+        ambientOnly: false
+      }
+    ]
   };
 }
 

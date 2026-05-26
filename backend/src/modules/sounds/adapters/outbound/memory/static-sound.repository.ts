@@ -4,7 +4,8 @@ import type {
   SoundListItem,
   SoundListQuery,
   SoundListResult,
-  SoundRecord
+  SoundRecord,
+  SoundReverseMapping
 } from "../../../domain/sound.types";
 import { buildSoundProcessCacheKey } from "../../../domain/sound-processing.builders";
 
@@ -17,8 +18,24 @@ interface IndexedSound {
   tagsLower: Set<string>;
 }
 
+const DEFAULT_AREA_BINDING = {
+  areaKey: "GI_sound_area" as const,
+  randomKey: "GI_sound_rndm" as const,
+  positionalKey: "GI_sound_pos" as const
+};
+
+const DEFAULT_REVERSE_MAPPING: SoundReverseMapping = {
+  palette: "soundpalstd",
+  soundPalette: "soundpal",
+  soundSetTable: "soundset",
+  soundSetTypeTable: "soundsettype",
+  soundTypesTable: "soundtypes",
+  categoryFilterTable: "soundcatfilters",
+  areaBinding: DEFAULT_AREA_BINDING
+};
+
 const SOUNDS: SoundRecord[] = [
-  {
+  buildStaticSound({
     soundId: "sound_ambient_city_market_001",
     resref: "amb_city_market_day",
     name: "City Market Day Ambience",
@@ -27,19 +44,29 @@ const SOUNDS: SoundRecord[] = [
     benchmark: true,
     previewWaveformUrl: "/assets/previews/sounds/city-market-day.webp",
     audioAssetId: "audio/ambient/city-market-day",
+    sourceObjectKey: "modules/current/audio/ambient/amb_city_market_day.ogg",
+    sourceContentType: "audio/ogg",
+    sourceSizeBytes: 245760,
+    sourceEtag: "static-amb-city-market",
+    sourceFingerprint: "static:sound:amb_city_market_day:v2",
     format: "ogg",
     sampleRateHz: 48000,
     channels: 2,
     spatialMode: "2d",
     loop: true,
+    playback: {
+      mode: "interval",
+      intervalSeconds: 30,
+      ambientOnly: true
+    },
     metrics: {
       durationMs: 32210,
       cues: 4,
       emitters: 0
     },
     updatedAt: "2026-05-25T12:30:00.000Z"
-  },
-  {
+  }),
+  buildStaticSound({
     soundId: "sound_music_city_theme_002",
     resref: "mus_city_theme_main",
     name: "City Theme Main Loop",
@@ -48,19 +75,28 @@ const SOUNDS: SoundRecord[] = [
     benchmark: true,
     previewWaveformUrl: "/assets/previews/sounds/city-theme-main.webp",
     audioAssetId: "audio/music/city-theme-main",
+    sourceObjectKey: "modules/current/audio/music/mus_city_theme_main.bmu",
+    sourceContentType: "audio/mpeg",
+    sourceSizeBytes: 612384,
+    sourceEtag: "static-mus-city-theme",
+    sourceFingerprint: "static:sound:mus_city_theme_main:v2",
     format: "ogg",
     sampleRateHz: 48000,
     channels: 2,
     spatialMode: "2d",
     loop: true,
+    playback: {
+      mode: "continuous",
+      ambientOnly: false
+    },
     metrics: {
       durationMs: 108442,
       cues: 1,
       emitters: 0
     },
     updatedAt: "2026-05-25T12:30:00.000Z"
-  },
-  {
+  }),
+  buildStaticSound({
     soundId: "sound_effect_forge_loop_003",
     resref: "sfx_forge_loop_heavy",
     name: "Forge Loop Heavy",
@@ -69,19 +105,28 @@ const SOUNDS: SoundRecord[] = [
     benchmark: true,
     previewWaveformUrl: "/assets/previews/sounds/forge-loop-heavy.webp",
     audioAssetId: "audio/effects/forge-loop-heavy",
+    sourceObjectKey: "modules/current/audio/effects/sfx_forge_loop_heavy.wav",
+    sourceContentType: "audio/wav",
+    sourceSizeBytes: 144320,
+    sourceEtag: "static-sfx-forge-loop",
+    sourceFingerprint: "static:sound:sfx_forge_loop_heavy:v2",
     format: "wav",
     sampleRateHz: 44100,
     channels: 1,
     spatialMode: "3d",
     loop: true,
+    playback: {
+      mode: "looping",
+      ambientOnly: false
+    },
     metrics: {
       durationMs: 15433,
       cues: 7,
       emitters: 1
     },
     updatedAt: "2026-05-25T11:00:00.000Z"
-  },
-  {
+  }),
+  buildStaticSound({
     soundId: "sound_ambient_swamp_night_004",
     resref: "amb_swamp_night",
     name: "Swamp Night Ambience",
@@ -90,19 +135,29 @@ const SOUNDS: SoundRecord[] = [
     benchmark: false,
     previewWaveformUrl: "/assets/previews/sounds/swamp-night.webp",
     audioAssetId: "audio/ambient/swamp-night",
+    sourceObjectKey: "modules/current/audio/ambient/amb_swamp_night.ogg",
+    sourceContentType: "audio/ogg",
+    sourceSizeBytes: 308224,
+    sourceEtag: "static-amb-swamp-night",
+    sourceFingerprint: "static:sound:amb_swamp_night:v2",
     format: "ogg",
     sampleRateHz: 44100,
     channels: 2,
     spatialMode: "2d",
     loop: true,
+    playback: {
+      mode: "interval",
+      intervalSeconds: 45,
+      ambientOnly: true
+    },
     metrics: {
       durationMs: 45220,
       cues: 5,
       emitters: 2
     },
     updatedAt: "2026-05-24T09:10:00.000Z"
-  },
-  {
+  }),
+  buildStaticSound({
     soundId: "sound_effect_door_creak_005",
     resref: "sfx_door_creak_long",
     name: "Door Creak Long",
@@ -111,18 +166,27 @@ const SOUNDS: SoundRecord[] = [
     benchmark: false,
     previewWaveformUrl: "/assets/previews/sounds/door-creak-long.webp",
     audioAssetId: "audio/effects/door-creak-long",
+    sourceObjectKey: "modules/current/audio/effects/sfx_door_creak_long.wav",
+    sourceContentType: "audio/wav",
+    sourceSizeBytes: 63218,
+    sourceEtag: "static-sfx-door-creak",
+    sourceFingerprint: "static:sound:sfx_door_creak_long:v2",
     format: "wav",
     sampleRateHz: 44100,
     channels: 1,
     spatialMode: "3d",
     loop: false,
+    playback: {
+      mode: "random",
+      ambientOnly: false
+    },
     metrics: {
       durationMs: 2780,
       cues: 2,
       emitters: 0
     },
     updatedAt: "2026-05-24T09:10:00.000Z"
-  }
+  })
 ];
 
 const INDEXED_SOUNDS: IndexedSound[] = SOUNDS.map((sound) => ({
@@ -212,4 +276,14 @@ function mapSoundToListItem(sound: SoundRecord): SoundListItem {
 
 function buildSoundSearchableText(sound: SoundRecord): string {
   return [sound.name, sound.soundId, sound.resref, ...sound.tags].join("|").toLowerCase();
+}
+
+function buildStaticSound(input: Omit<SoundRecord, "reverseMapping">): SoundRecord {
+  return {
+    ...input,
+    reverseMapping: {
+      ...DEFAULT_REVERSE_MAPPING,
+      palette: input.sourceObjectKey.includes("/hak/") ? "soundpalcus.itp" : "soundpalstd"
+    }
+  };
 }

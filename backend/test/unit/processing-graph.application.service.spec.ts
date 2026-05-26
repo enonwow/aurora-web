@@ -23,6 +23,24 @@ describe("ProcessingGraphApplicationService", () => {
       benchmark: true,
       previewImageUrl: "/alpha.webp",
       textureAtlasId: "atlas_alpha",
+      soundscape: {
+        bindingKeys: {
+          areaKey: "GI_sound_area",
+          randomKey: "GI_sound_rndm",
+          positionalKey: "GI_sound_pos"
+        },
+        area: [
+          {
+            soundId: "sound_ambient_city_market_001",
+            resref: "amb_city_market_day",
+            category: "ambient",
+            playbackMode: "interval",
+            ambientOnly: true
+          }
+        ],
+        random: [],
+        positional: []
+      },
       objects: [
         {
           objectId: "obj_1",

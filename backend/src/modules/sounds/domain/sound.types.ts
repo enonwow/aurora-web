@@ -1,11 +1,29 @@
 export type SoundCategory = "ambient" | "music" | "effect";
 export type SoundSpatialMode = "2d" | "3d";
 export type SoundFormat = "wav" | "ogg";
+export type SoundPlaybackMode = "looping" | "continuous" | "random" | "interval";
+export type SoundDeliveryMode = "proxy" | "direct";
 
 export interface SoundMetrics {
   durationMs: number;
   cues: number;
   emitters: number;
+}
+
+export interface SoundAreaBinding {
+  areaKey: "GI_sound_area";
+  randomKey: "GI_sound_rndm";
+  positionalKey: "GI_sound_pos";
+}
+
+export interface SoundReverseMapping {
+  palette: "soundpalstd" | "soundpalcus.itp";
+  soundPalette: "soundpal";
+  soundSetTable: "soundset";
+  soundSetTypeTable: "soundsettype";
+  soundTypesTable: "soundtypes";
+  categoryFilterTable: "soundcatfilters";
+  areaBinding: SoundAreaBinding;
 }
 
 export interface SoundRecord {
@@ -17,11 +35,22 @@ export interface SoundRecord {
   benchmark: boolean;
   previewWaveformUrl: string;
   audioAssetId: string;
+  sourceObjectKey: string;
+  sourceContentType: string;
+  sourceSizeBytes: number;
+  sourceEtag?: string;
+  sourceFingerprint: string;
   format: SoundFormat;
   sampleRateHz: number;
   channels: 1 | 2;
   spatialMode: SoundSpatialMode;
   loop: boolean;
+  playback: {
+    mode: SoundPlaybackMode;
+    intervalSeconds?: number;
+    ambientOnly: boolean;
+  };
+  reverseMapping: SoundReverseMapping;
   metrics: SoundMetrics;
   updatedAt: string;
 }
@@ -72,6 +101,10 @@ export interface SoundProcessingResult {
     assetId: string;
     cacheKey: string;
     strategy: "blob-cache";
+    objectKey: string;
+    contentType: string;
+    sizeBytes: number;
+    etag?: string;
     format: SoundFormat;
     sampleRateHz: number;
     channels: 1 | 2;
@@ -80,6 +113,12 @@ export interface SoundProcessingResult {
     mode: SoundSpatialMode;
     loop: boolean;
   };
+  playback: {
+    mode: SoundPlaybackMode;
+    intervalSeconds?: number;
+    ambientOnly: boolean;
+  };
+  reverseMapping: SoundReverseMapping;
   metrics: SoundMetrics;
   render: {
     backendType: "sound";

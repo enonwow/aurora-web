@@ -22,6 +22,12 @@ interface IndexedArea {
   tagsLower: Set<string>;
 }
 
+const DEFAULT_SOUND_BINDING_KEYS = {
+  areaKey: "GI_sound_area" as const,
+  randomKey: "GI_sound_rndm" as const,
+  positionalKey: "GI_sound_pos" as const
+};
+
 const AREAS: AreaRecord[] = [
   {
     areaId: "area_market_district_001",
@@ -33,6 +39,7 @@ const AREAS: AreaRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/areas/market-district-day.webp",
     textureAtlasId: "atlas_urban_day_v1",
+    soundscape: buildAreaSoundscape("urban"),
     objects: [
       {
         objectId: "obj_plc_001",
@@ -92,6 +99,7 @@ const AREAS: AreaRecord[] = [
     benchmark: false,
     previewImageUrl: "/assets/previews/areas/forest-crossing.webp",
     textureAtlasId: "atlas_forest_mixed_v1",
+    soundscape: buildAreaSoundscape("forest"),
     objects: [
       {
         objectId: "obj_plc_101",
@@ -133,6 +141,7 @@ const AREAS: AreaRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/areas/dungeon-entry-hall.webp",
     textureAtlasId: "atlas_dungeon_stone_v1",
+    soundscape: buildAreaSoundscape("dungeon"),
     objects: [
       {
         objectId: "obj_plc_201",
@@ -269,4 +278,97 @@ function mapAreaToListItem(area: AreaRecord, composition: AreaObjectCounts): Are
 
 function buildAreaSearchableText(area: AreaRecord): string {
   return [area.name, area.areaId, ...area.tags].join("|").toLowerCase();
+}
+
+function buildAreaSoundscape(biome: string): AreaRecord["soundscape"] {
+  const normalized = biome.toLowerCase();
+
+  if (normalized === "urban") {
+    return {
+      bindingKeys: DEFAULT_SOUND_BINDING_KEYS,
+      area: [
+        {
+          soundId: "sound_ambient_city_market_001",
+          resref: "amb_city_market_day",
+          category: "ambient",
+          playbackMode: "interval",
+          ambientOnly: true
+        }
+      ],
+      random: [
+        {
+          soundId: "sound_effect_door_creak_005",
+          resref: "sfx_door_creak_long",
+          category: "effect",
+          playbackMode: "random",
+          ambientOnly: false
+        }
+      ],
+      positional: [
+        {
+          soundId: "sound_effect_forge_loop_003",
+          resref: "sfx_forge_loop_heavy",
+          category: "effect",
+          playbackMode: "looping",
+          ambientOnly: false
+        }
+      ]
+    };
+  }
+
+  if (normalized === "dungeon") {
+    return {
+      bindingKeys: DEFAULT_SOUND_BINDING_KEYS,
+      area: [
+        {
+          soundId: "sound_ambient_swamp_night_004",
+          resref: "amb_swamp_night",
+          category: "ambient",
+          playbackMode: "interval",
+          ambientOnly: true
+        }
+      ],
+      random: [
+        {
+          soundId: "sound_effect_door_creak_005",
+          resref: "sfx_door_creak_long",
+          category: "effect",
+          playbackMode: "random",
+          ambientOnly: false
+        }
+      ],
+      positional: [
+        {
+          soundId: "sound_effect_forge_loop_003",
+          resref: "sfx_forge_loop_heavy",
+          category: "effect",
+          playbackMode: "looping",
+          ambientOnly: false
+        }
+      ]
+    };
+  }
+
+  return {
+    bindingKeys: DEFAULT_SOUND_BINDING_KEYS,
+    area: [
+      {
+        soundId: "sound_ambient_swamp_night_004",
+        resref: "amb_swamp_night",
+        category: "ambient",
+        playbackMode: "interval",
+        ambientOnly: true
+      }
+    ],
+    random: [
+      {
+        soundId: "sound_effect_door_creak_005",
+        resref: "sfx_door_creak_long",
+        category: "effect",
+        playbackMode: "random",
+        ambientOnly: false
+      }
+    ],
+    positional: []
+  };
 }

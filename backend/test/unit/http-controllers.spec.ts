@@ -106,10 +106,41 @@ describe("HTTP controllers", () => {
       getSoundPreview: jest.fn().mockResolvedValue({ soundId: "sound-1" }),
       processSound: jest.fn().mockResolvedValue({ cacheKey: "c".repeat(64) }),
       benchmarkSounds: jest.fn().mockResolvedValue({ stats: [] }),
-      getProcessedSound: jest.fn().mockResolvedValue({ cacheKey: "c".repeat(64) })
+      getProcessedSound: jest.fn().mockResolvedValue({ cacheKey: "c".repeat(64) }),
+      getProcessedSoundAudioDelivery: jest.fn().mockResolvedValue({
+        cacheKey: "c".repeat(64),
+        audio: {
+          mode: "direct",
+          assetId: "asset-1",
+          objectKey: "modules/current/audio/a.ogg",
+          contentType: "audio/ogg",
+          sizeBytes: 3,
+          proxyPath: "/api/v1/catalog/sounds/cache/c/audio",
+          proxyUrl: "/api/v1/catalog/sounds/cache/c/audio",
+          directUrl: "http://seaweedfs:8333/aurora-module-assets/modules/current/audio/a.ogg",
+          s3Url: "s3://aurora-module-assets/modules/current/audio/a.ogg"
+        }
+      }),
+      getProcessedSoundAudio: jest.fn().mockResolvedValue({
+        cacheKey: "c".repeat(64),
+        audio: {
+          assetId: "asset-1",
+          objectKey: "modules/current/audio/a.ogg",
+          contentType: "audio/ogg",
+          sizeBytes: 4,
+          format: "ogg"
+        },
+        payload: {
+          contentType: "audio/ogg",
+          size: 4,
+          etag: "etag-1",
+          bytes: Buffer.from([0x01, 0x02, 0x03, 0x04])
+        }
+      })
     } as unknown as jest.Mocked<SoundsApplicationService>;
     const controller = new SoundsController(service, config);
     const request = appRequest();
+    const response = createReply();
 
     await controller.list(request, {});
     await controller.getById(request, "sound-1");
@@ -122,6 +153,33 @@ describe("HTTP controllers", () => {
       bypassCache: false
     });
     await controller.getCached(request, "c".repeat(16));
+    await controller.getCachedAudioContract(request, "c".repeat(16), { mode: "direct" });
+    await controller.getCachedAudio("c".repeat(16), undefined, response as unknown as FastifyReply);
+    await controller.getCachedAudio(
+      "c".repeat(16),
+      "bytes=1-2",
+      response as unknown as FastifyReply
+    );
+    await controller.getCachedAudio(
+      "c".repeat(16),
+      "bytes=-2",
+      response as unknown as FastifyReply
+    );
+    await controller.getCachedAudio(
+      "c".repeat(16),
+      "bytes=2-",
+      response as unknown as FastifyReply
+    );
+    await controller.getCachedAudio(
+      "c".repeat(16),
+      "bytes=2-1",
+      response as unknown as FastifyReply
+    );
+    await controller.getCachedAudio(
+      "c".repeat(16),
+      "items=1-2",
+      response as unknown as FastifyReply
+    );
 
     expect(service.listSounds).toHaveBeenCalledWith({
       limit: 20,
@@ -131,6 +189,10 @@ describe("HTTP controllers", () => {
       soundId: "sound-1",
       bypassCache: true
     });
+    expect(service.getProcessedSoundAudioDelivery).toHaveBeenCalledWith("c".repeat(16), "direct");
+    expect(service.getProcessedSoundAudio).toHaveBeenCalledWith("c".repeat(16));
+    expect(response.code).toHaveBeenCalledWith(206);
+    expect(response.code).toHaveBeenCalledWith(416);
   });
 
   it("delegates auth controller calls", async () => {
@@ -488,9 +550,11 @@ function appRequest(username = "builder.user") {
 function createReply() {
   const reply = {
     header: jest.fn(),
+    code: jest.fn(),
     send: jest.fn()
   };
   reply.header.mockReturnValue(reply);
+  reply.code.mockReturnValue(reply);
   return reply;
 }
 

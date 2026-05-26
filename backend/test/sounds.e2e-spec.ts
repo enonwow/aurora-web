@@ -167,6 +167,62 @@ describe("Sounds API v1 (e2e)", () => {
     expect(response.body.data.sound.soundId).toBe("sound_ambient_city_market_001");
   });
 
+  it("GET /api/v1/catalog/sounds/cache/:cacheKey/audio/contracts returns proxy contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/sounds/sound_ambient_city_market_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/sounds/cache/${cacheKey}/audio/contracts?mode=proxy`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.audio.mode).toBe("proxy");
+    expect(response.body.data.audio.proxyPath).toBe(
+      `/api/v1/catalog/sounds/cache/${cacheKey}/audio`
+    );
+  });
+
+  it("GET /api/v1/catalog/sounds/cache/:cacheKey/audio/contracts returns direct contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/sounds/sound_ambient_city_market_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/sounds/cache/${cacheKey}/audio/contracts?mode=direct`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.audio.mode).toBe("direct");
+    expect(response.body.data.audio.directUrl).toEqual(expect.any(String));
+    expect(response.body.data.audio.s3Url).toEqual(expect.any(String));
+  });
+
+  it("GET /api/v1/catalog/sounds/cache/:cacheKey/audio returns 404 when blob lookup is unavailable in test", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/catalog/sounds/sound_ambient_city_market_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/catalog/sounds/cache/${cacheKey}/audio`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(404);
+
+    expect(response.body.error.code).toBe("SOUND_AUDIO_BLOB_NOT_FOUND");
+  });
+
   it("GET /api/v1/catalog/sounds/:soundId returns 404 for unknown sound", async () => {
     const token = await loginAndGetToken("viewer.user", "viewer123");
 

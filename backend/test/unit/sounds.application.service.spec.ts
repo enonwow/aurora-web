@@ -3,6 +3,8 @@ import {
   SoundsApplicationService,
   __soundsApplicationServiceInternals
 } from "../../src/modules/sounds/application/sounds.application.service";
+import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { SoundProcessingCachePort } from "../../src/modules/sounds/application/ports/sound-processing-cache.port";
 import type { SoundRepositoryPort } from "../../src/modules/sounds/application/ports/sound-repository.port";
 import type { SoundListResult, SoundProcessingResult, SoundRecord } from "../../src/modules/sounds/domain/sound.types";
@@ -236,6 +238,113 @@ describe("SoundsApplicationService", () => {
     await expect(service.getProcessedSound("b".repeat(64))).rejects.toMatchObject({
       code: "SOUND_CACHE_NOT_FOUND",
       message: "Sound cache entry was not found."
+    });
+  });
+
+  it("returns processed sound audio payload from blob storage", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new SoundsApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedSoundResult("sound_ambient_city_market_001");
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: cached.audio.objectKey,
+      size: cached.audio.sizeBytes,
+      contentType: cached.audio.contentType,
+      etag: cached.audio.etag,
+      bytes: Buffer.from([0x01, 0x02, 0x03])
+    });
+
+    const result = await serviceWithBlob.getProcessedSoundAudio("a".repeat(64));
+
+    expect(result.cacheKey).toBe("a".repeat(64));
+    expect(result.audio.assetId).toBe(cached.audio.assetId);
+    expect(result.payload.size).toBe(cached.audio.sizeBytes);
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "aurora-module-assets"
+      }),
+      cached.audio.objectKey
+    );
+  });
+
+  it("builds proxy delivery contract for cached sound", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new SoundsApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedSoundResult("sound_ambient_city_market_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedSoundAudioDelivery("a".repeat(64), "proxy");
+
+    expect(result.audio.mode).toBe("proxy");
+    expect(result.audio.proxyPath).toBe(`/api/v1/catalog/sounds/cache/${"a".repeat(64)}/audio`);
+    expect(result.audio.s3Url).toBe(`s3://aurora-module-assets/${cached.audio.objectKey}`);
+    expect(result.audio.directUrl).toBeUndefined();
+  });
+
+  it("builds direct delivery contract for cached sound", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new SoundsApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedSoundResult("sound_ambient_city_market_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedSoundAudioDelivery("a".repeat(64), "direct");
+
+    expect(result.audio.mode).toBe("direct");
+    expect(result.audio.directUrl).toBe(
+      `http://seaweedfs:8333/aurora-module-assets/${encodeURIComponent("modules")}/${encodeURIComponent("current")}/${encodeURIComponent("audio")}/${encodeURIComponent("ambient")}/${encodeURIComponent("amb_city_market_day.ogg")}`
+    );
+  });
+
+  it("rejects direct delivery when blob settings are unavailable", async () => {
+    const cached = buildProcessedSoundResult("sound_ambient_city_market_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+
+    await expect(
+      service.getProcessedSoundAudioDelivery("a".repeat(64), "direct")
+    ).rejects.toMatchObject({
+      code: "SOUND_DIRECT_DELIVERY_UNAVAILABLE"
     });
   });
 
@@ -546,11 +655,34 @@ function buildSound(soundId: string): SoundRecord {
     benchmark: true,
     previewWaveformUrl: `/previews/${soundId}.webp`,
     audioAssetId: "audio/ambient/city-market-day",
+    sourceObjectKey: "modules/current/audio/ambient/amb_city_market_day.ogg",
+    sourceContentType: "audio/ogg",
+    sourceSizeBytes: 245760,
+    sourceEtag: "test-etag",
+    sourceFingerprint: "test-source-fingerprint",
     format: "ogg",
     sampleRateHz: 48000,
     channels: 2,
     spatialMode: "2d",
     loop: true,
+    playback: {
+      mode: "interval",
+      intervalSeconds: 30,
+      ambientOnly: true
+    },
+    reverseMapping: {
+      palette: "soundpalstd",
+      soundPalette: "soundpal",
+      soundSetTable: "soundset",
+      soundSetTypeTable: "soundsettype",
+      soundTypesTable: "soundtypes",
+      categoryFilterTable: "soundcatfilters",
+      areaBinding: {
+        areaKey: "GI_sound_area",
+        randomKey: "GI_sound_rndm",
+        positionalKey: "GI_sound_pos"
+      }
+    },
     metrics: {
       durationMs: 32210,
       cues: 4,
@@ -574,6 +706,10 @@ function buildProcessedSoundResult(soundId: string): SoundProcessingResult {
       assetId: sound.audioAssetId,
       cacheKey: `${sound.audioAssetId}:${sound.soundId}`,
       strategy: "blob-cache",
+      objectKey: sound.sourceObjectKey,
+      contentType: sound.sourceContentType,
+      sizeBytes: sound.sourceSizeBytes,
+      etag: sound.sourceEtag,
       format: sound.format,
       sampleRateHz: sound.sampleRateHz,
       channels: sound.channels
@@ -582,6 +718,8 @@ function buildProcessedSoundResult(soundId: string): SoundProcessingResult {
       mode: sound.spatialMode,
       loop: sound.loop
     },
+    playback: sound.playback,
+    reverseMapping: sound.reverseMapping,
     metrics: sound.metrics,
     render: {
       backendType: "sound",
@@ -604,4 +742,103 @@ async function expectSoundNotFound(promise: Promise<unknown>): Promise<void> {
     expect(appError.getStatus()).toBe(404);
     expect((appError.getResponse() as { message: string }).message).toBe("Sound was not found.");
   }
+}
+
+function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
+  return {
+    get: jest.fn().mockResolvedValue({
+      revision: 1,
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      updatedBy: "test",
+      paths: {
+        vanillaDataPath: "",
+        hakDirectoryPath: "",
+        moduleDecompiledPath: "",
+        modulePackedPath: "",
+        tlkBasePath: "",
+        tlkCustomPath: ""
+      },
+      blobStorage: {
+        endpoint: "http://seaweedfs:8333",
+        region: "us-east-1",
+        bucket: "aurora-module-assets",
+        modulePrefix: "modules/current",
+        accessKeyId: "seaweedfs",
+        secretAccessKey: "secret",
+        forcePathStyle: true
+      },
+      telemetryDebugMode: "off",
+      hakProfiles: {},
+      sources: {
+        placeable: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        tile: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        area: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        sound: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        }
+      },
+      benchmarkCandidates: {
+        placeableHeavyNoVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableHeavyVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableVfxPlcAlternative: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavyInstance: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavySingleMesh: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        }
+      }
+    }),
+    save: jest.fn()
+  };
+}
+
+function createModuleBlobStorage(): jest.Mocked<ModuleBlobStoragePort> {
+  return {
+    replaceModuleSnapshot: jest.fn(),
+    listModuleSnapshot: jest.fn(),
+    getModuleObject: jest.fn()
+  };
 }

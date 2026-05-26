@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ModuleBlobObjectSummary } from "../../../../runtime-settings/application/ports/module-blob-storage.port";
 import {
@@ -17,7 +18,9 @@ import type {
   SoundListItem,
   SoundListQuery,
   SoundListResult,
-  SoundRecord
+  SoundPlaybackMode,
+  SoundRecord,
+  SoundReverseMapping
 } from "../../../domain/sound.types";
 
 interface IndexedSound {
@@ -45,11 +48,22 @@ interface SoundCandidate {
   tags: string[];
   previewWaveformUrl: string;
   audioAssetId: string;
+  sourceObjectKey: string;
+  sourceContentType: string;
+  sourceSizeBytes: number;
+  sourceEtag?: string;
+  sourceFingerprint: string;
   format: "wav" | "ogg";
   sampleRateHz: number;
   channels: 1 | 2;
   spatialMode: "2d" | "3d";
   loop: boolean;
+  playback: {
+    mode: SoundPlaybackMode;
+    intervalSeconds?: number;
+    ambientOnly: boolean;
+  };
+  reverseMapping: SoundReverseMapping;
   durationMs: number;
   cues: number;
   emitters: number;
@@ -58,6 +72,11 @@ interface SoundCandidate {
 }
 
 const SUPPORTED_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
+const AREA_BINDING = {
+  areaKey: "GI_sound_area" as const,
+  randomKey: "GI_sound_rndm" as const,
+  positionalKey: "GI_sound_pos" as const
+};
 
 @Injectable()
 export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
@@ -158,11 +177,18 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
           benchmark: record.benchmark,
           previewWaveformUrl: record.previewWaveformUrl,
           audioAssetId: record.audioAssetId,
+          sourceObjectKey: record.sourceObjectKey,
+          sourceContentType: record.sourceContentType,
+          sourceSizeBytes: record.sourceSizeBytes,
+          sourceEtag: record.sourceEtag,
+          sourceFingerprint: record.sourceFingerprint,
           format: record.format,
           sampleRateHz: record.sampleRateHz,
           channels: record.channels,
           spatialMode: record.spatialMode,
           loop: record.loop,
+          playback: record.playback,
+          reverseMapping: record.reverseMapping,
           metrics: {
             durationMs: record.durationMs,
             cues: record.cues,
@@ -267,9 +293,11 @@ function buildSoundRecordsFromSnapshot(objects: ModuleBlobObjectSummary[]): Soun
     const channels = inferChannels(category);
     const spatialMode = inferSpatialMode(category, object.key, normalizedResref);
     const loop = inferLoop(category, object.key, normalizedResref);
+    const playback = inferPlayback(category, spatialMode, loop, object.key, normalizedResref);
     const durationMs = estimateDurationMs(object.size, format, sampleRateHz, channels, category);
     const tags = buildTags(category, extension, object.key, normalizedResref, loop, spatialMode);
     const soundId = buildSoundId(normalizedResref);
+    const sourceContentType = inferSourceContentType(extension);
 
     const candidate: SoundCandidate = {
       soundId,
@@ -279,11 +307,30 @@ function buildSoundRecordsFromSnapshot(objects: ModuleBlobObjectSummary[]): Soun
       tags,
       previewWaveformUrl: `/assets/previews/sounds/${normalizedResref}.webp`,
       audioAssetId: normalizeAudioAssetId(object.key, normalizedResref),
+      sourceObjectKey: object.key,
+      sourceContentType,
+      sourceSizeBytes: object.size,
+      sourceEtag: object.etag,
+      sourceFingerprint: buildSourceFingerprint({
+        objectKey: object.key,
+        size: object.size,
+        lastModified: object.lastModified,
+        etag: object.etag,
+        category,
+        format,
+        spatialMode,
+        loop,
+        playbackMode: playback.mode,
+        playbackIntervalSeconds: playback.intervalSeconds,
+        ambientOnly: playback.ambientOnly
+      }),
       format,
       sampleRateHz,
       channels,
       spatialMode,
       loop,
+      playback,
+      reverseMapping: buildReverseMapping(object.key),
       durationMs,
       cues: category === "effect" ? 2 : 1,
       emitters: spatialMode === "3d" ? 1 : 0,
@@ -389,6 +436,111 @@ function inferLoop(category: SoundCategory, objectKey: string, resref: string): 
   return normalized.includes("loop");
 }
 
+function inferPlayback(
+  category: SoundCategory,
+  spatialMode: "2d" | "3d",
+  loop: boolean,
+  objectKey: string,
+  resref: string
+): { mode: SoundPlaybackMode; intervalSeconds?: number; ambientOnly: boolean } {
+  const normalized = `${objectKey}|${resref}`.toLowerCase();
+
+  if (category === "music") {
+    return {
+      mode: "continuous",
+      ambientOnly: false
+    };
+  }
+
+  if (category === "ambient") {
+    const intervalSeconds = normalized.includes("night") ? 45 : 30;
+    return {
+      mode: "interval",
+      intervalSeconds,
+      ambientOnly: true
+    };
+  }
+
+  if (!loop) {
+    return {
+      mode: "random",
+      ambientOnly: false
+    };
+  }
+
+  if (spatialMode === "3d") {
+    return {
+      mode: "looping",
+      ambientOnly: false
+    };
+  }
+
+  return {
+    mode: "continuous",
+    ambientOnly: false
+  };
+}
+
+function buildReverseMapping(objectKey: string): SoundReverseMapping {
+  const normalizedKey = objectKey.toLowerCase();
+  const customPalette =
+    normalizedKey.includes("/hak/") ||
+    normalizedKey.includes("/custom/") ||
+    normalizedKey.includes("cus");
+
+  return {
+    palette: customPalette ? "soundpalcus.itp" : "soundpalstd",
+    soundPalette: "soundpal",
+    soundSetTable: "soundset",
+    soundSetTypeTable: "soundsettype",
+    soundTypesTable: "soundtypes",
+    categoryFilterTable: "soundcatfilters",
+    areaBinding: AREA_BINDING
+  };
+}
+
+function inferSourceContentType(extension: string): string {
+  if (extension === "wav") {
+    return "audio/wav";
+  }
+  if (extension === "mp3" || extension === "bmu") {
+    return "audio/mpeg";
+  }
+  return "audio/ogg";
+}
+
+function buildSourceFingerprint(input: {
+  objectKey: string;
+  size: number;
+  lastModified?: string;
+  etag?: string;
+  category: SoundCategory;
+  format: "wav" | "ogg";
+  spatialMode: "2d" | "3d";
+  loop: boolean;
+  playbackMode: SoundPlaybackMode;
+  playbackIntervalSeconds?: number;
+  ambientOnly: boolean;
+}): string {
+  return createHash("sha256")
+    .update(
+      [
+        input.objectKey,
+        String(input.size),
+        input.lastModified ?? "",
+        input.etag ?? "",
+        input.category,
+        input.format,
+        input.spatialMode,
+        String(input.loop),
+        input.playbackMode,
+        String(input.playbackIntervalSeconds ?? "none"),
+        String(input.ambientOnly)
+      ].join("|")
+    )
+    .digest("hex");
+}
+
 function estimateDurationMs(
   sizeBytes: number,
   format: "wav" | "ogg",
@@ -431,6 +583,13 @@ function buildTags(
   if (loop) {
     tags.add("loop");
   }
+  if (category === "ambient") {
+    tags.add("ambientonly");
+  }
+  if (category === "music") {
+    tags.add("soundset");
+    tags.add("soundtypes");
+  }
 
   const normalizedKey = objectKey.replace(/\\/gu, "/").toLowerCase();
   const segments = normalizedKey.split("/").filter((segment) => segment.length > 0);
@@ -449,7 +608,7 @@ function buildTags(
     }
   }
 
-  return [...tags].slice(0, 12);
+  return [...tags].slice(0, 16);
 }
 
 function mapSoundToListItem(sound: SoundRecord): SoundListItem {

@@ -4,9 +4,14 @@ import type { SoundRecord } from "./sound.types";
 export function buildSoundProcessCacheKey(sound: SoundRecord): string {
   const hash = createHash("sha256");
   hash.update(
-    `sound-process/v1|${sound.soundId}|${sound.resref}|${sound.category}|${sound.audioAssetId}|${sound.format}|${sound.sampleRateHz}|${sound.channels}|${sound.spatialMode}|${sound.loop}|${sound.updatedAt}`
+    `sound-process/v2|${sound.soundId}|${sound.resref}|${sound.category}|${sound.audioAssetId}|${sound.sourceObjectKey}|${sound.sourceFingerprint}|${sound.format}|${sound.sampleRateHz}|${sound.channels}|${sound.spatialMode}|${sound.loop}|${sound.updatedAt}`
   );
-  hash.update(`|${sound.metrics.durationMs}|${sound.metrics.cues}|${sound.metrics.emitters}`);
+  hash.update(
+    `|${sound.playback.mode}|${sound.playback.intervalSeconds ?? "none"}|${sound.playback.ambientOnly}`
+  );
+  hash.update(
+    `|${sound.metrics.durationMs}|${sound.metrics.cues}|${sound.metrics.emitters}|${sound.reverseMapping.palette}|${sound.reverseMapping.soundSetTable}|${sound.reverseMapping.soundSetTypeTable}|${sound.reverseMapping.soundTypesTable}|${sound.reverseMapping.categoryFilterTable}`
+  );
 
   for (const tag of sound.tags) {
     hash.update(`|${tag}`);

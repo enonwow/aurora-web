@@ -31,6 +31,10 @@ const soundCacheKeySchema = z
   .max(128)
   .regex(/^[a-f0-9]+$/iu, "cacheKey must be hexadecimal.");
 
+const soundAudioDeliveryQuerySchema = z.object({
+  mode: z.enum(["proxy", "direct"]).default("proxy")
+});
+
 export function parseSoundListQuery(input: unknown) {
   const parsed = listQuerySchema.safeParse(input);
   if (parsed.success) {
@@ -92,6 +96,25 @@ export function parseSoundCacheKey(input: unknown): string {
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Sound cache key validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseSoundAudioDeliveryQuery(
+  input: unknown
+): { mode: "proxy" | "direct" } {
+  const parsed = soundAudioDeliveryQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Sound delivery query validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message

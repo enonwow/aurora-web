@@ -1,5 +1,6 @@
 import { AppException } from "../../src/common/http/app-exception";
 import {
+  parseSoundAudioDeliveryQuery,
   parseSoundBenchmarkPayload,
   parseSoundCacheKey,
   parseSoundListQuery,
@@ -38,5 +39,19 @@ describe("sounds.schemas", () => {
 
   it("rejects invalid sound cache key", () => {
     expect(() => parseSoundCacheKey("invalid:key")).toThrow(AppException);
+  });
+
+  it("parses sound audio delivery query defaults", () => {
+    const parsed = parseSoundAudioDeliveryQuery({});
+    expect(parsed.mode).toBe("proxy");
+  });
+
+  it("parses sound audio delivery query direct mode", () => {
+    const parsed = parseSoundAudioDeliveryQuery({ mode: "direct" });
+    expect(parsed.mode).toBe("direct");
+  });
+
+  it("rejects invalid sound audio delivery query mode", () => {
+    expect(() => parseSoundAudioDeliveryQuery({ mode: "invalid" })).toThrow(AppException);
   });
 });

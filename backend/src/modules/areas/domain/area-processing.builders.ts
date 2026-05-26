@@ -28,12 +28,32 @@ export function countAreaObjectsByKind(objects: AreaObjectPlacement[]): AreaObje
 export function buildAreaProcessCacheKey(area: AreaRecord): string {
   const hash = createHash("sha256");
   hash.update(
-    `area-process/v1|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}`
+    `area-process/v2|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}`
   );
 
   for (const object of area.objects) {
     hash.update(
       `|${object.objectId}|${object.kind}|${object.templateId}|${object.x}|${object.y}|${object.z}|${object.bearing}`
+    );
+  }
+
+  hash.update(
+    `|${area.soundscape.bindingKeys.areaKey}|${area.soundscape.bindingKeys.randomKey}|${area.soundscape.bindingKeys.positionalKey}`
+  );
+
+  for (const reference of area.soundscape.area) {
+    hash.update(
+      `|area:${reference.soundId}|${reference.resref}|${reference.category}|${reference.playbackMode}|${reference.ambientOnly}`
+    );
+  }
+  for (const reference of area.soundscape.random) {
+    hash.update(
+      `|random:${reference.soundId}|${reference.resref}|${reference.category}|${reference.playbackMode}|${reference.ambientOnly}`
+    );
+  }
+  for (const reference of area.soundscape.positional) {
+    hash.update(
+      `|pos:${reference.soundId}|${reference.resref}|${reference.category}|${reference.playbackMode}|${reference.ambientOnly}`
     );
   }
 

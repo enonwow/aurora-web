@@ -94,6 +94,7 @@ describe("Areas API v1 (e2e)", () => {
     expect(response.body.data.areaId).toBe("area_market_district_001");
     expect(response.body.data.textureAtlas.cacheKey).toEqual(expect.any(String));
     expect(response.body.data.textureAtlas.strategy).toBe("blob-cache");
+    expect(response.body.data.soundscape.bindingKeys.areaKey).toBe("GI_sound_area");
     expect(response.body.data.composition.total).toBeGreaterThan(0);
     expect(Array.isArray(response.body.data.objects)).toBe(true);
   });
@@ -108,6 +109,7 @@ describe("Areas API v1 (e2e)", () => {
 
     expect(response.body.data.areaId).toBe("area_market_district_001");
     expect(response.body.data.dimensions.width).toBeGreaterThan(0);
+    expect(response.body.data.soundscape.bindingKeys.randomKey).toBe("GI_sound_rndm");
     expect(response.body.data.objectCounts.placeables).toBeGreaterThan(0);
     expect(response.body.data.objectCounts.items).toBeGreaterThanOrEqual(0);
   });
