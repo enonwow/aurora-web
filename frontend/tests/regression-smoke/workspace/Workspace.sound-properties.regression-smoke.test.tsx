@@ -57,9 +57,17 @@ function toNumber(input: HTMLElement): number {
   return Number.parseFloat((input as HTMLInputElement).value);
 }
 
+function getSoundDialogNumericInput(dialog: HTMLElement, name: RegExp): HTMLElement {
+  const scoped = within(dialog);
+  return (
+    scoped.queryByRole("spinbutton", { name }) ??
+    scoped.getByRole("textbox", { name })
+  );
+}
+
 function expectNumericInputFormat(input: HTMLElement, fractionDigits: number) {
   const value = (input as HTMLInputElement).value;
-  const matcher = new RegExp(`^-?\\d+\\.\\d{${fractionDigits}}$`);
+  const matcher = new RegExp(`^-?\\d+[\\.,]\\d{${fractionDigits}}$`);
   expect(value).toMatch(matcher);
 }
 
@@ -80,13 +88,11 @@ describe("Regression smoke: sound properties dialog", () => {
     expect(within(dialog).getByRole("button", { name: /^advanced$/i })).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
-    const elevationInput = within(dialog).getByRole("spinbutton", { name: /^elevation$/i });
-    const cutoffInput = within(dialog).getByRole("spinbutton", { name: /^cutoff distance$/i });
-    const maxVolumeInput = within(dialog).getByRole("spinbutton", {
-      name: /^max volume distance$/i
-    });
-    const westEastInput = within(dialog).getByRole("spinbutton", { name: /^west-east$/i });
-    const northSouthInput = within(dialog).getByRole("spinbutton", { name: /^north-south$/i });
+    const elevationInput = getSoundDialogNumericInput(dialog, /^elevation$/i);
+    const cutoffInput = getSoundDialogNumericInput(dialog, /^cutoff distance$/i);
+    const maxVolumeInput = getSoundDialogNumericInput(dialog, /^max volume distance$/i);
+    const westEastInput = getSoundDialogNumericInput(dialog, /^west-east$/i);
+    const northSouthInput = getSoundDialogNumericInput(dialog, /^north-south$/i);
     expect(westEastInput).toBeDisabled();
     expect(northSouthInput).toBeDisabled();
     expect(elevationInput).not.toBeDisabled();
@@ -143,31 +149,29 @@ describe("Regression smoke: sound properties dialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
 
     expectNumericInputFormat(
-      within(dialog).getByRole("spinbutton", { name: /^cutoff distance$/i }),
+      getSoundDialogNumericInput(dialog, /^cutoff distance$/i),
       1
     );
     expectNumericInputFormat(
-      within(dialog).getByRole("spinbutton", { name: /^max volume distance$/i }),
+      getSoundDialogNumericInput(dialog, /^max volume distance$/i),
       1
     );
-    expectNumericInputFormat(within(dialog).getByRole("spinbutton", { name: /^elevation$/i }), 1);
-    expectNumericInputFormat(within(dialog).getByRole("spinbutton", { name: /^west-east$/i }), 1);
-    expectNumericInputFormat(within(dialog).getByRole("spinbutton", { name: /^north-south$/i }), 1);
+    expectNumericInputFormat(getSoundDialogNumericInput(dialog, /^elevation$/i), 1);
+    expectNumericInputFormat(getSoundDialogNumericInput(dialog, /^west-east$/i), 1);
+    expectNumericInputFormat(getSoundDialogNumericInput(dialog, /^north-south$/i), 1);
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^advanced$/i }));
 
     expectNumericInputFormat(
-      within(dialog).getByRole("spinbutton", {
-        name: /interval between playing sounds \(seconds\)/i
-      }),
+      getSoundDialogNumericInput(dialog, /interval between playing sounds \(seconds\)/i),
       2
     );
     expectNumericInputFormat(
-      within(dialog).getByRole("spinbutton", { name: /interval variation \(seconds\)/i }),
+      getSoundDialogNumericInput(dialog, /interval variation \(seconds\)/i),
       2
     );
     expectNumericInputFormat(
-      within(dialog).getByRole("spinbutton", { name: /pitch variation \(octaves\)/i }),
+      getSoundDialogNumericInput(dialog, /pitch variation \(octaves\)/i),
       2
     );
   });
@@ -228,10 +232,10 @@ describe("Regression smoke: sound properties dialog", () => {
     fireEvent.click(
       within(dialog).getByRole("radio", { name: /plays from random position each play/i })
     );
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^west-east$/i }), {
+    fireEvent.change(getSoundDialogNumericInput(dialog, /^west-east$/i), {
       target: { value: "9" }
     });
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^north-south$/i }), {
+    fireEvent.change(getSoundDialogNumericInput(dialog, /^north-south$/i), {
       target: { value: "7" }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
@@ -263,13 +267,13 @@ describe("Regression smoke: sound properties dialog", () => {
     fireEvent.click(
       within(dialog).getByRole("radio", { name: /plays from random position each play/i })
     );
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^cutoff distance$/i }), {
+    fireEvent.change(getSoundDialogNumericInput(dialog, /^cutoff distance$/i), {
       target: { value: "20" }
     });
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^west-east$/i }), {
+    fireEvent.change(getSoundDialogNumericInput(dialog, /^west-east$/i), {
       target: { value: "5" }
     });
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^north-south$/i }), {
+    fireEvent.change(getSoundDialogNumericInput(dialog, /^north-south$/i), {
       target: { value: "6" }
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
@@ -373,13 +377,11 @@ describe("Regression smoke: sound properties dialog", () => {
     fireEvent.click(within(dialog).getByRole("radio", { name: /^random$/i }));
 
     fireEvent.change(
-      within(dialog).getByRole("spinbutton", {
-        name: /interval between playing sounds \(seconds\)/i
-      }),
+      getSoundDialogNumericInput(dialog, /interval between playing sounds \(seconds\)/i),
       { target: { value: "12.5" } }
     );
     fireEvent.change(
-      within(dialog).getByRole("spinbutton", { name: /interval variation \(seconds\)/i }),
+      getSoundDialogNumericInput(dialog, /interval variation \(seconds\)/i),
       { target: { value: "2.5" } }
     );
     fireEvent.change(
@@ -387,7 +389,7 @@ describe("Regression smoke: sound properties dialog", () => {
       { target: { value: "4.5" } }
     );
     fireEvent.change(
-      within(dialog).getByRole("spinbutton", { name: /pitch variation \(octaves\)/i }),
+      getSoundDialogNumericInput(dialog, /pitch variation \(octaves\)/i),
       { target: { value: "0.2" } }
     );
 

@@ -40,6 +40,14 @@ async function openSoundPropertiesDialog(label: RegExp) {
   return screen.findByRole("dialog", { name: /sound properties/i });
 }
 
+function getSoundDialogNumericInput(dialog: HTMLElement, name: RegExp): HTMLElement {
+  const scoped = within(dialog);
+  return (
+    scoped.queryByRole("spinbutton", { name }) ??
+    scoped.getByRole("textbox", { name })
+  );
+}
+
 describe("Regression smoke: sound properties mode parity", () => {
   beforeEach(() => {
     clearTelemetry();
@@ -61,12 +69,10 @@ describe("Regression smoke: sound properties mode parity", () => {
     const everywhereMode = within(dialog).getByRole("radio", {
       name: /plays everywhere in area/i
     });
-    const maxVolumeInput = within(dialog).getByRole("spinbutton", {
-      name: /^max volume distance$/i
-    });
-    const cutoffInput = within(dialog).getByRole("spinbutton", { name: /^cutoff distance$/i });
-    const westEastInput = within(dialog).getByRole("spinbutton", { name: /^west-east$/i });
-    const northSouthInput = within(dialog).getByRole("spinbutton", { name: /^north-south$/i });
+    const maxVolumeInput = getSoundDialogNumericInput(dialog, /^max volume distance$/i);
+    const cutoffInput = getSoundDialogNumericInput(dialog, /^cutoff distance$/i);
+    const westEastInput = getSoundDialogNumericInput(dialog, /^west-east$/i);
+    const northSouthInput = getSoundDialogNumericInput(dialog, /^north-south$/i);
     expect(maxVolumeInput).toBeDisabled();
 
     fireEvent.click(randomMode);
@@ -118,8 +124,8 @@ describe("Regression smoke: sound properties mode parity", () => {
     );
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
-    const westEastInput = within(dialog).getByRole("spinbutton", { name: /^west-east$/i });
-    const northSouthInput = within(dialog).getByRole("spinbutton", { name: /^north-south$/i });
+    const westEastInput = getSoundDialogNumericInput(dialog, /^west-east$/i);
+    const northSouthInput = getSoundDialogNumericInput(dialog, /^north-south$/i);
     expect(westEastInput).not.toBeDisabled();
     expect(northSouthInput).not.toBeDisabled();
 
@@ -132,8 +138,8 @@ describe("Regression smoke: sound properties mode parity", () => {
     );
     fireEvent.click(within(dialog).getByRole("button", { name: /^positioning$/i }));
 
-    expect(within(dialog).getByRole("spinbutton", { name: /^west-east$/i })).toBeDisabled();
-    expect(within(dialog).getByRole("spinbutton", { name: /^north-south$/i })).toBeDisabled();
+    expect(getSoundDialogNumericInput(dialog, /^west-east$/i)).toBeDisabled();
+    expect(getSoundDialogNumericInput(dialog, /^north-south$/i)).toBeDisabled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
     await saveDraft();

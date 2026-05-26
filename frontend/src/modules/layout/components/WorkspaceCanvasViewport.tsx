@@ -50,6 +50,11 @@ import {
   resolveSoundGuideOverlayFlagsFromPositioning
 } from "../soundGuideDomain";
 import {
+  createRuntimeSoundPlaybackState,
+  reconcileRuntimeSoundPlaybackState,
+  type RuntimeSoundPlaybackState as RuntimeSoundPlaybackStateModel
+} from "../runtimeSoundPlaybackState";
+import {
   getCurrentObjectAddDragPayload,
   OBJECT_ADD_DRAG_MIME,
   type ObjectAddDragPayload,
@@ -461,11 +466,7 @@ interface PerfSnapshot {
   textures: number;
 }
 
-interface RuntimeSoundPlaybackState {
-  nextPlayAtUnixMs: number;
-  nextSequentialIndex: number;
-  playedOnce: boolean;
-}
+type RuntimeSoundPlaybackState = RuntimeSoundPlaybackStateModel;
 
 interface RuntimeSoundLoopChannel {
   audio: HTMLAudioElement;
@@ -657,10 +658,10 @@ function resolveSoundHourBounds(flags: boolean[]): { start: number; end: number 
 
 function formatSoundFixed(value: number, fractionDigits: number): string {
   if (!Number.isFinite(value)) {
-    return (0).toFixed(fractionDigits);
+    return (0).toFixed(fractionDigits).replace(".", ",");
   }
   const normalized = Object.is(value, -0) ? 0 : value;
-  return normalized.toFixed(fractionDigits);
+  return normalized.toFixed(fractionDigits).replace(".", ",");
 }
 
 function formatSoundSeconds(milliseconds: number, fractionDigits = 2): string {
@@ -1650,64 +1651,9 @@ function createSoundModeMarkerGroup(
   marker.add(noteSprite);
 
   if (mode === "random") {
-    const diceGroup = new THREE.Group();
-    const cubeSize = Math.max(0.26, markerScale * 0.52);
-    const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-    const cubeMaterial = new THREE.MeshLambertMaterial({
-      color: new THREE.Color("#f6f8ff"),
-      emissive: new THREE.Color("#101926"),
-      emissiveIntensity: 0.08,
-      depthTest: false,
-      depthWrite: false
-    });
-    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-    cube.raycast = () => undefined;
-    diceGroup.add(cube);
-
-    const edgeLines = new THREE.LineSegments(
-      new THREE.EdgesGeometry(cubeGeometry),
-      new THREE.LineBasicMaterial({
-        color: new THREE.Color("#0f1622"),
-        transparent: true,
-        opacity: 0.9,
-        depthTest: false,
-        depthWrite: false
-      })
-    );
-    edgeLines.raycast = () => undefined;
-    diceGroup.add(edgeLines);
-
-    const pipRadius = Math.max(0.004, cubeSize * 0.1);
-    const pipGeometry = new THREE.SphereGeometry(pipRadius, 10, 10);
-    const pipMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color("#111826"),
-      depthTest: false,
-      depthWrite: false
-    });
-    const pipOffset = cubeSize * 0.25;
-    const pipZ = cubeSize * 0.52;
-    const pipLayout: ReadonlyArray<readonly [number, number]> = [
-      [-pipOffset, pipOffset],
-      [pipOffset, pipOffset],
-      [0, 0],
-      [-pipOffset, -pipOffset],
-      [pipOffset, -pipOffset]
-    ];
-    pipLayout.forEach(([offsetX, offsetY]) => {
-      const pip = new THREE.Mesh(pipGeometry, pipMaterial);
-      pip.position.set(offsetX, offsetY, pipZ);
-      pip.raycast = () => undefined;
-      diceGroup.add(pip);
-    });
-
-    diceGroup.position.set(markerScale * 0.03, markerScale * -0.24, markerScale * 0.04);
-    diceGroup.rotation.set(-0.36, 0.68, 0.24);
-    diceGroup.renderOrder = 1003;
-    marker.add(diceGroup);
-
-    // Keep a sprite fallback for visibility from far zoom/certain camera angles.
-    const diceSprite = createDiceSprite(markerScale * 0.78);
-    diceSprite.position.set(markerScale * 0.04, markerScale * -0.24, markerScale * 0.05);
+    // Keep only the compact dice sprite to reduce visual noise.
+    const diceSprite = createDiceSprite(markerScale * 0.86);
+    diceSprite.position.set(markerScale * 0.05, markerScale * -0.27, markerScale * 0.06);
     marker.add(diceSprite);
   } else if (mode === "specific") {
     const arrowSprite = createGlyphSprite(SOUND_SPECIFIC_ICON, markerScale * 0.5, {
@@ -2421,8 +2367,9 @@ function rebuildObjectMeshes(
             runtime.objectLayer.add(bandLine);
           });
 
-          for (let meridianIndex = 0; meridianIndex < 6; meridianIndex += 1) {
-            const azimuth = (meridianIndex / 6) * Math.PI;
+          const meridianCount = 12;
+          for (let meridianIndex = 0; meridianIndex < meridianCount; meridianIndex += 1) {
+            const azimuth = (meridianIndex / meridianCount) * Math.PI * 2;
             const meridianPoints: THREE.Vector3[] = [];
             const segmentCount = 48;
             for (let step = 0; step <= segmentCount; step += 1) {
@@ -2539,7 +2486,10 @@ function rebuildObjectMeshes(
           fillColor: "#d9ffe8",
           backgroundFill: "rgba(7, 35, 20, 0.92)",
           backgroundStroke: "rgba(74, 227, 153, 0.92)",
-          autoWidth: true
+          autoWidth: true,
+          minWidthPx: 180,
+          maxWidthPx: 1800,
+          horizontalPaddingPx: 30
         }
       );
       nowPlayingSprite.position.set(0, labelHeight + markerScale * 0.56, 0);
@@ -6800,12 +6750,17 @@ export function WorkspaceCanvasViewport({
 
         let playbackState = runtimeSoundPlaybackStateRef.current.get(object.id);
         if (!playbackState) {
-          playbackState = {
-            nextPlayAtUnixMs: nowUnixMs + 200,
-            nextSequentialIndex: 0,
-            playedOnce: false
-          };
+          playbackState = createRuntimeSoundPlaybackState(nowUnixMs, playStyle);
           runtimeSoundPlaybackStateRef.current.set(object.id, playbackState);
+        }
+
+        const playbackStatePatch = reconcileRuntimeSoundPlaybackState(
+          playbackState,
+          playStyle,
+          nowUnixMs
+        );
+        if (playbackStatePatch.shouldStopLoopChannel) {
+          stopRuntimeLoopSoundChannelById(object.id);
         }
 
         const loopChannel = runtimeSoundLoopChannelsRef.current.get(object.id);
@@ -9335,10 +9290,10 @@ export function WorkspaceCanvasViewport({
                         <label>
                           Cutoff distance (m)
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             aria-label="Cutoff Distance"
                             value={formatSoundFixed(soundPropertiesDialog.draft.cutoffDistance, 1)}
-                            step="0.1"
                             disabled={soundGating.positioningDisabled}
                             onChange={(event) =>
                               updateSoundPropertiesDraftField("cutoffDistance", event.target.value)
@@ -9348,7 +9303,7 @@ export function WorkspaceCanvasViewport({
                         <label>
                           Max Volume Distance (m)
                           <input
-                            type="number"
+                            type="text"
                             aria-label="Max Volume Distance"
                             value={formatSoundFixed(
                               deriveMaxVolumeDistanceFromCutoff(
@@ -9356,8 +9311,8 @@ export function WorkspaceCanvasViewport({
                               ),
                               1
                             )}
-                            step="0.1"
                             disabled
+                            readOnly
                           />
                         </label>
                       </div>
@@ -9377,10 +9332,10 @@ export function WorkspaceCanvasViewport({
                           <label>
                             Height (m)
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               aria-label="Elevation"
                               value={formatSoundFixed(soundPropertiesDialog.draft.elevation, 1)}
-                              step="0.1"
                               disabled={soundGating.positioningDisabled}
                               onChange={(event) =>
                                 updateSoundPropertiesDraftField("elevation", event.target.value)
@@ -9406,10 +9361,10 @@ export function WorkspaceCanvasViewport({
                           <label>
                             North-South Random Range (m)
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               aria-label="North-South"
                               value={formatSoundFixed(soundRandomRangeDisplay.northSouth, 1)}
-                              step="0.1"
                               disabled={!soundGating.randomRangeEnabled}
                               onChange={(event) =>
                                 updateSoundPropertiesDraftField(
@@ -9422,10 +9377,10 @@ export function WorkspaceCanvasViewport({
                           <label>
                             West-East Random Range (m)
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               aria-label="West-East"
                               value={formatSoundFixed(soundRandomRangeDisplay.westEast, 1)}
-                              step="0.1"
                               disabled={!soundGating.randomRangeEnabled}
                               onChange={(event) =>
                                 updateSoundPropertiesDraftField(
@@ -9606,10 +9561,9 @@ export function WorkspaceCanvasViewport({
                     <label>
                       Interval between playing sounds (seconds)
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={formatSoundSeconds(soundPropertiesDialog.draft.intervalMs)}
-                        step="0.01"
-                        min={0}
                         onChange={(event) => {
                           const seconds = parseSoundNumericInput(event.target.value);
                           if (seconds === null || seconds < 0) {
@@ -9622,10 +9576,9 @@ export function WorkspaceCanvasViewport({
                     <label>
                       Interval Variation (seconds)
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={formatSoundSeconds(soundPropertiesDialog.draft.intervalVariationMs)}
-                        step="0.01"
-                        min={0}
                         onChange={(event) => {
                           const seconds = parseSoundNumericInput(event.target.value);
                           if (seconds === null || seconds < 0) {
@@ -9662,10 +9615,8 @@ export function WorkspaceCanvasViewport({
                       <span>Pitch Variation (octaves)</span>
                       <div>
                         <input
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          max={1}
+                          type="text"
+                          inputMode="decimal"
                           value={formatSoundFixed(soundPropertiesDialog.draft.pitchVariation, 2)}
                           onChange={(event) =>
                             updateSoundPropertiesDraftField("pitchVariation", event.target.value)
