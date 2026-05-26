@@ -16,8 +16,16 @@ import type {
   AreaListQuery,
   AreaListResult,
   AreaObjectCounts,
-  AreaRecord
+  AreaRecord,
+  AreaSoundReference
 } from "../../../domain/area.types";
+import {
+  type ParsedAreaMetadataBlueprint,
+  type ParsedAreaObjectBlueprint,
+  type ParsedAreaPlacementBlueprint,
+  parseAreaMetadataFromAreGff,
+  parseAreaObjectsFromGitGff
+} from "./aurora-gff-area-parser";
 import { StaticAreaRepository } from "../memory/static-area.repository";
 
 interface IndexedArea {
@@ -39,10 +47,17 @@ interface SnapshotIndex {
 
 interface AreaCandidate {
   resref: string;
-  sourceKey: string;
-  sourceSize: number;
-  sourceEtag?: string;
-  updatedAt: string;
+  areSourceKey: string;
+  areSourceSize: number;
+  areSourceEtag?: string;
+  areUpdatedAt: string;
+  gitSourceKey?: string;
+  gitSourceSize?: number;
+  gitSourceEtag?: string;
+  gitUpdatedAt?: string;
+  parsedArea?: ParsedAreaMetadataBlueprint;
+  parsedObjects?: ParsedAreaObjectBlueprint;
+  sourceFingerprint: string;
 }
 
 const DEFAULT_SOUND_BINDING_KEYS = {
@@ -136,8 +151,10 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
 
     const settings = await this.runtimeSettingsRepository.get();
     const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
-    const records = buildAreasFromSnapshot(snapshot.objects);
-    if (records.length === 0) {
+    const candidates = buildAreaCandidatesFromSnapshot(snapshot.objects);
+    await this.enrichAreaCandidatesFromSnapshot(settings.blobStorage, candidates);
+
+    if (candidates.length === 0) {
       this.logger.warn(
         "No area files detected in module snapshot (expected: *.are). Falling back to static repository."
       );
@@ -145,9 +162,9 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
       return null;
     }
 
-    const benchmarkIds = pickBenchmarkIds(records);
-    const indexed = records
-      .map((record) => mapCandidateToAreaRecord(record, benchmarkIds))
+    const benchmarkIds = pickBenchmarkIds(candidates);
+    const indexed = candidates
+      .map((candidate) => mapCandidateToAreaRecord(candidate, benchmarkIds))
       .sort((left, right) => left.areaId.localeCompare(right.areaId))
       .map((record) => {
         const composition = countAreaObjectsByKind(record.objects);
@@ -213,15 +230,53 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
       truncated: false
     };
   }
+
+  private async enrichAreaCandidatesFromSnapshot(
+    settings: BlobStorageSettings,
+    candidates: AreaCandidate[]
+  ): Promise<void> {
+    await mapWithConcurrency(candidates, 6, async (candidate) => {
+      try {
+        const arePayload = await this.moduleBlobStorage.getModuleObject(settings, candidate.areSourceKey);
+        if (arePayload) {
+          candidate.areSourceSize = arePayload.size;
+          candidate.areSourceEtag = arePayload.etag ?? candidate.areSourceEtag;
+          candidate.areUpdatedAt = arePayload.lastModified ?? candidate.areUpdatedAt;
+          candidate.parsedArea = parseAreaMetadataFromAreGff(arePayload.bytes) ?? undefined;
+        }
+      } catch {
+        // Keep heuristics if binary payload is unavailable.
+      }
+
+      if (candidate.gitSourceKey) {
+        try {
+          const gitPayload = await this.moduleBlobStorage.getModuleObject(
+            settings,
+            candidate.gitSourceKey
+          );
+          if (gitPayload) {
+            candidate.gitSourceSize = gitPayload.size;
+            candidate.gitSourceEtag = gitPayload.etag ?? candidate.gitSourceEtag;
+            candidate.gitUpdatedAt = gitPayload.lastModified ?? candidate.gitUpdatedAt;
+            candidate.parsedObjects = parseAreaObjectsFromGitGff(gitPayload.bytes) ?? undefined;
+          }
+        } catch {
+          // Keep heuristics if binary payload is unavailable.
+        }
+      }
+
+      candidate.sourceFingerprint = buildSourceFingerprint(candidate);
+    });
+  }
 }
 
-function buildAreasFromSnapshot(objects: ModuleBlobObjectSummary[]): AreaCandidate[] {
+function buildAreaCandidatesFromSnapshot(objects: ModuleBlobObjectSummary[]): AreaCandidate[] {
   const byResref = new Map<string, AreaCandidate>();
 
   for (const object of objects) {
     const fileName = extractFileName(object.key);
     const extension = extractExtension(fileName);
-    if (extension !== "are") {
+    if (extension !== "are" && extension !== "git") {
       continue;
     }
 
@@ -230,66 +285,135 @@ function buildAreasFromSnapshot(objects: ModuleBlobObjectSummary[]): AreaCandida
       continue;
     }
 
-    const current = byResref.get(resref);
-    const next: AreaCandidate = {
-      resref,
-      sourceKey: object.key,
-      sourceSize: object.size,
-      sourceEtag: object.etag,
-      updatedAt: object.lastModified ?? new Date().toISOString()
-    };
-
-    if (!current) {
-      byResref.set(resref, next);
-      continue;
+    const current = byResref.get(resref) ?? createEmptyAreaCandidate(resref);
+    if (extension === "are") {
+      updateAreaSource(current, object);
+    } else {
+      updateGitSource(current, object);
     }
-
-    if (next.sourceSize > current.sourceSize) {
-      byResref.set(resref, next);
-      continue;
-    }
-    if (next.sourceSize === current.sourceSize && next.updatedAt > current.updatedAt) {
-      byResref.set(resref, next);
-    }
+    current.sourceFingerprint = buildSourceFingerprint(current);
+    byResref.set(resref, current);
   }
 
-  return [...byResref.values()];
+  return [...byResref.values()].filter((candidate) => candidate.areSourceKey.length > 0);
+}
+
+function createEmptyAreaCandidate(resref: string): AreaCandidate {
+  return {
+    resref,
+    areSourceKey: "",
+    areSourceSize: 0,
+    areUpdatedAt: new Date().toISOString(),
+    sourceFingerprint: ""
+  };
+}
+
+function updateAreaSource(candidate: AreaCandidate, object: ModuleBlobObjectSummary): void {
+  if (!candidate.areSourceKey) {
+    candidate.areSourceKey = object.key;
+    candidate.areSourceSize = object.size;
+    candidate.areSourceEtag = object.etag;
+    candidate.areUpdatedAt = object.lastModified ?? candidate.areUpdatedAt;
+    return;
+  }
+
+  const candidateUpdatedAt = object.lastModified ?? candidate.areUpdatedAt;
+  if (object.size > candidate.areSourceSize) {
+    candidate.areSourceKey = object.key;
+    candidate.areSourceSize = object.size;
+    candidate.areSourceEtag = object.etag;
+    candidate.areUpdatedAt = candidateUpdatedAt;
+    return;
+  }
+  if (object.size === candidate.areSourceSize && candidateUpdatedAt > candidate.areUpdatedAt) {
+    candidate.areSourceKey = object.key;
+    candidate.areSourceEtag = object.etag;
+    candidate.areUpdatedAt = candidateUpdatedAt;
+  }
+}
+
+function updateGitSource(candidate: AreaCandidate, object: ModuleBlobObjectSummary): void {
+  if (!candidate.gitSourceKey) {
+    candidate.gitSourceKey = object.key;
+    candidate.gitSourceSize = object.size;
+    candidate.gitSourceEtag = object.etag;
+    candidate.gitUpdatedAt = object.lastModified ?? candidate.areUpdatedAt;
+    return;
+  }
+
+  const currentSize = candidate.gitSourceSize ?? 0;
+  const currentUpdated = candidate.gitUpdatedAt ?? candidate.areUpdatedAt;
+  const nextUpdated = object.lastModified ?? currentUpdated;
+
+  if (object.size > currentSize) {
+    candidate.gitSourceKey = object.key;
+    candidate.gitSourceSize = object.size;
+    candidate.gitSourceEtag = object.etag;
+    candidate.gitUpdatedAt = nextUpdated;
+    return;
+  }
+  if (object.size === currentSize && nextUpdated > currentUpdated) {
+    candidate.gitSourceKey = object.key;
+    candidate.gitSourceEtag = object.etag;
+    candidate.gitUpdatedAt = nextUpdated;
+  }
 }
 
 function mapCandidateToAreaRecord(candidate: AreaCandidate, benchmarkIds: Set<string>): AreaRecord {
   const biome = inferBiome(candidate);
-  const dimensions = estimateDimensions(candidate.sourceSize);
+  const dimensions = resolveDimensions(candidate);
   const areaId = `area_${candidate.resref}`.slice(0, 80);
+  const objects = buildAreaObjects(candidate);
+  const updatedAt = chooseUpdatedAt(candidate);
 
   return {
     areaId,
-    name: humanizeName(candidate.resref),
+    name: resolveAreaName(candidate),
     biome,
     width: dimensions.width,
     height: dimensions.height,
     tags: buildTags(candidate, biome),
     benchmark: benchmarkIds.has(candidate.resref),
     previewImageUrl: `/assets/previews/areas/${candidate.resref}.webp`,
-    textureAtlasId: `atlas_${biome}_v1`,
-    textureAtlasObjectKey: candidate.sourceKey,
+    textureAtlasId: buildTextureAtlasId(candidate, biome),
+    textureAtlasObjectKey: candidate.areSourceKey,
     textureAtlasContentType: "application/octet-stream",
-    textureAtlasSizeBytes: candidate.sourceSize,
-    textureAtlasEtag: candidate.sourceEtag,
+    textureAtlasSizeBytes: candidate.areSourceSize,
+    textureAtlasEtag: candidate.areSourceEtag,
     textureAtlasFingerprint: buildAtlasFingerprint(candidate),
-    objects: [],
+    objects,
     soundscape: buildAreaSoundscape(candidate, biome),
-    updatedAt: candidate.updatedAt
+    updatedAt
   };
 }
 
 function pickBenchmarkIds(records: AreaCandidate[]): Set<string> {
-  const sorted = records.slice().sort((left, right) => right.sourceSize - left.sourceSize);
-  const count = sorted.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(sorted.length * 0.2)));
-  return new Set(sorted.slice(0, count).map((entry) => entry.resref));
+  const scored = records
+    .slice()
+    .sort((left, right) => scoreCandidate(right) - scoreCandidate(left));
+  const count = scored.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(scored.length * 0.2)));
+  return new Set(scored.slice(0, count).map((entry) => entry.resref));
+}
+
+function scoreCandidate(candidate: AreaCandidate): number {
+  const objectCount =
+    (candidate.parsedObjects?.placeables.length ?? 0) +
+    (candidate.parsedObjects?.doors.length ?? 0) +
+    (candidate.parsedObjects?.creatures.length ?? 0) +
+    (candidate.parsedObjects?.items.length ?? 0);
+  return candidate.areSourceSize + (candidate.gitSourceSize ?? 0) + objectCount * 1024;
 }
 
 function inferBiome(candidate: AreaCandidate): string {
-  const normalized = `${candidate.resref}|${candidate.sourceKey}`.toLowerCase();
+  const normalized = [
+    candidate.resref,
+    candidate.areSourceKey,
+    candidate.gitSourceKey ?? "",
+    candidate.parsedArea?.tileSet ?? ""
+  ]
+    .join("|")
+    .toLowerCase();
+
   if (/(city|urban|market)/u.test(normalized)) {
     return "urban";
   }
@@ -308,14 +432,126 @@ function inferBiome(candidate: AreaCandidate): string {
   return "generic";
 }
 
-function estimateDimensions(size: number): { width: number; height: number } {
-  const base = clamp(Math.round(Math.sqrt(Math.max(size, 256)) / 8), 8, 64);
-  const width = base % 2 === 0 ? base : base + 1;
-  const height = clamp(width, 8, 64);
-  return {
-    width,
-    height
-  };
+function resolveDimensions(candidate: AreaCandidate): { width: number; height: number } {
+  const parsedWidth = candidate.parsedArea?.width;
+  const parsedHeight = candidate.parsedArea?.height;
+
+  if (isPositiveInt(parsedWidth) && isPositiveInt(parsedHeight)) {
+    return {
+      width: clamp(parsedWidth, 1, 256),
+      height: clamp(parsedHeight, 1, 256)
+    };
+  }
+
+  const tileCount = candidate.parsedArea?.tileCount;
+  if (isPositiveInt(tileCount)) {
+    const base = clamp(Math.round(Math.sqrt(tileCount)), 8, 64);
+    return {
+      width: base,
+      height: clamp(Math.ceil(tileCount / base), 8, 64)
+    };
+  }
+
+  return estimateDimensions(candidate.areSourceSize);
+}
+
+function resolveAreaName(candidate: AreaCandidate): string {
+  const parsedName = candidate.parsedArea?.name;
+  if (parsedName && parsedName.trim().length > 0) {
+    return parsedName.trim();
+  }
+  return humanizeName(candidate.resref);
+}
+
+function buildTextureAtlasId(candidate: AreaCandidate, biome: string): string {
+  const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+  if (tileSet.length > 0) {
+    return `atlas_${tileSet}_v1`.slice(0, 80);
+  }
+  return `atlas_${biome}_v1`;
+}
+
+function buildAreaObjects(candidate: AreaCandidate): AreaRecord["objects"] {
+  const placements = candidate.parsedObjects;
+  if (!placements) {
+    return [];
+  }
+
+  const usedIds = new Set<string>();
+  const objects: AreaRecord["objects"] = [];
+
+  appendPlacements(objects, usedIds, placements.placeables, "placeable");
+  appendPlacements(objects, usedIds, placements.doors, "placeable");
+  appendPlacements(objects, usedIds, placements.creatures, "creature");
+  appendPlacements(objects, usedIds, placements.items, "item");
+
+  return objects;
+}
+
+function appendPlacements(
+  output: AreaRecord["objects"],
+  usedIds: Set<string>,
+  placements: ParsedAreaPlacementBlueprint[],
+  kind: AreaRecord["objects"][number]["kind"]
+): void {
+  const prefix = kind === "creature" ? "cre" : kind === "item" ? "itm" : "plc";
+
+  placements.forEach((placement, index) => {
+    const templateResRef = normalizeResref(placement.templateResRef ?? "");
+    const templateId = templateResRef
+      ? `${prefix}_${templateResRef}`.slice(0, 80)
+      : `${prefix}_unknown_${String(index + 1).padStart(3, "0")}`;
+
+    const objectId = buildStableObjectId(usedIds, {
+      tag: placement.tag,
+      templateResRef,
+      kind,
+      index
+    });
+
+    output.push({
+      objectId,
+      kind,
+      templateId,
+      x: clampCoordinate(placement.x),
+      y: clampCoordinate(placement.y),
+      z: clampCoordinate(placement.z),
+      bearing: clampBearing(placement.bearing)
+    });
+  });
+}
+
+function buildStableObjectId(
+  usedIds: Set<string>,
+  input: { tag?: string; templateResRef?: string; kind: "placeable" | "creature" | "item"; index: number }
+): string {
+  const kindPrefix = input.kind === "creature" ? "cre" : input.kind === "item" ? "itm" : "plc";
+  const baseToken = normalizeResref(input.tag ?? "") || input.templateResRef || `entry_${input.index + 1}`;
+  const base = `obj_${kindPrefix}_${baseToken}`.slice(0, 72);
+
+  if (!usedIds.has(base)) {
+    usedIds.add(base);
+    return base;
+  }
+
+  let suffix = 2;
+  while (suffix < 9999) {
+    const candidate = `${base}_${suffix}`.slice(0, 80);
+    if (!usedIds.has(candidate)) {
+      usedIds.add(candidate);
+      return candidate;
+    }
+    suffix += 1;
+  }
+
+  const fallback = `obj_${kindPrefix}_${input.index + 1}_${Date.now()}`.slice(0, 80);
+  usedIds.add(fallback);
+  return fallback;
+}
+
+function chooseUpdatedAt(candidate: AreaCandidate): string {
+  const git = candidate.gitUpdatedAt ?? "";
+  return git > candidate.areUpdatedAt ? git : candidate.areUpdatedAt;
 }
 
 function buildTags(candidate: AreaCandidate, biome: string): string[] {
@@ -329,29 +565,102 @@ function buildTags(candidate: AreaCandidate, biome: string): string[] {
     }
   }
 
-  return [...tags].slice(0, 12);
+  const parsedTag = normalizeResref(candidate.parsedArea?.tag ?? "");
+  if (parsedTag.length > 0) {
+    for (const token of parsedTag.split(/[_-]+/u)) {
+      if (token.length >= 3 && token.length <= 24) {
+        tags.add(token);
+      }
+    }
+  }
+
+  const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+  if (tileSet.length > 0) {
+    tags.add(tileSet);
+  }
+
+  const objectCount =
+    (candidate.parsedObjects?.placeables.length ?? 0) +
+    (candidate.parsedObjects?.doors.length ?? 0) +
+    (candidate.parsedObjects?.creatures.length ?? 0) +
+    (candidate.parsedObjects?.items.length ?? 0);
+  if (objectCount > 0) {
+    tags.add("git");
+    tags.add("objects");
+  }
+
+  return [...tags].slice(0, 16);
 }
 
 function buildAreaSoundscape(
   candidate: AreaCandidate,
   biome: string
 ): AreaRecord["soundscape"] {
-  const normalized = `${candidate.resref}|${candidate.sourceKey}|${biome}`.toLowerCase();
-  const areaAmbientResref = normalized.includes("city")
-    ? "amb_city_market_day"
-    : normalized.includes("swamp")
-      ? "amb_swamp_night"
-      : "amb_forest_day";
+  const ids = candidate.parsedArea?.soundIds;
+  const area: AreaSoundReference[] = [];
 
-  const area: AreaRecord["soundscape"]["area"] = [
-    {
+  if (isPositiveInt(ids?.ambientDay)) {
+    area.push({
+      soundId: `sound_ambient_day_${ids!.ambientDay}`,
+      resref: `ambient_day_${ids!.ambientDay}`,
+      category: "ambient",
+      playbackMode: "interval",
+      ambientOnly: true
+    });
+  }
+  if (isPositiveInt(ids?.ambientNight)) {
+    area.push({
+      soundId: `sound_ambient_night_${ids!.ambientNight}`,
+      resref: `ambient_night_${ids!.ambientNight}`,
+      category: "ambient",
+      playbackMode: "interval",
+      ambientOnly: true
+    });
+  }
+  if (isPositiveInt(ids?.musicDay)) {
+    area.push({
+      soundId: `sound_music_day_${ids!.musicDay}`,
+      resref: `music_day_${ids!.musicDay}`,
+      category: "music",
+      playbackMode: "continuous",
+      ambientOnly: true
+    });
+  }
+  if (isPositiveInt(ids?.musicNight)) {
+    area.push({
+      soundId: `sound_music_night_${ids!.musicNight}`,
+      resref: `music_night_${ids!.musicNight}`,
+      category: "music",
+      playbackMode: "continuous",
+      ambientOnly: true
+    });
+  }
+  if (isPositiveInt(ids?.musicBattle)) {
+    area.push({
+      soundId: `sound_music_battle_${ids!.musicBattle}`,
+      resref: `music_battle_${ids!.musicBattle}`,
+      category: "music",
+      playbackMode: "continuous",
+      ambientOnly: false
+    });
+  }
+
+  if (area.length === 0) {
+    const normalized = `${candidate.resref}|${candidate.areSourceKey}|${biome}`.toLowerCase();
+    const areaAmbientResref = normalized.includes("city")
+      ? "amb_city_market_day"
+      : normalized.includes("swamp")
+        ? "amb_swamp_night"
+        : "amb_forest_day";
+
+    area.push({
       soundId: `sound_${areaAmbientResref}`.slice(0, 72),
       resref: areaAmbientResref,
       category: "ambient",
       playbackMode: "interval",
       ambientOnly: true
-    }
-  ];
+    });
+  }
 
   const random: AreaRecord["soundscape"]["random"] = [
     {
@@ -363,17 +672,18 @@ function buildAreaSoundscape(
     }
   ];
 
-  const positional: AreaRecord["soundscape"]["positional"] = normalized.includes("city")
-    ? [
-        {
-          soundId: "sound_sfx_forge_loop_heavy",
-          resref: "sfx_forge_loop_heavy",
-          category: "effect",
-          playbackMode: "looping",
-          ambientOnly: false
-        }
-      ]
-    : [];
+  const positional: AreaRecord["soundscape"]["positional"] =
+    biome === "urban"
+      ? [
+          {
+            soundId: "sound_sfx_forge_loop_heavy",
+            resref: "sfx_forge_loop_heavy",
+            category: "effect",
+            playbackMode: "looping",
+            ambientOnly: false
+          }
+        ]
+      : [];
 
   return {
     bindingKeys: DEFAULT_SOUND_BINDING_KEYS,
@@ -408,10 +718,42 @@ function buildAtlasFingerprint(candidate: AreaCandidate): string {
     .update(
       [
         candidate.resref,
-        candidate.sourceKey,
-        String(candidate.sourceSize),
-        candidate.sourceEtag ?? "",
-        candidate.updatedAt
+        candidate.areSourceKey,
+        String(candidate.areSourceSize),
+        candidate.areSourceEtag ?? "",
+        candidate.areUpdatedAt,
+        candidate.gitSourceKey ?? "",
+        String(candidate.gitSourceSize ?? 0),
+        candidate.gitSourceEtag ?? "",
+        candidate.gitUpdatedAt ?? "",
+        candidate.parsedArea?.dependencyFingerprint ?? "",
+        candidate.parsedObjects?.dependencyFingerprint ?? ""
+      ].join("|")
+    )
+    .digest("hex");
+}
+
+function buildSourceFingerprint(candidate: AreaCandidate): string {
+  return createHash("sha256")
+    .update(
+      [
+        candidate.resref,
+        candidate.areSourceKey,
+        String(candidate.areSourceSize),
+        candidate.areSourceEtag ?? "",
+        candidate.areUpdatedAt,
+        candidate.gitSourceKey ?? "",
+        String(candidate.gitSourceSize ?? 0),
+        candidate.gitSourceEtag ?? "",
+        candidate.gitUpdatedAt ?? "",
+        candidate.parsedArea?.sourceFileType ?? "",
+        candidate.parsedArea?.sourceFileVersion ?? "",
+        String(candidate.parsedArea?.sourceStructTypeId ?? -1),
+        candidate.parsedArea?.dependencyFingerprint ?? "",
+        candidate.parsedObjects?.sourceFileType ?? "",
+        candidate.parsedObjects?.sourceFileVersion ?? "",
+        String(candidate.parsedObjects?.sourceStructTypeId ?? -1),
+        candidate.parsedObjects?.dependencyFingerprint ?? ""
       ].join("|")
     )
     .digest("hex");
@@ -457,10 +799,65 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function isPositiveInt(value: number | undefined): value is number {
+  return Number.isInteger(value) && (value ?? 0) > 0;
+}
+
+function clampCoordinate(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Number(value.toFixed(4));
+}
+
+function clampBearing(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = ((value % 360) + 360) % 360;
+  return Number(normalized.toFixed(4));
+}
+
+function estimateDimensions(size: number): { width: number; height: number } {
+  const base = clamp(Math.round(Math.sqrt(Math.max(size, 256)) / 8), 8, 64);
+  const width = base % 2 === 0 ? base : base + 1;
+  const height = clamp(width, 8, 64);
+  return {
+    width,
+    height
+  };
+}
+
 function normalizePrefixForLookup(value: string): string {
   const trimmed = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
   if (!trimmed) {
     return "";
   }
   return `${trimmed}/`;
+}
+
+async function mapWithConcurrency<T>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<void>
+): Promise<void> {
+  if (values.length === 0) {
+    return;
+  }
+
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, values.length)) }, () =>
+    (async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= values.length) {
+          return;
+        }
+        await mapper(values[index], index);
+      }
+    })()
+  );
+
+  await Promise.all(workers);
 }
