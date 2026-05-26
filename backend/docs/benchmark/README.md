@@ -88,3 +88,43 @@ Script output is JSON with:
 - global route-group latencies (`p50/p95/p99`),
 - per-type summaries,
 - per-candidate results (including asset delivery status).
+
+## 5) Run algorithm benchmark suite (placeable/tile/sound/area + queue)
+
+From `backend/`:
+
+```bash
+npm run bench:algorithms
+```
+
+Profiles:
+
+```bash
+npm run bench:algorithms -- --profile small
+npm run bench:algorithms -- --profile medium
+npm run bench:algorithms -- --profile large
+```
+
+Useful overrides:
+
+```bash
+npm run bench:algorithms -- \
+  --profile medium \
+  --maxCandidatesPerType 10 \
+  --iterations 120 \
+  --warmupIterations 15 \
+  --areaIterations 60 \
+  --areaCacheReadIterations 160 \
+  --queueJobs 80 \
+  --queuePollMs 100 \
+  --queueTimeoutMs 45000
+```
+
+By default script saves JSON to:
+`backend/docs/benchmark/algorithm-benchmark-<timestamp>.json`.
+
+Disable saving:
+
+```bash
+npm run bench:algorithms -- --save false
+```

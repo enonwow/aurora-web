@@ -27,6 +27,7 @@
     "bench:placeables": "ts-node --transpile-only scripts/run-placeable-bench.ts",
     "bench:tiles": "ts-node --transpile-only scripts/run-tile-bench.ts",
     "bench:sounds": "ts-node --transpile-only scripts/run-sound-bench.ts",
+    "bench:algorithms": "ts-node --transpile-only scripts/run-algorithm-bench.ts",
     "bench:cache:e2e": "ts-node --transpile-only scripts/run-cache-e2e-bench.ts",
     "cache:module:sync": "ts-node --transpile-only scripts/run-module-cache-sync.ts"
   },

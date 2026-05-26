@@ -1,0 +1,656 @@
+{
+  "specVersion": "alg-bench-v1",
+  "generatedAt": "2026-05-26T14:06:30.040Z",
+  "profile": "small",
+  "timing": {
+    "startedAt": "2026-05-26T14:06:29.883Z",
+    "finishedAt": "2026-05-26T14:06:30.040Z"
+  },
+  "config": {
+    "maxCandidatesPerType": 2,
+    "iterations": 5,
+    "warmupIterations": 1,
+    "areaIterations": 3,
+    "areaWarmupIterations": 1,
+    "areaCacheReadIterations": 4,
+    "queueJobs": 4,
+    "queuePollMs": 50,
+    "queueTimeoutMs": 10000
+  },
+  "datasets": {
+    "placeableIds": [
+      "plc_bench_c_wingsmeph_001",
+      "plc_bench_ad_top_lion_1_001"
+    ],
+    "tileIds": [
+      "tile_city_street_001",
+      "tile_city_gate_002"
+    ],
+    "soundIds": [
+      "sound_ambient_city_market_001",
+      "sound_music_city_theme_002"
+    ],
+    "areaIds": [
+      "area_market_district_001",
+      "area_dungeon_entry_001"
+    ]
+  },
+  "memory": {
+    "peakRssMb": 291.1797,
+    "snapshots": [
+      {
+        "label": "startup",
+        "at": "2026-05-26T14:06:29.634Z",
+        "rssMb": 288.4609,
+        "heapUsedMb": 99.297,
+        "externalMb": 8.6982,
+        "arrayBuffersMb": 5.1552
+      },
+      {
+        "label": "after-bootstrap",
+        "at": "2026-05-26T14:06:29.959Z",
+        "rssMb": 290.5508,
+        "heapUsedMb": 81.4701,
+        "externalMb": 8.5697,
+        "arrayBuffersMb": 4.9821
+      },
+      {
+        "label": "after-placeables",
+        "at": "2026-05-26T14:06:29.965Z",
+        "rssMb": 290.5547,
+        "heapUsedMb": 82.1585,
+        "externalMb": 8.5738,
+        "arrayBuffersMb": 4.9861
+      },
+      {
+        "label": "after-tiles",
+        "at": "2026-05-26T14:06:29.970Z",
+        "rssMb": 290.8164,
+        "heapUsedMb": 83.0255,
+        "externalMb": 8.5855,
+        "arrayBuffersMb": 4.9978
+      },
+      {
+        "label": "after-sounds",
+        "at": "2026-05-26T14:06:29.975Z",
+        "rssMb": 290.8281,
+        "heapUsedMb": 83.5934,
+        "externalMb": 8.5894,
+        "arrayBuffersMb": 5.0018
+      },
+      {
+        "label": "after-areas",
+        "at": "2026-05-26T14:06:30.020Z",
+        "rssMb": 291.1055,
+        "heapUsedMb": 88.4101,
+        "externalMb": 8.6558,
+        "arrayBuffersMb": 5.0682
+      },
+      {
+        "label": "after-queue",
+        "at": "2026-05-26T14:06:30.040Z",
+        "rssMb": 291.1797,
+        "heapUsedMb": 90.325,
+        "externalMb": 8.6692,
+        "arrayBuffersMb": 5.0816
+      }
+    ]
+  },
+  "results": {
+    "placeables": {
+      "cold": {
+        "datasetFingerprint": "90edd203ea4dece50ae632ecde181fe1ab3592d6e081ce1e04cfdc7d655c814f",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.961Z",
+          "finishedAt": "2026-05-26T14:06:29.962Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0118,
+            "maxMs": 0.0369,
+            "avgMs": 0.0218,
+            "p50Ms": 0.0196,
+            "p95Ms": 0.0369,
+            "p99Ms": 0.0369
+          },
+          "perCandidate": [
+            {
+              "templateId": "plc_bench_c_wingsmeph_001",
+              "resref": "c_wingsmeph",
+              "placeableSubtype": "generic",
+              "metrics": {
+                "minMs": 0.0166,
+                "maxMs": 0.0323,
+                "avgMs": 0.0218,
+                "p50Ms": 0.0196,
+                "p95Ms": 0.0323,
+                "p99Ms": 0.0323
+              }
+            },
+            {
+              "templateId": "plc_bench_ad_top_lion_1_001",
+              "resref": "ad_top_lion_1",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0118,
+                "maxMs": 0.0369,
+                "avgMs": 0.0219,
+                "p50Ms": 0.0204,
+                "p95Ms": 0.0369,
+                "p99Ms": 0.0369
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "b0a8abf57be9bc412235090165a9841807117f822d62c9727678d5ef34030a32",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.964Z",
+          "finishedAt": "2026-05-26T14:06:29.965Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0044,
+            "maxMs": 0.1274,
+            "avgMs": 0.0189,
+            "p50Ms": 0.0058,
+            "p95Ms": 0.1274,
+            "p99Ms": 0.1274
+          },
+          "perCandidate": [
+            {
+              "templateId": "plc_bench_c_wingsmeph_001",
+              "resref": "c_wingsmeph",
+              "placeableSubtype": "generic",
+              "metrics": {
+                "minMs": 0.0044,
+                "maxMs": 0.1274,
+                "avgMs": 0.0305,
+                "p50Ms": 0.0061,
+                "p95Ms": 0.1274,
+                "p99Ms": 0.1274
+              }
+            },
+            {
+              "templateId": "plc_bench_ad_top_lion_1_001",
+              "resref": "ad_top_lion_1",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0044,
+                "maxMs": 0.0117,
+                "avgMs": 0.0074,
+                "p50Ms": 0.0058,
+                "p95Ms": 0.0117,
+                "p99Ms": 0.0117
+              }
+            }
+          ]
+        }
+      }
+    },
+    "tiles": {
+      "cold": {
+        "datasetFingerprint": "01315f2511661d7bb34b2ed3e4b70a0fa2c255472839589ffe4cee6475c4201b",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.967Z",
+          "finishedAt": "2026-05-26T14:06:29.967Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0053,
+            "maxMs": 0.0252,
+            "avgMs": 0.013140000000000002,
+            "p50Ms": 0.0108,
+            "p95Ms": 0.0217,
+            "p99Ms": 0.0217
+          },
+          "perCandidate": [
+            {
+              "tileId": "tile_city_street_001",
+              "resref": "tcn01_city_street",
+              "metrics": {
+                "minMs": 0.0089,
+                "maxMs": 0.0166,
+                "avgMs": 0.01124,
+                "p50Ms": 0.0105,
+                "p95Ms": 0.0113,
+                "p99Ms": 0.0113
+              }
+            },
+            {
+              "tileId": "tile_city_gate_002",
+              "resref": "tcn02_city_gate",
+              "metrics": {
+                "minMs": 0.0053,
+                "maxMs": 0.0252,
+                "avgMs": 0.015040000000000001,
+                "p50Ms": 0.0122,
+                "p95Ms": 0.0217,
+                "p99Ms": 0.0217
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "4f9e35160ac54a7dca58a7509efd86e90ea2d32ba53aff656d0513a03f4a05f4",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.969Z",
+          "finishedAt": "2026-05-26T14:06:29.969Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.002,
+            "maxMs": 0.0537,
+            "avgMs": 0.00817,
+            "p50Ms": 0.0026,
+            "p95Ms": 0.006,
+            "p99Ms": 0.006
+          },
+          "perCandidate": [
+            {
+              "tileId": "tile_city_street_001",
+              "resref": "tcn01_city_street",
+              "metrics": {
+                "minMs": 0.002,
+                "maxMs": 0.0537,
+                "avgMs": 0.013219999999999999,
+                "p50Ms": 0.0026,
+                "p95Ms": 0.0057,
+                "p99Ms": 0.0057
+              }
+            },
+            {
+              "tileId": "tile_city_gate_002",
+              "resref": "tcn02_city_gate",
+              "metrics": {
+                "minMs": 0.0022,
+                "maxMs": 0.006,
+                "avgMs": 0.0031200000000000004,
+                "p50Ms": 0.0026,
+                "p95Ms": 0.0026,
+                "p99Ms": 0.0026
+              }
+            }
+          ]
+        }
+      }
+    },
+    "sounds": {
+      "cold": {
+        "datasetFingerprint": "e4706f9262b64289317c880d5796de12e5284f888359661a856b2b4fd09246b3",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.971Z",
+          "finishedAt": "2026-05-26T14:06:29.972Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0058,
+            "maxMs": 0.0248,
+            "avgMs": 0.0129,
+            "p50Ms": 0.0101,
+            "p95Ms": 0.019,
+            "p99Ms": 0.019
+          },
+          "perCandidate": [
+            {
+              "soundId": "sound_ambient_city_market_001",
+              "resref": "amb_city_market_day",
+              "metrics": {
+                "minMs": 0.0091,
+                "maxMs": 0.0176,
+                "avgMs": 0.01162,
+                "p50Ms": 0.0101,
+                "p95Ms": 0.0121,
+                "p99Ms": 0.0121
+              }
+            },
+            {
+              "soundId": "sound_music_city_theme_002",
+              "resref": "mus_city_theme_main",
+              "metrics": {
+                "minMs": 0.0058,
+                "maxMs": 0.0248,
+                "avgMs": 0.014180000000000002,
+                "p50Ms": 0.0119,
+                "p95Ms": 0.019,
+                "p99Ms": 0.019
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "e9aeeb347d6ffe37643f07401a73a8be517a70fdfbe4ab8da1ddd5cf08588b96",
+        "config": {
+          "iterations": 5,
+          "warmupIterations": 1,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.974Z",
+          "finishedAt": "2026-05-26T14:06:29.974Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.002,
+            "maxMs": 0.0781,
+            "avgMs": 0.011269999999999999,
+            "p50Ms": 0.0029,
+            "p95Ms": 0.0097,
+            "p99Ms": 0.0097
+          },
+          "perCandidate": [
+            {
+              "soundId": "sound_ambient_city_market_001",
+              "resref": "amb_city_market_day",
+              "metrics": {
+                "minMs": 0.002,
+                "maxMs": 0.0781,
+                "avgMs": 0.01796,
+                "p50Ms": 0.0029,
+                "p95Ms": 0.0047,
+                "p99Ms": 0.0047
+              }
+            },
+            {
+              "soundId": "sound_music_city_theme_002",
+              "resref": "mus_city_theme_main",
+              "metrics": {
+                "minMs": 0.002,
+                "maxMs": 0.0097,
+                "avgMs": 0.00458,
+                "p50Ms": 0.0029,
+                "p95Ms": 0.0062,
+                "p99Ms": 0.0062
+              }
+            }
+          ]
+        }
+      }
+    },
+    "areas": {
+      "cold": {
+        "config": {
+          "iterations": 3,
+          "warmupIterations": 1,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.975Z",
+          "finishedAt": "2026-05-26T14:06:29.989Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.5405,
+            "maxMs": 1.7918,
+            "avgMs": 1.6384,
+            "p50Ms": 1.5743,
+            "p95Ms": 1.7918,
+            "p99Ms": 1.7918
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "metrics": {
+                "minMs": 1.5735,
+                "maxMs": 1.703,
+                "avgMs": 1.6413,
+                "p50Ms": 1.6474,
+                "p95Ms": 1.703,
+                "p99Ms": 1.703
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "metrics": {
+                "minMs": 1.5405,
+                "maxMs": 1.7918,
+                "avgMs": 1.6355,
+                "p50Ms": 1.5743,
+                "p95Ms": 1.7918,
+                "p99Ms": 1.7918
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "config": {
+          "iterations": 3,
+          "warmupIterations": 1,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:29.989Z",
+          "finishedAt": "2026-05-26T14:06:30.003Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.4776,
+            "maxMs": 2.4071,
+            "avgMs": 1.747,
+            "p50Ms": 1.6317,
+            "p95Ms": 2.4071,
+            "p99Ms": 2.4071
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "metrics": {
+                "minMs": 1.6317,
+                "maxMs": 2.4071,
+                "avgMs": 1.9026,
+                "p50Ms": 1.6689,
+                "p95Ms": 2.4071,
+                "p99Ms": 2.4071
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "metrics": {
+                "minMs": 1.4776,
+                "maxMs": 1.7609,
+                "avgMs": 1.5915,
+                "p50Ms": 1.5361,
+                "p95Ms": 1.7609,
+                "p99Ms": 1.7609
+              }
+            }
+          ]
+        }
+      },
+      "cacheRead": {
+        "config": {
+          "iterations": 4,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T14:06:30.007Z",
+          "finishedAt": "2026-05-26T14:06:30.020Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.3818,
+            "maxMs": 2.5079,
+            "avgMs": 1.6716,
+            "p50Ms": 1.5096,
+            "p95Ms": 2.5079,
+            "p99Ms": 2.5079
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "cacheKey": "7b9222007f2b26a8d94b330ac447cbeeac9fd856b968c95a0df46092c12c73c5",
+              "metrics": {
+                "minMs": 1.3818,
+                "maxMs": 2.5079,
+                "avgMs": 1.8058,
+                "p50Ms": 1.6094,
+                "p95Ms": 2.5079,
+                "p99Ms": 2.5079
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "cacheKey": "e3f3ab57acde3ea2dc2e4a4f4328744f9a88396cef00c42d12e8565f037399f1",
+              "metrics": {
+                "minMs": 1.4339,
+                "maxMs": 1.77,
+                "avgMs": 1.5373,
+                "p50Ms": 1.4359,
+                "p95Ms": 1.77,
+                "p99Ms": 1.77
+              }
+            }
+          ]
+        }
+      }
+    },
+    "queue": {
+      "config": {
+        "jobs": 4,
+        "pollMs": 50,
+        "timeoutMs": 10000
+      },
+      "timing": {
+        "startedAt": "2026-05-26T14:06:30.022Z",
+        "finishedAt": "2026-05-26T14:06:30.040Z"
+      },
+      "metrics": {
+        "enqueue": {
+          "minMs": 1.799,
+          "maxMs": 3.1536,
+          "avgMs": 2.2456,
+          "p50Ms": 1.9043,
+          "p95Ms": 3.1536,
+          "p99Ms": 3.1536
+        },
+        "runtime": {
+          "minMs": 0,
+          "maxMs": 1,
+          "avgMs": 0.25,
+          "p50Ms": 0,
+          "p95Ms": 1,
+          "p99Ms": 1
+        },
+        "wallClock": {
+          "minMs": 6,
+          "maxMs": 8,
+          "avgMs": 7,
+          "p50Ms": 7,
+          "p95Ms": 8,
+          "p99Ms": 8
+        }
+      },
+      "statusCounts": {
+        "completed": 4
+      },
+      "pendingTimeouts": 0,
+      "queueMetrics": {
+        "before": {
+          "windowSize": 1000,
+          "sampledJobs": 0,
+          "counts": {
+            "pending": 0,
+            "running": 0,
+            "failed": 0,
+            "deadLetter": 0
+          },
+          "durationMs": {
+            "p50": null,
+            "p95": null
+          },
+          "generatedAt": "2026-05-26T14:06:30.022Z"
+        },
+        "after": {
+          "windowSize": 1000,
+          "sampledJobs": 4,
+          "counts": {
+            "pending": 0,
+            "running": 0,
+            "failed": 0,
+            "deadLetter": 0
+          },
+          "durationMs": {
+            "p50": 0,
+            "p95": 1
+          },
+          "generatedAt": "2026-05-26T14:06:30.039Z"
+        }
+      },
+      "jobs": [
+        {
+          "jobId": "cabef12e-08c9-4ae2-af06-e7c33a9e5869",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 3.1536,
+          "runtimeLatencyMs": 1,
+          "wallClockLatencyMs": 8
+        },
+        {
+          "jobId": "9fea11fb-bc2b-4ef2-ab90-25d06ecbf452",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 2.1255,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 7
+        },
+        {
+          "jobId": "69f0cfc0-b373-4d10-aefe-b3a0326bd8b0",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.9043,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 7
+        },
+        {
+          "jobId": "410c98eb-e310-4971-baba-ee159276fcc6",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.799,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 6
+        }
+      ]
+    }
+  }
+}
