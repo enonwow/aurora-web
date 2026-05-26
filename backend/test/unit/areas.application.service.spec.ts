@@ -16,7 +16,8 @@ describe("AreasApplicationService", () => {
   beforeEach(() => {
     repository = {
       list: jest.fn(),
-      findById: jest.fn()
+      findById: jest.fn(),
+      getPrecomputedAreaProcessing: jest.fn()
     };
     processingCache = {
       get: jest.fn(),
@@ -173,6 +174,56 @@ describe("AreasApplicationService", () => {
     expect(result.cache.hit).toBe(true);
     expect(result.cache.hits).toBe(6);
     expect(result.area.areaId).toBe("area_test_001");
+    expect(processingCache.set).not.toHaveBeenCalled();
+  });
+
+  it("returns cache hit from precomputed key without resolving area record", async () => {
+    const cacheKey = "c".repeat(64);
+    const value: AreaProcessingResult = {
+      areaId: "area_test_001",
+      name: "Test Area",
+      biome: "urban",
+      width: 12,
+      height: 12,
+      tags: ["benchmark", "city"],
+      benchmark: true,
+      previewImageUrl: "/previews/area_test_001.webp",
+      textureAtlas: {
+        atlasId: "atlas_urban_v1",
+        cacheKey: "atlas_urban_v1:12x12",
+        strategy: "blob-cache"
+      },
+      composition: {
+        placeables: 1,
+        creatures: 2,
+        items: 1,
+        total: 4
+      },
+      objects: [],
+      updatedAt: "2026-05-23T00:00:00.000Z",
+      processedAt: "2026-05-24T10:59:00.000Z"
+    };
+    (repository.getPrecomputedAreaProcessing as jest.Mock).mockReturnValue({
+      cacheKey,
+      composition: value.composition
+    });
+    processingCache.get.mockResolvedValue({
+      key: cacheKey,
+      value,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 9
+    });
+
+    const result = await service.processArea({
+      areaId: "area_test_001",
+      bypassCache: false
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.cache.key).toBe(cacheKey);
+    expect(result.cache.hits).toBe(9);
+    expect(result.area.areaId).toBe("area_test_001");
+    expect(repository.findById).not.toHaveBeenCalled();
     expect(processingCache.set).not.toHaveBeenCalled();
   });
 

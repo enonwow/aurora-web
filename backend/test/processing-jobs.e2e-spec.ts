@@ -118,6 +118,20 @@ describe("Processing Jobs API v1 (e2e)", () => {
     expect(getResponse.body.data.status).toBe("queued");
     expect(getResponse.body.data.cancelRequested).toBe(false);
 
+    const missingJobId = "4f35f98e-fd7d-4af8-9d68-6e3f8ce58ff4";
+    const statusBatchResponse = await supertest(httpServer)
+      .post("/api/v1/processing/jobs/status")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        jobIds: [jobId, missingJobId, jobId]
+      })
+      .expect(200);
+
+    expect(statusBatchResponse.body.data.jobs).toHaveLength(1);
+    expect(statusBatchResponse.body.data.jobs[0].jobId).toBe(jobId);
+    expect(statusBatchResponse.body.data.jobs[0].status).toBe("queued");
+    expect(statusBatchResponse.body.data.missingJobIds).toEqual([missingJobId]);
+
     const resultNotReady = await supertest(httpServer)
       .get(`/api/v1/processing/jobs/${jobId}/result`)
       .set("Authorization", `Bearer ${token}`)

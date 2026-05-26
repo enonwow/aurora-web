@@ -109,11 +109,27 @@ export class AreasApplicationService {
   }
 
   async processArea(query: AreaProcessQuery) {
+    let precomputed = this.repository.getPrecomputedAreaProcessing?.(query.areaId);
+    if (!query.bypassCache && precomputed) {
+      const cached = await this.processingCache.get(precomputed.cacheKey);
+      if (cached) {
+        return {
+          cache: {
+            key: precomputed.cacheKey,
+            hit: true,
+            storedAt: cached.storedAt,
+            hits: cached.hits
+          },
+          area: cached.value
+        };
+      }
+    }
+
     const area = await this.resolveAreaRecord(query.areaId);
-    const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
+    precomputed = precomputed ?? this.repository.getPrecomputedAreaProcessing?.(area.areaId);
     const cacheKey = precomputed?.cacheKey ?? buildAreaProcessCacheKey(area);
 
-    if (!query.bypassCache) {
+    if (!query.bypassCache && !precomputed) {
       const cached = await this.processingCache.get(cacheKey);
       if (cached) {
         return {

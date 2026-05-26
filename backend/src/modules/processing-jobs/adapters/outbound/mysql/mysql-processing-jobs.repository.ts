@@ -146,6 +146,38 @@ export class MySqlProcessingJobsRepository implements ProcessingJobsRepositoryPo
     return rows[0] ? mapRowToRecord(rows[0]) : null;
   }
 
+  async findByIds(jobIds: string[]): Promise<ProcessingJobRecord[]> {
+    const dedupedJobIds = dedupeJobIds(jobIds);
+    if (dedupedJobIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = dedupedJobIds.map(() => "?").join(", ");
+    const rows = await this.databaseService.query<ProcessingJobRow[]>(
+      `
+      SELECT *
+      FROM processing_jobs
+      WHERE job_id IN (${placeholders})
+      `,
+      dedupedJobIds
+    );
+
+    const recordsById = new Map<string, ProcessingJobRecord>();
+    for (const row of rows) {
+      recordsById.set(row.job_id, mapRowToRecord(row));
+    }
+
+    const orderedRecords: ProcessingJobRecord[] = [];
+    for (const jobId of dedupedJobIds) {
+      const record = recordsById.get(jobId);
+      if (record) {
+        orderedRecords.push(record);
+      }
+    }
+
+    return orderedRecords;
+  }
+
   async findByIdempotencyKey(idempotencyKey: string): Promise<ProcessingJobRecord | null> {
     const rows = await this.databaseService.query<ProcessingJobRow[]>(
       `
@@ -264,4 +296,17 @@ function toIsoStringNullable(value: Date | string | null): string | undefined {
     return undefined;
   }
   return toIsoString(value);
+}
+
+function dedupeJobIds(jobIds: readonly string[]): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const jobId of jobIds) {
+    if (seen.has(jobId)) {
+      continue;
+    }
+    seen.add(jobId);
+    deduped.push(jobId);
+  }
+  return deduped;
 }

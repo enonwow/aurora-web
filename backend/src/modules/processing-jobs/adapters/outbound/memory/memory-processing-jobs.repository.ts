@@ -35,6 +35,18 @@ export class MemoryProcessingJobsRepository implements ProcessingJobsRepositoryP
     return found ? structuredClone(found) : null;
   }
 
+  async findByIds(jobIds: string[]): Promise<ProcessingJobRecord[]> {
+    const dedupedJobIds = dedupeJobIds(jobIds);
+    const jobs: ProcessingJobRecord[] = [];
+    for (const jobId of dedupedJobIds) {
+      const found = this.jobs.get(jobId);
+      if (found) {
+        jobs.push(structuredClone(found));
+      }
+    }
+    return jobs;
+  }
+
   async findByIdempotencyKey(
     idempotencyKey: string
   ): Promise<ProcessingJobRecord | null> {
@@ -75,4 +87,17 @@ export class MemoryProcessingJobsRepository implements ProcessingJobsRepositoryP
       .slice(0, normalizedLimit)
       .map((job) => structuredClone(job));
   }
+}
+
+function dedupeJobIds(jobIds: readonly string[]): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const jobId of jobIds) {
+    if (seen.has(jobId)) {
+      continue;
+    }
+    seen.add(jobId);
+    deduped.push(jobId);
+  }
+  return deduped;
 }

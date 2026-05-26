@@ -17,7 +17,8 @@ import {
   parseJobActionPayload,
   parseJobIdParams,
   parseJobListQuery,
-  parseJobMetricsQuery
+  parseJobMetricsQuery,
+  parseJobStatusBatchPayload
 } from "./processing-jobs.schemas";
 
 @Controller("processing/jobs")
@@ -88,6 +89,25 @@ export class ProcessingJobsController {
   ) {
     const parsed = parseJobMetricsQuery(query);
     const data = await this.service.getQueueMetrics(parsed.windowSize);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("status")
+  @HttpCode(200)
+  @Permissions("processing.placeable.read")
+  @ApiOperation({
+    summary: "Get status/details for a batch of processing jobs."
+  })
+  @ApiResponse({ status: 200, description: "Batch job status payload." })
+  @ApiResponse({ status: 401, description: "Missing or invalid session." })
+  @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getJobsStatus(
+    @Req() request: AppRequest,
+    @Body() body: Record<string, unknown>
+  ) {
+    const parsed = parseJobStatusBatchPayload(body);
+    const data = await this.service.getJobsStatus(parsed.jobIds);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 

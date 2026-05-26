@@ -159,6 +159,38 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
     return jobs.map((job) => toSummary(job));
   }
 
+  async getJobsStatus(
+    jobIds: string[]
+  ): Promise<{ jobs: ProcessingJobSummary[]; missingJobIds: string[] }> {
+    const dedupedJobIds = dedupeJobIds(jobIds);
+    if (dedupedJobIds.length === 0) {
+      return {
+        jobs: [],
+        missingJobIds: []
+      };
+    }
+
+    const jobs = await this.repository.findByIds(dedupedJobIds);
+    const jobsById = new Map(jobs.map((job) => [job.jobId, job]));
+
+    const summaries: ProcessingJobSummary[] = [];
+    const missingJobIds: string[] = [];
+
+    for (const jobId of dedupedJobIds) {
+      const job = jobsById.get(jobId);
+      if (!job) {
+        missingJobIds.push(jobId);
+        continue;
+      }
+      summaries.push(toSummary(job));
+    }
+
+    return {
+      jobs: summaries,
+      missingJobIds
+    };
+  }
+
   async getQueueMetrics(windowSize = 1000): Promise<ProcessingQueueMetrics> {
     const normalizedWindowSize = Math.min(Math.max(Math.trunc(windowSize), 1), 10_000);
     const jobs = await this.repository.listRecent(normalizedWindowSize);
@@ -575,4 +607,17 @@ function calculatePercentileNearestRank(
   const rank = Math.ceil(percentile * sorted.length) - 1;
   const index = Math.min(Math.max(rank, 0), sorted.length - 1);
   return sorted[index];
+}
+
+function dedupeJobIds(jobIds: readonly string[]): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const jobId of jobIds) {
+    if (seen.has(jobId)) {
+      continue;
+    }
+    seen.add(jobId);
+    deduped.push(jobId);
+  }
+  return deduped;
 }

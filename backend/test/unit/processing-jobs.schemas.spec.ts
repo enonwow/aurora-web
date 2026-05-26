@@ -4,7 +4,8 @@ import {
   parseCreateJobPayload,
   parseJobIdParams,
   parseJobListQuery,
-  parseJobMetricsQuery
+  parseJobMetricsQuery,
+  parseJobStatusBatchPayload
 } from "../../src/modules/processing-jobs/adapters/inbound/http/processing-jobs.schemas";
 
 describe("processing-jobs.schemas", () => {
@@ -91,5 +92,22 @@ describe("processing-jobs.schemas", () => {
       reason: "cancel now"
     });
     expect(parseJobActionPayload({})).toEqual({});
+  });
+
+  it("parses batch status payload and dedupes job ids", () => {
+    const firstJobId = "4f35f98e-fd7d-4af8-9d68-6e3f8ce58ff4";
+    const secondJobId = "2a68d4d8-0294-4911-a428-927f7f94f6cf";
+    expect(
+      parseJobStatusBatchPayload({
+        jobIds: [firstJobId, secondJobId, firstJobId]
+      })
+    ).toEqual({
+      jobIds: [firstJobId, secondJobId]
+    });
+  });
+
+  it("rejects invalid batch status payload", () => {
+    expect(() => parseJobStatusBatchPayload({ jobIds: [] })).toThrow(AppException);
+    expect(() => parseJobStatusBatchPayload({ jobIds: ["bad"] })).toThrow(AppException);
   });
 });

@@ -320,6 +320,37 @@ describe("ProcessingJobsApplicationService", () => {
     });
     expect(metrics.sampledJobs).toBe(6);
   });
+
+  it("returns batch statuses and missing ids in requested order", async () => {
+    const firstJobId = "4f35f98e-fd7d-4af8-9d68-6e3f8ce58ff4";
+    const secondJobId = "2a68d4d8-0294-4911-a428-927f7f94f6cf";
+    const missingJobId = "f16af4bd-ccdd-4cf7-80f6-0840819d7643";
+
+    await repository.create(
+      buildJobRecord({
+        jobId: firstJobId,
+        status: "queued"
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: secondJobId,
+        status: "running"
+      })
+    );
+
+    const response = await service.getJobsStatus([
+      secondJobId,
+      missingJobId,
+      secondJobId,
+      firstJobId
+    ]);
+
+    expect(response.jobs.map((job) => job.jobId)).toEqual([secondJobId, firstJobId]);
+    expect(response.missingJobIds).toEqual([missingJobId]);
+    expect(response.jobs[0]?.status).toBe("running");
+    expect(response.jobs[1]?.status).toBe("queued");
+  });
 });
 
 async function waitForJobStatus(

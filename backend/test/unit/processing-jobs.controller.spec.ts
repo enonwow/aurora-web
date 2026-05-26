@@ -11,6 +11,7 @@ describe("ProcessingJobsController", () => {
     service = {
       enqueueJob: jest.fn(),
       listJobs: jest.fn(),
+      getJobsStatus: jest.fn(),
       getQueueMetrics: jest.fn(),
       getJob: jest.fn(),
       getJobResult: jest.fn(),
@@ -107,6 +108,25 @@ describe("ProcessingJobsController", () => {
     expect(service.getQueueMetrics).toHaveBeenCalledWith(300);
     expect(response.data.counts.deadLetter).toBe(2);
     expect(response.data.durationMs.p95).toBe(120);
+  });
+
+  it("returns batch job statuses with missing ids", async () => {
+    const firstJobId = "2a68d4d8-0294-4911-a428-927f7f94f6cf";
+    const missingJobId = "4f35f98e-fd7d-4af8-9d68-6e3f8ce58ff4";
+    service.getJobsStatus.mockResolvedValue({
+      jobs: [{ jobId: firstJobId, status: "running" }] as never,
+      missingJobIds: [missingJobId]
+    });
+
+    const response = await controller.getJobsStatus(requestWithUser("dm.user"), {
+      jobIds: [firstJobId, missingJobId]
+    });
+
+    expect(service.getJobsStatus).toHaveBeenCalledWith([firstJobId, missingJobId]);
+    expect(response.data).toEqual({
+      jobs: [{ jobId: firstJobId, status: "running" }],
+      missingJobIds: [missingJobId]
+    });
   });
 
   it("returns selected job by UUID id", async () => {

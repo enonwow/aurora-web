@@ -39,6 +39,14 @@ const jobActionPayloadSchema = z.object({
   reason: z.string().trim().min(1).max(256).optional()
 });
 
+const jobStatusBatchPayloadSchema = z
+  .object({
+    jobIds: z.array(z.string().uuid()).min(1).max(200)
+  })
+  .transform((value) => ({
+    jobIds: dedupeStrings(value.jobIds)
+  }));
+
 const createJobPayloadSchema = z
   .object({
     task: z.enum(jobTasks),
@@ -120,6 +128,18 @@ export function parseJobActionPayload(input: unknown): { reason?: string } {
   throwValidationError(parsed.error.issues, "Processing job action payload validation failed.");
 }
 
+export function parseJobStatusBatchPayload(input: unknown): { jobIds: string[] } {
+  const parsed = jobStatusBatchPayloadSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(
+    parsed.error.issues,
+    "Processing job status batch payload validation failed."
+  );
+}
+
 function parseBooleanSchema() {
   return z.preprocess((input) => {
     if (typeof input === "boolean") {
@@ -159,4 +179,17 @@ function throwValidationError(
       reason: issue.message
     }))
   });
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
 }

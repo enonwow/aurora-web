@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   ModuleBlobObjectSummary,
@@ -20,6 +21,10 @@ import type {
   TemplateListResult,
   TemplateRecord
 } from "../../../domain/template.types";
+import {
+  type ParsedTemplateBlueprint,
+  parseTemplateBlueprintFromGff
+} from "./aurora-gff-template-parser";
 import { StaticTemplateCatalogRepository } from "../memory/static-template-catalog.repository";
 
 interface IndexedTemplate {
@@ -46,9 +51,17 @@ interface TemplateCandidate {
   sourceKey: string;
   sourceSize: number;
   updatedAt: string;
+  sourceEtag?: string;
+  sourceFingerprint: string;
+  parsedBlueprint?: ParsedTemplateBlueprint;
 }
 
 const CANDIDATE_EXTENSIONS = new Set(["utp", "utd", "utc", "uti"]);
+const DOOR_PATTERN = /(door|gdoor|sdoor|gate)/u;
+const VFX_PATTERN = /(vfx|vvx|emit|emitter|particle|fx_)/u;
+const LIGHT_PATTERN = /(light|lamp|torch|lantern)/u;
+const TRIGGER_PATTERN = /(trigger|trig|trap)/u;
+const CONTAINER_PATTERN = /(container|chest|crate|barrel)/u;
 
 @Injectable()
 export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogRepositoryPort {
@@ -162,8 +175,12 @@ export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogR
 
     const settings = await this.runtimeSettingsRepository.get();
     const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
-    const records = buildTemplatesFromSnapshot(snapshot.objects);
-    if (records.length === 0) {
+    const candidates = await this.buildTemplateCandidatesFromSnapshot(
+      settings.blobStorage,
+      snapshot.objects
+    );
+
+    if (candidates.length === 0) {
       this.logger.warn(
         "No template files detected in module snapshot (expected: utp/utd/utc/uti). Falling back to static repository."
       );
@@ -171,9 +188,20 @@ export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogR
       return null;
     }
 
-    const placeableBenchmarkIds = pickBenchmarkTemplateIds(records, "placeable");
-    const creatureBenchmarkIds = pickBenchmarkTemplateIds(records, "creature");
-    const itemBenchmarkIds = pickBenchmarkTemplateIds(records, "item");
+    const placeableBenchmarkIds = pickBenchmarkTemplateIds(candidates, "placeable");
+    const creatureBenchmarkIds = pickBenchmarkTemplateIds(candidates, "creature");
+    const itemBenchmarkIds = pickBenchmarkTemplateIds(candidates, "item");
+
+    const mapped = candidates
+      .map((candidate) => ({
+        candidate,
+        record: mapCandidateToTemplateRecord(candidate, {
+          placeable: placeableBenchmarkIds,
+          creature: creatureBenchmarkIds,
+          item: itemBenchmarkIds
+        })
+      }))
+      .sort((left, right) => left.record.templateId.localeCompare(right.record.templateId));
 
     const byKind = new Map<TemplateKind, IndexedTemplate[]>();
     const byKindAndId = new Map<string, TemplateRecord>();
@@ -181,13 +209,7 @@ export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogR
     const placeableProcessingByIdAndSubtype = new Map<string, string>();
     const templateProcessingByKindAndId = new Map<string, string>();
 
-    for (const record of records
-      .map((candidate) => mapCandidateToTemplateRecord(candidate, {
-        placeable: placeableBenchmarkIds,
-        creature: creatureBenchmarkIds,
-        item: itemBenchmarkIds
-      }))
-      .sort((left, right) => left.templateId.localeCompare(right.templateId))) {
+    for (const { candidate, record } of mapped) {
       const indexed: IndexedTemplate = {
         record,
         searchable: buildTemplateSearchableText(record),
@@ -216,23 +238,42 @@ export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogR
         for (const subtype of subtypes) {
           placeableProcessingByIdAndSubtype.set(
             buildPlaceableProcessingIndexKey(record.templateId, subtype),
-            buildPlaceableProcessCacheKey(record.templateId, record.resref, subtype)
+            buildPlaceableProcessCacheKey(
+              record.templateId,
+              record.resref,
+              subtype,
+              candidate.sourceFingerprint
+            )
           );
         }
       } else {
         templateProcessingByKindAndId.set(
           buildTemplateProcessingIndexKey(record.kind, record.templateId),
-          buildTemplateProcessCacheKey(record.kind, record.templateId, record.resref)
+          buildTemplateProcessCacheKey(
+            record.kind,
+            record.templateId,
+            record.resref,
+            candidate.sourceFingerprint
+          )
         );
       }
     }
+
+    const candidateFingerprint = createHash("sha256")
+      .update(
+        mapped
+          .map(({ record, candidate }) => `${record.kind}:${record.resref}:${candidate.sourceFingerprint}`)
+          .join("\n")
+      )
+      .digest("hex");
 
     const cacheKey = [
       settings.blobStorage.bucket,
       snapshot.prefix,
       snapshot.moduleHash ?? "unknown",
       String(snapshot.objects.length),
-      String(records.length)
+      String(mapped.length),
+      candidateFingerprint
     ].join("|");
 
     this.snapshotIndex = {
@@ -281,80 +322,167 @@ export class ModuleSnapshotTemplateCatalogRepository implements TemplateCatalogR
       truncated: false
     };
   }
-}
 
-function buildTemplatesFromSnapshot(objects: ModuleBlobObjectSummary[]): TemplateCandidate[] {
-  const byKey = new Map<string, TemplateCandidate>();
+  private async buildTemplateCandidatesFromSnapshot(
+    settings: BlobStorageSettings,
+    objects: ModuleBlobObjectSummary[]
+  ): Promise<TemplateCandidate[]> {
+    const byKey = new Map<string, TemplateCandidate>();
 
-  for (const object of objects) {
-    const fileName = extractFileName(object.key);
-    const extension = extractExtension(fileName);
-    if (!CANDIDATE_EXTENSIONS.has(extension)) {
-      continue;
+    for (const object of objects) {
+      const fileName = extractFileName(object.key);
+      const extension = extractExtension(fileName);
+      if (!CANDIDATE_EXTENSIONS.has(extension)) {
+        continue;
+      }
+
+      const resref = normalizeResref(extractBasename(fileName));
+      if (resref.length < 2) {
+        continue;
+      }
+
+      const kind = classifyTemplateKind(extension);
+      const key = `${kind}:${resref}`;
+      const candidate: TemplateCandidate = {
+        kind,
+        resref,
+        extension,
+        sourceKey: object.key,
+        sourceSize: object.size,
+        updatedAt: object.lastModified ?? new Date().toISOString(),
+        sourceEtag: object.etag,
+        sourceFingerprint: buildSourceFingerprint([
+          "raw",
+          kind,
+          resref,
+          object.key,
+          String(object.size),
+          object.lastModified ?? "",
+          object.etag ?? ""
+        ])
+      };
+
+      const current = byKey.get(key);
+      if (!current) {
+        byKey.set(key, candidate);
+        continue;
+      }
+
+      if (candidate.sourceSize > current.sourceSize) {
+        byKey.set(key, candidate);
+        continue;
+      }
+      if (candidate.sourceSize === current.sourceSize && candidate.updatedAt > current.updatedAt) {
+        byKey.set(key, candidate);
+      }
     }
 
-    const resref = normalizeResref(extractBasename(fileName));
-    if (resref.length < 2) {
-      continue;
-    }
+    const candidates = [...byKey.values()];
+    await mapWithConcurrency(candidates, 8, async (candidate) => {
+      try {
+        const payload = await this.moduleBlobStorage.getModuleObject(settings, candidate.sourceKey);
+        if (!payload) {
+          return;
+        }
 
-    const kind = classifyTemplateKind(extension);
-    const key = `${kind}:${resref}`;
-    const current = byKey.get(key);
-    const candidate: TemplateCandidate = {
-      kind,
-      resref,
-      extension,
-      sourceKey: object.key,
-      sourceSize: object.size,
-      updatedAt: object.lastModified ?? new Date().toISOString()
-    };
+        const parsedBlueprint = parseTemplateBlueprintFromGff(payload.bytes);
+        if (parsedBlueprint) {
+          candidate.parsedBlueprint = parsedBlueprint;
+        }
 
-    if (!current) {
-      byKey.set(key, candidate);
-      continue;
-    }
+        const dependencyFingerprint = parsedBlueprint?.dependencyFingerprint ?? "none";
+        candidate.sourceEtag = payload.etag ?? candidate.sourceEtag;
+        candidate.sourceFingerprint = buildSourceFingerprint([
+          "blob",
+          candidate.kind,
+          candidate.resref,
+          candidate.sourceKey,
+          String(payload.size),
+          payload.lastModified ?? candidate.updatedAt,
+          payload.etag ?? candidate.sourceEtag ?? "",
+          parsedBlueprint?.sourceFileType ?? "",
+          parsedBlueprint?.sourceFileVersion ?? "",
+          String(parsedBlueprint?.sourceStructTypeId ?? -1),
+          parsedBlueprint?.templateResRef ?? "",
+          parsedBlueprint?.modelResRef ?? "",
+          dependencyFingerprint
+        ]);
+      } catch {
+        // Keep candidate heuristics path if object payload is unavailable.
+      }
+    });
 
-    if (candidate.sourceSize > current.sourceSize) {
-      byKey.set(key, candidate);
-      continue;
-    }
-    if (candidate.sourceSize === current.sourceSize && candidate.updatedAt > current.updatedAt) {
-      byKey.set(key, candidate);
-    }
+    return candidates;
   }
-
-  return [...byKey.values()];
 }
 
 function mapCandidateToTemplateRecord(
   candidate: TemplateCandidate,
   benchmarkIds: Record<TemplateKind, Set<string>>
 ): TemplateRecord {
+  const resolvedResref = resolveCandidateResref(candidate);
   const placeableSubtype =
-    candidate.kind === "placeable"
-      ? inferPlaceableSubtype(candidate.resref, candidate.sourceKey)
-      : undefined;
+    candidate.kind === "placeable" ? inferPlaceableSubtype(candidate) : undefined;
+
+  const metadata: Record<string, string | number | boolean> = {
+    sourceObjectKey: candidate.sourceKey,
+    sourceSizeBytes: candidate.sourceSize,
+    sourceExtension: candidate.extension,
+    sourceFingerprint: candidate.sourceFingerprint
+  };
+
+  addOptionalMetadata(metadata, "sourceEtag", candidate.sourceEtag);
+  addOptionalMetadata(metadata, "templateResRef", candidate.parsedBlueprint?.templateResRef);
+  addOptionalMetadata(metadata, "displayName", candidate.parsedBlueprint?.displayName);
+  addOptionalMetadata(metadata, "description", candidate.parsedBlueprint?.description);
+  addOptionalMetadata(metadata, "modelResRef", candidate.parsedBlueprint?.modelResRef);
+  addOptionalMetadata(
+    metadata,
+    "dependencyFingerprint",
+    candidate.parsedBlueprint?.dependencyFingerprint
+  );
+  addOptionalMetadata(
+    metadata,
+    "dependencyCount",
+    candidate.parsedBlueprint?.dependencyRefs.length
+  );
+  addOptionalMetadata(metadata, "appearanceId", candidate.parsedBlueprint?.appearanceId);
+  addOptionalMetadata(metadata, "hasInventory", candidate.parsedBlueprint?.hasInventory);
+  addOptionalMetadata(metadata, "useable", candidate.parsedBlueprint?.useable);
+  addOptionalMetadata(metadata, "isStatic", candidate.parsedBlueprint?.isStatic);
+  addOptionalMetadata(metadata, "lightState", candidate.parsedBlueprint?.lightState);
 
   return {
-    templateId: buildTemplateId(candidate.kind, candidate.resref),
+    templateId: buildTemplateId(candidate.kind, resolvedResref),
     kind: candidate.kind,
     placeableSubtype,
     benchmarkCandidate: benchmarkIds[candidate.kind].has(candidate.resref),
     benchmarkBucket: benchmarkIds[candidate.kind].has(candidate.resref)
-      ? buildBenchmarkBucket(candidate, placeableSubtype)
+      ? buildBenchmarkBucket(candidate.kind, placeableSubtype)
       : undefined,
-    resref: candidate.resref,
-    name: humanizeName(candidate.resref),
-    category: inferCategory(candidate),
+    resref: resolvedResref,
+    name: resolveTemplateName(candidate, resolvedResref),
+    category: inferCategory(candidate, placeableSubtype),
     tags: buildTags(candidate, placeableSubtype),
-    previewImageUrl: `/assets/previews/${candidate.kind}s/${candidate.resref}.webp`,
-    metadata: {
-      sourceObjectKey: candidate.sourceKey,
-      sourceSizeBytes: candidate.sourceSize,
-      sourceExtension: candidate.extension
-    }
+    previewImageUrl: `/assets/previews/${candidate.kind}s/${resolvedResref}.webp`,
+    metadata
   };
+}
+
+function resolveCandidateResref(candidate: TemplateCandidate): string {
+  const parsedResref = candidate.parsedBlueprint?.templateResRef;
+  if (!parsedResref || parsedResref.trim().length === 0) {
+    return candidate.resref;
+  }
+  return normalizeResref(parsedResref);
+}
+
+function resolveTemplateName(candidate: TemplateCandidate, fallbackResref: string): string {
+  const fromBlueprint = candidate.parsedBlueprint?.displayName;
+  if (fromBlueprint && fromBlueprint.trim().length > 0) {
+    return fromBlueprint.trim();
+  }
+  return humanizeName(fallbackResref);
 }
 
 function pickBenchmarkTemplateIds(
@@ -364,7 +492,8 @@ function pickBenchmarkTemplateIds(
   const filtered = candidates
     .filter((candidate) => candidate.kind === kind)
     .sort((left, right) => right.sourceSize - left.sourceSize);
-  const count = filtered.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(filtered.length * 0.2)));
+  const count =
+    filtered.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(filtered.length * 0.2)));
   return new Set(filtered.slice(0, count).map((candidate) => candidate.resref));
 }
 
@@ -378,27 +507,63 @@ function classifyTemplateKind(extension: string): TemplateKind {
   return "placeable";
 }
 
-function inferPlaceableSubtype(resref: string, sourceKey: string): PlaceableSubtype {
-  const normalized = `${resref}|${sourceKey}`.toLowerCase();
-  if (/(door|gdoor|sdoor|gate)/u.test(normalized)) {
+function inferPlaceableSubtype(candidate: TemplateCandidate): PlaceableSubtype {
+  if (candidate.extension === "utd") {
     return "door";
   }
-  if (/(vfx|vvx|emit|particle)/u.test(normalized)) {
+
+  const blueprint = candidate.parsedBlueprint;
+  const searchable = [
+    candidate.resref,
+    candidate.sourceKey,
+    blueprint?.tag,
+    blueprint?.templateResRef,
+    blueprint?.modelResRef,
+    ...(blueprint?.dependencyRefs ?? [])
+  ]
+    .filter((value): value is string => Boolean(value && value.length > 0))
+    .join("|")
+    .toLowerCase();
+
+  if (DOOR_PATTERN.test(searchable)) {
+    return "door";
+  }
+  if ((blueprint?.vfxEvidence.length ?? 0) > 0 || VFX_PATTERN.test(searchable)) {
     return "vfx";
   }
-  if (/(light|lamp|torch|lantern)/u.test(normalized)) {
+  if (blueprint?.hasInventory || CONTAINER_PATTERN.test(searchable)) {
+    return "container";
+  }
+  if ((blueprint?.lightState ?? 0) > 0 || LIGHT_PATTERN.test(searchable)) {
     return "light_source";
   }
-  if (/(trigger|trig)/u.test(normalized)) {
+  if (isTriggerProxyBlueprint(blueprint) || TRIGGER_PATTERN.test(searchable)) {
     return "trigger_proxy";
-  }
-  if (/(container|chest|crate|barrel)/u.test(normalized)) {
-    return "container";
   }
   return "generic";
 }
 
-function inferCategory(candidate: TemplateCandidate): string {
+function isTriggerProxyBlueprint(blueprint?: ParsedTemplateBlueprint): boolean {
+  if (!blueprint) {
+    return false;
+  }
+  const labels = Object.keys(blueprint.scripts);
+  return labels.some((label) => TRIGGER_PATTERN.test(label));
+}
+
+function inferCategory(
+  candidate: TemplateCandidate,
+  placeableSubtype: PlaceableSubtype | undefined
+): string {
+  if (candidate.kind === "placeable") {
+    if (placeableSubtype === "door") {
+      return "door";
+    }
+    if (placeableSubtype === "vfx") {
+      return "effects";
+    }
+  }
+
   const normalized = candidate.sourceKey.toLowerCase();
   if (candidate.kind === "creature") {
     if (normalized.includes("undead")) {
@@ -454,14 +619,22 @@ function buildTags(
     }
   }
 
-  return [...tags].slice(0, 12);
+  for (const token of (candidate.parsedBlueprint?.dependencyRefs ?? []).flatMap((value) =>
+    value.toLowerCase().split(/[_-]+/u)
+  )) {
+    if (token.length >= 3 && token.length <= 24 && /^[a-z0-9]+$/u.test(token)) {
+      tags.add(token);
+    }
+  }
+
+  return [...tags].slice(0, 16);
 }
 
 function buildBenchmarkBucket(
-  candidate: TemplateCandidate,
+  kind: TemplateKind,
   subtype: PlaceableSubtype | undefined
 ): string {
-  if (candidate.kind === "placeable") {
+  if (kind === "placeable") {
     if (subtype === "door") {
       return "door_heavy_candidate";
     }
@@ -470,7 +643,7 @@ function buildBenchmarkBucket(
     }
     return "placeable_heavy_candidate";
   }
-  return `${candidate.kind}_heavy_candidate`;
+  return `${kind}_heavy_candidate`;
 }
 
 function buildTemplateId(kind: TemplateKind, resref: string): string {
@@ -550,4 +723,45 @@ function normalizePrefixForLookup(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function buildSourceFingerprint(parts: readonly string[]): string {
+  return createHash("sha256").update(parts.join("|"), "utf-8").digest("hex");
+}
+
+function addOptionalMetadata(
+  metadata: Record<string, string | number | boolean>,
+  key: string,
+  value: string | number | boolean | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+  metadata[key] = value;
+}
+
+async function mapWithConcurrency<T>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<void>
+): Promise<void> {
+  if (values.length === 0) {
+    return;
+  }
+
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, values.length)) }, () =>
+    (async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= values.length) {
+          return;
+        }
+        await mapper(values[index], index);
+      }
+    })()
+  );
+
+  await Promise.all(workers);
 }
