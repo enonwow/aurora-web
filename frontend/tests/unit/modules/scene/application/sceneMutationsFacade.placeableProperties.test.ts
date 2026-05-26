@@ -38,7 +38,41 @@ describe("sceneMutationsFacade placeable preserve-only roundtrip", () => {
                   plot: true,
                   useable: true,
                   hasInventory: false
-                }
+                },
+                lockSettings: {
+                  locked: true,
+                  canRelock: false,
+                  autoRemoveKeyAfterUse: false,
+                  keyRequiredToUnlockOrLock: true,
+                  openLockDc: 19,
+                  closeLockDc: 4,
+                  keyTag: "KEY_MAIN"
+                },
+                trapSettings: {
+                  isTrapped: true,
+                  trapType: "Spike Trap, Minor",
+                  detectionDc: 12,
+                  disarmDc: 17,
+                  oneShot: true,
+                  detectable: true,
+                  disarmable: true,
+                  onDisarmScript: "on_disarm",
+                  onTrapTriggeredScript: "on_trigger",
+                  setDc: 9,
+                  detectDcModWhenSetByRogue: 10,
+                  disarmDcModWhenSetByRogue: 22
+                },
+                advancedSettings: {
+                  blueprintResRef: "plc_seed",
+                  belongsToFaction: "Hostile",
+                  conversation: "conv_main",
+                  noInterrupt: false,
+                  portraitResRef: "po_seed",
+                  initialState: "Default",
+                  treasureModel: "Default"
+                },
+                description: "desc",
+                comments: "comment"
               }
             }
           : object
@@ -81,7 +115,41 @@ describe("sceneMutationsFacade placeable preserve-only roundtrip", () => {
         plot: true,
         useable: true,
         hasInventory: false
-      }
+      },
+      lockSettings: {
+        locked: true,
+        canRelock: false,
+        autoRemoveKeyAfterUse: false,
+        keyRequiredToUnlockOrLock: true,
+        openLockDc: 19,
+        closeLockDc: 4,
+        keyTag: "KEY_MAIN"
+      },
+      trapSettings: {
+        isTrapped: true,
+        trapType: "Spike Trap, Minor",
+        detectionDc: 12,
+        disarmDc: 17,
+        oneShot: true,
+        detectable: true,
+        disarmable: true,
+        onDisarmScript: "on_disarm",
+        onTrapTriggeredScript: "on_trigger",
+        setDc: 9,
+        detectDcModWhenSetByRogue: 10,
+        disarmDcModWhenSetByRogue: 22
+      },
+      advancedSettings: {
+        blueprintResRef: "plc_seed",
+        belongsToFaction: "Hostile",
+        conversation: "conv_main",
+        noInterrupt: false,
+        portraitResRef: "po_seed",
+        initialState: "Default",
+        treasureModel: "Default"
+      },
+      description: "desc",
+      comments: "comment"
     });
   });
 });

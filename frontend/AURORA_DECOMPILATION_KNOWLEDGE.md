@@ -8,6 +8,98 @@ Primary exports: `export/strings.tsv`, `export/functions.tsv`, `export/decompile
 This file is a stable Aurora First evidence base from decompilation artifacts.  
 Use it as implementation input together with screenshot parity notes.
 
+## Deep Pass Addendum (2026-05-26)
+This addendum captures function-level findings from `export/decompiled_all.c` for sound, location/bearing, and placeable behavior.  
+These are high-confidence because they come from concrete read/write and UI-apply paths.
+
+### A. Sound payload contract and field semantics (function-level)
+Evidence block: `FUN_0063df90` read path and `FUN_0063e414` write path around `decompiled_all.c:331097-331318`.
+
+Read/write keys in Aurora:
+1. `Active`
+2. `Continuous`
+3. `Looping`
+4. `Positional`
+5. `RandomPosition`
+6. `Random`
+7. `Elevation`
+8. `MaxDistance`
+9. `MinDistance`
+10. `RandomRangeX`
+11. `RandomRangeY`
+12. `Interval`
+13. `IntervalVrtn`
+14. `PitchVariation`
+15. `Priority`
+16. `Hours`
+17. `Times`
+18. `Volume`
+19. `VolumeVrtn`
+20. `Sounds.Sound` list entries
+
+### B. Sound mode mapping used by dialog + runtime flags
+Evidence:
+1. Dialog load/apply path `FUN_006fe814` and `FUN_006ff2f4`.
+2. Mode synthesis helper `FUN_0063e398`.
+
+Aurora mode booleans:
+1. `Positional = 0` and `RandomPosition = 0` -> "Plays everywhere in area".
+2. `Positional = 1` and `RandomPosition = 1` -> "Plays from random position each play".
+3. `Positional = 1` and `RandomPosition = 0` -> "Plays from specific position".
+
+Additional playback flags:
+1. `Continuous`, `Looping`, and `Random` contribute to computed mode byte (`+0x6a`) in `FUN_0063e398`.
+2. `Times` is mapped to radio group values (`day/night/all/specific`) and `Hours` stores the 24-bit mask.
+
+### C. Interval and distance scaling in Sound dialog
+Evidence:
+1. `FUN_006fe814` and `FUN_006ff2f4` divide/multiply by `10.0` when moving between UI and model.
+2. `FUN_00700b0c`, `FUN_00700ce4`, `FUN_006fe5e0`.
+
+Observed behavior:
+1. Interval fields are stored as integer ticks and shown as decimal seconds in UI (`value * 10` and `/ 10` conversions in code paths).
+2. `MaxDistance` ("outer radius / cutoff") and `MinDistance` ("inner radius / max volume") are clamped and synchronized.
+3. Dialog frequently seeds inner radius as `outer * 0.1` (`*(param_1 + 0x6d4) = *(param_1 + 0x6cc) * 0.1`), then applies additional clamp rules (`0 <= inner <= outer`).
+
+### D. Sound positioning UI gating logic
+Evidence:
+1. `FUN_006fd56c` controls enable/disable of positioning sub-controls.
+2. `FUN_006fd3c8`, `FUN_006fd280`, `FUN_006fd7c0`, `FUN_006fd8f0`.
+
+Implications:
+1. Positioning controls are enabled only when positional modes are active.
+2. Random range controls are conditionally gated by random-position mode.
+3. Hour mask controls are disabled when "Play at all times" is selected.
+
+### E. Bearing and location conversion math
+Evidence:
+1. Read path: `FUN_0055c0f8` / `FUN_0063d0d8`.
+2. Write path: `FUN_0055c35c` / `FUN_0063d3d8`.
+
+Confirmed:
+1. Bearing is serialized in radians and converted against degrees in editor math (`57.295776` and `0.017453292` factors are explicit in code).
+2. The editor normalizes/guards very small values before writeback (`1e-05` threshold path appears in write function).
+
+### F. Placeable static/useable interplay
+Evidence:
+1. `FUN_0063bf74` reads `Useable`, `Static`, `OnInvDisturbed`, `OnUsed`.
+2. Defaulting path uses `Useable == false` as static default seed in parse flow.
+
+Implication:
+1. `Static` and `Useable` are not independent in import defaults; Aurora parse logic couples them when explicit payload values are missing.
+
+### G. Tile/area vocabulary for future Aurora-first implementation
+Evidence:
+1. `@@Tiledialog@Initialize` -> `FUN_007134c4` large key registration block.
+
+Registered concept keys include:
+1. `GROUP`, `GROUPS`, `TERRAIN`, `TERRAIN TYPES`, `TILES`, `Transition`, `HasHeightTransition`
+2. `Orientation`, `VisibilityOrientation`, `DoorVisibilityOrientation`
+3. `Sound`, `Sounds`, `Model`, `WalkMesh`, `ImageMap2D`
+4. Lighting fields (`MainLight*`, `SourceLight*`, `Ambient*`, `Diffuse*`)
+
+Use this key set as canonical naming baseline for parser contracts and frontend facades.
+
 ## High-Confidence Findings
 
 ### 1. Adjust Location + Bearing are separate, explicit UI building blocks

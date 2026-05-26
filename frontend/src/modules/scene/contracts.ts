@@ -26,6 +26,15 @@ export interface SceneObjectPlaceableProperties {
   scriptSlots?: SceneObjectPlaceableScriptSlots;
   // Baseline UI disabled state snapshot for preserve-only roundtrip safety.
   disabledFlags?: SceneObjectPlaceableDisabledFlags;
+  // Aurora-first parity: lock tab state payload.
+  lockSettings?: SceneObjectPlaceableLockSettings;
+  // Aurora-first parity: trap tab state payload.
+  trapSettings?: SceneObjectPlaceableTrapSettings;
+  // Aurora-first parity: advanced tab shell payload.
+  advancedSettings?: SceneObjectPlaceableAdvancedSettings;
+  // Aurora-first parity: description/comments tab payload.
+  description?: string;
+  comments?: string;
 }
 
 export interface SceneObjectPlaceableScriptSlots {
@@ -48,6 +57,41 @@ export interface SceneObjectPlaceableDisabledFlags {
   plot: boolean;
   useable: boolean;
   hasInventory: boolean;
+}
+
+export interface SceneObjectPlaceableLockSettings {
+  locked: boolean;
+  canRelock: boolean;
+  autoRemoveKeyAfterUse: boolean;
+  keyRequiredToUnlockOrLock: boolean;
+  openLockDc: number;
+  closeLockDc: number;
+  keyTag: string;
+}
+
+export interface SceneObjectPlaceableTrapSettings {
+  isTrapped: boolean;
+  trapType: string;
+  detectionDc: number;
+  disarmDc: number;
+  oneShot: boolean;
+  detectable: boolean;
+  disarmable: boolean;
+  onDisarmScript: string;
+  onTrapTriggeredScript: string;
+  setDc: number;
+  detectDcModWhenSetByRogue: number;
+  disarmDcModWhenSetByRogue: number;
+}
+
+export interface SceneObjectPlaceableAdvancedSettings {
+  blueprintResRef: string;
+  belongsToFaction: string;
+  conversation: string;
+  noInterrupt: boolean;
+  portraitResRef: string;
+  initialState: string;
+  treasureModel: string;
 }
 
 export type SceneSoundPositioningMode =

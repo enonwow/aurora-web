@@ -170,6 +170,8 @@ interface BearingDialDragState {
 
 type PlaceablePropertiesTab =
   | "basic"
+  | "lock"
+  | "trap"
   | "scripts"
   | "advanced"
   | "description"
@@ -213,6 +215,36 @@ const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
   "onUserDefined"
 ];
 
+const PLACEABLE_SCRIPT_SLOT_LABELS: Record<PlaceableScriptSlotKey, string> = {
+  onClick: "OnClick",
+  onClosed: "OnClose",
+  onDamaged: "OnDamaged",
+  onDeath: "OnDeath",
+  onHeartbeat: "OnHeartbeat",
+  onInvDisturbed: "OnDisturbed",
+  onLock: "OnLock",
+  onMeleeAttacked: "OnPhysicalAttacked",
+  onOpen: "OnOpen",
+  onSpellCastAt: "OnSpellCastAt",
+  onUnlock: "OnUnLock",
+  onUsed: "OnUsed",
+  onUserDefined: "OnUserDefined"
+};
+
+const PLACEABLE_TRAP_TYPE_OPTIONS = [
+  "Spike Trap, Minor",
+  "Spike Trap, Average",
+  "Spike Trap, Deadly",
+  "Acid Splash, Minor",
+  "Fire Trap, Minor",
+  "Electrical Trap, Minor",
+  "Holy Trap, Minor"
+];
+
+const PLACEABLE_FACTION_OPTIONS = ["Hostile", "Commoner", "Defender", "Merchant", "Neutral"];
+const PLACEABLE_INITIAL_STATE_OPTIONS = ["Default", "Open", "Closed", "Destroyed"];
+const PLACEABLE_TREASURE_MODEL_OPTIONS = ["Default", "None", "Container", "Random"];
+
 interface PlaceablePropertiesDraft {
   name: string;
   tag: string;
@@ -229,6 +261,45 @@ interface PlaceablePropertiesDraft {
     useable: boolean;
     hasInventory: boolean;
   };
+  hardness: number;
+  hitPoints: number;
+  fortitudeSave: number;
+  reflexSave: number;
+  willSave: number;
+  lockSettings: {
+    locked: boolean;
+    canRelock: boolean;
+    autoRemoveKeyAfterUse: boolean;
+    keyRequiredToUnlockOrLock: boolean;
+    openLockDc: number;
+    closeLockDc: number;
+    keyTag: string;
+  };
+  trapSettings: {
+    isTrapped: boolean;
+    trapType: string;
+    detectionDc: number;
+    disarmDc: number;
+    oneShot: boolean;
+    detectable: boolean;
+    disarmable: boolean;
+    onDisarmScript: string;
+    onTrapTriggeredScript: string;
+    setDc: number;
+    detectDcModWhenSetByRogue: number;
+    disarmDcModWhenSetByRogue: number;
+  };
+  advancedSettings: {
+    blueprintResRef: string;
+    belongsToFaction: string;
+    conversation: string;
+    noInterrupt: boolean;
+    portraitResRef: string;
+    initialState: string;
+    treasureModel: string;
+  };
+  description: string;
+  comments: string;
 }
 
 interface PlaceablePropertiesDialogState {
@@ -958,9 +1029,62 @@ function arePlaceableDisabledFlagsEqual(
   );
 }
 
+function arePlaceableLockSettingsEqual(
+  left: PlaceablePropertiesDraft["lockSettings"],
+  right: PlaceablePropertiesDraft["lockSettings"]
+): boolean {
+  return (
+    left.locked === right.locked &&
+    left.canRelock === right.canRelock &&
+    left.autoRemoveKeyAfterUse === right.autoRemoveKeyAfterUse &&
+    left.keyRequiredToUnlockOrLock === right.keyRequiredToUnlockOrLock &&
+    left.openLockDc === right.openLockDc &&
+    left.closeLockDc === right.closeLockDc &&
+    left.keyTag === right.keyTag
+  );
+}
+
+function arePlaceableTrapSettingsEqual(
+  left: PlaceablePropertiesDraft["trapSettings"],
+  right: PlaceablePropertiesDraft["trapSettings"]
+): boolean {
+  return (
+    left.isTrapped === right.isTrapped &&
+    left.trapType === right.trapType &&
+    left.detectionDc === right.detectionDc &&
+    left.disarmDc === right.disarmDc &&
+    left.oneShot === right.oneShot &&
+    left.detectable === right.detectable &&
+    left.disarmable === right.disarmable &&
+    left.onDisarmScript === right.onDisarmScript &&
+    left.onTrapTriggeredScript === right.onTrapTriggeredScript &&
+    left.setDc === right.setDc &&
+    left.detectDcModWhenSetByRogue === right.detectDcModWhenSetByRogue &&
+    left.disarmDcModWhenSetByRogue === right.disarmDcModWhenSetByRogue
+  );
+}
+
+function arePlaceableAdvancedSettingsEqual(
+  left: PlaceablePropertiesDraft["advancedSettings"],
+  right: PlaceablePropertiesDraft["advancedSettings"]
+): boolean {
+  return (
+    left.blueprintResRef === right.blueprintResRef &&
+    left.belongsToFaction === right.belongsToFaction &&
+    left.conversation === right.conversation &&
+    left.noInterrupt === right.noInterrupt &&
+    left.portraitResRef === right.portraitResRef &&
+    left.initialState === right.initialState &&
+    left.treasureModel === right.treasureModel
+  );
+}
+
 function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePropertiesDraft {
   const placeableProperties = source.placeableProperties;
   const disabledFlags = placeableProperties?.disabledFlags;
+  const lockSettings = placeableProperties?.lockSettings;
+  const trapSettings = placeableProperties?.trapSettings;
+  const advancedSettings = placeableProperties?.advancedSettings;
   return {
     name: resolveSceneObjectName(source),
     tag: source.tag,
@@ -976,7 +1100,46 @@ function buildPlaceablePropertiesDraft(source: SceneObject): PlaceableProperties
       plot: disabledFlags?.plot ?? false,
       useable: disabledFlags?.useable ?? false,
       hasInventory: disabledFlags?.hasInventory ?? false
-    }
+    },
+    hardness: 5,
+    hitPoints: 15,
+    fortitudeSave: 16,
+    reflexSave: 0,
+    willSave: 0,
+    lockSettings: {
+      locked: lockSettings?.locked ?? false,
+      canRelock: lockSettings?.canRelock ?? false,
+      autoRemoveKeyAfterUse: lockSettings?.autoRemoveKeyAfterUse ?? false,
+      keyRequiredToUnlockOrLock: lockSettings?.keyRequiredToUnlockOrLock ?? false,
+      openLockDc: lockSettings?.openLockDc ?? 18,
+      closeLockDc: lockSettings?.closeLockDc ?? 0,
+      keyTag: lockSettings?.keyTag ?? ""
+    },
+    trapSettings: {
+      isTrapped: trapSettings?.isTrapped ?? false,
+      trapType: trapSettings?.trapType ?? PLACEABLE_TRAP_TYPE_OPTIONS[0]!,
+      detectionDc: trapSettings?.detectionDc ?? 0,
+      disarmDc: trapSettings?.disarmDc ?? 15,
+      oneShot: trapSettings?.oneShot ?? true,
+      detectable: trapSettings?.detectable ?? true,
+      disarmable: trapSettings?.disarmable ?? true,
+      onDisarmScript: trapSettings?.onDisarmScript ?? "",
+      onTrapTriggeredScript: trapSettings?.onTrapTriggeredScript ?? "",
+      setDc: trapSettings?.setDc ?? 5,
+      detectDcModWhenSetByRogue: trapSettings?.detectDcModWhenSetByRogue ?? 10,
+      disarmDcModWhenSetByRogue: trapSettings?.disarmDcModWhenSetByRogue ?? 22
+    },
+    advancedSettings: {
+      blueprintResRef: advancedSettings?.blueprintResRef ?? source.resRef,
+      belongsToFaction: advancedSettings?.belongsToFaction ?? PLACEABLE_FACTION_OPTIONS[0]!,
+      conversation: advancedSettings?.conversation ?? "",
+      noInterrupt: advancedSettings?.noInterrupt ?? false,
+      portraitResRef: advancedSettings?.portraitResRef ?? "",
+      initialState: advancedSettings?.initialState ?? PLACEABLE_INITIAL_STATE_OPTIONS[0]!,
+      treasureModel: advancedSettings?.treasureModel ?? PLACEABLE_TREASURE_MODEL_OPTIONS[0]!
+    },
+    description: placeableProperties?.description ?? "",
+    comments: placeableProperties?.comments ?? ""
   };
 }
 
@@ -1156,7 +1319,17 @@ function arePlaceablePropertiesDraftsEqual(
     left.scriptSlotsEnabled === right.scriptSlotsEnabled &&
     arePlaceableScriptSlotsEqual(left.scriptSlots, right.scriptSlots) &&
     left.disabledFlagsEnabled === right.disabledFlagsEnabled &&
-    arePlaceableDisabledFlagsEqual(left.disabledFlags, right.disabledFlags)
+    arePlaceableDisabledFlagsEqual(left.disabledFlags, right.disabledFlags) &&
+    left.hardness === right.hardness &&
+    left.hitPoints === right.hitPoints &&
+    left.fortitudeSave === right.fortitudeSave &&
+    left.reflexSave === right.reflexSave &&
+    left.willSave === right.willSave &&
+    arePlaceableLockSettingsEqual(left.lockSettings, right.lockSettings) &&
+    arePlaceableTrapSettingsEqual(left.trapSettings, right.trapSettings) &&
+    arePlaceableAdvancedSettingsEqual(left.advancedSettings, right.advancedSettings) &&
+    left.description === right.description &&
+    left.comments === right.comments
   );
 }
 
@@ -3150,6 +3323,15 @@ export function WorkspaceCanvasViewport({
               : undefined,
             disabledFlags: object.placeableProperties.disabledFlags
               ? { ...object.placeableProperties.disabledFlags }
+              : undefined,
+            lockSettings: object.placeableProperties.lockSettings
+              ? { ...object.placeableProperties.lockSettings }
+              : undefined,
+            trapSettings: object.placeableProperties.trapSettings
+              ? { ...object.placeableProperties.trapSettings }
+              : undefined,
+            advancedSettings: object.placeableProperties.advancedSettings
+              ? { ...object.placeableProperties.advancedSettings }
               : undefined
           }
         : undefined,
@@ -3250,6 +3432,15 @@ export function WorkspaceCanvasViewport({
                 : undefined,
               disabledFlags: sourceSnapshot.placeableProperties.disabledFlags
                 ? { ...sourceSnapshot.placeableProperties.disabledFlags }
+                : undefined,
+              lockSettings: sourceSnapshot.placeableProperties.lockSettings
+                ? { ...sourceSnapshot.placeableProperties.lockSettings }
+                : undefined,
+              trapSettings: sourceSnapshot.placeableProperties.trapSettings
+                ? { ...sourceSnapshot.placeableProperties.trapSettings }
+                : undefined,
+              advancedSettings: sourceSnapshot.placeableProperties.advancedSettings
+                ? { ...sourceSnapshot.placeableProperties.advancedSettings }
                 : undefined
             }
           : undefined;
@@ -5605,8 +5796,15 @@ export function WorkspaceCanvasViewport({
         | "useable"
         | "hasInventory"
         | "scriptSlotsEnabled"
-        | "disabledFlagsEnabled",
-      value: string | boolean
+        | "disabledFlagsEnabled"
+        | "hardness"
+        | "hitPoints"
+        | "fortitudeSave"
+        | "reflexSave"
+        | "willSave"
+        | "description"
+        | "comments",
+      value: string | boolean | number
     ) => {
       setPlaceablePropertiesDialog((current) => {
         if (!current) {
@@ -5641,6 +5839,7 @@ export function WorkspaceCanvasViewport({
           ...current,
           draft: {
             ...current.draft,
+            scriptSlotsEnabled: true,
             scriptSlots: {
               ...current.draft.scriptSlots,
               [field]: value
@@ -5667,6 +5866,78 @@ export function WorkspaceCanvasViewport({
             ...current.draft,
             disabledFlags: {
               ...current.draft.disabledFlags,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updatePlaceableLockDraftField = useCallback(
+    (
+      field: keyof PlaceablePropertiesDraft["lockSettings"],
+      value: string | boolean | number
+    ) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current || current.draft.lockSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            lockSettings: {
+              ...current.draft.lockSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updatePlaceableTrapDraftField = useCallback(
+    (
+      field: keyof PlaceablePropertiesDraft["trapSettings"],
+      value: string | boolean | number
+    ) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current || current.draft.trapSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            trapSettings: {
+              ...current.draft.trapSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updatePlaceableAdvancedDraftField = useCallback(
+    (
+      field: keyof PlaceablePropertiesDraft["advancedSettings"],
+      value: string | boolean
+    ) => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current || current.draft.advancedSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            advancedSettings: {
+              ...current.draft.advancedSettings,
               [field]: value
             }
           }
@@ -5706,7 +5977,12 @@ export function WorkspaceCanvasViewport({
         const nextPlaceableProperties: NonNullable<SceneObject["placeableProperties"]> = {
           plot: draft.plot,
           useable: draft.useable,
-          hasInventory: draft.hasInventory
+          hasInventory: draft.hasInventory,
+          lockSettings: { ...draft.lockSettings },
+          trapSettings: { ...draft.trapSettings },
+          advancedSettings: { ...draft.advancedSettings },
+          description: draft.description,
+          comments: draft.comments
         };
         if (draft.scriptSlotsEnabled) {
           nextPlaceableProperties.scriptSlots = { ...draft.scriptSlots };
@@ -5725,6 +6001,62 @@ export function WorkspaceCanvasViewport({
             sourcePlaceableProperties.disabledFlags.useable === draft.disabledFlags.useable &&
             sourcePlaceableProperties.disabledFlags.hasInventory === draft.disabledFlags.hasInventory
           : sourcePlaceableProperties?.disabledFlags === undefined;
+        const isLockSettingsUnchanged = arePlaceableLockSettingsEqual(
+          {
+            locked: sourcePlaceableProperties?.lockSettings?.locked ?? false,
+            canRelock: sourcePlaceableProperties?.lockSettings?.canRelock ?? false,
+            autoRemoveKeyAfterUse:
+              sourcePlaceableProperties?.lockSettings?.autoRemoveKeyAfterUse ?? false,
+            keyRequiredToUnlockOrLock:
+              sourcePlaceableProperties?.lockSettings?.keyRequiredToUnlockOrLock ?? false,
+            openLockDc: sourcePlaceableProperties?.lockSettings?.openLockDc ?? 18,
+            closeLockDc: sourcePlaceableProperties?.lockSettings?.closeLockDc ?? 0,
+            keyTag: sourcePlaceableProperties?.lockSettings?.keyTag ?? ""
+          },
+          draft.lockSettings
+        );
+        const isTrapSettingsUnchanged = arePlaceableTrapSettingsEqual(
+          {
+            isTrapped: sourcePlaceableProperties?.trapSettings?.isTrapped ?? false,
+            trapType: sourcePlaceableProperties?.trapSettings?.trapType ?? PLACEABLE_TRAP_TYPE_OPTIONS[0]!,
+            detectionDc: sourcePlaceableProperties?.trapSettings?.detectionDc ?? 0,
+            disarmDc: sourcePlaceableProperties?.trapSettings?.disarmDc ?? 15,
+            oneShot: sourcePlaceableProperties?.trapSettings?.oneShot ?? true,
+            detectable: sourcePlaceableProperties?.trapSettings?.detectable ?? true,
+            disarmable: sourcePlaceableProperties?.trapSettings?.disarmable ?? true,
+            onDisarmScript: sourcePlaceableProperties?.trapSettings?.onDisarmScript ?? "",
+            onTrapTriggeredScript:
+              sourcePlaceableProperties?.trapSettings?.onTrapTriggeredScript ?? "",
+            setDc: sourcePlaceableProperties?.trapSettings?.setDc ?? 5,
+            detectDcModWhenSetByRogue:
+              sourcePlaceableProperties?.trapSettings?.detectDcModWhenSetByRogue ?? 10,
+            disarmDcModWhenSetByRogue:
+              sourcePlaceableProperties?.trapSettings?.disarmDcModWhenSetByRogue ?? 22
+          },
+          draft.trapSettings
+        );
+        const isAdvancedSettingsUnchanged = arePlaceableAdvancedSettingsEqual(
+          {
+            blueprintResRef:
+              sourcePlaceableProperties?.advancedSettings?.blueprintResRef ?? sourceObject.resRef,
+            belongsToFaction:
+              sourcePlaceableProperties?.advancedSettings?.belongsToFaction ??
+              PLACEABLE_FACTION_OPTIONS[0]!,
+            conversation: sourcePlaceableProperties?.advancedSettings?.conversation ?? "",
+            noInterrupt: sourcePlaceableProperties?.advancedSettings?.noInterrupt ?? false,
+            portraitResRef: sourcePlaceableProperties?.advancedSettings?.portraitResRef ?? "",
+            initialState:
+              sourcePlaceableProperties?.advancedSettings?.initialState ??
+              PLACEABLE_INITIAL_STATE_OPTIONS[0]!,
+            treasureModel:
+              sourcePlaceableProperties?.advancedSettings?.treasureModel ??
+              PLACEABLE_TREASURE_MODEL_OPTIONS[0]!
+          },
+          draft.advancedSettings
+        );
+        const isDescriptionUnchanged =
+          (sourcePlaceableProperties?.description ?? "") === draft.description;
+        const isCommentsUnchanged = (sourcePlaceableProperties?.comments ?? "") === draft.comments;
         const sourceName = sourceObject.name ?? sourceObject.tag;
         const sourceIsStatic = sourceObject.isStatic ?? true;
         if (
@@ -5736,7 +6068,12 @@ export function WorkspaceCanvasViewport({
           sourcePlaceableProperties?.useable === draft.useable &&
           sourcePlaceableProperties?.hasInventory === draft.hasInventory &&
           isScriptSlotsUnchanged &&
-          isDisabledFlagsUnchanged
+          isDisabledFlagsUnchanged &&
+          isLockSettingsUnchanged &&
+          isTrapSettingsUnchanged &&
+          isAdvancedSettingsUnchanged &&
+          isDescriptionUnchanged &&
+          isCommentsUnchanged
         ) {
           return current;
         }
@@ -5781,34 +6118,9 @@ export function WorkspaceCanvasViewport({
         if (!sourceObject || sourceObject.kind !== "placeables") {
           return current;
         }
-        const snapshotPlaceable = snapshot.placeableProperties;
-        const sourcePlaceable = sourceObject.placeableProperties;
-        const isSourceScriptSlotsEqual = (() => {
-          if (!sourcePlaceable?.scriptSlots && !snapshotPlaceable?.scriptSlots) {
-            return true;
-          }
-          if (!sourcePlaceable?.scriptSlots || !snapshotPlaceable?.scriptSlots) {
-            return false;
-          }
-          return arePlaceableScriptSlotsEqual(
-            sourcePlaceable.scriptSlots,
-            snapshotPlaceable.scriptSlots
-          );
-        })();
-        if (
-          sourceObject.name === snapshot.name &&
-          sourceObject.tag === snapshot.tag &&
-          sourceObject.resRef === snapshot.resRef &&
-          (sourceObject.isStatic ?? true) === (snapshot.isStatic ?? true) &&
-          sourcePlaceable?.plot === snapshotPlaceable?.plot &&
-          sourcePlaceable?.useable === snapshotPlaceable?.useable &&
-          sourcePlaceable?.hasInventory === snapshotPlaceable?.hasInventory &&
-          sourcePlaceable?.disabledFlags?.plot === snapshotPlaceable?.disabledFlags?.plot &&
-          sourcePlaceable?.disabledFlags?.useable === snapshotPlaceable?.disabledFlags?.useable &&
-          sourcePlaceable?.disabledFlags?.hasInventory ===
-            snapshotPlaceable?.disabledFlags?.hasInventory &&
-          isSourceScriptSlotsEqual
-        ) {
+        const sourceDraft = buildPlaceablePropertiesDraft(sourceObject);
+        const snapshotDraft = buildPlaceablePropertiesDraft(snapshot);
+        if (arePlaceablePropertiesDraftsEqual(sourceDraft, snapshotDraft)) {
           return current;
         }
         const nextObjects = current.present.objects.map((object) =>
@@ -5845,7 +6157,7 @@ export function WorkspaceCanvasViewport({
         return;
       }
       const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button")) {
+      if (targetElement?.closest("button, input, select, textarea")) {
         return;
       }
       const hostRect = hostRef.current?.getBoundingClientRect();
@@ -8346,6 +8658,15 @@ export function WorkspaceCanvasViewport({
                 : undefined,
               disabledFlags: sourceTemplate.placeableProperties.disabledFlags
                 ? { ...sourceTemplate.placeableProperties.disabledFlags }
+                : undefined,
+              lockSettings: sourceTemplate.placeableProperties.lockSettings
+                ? { ...sourceTemplate.placeableProperties.lockSettings }
+                : undefined,
+              trapSettings: sourceTemplate.placeableProperties.trapSettings
+                ? { ...sourceTemplate.placeableProperties.trapSettings }
+                : undefined,
+              advancedSettings: sourceTemplate.placeableProperties.advancedSettings
+                ? { ...sourceTemplate.placeableProperties.advancedSettings }
                 : undefined
             }
           : undefined;
@@ -8809,236 +9130,790 @@ export function WorkspaceCanvasViewport({
           {!placeablePropertiesDialog.collapsed ? (
             <>
               <nav className="canvas-placeable-properties-tabs" aria-label="placeable properties tabs">
-                {(["basic", "scripts", "advanced", "description", "comments"] as PlaceablePropertiesTab[]).map(
-                  (tab) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      className={
-                        placeablePropertiesDialog.activeTab === tab ? "is-active" : undefined
-                      }
-                      onClick={() => setPlaceablePropertiesActiveTab(tab)}
-                    >
-                      {tab === "basic"
-                        ? "Basic"
-                        : tab === "scripts"
-                          ? "Scripts"
-                          : tab === "advanced"
-                            ? "Advanced"
-                            : tab === "description"
-                              ? "Description"
-                              : "Comments"}
-                    </button>
-                  )
-                )}
+                {(
+                  [
+                    "basic",
+                    "lock",
+                    "trap",
+                    "scripts",
+                    "advanced",
+                    "description",
+                    "comments"
+                  ] as PlaceablePropertiesTab[]
+                ).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={placeablePropertiesDialog.activeTab === tab ? "is-active" : undefined}
+                    onClick={() => setPlaceablePropertiesActiveTab(tab)}
+                  >
+                    {tab === "basic"
+                      ? "Basic"
+                      : tab === "lock"
+                        ? "Lock"
+                        : tab === "trap"
+                          ? "Trap"
+                          : tab === "scripts"
+                            ? "Scripts"
+                            : tab === "advanced"
+                              ? "Advanced"
+                              : tab === "description"
+                                ? "Description"
+                                : "Comments"}
+                  </button>
+                ))}
               </nav>
 
-              {placeablePropertiesDialog.activeTab === "basic" ? (
-                <section className="canvas-placeable-properties-shell">
-                  <aside className="canvas-placeable-properties-preview" aria-hidden="true">
-                    <span>Preview</span>
-                  </aside>
-                  <div className="canvas-placeable-properties-basic">
-                    <fieldset className="canvas-placeable-properties-group">
-                      <legend>Identity</legend>
-                      <label>
-                        Name
-                        <input
-                          type="text"
-                          value={placeablePropertiesDialog.draft.name}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("name", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        Tag
-                        <input
-                          type="text"
-                          value={placeablePropertiesDialog.draft.tag}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("tag", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        Appearance Type
-                        <input
-                          type="text"
-                          value={placeablePropertiesDialog.draft.resRef}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("resRef", event.target.value)
-                          }
-                        />
-                      </label>
-                    </fieldset>
-
-                    <fieldset className="canvas-placeable-properties-group">
-                      <legend>Basic Flags</legend>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.plot}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("plot", event.target.checked)
-                          }
-                        />
-                        Plot
-                        <span>ACTIVE_NOW</span>
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.useable}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("useable", event.target.checked)
-                          }
-                        />
-                        Useable
-                        <span>ACTIVE_NOW</span>
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.hasInventory}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("hasInventory", event.target.checked)
-                          }
-                        />
-                        Has Inventory
-                        <span>ACTIVE_NOW</span>
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.isStatic}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("isStatic", event.target.checked)
-                          }
-                        />
-                        Static
-                        <span>ACTIVE_NOW</span>
-                      </label>
-                    </fieldset>
-
-                    <fieldset className="canvas-placeable-properties-group">
-                      <legend>Phase-1 Scope</legend>
-                      <p className="canvas-placeable-properties-note">
-                        Placeable identity and Aurora contract flags are writable in this phase.
-                      </p>
-                    </fieldset>
+              <section className="canvas-placeable-properties-shell">
+                <aside className="canvas-placeable-properties-preview-pane" aria-hidden="true">
+                  <div className="canvas-placeable-properties-preview">
+                    <span>{placeablePropertiesDialog.draft.resRef || "Preview"}</span>
                   </div>
-                </section>
-              ) : null}
+                  <button type="button" disabled className="canvas-placeable-properties-preview-action">
+                    Inventory ...
+                  </button>
+                </aside>
 
-              {placeablePropertiesDialog.activeTab === "scripts" ? (
-                <section className="canvas-placeable-properties-basic">
-                  <fieldset className="canvas-placeable-properties-group">
-                    <legend>Script Slots</legend>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={placeablePropertiesDialog.draft.scriptSlotsEnabled}
-                        onChange={(event) =>
-                          updatePlaceablePropertiesDraftField(
-                            "scriptSlotsEnabled",
-                            event.target.checked
-                          )
-                        }
-                      />
-                      Enable Script Slots Payload
-                      <span>PRESERVE_FIRST</span>
-                    </label>
-                    {PLACEABLE_SCRIPT_SLOT_KEYS.map((slotKey) => (
-                      <label key={slotKey}>
-                        {`${slotKey} Script`}
+                <div className="canvas-placeable-properties-pane">
+                  {placeablePropertiesDialog.activeTab === "basic" ? (
+                    <div className="canvas-placeable-properties-basic">
+                      <div className="canvas-placeable-properties-basic-identity">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Name</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={placeablePropertiesDialog.draft.name}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("name", event.target.value)
+                              }
+                            />
+                            <button type="button" disabled aria-label="Browse name">
+                              ...
+                            </button>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Tag</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={placeablePropertiesDialog.draft.tag}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("tag", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Appearance Type</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={placeablePropertiesDialog.draft.resRef}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("resRef", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="canvas-placeable-properties-basic-details">
+                        <div className="canvas-placeable-properties-basic-stats">
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Hardness</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.hardness}
+                                onChange={(event) =>
+                                  updatePlaceablePropertiesDraftField(
+                                    "hardness",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Hit Points</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.hitPoints}
+                                onChange={(event) =>
+                                  updatePlaceablePropertiesDraftField(
+                                    "hitPoints",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Fortitude Save</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.fortitudeSave}
+                                onChange={(event) =>
+                                  updatePlaceablePropertiesDraftField(
+                                    "fortitudeSave",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Reflex Save</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.reflexSave}
+                                onChange={(event) =>
+                                  updatePlaceablePropertiesDraftField(
+                                    "reflexSave",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Will Save</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.willSave}
+                                onChange={(event) =>
+                                  updatePlaceablePropertiesDraftField(
+                                    "willSave",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                        </div>
+                        <div className="canvas-placeable-properties-basic-flags">
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.plot}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("plot", event.target.checked)
+                              }
+                            />
+                            Plot
+                            <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.useable}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("useable", event.target.checked)
+                              }
+                            />
+                            Useable
+                            <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.hasInventory}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField(
+                                  "hasInventory",
+                                  event.target.checked
+                                )
+                              }
+                            />
+                            Has Inventory
+                            <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.isStatic}
+                              onChange={(event) =>
+                                updatePlaceablePropertiesDraftField("isStatic", event.target.checked)
+                              }
+                            />
+                            Static
+                            <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {placeablePropertiesDialog.activeTab === "lock" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-toggle">
                         <input
-                          type="text"
-                          value={placeablePropertiesDialog.draft.scriptSlots[slotKey]}
-                          disabled={!placeablePropertiesDialog.draft.scriptSlotsEnabled}
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.lockSettings.locked}
                           onChange={(event) =>
-                            updatePlaceableScriptSlotDraftField(slotKey, event.target.value)
+                            updatePlaceableLockDraftField("locked", event.target.checked)
+                          }
+                        />
+                        Locked
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.lockSettings.canRelock}
+                          onChange={(event) =>
+                            updatePlaceableLockDraftField("canRelock", event.target.checked)
+                          }
+                        />
+                        Can be relocked
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.lockSettings.autoRemoveKeyAfterUse}
+                          disabled={
+                            !placeablePropertiesDialog.draft.lockSettings.locked ||
+                            !placeablePropertiesDialog.draft.lockSettings.canRelock
+                          }
+                          onChange={(event) =>
+                            updatePlaceableLockDraftField(
+                              "autoRemoveKeyAfterUse",
+                              event.target.checked
+                            )
+                          }
+                        />
+                        Automatically remove key after use
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={
+                            placeablePropertiesDialog.draft.lockSettings.keyRequiredToUnlockOrLock
+                          }
+                          disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
+                          onChange={(event) =>
+                            updatePlaceableLockDraftField(
+                              "keyRequiredToUnlockOrLock",
+                              event.target.checked
+                            )
+                          }
+                        />
+                        Key required to unlock or lock
+                      </label>
+                      <div className="canvas-placeable-properties-dual-fields">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Open Lock DC</span>
+                          <div className="canvas-placeable-properties-field-control is-narrow">
+                            <input
+                              type="number"
+                              step="1"
+                              disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
+                              value={placeablePropertiesDialog.draft.lockSettings.openLockDc}
+                              onChange={(event) =>
+                                updatePlaceableLockDraftField(
+                                  "openLockDc",
+                                  Number.parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Close Lock DC</span>
+                          <div className="canvas-placeable-properties-field-control is-narrow">
+                            <input
+                              type="number"
+                              step="1"
+                              disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
+                              value={placeablePropertiesDialog.draft.lockSettings.closeLockDc}
+                              onChange={(event) =>
+                                updatePlaceableLockDraftField(
+                                  "closeLockDc",
+                                  Number.parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+                        </label>
+                      </div>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Key Tag</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
+                            value={placeablePropertiesDialog.draft.lockSettings.keyTag}
+                            onChange={(event) =>
+                              updatePlaceableLockDraftField("keyTag", event.target.value)
+                            }
+                          />
+                        </div>
+                      </label>
+                    </fieldset>
+                  ) : null}
+
+                  {placeablePropertiesDialog.activeTab === "trap" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.trapSettings.isTrapped}
+                          onChange={(event) =>
+                            updatePlaceableTrapDraftField("isTrapped", event.target.checked)
+                          }
+                        />
+                        Is Trapped
+                      </label>
+                      <fieldset
+                        className="canvas-placeable-properties-group canvas-placeable-properties-nested"
+                        disabled={!placeablePropertiesDialog.draft.trapSettings.isTrapped}
+                      >
+                        <legend>Trap Settings</legend>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Trap Type</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={placeablePropertiesDialog.draft.trapSettings.trapType}
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField("trapType", event.target.value)
+                              }
+                            >
+                              {PLACEABLE_TRAP_TYPE_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <div className="canvas-placeable-properties-dual-fields">
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Detection DC</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.trapSettings.detectionDc}
+                                onChange={(event) =>
+                                  updatePlaceableTrapDraftField(
+                                    "detectionDc",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Disarm DC</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.trapSettings.disarmDc}
+                                onChange={(event) =>
+                                  updatePlaceableTrapDraftField(
+                                    "disarmDc",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                        </div>
+                        <div className="canvas-placeable-properties-toggle-grid">
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.trapSettings.oneShot}
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField("oneShot", event.target.checked)
+                              }
+                            />
+                            One Shot
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.trapSettings.detectable}
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField("detectable", event.target.checked)
+                              }
+                            />
+                            Detectable
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.trapSettings.disarmable}
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField("disarmable", event.target.checked)
+                              }
+                            />
+                            Disarmable
+                          </label>
+                        </div>
+                        <div className="canvas-placeable-properties-script-row">
+                          <label htmlFor="placeable-trap-ondisarm">OnDisarm</label>
+                          <input
+                            id="placeable-trap-ondisarm"
+                            type="text"
+                            value={placeablePropertiesDialog.draft.trapSettings.onDisarmScript}
+                            onChange={(event) =>
+                              updatePlaceableTrapDraftField("onDisarmScript", event.target.value)
+                            }
+                          />
+                          <button type="button" disabled>
+                            ...
+                          </button>
+                          <button type="button" disabled>
+                            Edit
+                          </button>
+                        </div>
+                        <div className="canvas-placeable-properties-script-row">
+                          <label htmlFor="placeable-trap-ontriggered">OnTrapTriggered</label>
+                          <input
+                            id="placeable-trap-ontriggered"
+                            type="text"
+                            value={placeablePropertiesDialog.draft.trapSettings.onTrapTriggeredScript}
+                            onChange={(event) =>
+                              updatePlaceableTrapDraftField(
+                                "onTrapTriggeredScript",
+                                event.target.value
+                              )
+                            }
+                          />
+                          <button type="button" disabled>
+                            ...
+                          </button>
+                          <button type="button" disabled>
+                            Edit
+                          </button>
+                        </div>
+                        <div className="canvas-placeable-properties-dual-fields">
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Set DC</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={placeablePropertiesDialog.draft.trapSettings.setDc}
+                                onChange={(event) =>
+                                  updatePlaceableTrapDraftField(
+                                    "setDc",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                        </div>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Detect DC Mod. when set by Rogue</span>
+                          <div className="canvas-placeable-properties-field-control is-narrow">
+                            <input
+                              type="number"
+                              step="1"
+                              value={
+                                placeablePropertiesDialog.draft.trapSettings.detectDcModWhenSetByRogue
+                              }
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField(
+                                  "detectDcModWhenSetByRogue",
+                                  Number.parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Disarm DC Mod. when set by Rogue</span>
+                          <div className="canvas-placeable-properties-field-control is-narrow">
+                            <input
+                              type="number"
+                              step="1"
+                              value={
+                                placeablePropertiesDialog.draft.trapSettings.disarmDcModWhenSetByRogue
+                              }
+                              onChange={(event) =>
+                                updatePlaceableTrapDraftField(
+                                  "disarmDcModWhenSetByRogue",
+                                  Number.parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+                        </label>
+                      </fieldset>
+                    </fieldset>
+                  ) : null}
+
+                  {placeablePropertiesDialog.activeTab === "scripts" ? (
+                    <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-scripts">
+                      <label className="canvas-accessibility-hidden">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.scriptSlotsEnabled}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField(
+                              "scriptSlotsEnabled",
+                              event.target.checked
+                            )
+                          }
+                        />
+                        Enable script slots payload
+                      </label>
+                      {PLACEABLE_SCRIPT_SLOT_KEYS.map((slotKey) => (
+                        <div key={slotKey} className="canvas-placeable-properties-script-row">
+                          <label
+                            htmlFor={`placeable-script-${slotKey}`}
+                            className="canvas-placeable-properties-script-input-label"
+                          >
+                            {PLACEABLE_SCRIPT_SLOT_LABELS[slotKey]}
+                            <span className="canvas-accessibility-hidden"> Script</span>
+                          </label>
+                          <input
+                            id={`placeable-script-${slotKey}`}
+                            type="text"
+                            value={placeablePropertiesDialog.draft.scriptSlots[slotKey]}
+                            onChange={(event) =>
+                              updatePlaceableScriptSlotDraftField(slotKey, event.target.value)
+                            }
+                          />
+                          <button type="button" disabled>
+                            ...
+                          </button>
+                          <button type="button" disabled>
+                            Edit
+                          </button>
+                        </div>
+                      ))}
+                      <div className="canvas-placeable-properties-script-actions">
+                        <button type="button" disabled>
+                          Save Script Set
+                        </button>
+                        <button type="button" disabled>
+                          Load Script Set
+                        </button>
+                      </div>
+                    </fieldset>
+                  ) : null}
+
+                  {placeablePropertiesDialog.activeTab === "advanced" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Blueprint ResRef</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={placeablePropertiesDialog.draft.advancedSettings.blueprintResRef}
+                            onChange={(event) =>
+                              updatePlaceableAdvancedDraftField("blueprintResRef", event.target.value)
+                            }
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Belongs To Faction</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <select
+                            value={placeablePropertiesDialog.draft.advancedSettings.belongsToFaction}
+                            onChange={(event) =>
+                              updatePlaceableAdvancedDraftField("belongsToFaction", event.target.value)
+                            }
+                          >
+                            {PLACEABLE_FACTION_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Conversation</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={placeablePropertiesDialog.draft.advancedSettings.conversation}
+                            onChange={(event) =>
+                              updatePlaceableAdvancedDraftField("conversation", event.target.value)
+                            }
+                          />
+                          <button type="button" disabled aria-label="Browse conversation">
+                            ...
+                          </button>
+                          <button type="button" disabled aria-label="Edit conversation">
+                            Edit
+                          </button>
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={placeablePropertiesDialog.draft.advancedSettings.noInterrupt}
+                          onChange={(event) =>
+                            updatePlaceableAdvancedDraftField("noInterrupt", event.target.checked)
+                          }
+                        />
+                        No Interrupt
+                      </label>
+                      <div className="canvas-placeable-properties-portrait-row">
+                        <div className="canvas-placeable-properties-portrait-preview" aria-hidden="true">
+                          <span>
+                            {placeablePropertiesDialog.draft.advancedSettings.portraitResRef || "Portrait"}
+                          </span>
+                        </div>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Portrait</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={placeablePropertiesDialog.draft.advancedSettings.portraitResRef}
+                              onChange={(event) =>
+                                updatePlaceableAdvancedDraftField("portraitResRef", event.target.value)
+                              }
+                            />
+                            <button type="button" disabled aria-label="Browse portrait">
+                              ...
+                            </button>
+                          </div>
+                        </label>
+                      </div>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Initial State</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <select
+                            value={placeablePropertiesDialog.draft.advancedSettings.initialState}
+                            onChange={(event) =>
+                              updatePlaceableAdvancedDraftField("initialState", event.target.value)
+                            }
+                          >
+                            {PLACEABLE_INITIAL_STATE_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Treasure Model</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <select
+                            value={placeablePropertiesDialog.draft.advancedSettings.treasureModel}
+                            onChange={(event) =>
+                              updatePlaceableAdvancedDraftField("treasureModel", event.target.value)
+                            }
+                          >
+                            {PLACEABLE_TREASURE_MODEL_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </label>
+                      <div className="canvas-placeable-properties-variables-row">
+                        <button type="button" disabled>
+                          Variables
+                        </button>
+                      </div>
+                      <details className="canvas-placeable-properties-preserve-note">
+                        <summary>Preserve-only payload flags</summary>
+                        <label className="canvas-placeable-properties-toggle">
+                          <input
+                            type="checkbox"
+                            checked={placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                            onChange={(event) =>
+                              updatePlaceablePropertiesDraftField(
+                                "disabledFlagsEnabled",
+                                event.target.checked
+                              )
+                            }
+                          />
+                          Enable disabled flags payload
+                        </label>
+                        <div className="canvas-placeable-properties-toggle-grid">
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.disabledFlags.plot}
+                              disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                              onChange={(event) =>
+                                updatePlaceableDisabledFlagDraftField("plot", event.target.checked)
+                              }
+                            />
+                            Plot Disabled
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.disabledFlags.useable}
+                              disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                              onChange={(event) =>
+                                updatePlaceableDisabledFlagDraftField("useable", event.target.checked)
+                              }
+                            />
+                            Useable Disabled
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={placeablePropertiesDialog.draft.disabledFlags.hasInventory}
+                              disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
+                              onChange={(event) =>
+                                updatePlaceableDisabledFlagDraftField(
+                                  "hasInventory",
+                                  event.target.checked
+                                )
+                              }
+                            />
+                            Inventory Disabled
+                          </label>
+                        </div>
+                      </details>
+                    </fieldset>
+                  ) : null}
+
+                  {placeablePropertiesDialog.activeTab === "description" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-fulltext">
+                        <span>Description</span>
+                        <textarea
+                          value={placeablePropertiesDialog.draft.description}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("description", event.target.value)
                           }
                         />
                       </label>
-                    ))}
-                    <p className="canvas-placeable-properties-note">
-                      Script slot values are stored in existing Aurora payload fields only.
-                    </p>
-                  </fieldset>
-                </section>
-              ) : null}
+                    </fieldset>
+                  ) : null}
 
-              {placeablePropertiesDialog.activeTab === "advanced" ? (
-                <section className="canvas-placeable-properties-basic">
-                  <fieldset className="canvas-placeable-properties-group">
-                    <legend>Disabled Flags</legend>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={placeablePropertiesDialog.draft.disabledFlagsEnabled}
-                        onChange={(event) =>
-                          updatePlaceablePropertiesDraftField(
-                            "disabledFlagsEnabled",
-                            event.target.checked
-                          )
-                        }
-                      />
-                      Enable Disabled Flags Payload
-                      <span>PRESERVE_FIRST</span>
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={placeablePropertiesDialog.draft.disabledFlags.plot}
-                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
-                        onChange={(event) =>
-                          updatePlaceableDisabledFlagDraftField("plot", event.target.checked)
-                        }
-                      />
-                      Plot Disabled
-                      <span>CONTRACT</span>
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={placeablePropertiesDialog.draft.disabledFlags.useable}
-                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
-                        onChange={(event) =>
-                          updatePlaceableDisabledFlagDraftField("useable", event.target.checked)
-                        }
-                      />
-                      Useable Disabled
-                      <span>CONTRACT</span>
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={placeablePropertiesDialog.draft.disabledFlags.hasInventory}
-                        disabled={!placeablePropertiesDialog.draft.disabledFlagsEnabled}
-                        onChange={(event) =>
-                          updatePlaceableDisabledFlagDraftField("hasInventory", event.target.checked)
-                        }
-                      />
-                      Inventory Disabled
-                      <span>CONTRACT</span>
-                    </label>
-                    <p className="canvas-placeable-properties-note">
-                      Advanced flags remain payload-only and do not introduce new runtime behavior.
-                    </p>
-                  </fieldset>
-                </section>
-              ) : null}
-
-              {placeablePropertiesDialog.activeTab === "description" ||
-              placeablePropertiesDialog.activeTab === "comments" ? (
-                <section className="canvas-placeable-properties-tab-placeholder">
-                  <p>
-                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
-                    <strong> Preserve-only</strong>.
-                  </p>
-                </section>
-              ) : null}
+                  {placeablePropertiesDialog.activeTab === "comments" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-fulltext">
+                        <span>Comments</span>
+                        <textarea
+                          value={placeablePropertiesDialog.draft.comments}
+                          onChange={(event) =>
+                            updatePlaceablePropertiesDraftField("comments", event.target.value)
+                          }
+                        />
+                      </label>
+                    </fieldset>
+                  ) : null}
+                </div>
+              </section>
 
               <footer className="canvas-placeable-properties-actions">
                 <button type="button" onClick={() => applyPlaceablePropertiesDraft(false)}>

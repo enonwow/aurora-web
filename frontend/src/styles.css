@@ -1511,7 +1511,7 @@ input {
 .canvas-placeable-properties-dialog {
   position: absolute;
   z-index: 9;
-  width: min(860px, calc(100% - 1.5rem));
+  width: min(880px, calc(100% - 1.5rem));
   max-height: calc(100% - 1.5rem);
   overflow: auto;
   border: 1px solid #355170;
@@ -1524,7 +1524,7 @@ input {
 }
 
 .canvas-placeable-properties-dialog.is-collapsed {
-  width: min(460px, calc(100% - 1.5rem));
+  width: min(420px, calc(100% - 1.5rem));
 }
 
 .canvas-placeable-properties-header {
@@ -1581,17 +1581,20 @@ input {
 .canvas-placeable-properties-tabs {
   display: flex;
   align-items: center;
-  gap: 0.28rem;
-  flex-wrap: wrap;
+  gap: 0.22rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
 }
 
 .canvas-placeable-properties-tabs button {
-  border: 1px solid #355170;
-  border-radius: 7px;
-  background: #0e2540;
-  color: #d7e7ff;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.76rem;
+  border: 1px solid #3f5f84;
+  border-radius: 3px;
+  background: #10243c;
+  color: #dceafc;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.74rem;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1600,32 +1603,70 @@ input {
 }
 
 .canvas-placeable-properties-tabs button.is-active {
-  border-color: #6f93bf;
-  background: #1b3a61;
-  color: #f1f7ff;
+  border-color: #9cb8d6;
+  background: #e6eef9;
+  color: #0f2742;
+}
+
+.canvas-accessibility-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .canvas-placeable-properties-shell {
   display: grid;
-  grid-template-columns: minmax(140px, 0.34fr) minmax(0, 1fr);
-  gap: 0.7rem;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.canvas-placeable-properties-preview-pane {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 0.55rem;
 }
 
 .canvas-placeable-properties-preview {
-  border: 1px solid #355170;
-  border-radius: 9px;
-  min-height: 280px;
-  background: linear-gradient(180deg, #7d838d 0%, #6a7481 100%);
+  border: 1px solid #5e738f;
+  border-radius: 2px;
+  min-height: 320px;
+  background: #737b85;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .canvas-placeable-properties-preview span {
-  font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.8);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.04em;
+}
+
+.canvas-placeable-properties-preview-action {
+  border: 1px solid #5a6f8b;
+  border-radius: 4px;
+  background: #173252;
+  color: #d9e8f8;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.canvas-placeable-properties-preview-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.canvas-placeable-properties-pane {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
 }
 
 .canvas-placeable-properties-basic {
@@ -1633,9 +1674,29 @@ input {
   gap: 0.6rem;
 }
 
+.canvas-placeable-properties-basic-identity,
+.canvas-placeable-properties-basic-details,
+.canvas-placeable-properties-basic-stats,
+.canvas-placeable-properties-basic-flags {
+  border: 1px solid #355170;
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.canvas-placeable-properties-basic-details {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.85fr);
+  gap: 0.55rem;
+}
+
+.canvas-placeable-properties-basic-flags {
+  align-content: start;
+}
+
 .canvas-placeable-properties-group {
   border: 1px solid #355170;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0.5rem;
   margin: 0;
   display: grid;
@@ -1655,25 +1716,71 @@ input {
   font-size: 0.75rem;
 }
 
+.canvas-placeable-properties-field-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 145px) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.canvas-placeable-properties-field-control {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.canvas-placeable-properties-field-control.is-narrow {
+  max-width: 120px;
+}
+
 .canvas-placeable-properties-group input[type="text"],
-.canvas-placeable-properties-group input[type="number"] {
+.canvas-placeable-properties-group input[type="number"],
+.canvas-placeable-properties-group select,
+.canvas-placeable-properties-group textarea,
+.canvas-placeable-properties-basic-identity input[type="text"],
+.canvas-placeable-properties-basic-stats input[type="number"] {
   width: 100%;
   border: 1px solid #39597d;
-  border-radius: 6px;
+  border-radius: 4px;
   background: #081a2d;
   color: #e0ecfa;
-  padding: 0.28rem 0.38rem;
+  padding: 0.24rem 0.34rem;
   font-size: 0.78rem;
+}
+
+.canvas-placeable-properties-group textarea {
+  min-height: 240px;
+  resize: vertical;
 }
 
 .canvas-placeable-properties-group input[disabled] {
   opacity: 0.58;
 }
 
+.canvas-placeable-properties-field-control button,
+.canvas-placeable-properties-script-row button,
+.canvas-placeable-properties-script-actions button,
+.canvas-placeable-properties-variables-row button {
+  border: 1px solid #355170;
+  border-radius: 4px;
+  background: #122a45;
+  color: #dbe9fb;
+  padding: 0.2rem 0.42rem;
+  font-size: 0.72rem;
+}
+
+.canvas-placeable-properties-field-control button:disabled,
+.canvas-placeable-properties-script-row button:disabled,
+.canvas-placeable-properties-script-actions button:disabled,
+.canvas-placeable-properties-variables-row button:disabled {
+  opacity: 0.58;
+}
+
 .canvas-placeable-properties-toggle {
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.42rem;
 }
 
 .canvas-placeable-properties-toggle input[type="checkbox"] {
@@ -1681,11 +1788,76 @@ input {
   height: 0.95rem;
 }
 
-.canvas-placeable-properties-toggle span {
-  color: #8ea9ca;
-  font-size: 0.67rem;
+.canvas-placeable-properties-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.34rem;
+}
+
+.canvas-placeable-properties-dual-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.canvas-placeable-properties-nested {
+  border-color: #446183;
+  padding: 0.44rem;
+}
+
+.canvas-placeable-properties-nested[disabled] {
+  opacity: 0.56;
+}
+
+.canvas-placeable-properties-toggle-state {
+  justify-self: end;
+  color: #88a7cc;
+  font-size: 0.64rem;
   letter-spacing: 0.02em;
-  text-transform: uppercase;
+}
+
+.canvas-placeable-properties-portrait-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.canvas-placeable-properties-portrait-preview {
+  border: 1px solid #5e738f;
+  border-radius: 2px;
+  height: 92px;
+  background: #0f1622;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-placeable-properties-portrait-preview span {
+  color: #94b0d2;
+  font-size: 0.68rem;
+  text-align: center;
+  padding: 0 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-placeable-properties-variables-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.canvas-placeable-properties-preserve-note {
+  border: 1px dashed #3a5a7f;
+  border-radius: 6px;
+  padding: 0.34rem 0.42rem;
+  background: rgba(11, 28, 48, 0.45);
+}
+
+.canvas-placeable-properties-preserve-note > summary {
+  cursor: pointer;
+  color: #b9d1ef;
+  font-size: 0.74rem;
 }
 
 .canvas-placeable-properties-note {
@@ -1709,6 +1881,34 @@ input {
 
 .canvas-placeable-properties-tab-placeholder strong {
   color: #ecf4ff;
+}
+
+.canvas-placeable-properties-scripts {
+  gap: 0.36rem;
+}
+
+.canvas-placeable-properties-script-row {
+  display: grid;
+  grid-template-columns: minmax(126px, 0.45fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.34rem;
+}
+
+.canvas-placeable-properties-script-row > label {
+  font-size: 0.72rem;
+  color: #c5d7ef;
+}
+
+.canvas-placeable-properties-script-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.44rem;
+  padding-top: 0.22rem;
+}
+
+.canvas-placeable-properties-fulltext {
+  display: grid;
+  gap: 0.28rem;
 }
 
 .canvas-placeable-properties-actions {

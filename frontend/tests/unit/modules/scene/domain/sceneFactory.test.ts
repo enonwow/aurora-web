@@ -180,4 +180,90 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     const roundtrip = normalizeSceneObjectMetadata(normalized);
     expect(roundtrip).toBe(normalized);
   });
+
+  it("normalizes placeable lock/trap/advanced/description/comments payload defensively", () => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 77);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        plot: false,
+        useable: true,
+        hasInventory: false,
+        lockSettings: {
+          locked: true,
+          canRelock: true,
+          autoRemoveKeyAfterUse: "bad",
+          keyRequiredToUnlockOrLock: true,
+          openLockDc: 21,
+          closeLockDc: "bad",
+          keyTag: 55
+        } as unknown as NonNullable<typeof placeable.placeableProperties>["lockSettings"],
+        trapSettings: {
+          isTrapped: true,
+          trapType: "Spike Trap, Minor",
+          detectionDc: 17,
+          disarmDc: "bad",
+          oneShot: false,
+          detectable: true,
+          disarmable: true,
+          onDisarmScript: "trap_disarm",
+          onTrapTriggeredScript: 42,
+          setDc: 9,
+          detectDcModWhenSetByRogue: 12,
+          disarmDcModWhenSetByRogue: "bad"
+        } as unknown as NonNullable<typeof placeable.placeableProperties>["trapSettings"],
+        advancedSettings: {
+          blueprintResRef: "plc_test_a",
+          belongsToFaction: "Hostile",
+          conversation: 77,
+          noInterrupt: true,
+          portraitResRef: "po_test_a",
+          initialState: "Default",
+          treasureModel: null
+        } as unknown as NonNullable<typeof placeable.placeableProperties>["advancedSettings"],
+        description: 123,
+        comments: "hello"
+      } as unknown as NonNullable<typeof placeable.placeableProperties>
+    });
+
+    expect(normalized.placeableProperties).toEqual({
+      plot: false,
+      useable: true,
+      hasInventory: false,
+      lockSettings: {
+        locked: true,
+        canRelock: true,
+        autoRemoveKeyAfterUse: false,
+        keyRequiredToUnlockOrLock: true,
+        openLockDc: 21,
+        closeLockDc: 0,
+        keyTag: ""
+      },
+      trapSettings: {
+        isTrapped: true,
+        trapType: "Spike Trap, Minor",
+        detectionDc: 17,
+        disarmDc: 15,
+        oneShot: false,
+        detectable: true,
+        disarmable: true,
+        onDisarmScript: "trap_disarm",
+        onTrapTriggeredScript: "",
+        setDc: 9,
+        detectDcModWhenSetByRogue: 12,
+        disarmDcModWhenSetByRogue: 22
+      },
+      advancedSettings: {
+        blueprintResRef: "plc_test_a",
+        belongsToFaction: "Hostile",
+        conversation: "",
+        noInterrupt: true,
+        portraitResRef: "po_test_a",
+        initialState: "Default",
+        treasureModel: "Default"
+      },
+      description: "",
+      comments: "hello"
+    });
+  });
 });

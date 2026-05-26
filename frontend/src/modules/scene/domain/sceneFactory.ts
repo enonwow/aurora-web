@@ -1,10 +1,13 @@
 import type {
   AreaScene,
+  SceneObjectPlaceableAdvancedSettings,
+  SceneObjectPlaceableLockSettings,
   SceneObjectDoorTransitionPayload,
   SceneObject,
   SceneObjectPlaceableDisabledFlags,
   SceneObjectPlaceableProperties,
   SceneObjectPlaceableScriptSlots,
+  SceneObjectPlaceableTrapSettings,
   SceneObjectSoundPositioningPreservePayload,
   SceneObjectSoundPositioning,
   SceneObjectVfxPreservePayload,
@@ -60,6 +63,41 @@ const DEFAULT_PLACEABLE_DISABLED_FLAGS: SceneObjectPlaceableDisabledFlags = {
   plot: true,
   useable: true,
   hasInventory: true
+};
+
+const DEFAULT_PLACEABLE_LOCK_SETTINGS: SceneObjectPlaceableLockSettings = {
+  locked: false,
+  canRelock: false,
+  autoRemoveKeyAfterUse: false,
+  keyRequiredToUnlockOrLock: false,
+  openLockDc: 18,
+  closeLockDc: 0,
+  keyTag: ""
+};
+
+const DEFAULT_PLACEABLE_TRAP_SETTINGS: SceneObjectPlaceableTrapSettings = {
+  isTrapped: false,
+  trapType: "Spike Trap, Minor",
+  detectionDc: 0,
+  disarmDc: 15,
+  oneShot: true,
+  detectable: true,
+  disarmable: true,
+  onDisarmScript: "",
+  onTrapTriggeredScript: "",
+  setDc: 5,
+  detectDcModWhenSetByRogue: 10,
+  disarmDcModWhenSetByRogue: 22
+};
+
+const DEFAULT_PLACEABLE_ADVANCED_SETTINGS: SceneObjectPlaceableAdvancedSettings = {
+  blueprintResRef: "",
+  belongsToFaction: "Hostile",
+  conversation: "",
+  noInterrupt: false,
+  portraitResRef: "",
+  initialState: "Default",
+  treasureModel: "Default"
 };
 
 const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
@@ -230,6 +268,74 @@ function areDoorTransitionFlagsEqual(
   return leftEntries.every(([key, value]) => right[key] === value);
 }
 
+function arePlaceableLockSettingsEqual(
+  left: SceneObjectPlaceableLockSettings | undefined,
+  right: SceneObjectPlaceableLockSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.locked === right.locked &&
+    left.canRelock === right.canRelock &&
+    left.autoRemoveKeyAfterUse === right.autoRemoveKeyAfterUse &&
+    left.keyRequiredToUnlockOrLock === right.keyRequiredToUnlockOrLock &&
+    left.openLockDc === right.openLockDc &&
+    left.closeLockDc === right.closeLockDc &&
+    left.keyTag === right.keyTag
+  );
+}
+
+function arePlaceableTrapSettingsEqual(
+  left: SceneObjectPlaceableTrapSettings | undefined,
+  right: SceneObjectPlaceableTrapSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.isTrapped === right.isTrapped &&
+    left.trapType === right.trapType &&
+    left.detectionDc === right.detectionDc &&
+    left.disarmDc === right.disarmDc &&
+    left.oneShot === right.oneShot &&
+    left.detectable === right.detectable &&
+    left.disarmable === right.disarmable &&
+    left.onDisarmScript === right.onDisarmScript &&
+    left.onTrapTriggeredScript === right.onTrapTriggeredScript &&
+    left.setDc === right.setDc &&
+    left.detectDcModWhenSetByRogue === right.detectDcModWhenSetByRogue &&
+    left.disarmDcModWhenSetByRogue === right.disarmDcModWhenSetByRogue
+  );
+}
+
+function arePlaceableAdvancedSettingsEqual(
+  left: SceneObjectPlaceableAdvancedSettings | undefined,
+  right: SceneObjectPlaceableAdvancedSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.blueprintResRef === right.blueprintResRef &&
+    left.belongsToFaction === right.belongsToFaction &&
+    left.conversation === right.conversation &&
+    left.noInterrupt === right.noInterrupt &&
+    left.portraitResRef === right.portraitResRef &&
+    left.initialState === right.initialState &&
+    left.treasureModel === right.treasureModel
+  );
+}
+
 function terrainByIndex(index: number): TerrainBrushKind {
   return TERRAIN_SEQUENCE[index % TERRAIN_SEQUENCE.length];
 }
@@ -278,6 +384,9 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         | undefined) ?? undefined;
     const hasRawScriptSlots = isRecord(rawPlaceableProperties?.scriptSlots);
     const hasRawDisabledFlags = isRecord(rawPlaceableProperties?.disabledFlags);
+    const hasRawLockSettings = isRecord(rawPlaceableProperties?.lockSettings);
+    const hasRawTrapSettings = isRecord(rawPlaceableProperties?.trapSettings);
+    const hasRawAdvancedSettings = isRecord(rawPlaceableProperties?.advancedSettings);
     const rawScriptSlots = hasRawScriptSlots
       ? (rawPlaceableProperties?.scriptSlots as Partial<
           Record<keyof SceneObjectPlaceableScriptSlots, unknown>
@@ -288,11 +397,38 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           Record<keyof SceneObjectPlaceableDisabledFlags, unknown>
         >)
       : undefined;
+    const rawLockSettings = hasRawLockSettings
+      ? (rawPlaceableProperties?.lockSettings as Partial<
+          Record<keyof SceneObjectPlaceableLockSettings, unknown>
+        >)
+      : undefined;
+    const rawTrapSettings = hasRawTrapSettings
+      ? (rawPlaceableProperties?.trapSettings as Partial<
+          Record<keyof SceneObjectPlaceableTrapSettings, unknown>
+        >)
+      : undefined;
+    const rawAdvancedSettings = hasRawAdvancedSettings
+      ? (rawPlaceableProperties?.advancedSettings as Partial<
+          Record<keyof SceneObjectPlaceableAdvancedSettings, unknown>
+        >)
+      : undefined;
     const currentPlaceableProperties = normalizedObject.placeableProperties;
     const shouldNormalizeScriptSlots =
       hasRawScriptSlots || currentPlaceableProperties?.scriptSlots !== undefined;
     const shouldNormalizeDisabledFlags =
       hasRawDisabledFlags || currentPlaceableProperties?.disabledFlags !== undefined;
+    const shouldNormalizeLockSettings =
+      hasRawLockSettings || currentPlaceableProperties?.lockSettings !== undefined;
+    const shouldNormalizeTrapSettings =
+      hasRawTrapSettings || currentPlaceableProperties?.trapSettings !== undefined;
+    const shouldNormalizeAdvancedSettings =
+      hasRawAdvancedSettings || currentPlaceableProperties?.advancedSettings !== undefined;
+    const shouldNormalizeDescription =
+      typeof rawPlaceableProperties?.description === "string" ||
+      currentPlaceableProperties?.description !== undefined;
+    const shouldNormalizeComments =
+      typeof rawPlaceableProperties?.comments === "string" ||
+      currentPlaceableProperties?.comments !== undefined;
 
     const nextScriptSlots: SceneObjectPlaceableScriptSlots | undefined = shouldNormalizeScriptSlots
       ? {
@@ -339,6 +475,114 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           }
         : undefined;
 
+    const nextLockSettings: SceneObjectPlaceableLockSettings | undefined =
+      shouldNormalizeLockSettings
+        ? {
+            locked: isBoolean(rawLockSettings?.locked)
+              ? rawLockSettings.locked
+              : DEFAULT_PLACEABLE_LOCK_SETTINGS.locked,
+            canRelock: isBoolean(rawLockSettings?.canRelock)
+              ? rawLockSettings.canRelock
+              : DEFAULT_PLACEABLE_LOCK_SETTINGS.canRelock,
+            autoRemoveKeyAfterUse: isBoolean(rawLockSettings?.autoRemoveKeyAfterUse)
+              ? rawLockSettings.autoRemoveKeyAfterUse
+              : DEFAULT_PLACEABLE_LOCK_SETTINGS.autoRemoveKeyAfterUse,
+            keyRequiredToUnlockOrLock: isBoolean(rawLockSettings?.keyRequiredToUnlockOrLock)
+              ? rawLockSettings.keyRequiredToUnlockOrLock
+              : DEFAULT_PLACEABLE_LOCK_SETTINGS.keyRequiredToUnlockOrLock,
+            openLockDc: asFiniteNumber(
+              rawLockSettings?.openLockDc,
+              DEFAULT_PLACEABLE_LOCK_SETTINGS.openLockDc
+            ),
+            closeLockDc: asFiniteNumber(
+              rawLockSettings?.closeLockDc,
+              DEFAULT_PLACEABLE_LOCK_SETTINGS.closeLockDc
+            ),
+            keyTag: asString(rawLockSettings?.keyTag, DEFAULT_PLACEABLE_LOCK_SETTINGS.keyTag)
+          }
+        : undefined;
+
+    const nextTrapSettings: SceneObjectPlaceableTrapSettings | undefined =
+      shouldNormalizeTrapSettings
+        ? {
+            isTrapped: isBoolean(rawTrapSettings?.isTrapped)
+              ? rawTrapSettings.isTrapped
+              : DEFAULT_PLACEABLE_TRAP_SETTINGS.isTrapped,
+            trapType: asString(rawTrapSettings?.trapType, DEFAULT_PLACEABLE_TRAP_SETTINGS.trapType),
+            detectionDc: asFiniteNumber(
+              rawTrapSettings?.detectionDc,
+              DEFAULT_PLACEABLE_TRAP_SETTINGS.detectionDc
+            ),
+            disarmDc: asFiniteNumber(rawTrapSettings?.disarmDc, DEFAULT_PLACEABLE_TRAP_SETTINGS.disarmDc),
+            oneShot: isBoolean(rawTrapSettings?.oneShot)
+              ? rawTrapSettings.oneShot
+              : DEFAULT_PLACEABLE_TRAP_SETTINGS.oneShot,
+            detectable: isBoolean(rawTrapSettings?.detectable)
+              ? rawTrapSettings.detectable
+              : DEFAULT_PLACEABLE_TRAP_SETTINGS.detectable,
+            disarmable: isBoolean(rawTrapSettings?.disarmable)
+              ? rawTrapSettings.disarmable
+              : DEFAULT_PLACEABLE_TRAP_SETTINGS.disarmable,
+            onDisarmScript: asString(
+              rawTrapSettings?.onDisarmScript,
+              DEFAULT_PLACEABLE_TRAP_SETTINGS.onDisarmScript
+            ),
+            onTrapTriggeredScript: asString(
+              rawTrapSettings?.onTrapTriggeredScript,
+              DEFAULT_PLACEABLE_TRAP_SETTINGS.onTrapTriggeredScript
+            ),
+            setDc: asFiniteNumber(rawTrapSettings?.setDc, DEFAULT_PLACEABLE_TRAP_SETTINGS.setDc),
+            detectDcModWhenSetByRogue: asFiniteNumber(
+              rawTrapSettings?.detectDcModWhenSetByRogue,
+              DEFAULT_PLACEABLE_TRAP_SETTINGS.detectDcModWhenSetByRogue
+            ),
+            disarmDcModWhenSetByRogue: asFiniteNumber(
+              rawTrapSettings?.disarmDcModWhenSetByRogue,
+              DEFAULT_PLACEABLE_TRAP_SETTINGS.disarmDcModWhenSetByRogue
+            )
+          }
+        : undefined;
+
+    const nextAdvancedSettings: SceneObjectPlaceableAdvancedSettings | undefined =
+      shouldNormalizeAdvancedSettings
+        ? {
+            blueprintResRef: asString(
+              rawAdvancedSettings?.blueprintResRef,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.blueprintResRef
+            ),
+            belongsToFaction: asString(
+              rawAdvancedSettings?.belongsToFaction,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.belongsToFaction
+            ),
+            conversation: asString(
+              rawAdvancedSettings?.conversation,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.conversation
+            ),
+            noInterrupt: isBoolean(rawAdvancedSettings?.noInterrupt)
+              ? rawAdvancedSettings.noInterrupt
+              : DEFAULT_PLACEABLE_ADVANCED_SETTINGS.noInterrupt,
+            portraitResRef: asString(
+              rawAdvancedSettings?.portraitResRef,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.portraitResRef
+            ),
+            initialState: asString(
+              rawAdvancedSettings?.initialState,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.initialState
+            ),
+            treasureModel: asString(
+              rawAdvancedSettings?.treasureModel,
+              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.treasureModel
+            )
+          }
+        : undefined;
+
+    const nextDescription = shouldNormalizeDescription
+      ? asString(rawPlaceableProperties?.description, "")
+      : undefined;
+    const nextComments = shouldNormalizeComments
+      ? asString(rawPlaceableProperties?.comments, "")
+      : undefined;
+
     const nextPlaceableProperties: SceneObjectPlaceableProperties = {
       plot: isBoolean(rawPlaceableProperties?.plot)
         ? rawPlaceableProperties.plot
@@ -355,6 +599,21 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     }
     if (nextDisabledFlags !== undefined) {
       nextPlaceableProperties.disabledFlags = nextDisabledFlags;
+    }
+    if (nextLockSettings !== undefined) {
+      nextPlaceableProperties.lockSettings = nextLockSettings;
+    }
+    if (nextTrapSettings !== undefined) {
+      nextPlaceableProperties.trapSettings = nextTrapSettings;
+    }
+    if (nextAdvancedSettings !== undefined) {
+      nextPlaceableProperties.advancedSettings = nextAdvancedSettings;
+    }
+    if (nextDescription !== undefined) {
+      nextPlaceableProperties.description = nextDescription;
+    }
+    if (nextComments !== undefined) {
+      nextPlaceableProperties.comments = nextComments;
     }
 
     const currentScriptSlots = currentPlaceableProperties?.scriptSlots;
@@ -381,6 +640,26 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         : currentDisabledFlags?.plot === nextDisabledFlags.plot &&
           currentDisabledFlags?.useable === nextDisabledFlags.useable &&
           currentDisabledFlags?.hasInventory === nextDisabledFlags.hasInventory;
+    const isLockSettingsUnchanged = arePlaceableLockSettingsEqual(
+      currentPlaceableProperties?.lockSettings,
+      nextLockSettings
+    );
+    const isTrapSettingsUnchanged = arePlaceableTrapSettingsEqual(
+      currentPlaceableProperties?.trapSettings,
+      nextTrapSettings
+    );
+    const isAdvancedSettingsUnchanged = arePlaceableAdvancedSettingsEqual(
+      currentPlaceableProperties?.advancedSettings,
+      nextAdvancedSettings
+    );
+    const isDescriptionUnchanged =
+      nextDescription === undefined
+        ? currentPlaceableProperties?.description === undefined
+        : (currentPlaceableProperties?.description ?? "") === nextDescription;
+    const isCommentsUnchanged =
+      nextComments === undefined
+        ? currentPlaceableProperties?.comments === undefined
+        : (currentPlaceableProperties?.comments ?? "") === nextComments;
 
     if (
       currentPlaceableProperties?.plot === nextPlaceableProperties.plot &&
@@ -388,6 +667,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       currentPlaceableProperties?.hasInventory === nextPlaceableProperties.hasInventory &&
       isScriptSlotsUnchanged &&
       isDisabledFlagsUnchanged &&
+      isLockSettingsUnchanged &&
+      isTrapSettingsUnchanged &&
+      isAdvancedSettingsUnchanged &&
+      isDescriptionUnchanged &&
+      isCommentsUnchanged &&
       normalizedObject.soundPositioning === undefined
     ) {
       return normalizedObject;
