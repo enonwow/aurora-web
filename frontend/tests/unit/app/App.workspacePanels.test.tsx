@@ -223,7 +223,7 @@ describe("App workspace side panels", () => {
     expect(optionValues).not.toContain("all");
   });
 
-  it("renders placeable and door properties panels from context flow", async () => {
+  it("renders placeable, creature, and door properties panels from context flow", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -241,6 +241,25 @@ describe("App workspace side panels", () => {
     fireEvent.click(within(placeableDialog).getByRole("button", { name: /^cancel$/i }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
+    });
+
+    const creatureRow = within(rightSidebar).getByRole("button", { name: /crt_devourer_01/i });
+    fireEvent.contextMenu(creatureRow, { clientX: 270, clientY: 190 });
+    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+
+    const creatureDialog = await screen.findByRole("dialog", { name: /creature properties/i });
+    expect(within(creatureDialog).getByRole("button", { name: /^basic$/i })).toBeInTheDocument();
+    expect(
+      within(creatureDialog).getByRole("button", { name: /^statistics$/i })
+    ).toBeInTheDocument();
+    expect(within(creatureDialog).getByRole("button", { name: /^appearance$/i })).toBeInTheDocument();
+    fireEvent.click(within(creatureDialog).getByRole("button", { name: /^scripts$/i }));
+    expect(
+      within(creatureDialog).getByRole("textbox", { name: /onblocked/i })
+    ).toBeInTheDocument();
+    fireEvent.click(within(creatureDialog).getByRole("button", { name: /^cancel$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /creature properties/i })).not.toBeInTheDocument();
     });
 
     const doorRow = within(rightSidebar).getByRole("button", { name: /door_west_01/i });

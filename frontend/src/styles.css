@@ -1931,6 +1931,141 @@ input {
   background: #17365d;
 }
 
+.canvas-creature-properties-dialog {
+  width: min(940px, calc(100% - 1.5rem));
+}
+
+.canvas-creature-properties-basic {
+  gap: 0.55rem;
+}
+
+.canvas-creature-properties-basic-panel-stack {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.canvas-creature-properties-basic-panel-stack .canvas-placeable-properties-group {
+  margin: 0;
+}
+
+.canvas-creature-properties-statistics,
+.canvas-creature-properties-classes,
+.canvas-creature-properties-advanced {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.canvas-creature-properties-statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.canvas-creature-properties-appearance-aurora {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.canvas-creature-properties-appearance-core {
+  display: grid;
+  gap: 0.28rem;
+  max-width: 420px;
+}
+
+.canvas-creature-properties-appearance-core-row {
+  grid-template-columns: minmax(120px, 140px) minmax(0, 1fr);
+}
+
+.canvas-creature-properties-appearance-limbs {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.canvas-creature-properties-appearance-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.canvas-creature-properties-appearance-tail-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.1rem;
+}
+
+.canvas-creature-properties-advanced-special-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.canvas-creature-properties-aux-row {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.canvas-creature-properties-class-radio-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem 0.5rem;
+}
+
+.canvas-creature-properties-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.canvas-creature-properties-table th,
+.canvas-creature-properties-table td {
+  border: 1px solid #355170;
+  padding: 0.22rem 0.3rem;
+  font-size: 0.72rem;
+  color: #d8e7fa;
+  text-align: left;
+}
+
+.canvas-creature-properties-table th {
+  background: #10253d;
+  color: #e9f2ff;
+}
+
+.canvas-creature-properties-table input[type="text"],
+.canvas-creature-properties-table input[type="number"] {
+  width: 100%;
+  border: 1px solid #39597d;
+  border-radius: 4px;
+  background: #081a2d;
+  color: #e0ecfa;
+  padding: 0.18rem 0.25rem;
+  font-size: 0.74rem;
+}
+
+.canvas-creature-properties-cell-value {
+  display: inline-flex;
+  min-height: 1.65rem;
+  align-items: center;
+  color: #d8e7fa;
+}
+
+@media (max-width: 1200px) {
+  .canvas-creature-properties-dialog {
+    width: min(880px, calc(100% - 1.5rem));
+  }
+
+  .canvas-creature-properties-statistics-grid,
+  .canvas-creature-properties-advanced-special-grid,
+  .canvas-creature-properties-appearance-pair,
+  .canvas-creature-properties-appearance-tail-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .canvas-creature-properties-class-radio-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .canvas-sound-properties-dialog {
   position: absolute;
   z-index: 9;

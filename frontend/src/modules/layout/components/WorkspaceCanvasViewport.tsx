@@ -184,6 +184,18 @@ type SoundDayNight = "both" | "day" | "night";
 type SoundPlayStyle = "once" | "repeat" | "loop";
 type SoundPlayOrder = "sequential" | "random";
 type DoorPropertiesTab = "basic" | "transition" | "comments";
+type CreaturePropertiesTab =
+  | "basic"
+  | "statistics"
+  | "appearance"
+  | "classes"
+  | "skills"
+  | "scripts"
+  | "advanced"
+  | "feats"
+  | "spells"
+  | "specialAbilities"
+  | "comments";
 type PlaceableScriptSlotKey =
   | "onClick"
   | "onClosed"
@@ -231,6 +243,38 @@ const PLACEABLE_SCRIPT_SLOT_LABELS: Record<PlaceableScriptSlotKey, string> = {
   onUserDefined: "OnUserDefined"
 };
 
+const CREATURE_SCRIPT_SLOT_KEYS: CreatureScriptSlotKey[] = [
+  "onBlocked",
+  "onCombatRoundEnd",
+  "onConversation",
+  "onDamaged",
+  "onDeath",
+  "onDisturbed",
+  "onHeartbeat",
+  "onPerception",
+  "onPhysicalAttacked",
+  "onRested",
+  "onSpawn",
+  "onSpellCastAt",
+  "onUserDefined"
+];
+
+const CREATURE_SCRIPT_SLOT_LABELS: Record<CreatureScriptSlotKey, string> = {
+  onBlocked: "OnBlocked",
+  onCombatRoundEnd: "OnCombatRoundEnd",
+  onConversation: "OnConversation",
+  onDamaged: "OnDamaged",
+  onDeath: "OnDeath",
+  onDisturbed: "OnDisturbed",
+  onHeartbeat: "OnHeartbeat",
+  onPerception: "OnPerception",
+  onPhysicalAttacked: "OnPhysicalAttacked",
+  onRested: "OnRested",
+  onSpawn: "OnSpawn",
+  onSpellCastAt: "OnSpellCastAt",
+  onUserDefined: "OnUserDefined"
+};
+
 const PLACEABLE_TRAP_TYPE_OPTIONS = [
   "Spike Trap, Minor",
   "Spike Trap, Average",
@@ -244,6 +288,229 @@ const PLACEABLE_TRAP_TYPE_OPTIONS = [
 const PLACEABLE_FACTION_OPTIONS = ["Hostile", "Commoner", "Defender", "Merchant", "Neutral"];
 const PLACEABLE_INITIAL_STATE_OPTIONS = ["Default", "Open", "Closed", "Destroyed"];
 const PLACEABLE_TREASURE_MODEL_OPTIONS = ["Default", "None", "Container", "Random"];
+const CREATURE_RACE_OPTIONS = [
+  "Aberration",
+  "Animal",
+  "Beast",
+  "Construct",
+  "Dragon",
+  "Elemental",
+  "Fey",
+  "Giant",
+  "Humanoid",
+  "Magical Beast",
+  "Monstrous Humanoid",
+  "Outsider",
+  "Undead",
+  "Vermin"
+];
+const CREATURE_GENDER_OPTIONS = ["None", "Male", "Female", "Both"];
+const CREATURE_ALIGNMENT_OPTIONS = [
+  "Lawful Good",
+  "Neutral Good",
+  "Chaotic Good",
+  "Lawful Neutral",
+  "True Neutral",
+  "Chaotic Neutral",
+  "Lawful Evil",
+  "Neutral Evil",
+  "Chaotic Evil"
+];
+const CREATURE_MOVEMENT_RATE_OPTIONS = [
+  "Default",
+  "Very Slow",
+  "Slow",
+  "Normal",
+  "Fast",
+  "Very Fast"
+];
+const CREATURE_FACTION_OPTIONS = ["Hostile", "Commoner", "Defender", "Merchant", "Neutral"];
+const CREATURE_TREASURE_MODEL_OPTIONS = ["Default", "None", "Monster", "Random"];
+const CREATURE_PERCEPTION_RANGE_OPTIONS = ["Default", "Near", "Medium", "Far", "Infinite"];
+const CREATURE_FEAT_FILTER_OPTIONS = [
+  "All Feats",
+  "Class/Racial Feats",
+  "Combat Feats",
+  "Defensive Feats",
+  "Other Feats"
+];
+const CREATURE_SPELL_LEVEL_FILTER_OPTIONS = [
+  "All Levels",
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9"
+];
+const CREATURE_METAMAGIC_FILTER_OPTIONS = [
+  "None",
+  "Empower",
+  "Extend",
+  "Maximize",
+  "Quicken",
+  "Silent",
+  "Still"
+];
+const CREATURE_SPECIAL_ABILITIES_FILTER_OPTIONS = [
+  "All Spells and Abilities",
+  "Monster Abilities",
+  "Spells"
+];
+
+const CREATURE_DEFAULT_MOCK_FEATS: Array<{
+  name: string;
+  type: string;
+  assigned: boolean;
+}> = [
+  { name: "Alertness", type: "Class/Racial Feats", assigned: true },
+  { name: "Weapon Proficiency (creature)", type: "Class/Racial Feats", assigned: true },
+  { name: "Cleave", type: "Combat Feats", assigned: true },
+  { name: "Dodge", type: "Defensive Feats", assigned: true },
+  { name: "Darkvision", type: "Other Feats", assigned: true },
+  { name: "Ambidexterity", type: "Combat Feats", assigned: false },
+  { name: "Animal Companion", type: "Other Feats", assigned: false },
+  { name: "Arcane Defense (Abjuration)", type: "Other Feats", assigned: false },
+  { name: "Arcane Defense (Conjuration)", type: "Other Feats", assigned: false },
+  { name: "Arcane Defense (Divination)", type: "Other Feats", assigned: false },
+  { name: "Arcane Defense (Enchantment)", type: "Other Feats", assigned: false }
+];
+
+const CREATURE_DEFAULT_MOCK_SPELLS: Array<{
+  prepared: boolean;
+  name: string;
+  spellLevel: number;
+  castingLevel: number;
+}> = [
+  { prepared: false, name: "Acid Fog", spellLevel: 6, castingLevel: 0 },
+  { prepared: false, name: "Acid Splash", spellLevel: 0, castingLevel: 0 },
+  { prepared: false, name: "Aid", spellLevel: 2, castingLevel: 0 },
+  { prepared: false, name: "Amplify", spellLevel: 1, castingLevel: 0 },
+  { prepared: false, name: "Animate Dead", spellLevel: 3, castingLevel: 0 }
+];
+
+const CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES: Array<{
+  name: string;
+  type: string;
+  casterLevel: number;
+  uses: number;
+}> = [
+  { name: "Acid Fog", type: "Spells", casterLevel: 0, uses: 0 },
+  { name: "Aid", type: "Spells", casterLevel: 0, uses: 0 },
+  { name: "Aura of Cold", type: "Monster Abilities", casterLevel: 0, uses: 0 },
+  { name: "Aura of Fear", type: "Monster Abilities", casterLevel: 0, uses: 0 },
+  { name: "Gaze, Fear", type: "Monster Abilities", casterLevel: 6, uses: 6 }
+];
+
+const CREATURE_SKILL_LABELS = [
+  "Animal Empathy",
+  "Concentration",
+  "Disable Trap",
+  "Discipline",
+  "Heal",
+  "Hide",
+  "Listen",
+  "Lore",
+  "Move Silently",
+  "Open Lock",
+  "Parry",
+  "Perform",
+  "Persuade",
+  "Pick Pocket",
+  "Search",
+  "Set Trap",
+  "Spellcraft",
+  "Spot",
+  "Taunt",
+  "Use Magic Device",
+  "Appraise",
+  "Tumble",
+  "Craft Trap",
+  "Bluff",
+  "Intimidate",
+  "Craft Armor",
+  "Craft Weapon",
+  "Ride"
+];
+
+const CREATURE_PROPERTIES_TABS: CreaturePropertiesTab[] = [
+  "basic",
+  "statistics",
+  "appearance",
+  "classes",
+  "skills",
+  "scripts",
+  "advanced",
+  "feats",
+  "spells",
+  "specialAbilities",
+  "comments"
+];
+
+const CREATURE_APPEARANCE_CORE_FIELDS: Array<{
+  key: keyof CreaturePropertiesDraft["appearanceParts"];
+  label: string;
+}> = [
+  { key: "head", label: "Head" },
+  { key: "neck", label: "Neck" },
+  { key: "torso", label: "Torso" },
+  { key: "pelvis", label: "Pelvis" }
+];
+
+const CREATURE_APPEARANCE_LIMB_PAIRS: Array<{
+  rightKey: keyof CreaturePropertiesDraft["appearanceParts"];
+  rightLabel: string;
+  leftKey: keyof CreaturePropertiesDraft["appearanceParts"];
+  leftLabel: string;
+}> = [
+  {
+    rightKey: "rightBicep",
+    rightLabel: "Right Bicep",
+    leftKey: "leftBicep",
+    leftLabel: "Left Bicep"
+  },
+  {
+    rightKey: "rightForearm",
+    rightLabel: "Right Forearm",
+    leftKey: "leftForearm",
+    leftLabel: "Left Forearm"
+  },
+  {
+    rightKey: "rightHand",
+    rightLabel: "Right Hand",
+    leftKey: "leftHand",
+    leftLabel: "Left Hand"
+  },
+  {
+    rightKey: "rightThigh",
+    rightLabel: "Right Thigh",
+    leftKey: "leftThigh",
+    leftLabel: "Left Thigh"
+  },
+  {
+    rightKey: "rightShin",
+    rightLabel: "Right Shin",
+    leftKey: "leftShin",
+    leftLabel: "Left Shin"
+  },
+  {
+    rightKey: "rightFoot",
+    rightLabel: "Right Foot",
+    leftKey: "leftFoot",
+    leftLabel: "Left Foot"
+  }
+];
+
+const CREATURE_APPEARANCE_EXTRA_PAIR = {
+  rightKey: "wings",
+  rightLabel: "Wings",
+  leftKey: "tail",
+  leftLabel: "Tail"
+} as const;
 
 interface PlaceablePropertiesDraft {
   name: string;
@@ -403,6 +670,126 @@ interface DoorPropertiesDialogDragState {
   offsetY: number;
 }
 
+type CreatureScriptSlotKey =
+  | "onBlocked"
+  | "onCombatRoundEnd"
+  | "onConversation"
+  | "onDamaged"
+  | "onDeath"
+  | "onDisturbed"
+  | "onHeartbeat"
+  | "onPerception"
+  | "onPhysicalAttacked"
+  | "onRested"
+  | "onSpawn"
+  | "onSpellCastAt"
+  | "onUserDefined";
+
+interface CreaturePropertiesDraft {
+  firstName: string;
+  lastName: string;
+  tag: string;
+  race: string;
+  appearance: string;
+  phenotype: string;
+  gender: string;
+  description: string;
+  challengeRating: number;
+  portraitResRef: string;
+  conversation: string;
+  noInterrupt: boolean;
+  alignment: string;
+  classEntries: Array<{ className: string; level: number }>;
+  defaultPackage: string;
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+  strRacial: number;
+  dexRacial: number;
+  conRacial: number;
+  intRacial: number;
+  wisRacial: number;
+  chaRacial: number;
+  fortitudeBase: number;
+  fortitudeBonus: number;
+  reflexBase: number;
+  reflexBonus: number;
+  willBase: number;
+  willBonus: number;
+  naturalArmorClass: number;
+  baseArmorClass: number;
+  dexterityBonus: number;
+  sizeModifier: number;
+  baseHitPoints: number;
+  hitPointBonuses: number;
+  movementRate: string;
+  appearancePartBased: boolean;
+  appearanceParts: {
+    head: string;
+    neck: string;
+    torso: string;
+    pelvis: string;
+    rightBicep: string;
+    leftBicep: string;
+    rightForearm: string;
+    leftForearm: string;
+    rightHand: string;
+    leftHand: string;
+    rightThigh: string;
+    leftThigh: string;
+    rightShin: string;
+    leftShin: string;
+    rightFoot: string;
+    leftFoot: string;
+    wings: string;
+    tail: string;
+  };
+  skills: Array<{ skill: string; rank: number }>;
+  scriptSlots: Record<CreatureScriptSlotKey, string>;
+  advancedSettings: {
+    blueprintResRef: string;
+    disarmable: boolean;
+    plot: boolean;
+    leavesLootableCorpse: boolean;
+    noPermanentDeath: boolean;
+    immortal: boolean;
+    treasureModel: string;
+    corpseDecayTimeSeconds: number;
+    faction: string;
+    subrace: string;
+    deity: string;
+    challengeRatingAdjustment: number;
+    soundSet: string;
+    perceptionRange: string;
+  };
+  feats: Array<{ name: string; type: string; assigned: boolean }>;
+  spells: Array<{ prepared: boolean; name: string; spellLevel: number; castingLevel: number }>;
+  specialAbilities: Array<{ name: string; type: string; casterLevel: number; uses: number }>;
+  comments: string;
+}
+
+interface CreaturePropertiesDialogState {
+  objectId: string;
+  snapshotObject: SceneObject;
+  draft: CreaturePropertiesDraft;
+  activeTab: CreaturePropertiesTab;
+  windowX: number;
+  windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
+  collapsed: boolean;
+}
+
+interface CreaturePropertiesDialogDragState {
+  active: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+}
+
 interface DragMoveState {
   active: boolean;
   lastWorld: { x: number; y: number } | null;
@@ -447,6 +834,8 @@ const ADJUST_LOCATION_DIALOG_FALLBACK_WIDTH_PX = 520;
 const ADJUST_LOCATION_DIALOG_FALLBACK_HEIGHT_PX = 420;
 const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 820;
 const PLACEABLE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 540;
+const CREATURE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 840;
+const CREATURE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 620;
 const SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
 const SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 520;
 const DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
@@ -1304,6 +1693,171 @@ function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDraft {
   };
 }
 
+function buildCreatureScriptSlotsDraft(
+  source: SceneObject["creatureProperties"]
+): Record<CreatureScriptSlotKey, string> {
+  const slots = source?.scriptSlots;
+  return {
+    onBlocked: slots?.onBlocked ?? "",
+    onCombatRoundEnd: slots?.onCombatRoundEnd ?? "",
+    onConversation: slots?.onConversation ?? "",
+    onDamaged: slots?.onDamaged ?? "",
+    onDeath: slots?.onDeath ?? "",
+    onDisturbed: slots?.onDisturbed ?? "",
+    onHeartbeat: slots?.onHeartbeat ?? "",
+    onPerception: slots?.onPerception ?? "",
+    onPhysicalAttacked: slots?.onPhysicalAttacked ?? "",
+    onRested: slots?.onRested ?? "",
+    onSpawn: slots?.onSpawn ?? "",
+    onSpellCastAt: slots?.onSpellCastAt ?? "",
+    onUserDefined: slots?.onUserDefined ?? ""
+  };
+}
+
+function buildCreatureSkillsDraft(
+  source: SceneObject["creatureProperties"]
+): Array<{ skill: string; rank: number }> {
+  const byName = new Map(
+    (source?.skills ?? []).map((entry) => [entry.skill.toLowerCase(), entry.rank])
+  );
+  return CREATURE_SKILL_LABELS.map((skill) => ({
+    skill,
+    rank: byName.get(skill.toLowerCase()) ?? 0
+  }));
+}
+
+function buildCreatureClassEntriesDraft(
+  source: SceneObject["creatureProperties"]
+): Array<{ className: string; level: number }> {
+  const sourceEntries = source?.classEntries ?? [{ className: source?.race ?? "Aberration", level: 1 }];
+  const normalized = sourceEntries.map((entry) => ({
+    className: entry.className || "Class",
+    level: Number.isFinite(entry.level) ? Math.max(1, Math.trunc(entry.level)) : 1
+  }));
+  while (normalized.length < 8) {
+    normalized.push({
+      className: "",
+      level: 1
+    });
+  }
+  return normalized.slice(0, 8);
+}
+
+function buildCreaturePropertiesDraft(source: SceneObject): CreaturePropertiesDraft {
+  const creature = source.creatureProperties;
+  const statistics = creature?.statistics;
+  const abilityScores = statistics?.abilityScores;
+  const racialModifiers = statistics?.racialModifiers;
+  const saves = statistics?.saves;
+  const appearanceSettings = creature?.appearanceSettings;
+  const advanced = creature?.advancedSettings;
+  return {
+    firstName: creature?.firstName ?? resolveSceneObjectName(source),
+    lastName: creature?.lastName ?? "",
+    tag: source.tag,
+    race: creature?.race ?? CREATURE_RACE_OPTIONS[0]!,
+    appearance: creature?.appearance ?? source.resRef,
+    phenotype: creature?.phenotype ?? "",
+    gender: creature?.gender ?? CREATURE_GENDER_OPTIONS[0]!,
+    description: creature?.description ?? "",
+    challengeRating: creature?.challengeRating ?? 1,
+    portraitResRef: creature?.portraitResRef ?? "",
+    conversation: creature?.conversation ?? "",
+    noInterrupt: creature?.noInterrupt ?? false,
+    alignment: "Chaotic Evil",
+    classEntries: buildCreatureClassEntriesDraft(creature),
+    defaultPackage: "Default",
+    strength: abilityScores?.strength ?? 10,
+    dexterity: abilityScores?.dexterity ?? 10,
+    constitution: abilityScores?.constitution ?? 10,
+    intelligence: abilityScores?.intelligence ?? 10,
+    wisdom: abilityScores?.wisdom ?? 10,
+    charisma: abilityScores?.charisma ?? 10,
+    strRacial: racialModifiers?.strength ?? 0,
+    dexRacial: racialModifiers?.dexterity ?? 0,
+    conRacial: racialModifiers?.constitution ?? 0,
+    intRacial: racialModifiers?.intelligence ?? 0,
+    wisRacial: racialModifiers?.wisdom ?? 0,
+    chaRacial: racialModifiers?.charisma ?? 0,
+    fortitudeBase: saves?.fortitudeBase ?? 0,
+    fortitudeBonus: saves?.fortitudeBonus ?? 0,
+    reflexBase: saves?.reflexBase ?? 0,
+    reflexBonus: saves?.reflexBonus ?? 0,
+    willBase: saves?.willBase ?? 0,
+    willBonus: saves?.willBonus ?? 0,
+    naturalArmorClass: statistics?.naturalArmorClass ?? 10,
+    baseArmorClass: statistics?.baseArmorClass ?? 10,
+    dexterityBonus: statistics?.dexterityBonus ?? 0,
+    sizeModifier: statistics?.sizeModifier ?? 0,
+    baseHitPoints: statistics?.baseHitPoints ?? 10,
+    hitPointBonuses: statistics?.hitPointBonuses ?? 0,
+    movementRate: statistics?.movementRate ?? CREATURE_MOVEMENT_RATE_OPTIONS[0]!,
+    appearancePartBased: appearanceSettings?.partBasedAppearance ?? false,
+    appearanceParts: {
+      head: appearanceSettings?.head ?? "",
+      neck: appearanceSettings?.neck ?? "",
+      torso: appearanceSettings?.torso ?? "",
+      pelvis: appearanceSettings?.pelvis ?? "",
+      rightBicep: appearanceSettings?.rightBicep ?? "",
+      leftBicep: appearanceSettings?.leftBicep ?? "",
+      rightForearm: appearanceSettings?.rightForearm ?? "",
+      leftForearm: appearanceSettings?.leftForearm ?? "",
+      rightHand: appearanceSettings?.rightHand ?? "",
+      leftHand: appearanceSettings?.leftHand ?? "",
+      rightThigh: appearanceSettings?.rightThigh ?? "",
+      leftThigh: appearanceSettings?.leftThigh ?? "",
+      rightShin: appearanceSettings?.rightShin ?? "",
+      leftShin: appearanceSettings?.leftShin ?? "",
+      rightFoot: appearanceSettings?.rightFoot ?? "",
+      leftFoot: appearanceSettings?.leftFoot ?? "",
+      wings: appearanceSettings?.wings ?? "",
+      tail: appearanceSettings?.tail ?? ""
+    },
+    skills: buildCreatureSkillsDraft(creature),
+    scriptSlots: buildCreatureScriptSlotsDraft(creature),
+    advancedSettings: {
+      blueprintResRef: advanced?.blueprintResRef ?? source.resRef,
+      disarmable: advanced?.disarmable ?? false,
+      plot: advanced?.plot ?? false,
+      leavesLootableCorpse: advanced?.leavesLootableCorpse ?? false,
+      noPermanentDeath: advanced?.noPermanentDeath ?? false,
+      immortal: advanced?.immortal ?? false,
+      treasureModel: advanced?.treasureModel ?? CREATURE_TREASURE_MODEL_OPTIONS[0]!,
+      corpseDecayTimeSeconds: advanced?.corpseDecayTimeSeconds ?? 5,
+      faction: advanced?.faction ?? CREATURE_FACTION_OPTIONS[0]!,
+      subrace: advanced?.subrace ?? "",
+      deity: advanced?.deity ?? "",
+      challengeRatingAdjustment: advanced?.challengeRatingAdjustment ?? 0,
+      soundSet: advanced?.soundSet ?? "",
+      perceptionRange: advanced?.perceptionRange ?? CREATURE_PERCEPTION_RANGE_OPTIONS[0]!
+    },
+    feats: creature?.feats
+      ? creature.feats.map((entry) => ({
+          name: entry.name,
+          type: entry.type,
+          assigned: entry.assigned
+        }))
+      : [],
+    spells: creature?.spells
+      ? creature.spells.map((entry) => ({
+          prepared: entry.prepared,
+          name: entry.name,
+          spellLevel: entry.spellLevel,
+          castingLevel: entry.castingLevel
+        }))
+      : [],
+    specialAbilities: creature?.specialAbilities
+      ? creature.specialAbilities.map((entry) => ({
+          name: entry.name,
+          type: entry.type,
+          casterLevel: entry.casterLevel,
+          uses: entry.uses
+        }))
+      : [],
+    comments: creature?.comments ?? ""
+  };
+}
+
 function arePlaceablePropertiesDraftsEqual(
   left: PlaceablePropertiesDraft,
   right: PlaceablePropertiesDraft
@@ -1389,6 +1943,42 @@ function areDoorPropertiesDraftsEqual(
   );
 }
 
+function areCreaturePropertiesDraftsEqual(
+  left: CreaturePropertiesDraft,
+  right: CreaturePropertiesDraft
+): boolean {
+  return stableJsonStringify(left) === stableJsonStringify(right);
+}
+
+function resolveCreaturePropertiesTabLabel(tab: CreaturePropertiesTab): string {
+  switch (tab) {
+    case "basic":
+      return "Basic";
+    case "statistics":
+      return "Statistics";
+    case "appearance":
+      return "Appearance";
+    case "classes":
+      return "Classes";
+    case "skills":
+      return "Skills";
+    case "scripts":
+      return "Scripts";
+    case "advanced":
+      return "Advanced";
+    case "feats":
+      return "Feats";
+    case "spells":
+      return "Spells";
+    case "specialAbilities":
+      return "Special Abilities";
+    case "comments":
+      return "Comments";
+    default:
+      return tab;
+  }
+}
+
 function areNowPlayingBadgesEqual(
   left: readonly RuntimeSoundNowPlayingBadge[],
   right: readonly RuntimeSoundNowPlayingBadge[]
@@ -1405,6 +1995,10 @@ function areNowPlayingBadgesEqual(
     }
   }
   return true;
+}
+
+function resolveAbilityScoreModifier(score: number): number {
+  return Math.floor((score - 10) / 2);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -3023,6 +3617,13 @@ export function WorkspaceCanvasViewport({
     offsetX: 0,
     offsetY: 0
   });
+  const creaturePropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const creaturePropertiesDialogDragRef = useRef<CreaturePropertiesDialogDragState>({
+    active: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0
+  });
   const bearingDialDragRef = useRef<BearingDialDragState>({
     active: false,
     pointerId: null
@@ -3070,6 +3671,21 @@ export function WorkspaceCanvasViewport({
     useState<SoundPropertiesDialogState | null>(null);
   const [doorPropertiesDialog, setDoorPropertiesDialog] =
     useState<DoorPropertiesDialogState | null>(null);
+  const [creaturePropertiesDialog, setCreaturePropertiesDialog] =
+    useState<CreaturePropertiesDialogState | null>(null);
+  const [creatureFeatsFilter, setCreatureFeatsFilter] = useState<string>(
+    CREATURE_FEAT_FILTER_OPTIONS[0]!
+  );
+  const [creatureSpellsLevelFilter, setCreatureSpellsLevelFilter] = useState<string>(
+    CREATURE_SPELL_LEVEL_FILTER_OPTIONS[0]!
+  );
+  const [creatureSpellsMetaMagicFilter, setCreatureSpellsMetaMagicFilter] = useState<string>(
+    CREATURE_METAMAGIC_FILTER_OPTIONS[0]!
+  );
+  const [creatureSpellsClassFilterIndex, setCreatureSpellsClassFilterIndex] = useState<number>(0);
+  const [creatureSpecialAbilitiesFilter, setCreatureSpecialAbilitiesFilter] = useState<string>(
+    CREATURE_SPECIAL_ABILITIES_FILTER_OPTIONS[0]!
+  );
   const [runtimeSoundNowPlayingBadges, setRuntimeSoundNowPlayingBadges] = useState<
     RuntimeSoundNowPlayingBadge[]
   >([]);
@@ -3335,6 +3951,43 @@ export function WorkspaceCanvasViewport({
               : undefined
           }
         : undefined,
+      creatureProperties: object.creatureProperties
+        ? {
+            ...object.creatureProperties,
+            statistics: object.creatureProperties.statistics
+              ? {
+                  ...object.creatureProperties.statistics,
+                  abilityScores: { ...object.creatureProperties.statistics.abilityScores },
+                  racialModifiers: { ...object.creatureProperties.statistics.racialModifiers },
+                  saves: { ...object.creatureProperties.statistics.saves }
+                }
+              : undefined,
+            appearanceSettings: object.creatureProperties.appearanceSettings
+              ? { ...object.creatureProperties.appearanceSettings }
+              : undefined,
+            classEntries: object.creatureProperties.classEntries
+              ? object.creatureProperties.classEntries.map((entry) => ({ ...entry }))
+              : undefined,
+            skills: object.creatureProperties.skills
+              ? object.creatureProperties.skills.map((entry) => ({ ...entry }))
+              : undefined,
+            scriptSlots: object.creatureProperties.scriptSlots
+              ? { ...object.creatureProperties.scriptSlots }
+              : undefined,
+            advancedSettings: object.creatureProperties.advancedSettings
+              ? { ...object.creatureProperties.advancedSettings }
+              : undefined,
+            feats: object.creatureProperties.feats
+              ? object.creatureProperties.feats.map((entry) => ({ ...entry }))
+              : undefined,
+            spells: object.creatureProperties.spells
+              ? object.creatureProperties.spells.map((entry) => ({ ...entry }))
+              : undefined,
+            specialAbilities: object.creatureProperties.specialAbilities
+              ? object.creatureProperties.specialAbilities.map((entry) => ({ ...entry }))
+              : undefined
+          }
+        : undefined,
       doorTransition: object.doorTransition
         ? {
             ...object.doorTransition,
@@ -3441,6 +4094,45 @@ export function WorkspaceCanvasViewport({
                 : undefined,
               advancedSettings: sourceSnapshot.placeableProperties.advancedSettings
                 ? { ...sourceSnapshot.placeableProperties.advancedSettings }
+                : undefined
+            }
+          : undefined;
+        copy.creatureProperties = sourceSnapshot.creatureProperties
+          ? {
+              ...sourceSnapshot.creatureProperties,
+              statistics: sourceSnapshot.creatureProperties.statistics
+                ? {
+                    ...sourceSnapshot.creatureProperties.statistics,
+                    abilityScores: { ...sourceSnapshot.creatureProperties.statistics.abilityScores },
+                    racialModifiers: {
+                      ...sourceSnapshot.creatureProperties.statistics.racialModifiers
+                    },
+                    saves: { ...sourceSnapshot.creatureProperties.statistics.saves }
+                  }
+                : undefined,
+              appearanceSettings: sourceSnapshot.creatureProperties.appearanceSettings
+                ? { ...sourceSnapshot.creatureProperties.appearanceSettings }
+                : undefined,
+              classEntries: sourceSnapshot.creatureProperties.classEntries
+                ? sourceSnapshot.creatureProperties.classEntries.map((entry) => ({ ...entry }))
+                : undefined,
+              skills: sourceSnapshot.creatureProperties.skills
+                ? sourceSnapshot.creatureProperties.skills.map((entry) => ({ ...entry }))
+                : undefined,
+              scriptSlots: sourceSnapshot.creatureProperties.scriptSlots
+                ? { ...sourceSnapshot.creatureProperties.scriptSlots }
+                : undefined,
+              advancedSettings: sourceSnapshot.creatureProperties.advancedSettings
+                ? { ...sourceSnapshot.creatureProperties.advancedSettings }
+                : undefined,
+              feats: sourceSnapshot.creatureProperties.feats
+                ? sourceSnapshot.creatureProperties.feats.map((entry) => ({ ...entry }))
+                : undefined,
+              spells: sourceSnapshot.creatureProperties.spells
+                ? sourceSnapshot.creatureProperties.spells.map((entry) => ({ ...entry }))
+                : undefined,
+              specialAbilities: sourceSnapshot.creatureProperties.specialAbilities
+                ? sourceSnapshot.creatureProperties.specialAbilities.map((entry) => ({ ...entry }))
                 : undefined
             }
           : undefined;
@@ -7503,6 +8195,483 @@ export function WorkspaceCanvasViewport({
     }
   }, []);
 
+  const clampCreaturePropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) => {
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return { x, y };
+      }
+      const measuredRect =
+        panelRect ?? creaturePropertiesDialogRef.current?.getBoundingClientRect() ?? null;
+      const panelWidth = measuredRect?.width ?? CREATURE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+      const panelHeight = measuredRect?.height ?? CREATURE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+      const maxX = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.width - panelWidth - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      const maxY = Math.max(
+        ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        hostRect.height - panelHeight - ADJUST_LOCATION_DIALOG_MARGIN_PX
+      );
+      return {
+        x: Math.min(Math.max(x, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxX),
+        y: Math.min(Math.max(y, ADJUST_LOCATION_DIALOG_MARGIN_PX), maxY)
+      };
+    },
+    []
+  );
+
+  const openCreaturePropertiesDialog = useCallback(
+    (target: SceneObject) => {
+      if (target.kind !== "creatures") {
+        return;
+      }
+
+      const runtime = runtimeRef.current;
+      const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+      const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+      const initialDialogPosition = runtime
+        ? resolveAnchoredContextMenuPosition(
+            runtime,
+            target,
+            target.id,
+            anchorOffsetX,
+            anchorOffsetY,
+            CREATURE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+            CREATURE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX
+          )
+        : clampCreaturePropertiesDialogPosition(
+            ADJUST_LOCATION_DIALOG_MARGIN_PX,
+            ADJUST_LOCATION_DIALOG_MARGIN_PX
+          );
+      setCreaturePropertiesDialog({
+        objectId: target.id,
+        snapshotObject: cloneSceneObject(target),
+        draft: buildCreaturePropertiesDraft(target),
+        activeTab: "basic",
+        windowX: initialDialogPosition.x,
+        windowY: initialDialogPosition.y,
+        anchorOffsetX,
+        anchorOffsetY,
+        collapsed: false
+      });
+      setCreatureFeatsFilter(CREATURE_FEAT_FILTER_OPTIONS[0]!);
+      setCreatureSpellsLevelFilter(CREATURE_SPELL_LEVEL_FILTER_OPTIONS[0]!);
+      setCreatureSpellsMetaMagicFilter(CREATURE_METAMAGIC_FILTER_OPTIONS[0]!);
+      setCreatureSpellsClassFilterIndex(0);
+      setCreatureSpecialAbilitiesFilter(CREATURE_SPECIAL_ABILITIES_FILTER_OPTIONS[0]!);
+      trackTelemetry("scene.creature_properties.open", {
+        userId,
+        objectId: target.id
+      });
+    },
+    [
+      clampCreaturePropertiesDialogPosition,
+      cloneSceneObject,
+      trackTelemetry,
+      userId,
+      setCreatureFeatsFilter,
+      setCreatureSpellsLevelFilter,
+      setCreatureSpellsMetaMagicFilter,
+      setCreatureSpellsClassFilterIndex,
+      setCreatureSpecialAbilitiesFilter
+    ]
+  );
+
+  const setCreaturePropertiesActiveTab = useCallback((nextTab: CreaturePropertiesTab) => {
+    setCreaturePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            activeTab: nextTab
+          }
+        : current
+    );
+  }, []);
+
+  const updateCreaturePropertiesDraftField = useCallback(
+    (field: keyof CreaturePropertiesDraft, value: string | number | boolean) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const nextDraft = { ...current.draft, [field]: value };
+        if (areCreaturePropertiesDraftsEqual(current.draft, nextDraft)) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: nextDraft
+        };
+      });
+    },
+    []
+  );
+
+  const updateCreatureClassEntry = useCallback(
+    (index: number, field: "className" | "level", value: string | number) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current || index < 0 || index >= current.draft.classEntries.length) {
+          return current;
+        }
+        const nextEntries = current.draft.classEntries.map((entry, entryIndex) =>
+          entryIndex === index ? { ...entry, [field]: value } : entry
+        );
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            classEntries: nextEntries
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateCreatureSkillRank = useCallback((index: number, rank: number) => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current || index < 0 || index >= current.draft.skills.length) {
+        return current;
+      }
+      const nextSkills = current.draft.skills.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, rank } : entry
+      );
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          skills: nextSkills
+        }
+      };
+    });
+  }, []);
+
+  const updateCreatureScriptSlot = useCallback((field: CreatureScriptSlotKey, value: string) => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current || current.draft.scriptSlots[field] === value) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          scriptSlots: {
+            ...current.draft.scriptSlots,
+            [field]: value
+          }
+        }
+      };
+    });
+  }, []);
+
+  const updateCreatureAppearancePart = useCallback(
+    (field: keyof CreaturePropertiesDraft["appearanceParts"], value: string) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current || current.draft.appearanceParts[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            appearanceParts: {
+              ...current.draft.appearanceParts,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateCreatureAdvancedField = useCallback(
+    (
+      field: keyof CreaturePropertiesDraft["advancedSettings"],
+      value: string | number | boolean
+    ) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current || current.draft.advancedSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            advancedSettings: {
+              ...current.draft.advancedSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const applyCreaturePropertiesDraft = useCallback(
+    (closeAfterApply: boolean) => {
+      if (!creaturePropertiesDialog) {
+        return;
+      }
+      const objectId = creaturePropertiesDialog.objectId;
+      const draft = creaturePropertiesDialog.draft;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === objectId);
+        if (!sourceObject || sourceObject.kind !== "creatures") {
+          return current;
+        }
+
+        const sourceDraft = buildCreaturePropertiesDraft(sourceObject);
+        if (areCreaturePropertiesDraftsEqual(sourceDraft, draft)) {
+          return current;
+        }
+
+        const nextTag = draft.tag.trim() || sourceObject.tag;
+        const nextAppearanceResRef = draft.appearance.trim() || sourceObject.resRef;
+        const nextFirstName = draft.firstName.trim() || resolveSceneObjectName(sourceObject);
+        const nextName = [nextFirstName, draft.lastName.trim()].filter((part) => part.length > 0).join(" ");
+
+        const nextCreatureProperties = {
+          firstName: nextFirstName,
+          lastName: draft.lastName.trim(),
+          race: draft.race.trim(),
+          appearance: draft.appearance.trim(),
+          phenotype: draft.phenotype.trim(),
+          gender: draft.gender.trim(),
+          description: draft.description,
+          challengeRating: Math.max(0, draft.challengeRating),
+          portraitResRef: draft.portraitResRef.trim(),
+          conversation: draft.conversation.trim(),
+          noInterrupt: draft.noInterrupt,
+          statistics: {
+            abilityScores: {
+              strength: draft.strength,
+              dexterity: draft.dexterity,
+              constitution: draft.constitution,
+              intelligence: draft.intelligence,
+              wisdom: draft.wisdom,
+              charisma: draft.charisma
+            },
+            racialModifiers: {
+              strength: draft.strRacial,
+              dexterity: draft.dexRacial,
+              constitution: draft.conRacial,
+              intelligence: draft.intRacial,
+              wisdom: draft.wisRacial,
+              charisma: draft.chaRacial
+            },
+            saves: {
+              fortitudeBase: draft.fortitudeBase,
+              fortitudeBonus: draft.fortitudeBonus,
+              reflexBase: draft.reflexBase,
+              reflexBonus: draft.reflexBonus,
+              willBase: draft.willBase,
+              willBonus: draft.willBonus
+            },
+            naturalArmorClass: draft.naturalArmorClass,
+            baseArmorClass: draft.baseArmorClass,
+            dexterityBonus: draft.dexterityBonus,
+            sizeModifier: draft.sizeModifier,
+            baseHitPoints: draft.baseHitPoints,
+            hitPointBonuses: draft.hitPointBonuses,
+            movementRate: draft.movementRate
+          },
+          appearanceSettings: {
+            partBasedAppearance: draft.appearancePartBased,
+            ...draft.appearanceParts
+          },
+          classEntries: draft.classEntries
+            .filter((entry) => entry.className.trim().length > 0)
+            .map((entry) => ({
+              className: entry.className.trim(),
+              level: Math.max(1, Math.trunc(entry.level))
+            })),
+          skills: draft.skills.map((entry) => ({
+            skill: entry.skill,
+            rank: Math.max(0, Math.trunc(entry.rank))
+          })),
+          scriptSlots: { ...draft.scriptSlots },
+          advancedSettings: {
+            ...draft.advancedSettings,
+            corpseDecayTimeSeconds: Math.max(
+              0,
+              Math.trunc(draft.advancedSettings.corpseDecayTimeSeconds)
+            )
+          },
+          feats: draft.feats.map((entry) => ({ ...entry })),
+          spells: draft.spells.map((entry) => ({ ...entry })),
+          specialAbilities: draft.specialAbilities.map((entry) => ({ ...entry })),
+          comments: draft.comments
+        };
+
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === objectId
+            ? {
+                ...object,
+                name: nextName.length > 0 ? nextName : nextTag,
+                tag: nextTag,
+                resRef: nextAppearanceResRef,
+                creatureProperties: nextCreatureProperties,
+                placeableProperties: undefined,
+                soundPositioning: undefined,
+                doorTransition: undefined
+              }
+            : object
+        );
+
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+
+      trackTelemetry("scene.creature_properties.apply", {
+        userId,
+        objectId,
+        closeAfterApply
+      });
+      if (closeAfterApply) {
+        setCreaturePropertiesDialog(null);
+      }
+    },
+    [creaturePropertiesDialog, sceneViewportPort, trackTelemetry, userId]
+  );
+
+  const cancelCreaturePropertiesDialog = useCallback(() => {
+    if (creaturePropertiesDialog) {
+      const snapshot = creaturePropertiesDialog.snapshotObject;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === snapshot.id);
+        if (!sourceObject || sourceObject.kind !== "creatures" || snapshot.kind !== "creatures") {
+          return current;
+        }
+        const sourceDraft = buildCreaturePropertiesDraft(sourceObject);
+        const snapshotDraft = buildCreaturePropertiesDraft(snapshot);
+        if (areCreaturePropertiesDraftsEqual(sourceDraft, snapshotDraft)) {
+          return current;
+        }
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === snapshot.id ? cloneSceneObject(snapshot) : object
+        );
+        return sceneViewportPort.commitHistory(current, {
+          ...current.present,
+          objects: nextObjects
+        });
+      });
+      trackTelemetry("scene.creature_properties.cancel", {
+        userId,
+        objectId: snapshot.id
+      });
+    }
+    setCreaturePropertiesDialog(null);
+  }, [cloneSceneObject, creaturePropertiesDialog, sceneViewportPort, trackTelemetry, userId]);
+
+  const toggleCreaturePropertiesDialogCollapsed = useCallback(() => {
+    setCreaturePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            collapsed: !current.collapsed
+          }
+        : current
+    );
+  }, []);
+
+  const startCreaturePropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !creaturePropertiesDialog) {
+        return;
+      }
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button")) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      const panelRect = creaturePropertiesDialogRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+
+      const resolvedX = panelRect ? panelRect.left - hostRect.left : creaturePropertiesDialog.windowX;
+      const resolvedY = panelRect ? panelRect.top - hostRect.top : creaturePropertiesDialog.windowY;
+
+      creaturePropertiesDialogDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - (hostRect.left + resolvedX),
+        offsetY: event.clientY - (hostRect.top + resolvedY)
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [creaturePropertiesDialog]
+  );
+
+  const moveCreaturePropertiesDialogDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = creaturePropertiesDialogDragRef.current;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const hostRect = hostRef.current?.getBoundingClientRect();
+      if (!hostRect) {
+        return;
+      }
+      const desiredX = event.clientX - hostRect.left - drag.offsetX;
+      const desiredY = event.clientY - hostRect.top - drag.offsetY;
+      const nextPosition = clampCreaturePropertiesDialogPosition(desiredX, desiredY);
+      setCreaturePropertiesDialog((current) =>
+        current
+          ? (() => {
+              const runtime = runtimeRef.current;
+              const targetObject =
+                scene.objects.find((object) => object.id === current.objectId) ?? null;
+              if (!runtime || !targetObject) {
+                return {
+                  ...current,
+                  windowX: nextPosition.x,
+                  windowY: nextPosition.y
+                };
+              }
+              const anchorScreen = resolveContextMenuAnchorScreen(
+                runtime,
+                targetObject,
+                current.objectId
+              );
+              return {
+                ...current,
+                windowX: nextPosition.x,
+                windowY: nextPosition.y,
+                anchorOffsetX: nextPosition.x - anchorScreen.x,
+                anchorOffsetY: nextPosition.y - anchorScreen.y
+              };
+            })()
+          : current
+      );
+      event.preventDefault();
+    },
+    [clampCreaturePropertiesDialogPosition, scene.objects]
+  );
+
+  const endCreaturePropertiesDialogDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const drag = creaturePropertiesDialogDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    creaturePropertiesDialogDragRef.current = {
+      active: false,
+      pointerId: null,
+      offsetX: 0,
+      offsetY: 0
+    };
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -7575,6 +8744,7 @@ export function WorkspaceCanvasViewport({
         setPlaceablePropertiesDialog(null);
         setSoundPropertiesDialog(null);
         setDoorPropertiesDialog(null);
+        setCreaturePropertiesDialog(null);
         openAdjustLocationDialog(editableTargets);
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -7590,7 +8760,8 @@ export function WorkspaceCanvasViewport({
         if (
           contextObj.kind !== "placeables" &&
           contextObj.kind !== "sounds" &&
-          contextObj.kind !== "doors"
+          contextObj.kind !== "doors" &&
+          contextObj.kind !== "creatures"
         ) {
           trackTelemetry("scene.object_properties.blocked_kind", {
             userId,
@@ -7607,14 +8778,22 @@ export function WorkspaceCanvasViewport({
         if (contextObj.kind === "placeables") {
           setSoundPropertiesDialog(null);
           setDoorPropertiesDialog(null);
+          setCreaturePropertiesDialog(null);
           openPlaceablePropertiesDialog(contextObj);
         } else if (contextObj.kind === "sounds") {
           setPlaceablePropertiesDialog(null);
           setDoorPropertiesDialog(null);
+          setCreaturePropertiesDialog(null);
           openSoundPropertiesDialog(contextObj);
+        } else if (contextObj.kind === "creatures") {
+          setPlaceablePropertiesDialog(null);
+          setSoundPropertiesDialog(null);
+          setDoorPropertiesDialog(null);
+          openCreaturePropertiesDialog(contextObj);
         } else {
           setPlaceablePropertiesDialog(null);
           setSoundPropertiesDialog(null);
+          setCreaturePropertiesDialog(null);
           openDoorPropertiesDialog(contextObj);
         }
         trackTelemetry("scene.context_menu.action", {
@@ -7722,6 +8901,7 @@ export function WorkspaceCanvasViewport({
     },
     [
       openAdjustLocationDialog,
+      openCreaturePropertiesDialog,
       openDoorPropertiesDialog,
       openPlaceablePropertiesDialog,
       openSoundPropertiesDialog,
@@ -7986,6 +9166,68 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
+    if (!creaturePropertiesDialog) {
+      return;
+    }
+
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+
+    const syncCreaturePropertiesDialogToObject = () => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const targetObject = scene.objects.find((object) => object.id === current.objectId) ?? null;
+        if (!targetObject || targetObject.kind !== "creatures") {
+          return null;
+        }
+        const panelWidth =
+          creaturePropertiesDialogRef.current?.offsetWidth ?? CREATURE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX;
+        const panelHeight =
+          creaturePropertiesDialogRef.current?.offsetHeight ?? CREATURE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX;
+        const anchoredPosition = resolveAnchoredContextMenuPosition(
+          runtime,
+          targetObject,
+          current.objectId,
+          current.anchorOffsetX,
+          current.anchorOffsetY,
+          panelWidth,
+          panelHeight
+        );
+        if (
+          Math.abs(anchoredPosition.x - current.windowX) < 0.5 &&
+          Math.abs(anchoredPosition.y - current.windowY) < 0.5
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: anchoredPosition.x,
+          windowY: anchoredPosition.y
+        };
+      });
+    };
+
+    syncCreaturePropertiesDialogToObject();
+    runtime.controls.addEventListener("change", syncCreaturePropertiesDialogToObject);
+    window.addEventListener("resize", syncCreaturePropertiesDialogToObject);
+    return () => {
+      runtime.controls.removeEventListener("change", syncCreaturePropertiesDialogToObject);
+      window.removeEventListener("resize", syncCreaturePropertiesDialogToObject);
+    };
+  }, [
+    creaturePropertiesDialog,
+    creaturePropertiesDialog?.anchorOffsetX,
+    creaturePropertiesDialog?.anchorOffsetY,
+    creaturePropertiesDialog?.collapsed,
+    creaturePropertiesDialog?.objectId,
+    scene.objects
+  ]);
+
+  useEffect(() => {
     if (!adjustLocationDialog) {
       return;
     }
@@ -8044,6 +9286,21 @@ export function WorkspaceCanvasViewport({
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [cancelDoorPropertiesDialog, doorPropertiesDialog]);
+
+  useEffect(() => {
+    if (!creaturePropertiesDialog) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelCreaturePropertiesDialog();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [cancelCreaturePropertiesDialog, creaturePropertiesDialog]);
 
   useEffect(() => {
     setAdjustLocationDialog((current) => {
@@ -8142,6 +9399,29 @@ export function WorkspaceCanvasViewport({
 
       const nextDraft = buildDoorPropertiesDraft(liveObject);
       if (areDoorPropertiesDraftsEqual(current.draft, nextDraft)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        draft: nextDraft
+      };
+    });
+  }, [scene.objects]);
+
+  useEffect(() => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const liveObject = scene.objects.find((object) => object.id === current.objectId);
+      if (!liveObject || liveObject.kind !== "creatures") {
+        return null;
+      }
+
+      const nextDraft = buildCreaturePropertiesDraft(liveObject);
+      if (areCreaturePropertiesDraftsEqual(current.draft, nextDraft)) {
         return current;
       }
 
@@ -8277,6 +9557,37 @@ export function WorkspaceCanvasViewport({
   ]);
 
   useEffect(() => {
+    if (!creaturePropertiesDialog) {
+      return;
+    }
+    const clampedPosition = clampCreaturePropertiesDialogPosition(
+      creaturePropertiesDialog.windowX,
+      creaturePropertiesDialog.windowY
+    );
+    if (
+      clampedPosition.x === creaturePropertiesDialog.windowX &&
+      clampedPosition.y === creaturePropertiesDialog.windowY
+    ) {
+      return;
+    }
+    setCreaturePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            windowX: clampedPosition.x,
+            windowY: clampedPosition.y
+          }
+        : current
+    );
+  }, [
+    clampCreaturePropertiesDialogPosition,
+    creaturePropertiesDialog,
+    creaturePropertiesDialog?.collapsed,
+    creaturePropertiesDialog?.windowX,
+    creaturePropertiesDialog?.windowY
+  ]);
+
+  useEffect(() => {
     if (!adjustLocationDialog) {
       return;
     }
@@ -8372,6 +9683,30 @@ export function WorkspaceCanvasViewport({
     return () => window.removeEventListener("resize", handleResize);
   }, [clampDoorPropertiesDialogPosition, doorPropertiesDialog]);
 
+  useEffect(() => {
+    if (!creaturePropertiesDialog) {
+      return;
+    }
+    const handleResize = () => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        const clamped = clampCreaturePropertiesDialogPosition(current.windowX, current.windowY);
+        if (clamped.x === current.windowX && clamped.y === current.windowY) {
+          return current;
+        }
+        return {
+          ...current,
+          windowX: clamped.x,
+          windowY: clamped.y
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampCreaturePropertiesDialogPosition, creaturePropertiesDialog]);
+
   const selectedTile = selectedTileId
     ? scene.tiles.find((tile) => tile.id === selectedTileId) ?? null
     : null;
@@ -8451,7 +9786,8 @@ export function WorkspaceCanvasViewport({
   const isContextPropertiesSupported =
     contextObject?.kind === "placeables" ||
     contextObject?.kind === "sounds" ||
-    contextObject?.kind === "doors";
+    contextObject?.kind === "doors" ||
+    contextObject?.kind === "creatures";
   const soundPositioningMode = soundPropertiesDialog?.draft.mode ?? "specific";
   const soundGating = {
     positioningDisabled: soundPositioningMode === "everywhere",
@@ -8481,6 +9817,100 @@ export function WorkspaceCanvasViewport({
     : new Array<boolean>(SOUND_HOUR_COUNT).fill(false);
   const soundAdvancedWhenToPlay = soundPropertiesDialog?.draft.whenToPlay ?? "always";
   const isSoundSpecificHoursEnabled = soundAdvancedWhenToPlay === "hours";
+  const creatureAbilityTotals = creaturePropertiesDialog
+    ? {
+        strength: creaturePropertiesDialog.draft.strength + creaturePropertiesDialog.draft.strRacial,
+        dexterity: creaturePropertiesDialog.draft.dexterity + creaturePropertiesDialog.draft.dexRacial,
+        constitution:
+          creaturePropertiesDialog.draft.constitution + creaturePropertiesDialog.draft.conRacial,
+        intelligence:
+          creaturePropertiesDialog.draft.intelligence + creaturePropertiesDialog.draft.intRacial,
+        wisdom: creaturePropertiesDialog.draft.wisdom + creaturePropertiesDialog.draft.wisRacial,
+        charisma: creaturePropertiesDialog.draft.charisma + creaturePropertiesDialog.draft.chaRacial
+      }
+    : null;
+  const creatureAbilityBonuses = creatureAbilityTotals
+    ? {
+        strength: resolveAbilityScoreModifier(creatureAbilityTotals.strength),
+        dexterity: resolveAbilityScoreModifier(creatureAbilityTotals.dexterity),
+        constitution: resolveAbilityScoreModifier(creatureAbilityTotals.constitution),
+        intelligence: resolveAbilityScoreModifier(creatureAbilityTotals.intelligence),
+        wisdom: resolveAbilityScoreModifier(creatureAbilityTotals.wisdom),
+        charisma: resolveAbilityScoreModifier(creatureAbilityTotals.charisma)
+      }
+    : null;
+  const creatureTotalArmorClass = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.naturalArmorClass +
+      creaturePropertiesDialog.draft.baseArmorClass +
+      creaturePropertiesDialog.draft.dexterityBonus +
+      creaturePropertiesDialog.draft.sizeModifier
+    : 0;
+  const creatureTotalHitPoints = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.baseHitPoints + creaturePropertiesDialog.draft.hitPointBonuses
+    : 0;
+  const creatureCalculatedChallengeRating = creaturePropertiesDialog
+    ? Math.max(
+        0,
+        creaturePropertiesDialog.draft.challengeRating +
+          creaturePropertiesDialog.draft.advancedSettings.challengeRatingAdjustment
+      )
+    : 0;
+  const creatureFeatsSource = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.feats.length > 0
+      ? creaturePropertiesDialog.draft.feats
+      : CREATURE_DEFAULT_MOCK_FEATS
+    : [];
+  const creatureFeatsRows =
+    creatureFeatsFilter === "All Feats"
+      ? creatureFeatsSource
+      : creatureFeatsSource.filter((entry) => entry.type === creatureFeatsFilter);
+  const creatureFeatsSummary = creatureFeatsSource
+    .filter((entry) => entry.assigned)
+    .reduce<Record<string, string[]>>((acc, entry) => {
+      if (!acc[entry.type]) {
+        acc[entry.type] = [];
+      }
+      acc[entry.type].push(entry.name);
+      return acc;
+    }, {});
+  const creatureFeatsSummaryText =
+    Object.entries(creatureFeatsSummary)
+      .map(([type, names]) => `${type}\n${names.map((name) => `  ${name}`).join("\n")}`)
+      .join("\n") || "No assigned feats";
+
+  const creatureSpellSource = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.spells.length > 0
+      ? creaturePropertiesDialog.draft.spells
+      : CREATURE_DEFAULT_MOCK_SPELLS
+    : [];
+  const creatureSpellsRows =
+    creatureSpellsLevelFilter === "All Levels"
+      ? creatureSpellSource
+      : creatureSpellSource.filter(
+          (entry) => String(entry.spellLevel) === creatureSpellsLevelFilter
+        );
+  const creatureClassFilterEntries = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.classEntries
+        .map((entry) => entry.className.trim())
+        .filter((entry, index) => entry.length > 0 || index === 0)
+        .slice(0, 8)
+    : [];
+  const creatureSpellsSummaryText =
+    creatureSpellsRows.map((entry) => `${entry.name} (L${entry.spellLevel})`).join("\n") ||
+    "No spells in current filter";
+
+  const creatureSpecialAbilitiesSource = creaturePropertiesDialog
+    ? creaturePropertiesDialog.draft.specialAbilities.length > 0
+      ? creaturePropertiesDialog.draft.specialAbilities
+      : CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES
+    : [];
+  const creatureSpecialAbilitiesRows =
+    creatureSpecialAbilitiesFilter === "All Spells and Abilities"
+      ? creatureSpecialAbilitiesSource
+      : creatureSpecialAbilitiesSource.filter((entry) => entry.type === creatureSpecialAbilitiesFilter);
+  const creatureSpecialAbilitiesSummaryText =
+    creatureSpecialAbilitiesRows.map((entry) => `${entry.type}\n  ${entry.name}`).join("\n") ||
+    "No abilities in current filter";
   const resolveCanvasObjectAddPlacement = useCallback(
     (clientX: number, clientY: number): { x: number; y: number; tileId: string | null } | null => {
       const runtime = runtimeRef.current;
@@ -9923,6 +11353,1301 @@ export function WorkspaceCanvasViewport({
                   OK
                 </button>
                 <button type="button" onClick={() => cancelPlaceablePropertiesDialog()}>
+                  Cancel
+                </button>
+              </footer>
+            </>
+          ) : null}
+        </article>
+      ) : null}
+
+      {creaturePropertiesDialog ? (
+        <article
+          ref={creaturePropertiesDialogRef}
+          className={`canvas-placeable-properties-dialog canvas-creature-properties-dialog ${
+            creaturePropertiesDialog.collapsed ? "is-collapsed" : ""
+          }`}
+          role="dialog"
+          aria-label="Creature properties"
+          style={{
+            left: `${creaturePropertiesDialog.windowX}px`,
+            top: `${creaturePropertiesDialog.windowY}px`
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <header
+            className="canvas-placeable-properties-header"
+            onPointerDown={startCreaturePropertiesDialogDrag}
+            onPointerMove={moveCreaturePropertiesDialogDrag}
+            onPointerUp={endCreaturePropertiesDialogDrag}
+            onPointerCancel={endCreaturePropertiesDialogDrag}
+          >
+            <div className="canvas-placeable-properties-header-copy">
+              <h2>Creature Properties</h2>
+              <p>{creaturePropertiesDialog.draft.tag || creaturePropertiesDialog.objectId}</p>
+            </div>
+            <div className="canvas-placeable-properties-header-actions">
+              <button
+                type="button"
+                onClick={() => toggleCreaturePropertiesDialogCollapsed()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={
+                  creaturePropertiesDialog.collapsed
+                    ? "Expand creature properties dialog"
+                    : "Collapse creature properties dialog"
+                }
+              >
+                {creaturePropertiesDialog.collapsed ? "+" : "-"}
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelCreaturePropertiesDialog()}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label="Close creature properties dialog"
+              >
+                x
+              </button>
+            </div>
+          </header>
+
+          {!creaturePropertiesDialog.collapsed ? (
+            <>
+              <nav className="canvas-placeable-properties-tabs" aria-label="creature properties tabs">
+                {CREATURE_PROPERTIES_TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={creaturePropertiesDialog.activeTab === tab ? "is-active" : undefined}
+                    onClick={() => setCreaturePropertiesActiveTab(tab)}
+                  >
+                    {resolveCreaturePropertiesTabLabel(tab)}
+                  </button>
+                ))}
+              </nav>
+
+              <section className="canvas-placeable-properties-shell">
+                <aside className="canvas-placeable-properties-preview-pane" aria-hidden="true">
+                  <div className="canvas-placeable-properties-preview">
+                    <span>{creaturePropertiesDialog.draft.appearance || "Creature Preview"}</span>
+                  </div>
+                  <button type="button" disabled className="canvas-placeable-properties-preview-action">
+                    Inventory ...
+                  </button>
+                </aside>
+
+                <div className="canvas-placeable-properties-pane">
+                  {creaturePropertiesDialog.activeTab === "basic" ? (
+                    <div className="canvas-placeable-properties-basic canvas-creature-properties-basic">
+                      <fieldset className="canvas-placeable-properties-basic-identity canvas-placeable-properties-group">
+                        <legend>Profile</legend>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>First Name</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.firstName}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("firstName", event.target.value)
+                              }
+                            />
+                            <button type="button" disabled aria-label="Browse first name">
+                              ...
+                            </button>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Last Name</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.lastName}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("lastName", event.target.value)
+                              }
+                            />
+                            <button type="button" disabled aria-label="Browse last name">
+                              ...
+                            </button>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Tag</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.tag}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("tag", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Race</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creaturePropertiesDialog.draft.race}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("race", event.target.value)
+                              }
+                            >
+                              {CREATURE_RACE_OPTIONS.map((race) => (
+                                <option key={race} value={race}>
+                                  {race}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Appearance</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.appearance}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("appearance", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Phenotype</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.phenotype}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("phenotype", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Gender</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creaturePropertiesDialog.draft.gender}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("gender", event.target.value)
+                              }
+                            >
+                              {CREATURE_GENDER_OPTIONS.map((gender) => (
+                                <option key={gender} value={gender}>
+                                  {gender}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Challenge Rating</span>
+                          <div className="canvas-placeable-properties-field-control is-narrow">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min={0}
+                              value={creaturePropertiesDialog.draft.challengeRating}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField(
+                                  "challengeRating",
+                                  Math.max(0, Number.parseFloat(event.target.value) || 0)
+                                )
+                              }
+                            />
+                          </div>
+                        </label>
+                      </fieldset>
+
+                      <div className="canvas-creature-properties-basic-panel-stack">
+                        <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                          <legend>Portrait</legend>
+                          <div className="canvas-placeable-properties-portrait-row">
+                            <div className="canvas-placeable-properties-portrait-preview">
+                              <span>{creaturePropertiesDialog.draft.portraitResRef || "Portrait"}</span>
+                            </div>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="text"
+                                aria-label="Portrait"
+                                value={creaturePropertiesDialog.draft.portraitResRef}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "portraitResRef",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                              <button type="button" disabled aria-label="Browse portrait">
+                                ...
+                              </button>
+                            </div>
+                          </div>
+                        </fieldset>
+
+                        <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                          <legend>Conversation</legend>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Conversation</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="text"
+                                value={creaturePropertiesDialog.draft.conversation}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "conversation",
+                                    event.target.value
+                                  )
+                                }
+                              />
+                              <button type="button" disabled aria-label="Browse conversation">
+                                ...
+                              </button>
+                              <button type="button" disabled aria-label="Edit conversation">
+                                Edit
+                              </button>
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={creaturePropertiesDialog.draft.noInterrupt}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("noInterrupt", event.target.checked)
+                              }
+                            />
+                            No Interrupt
+                          </label>
+                        </fieldset>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "statistics" ? (
+                    <div className="canvas-creature-properties-statistics">
+                      <fieldset className="canvas-placeable-properties-group">
+                        <legend>Ability Scores</legend>
+                        <table className="canvas-creature-properties-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Ability</th>
+                              <th scope="col">Score</th>
+                              <th scope="col">Racial Modifier</th>
+                              <th scope="col">Total</th>
+                              <th scope="col">Bonus</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              ["Strength", "strength", "strRacial"],
+                              ["Dexterity", "dexterity", "dexRacial"],
+                              ["Constitution", "constitution", "conRacial"],
+                              ["Intelligence", "intelligence", "intRacial"],
+                              ["Wisdom", "wisdom", "wisRacial"],
+                              ["Charisma", "charisma", "chaRacial"]
+                            ].map(([label, scoreField, racialField]) => {
+                              const scoreValue = creaturePropertiesDialog.draft[
+                                scoreField as keyof CreaturePropertiesDraft
+                              ] as number;
+                              const racialValue = creaturePropertiesDialog.draft[
+                                racialField as keyof CreaturePropertiesDraft
+                              ] as number;
+                              const totalValue = scoreValue + racialValue;
+                              const bonusValue = resolveAbilityScoreModifier(totalValue);
+                              return (
+                                <tr key={label}>
+                                  <th scope="row">{label}</th>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      step="1"
+                                      aria-label={`${label} score`}
+                                      value={scoreValue}
+                                      onChange={(event) =>
+                                        updateCreaturePropertiesDraftField(
+                                          scoreField as keyof CreaturePropertiesDraft,
+                                          Number.parseFloat(event.target.value) || 0
+                                        )
+                                      }
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      step="1"
+                                      aria-label={`${label} racial modifier`}
+                                      value={racialValue}
+                                      onChange={(event) =>
+                                        updateCreaturePropertiesDraftField(
+                                          racialField as keyof CreaturePropertiesDraft,
+                                          Number.parseFloat(event.target.value) || 0
+                                        )
+                                      }
+                                    />
+                                  </td>
+                                  <td>{totalValue}</td>
+                                  <td>{bonusValue}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </fieldset>
+
+                      <div className="canvas-creature-properties-statistics-grid">
+                        <fieldset className="canvas-placeable-properties-group">
+                          <legend>Saves</legend>
+                          <table className="canvas-creature-properties-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">Save</th>
+                                <th scope="col">Base</th>
+                                <th scope="col">Ability Modifier</th>
+                                <th scope="col">Bonus</th>
+                                <th scope="col">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                ["Fortitude", "fortitudeBase", "fortitudeBonus", "constitution"],
+                                ["Reflex", "reflexBase", "reflexBonus", "dexterity"],
+                                ["Will", "willBase", "willBonus", "wisdom"]
+                              ].map(([label, baseField, bonusField, abilityField]) => {
+                                const baseValue = creaturePropertiesDialog.draft[
+                                  baseField as keyof CreaturePropertiesDraft
+                                ] as number;
+                                const bonusValue = creaturePropertiesDialog.draft[
+                                  bonusField as keyof CreaturePropertiesDraft
+                                ] as number;
+                                const abilityModifier =
+                                  creatureAbilityBonuses?.[
+                                    abilityField as keyof NonNullable<typeof creatureAbilityBonuses>
+                                  ] ?? 0;
+                                return (
+                                  <tr key={label}>
+                                    <th scope="row">{label}</th>
+                                    <td>
+                                      <span aria-label={`${label} base`} className="canvas-creature-properties-cell-value">
+                                        {baseValue}
+                                      </span>
+                                    </td>
+                                    <td>{abilityModifier}</td>
+                                    <td>
+                                      <input
+                                        type="number"
+                                        step="1"
+                                        aria-label={`${label} bonus`}
+                                        value={bonusValue}
+                                        onChange={(event) =>
+                                          updateCreaturePropertiesDraftField(
+                                            bonusField as keyof CreaturePropertiesDraft,
+                                            Number.parseFloat(event.target.value) || 0
+                                          )
+                                        }
+                                      />
+                                    </td>
+                                    <td>{baseValue + abilityModifier + bonusValue}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </fieldset>
+
+                        <fieldset className="canvas-placeable-properties-group">
+                          <legend>Armor / Hit Points</legend>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Natural AC</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.naturalArmorClass}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "naturalArmorClass",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Base AC</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.baseArmorClass}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "baseArmorClass",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Dexterity Bonus</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.dexterityBonus}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "dexterityBonus",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Size Modifier</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.sizeModifier}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "sizeModifier",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Base Hit Points</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.baseHitPoints}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "baseHitPoints",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Hit Point Bonuses</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                value={creaturePropertiesDialog.draft.hitPointBonuses}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "hitPointBonuses",
+                                    Number.parseFloat(event.target.value) || 0
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Total Armor Class</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input type="number" step="1" value={creatureTotalArmorClass} readOnly />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Total Hit Points</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input type="number" step="1" value={creatureTotalHitPoints} readOnly />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Movement Rate</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <select
+                                value={creaturePropertiesDialog.draft.movementRate}
+                                onChange={(event) =>
+                                  updateCreaturePropertiesDraftField(
+                                    "movementRate",
+                                    event.target.value
+                                  )
+                                }
+                              >
+                                {CREATURE_MOVEMENT_RATE_OPTIONS.map((movementRate) => (
+                                  <option key={movementRate} value={movementRate}>
+                                    {movementRate}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </label>
+                        </fieldset>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "appearance" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={creaturePropertiesDialog.draft.appearancePartBased}
+                          onChange={(event) =>
+                            updateCreaturePropertiesDraftField(
+                              "appearancePartBased",
+                              event.target.checked
+                            )
+                          }
+                        />
+                        Use part-based appearance
+                      </label>
+                      <div className="canvas-creature-properties-appearance-aurora">
+                        <div className="canvas-creature-properties-appearance-core">
+                          {CREATURE_APPEARANCE_CORE_FIELDS.map((entry) => (
+                            <label
+                              key={entry.key}
+                              className="canvas-placeable-properties-field-row canvas-creature-properties-appearance-core-row"
+                            >
+                              <span>{entry.label}</span>
+                              <div className="canvas-placeable-properties-field-control">
+                                <input
+                                  type="text"
+                                  value={creaturePropertiesDialog.draft.appearanceParts[entry.key]}
+                                  disabled={!creaturePropertiesDialog.draft.appearancePartBased}
+                                  onChange={(event) =>
+                                    updateCreatureAppearancePart(entry.key, event.target.value)
+                                  }
+                                />
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="canvas-creature-properties-appearance-limbs">
+                          {CREATURE_APPEARANCE_LIMB_PAIRS.map((pair) => (
+                            <div key={pair.rightKey} className="canvas-creature-properties-appearance-pair">
+                              <label className="canvas-placeable-properties-field-row">
+                                <span>{pair.rightLabel}</span>
+                                <div className="canvas-placeable-properties-field-control">
+                                  <input
+                                    type="text"
+                                    value={
+                                      creaturePropertiesDialog.draft.appearanceParts[pair.rightKey]
+                                    }
+                                    disabled={!creaturePropertiesDialog.draft.appearancePartBased}
+                                    onChange={(event) =>
+                                      updateCreatureAppearancePart(pair.rightKey, event.target.value)
+                                    }
+                                  />
+                                </div>
+                              </label>
+                              <label className="canvas-placeable-properties-field-row">
+                                <span>{pair.leftLabel}</span>
+                                <div className="canvas-placeable-properties-field-control">
+                                  <input
+                                    type="text"
+                                    value={
+                                      creaturePropertiesDialog.draft.appearanceParts[pair.leftKey]
+                                    }
+                                    disabled={!creaturePropertiesDialog.draft.appearancePartBased}
+                                    onChange={(event) =>
+                                      updateCreatureAppearancePart(pair.leftKey, event.target.value)
+                                    }
+                                  />
+                                </div>
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="canvas-creature-properties-appearance-tail-row">
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>{CREATURE_APPEARANCE_EXTRA_PAIR.rightLabel}</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="text"
+                                value={
+                                  creaturePropertiesDialog.draft.appearanceParts[
+                                    CREATURE_APPEARANCE_EXTRA_PAIR.rightKey
+                                  ]
+                                }
+                                disabled={!creaturePropertiesDialog.draft.appearancePartBased}
+                                onChange={(event) =>
+                                  updateCreatureAppearancePart(
+                                    CREATURE_APPEARANCE_EXTRA_PAIR.rightKey,
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>{CREATURE_APPEARANCE_EXTRA_PAIR.leftLabel}</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <input
+                                type="text"
+                                value={
+                                  creaturePropertiesDialog.draft.appearanceParts[
+                                    CREATURE_APPEARANCE_EXTRA_PAIR.leftKey
+                                  ]
+                                }
+                                disabled={!creaturePropertiesDialog.draft.appearancePartBased}
+                                onChange={(event) =>
+                                  updateCreatureAppearancePart(
+                                    CREATURE_APPEARANCE_EXTRA_PAIR.leftKey,
+                                    event.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                      <p className="canvas-placeable-properties-note">
+                        Aurora-first: part fields affect only models supporting body-part overrides.
+                      </p>
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "classes" ? (
+                    <div className="canvas-creature-properties-classes">
+                      <fieldset className="canvas-placeable-properties-group">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Alignment</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creaturePropertiesDialog.draft.alignment}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("alignment", event.target.value)
+                              }
+                            >
+                              {CREATURE_ALIGNMENT_OPTIONS.map((alignment) => (
+                                <option key={alignment} value={alignment}>
+                                  {alignment}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                      </fieldset>
+                      <fieldset className="canvas-placeable-properties-group">
+                        <legend>Classes</legend>
+                        <table className="canvas-creature-properties-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Class</th>
+                              <th scope="col">Level</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {creaturePropertiesDialog.draft.classEntries.map((entry, index) => (
+                              <tr key={`class_${index + 1}`}>
+                                <td>
+                                  <input
+                                    type="text"
+                                    value={entry.className}
+                                    onChange={(event) =>
+                                      updateCreatureClassEntry(index, "className", event.target.value)
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={1}
+                                    value={entry.level}
+                                    onChange={(event) =>
+                                      updateCreatureClassEntry(
+                                        index,
+                                        "level",
+                                        Math.max(1, Number.parseFloat(event.target.value) || 1)
+                                      )
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Default Package for Autolevelup</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.defaultPackage}
+                              onChange={(event) =>
+                                updateCreaturePropertiesDraftField("defaultPackage", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                      </fieldset>
+                    </div>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "skills" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Skills</legend>
+                      <table className="canvas-creature-properties-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Skill</th>
+                            <th scope="col">Rank</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creaturePropertiesDialog.draft.skills.map((entry, index) => (
+                            <tr key={entry.skill}>
+                              <th scope="row">{entry.skill}</th>
+                              <td>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min={0}
+                                  value={entry.rank}
+                                  onChange={(event) =>
+                                    updateCreatureSkillRank(
+                                      index,
+                                      Math.max(0, Number.parseFloat(event.target.value) || 0)
+                                    )
+                                  }
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "scripts" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Scripts</legend>
+                      {CREATURE_SCRIPT_SLOT_KEYS.map((slotKey) => (
+                        <label key={slotKey} className="canvas-placeable-properties-field-row">
+                          <span>{CREATURE_SCRIPT_SLOT_LABELS[slotKey]}</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.scriptSlots[slotKey]}
+                              onChange={(event) => updateCreatureScriptSlot(slotKey, event.target.value)}
+                            />
+                            <button type="button" disabled aria-label={`Browse ${slotKey} script`}>
+                              ...
+                            </button>
+                            <button type="button" disabled aria-label={`Edit ${slotKey} script`}>
+                              Edit
+                            </button>
+                          </div>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "advanced" ? (
+                    <div className="canvas-creature-properties-advanced">
+                      <fieldset className="canvas-placeable-properties-group">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Blueprint ResRef</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <input
+                              type="text"
+                              value={creaturePropertiesDialog.draft.advancedSettings.blueprintResRef}
+                              onChange={(event) =>
+                                updateCreatureAdvancedField("blueprintResRef", event.target.value)
+                              }
+                            />
+                          </div>
+                        </label>
+                        <div className="canvas-placeable-properties-basic-flags">
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={creaturePropertiesDialog.draft.advancedSettings.disarmable}
+                              onChange={(event) =>
+                                updateCreatureAdvancedField("disarmable", event.target.checked)
+                              }
+                            />
+                            Disarmable
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={creaturePropertiesDialog.draft.advancedSettings.plot}
+                              onChange={(event) =>
+                                updateCreatureAdvancedField("plot", event.target.checked)
+                              }
+                            />
+                            Plot
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={
+                                creaturePropertiesDialog.draft.advancedSettings.leavesLootableCorpse
+                              }
+                              onChange={(event) =>
+                                updateCreatureAdvancedField(
+                                  "leavesLootableCorpse",
+                                  event.target.checked
+                                )
+                              }
+                            />
+                            Leaves Lootable Corpse
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={creaturePropertiesDialog.draft.advancedSettings.noPermanentDeath}
+                              onChange={(event) =>
+                                updateCreatureAdvancedField(
+                                  "noPermanentDeath",
+                                  event.target.checked
+                                )
+                              }
+                            />
+                            No Permanent Death
+                          </label>
+                          <label className="canvas-placeable-properties-toggle">
+                            <input
+                              type="checkbox"
+                              checked={creaturePropertiesDialog.draft.advancedSettings.immortal}
+                              onChange={(event) =>
+                                updateCreatureAdvancedField("immortal", event.target.checked)
+                              }
+                            />
+                            Immortal
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <fieldset className="canvas-placeable-properties-group">
+                        <div className="canvas-placeable-properties-dual-fields">
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Treasure Model</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <select
+                                value={creaturePropertiesDialog.draft.advancedSettings.treasureModel}
+                                onChange={(event) =>
+                                  updateCreatureAdvancedField("treasureModel", event.target.value)
+                                }
+                              >
+                                {CREATURE_TREASURE_MODEL_OPTIONS.map((treasureModel) => (
+                                  <option key={treasureModel} value={treasureModel}>
+                                    {treasureModel}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </label>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Corpse Decay Time (s)</span>
+                            <div className="canvas-placeable-properties-field-control is-narrow">
+                              <input
+                                type="number"
+                                step="1"
+                                min={0}
+                                value={
+                                  creaturePropertiesDialog.draft.advancedSettings.corpseDecayTimeSeconds
+                                }
+                                onChange={(event) =>
+                                  updateCreatureAdvancedField(
+                                    "corpseDecayTimeSeconds",
+                                    Math.max(0, Number.parseFloat(event.target.value) || 0)
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                        </div>
+
+                        <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                          <legend>Faction</legend>
+                          <label className="canvas-placeable-properties-field-row">
+                            <span>Faction</span>
+                            <div className="canvas-placeable-properties-field-control">
+                              <select
+                                value={creaturePropertiesDialog.draft.advancedSettings.faction}
+                                onChange={(event) =>
+                                  updateCreatureAdvancedField("faction", event.target.value)
+                                }
+                              >
+                                {CREATURE_FACTION_OPTIONS.map((faction) => (
+                                  <option key={faction} value={faction}>
+                                    {faction}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="button" disabled>
+                                Edit Factions
+                              </button>
+                            </div>
+                          </label>
+                        </fieldset>
+
+                        <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                          <legend>Special</legend>
+                          <div className="canvas-placeable-properties-dual-fields">
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Subrace</span>
+                              <div className="canvas-placeable-properties-field-control">
+                                <input
+                                  type="text"
+                                  value={creaturePropertiesDialog.draft.advancedSettings.subrace}
+                                  onChange={(event) =>
+                                    updateCreatureAdvancedField("subrace", event.target.value)
+                                  }
+                                />
+                              </div>
+                            </label>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Deity</span>
+                              <div className="canvas-placeable-properties-field-control">
+                                <input
+                                  type="text"
+                                  value={creaturePropertiesDialog.draft.advancedSettings.deity}
+                                  onChange={(event) =>
+                                    updateCreatureAdvancedField("deity", event.target.value)
+                                  }
+                                />
+                              </div>
+                            </label>
+                          </div>
+                          <div className="canvas-placeable-properties-variables-row">
+                            <button type="button" disabled>
+                              Apply Template
+                            </button>
+                          </div>
+                        </fieldset>
+
+                        <div className="canvas-creature-properties-advanced-special-grid">
+                          <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                            <legend>Challenge Rating</legend>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Calculated</span>
+                              <div className="canvas-placeable-properties-field-control is-narrow">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={creatureCalculatedChallengeRating.toFixed(2)}
+                                  readOnly
+                                />
+                              </div>
+                            </label>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Adjustment</span>
+                              <div className="canvas-placeable-properties-field-control is-narrow">
+                                <input
+                                  type="number"
+                                  step="1"
+                                  value={
+                                    creaturePropertiesDialog.draft.advancedSettings
+                                      .challengeRatingAdjustment
+                                  }
+                                  onChange={(event) =>
+                                    updateCreatureAdvancedField(
+                                      "challengeRatingAdjustment",
+                                      Number.parseFloat(event.target.value) || 0
+                                    )
+                                  }
+                                />
+                              </div>
+                            </label>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Challenge Rating</span>
+                              <div className="canvas-placeable-properties-field-control is-narrow">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min={0}
+                                  value={creaturePropertiesDialog.draft.challengeRating}
+                                  onChange={(event) =>
+                                    updateCreaturePropertiesDraftField(
+                                      "challengeRating",
+                                      Math.max(0, Number.parseFloat(event.target.value) || 0)
+                                    )
+                                  }
+                                />
+                              </div>
+                            </label>
+                          </fieldset>
+
+                          <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                            <legend>Sound / Perception</legend>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Sound Set</span>
+                              <div className="canvas-placeable-properties-field-control">
+                                <input
+                                  type="text"
+                                  value={creaturePropertiesDialog.draft.advancedSettings.soundSet}
+                                  onChange={(event) =>
+                                    updateCreatureAdvancedField("soundSet", event.target.value)
+                                  }
+                                />
+                                <button type="button" disabled>
+                                  ...
+                                </button>
+                              </div>
+                            </label>
+                            <label className="canvas-placeable-properties-field-row">
+                              <span>Perception Range</span>
+                              <div className="canvas-placeable-properties-field-control">
+                                <select
+                                  value={creaturePropertiesDialog.draft.advancedSettings.perceptionRange}
+                                  onChange={(event) =>
+                                    updateCreatureAdvancedField("perceptionRange", event.target.value)
+                                  }
+                                >
+                                  {CREATURE_PERCEPTION_RANGE_OPTIONS.map((perceptionRange) => (
+                                    <option key={perceptionRange} value={perceptionRange}>
+                                      {perceptionRange}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </label>
+                          </fieldset>
+                        </div>
+
+                        <div className="canvas-placeable-properties-variables-row">
+                          <button type="button">Variables</button>
+                        </div>
+                      </fieldset>
+                    </div>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "feats" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Feats</legend>
+                      <table className="canvas-creature-properties-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Assigned</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creatureFeatsRows.map((entry, index) => (
+                            <tr key={`feat_${index + 1}_${entry.name}`}>
+                              <td>{entry.name}</td>
+                              <td>{entry.type}</td>
+                              <td>
+                                <input type="checkbox" checked={entry.assigned} readOnly />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="canvas-creature-properties-aux-row">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Filter</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creatureFeatsFilter}
+                              onChange={(event) => setCreatureFeatsFilter(event.target.value)}
+                            >
+                              {CREATURE_FEAT_FILTER_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" disabled aria-label="Feats help">
+                              ?
+                            </button>
+                          </div>
+                        </label>
+                      </div>
+                      <label className="canvas-placeable-properties-fulltext">
+                        <span>Feats Selection Summary</span>
+                        <textarea value={creatureFeatsSummaryText} readOnly rows={7} />
+                      </label>
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "spells" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Spells</legend>
+                      <table className="canvas-creature-properties-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Prepared</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Spell Level</th>
+                            <th scope="col">Casting Level</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creatureSpellsRows.map((entry, index) => (
+                            <tr key={`spell_${index + 1}_${entry.name}`}>
+                              <td>
+                                <input type="checkbox" checked={entry.prepared} readOnly />
+                              </td>
+                              <td>{entry.name}</td>
+                              <td>{entry.spellLevel}</td>
+                              <td>{entry.castingLevel}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="canvas-placeable-properties-dual-fields">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Spell Level</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creatureSpellsLevelFilter}
+                              onChange={(event) => setCreatureSpellsLevelFilter(event.target.value)}
+                            >
+                              {CREATURE_SPELL_LEVEL_FILTER_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Meta-Magic</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creatureSpellsMetaMagicFilter}
+                              onChange={(event) =>
+                                setCreatureSpellsMetaMagicFilter(event.target.value)
+                              }
+                            >
+                              {CREATURE_METAMAGIC_FILTER_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" disabled aria-label="Spells help">
+                              ?
+                            </button>
+                          </div>
+                        </label>
+                      </div>
+                      <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                        <legend>Class</legend>
+                        <div className="canvas-creature-properties-class-radio-grid">
+                          {(creatureClassFilterEntries.length > 0
+                            ? creatureClassFilterEntries
+                            : ["Class 1"]
+                          ).map((className, index) => (
+                            <label
+                              key={`${className || "class"}_${index + 1}`}
+                              className="canvas-placeable-properties-toggle"
+                            >
+                              <input
+                                type="radio"
+                                name="creature-spells-class"
+                                checked={creatureSpellsClassFilterIndex === index}
+                                onChange={() => setCreatureSpellsClassFilterIndex(index)}
+                              />
+                              {className || `Class ${index + 1}`}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <label className="canvas-placeable-properties-fulltext">
+                        <span>Spell Selection Summary</span>
+                        <textarea value={creatureSpellsSummaryText} readOnly rows={7} />
+                      </label>
+                      <div className="canvas-placeable-properties-script-actions">
+                        <button type="button" disabled>
+                          Clear Class Spell List
+                        </button>
+                        <button type="button" disabled>
+                          Save Class Spell List
+                        </button>
+                        <button type="button" disabled>
+                          Load Class Spell List
+                        </button>
+                      </div>
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "specialAbilities" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Special Abilities</legend>
+                      <table className="canvas-creature-properties-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Caster Level</th>
+                            <th scope="col">Uses</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creatureSpecialAbilitiesRows.map((entry, index) => (
+                            <tr key={`ability_${index + 1}_${entry.name}`}>
+                              <td>{entry.name}</td>
+                              <td>{entry.type}</td>
+                              <td>{entry.casterLevel}</td>
+                              <td>{entry.uses}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="canvas-creature-properties-aux-row">
+                        <label className="canvas-placeable-properties-field-row">
+                          <span>Filter</span>
+                          <div className="canvas-placeable-properties-field-control">
+                            <select
+                              value={creatureSpecialAbilitiesFilter}
+                              onChange={(event) =>
+                                setCreatureSpecialAbilitiesFilter(event.target.value)
+                              }
+                            >
+                              {CREATURE_SPECIAL_ABILITIES_FILTER_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" disabled aria-label="Special abilities help">
+                              ?
+                            </button>
+                          </div>
+                        </label>
+                      </div>
+                      <label className="canvas-placeable-properties-fulltext">
+                        <span>Special Abilities Selection Summary</span>
+                        <textarea value={creatureSpecialAbilitiesSummaryText} readOnly rows={7} />
+                      </label>
+                    </fieldset>
+                  ) : null}
+
+                  {creaturePropertiesDialog.activeTab === "comments" ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Comments</legend>
+                      <textarea
+                        rows={10}
+                        value={creaturePropertiesDialog.draft.comments}
+                        onChange={(event) =>
+                          updateCreaturePropertiesDraftField("comments", event.target.value)
+                        }
+                      />
+                    </fieldset>
+                  ) : null}
+                </div>
+              </section>
+
+              <footer className="canvas-placeable-properties-actions">
+                <button type="button" onClick={() => applyCreaturePropertiesDraft(false)}>
+                  Apply
+                </button>
+                <button type="button" onClick={() => applyCreaturePropertiesDraft(true)}>
+                  OK
+                </button>
+                <button type="button" onClick={() => cancelCreaturePropertiesDialog()}>
                   Cancel
                 </button>
               </footer>

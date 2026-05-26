@@ -181,6 +181,79 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     expect(roundtrip).toBe(normalized);
   });
 
+  it("normalizes creature properties defensively and strips non-creature payloads", () => {
+    const creature = createNewSceneObject("creatures", 2.2, 1.1, 88);
+    const normalized = normalizeSceneObjectMetadata({
+      ...creature,
+      placeableProperties: {
+        plot: true,
+        useable: true,
+        hasInventory: true
+      },
+      soundPositioning: {
+        mode: "specific"
+      } as unknown as NonNullable<typeof creature.soundPositioning>,
+      doorTransition: {
+        linkedTarget: "door_a"
+      } as unknown as NonNullable<typeof creature.doorTransition>,
+      creatureProperties: {
+        firstName: "Battle Devourer",
+        lastName: 11,
+        race: "Aberration",
+        appearance: "nw_battdevour",
+        challengeRating: -4,
+        statistics: {
+          abilityScores: {
+            strength: 15,
+            dexterity: "bad"
+          },
+          movementRate: 77
+        },
+        classEntries: [{ className: "Aberration", level: 9 }, { className: 42, level: -3 }],
+        scriptSlots: {
+          onHeartbeat: "nw_crt_hb",
+          onBlocked: 123
+        },
+        advancedSettings: {
+          corpseDecayTimeSeconds: -10,
+          plot: true
+        }
+      } as unknown as NonNullable<typeof creature.creatureProperties>
+    });
+
+    expect(normalized.placeableProperties).toBeUndefined();
+    expect(normalized.soundPositioning).toBeUndefined();
+    expect(normalized.doorTransition).toBeUndefined();
+    expect(normalized.creatureProperties?.firstName).toBe("Battle Devourer");
+    expect(normalized.creatureProperties?.lastName).toBe("");
+    expect(normalized.creatureProperties?.challengeRating).toBe(0);
+    expect(normalized.creatureProperties?.statistics?.abilityScores.strength).toBe(15);
+    expect(normalized.creatureProperties?.statistics?.abilityScores.dexterity).toBe(10);
+    expect(normalized.creatureProperties?.statistics?.movementRate).toBe("Default");
+    expect(normalized.creatureProperties?.classEntries).toEqual([
+      { className: "Aberration", level: 9 },
+      { className: "Class", level: 1 }
+    ]);
+    expect(normalized.creatureProperties?.scriptSlots?.onHeartbeat).toBe("nw_crt_hb");
+    expect(normalized.creatureProperties?.scriptSlots?.onBlocked).toBe("");
+    expect(normalized.creatureProperties?.advancedSettings?.corpseDecayTimeSeconds).toBe(0);
+    expect(normalized.creatureProperties?.advancedSettings?.plot).toBe(true);
+  });
+
+  it("removes creature payload from non-creature kinds", () => {
+    const placeable = createNewSceneObject("placeables", 1.4, 0.7, 12);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      creatureProperties: {
+        firstName: "Wrong Payload"
+      } as unknown as NonNullable<typeof placeable.creatureProperties>
+    });
+
+    expect(normalized.kind).toBe("placeables");
+    expect(normalized.creatureProperties).toBeUndefined();
+    expect(normalized.placeableProperties).toBeDefined();
+  });
+
   it("normalizes placeable lock/trap/advanced/description/comments payload defensively", () => {
     const placeable = createNewSceneObject("placeables", 1, 1, 77);
     const normalized = normalizeSceneObjectMetadata({

@@ -1,5 +1,15 @@
 import type {
   AreaScene,
+  SceneObjectCreatureAdvancedSettings,
+  SceneObjectCreatureAppearanceSettings,
+  SceneObjectCreatureClassEntry,
+  SceneObjectCreatureFeatEntry,
+  SceneObjectCreatureProperties,
+  SceneObjectCreatureScriptSlots,
+  SceneObjectCreatureSkillEntry,
+  SceneObjectCreatureSpecialAbilityEntry,
+  SceneObjectCreatureSpellEntry,
+  SceneObjectCreatureStatisticsSettings,
   SceneObjectPlaceableAdvancedSettings,
   SceneObjectPlaceableLockSettings,
   SceneObjectDoorTransitionPayload,
@@ -99,6 +109,119 @@ const DEFAULT_PLACEABLE_ADVANCED_SETTINGS: SceneObjectPlaceableAdvancedSettings 
   initialState: "Default",
   treasureModel: "Default"
 };
+
+const DEFAULT_CREATURE_PROPERTIES: SceneObjectCreatureProperties = {
+  firstName: "",
+  lastName: "",
+  race: "Aberration",
+  appearance: "",
+  phenotype: "",
+  gender: "None",
+  description: "",
+  challengeRating: 1,
+  portraitResRef: "",
+  conversation: "",
+  noInterrupt: false,
+  comments: ""
+};
+
+const DEFAULT_CREATURE_STATISTICS: SceneObjectCreatureStatisticsSettings = {
+  abilityScores: {
+    strength: 10,
+    dexterity: 10,
+    constitution: 10,
+    intelligence: 10,
+    wisdom: 10,
+    charisma: 10
+  },
+  racialModifiers: {
+    strength: 0,
+    dexterity: 0,
+    constitution: 0,
+    intelligence: 0,
+    wisdom: 0,
+    charisma: 0
+  },
+  saves: {
+    fortitudeBase: 0,
+    fortitudeBonus: 0,
+    reflexBase: 0,
+    reflexBonus: 0,
+    willBase: 0,
+    willBonus: 0
+  },
+  naturalArmorClass: 10,
+  baseArmorClass: 10,
+  dexterityBonus: 0,
+  sizeModifier: 0,
+  baseHitPoints: 10,
+  hitPointBonuses: 0,
+  movementRate: "Default"
+};
+
+const DEFAULT_CREATURE_APPEARANCE_SETTINGS: SceneObjectCreatureAppearanceSettings = {
+  partBasedAppearance: false,
+  head: "",
+  neck: "",
+  torso: "",
+  pelvis: "",
+  rightBicep: "",
+  leftBicep: "",
+  rightForearm: "",
+  leftForearm: "",
+  rightHand: "",
+  leftHand: "",
+  rightThigh: "",
+  leftThigh: "",
+  rightShin: "",
+  leftShin: "",
+  rightFoot: "",
+  leftFoot: "",
+  wings: "",
+  tail: ""
+};
+
+const DEFAULT_CREATURE_SCRIPT_SLOTS: SceneObjectCreatureScriptSlots = {
+  onBlocked: "",
+  onCombatRoundEnd: "",
+  onConversation: "",
+  onDamaged: "",
+  onDeath: "",
+  onDisturbed: "",
+  onHeartbeat: "",
+  onPerception: "",
+  onPhysicalAttacked: "",
+  onRested: "",
+  onSpawn: "",
+  onSpellCastAt: "",
+  onUserDefined: ""
+};
+
+const DEFAULT_CREATURE_ADVANCED_SETTINGS: SceneObjectCreatureAdvancedSettings = {
+  blueprintResRef: "",
+  disarmable: false,
+  plot: false,
+  leavesLootableCorpse: false,
+  noPermanentDeath: false,
+  immortal: false,
+  treasureModel: "Default",
+  corpseDecayTimeSeconds: 5,
+  faction: "Hostile",
+  subrace: "",
+  deity: "",
+  challengeRatingAdjustment: 0,
+  soundSet: "",
+  perceptionRange: "Default"
+};
+
+const DEFAULT_CREATURE_CLASS_ENTRIES: SceneObjectCreatureClassEntry[] = [
+  { className: "Aberration", level: 1 }
+];
+
+const DEFAULT_CREATURE_SKILL_ENTRIES: SceneObjectCreatureSkillEntry[] = [];
+const DEFAULT_CREATURE_FEAT_ENTRIES: SceneObjectCreatureFeatEntry[] = [];
+const DEFAULT_CREATURE_SPELL_ENTRIES: SceneObjectCreatureSpellEntry[] = [];
+const DEFAULT_CREATURE_SPECIAL_ABILITY_ENTRIES: SceneObjectCreatureSpecialAbilityEntry[] = [];
 
 const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
   profile: "",
@@ -333,6 +456,282 @@ function arePlaceableAdvancedSettingsEqual(
     left.portraitResRef === right.portraitResRef &&
     left.initialState === right.initialState &&
     left.treasureModel === right.treasureModel
+  );
+}
+
+function normalizeCreatureClassEntries(value: unknown): SceneObjectCreatureClassEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) => {
+    const candidate = isRecord(entry) ? entry : {};
+    const className = asString(candidate.className, "").trim();
+    const level = clampMin(Math.trunc(asFiniteNumber(candidate.level, 1)), 1);
+    return {
+      className: className.length > 0 ? className : "Class",
+      level
+    };
+  });
+}
+
+function normalizeCreatureSkillEntries(value: unknown): SceneObjectCreatureSkillEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) => {
+    const candidate = isRecord(entry) ? entry : {};
+    return {
+      skill: asString(candidate.skill, "").trim(),
+      rank: clampMin(Math.trunc(asFiniteNumber(candidate.rank, 0)), 0)
+    };
+  });
+}
+
+function normalizeCreatureFeatEntries(value: unknown): SceneObjectCreatureFeatEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) => {
+    const candidate = isRecord(entry) ? entry : {};
+    return {
+      name: asString(candidate.name, "").trim(),
+      type: asString(candidate.type, "").trim(),
+      assigned: isBoolean(candidate.assigned) ? candidate.assigned : false
+    };
+  });
+}
+
+function normalizeCreatureSpellEntries(value: unknown): SceneObjectCreatureSpellEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) => {
+    const candidate = isRecord(entry) ? entry : {};
+    return {
+      prepared: isBoolean(candidate.prepared) ? candidate.prepared : false,
+      name: asString(candidate.name, "").trim(),
+      spellLevel: clampMin(Math.trunc(asFiniteNumber(candidate.spellLevel, 0)), 0),
+      castingLevel: clampMin(Math.trunc(asFiniteNumber(candidate.castingLevel, 0)), 0)
+    };
+  });
+}
+
+function normalizeCreatureSpecialAbilityEntries(
+  value: unknown
+): SceneObjectCreatureSpecialAbilityEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) => {
+    const candidate = isRecord(entry) ? entry : {};
+    return {
+      name: asString(candidate.name, "").trim(),
+      type: asString(candidate.type, "").trim(),
+      casterLevel: clampMin(Math.trunc(asFiniteNumber(candidate.casterLevel, 0)), 0),
+      uses: clampMin(Math.trunc(asFiniteNumber(candidate.uses, 0)), 0)
+    };
+  });
+}
+
+function areCreatureClassEntriesEqual(
+  left: SceneObjectCreatureClassEntry[] | undefined,
+  right: SceneObjectCreatureClassEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.className === right[index]?.className && entry.level === right[index]?.level
+  );
+}
+
+function areCreatureSkillEntriesEqual(
+  left: SceneObjectCreatureSkillEntry[] | undefined,
+  right: SceneObjectCreatureSkillEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) => entry.skill === right[index]?.skill && entry.rank === right[index]?.rank
+  );
+}
+
+function areCreatureFeatEntriesEqual(
+  left: SceneObjectCreatureFeatEntry[] | undefined,
+  right: SceneObjectCreatureFeatEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.name === right[index]?.name &&
+      entry.type === right[index]?.type &&
+      entry.assigned === right[index]?.assigned
+  );
+}
+
+function areCreatureSpellEntriesEqual(
+  left: SceneObjectCreatureSpellEntry[] | undefined,
+  right: SceneObjectCreatureSpellEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.prepared === right[index]?.prepared &&
+      entry.name === right[index]?.name &&
+      entry.spellLevel === right[index]?.spellLevel &&
+      entry.castingLevel === right[index]?.castingLevel
+  );
+}
+
+function areCreatureSpecialAbilityEntriesEqual(
+  left: SceneObjectCreatureSpecialAbilityEntry[] | undefined,
+  right: SceneObjectCreatureSpecialAbilityEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.name === right[index]?.name &&
+      entry.type === right[index]?.type &&
+      entry.casterLevel === right[index]?.casterLevel &&
+      entry.uses === right[index]?.uses
+  );
+}
+
+function areCreatureStatisticsEqual(
+  left: SceneObjectCreatureStatisticsSettings | undefined,
+  right: SceneObjectCreatureStatisticsSettings | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.abilityScores.strength === right.abilityScores.strength &&
+    left.abilityScores.dexterity === right.abilityScores.dexterity &&
+    left.abilityScores.constitution === right.abilityScores.constitution &&
+    left.abilityScores.intelligence === right.abilityScores.intelligence &&
+    left.abilityScores.wisdom === right.abilityScores.wisdom &&
+    left.abilityScores.charisma === right.abilityScores.charisma &&
+    left.racialModifiers.strength === right.racialModifiers.strength &&
+    left.racialModifiers.dexterity === right.racialModifiers.dexterity &&
+    left.racialModifiers.constitution === right.racialModifiers.constitution &&
+    left.racialModifiers.intelligence === right.racialModifiers.intelligence &&
+    left.racialModifiers.wisdom === right.racialModifiers.wisdom &&
+    left.racialModifiers.charisma === right.racialModifiers.charisma &&
+    left.saves.fortitudeBase === right.saves.fortitudeBase &&
+    left.saves.fortitudeBonus === right.saves.fortitudeBonus &&
+    left.saves.reflexBase === right.saves.reflexBase &&
+    left.saves.reflexBonus === right.saves.reflexBonus &&
+    left.saves.willBase === right.saves.willBase &&
+    left.saves.willBonus === right.saves.willBonus &&
+    left.naturalArmorClass === right.naturalArmorClass &&
+    left.baseArmorClass === right.baseArmorClass &&
+    left.dexterityBonus === right.dexterityBonus &&
+    left.sizeModifier === right.sizeModifier &&
+    left.baseHitPoints === right.baseHitPoints &&
+    left.hitPointBonuses === right.hitPointBonuses &&
+    left.movementRate === right.movementRate
+  );
+}
+
+function areCreatureAppearanceSettingsEqual(
+  left: SceneObjectCreatureAppearanceSettings | undefined,
+  right: SceneObjectCreatureAppearanceSettings | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.partBasedAppearance === right.partBasedAppearance &&
+    left.head === right.head &&
+    left.neck === right.neck &&
+    left.torso === right.torso &&
+    left.pelvis === right.pelvis &&
+    left.rightBicep === right.rightBicep &&
+    left.leftBicep === right.leftBicep &&
+    left.rightForearm === right.rightForearm &&
+    left.leftForearm === right.leftForearm &&
+    left.rightHand === right.rightHand &&
+    left.leftHand === right.leftHand &&
+    left.rightThigh === right.rightThigh &&
+    left.leftThigh === right.leftThigh &&
+    left.rightShin === right.rightShin &&
+    left.leftShin === right.leftShin &&
+    left.rightFoot === right.rightFoot &&
+    left.leftFoot === right.leftFoot &&
+    left.wings === right.wings &&
+    left.tail === right.tail
+  );
+}
+
+function areCreatureScriptSlotsEqual(
+  left: SceneObjectCreatureScriptSlots | undefined,
+  right: SceneObjectCreatureScriptSlots | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.onBlocked === right.onBlocked &&
+    left.onCombatRoundEnd === right.onCombatRoundEnd &&
+    left.onConversation === right.onConversation &&
+    left.onDamaged === right.onDamaged &&
+    left.onDeath === right.onDeath &&
+    left.onDisturbed === right.onDisturbed &&
+    left.onHeartbeat === right.onHeartbeat &&
+    left.onPerception === right.onPerception &&
+    left.onPhysicalAttacked === right.onPhysicalAttacked &&
+    left.onRested === right.onRested &&
+    left.onSpawn === right.onSpawn &&
+    left.onSpellCastAt === right.onSpellCastAt &&
+    left.onUserDefined === right.onUserDefined
+  );
+}
+
+function areCreatureAdvancedSettingsEqual(
+  left: SceneObjectCreatureAdvancedSettings | undefined,
+  right: SceneObjectCreatureAdvancedSettings | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.blueprintResRef === right.blueprintResRef &&
+    left.disarmable === right.disarmable &&
+    left.plot === right.plot &&
+    left.leavesLootableCorpse === right.leavesLootableCorpse &&
+    left.noPermanentDeath === right.noPermanentDeath &&
+    left.immortal === right.immortal &&
+    left.treasureModel === right.treasureModel &&
+    left.corpseDecayTimeSeconds === right.corpseDecayTimeSeconds &&
+    left.faction === right.faction &&
+    left.subrace === right.subrace &&
+    left.deity === right.deity &&
+    left.challengeRatingAdjustment === right.challengeRatingAdjustment &&
+    left.soundSet === right.soundSet &&
+    left.perceptionRange === right.perceptionRange
   );
 }
 
@@ -672,6 +1071,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       isAdvancedSettingsUnchanged &&
       isDescriptionUnchanged &&
       isCommentsUnchanged &&
+      normalizedObject.creatureProperties === undefined &&
       normalizedObject.soundPositioning === undefined
     ) {
       return normalizedObject;
@@ -680,7 +1080,704 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     return {
       ...normalizedObject,
       placeableProperties: nextPlaceableProperties,
+      creatureProperties: undefined,
       soundPositioning: undefined
+    };
+  }
+
+  if (normalizedObject.kind === "creatures") {
+    const rawCreatureProperties =
+      (normalizedObject.creatureProperties as
+        | Partial<Record<keyof SceneObjectCreatureProperties, unknown>>
+        | undefined) ?? undefined;
+    const currentCreatureProperties = normalizedObject.creatureProperties;
+
+    const hasRawStatistics = isRecord(rawCreatureProperties?.statistics);
+    const hasRawAppearanceSettings = isRecord(rawCreatureProperties?.appearanceSettings);
+    const hasRawScriptSlots = isRecord(rawCreatureProperties?.scriptSlots);
+    const hasRawAdvancedSettings = isRecord(rawCreatureProperties?.advancedSettings);
+    const hasRawClassEntries = Array.isArray(rawCreatureProperties?.classEntries);
+    const hasRawSkills = Array.isArray(rawCreatureProperties?.skills);
+    const hasRawFeats = Array.isArray(rawCreatureProperties?.feats);
+    const hasRawSpells = Array.isArray(rawCreatureProperties?.spells);
+    const hasRawSpecialAbilities = Array.isArray(rawCreatureProperties?.specialAbilities);
+    const shouldNormalizeComments =
+      typeof rawCreatureProperties?.comments === "string" ||
+      currentCreatureProperties?.comments !== undefined;
+
+    const rawStatistics = hasRawStatistics
+      ? (rawCreatureProperties?.statistics as Partial<
+          Record<keyof SceneObjectCreatureStatisticsSettings, unknown>
+        >)
+      : undefined;
+    const rawAbilityScores = isRecord(rawStatistics?.abilityScores)
+      ? (rawStatistics?.abilityScores as Partial<
+          Record<keyof SceneObjectCreatureStatisticsSettings["abilityScores"], unknown>
+        >)
+      : undefined;
+    const rawRacialModifiers = isRecord(rawStatistics?.racialModifiers)
+      ? (rawStatistics?.racialModifiers as Partial<
+          Record<keyof SceneObjectCreatureStatisticsSettings["racialModifiers"], unknown>
+        >)
+      : undefined;
+    const rawSaves = isRecord(rawStatistics?.saves)
+      ? (rawStatistics?.saves as Partial<
+          Record<keyof SceneObjectCreatureStatisticsSettings["saves"], unknown>
+        >)
+      : undefined;
+    const rawAppearanceSettings = hasRawAppearanceSettings
+      ? (rawCreatureProperties?.appearanceSettings as Partial<
+          Record<keyof SceneObjectCreatureAppearanceSettings, unknown>
+        >)
+      : undefined;
+    const rawScriptSlots = hasRawScriptSlots
+      ? (rawCreatureProperties?.scriptSlots as Partial<
+          Record<keyof SceneObjectCreatureScriptSlots, unknown>
+        >)
+      : undefined;
+    const rawAdvancedSettings = hasRawAdvancedSettings
+      ? (rawCreatureProperties?.advancedSettings as Partial<
+          Record<keyof SceneObjectCreatureAdvancedSettings, unknown>
+        >)
+      : undefined;
+
+    const sourceStatisticsCandidate = currentCreatureProperties?.statistics;
+    const sourceStatistics: SceneObjectCreatureStatisticsSettings = {
+      abilityScores: {
+        strength: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.strength,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.strength
+        ),
+        dexterity: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.dexterity,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.dexterity
+        ),
+        constitution: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.constitution,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.constitution
+        ),
+        intelligence: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.intelligence,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.intelligence
+        ),
+        wisdom: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.wisdom,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.wisdom
+        ),
+        charisma: asFiniteNumber(
+          sourceStatisticsCandidate?.abilityScores?.charisma,
+          DEFAULT_CREATURE_STATISTICS.abilityScores.charisma
+        )
+      },
+      racialModifiers: {
+        strength: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.strength,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.strength
+        ),
+        dexterity: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.dexterity,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.dexterity
+        ),
+        constitution: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.constitution,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.constitution
+        ),
+        intelligence: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.intelligence,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.intelligence
+        ),
+        wisdom: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.wisdom,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.wisdom
+        ),
+        charisma: asFiniteNumber(
+          sourceStatisticsCandidate?.racialModifiers?.charisma,
+          DEFAULT_CREATURE_STATISTICS.racialModifiers.charisma
+        )
+      },
+      saves: {
+        fortitudeBase: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.fortitudeBase,
+          DEFAULT_CREATURE_STATISTICS.saves.fortitudeBase
+        ),
+        fortitudeBonus: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.fortitudeBonus,
+          DEFAULT_CREATURE_STATISTICS.saves.fortitudeBonus
+        ),
+        reflexBase: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.reflexBase,
+          DEFAULT_CREATURE_STATISTICS.saves.reflexBase
+        ),
+        reflexBonus: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.reflexBonus,
+          DEFAULT_CREATURE_STATISTICS.saves.reflexBonus
+        ),
+        willBase: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.willBase,
+          DEFAULT_CREATURE_STATISTICS.saves.willBase
+        ),
+        willBonus: asFiniteNumber(
+          sourceStatisticsCandidate?.saves?.willBonus,
+          DEFAULT_CREATURE_STATISTICS.saves.willBonus
+        )
+      },
+      naturalArmorClass: asFiniteNumber(
+        sourceStatisticsCandidate?.naturalArmorClass,
+        DEFAULT_CREATURE_STATISTICS.naturalArmorClass
+      ),
+      baseArmorClass: asFiniteNumber(
+        sourceStatisticsCandidate?.baseArmorClass,
+        DEFAULT_CREATURE_STATISTICS.baseArmorClass
+      ),
+      dexterityBonus: asFiniteNumber(
+        sourceStatisticsCandidate?.dexterityBonus,
+        DEFAULT_CREATURE_STATISTICS.dexterityBonus
+      ),
+      sizeModifier: asFiniteNumber(
+        sourceStatisticsCandidate?.sizeModifier,
+        DEFAULT_CREATURE_STATISTICS.sizeModifier
+      ),
+      baseHitPoints: asFiniteNumber(
+        sourceStatisticsCandidate?.baseHitPoints,
+        DEFAULT_CREATURE_STATISTICS.baseHitPoints
+      ),
+      hitPointBonuses: asFiniteNumber(
+        sourceStatisticsCandidate?.hitPointBonuses,
+        DEFAULT_CREATURE_STATISTICS.hitPointBonuses
+      ),
+      movementRate: asString(
+        sourceStatisticsCandidate?.movementRate,
+        DEFAULT_CREATURE_STATISTICS.movementRate
+      )
+    };
+    const sourceAppearanceSettingsCandidate = currentCreatureProperties?.appearanceSettings;
+    const sourceAppearanceSettings: SceneObjectCreatureAppearanceSettings = {
+      partBasedAppearance: isBoolean(sourceAppearanceSettingsCandidate?.partBasedAppearance)
+        ? sourceAppearanceSettingsCandidate.partBasedAppearance
+        : DEFAULT_CREATURE_APPEARANCE_SETTINGS.partBasedAppearance,
+      head: asString(sourceAppearanceSettingsCandidate?.head, DEFAULT_CREATURE_APPEARANCE_SETTINGS.head),
+      neck: asString(sourceAppearanceSettingsCandidate?.neck, DEFAULT_CREATURE_APPEARANCE_SETTINGS.neck),
+      torso: asString(sourceAppearanceSettingsCandidate?.torso, DEFAULT_CREATURE_APPEARANCE_SETTINGS.torso),
+      pelvis: asString(
+        sourceAppearanceSettingsCandidate?.pelvis,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.pelvis
+      ),
+      rightBicep: asString(
+        sourceAppearanceSettingsCandidate?.rightBicep,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightBicep
+      ),
+      leftBicep: asString(
+        sourceAppearanceSettingsCandidate?.leftBicep,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftBicep
+      ),
+      rightForearm: asString(
+        sourceAppearanceSettingsCandidate?.rightForearm,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightForearm
+      ),
+      leftForearm: asString(
+        sourceAppearanceSettingsCandidate?.leftForearm,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftForearm
+      ),
+      rightHand: asString(
+        sourceAppearanceSettingsCandidate?.rightHand,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightHand
+      ),
+      leftHand: asString(
+        sourceAppearanceSettingsCandidate?.leftHand,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftHand
+      ),
+      rightThigh: asString(
+        sourceAppearanceSettingsCandidate?.rightThigh,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightThigh
+      ),
+      leftThigh: asString(
+        sourceAppearanceSettingsCandidate?.leftThigh,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftThigh
+      ),
+      rightShin: asString(
+        sourceAppearanceSettingsCandidate?.rightShin,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightShin
+      ),
+      leftShin: asString(
+        sourceAppearanceSettingsCandidate?.leftShin,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftShin
+      ),
+      rightFoot: asString(
+        sourceAppearanceSettingsCandidate?.rightFoot,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.rightFoot
+      ),
+      leftFoot: asString(
+        sourceAppearanceSettingsCandidate?.leftFoot,
+        DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftFoot
+      ),
+      wings: asString(sourceAppearanceSettingsCandidate?.wings, DEFAULT_CREATURE_APPEARANCE_SETTINGS.wings),
+      tail: asString(sourceAppearanceSettingsCandidate?.tail, DEFAULT_CREATURE_APPEARANCE_SETTINGS.tail)
+    };
+    const sourceScriptSlotsCandidate = currentCreatureProperties?.scriptSlots;
+    const sourceScriptSlots: SceneObjectCreatureScriptSlots = {
+      onBlocked: asString(sourceScriptSlotsCandidate?.onBlocked, DEFAULT_CREATURE_SCRIPT_SLOTS.onBlocked),
+      onCombatRoundEnd: asString(
+        sourceScriptSlotsCandidate?.onCombatRoundEnd,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onCombatRoundEnd
+      ),
+      onConversation: asString(
+        sourceScriptSlotsCandidate?.onConversation,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onConversation
+      ),
+      onDamaged: asString(sourceScriptSlotsCandidate?.onDamaged, DEFAULT_CREATURE_SCRIPT_SLOTS.onDamaged),
+      onDeath: asString(sourceScriptSlotsCandidate?.onDeath, DEFAULT_CREATURE_SCRIPT_SLOTS.onDeath),
+      onDisturbed: asString(
+        sourceScriptSlotsCandidate?.onDisturbed,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onDisturbed
+      ),
+      onHeartbeat: asString(
+        sourceScriptSlotsCandidate?.onHeartbeat,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onHeartbeat
+      ),
+      onPerception: asString(
+        sourceScriptSlotsCandidate?.onPerception,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onPerception
+      ),
+      onPhysicalAttacked: asString(
+        sourceScriptSlotsCandidate?.onPhysicalAttacked,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onPhysicalAttacked
+      ),
+      onRested: asString(sourceScriptSlotsCandidate?.onRested, DEFAULT_CREATURE_SCRIPT_SLOTS.onRested),
+      onSpawn: asString(sourceScriptSlotsCandidate?.onSpawn, DEFAULT_CREATURE_SCRIPT_SLOTS.onSpawn),
+      onSpellCastAt: asString(
+        sourceScriptSlotsCandidate?.onSpellCastAt,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onSpellCastAt
+      ),
+      onUserDefined: asString(
+        sourceScriptSlotsCandidate?.onUserDefined,
+        DEFAULT_CREATURE_SCRIPT_SLOTS.onUserDefined
+      )
+    };
+    const sourceAdvancedSettingsCandidate = currentCreatureProperties?.advancedSettings;
+    const sourceAdvancedSettings: SceneObjectCreatureAdvancedSettings = {
+      blueprintResRef: asString(
+        sourceAdvancedSettingsCandidate?.blueprintResRef,
+        DEFAULT_CREATURE_ADVANCED_SETTINGS.blueprintResRef
+      ),
+      disarmable: isBoolean(sourceAdvancedSettingsCandidate?.disarmable)
+        ? sourceAdvancedSettingsCandidate.disarmable
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.disarmable,
+      plot: isBoolean(sourceAdvancedSettingsCandidate?.plot)
+        ? sourceAdvancedSettingsCandidate.plot
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.plot,
+      leavesLootableCorpse: isBoolean(sourceAdvancedSettingsCandidate?.leavesLootableCorpse)
+        ? sourceAdvancedSettingsCandidate.leavesLootableCorpse
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.leavesLootableCorpse,
+      noPermanentDeath: isBoolean(sourceAdvancedSettingsCandidate?.noPermanentDeath)
+        ? sourceAdvancedSettingsCandidate.noPermanentDeath
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.noPermanentDeath,
+      immortal: isBoolean(sourceAdvancedSettingsCandidate?.immortal)
+        ? sourceAdvancedSettingsCandidate.immortal
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.immortal,
+      treasureModel: asString(
+        sourceAdvancedSettingsCandidate?.treasureModel,
+        DEFAULT_CREATURE_ADVANCED_SETTINGS.treasureModel
+      ),
+      corpseDecayTimeSeconds: clampMin(
+        asFiniteNumber(
+          sourceAdvancedSettingsCandidate?.corpseDecayTimeSeconds,
+          DEFAULT_CREATURE_ADVANCED_SETTINGS.corpseDecayTimeSeconds
+        ),
+        0
+      ),
+      faction: asString(sourceAdvancedSettingsCandidate?.faction, DEFAULT_CREATURE_ADVANCED_SETTINGS.faction),
+      subrace: asString(sourceAdvancedSettingsCandidate?.subrace, DEFAULT_CREATURE_ADVANCED_SETTINGS.subrace),
+      deity: asString(sourceAdvancedSettingsCandidate?.deity, DEFAULT_CREATURE_ADVANCED_SETTINGS.deity),
+      challengeRatingAdjustment: asFiniteNumber(
+        sourceAdvancedSettingsCandidate?.challengeRatingAdjustment,
+        DEFAULT_CREATURE_ADVANCED_SETTINGS.challengeRatingAdjustment
+      ),
+      soundSet: asString(sourceAdvancedSettingsCandidate?.soundSet, DEFAULT_CREATURE_ADVANCED_SETTINGS.soundSet),
+      perceptionRange: asString(
+        sourceAdvancedSettingsCandidate?.perceptionRange,
+        DEFAULT_CREATURE_ADVANCED_SETTINGS.perceptionRange
+      )
+    };
+
+    const shouldNormalizeStatistics =
+      hasRawStatistics || currentCreatureProperties?.statistics !== undefined;
+    const shouldNormalizeAppearanceSettings =
+      hasRawAppearanceSettings || currentCreatureProperties?.appearanceSettings !== undefined;
+    const shouldNormalizeScriptSlots =
+      hasRawScriptSlots || currentCreatureProperties?.scriptSlots !== undefined;
+    const shouldNormalizeAdvancedSettings =
+      hasRawAdvancedSettings || currentCreatureProperties?.advancedSettings !== undefined;
+    const shouldNormalizeClassEntries =
+      hasRawClassEntries || currentCreatureProperties?.classEntries !== undefined;
+    const shouldNormalizeSkills =
+      hasRawSkills || currentCreatureProperties?.skills !== undefined;
+    const shouldNormalizeFeats =
+      hasRawFeats || currentCreatureProperties?.feats !== undefined;
+    const shouldNormalizeSpells =
+      hasRawSpells || currentCreatureProperties?.spells !== undefined;
+    const shouldNormalizeSpecialAbilities =
+      hasRawSpecialAbilities || currentCreatureProperties?.specialAbilities !== undefined;
+
+    const nextStatistics: SceneObjectCreatureStatisticsSettings | undefined =
+      shouldNormalizeStatistics
+        ? {
+            abilityScores: {
+              strength: asFiniteNumber(
+                rawAbilityScores?.strength,
+                sourceStatistics.abilityScores.strength
+              ),
+              dexterity: asFiniteNumber(
+                rawAbilityScores?.dexterity,
+                sourceStatistics.abilityScores.dexterity
+              ),
+              constitution: asFiniteNumber(
+                rawAbilityScores?.constitution,
+                sourceStatistics.abilityScores.constitution
+              ),
+              intelligence: asFiniteNumber(
+                rawAbilityScores?.intelligence,
+                sourceStatistics.abilityScores.intelligence
+              ),
+              wisdom: asFiniteNumber(rawAbilityScores?.wisdom, sourceStatistics.abilityScores.wisdom),
+              charisma: asFiniteNumber(
+                rawAbilityScores?.charisma,
+                sourceStatistics.abilityScores.charisma
+              )
+            },
+            racialModifiers: {
+              strength: asFiniteNumber(
+                rawRacialModifiers?.strength,
+                sourceStatistics.racialModifiers.strength
+              ),
+              dexterity: asFiniteNumber(
+                rawRacialModifiers?.dexterity,
+                sourceStatistics.racialModifiers.dexterity
+              ),
+              constitution: asFiniteNumber(
+                rawRacialModifiers?.constitution,
+                sourceStatistics.racialModifiers.constitution
+              ),
+              intelligence: asFiniteNumber(
+                rawRacialModifiers?.intelligence,
+                sourceStatistics.racialModifiers.intelligence
+              ),
+              wisdom: asFiniteNumber(
+                rawRacialModifiers?.wisdom,
+                sourceStatistics.racialModifiers.wisdom
+              ),
+              charisma: asFiniteNumber(
+                rawRacialModifiers?.charisma,
+                sourceStatistics.racialModifiers.charisma
+              )
+            },
+            saves: {
+              fortitudeBase: asFiniteNumber(rawSaves?.fortitudeBase, sourceStatistics.saves.fortitudeBase),
+              fortitudeBonus: asFiniteNumber(rawSaves?.fortitudeBonus, sourceStatistics.saves.fortitudeBonus),
+              reflexBase: asFiniteNumber(rawSaves?.reflexBase, sourceStatistics.saves.reflexBase),
+              reflexBonus: asFiniteNumber(rawSaves?.reflexBonus, sourceStatistics.saves.reflexBonus),
+              willBase: asFiniteNumber(rawSaves?.willBase, sourceStatistics.saves.willBase),
+              willBonus: asFiniteNumber(rawSaves?.willBonus, sourceStatistics.saves.willBonus)
+            },
+            naturalArmorClass: asFiniteNumber(
+              rawStatistics?.naturalArmorClass,
+              sourceStatistics.naturalArmorClass
+            ),
+            baseArmorClass: asFiniteNumber(rawStatistics?.baseArmorClass, sourceStatistics.baseArmorClass),
+            dexterityBonus: asFiniteNumber(rawStatistics?.dexterityBonus, sourceStatistics.dexterityBonus),
+            sizeModifier: asFiniteNumber(rawStatistics?.sizeModifier, sourceStatistics.sizeModifier),
+            baseHitPoints: asFiniteNumber(rawStatistics?.baseHitPoints, sourceStatistics.baseHitPoints),
+            hitPointBonuses: asFiniteNumber(rawStatistics?.hitPointBonuses, sourceStatistics.hitPointBonuses),
+            movementRate: asString(rawStatistics?.movementRate, sourceStatistics.movementRate)
+          }
+        : undefined;
+
+    const nextAppearanceSettings: SceneObjectCreatureAppearanceSettings | undefined =
+      shouldNormalizeAppearanceSettings
+        ? {
+            partBasedAppearance: isBoolean(rawAppearanceSettings?.partBasedAppearance)
+              ? rawAppearanceSettings.partBasedAppearance
+              : sourceAppearanceSettings.partBasedAppearance,
+            head: asString(rawAppearanceSettings?.head, sourceAppearanceSettings.head),
+            neck: asString(rawAppearanceSettings?.neck, sourceAppearanceSettings.neck),
+            torso: asString(rawAppearanceSettings?.torso, sourceAppearanceSettings.torso),
+            pelvis: asString(rawAppearanceSettings?.pelvis, sourceAppearanceSettings.pelvis),
+            rightBicep: asString(rawAppearanceSettings?.rightBicep, sourceAppearanceSettings.rightBicep),
+            leftBicep: asString(rawAppearanceSettings?.leftBicep, sourceAppearanceSettings.leftBicep),
+            rightForearm: asString(
+              rawAppearanceSettings?.rightForearm,
+              sourceAppearanceSettings.rightForearm
+            ),
+            leftForearm: asString(rawAppearanceSettings?.leftForearm, sourceAppearanceSettings.leftForearm),
+            rightHand: asString(rawAppearanceSettings?.rightHand, sourceAppearanceSettings.rightHand),
+            leftHand: asString(rawAppearanceSettings?.leftHand, sourceAppearanceSettings.leftHand),
+            rightThigh: asString(rawAppearanceSettings?.rightThigh, sourceAppearanceSettings.rightThigh),
+            leftThigh: asString(rawAppearanceSettings?.leftThigh, sourceAppearanceSettings.leftThigh),
+            rightShin: asString(rawAppearanceSettings?.rightShin, sourceAppearanceSettings.rightShin),
+            leftShin: asString(rawAppearanceSettings?.leftShin, sourceAppearanceSettings.leftShin),
+            rightFoot: asString(rawAppearanceSettings?.rightFoot, sourceAppearanceSettings.rightFoot),
+            leftFoot: asString(rawAppearanceSettings?.leftFoot, sourceAppearanceSettings.leftFoot),
+            wings: asString(rawAppearanceSettings?.wings, sourceAppearanceSettings.wings),
+            tail: asString(rawAppearanceSettings?.tail, sourceAppearanceSettings.tail)
+          }
+        : undefined;
+
+    const nextScriptSlots: SceneObjectCreatureScriptSlots | undefined =
+      shouldNormalizeScriptSlots
+        ? {
+            onBlocked: asString(rawScriptSlots?.onBlocked, sourceScriptSlots.onBlocked),
+            onCombatRoundEnd: asString(
+              rawScriptSlots?.onCombatRoundEnd,
+              sourceScriptSlots.onCombatRoundEnd
+            ),
+            onConversation: asString(rawScriptSlots?.onConversation, sourceScriptSlots.onConversation),
+            onDamaged: asString(rawScriptSlots?.onDamaged, sourceScriptSlots.onDamaged),
+            onDeath: asString(rawScriptSlots?.onDeath, sourceScriptSlots.onDeath),
+            onDisturbed: asString(rawScriptSlots?.onDisturbed, sourceScriptSlots.onDisturbed),
+            onHeartbeat: asString(rawScriptSlots?.onHeartbeat, sourceScriptSlots.onHeartbeat),
+            onPerception: asString(rawScriptSlots?.onPerception, sourceScriptSlots.onPerception),
+            onPhysicalAttacked: asString(
+              rawScriptSlots?.onPhysicalAttacked,
+              sourceScriptSlots.onPhysicalAttacked
+            ),
+            onRested: asString(rawScriptSlots?.onRested, sourceScriptSlots.onRested),
+            onSpawn: asString(rawScriptSlots?.onSpawn, sourceScriptSlots.onSpawn),
+            onSpellCastAt: asString(rawScriptSlots?.onSpellCastAt, sourceScriptSlots.onSpellCastAt),
+            onUserDefined: asString(rawScriptSlots?.onUserDefined, sourceScriptSlots.onUserDefined)
+          }
+        : undefined;
+
+    const nextAdvancedSettings: SceneObjectCreatureAdvancedSettings | undefined =
+      shouldNormalizeAdvancedSettings
+        ? {
+            blueprintResRef: asString(
+              rawAdvancedSettings?.blueprintResRef,
+              sourceAdvancedSettings.blueprintResRef
+            ),
+            disarmable: isBoolean(rawAdvancedSettings?.disarmable)
+              ? rawAdvancedSettings.disarmable
+              : sourceAdvancedSettings.disarmable,
+            plot: isBoolean(rawAdvancedSettings?.plot)
+              ? rawAdvancedSettings.plot
+              : sourceAdvancedSettings.plot,
+            leavesLootableCorpse: isBoolean(rawAdvancedSettings?.leavesLootableCorpse)
+              ? rawAdvancedSettings.leavesLootableCorpse
+              : sourceAdvancedSettings.leavesLootableCorpse,
+            noPermanentDeath: isBoolean(rawAdvancedSettings?.noPermanentDeath)
+              ? rawAdvancedSettings.noPermanentDeath
+              : sourceAdvancedSettings.noPermanentDeath,
+            immortal: isBoolean(rawAdvancedSettings?.immortal)
+              ? rawAdvancedSettings.immortal
+              : sourceAdvancedSettings.immortal,
+            treasureModel: asString(rawAdvancedSettings?.treasureModel, sourceAdvancedSettings.treasureModel),
+            corpseDecayTimeSeconds: clampMin(
+              asFiniteNumber(rawAdvancedSettings?.corpseDecayTimeSeconds, sourceAdvancedSettings.corpseDecayTimeSeconds),
+              0
+            ),
+            faction: asString(rawAdvancedSettings?.faction, sourceAdvancedSettings.faction),
+            subrace: asString(rawAdvancedSettings?.subrace, sourceAdvancedSettings.subrace),
+            deity: asString(rawAdvancedSettings?.deity, sourceAdvancedSettings.deity),
+            challengeRatingAdjustment: asFiniteNumber(
+              rawAdvancedSettings?.challengeRatingAdjustment,
+              sourceAdvancedSettings.challengeRatingAdjustment
+            ),
+            soundSet: asString(rawAdvancedSettings?.soundSet, sourceAdvancedSettings.soundSet),
+            perceptionRange: asString(
+              rawAdvancedSettings?.perceptionRange,
+              sourceAdvancedSettings.perceptionRange
+            )
+          }
+        : undefined;
+
+    const normalizedClassEntries = normalizeCreatureClassEntries(rawCreatureProperties?.classEntries);
+    const normalizedSkills = normalizeCreatureSkillEntries(rawCreatureProperties?.skills);
+    const normalizedFeats = normalizeCreatureFeatEntries(rawCreatureProperties?.feats);
+    const normalizedSpells = normalizeCreatureSpellEntries(rawCreatureProperties?.spells);
+    const normalizedSpecialAbilities = normalizeCreatureSpecialAbilityEntries(
+      rawCreatureProperties?.specialAbilities
+    );
+
+    const nextClassEntries = shouldNormalizeClassEntries
+      ? normalizedClassEntries ??
+        (currentCreatureProperties?.classEntries
+          ? currentCreatureProperties.classEntries.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_CLASS_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextSkills = shouldNormalizeSkills
+      ? normalizedSkills ??
+        (currentCreatureProperties?.skills
+          ? currentCreatureProperties.skills.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_SKILL_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextFeats = shouldNormalizeFeats
+      ? normalizedFeats ??
+        (currentCreatureProperties?.feats
+          ? currentCreatureProperties.feats.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_FEAT_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextSpells = shouldNormalizeSpells
+      ? normalizedSpells ??
+        (currentCreatureProperties?.spells
+          ? currentCreatureProperties.spells.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_SPELL_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextSpecialAbilities = shouldNormalizeSpecialAbilities
+      ? normalizedSpecialAbilities ??
+        (currentCreatureProperties?.specialAbilities
+          ? currentCreatureProperties.specialAbilities.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_SPECIAL_ABILITY_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+
+    const fallbackFirstName = asString(
+      currentCreatureProperties?.firstName,
+      asString(normalizedObject.name, normalizedObject.tag)
+    );
+    const nextFirstName = asString(rawCreatureProperties?.firstName, fallbackFirstName);
+    const sourceLastName = asString(
+      currentCreatureProperties?.lastName,
+      DEFAULT_CREATURE_PROPERTIES.lastName
+    );
+    const nextLastName = asString(rawCreatureProperties?.lastName, sourceLastName);
+    const sourceRace = asString(currentCreatureProperties?.race, DEFAULT_CREATURE_PROPERTIES.race);
+    const nextRace = asString(rawCreatureProperties?.race, sourceRace);
+    const sourceAppearance = asString(currentCreatureProperties?.appearance, normalizedObject.resRef);
+    const nextAppearance = asString(rawCreatureProperties?.appearance, sourceAppearance);
+    const sourcePhenotype = asString(
+      currentCreatureProperties?.phenotype,
+      DEFAULT_CREATURE_PROPERTIES.phenotype
+    );
+    const nextPhenotype = asString(rawCreatureProperties?.phenotype, sourcePhenotype);
+    const sourceGender = asString(currentCreatureProperties?.gender, DEFAULT_CREATURE_PROPERTIES.gender);
+    const nextGender = asString(rawCreatureProperties?.gender, sourceGender);
+    const sourceDescription = asString(
+      currentCreatureProperties?.description,
+      DEFAULT_CREATURE_PROPERTIES.description
+    );
+    const nextDescription = asString(rawCreatureProperties?.description, sourceDescription);
+    const sourceChallengeRating = asFiniteNumber(
+      currentCreatureProperties?.challengeRating,
+      DEFAULT_CREATURE_PROPERTIES.challengeRating
+    );
+    const nextChallengeRating = clampMin(
+      asFiniteNumber(rawCreatureProperties?.challengeRating, sourceChallengeRating),
+      0
+    );
+    const sourcePortraitResRef = asString(
+      currentCreatureProperties?.portraitResRef,
+      DEFAULT_CREATURE_PROPERTIES.portraitResRef
+    );
+    const nextPortraitResRef = asString(rawCreatureProperties?.portraitResRef, sourcePortraitResRef);
+    const sourceConversation = asString(
+      currentCreatureProperties?.conversation,
+      DEFAULT_CREATURE_PROPERTIES.conversation
+    );
+    const nextConversation = asString(rawCreatureProperties?.conversation, sourceConversation);
+    const sourceNoInterrupt = isBoolean(currentCreatureProperties?.noInterrupt)
+      ? currentCreatureProperties.noInterrupt
+      : DEFAULT_CREATURE_PROPERTIES.noInterrupt;
+    const nextNoInterrupt = isBoolean(rawCreatureProperties?.noInterrupt)
+      ? rawCreatureProperties.noInterrupt
+      : sourceNoInterrupt;
+
+    const nextComments = shouldNormalizeComments
+      ? asString(rawCreatureProperties?.comments, asString(currentCreatureProperties?.comments, ""))
+      : undefined;
+
+    const nextCreatureProperties: SceneObjectCreatureProperties = {
+      firstName: nextFirstName,
+      lastName: nextLastName,
+      race: nextRace,
+      appearance: nextAppearance,
+      phenotype: nextPhenotype,
+      gender: nextGender,
+      description: nextDescription,
+      challengeRating: nextChallengeRating,
+      portraitResRef: nextPortraitResRef,
+      conversation: nextConversation,
+      noInterrupt: nextNoInterrupt
+    };
+    if (nextStatistics !== undefined) {
+      nextCreatureProperties.statistics = nextStatistics;
+    }
+    if (nextAppearanceSettings !== undefined) {
+      nextCreatureProperties.appearanceSettings = nextAppearanceSettings;
+    }
+    if (nextClassEntries !== undefined) {
+      nextCreatureProperties.classEntries = nextClassEntries;
+    }
+    if (nextSkills !== undefined) {
+      nextCreatureProperties.skills = nextSkills;
+    }
+    if (nextScriptSlots !== undefined) {
+      nextCreatureProperties.scriptSlots = nextScriptSlots;
+    }
+    if (nextAdvancedSettings !== undefined) {
+      nextCreatureProperties.advancedSettings = nextAdvancedSettings;
+    }
+    if (nextFeats !== undefined) {
+      nextCreatureProperties.feats = nextFeats;
+    }
+    if (nextSpells !== undefined) {
+      nextCreatureProperties.spells = nextSpells;
+    }
+    if (nextSpecialAbilities !== undefined) {
+      nextCreatureProperties.specialAbilities = nextSpecialAbilities;
+    }
+    if (nextComments !== undefined) {
+      nextCreatureProperties.comments = nextComments;
+    }
+
+    const isCommentsUnchanged =
+      nextComments === undefined
+        ? currentCreatureProperties?.comments === undefined
+        : (currentCreatureProperties?.comments ?? "") === nextComments;
+
+    if (
+      currentCreatureProperties?.firstName === nextFirstName &&
+      (currentCreatureProperties?.lastName ?? "") === nextLastName &&
+      (currentCreatureProperties?.race ?? DEFAULT_CREATURE_PROPERTIES.race) === nextRace &&
+      (currentCreatureProperties?.appearance ?? normalizedObject.resRef) === nextAppearance &&
+      (currentCreatureProperties?.phenotype ?? DEFAULT_CREATURE_PROPERTIES.phenotype) === nextPhenotype &&
+      (currentCreatureProperties?.gender ?? DEFAULT_CREATURE_PROPERTIES.gender) === nextGender &&
+      (currentCreatureProperties?.description ?? "") === nextDescription &&
+      (currentCreatureProperties?.challengeRating ?? DEFAULT_CREATURE_PROPERTIES.challengeRating) ===
+        nextChallengeRating &&
+      (currentCreatureProperties?.portraitResRef ?? "") === nextPortraitResRef &&
+      (currentCreatureProperties?.conversation ?? "") === nextConversation &&
+      (currentCreatureProperties?.noInterrupt ?? DEFAULT_CREATURE_PROPERTIES.noInterrupt) ===
+        nextNoInterrupt &&
+      areCreatureStatisticsEqual(currentCreatureProperties?.statistics, nextStatistics) &&
+      areCreatureAppearanceSettingsEqual(
+        currentCreatureProperties?.appearanceSettings,
+        nextAppearanceSettings
+      ) &&
+      areCreatureClassEntriesEqual(currentCreatureProperties?.classEntries, nextClassEntries) &&
+      areCreatureSkillEntriesEqual(currentCreatureProperties?.skills, nextSkills) &&
+      areCreatureScriptSlotsEqual(currentCreatureProperties?.scriptSlots, nextScriptSlots) &&
+      areCreatureAdvancedSettingsEqual(
+        currentCreatureProperties?.advancedSettings,
+        nextAdvancedSettings
+      ) &&
+      areCreatureFeatEntriesEqual(currentCreatureProperties?.feats, nextFeats) &&
+      areCreatureSpellEntriesEqual(currentCreatureProperties?.spells, nextSpells) &&
+      areCreatureSpecialAbilityEntriesEqual(
+        currentCreatureProperties?.specialAbilities,
+        nextSpecialAbilities
+      ) &&
+      isCommentsUnchanged &&
+      normalizedObject.placeableProperties === undefined &&
+      normalizedObject.soundPositioning === undefined &&
+      normalizedObject.doorTransition === undefined
+    ) {
+      return normalizedObject;
+    }
+
+    return {
+      ...normalizedObject,
+      name: nextFirstName,
+      creatureProperties: nextCreatureProperties,
+      placeableProperties: undefined,
+      soundPositioning: undefined,
+      doorTransition: undefined
     };
   }
 
@@ -713,6 +1810,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
 
     if (
       normalizedObject.placeableProperties === undefined &&
+      normalizedObject.creatureProperties === undefined &&
       normalizedObject.soundPositioning === undefined &&
       isDoorTransitionUnchanged
     ) {
@@ -722,6 +1820,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     return {
       ...normalizedObject,
       placeableProperties: undefined,
+      creatureProperties: undefined,
       soundPositioning: undefined,
       doorTransition: nextDoorTransition
     };
@@ -757,7 +1856,8 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         currentSoundPositioning?.preserve,
         nextSoundPositioning.preserve
       ) &&
-      normalizedObject.placeableProperties === undefined
+      normalizedObject.placeableProperties === undefined &&
+      normalizedObject.creatureProperties === undefined
     ) {
       return normalizedObject;
     }
@@ -765,12 +1865,14 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     return {
       ...normalizedObject,
       placeableProperties: undefined,
+      creatureProperties: undefined,
       soundPositioning: nextSoundPositioning
     };
   }
 
   if (
     normalizedObject.placeableProperties === undefined &&
+    normalizedObject.creatureProperties === undefined &&
     normalizedObject.soundPositioning === undefined
   ) {
     return normalizedObject;
@@ -781,6 +1883,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
   return {
     ...normalizedObject,
     placeableProperties: undefined,
+    creatureProperties: undefined,
     soundPositioning: undefined
   };
 }

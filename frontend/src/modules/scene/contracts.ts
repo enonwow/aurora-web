@@ -94,6 +94,155 @@ export interface SceneObjectPlaceableAdvancedSettings {
   treasureModel: string;
 }
 
+export interface SceneObjectCreatureAbilityScores {
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+}
+
+export interface SceneObjectCreatureRacialModifiers {
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+}
+
+export interface SceneObjectCreatureSaveStats {
+  fortitudeBase: number;
+  fortitudeBonus: number;
+  reflexBase: number;
+  reflexBonus: number;
+  willBase: number;
+  willBonus: number;
+}
+
+export interface SceneObjectCreatureStatisticsSettings {
+  abilityScores: SceneObjectCreatureAbilityScores;
+  racialModifiers: SceneObjectCreatureRacialModifiers;
+  saves: SceneObjectCreatureSaveStats;
+  naturalArmorClass: number;
+  baseArmorClass: number;
+  dexterityBonus: number;
+  sizeModifier: number;
+  baseHitPoints: number;
+  hitPointBonuses: number;
+  movementRate: string;
+}
+
+export interface SceneObjectCreatureAppearanceSettings {
+  partBasedAppearance: boolean;
+  head: string;
+  neck: string;
+  torso: string;
+  pelvis: string;
+  rightBicep: string;
+  leftBicep: string;
+  rightForearm: string;
+  leftForearm: string;
+  rightHand: string;
+  leftHand: string;
+  rightThigh: string;
+  leftThigh: string;
+  rightShin: string;
+  leftShin: string;
+  rightFoot: string;
+  leftFoot: string;
+  wings: string;
+  tail: string;
+}
+
+export interface SceneObjectCreatureClassEntry {
+  className: string;
+  level: number;
+}
+
+export interface SceneObjectCreatureSkillEntry {
+  skill: string;
+  rank: number;
+}
+
+export interface SceneObjectCreatureFeatEntry {
+  name: string;
+  type: string;
+  assigned: boolean;
+}
+
+export interface SceneObjectCreatureSpellEntry {
+  prepared: boolean;
+  name: string;
+  spellLevel: number;
+  castingLevel: number;
+}
+
+export interface SceneObjectCreatureSpecialAbilityEntry {
+  name: string;
+  type: string;
+  casterLevel: number;
+  uses: number;
+}
+
+export interface SceneObjectCreatureScriptSlots {
+  onBlocked: string;
+  onCombatRoundEnd: string;
+  onConversation: string;
+  onDamaged: string;
+  onDeath: string;
+  onDisturbed: string;
+  onHeartbeat: string;
+  onPerception: string;
+  onPhysicalAttacked: string;
+  onRested: string;
+  onSpawn: string;
+  onSpellCastAt: string;
+  onUserDefined: string;
+}
+
+export interface SceneObjectCreatureAdvancedSettings {
+  blueprintResRef: string;
+  disarmable: boolean;
+  plot: boolean;
+  leavesLootableCorpse: boolean;
+  noPermanentDeath: boolean;
+  immortal: boolean;
+  treasureModel: string;
+  corpseDecayTimeSeconds: number;
+  faction: string;
+  subrace: string;
+  deity: string;
+  challengeRatingAdjustment: number;
+  soundSet: string;
+  perceptionRange: string;
+}
+
+export interface SceneObjectCreatureProperties {
+  firstName: string;
+  lastName: string;
+  race: string;
+  appearance: string;
+  phenotype: string;
+  gender: string;
+  description: string;
+  challengeRating: number;
+  portraitResRef: string;
+  conversation: string;
+  noInterrupt: boolean;
+  statistics?: SceneObjectCreatureStatisticsSettings;
+  appearanceSettings?: SceneObjectCreatureAppearanceSettings;
+  classEntries?: SceneObjectCreatureClassEntry[];
+  skills?: SceneObjectCreatureSkillEntry[];
+  scriptSlots?: SceneObjectCreatureScriptSlots;
+  advancedSettings?: SceneObjectCreatureAdvancedSettings;
+  feats?: SceneObjectCreatureFeatEntry[];
+  spells?: SceneObjectCreatureSpellEntry[];
+  specialAbilities?: SceneObjectCreatureSpecialAbilityEntry[];
+  comments?: string;
+}
+
 export type SceneSoundPositioningMode =
   | "everywhere"
   | "random"
@@ -210,6 +359,7 @@ export interface SceneObject {
   tag: string;
   isStatic?: boolean;
   placeableProperties?: SceneObjectPlaceableProperties;
+  creatureProperties?: SceneObjectCreatureProperties;
   soundPositioning?: SceneObjectSoundPositioning;
   doorTransition?: SceneObjectDoorTransitionPayload;
   vfxPayload?: SceneObjectVfxPreservePayload;
