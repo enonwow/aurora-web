@@ -41,6 +41,17 @@ export const envSchema = z.object({
   SWAGGER_PATH: z.string().min(1).default("docs"),
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["mysql", "memory"]).default("mysql"),
+  REDIS_URL: z.string().min(1).default("redis://redis:6379"),
+  PROCESSING_JOBS_REDIS_CHANNEL: z.string().min(1).default("aurora.jobs"),
+  PROCESSING_JOBS_REDIS_DEAD_LETTER_CHANNEL: z
+    .string()
+    .min(1)
+    .default("aurora.jobs.dead"),
+  PROCESSING_JOBS_PAYLOAD_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  PROCESSING_JOBS_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  PROCESSING_JOBS_RETRY_BASE_DELAY_MS: z.coerce.number().int().positive().default(1000),
+  PROCESSING_JOBS_RETRY_MAX_DELAY_MS: z.coerce.number().int().positive().default(30000),
+  PROCESSING_JOBS_INLINE_ENABLED: booleanEnvSchema(true),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   PROCESSING_CACHE_L1_MAX_ENTRIES: z.coerce.number().int().positive().default(2000),
   PROCESSING_CACHE_L1_TTL_SECONDS: z.coerce.number().int().positive().default(900),

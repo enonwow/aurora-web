@@ -1,5 +1,6 @@
 import { AppException } from "../../src/common/http/app-exception";
 import {
+  parseJobActionPayload,
   parseCreateJobPayload,
   parseJobIdParams,
   parseJobListQuery
@@ -15,6 +16,8 @@ describe("processing-jobs.schemas", () => {
     expect(parsed).toEqual({
       task: "process_placeable",
       targetId: "plc_market_stall_001",
+      idempotencyKey: undefined,
+      traceId: undefined,
       options: {
         bypassCache: true,
         includeBenchmarkMetadata: true,
@@ -31,9 +34,13 @@ describe("processing-jobs.schemas", () => {
         bypassCache: "false",
         includeBenchmarkMetadata: "1",
         subtypeHint: "vvxy"
-      }
+      },
+      idempotencyKey: "  idem-1  ",
+      traceId: "trace-abc"
     });
 
+    expect(parsed.idempotencyKey).toBe("idem-1");
+    expect(parsed.traceId).toBe("trace-abc");
     expect(parsed.options).toEqual({
       bypassCache: false,
       includeBenchmarkMetadata: true,
@@ -68,5 +75,12 @@ describe("processing-jobs.schemas", () => {
 
   it("rejects invalid UUID params", () => {
     expect(() => parseJobIdParams({ jobId: "abc" })).toThrow(AppException);
+  });
+
+  it("parses optional action reason payload", () => {
+    expect(parseJobActionPayload({ reason: "  cancel now  " })).toEqual({
+      reason: "cancel now"
+    });
+    expect(parseJobActionPayload({})).toEqual({});
   });
 });

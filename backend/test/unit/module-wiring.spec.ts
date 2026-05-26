@@ -12,6 +12,8 @@ import { CatalogModule } from "../../src/modules/catalog/catalog.module";
 import { PLACEABLE_PROCESSING_CACHE } from "../../src/modules/catalog/application/ports/placeable-processing-cache.port";
 import { ProcessingGraphModule } from "../../src/modules/processing-graph/processing-graph.module";
 import { ProcessingJobsModule } from "../../src/modules/processing-jobs/processing-jobs.module";
+import { PROCESSING_JOBS_PUBLISHER } from "../../src/modules/processing-jobs/application/ports/processing-jobs-publisher.port";
+import { PROCESSING_JOBS_REPOSITORY } from "../../src/modules/processing-jobs/application/ports/processing-jobs-repository.port";
 import { RuntimeSettingsModule } from "../../src/modules/runtime-settings/runtime-settings.module";
 import { SoundsModule } from "../../src/modules/sounds/sounds.module";
 import { SOUND_PROCESSING_CACHE } from "../../src/modules/sounds/application/ports/sound-processing-cache.port";
@@ -59,12 +61,22 @@ describe("Module wiring", () => {
     const soundRepositoryProvider = getFactoryProvider(SoundsModule, SOUND_REPOSITORY);
     const soundCacheProvider = getFactoryProvider(SoundsModule, SOUND_PROCESSING_CACHE);
     const authRepositoryProvider = getFactoryProvider(AuthModule, AUTH_REPOSITORY);
+    const processingJobsRepositoryProvider = getFactoryProvider(
+      ProcessingJobsModule,
+      PROCESSING_JOBS_REPOSITORY
+    );
+    const processingJobsPublisherProvider = getFactoryProvider(
+      ProcessingJobsModule,
+      PROCESSING_JOBS_PUBLISHER
+    );
 
     const layered = { name: "layered" };
     const memory = { name: "memory" };
     const snapshotRepo = { name: "snapshot" };
     const staticRepo = { name: "static" };
     const mysqlRepo = { name: "mysql" };
+    const redisPublisher = { name: "redisPublisher" };
+    const noopPublisher = { name: "noopPublisher" };
 
     expect(catalogProvider.useFactory?.({ isTest: true }, layered, memory)).toBe(memory);
     expect(catalogProvider.useFactory?.({ isTest: false }, layered, memory)).toBe(layered);
@@ -103,6 +115,34 @@ describe("Module wiring", () => {
         mysqlRepo
       )
     ).toBe(mysqlRepo);
+    expect(
+      processingJobsRepositoryProvider.useFactory?.(
+        { isTest: true },
+        memory,
+        mysqlRepo
+      )
+    ).toBe(memory);
+    expect(
+      processingJobsRepositoryProvider.useFactory?.(
+        { isTest: false },
+        memory,
+        mysqlRepo
+      )
+    ).toBe(mysqlRepo);
+    expect(
+      processingJobsPublisherProvider.useFactory?.(
+        { isTest: true },
+        noopPublisher,
+        redisPublisher
+      )
+    ).toBe(noopPublisher);
+    expect(
+      processingJobsPublisherProvider.useFactory?.(
+        { isTest: false },
+        noopPublisher,
+        redisPublisher
+      )
+    ).toBe(redisPublisher);
   });
 
   it("registers auth guard provider", () => {

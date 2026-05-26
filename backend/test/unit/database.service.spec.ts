@@ -64,7 +64,7 @@ describe("DatabaseService", () => {
       })
     );
     expect(drizzleMock).toHaveBeenCalledTimes(1);
-    expect(pool.query).toHaveBeenCalledTimes(3);
+    expect(pool.query).toHaveBeenCalledTimes(6);
     expect(service.db).toBe(db);
 
     await service.onModuleDestroy();

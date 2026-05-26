@@ -19,9 +19,16 @@ export interface ProcessingJobCreateCommand {
   task: ProcessingJobTask;
   targetId: string;
   options: ProcessingJobOptions;
+  idempotencyKey?: string;
+  traceId?: string;
 }
 
-export type ProcessingJobStatus = "queued" | "running" | "completed" | "failed";
+export type ProcessingJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface ProcessingJobError {
   code: string;
@@ -44,10 +51,22 @@ export interface ProcessingJobRecord {
   jobId: string;
   status: ProcessingJobStatus;
   createdAt: string;
+  updatedAt: string;
   startedAt?: string;
   finishedAt?: string;
   triggeredBy: string;
   command: ProcessingJobCreateCommand;
+  idempotencyKey?: string;
+  traceId?: string;
+  attemptCount: number;
+  maxAttempts: number;
+  publishCount: number;
+  lastPublishedAt?: string;
+  nextRetryAt?: string;
+  cancelRequested: boolean;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancelledReason?: string;
   error?: ProcessingJobError;
   result?: ProcessingJobExecutionResult;
 }
@@ -56,12 +75,24 @@ export interface ProcessingJobSummary {
   jobId: string;
   status: ProcessingJobStatus;
   createdAt: string;
+  updatedAt: string;
   startedAt?: string;
   finishedAt?: string;
   triggeredBy: string;
   task: ProcessingJobTask;
   targetId: string;
   options: ProcessingJobOptions;
+  idempotencyKey?: string;
+  traceId?: string;
+  attemptCount: number;
+  maxAttempts: number;
+  publishCount: number;
+  lastPublishedAt?: string;
+  nextRetryAt?: string;
+  cancelRequested: boolean;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancelledReason?: string;
   hasResult: boolean;
   error?: ProcessingJobError;
 }

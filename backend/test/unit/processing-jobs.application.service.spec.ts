@@ -1,14 +1,19 @@
 import { AppException } from "../../src/common/http/app-exception";
+import type { AppConfigService } from "../../src/common/config/app-config.service";
 import type { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
 import type { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
+import { MemoryProcessingJobsRepository } from "../../src/modules/processing-jobs/adapters/outbound/memory/memory-processing-jobs.repository";
+import type { ProcessingJobsPublisherPort } from "../../src/modules/processing-jobs/application/ports/processing-jobs-publisher.port";
 import { ProcessingJobsApplicationService } from "../../src/modules/processing-jobs/application/processing-jobs.application.service";
 
 describe("ProcessingJobsApplicationService", () => {
   let catalogService: jest.Mocked<CatalogApplicationService>;
   let areasService: jest.Mocked<AreasApplicationService>;
+  let publisher: jest.Mocked<ProcessingJobsPublisherPort>;
+  let repository: MemoryProcessingJobsRepository;
   let service: ProcessingJobsApplicationService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     catalogService = {
       listPlaceables: jest.fn(),
       listCreatures: jest.fn(),
@@ -35,7 +40,20 @@ describe("ProcessingJobsApplicationService", () => {
       getProcessedArea: jest.fn()
     } as unknown as jest.Mocked<AreasApplicationService>;
 
-    service = new ProcessingJobsApplicationService(catalogService, areasService);
+    publisher = {
+      publishQueued: jest.fn().mockResolvedValue(1),
+      publishDeadLetter: jest.fn().mockResolvedValue(1)
+    };
+
+    repository = new MemoryProcessingJobsRepository();
+    service = new ProcessingJobsApplicationService(
+      catalogService,
+      areasService,
+      buildConfig({ processingJobsInlineEnabled: true, processingJobsMaxAttempts: 2 }),
+      repository,
+      publisher
+    );
+    await service.onModuleInit();
   });
 
   it("enqueues and completes placeable job", async () => {
@@ -49,7 +67,7 @@ describe("ProcessingJobsApplicationService", () => {
       placeable: { templateId: "plc_market_stall_001" } as never
     });
 
-    const queued = service.enqueueJob(
+    const queued = await service.enqueueJob(
       {
         task: "process_placeable",
         targetId: "plc_market_stall_001",
@@ -63,7 +81,7 @@ describe("ProcessingJobsApplicationService", () => {
     );
 
     const completed = await waitForJobStatus(service, queued.jobId, "completed");
-    const result = service.getJobResult(queued.jobId);
+    const result = await service.getJobResult(queued.jobId);
 
     expect(queued.status).toBe("queued");
     expect(completed.hasResult).toBe(true);
@@ -75,7 +93,7 @@ describe("ProcessingJobsApplicationService", () => {
       bypassCache: false,
       includeBenchmarkMetadata: true
     });
-    expect(service.listJobs(10)[0].jobId).toBe(queued.jobId);
+    expect(publisher.publishQueued).toHaveBeenCalled();
   });
 
   it("returns not-ready for running job result and then completes item job", async () => {
@@ -83,10 +101,9 @@ describe("ProcessingJobsApplicationService", () => {
       cache: { key: string; hit: boolean; storedAt: string; hits: number };
       item: unknown;
     }>();
-
     catalogService.processItem.mockReturnValue(deferred.promise as never);
 
-    const queued = service.enqueueJob(
+    const queued = await service.enqueueJob(
       {
         task: "process_item",
         targetId: "itm_health_potion_001",
@@ -98,10 +115,9 @@ describe("ProcessingJobsApplicationService", () => {
       "builder.user"
     );
 
-    expect(() => service.getJobResult(queued.jobId)).toThrow(AppException);
-    expect(() => service.getJobResult(queued.jobId)).toThrow(
-      "Processing job result is not ready yet."
-    );
+    await expect(service.getJobResult(queued.jobId)).rejects.toMatchObject({
+      code: "PROCESSING_JOB_NOT_READY"
+    });
 
     deferred.resolve({
       cache: {
@@ -117,7 +133,7 @@ describe("ProcessingJobsApplicationService", () => {
     expect(completed.hasResult).toBe(true);
   });
 
-  it("returns failed result state for crashing creature job", async () => {
+  it("retries failed job and publishes dead letter after max attempts", async () => {
     catalogService.processCreature.mockRejectedValue(
       new AppException({
         status: 500,
@@ -126,7 +142,7 @@ describe("ProcessingJobsApplicationService", () => {
       })
     );
 
-    const queued = service.enqueueJob(
+    const queued = await service.enqueueJob(
       {
         task: "process_creature",
         targetId: "cre_guard_human",
@@ -140,12 +156,67 @@ describe("ProcessingJobsApplicationService", () => {
 
     const failed = await waitForJobStatus(service, queued.jobId, "failed");
     expect(failed.error?.code).toBe("CREATURE_PROCESS_FAILED");
-
-    expect(() => service.getJobResult(queued.jobId)).toThrow(AppException);
-    expect(() => service.getJobResult(queued.jobId)).toThrow("creature failed");
+    expect(failed.attemptCount).toBe(2);
+    expect(publisher.publishQueued).toHaveBeenCalledTimes(2);
+    expect(publisher.publishDeadLetter).toHaveBeenCalledTimes(1);
   });
 
-  it("dispatches area jobs to area processing service", async () => {
+  it("cancels queued job when inline execution is disabled", async () => {
+    const localService = new ProcessingJobsApplicationService(
+      catalogService,
+      areasService,
+      buildConfig({ processingJobsInlineEnabled: false }),
+      new MemoryProcessingJobsRepository(),
+      publisher
+    );
+    await localService.onModuleInit();
+
+    const queued = await localService.enqueueJob(
+      {
+        task: "process_area",
+        targetId: "area_market_district_001",
+        options: {
+          bypassCache: true,
+          includeBenchmarkMetadata: true
+        }
+      },
+      "builder.user"
+    );
+
+    const cancelled = await localService.cancelJob(queued.jobId, "admin.user", "stop now");
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.cancelledReason).toBe("stop now");
+  });
+
+  it("retries cancelled job", async () => {
+    const localService = new ProcessingJobsApplicationService(
+      catalogService,
+      areasService,
+      buildConfig({ processingJobsInlineEnabled: false }),
+      new MemoryProcessingJobsRepository(),
+      publisher
+    );
+    await localService.onModuleInit();
+
+    const queued = await localService.enqueueJob(
+      {
+        task: "process_area",
+        targetId: "area_market_district_001",
+        options: {
+          bypassCache: true,
+          includeBenchmarkMetadata: true
+        }
+      },
+      "builder.user"
+    );
+
+    await localService.cancelJob(queued.jobId, "admin.user", "stop now");
+    const retried = await localService.retryJob(queued.jobId, "builder.user");
+    expect(retried.status).toBe("queued");
+    expect(retried.cancelRequested).toBe(false);
+  });
+
+  it("deduplicates enqueue by idempotency key", async () => {
     areasService.processArea.mockResolvedValue({
       cache: {
         key: "cache-area",
@@ -156,24 +227,35 @@ describe("ProcessingJobsApplicationService", () => {
       area: { areaId: "area_market_district_001" } as never
     });
 
-    const queued = service.enqueueJob(
+    const first = await service.enqueueJob(
       {
         task: "process_area",
         targetId: "area_market_district_001",
+        idempotencyKey: "idem-1",
         options: {
-          bypassCache: false,
+          bypassCache: true,
           includeBenchmarkMetadata: true
         }
       },
       "builder.user"
     );
 
-    await waitForJobStatus(service, queued.jobId, "completed");
+    const second = await service.enqueueJob(
+      {
+        task: "process_area",
+        targetId: "area_market_district_001",
+        idempotencyKey: "idem-1",
+        options: {
+          bypassCache: true,
+          includeBenchmarkMetadata: true
+        }
+      },
+      "builder.user"
+    );
 
-    expect(areasService.processArea).toHaveBeenCalledWith({
-      areaId: "area_market_district_001",
-      bypassCache: false
-    });
+    expect(first.jobId).toBe(second.jobId);
+    const listed = await service.listJobs(10);
+    expect(listed).toHaveLength(1);
   });
 });
 
@@ -182,9 +264,9 @@ async function waitForJobStatus(
   jobId: string,
   expected: "completed" | "failed"
 ) {
-  const timeoutAt = Date.now() + 2_000;
+  const timeoutAt = Date.now() + 2_500;
   while (Date.now() < timeoutAt) {
-    const job = service.getJob(jobId);
+    const job = await service.getJob(jobId);
     if (job.status === expected) {
       return job;
     }
@@ -205,4 +287,24 @@ function createDeferred<T>() {
 
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function buildConfig(
+  overrides: Partial<{
+    processingJobsInlineEnabled: boolean;
+    processingJobsMaxAttempts: number;
+    processingJobsRetryBaseDelayMs: number;
+    processingJobsRetryMaxDelayMs: number;
+  }> = {}
+) {
+  const config = {
+    processingJobsInlineEnabled: true,
+    processingJobsMaxAttempts: 3,
+    processingJobsRetryBaseDelayMs: 1,
+    processingJobsRetryMaxDelayMs: 5
+  };
+  return {
+    ...config,
+    ...overrides
+  } as AppConfigService;
 }

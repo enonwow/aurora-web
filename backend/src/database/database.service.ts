@@ -42,6 +42,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return this.database;
   }
 
+  async query<T = unknown[]>(statement: string, params: unknown[] = []): Promise<T> {
+    if (!this.initialized) {
+      throw new Error("DatabaseService is not initialized.");
+    }
+
+    const [rows] = await this.pool.query(statement, params);
+    return rows as T;
+  }
+
   private async ensureSchema(): Promise<void> {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -68,6 +77,45 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS processing_jobs (
+        job_id VARCHAR(64) PRIMARY KEY,
+        status ENUM('queued', 'running', 'completed', 'failed', 'cancelled') NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        updated_at DATETIME(3) NOT NULL,
+        started_at DATETIME(3) NULL,
+        finished_at DATETIME(3) NULL,
+        triggered_by VARCHAR(128) NOT NULL,
+        task VARCHAR(64) NOT NULL,
+        target_id VARCHAR(128) NOT NULL,
+        options_json JSON NOT NULL,
+        idempotency_key VARCHAR(128) NULL,
+        trace_id VARCHAR(128) NULL,
+        attempt_count INT NOT NULL DEFAULT 0,
+        max_attempts INT NOT NULL DEFAULT 3,
+        publish_count INT NOT NULL DEFAULT 0,
+        last_published_at DATETIME(3) NULL,
+        next_retry_at DATETIME(3) NULL,
+        cancel_requested TINYINT(1) NOT NULL DEFAULT 0,
+        cancelled_at DATETIME(3) NULL,
+        cancelled_by VARCHAR(128) NULL,
+        cancelled_reason TEXT NULL,
+        result_json JSON NULL,
+        error_json JSON NULL,
+        CONSTRAINT ux_processing_jobs_idempotency_key UNIQUE (idempotency_key)
+      ) ENGINE=InnoDB
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_processing_jobs_status_created_at
+      ON processing_jobs(status, created_at)
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_processing_jobs_status_retry
+      ON processing_jobs(status, next_retry_at)
     `);
   }
 }

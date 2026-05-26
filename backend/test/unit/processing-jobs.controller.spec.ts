@@ -12,17 +12,20 @@ describe("ProcessingJobsController", () => {
       enqueueJob: jest.fn(),
       listJobs: jest.fn(),
       getJob: jest.fn(),
-      getJobResult: jest.fn()
+      getJobResult: jest.fn(),
+      retryJob: jest.fn(),
+      cancelJob: jest.fn()
     } as unknown as jest.Mocked<ProcessingJobsApplicationService>;
     config = { contractVersion: "1.0.0" } as AppConfigService;
     controller = new ProcessingJobsController(service, config);
   });
 
   it("enqueues processing job with username from request context", async () => {
-    service.enqueueJob.mockReturnValue({
+    service.enqueueJob.mockResolvedValue({
       jobId: "da8b5a61-84f1-45c9-b7b9-85a4cf26d721",
       status: "queued",
       createdAt: "2026-05-26T00:00:00.000Z",
+      updatedAt: "2026-05-26T00:00:00.000Z",
       triggeredBy: "builder.user",
       task: "process_placeable",
       targetId: "plc_market_stall_001",
@@ -30,22 +33,32 @@ describe("ProcessingJobsController", () => {
         bypassCache: true,
         includeBenchmarkMetadata: true
       },
+      attemptCount: 0,
+      maxAttempts: 3,
+      publishCount: 0,
+      cancelRequested: false,
       hasResult: false
     });
 
-    const response = await controller.createJob(requestWithUser("builder.user"), {
-      task: "process_placeable",
-      targetId: "plc_market_stall_001",
-      options: {
-        bypassCache: "false",
-        includeBenchmarkMetadata: "true"
+    const response = await controller.createJob(
+      requestWithUser("builder.user"),
+      "idem-from-header",
+      {
+        task: "process_placeable",
+        targetId: "plc_market_stall_001",
+        options: {
+          bypassCache: "false",
+          includeBenchmarkMetadata: "true"
+        }
       }
-    });
+    );
 
     expect(service.enqueueJob).toHaveBeenCalledWith(
       {
         task: "process_placeable",
         targetId: "plc_market_stall_001",
+        idempotencyKey: "idem-from-header",
+        traceId: "req-test",
         options: {
           bypassCache: false,
           includeBenchmarkMetadata: true,
@@ -59,7 +72,7 @@ describe("ProcessingJobsController", () => {
   });
 
   it("lists jobs with parsed query limit", async () => {
-    service.listJobs.mockReturnValue([{ jobId: "job-1" }] as never);
+    service.listJobs.mockResolvedValue([{ jobId: "job-1" }] as never);
 
     const response = await controller.listJobs(requestWithUser("builder.user"), {
       limit: "17"
@@ -71,7 +84,7 @@ describe("ProcessingJobsController", () => {
 
   it("returns selected job by UUID id", async () => {
     const jobId = "2a68d4d8-0294-4911-a428-927f7f94f6cf";
-    service.getJob.mockReturnValue({ jobId, status: "running" } as never);
+    service.getJob.mockResolvedValue({ jobId, status: "running" } as never);
 
     const response = await controller.getJob(requestWithUser("dm.user"), { jobId });
 
@@ -81,7 +94,7 @@ describe("ProcessingJobsController", () => {
 
   it("returns job result by UUID id", async () => {
     const jobId = "f16af4bd-ccdd-4cf7-80f6-0840819d7643";
-    service.getJobResult.mockReturnValue({
+    service.getJobResult.mockResolvedValue({
       entityType: "placeable",
       entityId: "plc_market_stall_001",
       cache: {
@@ -118,6 +131,46 @@ describe("ProcessingJobsController", () => {
       code: "VALIDATION_FAILED"
     });
     expect(service.getJob).not.toHaveBeenCalled();
+  });
+
+  it("retries selected job by UUID id", async () => {
+    const jobId = "f16af4bd-ccdd-4cf7-80f6-0840819d7643";
+    service.retryJob.mockResolvedValue({
+      jobId,
+      status: "queued"
+    } as never);
+
+    const response = await controller.retryJob(requestWithUser("dm.user"), {
+      jobId
+    });
+
+    expect(service.retryJob).toHaveBeenCalledWith(jobId, "dm.user");
+    expect(response.data).toEqual({
+      jobId,
+      status: "queued"
+    });
+  });
+
+  it("cancels selected job by UUID id with reason", async () => {
+    const jobId = "f16af4bd-ccdd-4cf7-80f6-0840819d7643";
+    service.cancelJob.mockResolvedValue({
+      jobId,
+      status: "cancelled",
+      cancelledReason: "stop now"
+    } as never);
+
+    const response = await controller.cancelJob(
+      requestWithUser("dm.user"),
+      { jobId },
+      { reason: " stop now " }
+    );
+
+    expect(service.cancelJob).toHaveBeenCalledWith(jobId, "dm.user", "stop now");
+    expect(response.data).toEqual({
+      jobId,
+      status: "cancelled",
+      cancelledReason: "stop now"
+    });
   });
 });
 

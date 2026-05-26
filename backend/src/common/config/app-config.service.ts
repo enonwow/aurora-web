@@ -52,6 +52,38 @@ export class AppConfigService {
     return this.env.AUTH_REPOSITORY_DRIVER;
   }
 
+  get redisUrl() {
+    return this.env.REDIS_URL;
+  }
+
+  get processingJobsRedisChannel() {
+    return this.env.PROCESSING_JOBS_REDIS_CHANNEL;
+  }
+
+  get processingJobsRedisDeadLetterChannel() {
+    return this.env.PROCESSING_JOBS_REDIS_DEAD_LETTER_CHANNEL;
+  }
+
+  get processingJobsPayloadTtlSeconds() {
+    return this.env.PROCESSING_JOBS_PAYLOAD_TTL_SECONDS;
+  }
+
+  get processingJobsMaxAttempts() {
+    return this.env.PROCESSING_JOBS_MAX_ATTEMPTS;
+  }
+
+  get processingJobsRetryBaseDelayMs() {
+    return this.env.PROCESSING_JOBS_RETRY_BASE_DELAY_MS;
+  }
+
+  get processingJobsRetryMaxDelayMs() {
+    return this.env.PROCESSING_JOBS_RETRY_MAX_DELAY_MS;
+  }
+
+  get processingJobsInlineEnabled() {
+    return this.env.PROCESSING_JOBS_INLINE_ENABLED;
+  }
+
   get sessionTtlSeconds() {
     return this.env.SESSION_TTL_SECONDS;
   }

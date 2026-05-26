@@ -16,6 +16,14 @@ describe("AppConfigService", () => {
       SWAGGER_PATH: "swagger-ui",
       SWAGGER_JSON_PATH: "swagger-json",
       AUTH_REPOSITORY_DRIVER: "memory",
+      REDIS_URL: "redis://localhost:6379",
+      PROCESSING_JOBS_REDIS_CHANNEL: "aurora.jobs",
+      PROCESSING_JOBS_REDIS_DEAD_LETTER_CHANNEL: "aurora.jobs.dead",
+      PROCESSING_JOBS_PAYLOAD_TTL_SECONDS: "1800",
+      PROCESSING_JOBS_MAX_ATTEMPTS: "5",
+      PROCESSING_JOBS_RETRY_BASE_DELAY_MS: "500",
+      PROCESSING_JOBS_RETRY_MAX_DELAY_MS: "45000",
+      PROCESSING_JOBS_INLINE_ENABLED: "false",
       SESSION_TTL_SECONDS: "7200",
       PROCESSING_CACHE_L1_MAX_ENTRIES: "111",
       PROCESSING_CACHE_L1_TTL_SECONDS: "222",
@@ -47,6 +55,14 @@ describe("AppConfigService", () => {
     expect(config.swaggerPath).toBe("swagger-ui");
     expect(config.swaggerJsonPath).toBe("swagger-json");
     expect(config.authRepositoryDriver).toBe("memory");
+    expect(config.redisUrl).toBe("redis://localhost:6379");
+    expect(config.processingJobsRedisChannel).toBe("aurora.jobs");
+    expect(config.processingJobsRedisDeadLetterChannel).toBe("aurora.jobs.dead");
+    expect(config.processingJobsPayloadTtlSeconds).toBe(1800);
+    expect(config.processingJobsMaxAttempts).toBe(5);
+    expect(config.processingJobsRetryBaseDelayMs).toBe(500);
+    expect(config.processingJobsRetryMaxDelayMs).toBe(45000);
+    expect(config.processingJobsInlineEnabled).toBe(false);
     expect(config.sessionTtlSeconds).toBe(7200);
     expect(config.processingCacheL1MaxEntries).toBe(111);
     expect(config.processingCacheL1TtlSeconds).toBe(222);

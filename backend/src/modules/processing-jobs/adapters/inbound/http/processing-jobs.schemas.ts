@@ -31,10 +31,16 @@ const jobListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(20)
 });
 
+const jobActionPayloadSchema = z.object({
+  reason: z.string().trim().min(1).max(256).optional()
+});
+
 const createJobPayloadSchema = z
   .object({
     task: z.enum(jobTasks),
     targetId: z.string().trim().min(1),
+    idempotencyKey: z.string().trim().min(1).max(128).optional(),
+    traceId: z.string().trim().min(1).max(128).optional(),
     options: z
       .object({
         bypassCache: parseBooleanSchema().optional(),
@@ -56,6 +62,8 @@ const createJobPayloadSchema = z
   .transform((value): ProcessingJobCreateCommand => ({
     task: value.task as ProcessingJobTask,
     targetId: value.targetId,
+    idempotencyKey: value.idempotencyKey,
+    traceId: value.traceId,
     options: {
       bypassCache: value.options?.bypassCache ?? true,
       includeBenchmarkMetadata: value.options?.includeBenchmarkMetadata ?? true,
@@ -88,6 +96,15 @@ export function parseJobListQuery(input: unknown): { limit: number } {
   }
 
   throwValidationError(parsed.error.issues, "Processing job list query validation failed.");
+}
+
+export function parseJobActionPayload(input: unknown): { reason?: string } {
+  const parsed = jobActionPayloadSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(parsed.error.issues, "Processing job action payload validation failed.");
 }
 
 function parseBooleanSchema() {
