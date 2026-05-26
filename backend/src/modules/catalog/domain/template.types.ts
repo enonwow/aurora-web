@@ -248,6 +248,42 @@ export interface CreatureValidationIssue {
   message: string;
 }
 
+export interface ItemRuntimeProjection {
+  source: {
+    fileType?: string;
+    fileVersion?: string;
+    structTypeId?: number;
+  };
+  identity: {
+    templateResRef?: string;
+    localizedName?: string;
+    description?: string;
+    identifiedDescription?: string;
+    tag?: string;
+  };
+  classification: {
+    baseItem?: number;
+  };
+  pricing: {
+    addCost?: number;
+    costTable?: number;
+    costValue?: number;
+  };
+  state: {
+    charges?: number;
+    stackSize?: number;
+    identified?: boolean;
+    stolen?: boolean;
+  };
+  scripts: Record<string, string>;
+}
+
+export interface ItemValidationIssue {
+  code: string;
+  severity: "warn" | "error";
+  message: string;
+}
+
 export interface TemplateProcessingResult {
   templateId: string;
   kind: "creature" | "item";
@@ -260,6 +296,8 @@ export interface TemplateProcessingResult {
   render: TemplateRenderContract;
   creatureRuntime?: CreatureRuntimeProjection;
   creatureValidationIssues?: CreatureValidationIssue[];
+  itemRuntime?: ItemRuntimeProjection;
+  itemValidationIssues?: ItemValidationIssue[];
   processedAt: string;
 }
 

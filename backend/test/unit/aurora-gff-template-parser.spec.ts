@@ -168,6 +168,47 @@ describe("aurora-gff-template-parser", () => {
     });
   });
 
+  it("extracts item runtime/pricing fields from UTI", () => {
+    const bytes = buildGffBuffer(
+      [
+        { label: "TemplateResRef", type: "resref", value: "itm_scroll_fire_01" },
+        { label: "LocName", type: "cexolocstring", value: "Scroll of Fire" },
+        { label: "Description", type: "cexolocstring", value: "Unidentified description" },
+        { label: "DescIdentified", type: "cexolocstring", value: "Identified description" },
+        { label: "Tag", type: "cexostring", value: "itm_scroll_fire_tag" },
+        { label: "BaseItem", type: "dword", value: 75 },
+        { label: "AddCost", type: "dword", value: 50 },
+        { label: "CostTable", type: "dword", value: 3 },
+        { label: "CostValue", type: "dword", value: 11 },
+        { label: "Charges", type: "dword", value: 8 },
+        { label: "StackSize", type: "word", value: 5 },
+        { label: "Identified", type: "byte", value: 0 },
+        { label: "Stolen", type: "byte", value: 1 }
+      ],
+      "UTI "
+    );
+
+    const parsed = parseTemplateBlueprintFromGff(bytes);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTI ",
+      templateResRef: "itm_scroll_fire_01",
+      localizedName: "Scroll of Fire",
+      displayName: "Scroll of Fire",
+      description: "Unidentified description",
+      identifiedDescription: "Identified description",
+      tag: "itm_scroll_fire_tag",
+      baseItem: 75,
+      addCost: 50,
+      costTable: 3,
+      costValue: 11,
+      charges: 8,
+      stackSize: 5,
+      identified: false,
+      stolen: true
+    });
+  });
+
   it("extracts creature visual body/color fields and equip list count", () => {
     const bytes = buildGffBuffer(
       [

@@ -47,11 +47,21 @@ export interface ParsedTemplateBlueprint {
   templateResRef?: string;
   firstName?: string;
   lastName?: string;
+  localizedName?: string;
   displayName?: string;
   description?: string;
+  identifiedDescription?: string;
   tag?: string;
   conversation?: string;
   keyName?: string;
+  baseItem?: number;
+  addCost?: number;
+  costTable?: number;
+  costValue?: number;
+  charges?: number;
+  stackSize?: number;
+  identified?: boolean;
+  stolen?: boolean;
   appearanceId?: number;
   animationState?: number;
   modelResRef?: string;
@@ -495,15 +505,28 @@ function mapFieldsToTemplateBlueprint(
   ]);
   const firstName = readNameField(fields, ["firstname"]);
   const lastName = readNameField(fields, ["lastname"]);
-  const displayName = readNameField(fields, [
+  const localizedName = readNameField(fields, [
     "locname",
     "name",
     "displayname"
   ]);
+  const displayName = localizedName;
   const description = readNameField(fields, ["description", "desc"]);
+  const identifiedDescription = readNameField(fields, [
+    "descidentified",
+    "descriptionidentified"
+  ]);
   const tag = readStringField(fields, ["tag"]);
   const conversation = readStringField(fields, ["conversation", "conv"]);
   const keyName = readStringField(fields, ["keyname", "key"]);
+  const baseItem = readNumberField(fields, ["baseitem"]);
+  const addCost = readNumberField(fields, ["addcost"]);
+  const costTable = readNumberField(fields, ["costtable"]);
+  const costValue = readNumberField(fields, ["costvalue"]);
+  const charges = readNumberField(fields, ["charges"]);
+  const stackSize = readNumberField(fields, ["stacksize"]);
+  const identified = readBooleanField(fields, ["identified"]);
+  const stolen = readBooleanField(fields, ["stolen"]);
   const modelResRef = readStringField(fields, ["modelname", "modelresref", "model"]);
   const appearanceId = readNumberField(fields, ["appearance", "appearance_type"]);
   const animationState = readNumberField(fields, ["animationstate", "animation"]);
@@ -609,11 +632,21 @@ function mapFieldsToTemplateBlueprint(
     templateResRef,
     firstName,
     lastName,
+    localizedName,
     displayName: resolvedDisplayName,
     description,
+    identifiedDescription,
     tag,
     conversation,
     keyName,
+    baseItem: Number.isFinite(baseItem ?? Number.NaN) ? baseItem : undefined,
+    addCost: Number.isFinite(addCost ?? Number.NaN) ? addCost : undefined,
+    costTable: Number.isFinite(costTable ?? Number.NaN) ? costTable : undefined,
+    costValue: Number.isFinite(costValue ?? Number.NaN) ? costValue : undefined,
+    charges: Number.isFinite(charges ?? Number.NaN) ? charges : undefined,
+    stackSize: Number.isFinite(stackSize ?? Number.NaN) ? stackSize : undefined,
+    identified,
+    stolen,
     appearanceId: Number.isFinite(appearanceId ?? Number.NaN) ? appearanceId : undefined,
     animationState: Number.isFinite(animationState ?? Number.NaN) ? animationState : undefined,
     modelResRef,

@@ -442,11 +442,25 @@ function mapCandidateToTemplateRecord(
   addOptionalMetadata(metadata, "templateResRef", candidate.parsedBlueprint?.templateResRef);
   addOptionalMetadata(metadata, "firstName", candidate.parsedBlueprint?.firstName);
   addOptionalMetadata(metadata, "lastName", candidate.parsedBlueprint?.lastName);
+  addOptionalMetadata(metadata, "localizedName", candidate.parsedBlueprint?.localizedName);
   addOptionalMetadata(metadata, "displayName", candidate.parsedBlueprint?.displayName);
   addOptionalMetadata(metadata, "description", candidate.parsedBlueprint?.description);
+  addOptionalMetadata(
+    metadata,
+    "identifiedDescription",
+    candidate.parsedBlueprint?.identifiedDescription
+  );
   addOptionalMetadata(metadata, "tag", candidate.parsedBlueprint?.tag);
   addOptionalMetadata(metadata, "conversation", candidate.parsedBlueprint?.conversation);
   addOptionalMetadata(metadata, "keyName", candidate.parsedBlueprint?.keyName);
+  addOptionalMetadata(metadata, "baseItem", candidate.parsedBlueprint?.baseItem);
+  addOptionalMetadata(metadata, "addCost", candidate.parsedBlueprint?.addCost);
+  addOptionalMetadata(metadata, "costTable", candidate.parsedBlueprint?.costTable);
+  addOptionalMetadata(metadata, "costValue", candidate.parsedBlueprint?.costValue);
+  addOptionalMetadata(metadata, "charges", candidate.parsedBlueprint?.charges);
+  addOptionalMetadata(metadata, "stackSize", candidate.parsedBlueprint?.stackSize);
+  addOptionalMetadata(metadata, "identified", candidate.parsedBlueprint?.identified);
+  addOptionalMetadata(metadata, "stolen", candidate.parsedBlueprint?.stolen);
   addOptionalMetadata(metadata, "modelResRef", candidate.parsedBlueprint?.modelResRef);
   addOptionalMetadata(
     metadata,

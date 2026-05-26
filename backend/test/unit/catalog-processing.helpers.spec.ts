@@ -6,6 +6,8 @@ import {
   buildPlaceableValidationIssues,
   buildCreatureRuntimeProjection,
   buildCreatureValidationIssues,
+  buildItemRuntimeProjection,
+  buildItemValidationIssues,
   buildEmptyPlaceableAssetManifest,
   buildLookupSeeds,
   buildModuleSnapshotIndex,
@@ -405,6 +407,73 @@ describe("catalog-processing.helpers", () => {
     const issues = buildCreatureValidationIssues(runtime);
     expect(issues.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(["CREATURE_APPEARANCE_HEAD_MISSING", "CREATURE_COLORS_PARTIAL"])
+    );
+  });
+
+  it("buildItemRuntimeProjection maps item metadata fields", () => {
+    const runtime = buildItemRuntimeProjection({
+      sourceFileType: "UTI ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 43,
+      templateResRef: "itm_scroll_fire_01",
+      localizedName: "Scroll of Fire",
+      description: "Unknown scroll",
+      identifiedDescription: "Fireball scroll",
+      tag: "itm_scroll_fire_tag",
+      baseItem: 75,
+      addCost: 50,
+      costTable: 3,
+      costValue: 11,
+      charges: 8,
+      stackSize: 5,
+      identified: false,
+      stolen: true
+    });
+
+    expect(runtime.source).toMatchObject({
+      fileType: "UTI",
+      fileVersion: "V3.2",
+      structTypeId: 43
+    });
+    expect(runtime.identity).toMatchObject({
+      templateResRef: "itm_scroll_fire_01",
+      localizedName: "Scroll of Fire",
+      description: "Unknown scroll",
+      identifiedDescription: "Fireball scroll",
+      tag: "itm_scroll_fire_tag"
+    });
+    expect(runtime.classification.baseItem).toBe(75);
+    expect(runtime.pricing).toMatchObject({
+      addCost: 50,
+      costTable: 3,
+      costValue: 11
+    });
+    expect(runtime.state).toMatchObject({
+      charges: 8,
+      stackSize: 5,
+      identified: false,
+      stolen: true
+    });
+  });
+
+  it("buildItemValidationIssues reports expected Aurora item warnings", () => {
+    const runtime = buildItemRuntimeProjection({
+      templateResRef: "itm_broken_01",
+      identified: false,
+      stackSize: 0,
+      charges: -1,
+      costTable: 5
+    });
+
+    const issues = buildItemValidationIssues(runtime);
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "ITEM_BASE_ITEM_MISSING",
+        "ITEM_STACK_SIZE_INVALID",
+        "ITEM_CHARGES_INVALID",
+        "ITEM_IDENTIFIED_DESC_MISSING",
+        "ITEM_COST_VALUE_MISSING"
+      ])
     );
   });
 

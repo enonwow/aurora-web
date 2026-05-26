@@ -4,6 +4,8 @@ import type {
   BenchmarkDurationSummary,
   CreatureRuntimeProjection,
   CreatureValidationIssue,
+  ItemRuntimeProjection,
+  ItemValidationIssue,
   PlaceableAssetEntry,
   PlaceableAssetManifest,
   PlaceableAssetRole,
@@ -643,6 +645,99 @@ export function buildCreatureValidationIssues(
       code: "CREATURE_SCRIPTS_EMPTY",
       severity: "warn",
       message: "No creature scripts were extracted from source metadata."
+    });
+  }
+
+  return issues;
+}
+
+export function buildItemRuntimeProjection(
+  metadata: Record<string, string | number | boolean>
+): ItemRuntimeProjection {
+  const scripts = extractScriptMap(metadata);
+
+  return {
+    source: {
+      fileType: readMetadataString(metadata, "sourceFileType"),
+      fileVersion: readMetadataString(metadata, "sourceFileVersion"),
+      structTypeId: readMetadataNumber(metadata, "sourceStructTypeId")
+    },
+    identity: {
+      templateResRef: readMetadataString(metadata, "templateResRef"),
+      localizedName:
+        readMetadataString(metadata, "localizedName") ??
+        readMetadataString(metadata, "displayName"),
+      description: readMetadataString(metadata, "description"),
+      identifiedDescription: readMetadataString(metadata, "identifiedDescription"),
+      tag: readMetadataString(metadata, "tag")
+    },
+    classification: {
+      baseItem: readMetadataNumber(metadata, "baseItem")
+    },
+    pricing: {
+      addCost: readMetadataNumber(metadata, "addCost"),
+      costTable: readMetadataNumber(metadata, "costTable"),
+      costValue: readMetadataNumber(metadata, "costValue")
+    },
+    state: {
+      charges: readMetadataNumber(metadata, "charges"),
+      stackSize: readMetadataNumber(metadata, "stackSize"),
+      identified: readMetadataBoolean(metadata, "identified"),
+      stolen: readMetadataBoolean(metadata, "stolen")
+    },
+    scripts
+  };
+}
+
+export function buildItemValidationIssues(runtime: ItemRuntimeProjection): ItemValidationIssue[] {
+  const issues: ItemValidationIssue[] = [];
+
+  if (typeof runtime.classification.baseItem !== "number") {
+    issues.push({
+      code: "ITEM_BASE_ITEM_MISSING",
+      severity: "warn",
+      message: "BaseItem is missing in item source metadata."
+    });
+  }
+
+  if (
+    typeof runtime.state.stackSize === "number" &&
+    (!Number.isInteger(runtime.state.stackSize) || runtime.state.stackSize < 1)
+  ) {
+    issues.push({
+      code: "ITEM_STACK_SIZE_INVALID",
+      severity: "warn",
+      message: "StackSize should be an integer >= 1."
+    });
+  }
+
+  if (
+    typeof runtime.state.charges === "number" &&
+    (!Number.isInteger(runtime.state.charges) || runtime.state.charges < 0)
+  ) {
+    issues.push({
+      code: "ITEM_CHARGES_INVALID",
+      severity: "warn",
+      message: "Charges should be an integer >= 0."
+    });
+  }
+
+  if (runtime.state.identified === false && !runtime.identity.identifiedDescription) {
+    issues.push({
+      code: "ITEM_IDENTIFIED_DESC_MISSING",
+      severity: "warn",
+      message: "DescIdentified is missing while item is marked as not identified."
+    });
+  }
+
+  if (
+    runtime.pricing.costTable !== undefined &&
+    runtime.pricing.costValue === undefined
+  ) {
+    issues.push({
+      code: "ITEM_COST_VALUE_MISSING",
+      severity: "warn",
+      message: "CostTable is present but CostValue is missing."
     });
   }
 

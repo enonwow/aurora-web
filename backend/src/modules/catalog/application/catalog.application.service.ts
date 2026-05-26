@@ -45,6 +45,8 @@ import {
   buildPlaceableValidationIssues,
   buildCreatureRuntimeProjection,
   buildCreatureValidationIssues,
+  buildItemRuntimeProjection,
+  buildItemValidationIssues,
   buildBenchmarkFingerprint,
   buildModuleSnapshotIndex,
   buildRenderContract,
@@ -643,6 +645,12 @@ export class CatalogApplicationService {
         kind === "creature" && creatureRuntime
           ? buildCreatureValidationIssues(creatureRuntime)
           : undefined;
+      const itemRuntime =
+        kind === "item" ? buildItemRuntimeProjection(template.metadata) : undefined;
+      const itemValidationIssues =
+        kind === "item" && itemRuntime
+          ? buildItemValidationIssues(itemRuntime)
+          : undefined;
 
       const processed: TemplateProcessingResult = {
         templateId: template.templateId,
@@ -656,6 +664,8 @@ export class CatalogApplicationService {
         render: buildTemplateRenderContract(kind),
         creatureRuntime,
         creatureValidationIssues,
+        itemRuntime,
+        itemValidationIssues,
         processedAt: new Date().toISOString()
       };
 
@@ -1181,20 +1191,33 @@ export class CatalogApplicationService {
     cacheKey: string,
     value: TemplateProcessingResult
   ): Promise<TemplateProcessingResult> {
-    if (kind !== "creature") {
+    if (kind === "creature") {
+      if (value.creatureRuntime && value.creatureValidationIssues) {
+        return value;
+      }
+
+      const creatureRuntime = buildCreatureRuntimeProjection(value.metadata);
+      const creatureValidationIssues = buildCreatureValidationIssues(creatureRuntime);
+      const refreshed: TemplateProcessingResult = {
+        ...value,
+        creatureRuntime,
+        creatureValidationIssues
+      };
+
+      await this.placeableCache.set<TemplateProcessingResult>(cacheKey, refreshed);
+      return refreshed;
+    }
+
+    if (value.itemRuntime && value.itemValidationIssues) {
       return value;
     }
 
-    if (value.creatureRuntime && value.creatureValidationIssues) {
-      return value;
-    }
-
-    const creatureRuntime = buildCreatureRuntimeProjection(value.metadata);
-    const creatureValidationIssues = buildCreatureValidationIssues(creatureRuntime);
+    const itemRuntime = buildItemRuntimeProjection(value.metadata);
+    const itemValidationIssues = buildItemValidationIssues(itemRuntime);
     const refreshed: TemplateProcessingResult = {
       ...value,
-      creatureRuntime,
-      creatureValidationIssues
+      itemRuntime,
+      itemValidationIssues
     };
 
     await this.placeableCache.set<TemplateProcessingResult>(cacheKey, refreshed);

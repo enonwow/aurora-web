@@ -181,6 +181,20 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       { label: "ScriptHeartbeat", type: "resref", value: "hb_guard" }
     ], "UTC ");
 
+    const itemBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "itm_scroll_fire" },
+      { label: "LocName", type: "cexolocstring", value: "Scroll of Fire" },
+      { label: "Description", type: "cexolocstring", value: "Unknown scroll" },
+      { label: "DescIdentified", type: "cexolocstring", value: "Identified fire scroll" },
+      { label: "BaseItem", type: "dword", value: 75 },
+      { label: "CostTable", type: "dword", value: 3 },
+      { label: "CostValue", type: "dword", value: 11 },
+      { label: "StackSize", type: "dword", value: 5 },
+      { label: "Charges", type: "dword", value: 8 },
+      { label: "Identified", type: "byte", value: 0 },
+      { label: "Stolen", type: "byte", value: 1 }
+    ], "UTI ");
+
     const byKey = new Map<string, ModuleBlobObjectPayload>([
       [
         "modules/current/blueprints/placeables/plc_city_gate.utd",
@@ -213,6 +227,17 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
           etag: `creature-${etagSeed}`,
           lastModified: "2026-05-25T10:00:00.000Z",
           bytes: creatureBytes
+        }
+      ],
+      [
+        "modules/current/blueprints/items/itm_scroll_fire.utI",
+        {
+          key: "modules/current/blueprints/items/itm_scroll_fire.utI",
+          size: itemBytes.length,
+          contentType: "application/octet-stream",
+          etag: `item-${etagSeed}`,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          bytes: itemBytes
         }
       ]
     ]);
@@ -295,6 +320,14 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(creatures.items[0]?.metadata?.factionId).toBe(3);
     expect(creatures.items[0]?.metadata?.challengeRating).toBe(6);
     expect(creatures.items[0]?.metadata?.["script.scriptheartbeat"]).toBe("hb_guard");
+    expect(items.items[0]?.metadata?.baseItem).toBe(75);
+    expect(items.items[0]?.metadata?.localizedName).toBe("Scroll of Fire");
+    expect(items.items[0]?.metadata?.identifiedDescription).toBe("Identified fire scroll");
+    expect(items.items[0]?.metadata?.costTable).toBe(3);
+    expect(items.items[0]?.metadata?.costValue).toBe(11);
+    expect(items.items[0]?.metadata?.stackSize).toBe(5);
+    expect(items.items[0]?.metadata?.identified).toBe(false);
+    expect(items.items[0]?.metadata?.stolen).toBe(true);
   });
 
   it("applies category, tag, subtype and benchmark filters for placeables", async () => {

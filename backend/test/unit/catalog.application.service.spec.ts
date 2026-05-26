@@ -1430,7 +1430,17 @@ describe("CatalogApplicationService", () => {
   it("processes item into cached contract", async () => {
     const template: TemplateRecord = {
       ...buildTemplate("item", "itm_health_potion_001"),
-      resref: "itm_health_potion_001"
+      resref: "itm_health_potion_001",
+      metadata: {
+        ...buildTemplate("item", "itm_health_potion_001").metadata,
+        baseItem: 49,
+        localizedName: "Health Potion",
+        description: "Unknown potion",
+        identifiedDescription: "Potion of Cure Moderate Wounds",
+        charges: 1,
+        stackSize: 10,
+        identified: false
+      }
     };
     repository.findByKindAndId.mockResolvedValue(template);
     placeableCache.get.mockResolvedValue(null);
@@ -1450,6 +1460,10 @@ describe("CatalogApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(result.item.kind).toBe("item");
     expect(result.item.render.frontendType).toBe("item");
+    expect(result.item.itemRuntime).toBeDefined();
+    expect(result.item.itemRuntime?.classification.baseItem).toBe(49);
+    expect(result.item.itemRuntime?.identity.localizedName).toBe("Health Potion");
+    expect(Array.isArray(result.item.itemValidationIssues)).toBe(true);
   });
 
   it("returns creature/item processed cache entries", async () => {
@@ -1502,6 +1516,8 @@ describe("CatalogApplicationService", () => {
     expect(creature.creature.creatureRuntime).toBeDefined();
     expect(creature.creature.creatureValidationIssues).toBeDefined();
     expect(item.item.templateId).toBe("itm_health_potion_001");
+    expect(item.item.itemRuntime).toBeDefined();
+    expect(item.item.itemValidationIssues).toBeDefined();
   });
 
   it("throws creature/item cache not found errors", async () => {
