@@ -11,6 +11,7 @@ describe("ProcessingJobsController", () => {
     service = {
       enqueueJob: jest.fn(),
       listJobs: jest.fn(),
+      getQueueMetrics: jest.fn(),
       getJob: jest.fn(),
       getJobResult: jest.fn(),
       retryJob: jest.fn(),
@@ -80,6 +81,32 @@ describe("ProcessingJobsController", () => {
 
     expect(service.listJobs).toHaveBeenCalledWith(17);
     expect(response.data).toEqual([{ jobId: "job-1" }]);
+  });
+
+  it("returns queue metrics with parsed windowSize query", async () => {
+    service.getQueueMetrics.mockResolvedValue({
+      windowSize: 300,
+      sampledJobs: 120,
+      counts: {
+        pending: 10,
+        running: 3,
+        failed: 4,
+        deadLetter: 2
+      },
+      durationMs: {
+        p50: 40,
+        p95: 120
+      },
+      generatedAt: "2026-05-26T00:00:00.000Z"
+    } as never);
+
+    const response = await controller.getQueueMetrics(requestWithUser("builder.user"), {
+      windowSize: "300"
+    });
+
+    expect(service.getQueueMetrics).toHaveBeenCalledWith(300);
+    expect(response.data.counts.deadLetter).toBe(2);
+    expect(response.data.durationMs.p95).toBe(120);
   });
 
   it("returns selected job by UUID id", async () => {

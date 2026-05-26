@@ -96,3 +96,19 @@ export interface ProcessingJobSummary {
   hasResult: boolean;
   error?: ProcessingJobError;
 }
+
+export interface ProcessingQueueMetrics {
+  windowSize: number;
+  sampledJobs: number;
+  counts: {
+    pending: number;
+    running: number;
+    failed: number;
+    deadLetter: number;
+  };
+  durationMs: {
+    p50: number | null;
+    p95: number | null;
+  };
+  generatedAt: string;
+}

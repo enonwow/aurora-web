@@ -17,6 +17,7 @@ import type {
   ProcessingJobError,
   ProcessingJobExecutionResult,
   ProcessingJobRecord,
+  ProcessingQueueMetrics,
   ProcessingJobSummary
 } from "../domain/processing-job.types";
 
@@ -156,6 +157,48 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
   async listJobs(limit = 20): Promise<ProcessingJobSummary[]> {
     const jobs = await this.repository.listRecent(limit);
     return jobs.map((job) => toSummary(job));
+  }
+
+  async getQueueMetrics(windowSize = 1000): Promise<ProcessingQueueMetrics> {
+    const normalizedWindowSize = Math.min(Math.max(Math.trunc(windowSize), 1), 10_000);
+    const jobs = await this.repository.listRecent(normalizedWindowSize);
+
+    const counts = {
+      pending: 0,
+      running: 0,
+      failed: 0,
+      deadLetter: 0
+    };
+    const durationsMs: number[] = [];
+
+    for (const job of jobs) {
+      if (job.status === "queued") {
+        counts.pending += 1;
+      } else if (job.status === "running") {
+        counts.running += 1;
+      } else if (job.status === "failed") {
+        counts.failed += 1;
+        if (job.attemptCount >= job.maxAttempts) {
+          counts.deadLetter += 1;
+        }
+      }
+
+      const durationMs = computeJobDurationMs(job);
+      if (durationMs !== null) {
+        durationsMs.push(durationMs);
+      }
+    }
+
+    return {
+      windowSize: normalizedWindowSize,
+      sampledJobs: jobs.length,
+      counts,
+      durationMs: {
+        p50: calculatePercentileNearestRank(durationsMs, 0.5),
+        p95: calculatePercentileNearestRank(durationsMs, 0.95)
+      },
+      generatedAt: new Date().toISOString()
+    };
   }
 
   async cancelJob(
@@ -500,4 +543,36 @@ function isDuplicateEntryError(error: unknown): boolean {
   }
   const maybeCode = (error as { code?: unknown }).code;
   return typeof maybeCode === "string" && maybeCode.toUpperCase() === "ER_DUP_ENTRY";
+}
+
+function computeJobDurationMs(job: ProcessingJobRecord): number | null {
+  if (!job.startedAt || !job.finishedAt) {
+    return null;
+  }
+
+  const startedAtMs = Date.parse(job.startedAt);
+  const finishedAtMs = Date.parse(job.finishedAt);
+  if (Number.isNaN(startedAtMs) || Number.isNaN(finishedAtMs)) {
+    return null;
+  }
+
+  const durationMs = finishedAtMs - startedAtMs;
+  if (durationMs < 0) {
+    return null;
+  }
+  return durationMs;
+}
+
+function calculatePercentileNearestRank(
+  values: readonly number[],
+  percentile: number
+): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const rank = Math.ceil(percentile * sorted.length) - 1;
+  const index = Math.min(Math.max(rank, 0), sorted.length - 1);
+  return sorted[index];
 }

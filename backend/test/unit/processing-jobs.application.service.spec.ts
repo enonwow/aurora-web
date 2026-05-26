@@ -5,6 +5,7 @@ import type { CatalogApplicationService } from "../../src/modules/catalog/applic
 import { MemoryProcessingJobsRepository } from "../../src/modules/processing-jobs/adapters/outbound/memory/memory-processing-jobs.repository";
 import type { ProcessingJobsPublisherPort } from "../../src/modules/processing-jobs/application/ports/processing-jobs-publisher.port";
 import { ProcessingJobsApplicationService } from "../../src/modules/processing-jobs/application/processing-jobs.application.service";
+import type { ProcessingJobRecord } from "../../src/modules/processing-jobs/domain/processing-job.types";
 
 describe("ProcessingJobsApplicationService", () => {
   let catalogService: jest.Mocked<CatalogApplicationService>;
@@ -257,6 +258,68 @@ describe("ProcessingJobsApplicationService", () => {
     const listed = await service.listJobs(10);
     expect(listed).toHaveLength(1);
   });
+
+  it("computes queue observability metrics with p50/p95 durations", async () => {
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-queued",
+        status: "queued"
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-running",
+        status: "running"
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-failed-dead",
+        status: "failed",
+        attemptCount: 3,
+        maxAttempts: 3
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-completed-a",
+        status: "completed",
+        startedAt: "2026-05-26T10:00:00.000Z",
+        finishedAt: "2026-05-26T10:00:00.010Z"
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-completed-b",
+        status: "completed",
+        startedAt: "2026-05-26T10:00:00.000Z",
+        finishedAt: "2026-05-26T10:00:00.020Z"
+      })
+    );
+    await repository.create(
+      buildJobRecord({
+        jobId: "job-completed-c",
+        status: "completed",
+        startedAt: "2026-05-26T10:00:00.000Z",
+        finishedAt: "2026-05-26T10:00:00.100Z"
+      })
+    );
+
+    const metrics = await service.getQueueMetrics(100);
+
+    expect(metrics.windowSize).toBe(100);
+    expect(metrics.counts).toEqual({
+      pending: 1,
+      running: 1,
+      failed: 1,
+      deadLetter: 1
+    });
+    expect(metrics.durationMs).toEqual({
+      p50: 20,
+      p95: 100
+    });
+    expect(metrics.sampledJobs).toBe(6);
+  });
 });
 
 async function waitForJobStatus(
@@ -307,4 +370,39 @@ function buildConfig(
     ...config,
     ...overrides
   } as AppConfigService;
+}
+
+function buildJobRecord(
+  overrides: Partial<ProcessingJobRecord> & Pick<ProcessingJobRecord, "jobId" | "status">
+): ProcessingJobRecord {
+  return {
+    jobId: overrides.jobId,
+    status: overrides.status,
+    createdAt: overrides.createdAt ?? "2026-05-26T00:00:00.000Z",
+    updatedAt: overrides.updatedAt ?? "2026-05-26T00:00:00.000Z",
+    startedAt: overrides.startedAt,
+    finishedAt: overrides.finishedAt,
+    triggeredBy: overrides.triggeredBy ?? "builder.user",
+    command: overrides.command ?? {
+      task: "process_placeable",
+      targetId: "plc_market_stall_001",
+      options: {
+        bypassCache: true,
+        includeBenchmarkMetadata: true
+      }
+    },
+    idempotencyKey: overrides.idempotencyKey,
+    traceId: overrides.traceId,
+    attemptCount: overrides.attemptCount ?? 1,
+    maxAttempts: overrides.maxAttempts ?? 3,
+    publishCount: overrides.publishCount ?? 0,
+    lastPublishedAt: overrides.lastPublishedAt,
+    nextRetryAt: overrides.nextRetryAt,
+    cancelRequested: overrides.cancelRequested ?? false,
+    cancelledAt: overrides.cancelledAt,
+    cancelledBy: overrides.cancelledBy,
+    cancelledReason: overrides.cancelledReason,
+    error: overrides.error,
+    result: overrides.result
+  };
 }

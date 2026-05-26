@@ -31,6 +31,10 @@ const jobListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(20)
 });
 
+const jobMetricsQuerySchema = z.object({
+  windowSize: z.coerce.number().int().min(1).max(10_000).default(1000)
+});
+
 const jobActionPayloadSchema = z.object({
   reason: z.string().trim().min(1).max(256).optional()
 });
@@ -96,6 +100,15 @@ export function parseJobListQuery(input: unknown): { limit: number } {
   }
 
   throwValidationError(parsed.error.issues, "Processing job list query validation failed.");
+}
+
+export function parseJobMetricsQuery(input: unknown): { windowSize: number } {
+  const parsed = jobMetricsQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(parsed.error.issues, "Processing job metrics query validation failed.");
 }
 
 export function parseJobActionPayload(input: unknown): { reason?: string } {

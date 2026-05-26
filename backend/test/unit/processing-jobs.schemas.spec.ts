@@ -3,7 +3,8 @@ import {
   parseJobActionPayload,
   parseCreateJobPayload,
   parseJobIdParams,
-  parseJobListQuery
+  parseJobListQuery,
+  parseJobMetricsQuery
 } from "../../src/modules/processing-jobs/adapters/inbound/http/processing-jobs.schemas";
 
 describe("processing-jobs.schemas", () => {
@@ -66,6 +67,14 @@ describe("processing-jobs.schemas", () => {
 
   it("rejects invalid list query", () => {
     expect(() => parseJobListQuery({ limit: "0" })).toThrow(AppException);
+  });
+
+  it("parses metrics query defaults", () => {
+    expect(parseJobMetricsQuery({})).toEqual({ windowSize: 1000 });
+  });
+
+  it("rejects invalid metrics query", () => {
+    expect(() => parseJobMetricsQuery({ windowSize: "0" })).toThrow(AppException);
   });
 
   it("parses UUID params", () => {
