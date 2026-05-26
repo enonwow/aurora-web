@@ -34,13 +34,13 @@ export const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .min(1)
-    .default("postgres://aurora:aurora@postgres:5432/aurora_web"),
+    .default("mysql://aurora:aurora@mysql:3306/aurora_web"),
   CORS_ALLOWED_ORIGINS: z.string().min(1).default("http://localhost:5173"),
   CONTRACT_VERSION: z.string().min(1).default("1.0.0"),
   SWAGGER_ENABLED: booleanEnvSchema(true),
   SWAGGER_PATH: z.string().min(1).default("docs"),
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
-  AUTH_REPOSITORY_DRIVER: z.enum(["postgres", "memory"]).default("postgres"),
+  AUTH_REPOSITORY_DRIVER: z.enum(["mysql", "memory"]).default("mysql"),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   PROCESSING_CACHE_L1_MAX_ENTRIES: z.coerce.number().int().positive().default(2000),
   PROCESSING_CACHE_L1_TTL_SECONDS: z.coerce.number().int().positive().default(900),

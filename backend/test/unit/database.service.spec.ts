@@ -5,68 +5,80 @@ describe("DatabaseService", () => {
   });
 
   it("skips initialization when auth repository driver is memory", async () => {
-    const sqlClient = createSqlClientMock();
-    const postgresMock = jest.fn().mockReturnValue(sqlClient);
+    const pool = createPoolMock();
+    const createPoolMockFn = jest.fn().mockReturnValue(pool);
     const drizzleMock = jest.fn().mockReturnValue({ marker: "db" });
 
-    jest.doMock("postgres", () => postgresMock);
-    jest.doMock("drizzle-orm/postgres-js", () => ({
+    jest.doMock("mysql2/promise", () => ({
+      __esModule: true,
+      default: {
+        createPool: createPoolMockFn
+      }
+    }));
+    jest.doMock("drizzle-orm/mysql2", () => ({
       drizzle: drizzleMock
     }));
 
     const { DatabaseService } = require("../../src/database/database.service");
     const service = new DatabaseService({
       authRepositoryDriver: "memory",
-      databaseUrl: "postgres://unused"
+      databaseUrl: "mysql://unused"
     });
 
     await service.onModuleInit();
 
-    expect(postgresMock).not.toHaveBeenCalled();
+    expect(createPoolMockFn).not.toHaveBeenCalled();
     await service.onModuleDestroy();
-    expect(sqlClient.end).not.toHaveBeenCalled();
+    expect(pool.end).not.toHaveBeenCalled();
     expect(() => service.db).toThrow("DatabaseService is not initialized.");
   });
 
-  it("initializes postgres client, ensures schema and shuts down", async () => {
-    const sqlClient = createSqlClientMock();
-    const postgresMock = jest.fn().mockReturnValue(sqlClient);
+  it("initializes mysql pool, ensures schema and shuts down", async () => {
+    const pool = createPoolMock();
+    const createPoolMockFn = jest.fn().mockReturnValue(pool);
     const db = { marker: "db" };
     const drizzleMock = jest.fn().mockReturnValue(db);
 
-    jest.doMock("postgres", () => postgresMock);
-    jest.doMock("drizzle-orm/postgres-js", () => ({
+    jest.doMock("mysql2/promise", () => ({
+      __esModule: true,
+      default: {
+        createPool: createPoolMockFn
+      }
+    }));
+    jest.doMock("drizzle-orm/mysql2", () => ({
       drizzle: drizzleMock
     }));
 
     const { DatabaseService } = require("../../src/database/database.service");
     const service = new DatabaseService({
-      authRepositoryDriver: "postgres",
-      databaseUrl: "postgres://aurora:aurora@localhost:5432/aurora"
+      authRepositoryDriver: "mysql",
+      databaseUrl: "mysql://aurora:aurora@localhost:3306/aurora"
     });
 
     await service.onModuleInit();
 
-    expect(postgresMock).toHaveBeenCalledWith(
-      "postgres://aurora:aurora@localhost:5432/aurora",
+    expect(createPoolMockFn).toHaveBeenCalledWith(
       expect.objectContaining({
-        max: 10,
-        prepare: false
+        uri: "mysql://aurora:aurora@localhost:3306/aurora",
+        connectionLimit: 10
       })
     );
     expect(drizzleMock).toHaveBeenCalledTimes(1);
-    expect(sqlClient).toHaveBeenCalledTimes(3);
+    expect(pool.query).toHaveBeenCalledTimes(3);
     expect(service.db).toBe(db);
 
     await service.onModuleDestroy();
-    expect(sqlClient.end).toHaveBeenCalledWith({ timeout: 5 });
+    expect(pool.end).toHaveBeenCalledTimes(1);
   });
 });
 
-function createSqlClientMock() {
-  const sqlClient = jest.fn().mockResolvedValue(undefined) as jest.Mock & {
+function createPoolMock() {
+  const pool = {
+    query: jest.fn().mockResolvedValue(undefined),
+    end: jest.fn().mockResolvedValue(undefined)
+  } as {
+    query: jest.Mock;
     end: jest.Mock;
   };
-  sqlClient.end = jest.fn().mockResolvedValue(undefined);
-  return sqlClient;
+  return pool;
 }

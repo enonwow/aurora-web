@@ -9,7 +9,7 @@ describe("AppConfigService", () => {
       ...originalEnv,
       NODE_ENV: "test",
       PORT: "4040",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      DATABASE_URL: "mysql://user:pass@localhost:3306/db",
       CORS_ALLOWED_ORIGINS: "http://a.local, http://b.local, http://a.local",
       CONTRACT_VERSION: "9.9.9",
       SWAGGER_ENABLED: "false",
@@ -40,7 +40,7 @@ describe("AppConfigService", () => {
     expect(config.nodeEnv).toBe("test");
     expect(config.isTest).toBe(true);
     expect(config.port).toBe(4040);
-    expect(config.databaseUrl).toBe("postgres://user:pass@localhost:5432/db");
+    expect(config.databaseUrl).toBe("mysql://user:pass@localhost:3306/db");
     expect(config.contractVersion).toBe("9.9.9");
     expect(config.corsAllowedOrigins).toEqual(["http://a.local", "http://b.local"]);
     expect(config.swaggerEnabled).toBe(false);

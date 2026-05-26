@@ -238,6 +238,122 @@ describe("RuntimeSettingsApplicationService", () => {
     expect(paged.entries[0]!.resref).toBe("h_fire");
   });
 
+  it("reuses in-memory texture index lookup across summary/query/blob operations", async () => {
+    const current = buildSettingsRecord();
+    repository.get.mockResolvedValue(current);
+    moduleBlobStorage.getModuleObject
+      .mockResolvedValueOnce({
+        key: "modules/current/__aurora/meta/texture-index.v1.json",
+        size: 123,
+        contentType: "application/json",
+        bytes: Buffer.from(
+          JSON.stringify({
+            version: "texture-index/v1",
+            generatedAt: "2026-05-25T12:00:00.000Z",
+            settingsRevision: 7,
+            modulePrefix: "modules/current/",
+            totalTextures: 1,
+            totalBytes: 10,
+            entries: [
+              {
+                textureId: "abcdefabcdefabcdefabcdef",
+                resref: "m_module",
+                extension: "dds",
+                objectKey: "modules/current/textures/m_module.dds",
+                sizeBytes: 10,
+                sha256: "a".repeat(64),
+                source: "module",
+                sourcePath: "textures/m_module.dds"
+              }
+            ],
+            byResref: {}
+          }),
+          "utf-8"
+        )
+      })
+      .mockResolvedValueOnce({
+        key: "modules/current/textures/m_module.dds",
+        size: 10,
+        contentType: "image/vnd-ms.dds",
+        bytes: Buffer.from([1, 2, 3, 4])
+      });
+
+    await service.getTextureIndexMetadataSummary();
+    await service.queryTextureIndex({
+      resref: "M_MODULE",
+      limit: 10,
+      offset: 0
+    });
+    await service.getTextureBlobById("abcdefabcdefabcdefabcdef");
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledTimes(2);
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenNthCalledWith(
+      1,
+      current.blobStorage,
+      "modules/current/__aurora/meta/texture-index.v1.json"
+    );
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenNthCalledWith(
+      2,
+      current.blobStorage,
+      "modules/current/textures/m_module.dds"
+    );
+  });
+
+  it("invalidates in-memory texture index lookup after runtime settings replacement", async () => {
+    const current = buildSettingsRecord();
+    repository.get.mockResolvedValue(current);
+    repository.save.mockResolvedValue();
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: "modules/current/__aurora/meta/texture-index.v1.json",
+      size: 123,
+      contentType: "application/json",
+      bytes: Buffer.from(
+        JSON.stringify({
+          version: "texture-index/v1",
+          generatedAt: "2026-05-25T12:00:00.000Z",
+          settingsRevision: 7,
+          modulePrefix: "modules/current/",
+          totalTextures: 1,
+          totalBytes: 10,
+          entries: [
+            {
+              textureId: "abcdefabcdefabcdefabcdef",
+              resref: "m_module",
+              extension: "dds",
+              objectKey: "modules/current/textures/m_module.dds",
+              sizeBytes: 10,
+              sha256: "a".repeat(64),
+              source: "module",
+              sourcePath: "textures/m_module.dds"
+            }
+          ],
+          byResref: {}
+        }),
+        "utf-8"
+      )
+    });
+
+    await service.queryTextureIndex({
+      limit: 10,
+      offset: 0
+    });
+
+    const {
+      revision: _revision,
+      updatedAt: _updatedAt,
+      updatedBy: _updatedBy,
+      ...payload
+    } = current;
+    await service.replaceRuntimeSettings(payload, "admin.user");
+
+    await service.queryTextureIndex({
+      limit: 10,
+      offset: 0
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledTimes(2);
+  });
+
   it("builds texture delivery contracts and filters by texture ids", async () => {
     const current = buildSettingsRecord();
     repository.get.mockResolvedValue(current);

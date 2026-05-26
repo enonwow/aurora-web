@@ -11,27 +11,27 @@ import {
   MemoryAuthRepository
 } from "./adapters/outbound/memory/memory-auth.repository";
 import {
-  PostgresAuthRepository
-} from "./adapters/outbound/postgres/postgres-auth.repository";
+  MySqlAuthRepository
+} from "./adapters/outbound/mysql/mysql-auth.repository";
 
 @Module({
   controllers: [AuthController],
   providers: [
     AuthApplicationService,
     MemoryAuthRepository,
-    PostgresAuthRepository,
+    MySqlAuthRepository,
     {
       provide: AUTH_REPOSITORY,
-      inject: [AppConfigService, MemoryAuthRepository, PostgresAuthRepository],
+      inject: [AppConfigService, MemoryAuthRepository, MySqlAuthRepository],
       useFactory: (
         config: AppConfigService,
         memoryRepository: MemoryAuthRepository,
-        postgresRepository: PostgresAuthRepository
+        mysqlRepository: MySqlAuthRepository
       ) => {
         if (config.authRepositoryDriver === "memory") {
           return memoryRepository;
         }
-        return postgresRepository;
+        return mysqlRepository;
       }
     },
     {

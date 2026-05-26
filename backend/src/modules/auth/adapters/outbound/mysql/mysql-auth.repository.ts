@@ -10,7 +10,7 @@ import type {
 } from "../../../domain/auth.types";
 
 @Injectable()
-export class PostgresAuthRepository implements AuthRepositoryPort {
+export class MySqlAuthRepository implements AuthRepositoryPort {
   constructor(private readonly databaseService: DatabaseService) {}
 
   async upsertUser(user: UserRecord): Promise<UserRecord> {

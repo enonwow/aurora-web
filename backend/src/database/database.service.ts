@@ -1,14 +1,14 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import { AppConfigService } from "../common/config/app-config.service";
 import * as schema from "./schema";
-const postgres = require("postgres") as typeof import("postgres");
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
-  private sqlClient!: ReturnType<typeof postgres>;
-  private database!: PostgresJsDatabase<typeof schema>;
+  private pool!: mysql.Pool;
+  private database!: MySql2Database<typeof schema>;
   private initialized = false;
 
   constructor(private readonly config: AppConfigService) {}
@@ -18,24 +18,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.sqlClient = postgres(this.config.databaseUrl, {
-      max: 10,
-      prepare: false
+    this.pool = mysql.createPool({
+      uri: this.config.databaseUrl,
+      connectionLimit: 10
     });
-    this.database = drizzle(this.sqlClient, { schema });
+    this.database = drizzle(this.pool, { schema, mode: "default" });
     await this.ensureSchema();
     this.initialized = true;
-    this.logger.log("Connected to PostgreSQL and ensured schema.");
+    this.logger.log("Connected to MySQL and ensured schema.");
   }
 
   async onModuleDestroy(): Promise<void> {
     if (!this.initialized) {
       return;
     }
-    await this.sqlClient.end({ timeout: 5 });
+    await this.pool.end();
   }
 
-  get db(): PostgresJsDatabase<typeof schema> {
+  get db(): MySql2Database<typeof schema> {
     if (!this.initialized) {
       throw new Error("DatabaseService is not initialized.");
     }
@@ -43,28 +43,31 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureSchema(): Promise<void> {
-    await this.sqlClient`
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('viewer', 'builder', 'dm', 'admin')),
-        created_at TIMESTAMPTZ NOT NULL
-      )
-    `;
+        id VARCHAR(64) PRIMARY KEY,
+        username VARCHAR(128) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        role ENUM('viewer', 'builder', 'dm', 'admin') NOT NULL,
+        created_at DATETIME(3) NOT NULL
+      ) ENGINE=InnoDB
+    `);
 
-    await this.sqlClient`
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS sessions (
-        token TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        issued_at TIMESTAMPTZ NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL
-      )
-    `;
+        token VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        issued_at DATETIME(3) NOT NULL,
+        expires_at DATETIME(3) NOT NULL,
+        CONSTRAINT fk_sessions_user FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    `);
 
-    await this.sqlClient`
+    await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
-    `;
+    `);
   }
 }

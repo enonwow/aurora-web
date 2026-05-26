@@ -29,6 +29,7 @@ import type { PackedModuleFile } from "./ports/packed-module-extractor.port";
 const RUNTIME_ASSET_KINDS = ["placeable", "tile", "area", "sound"] as const;
 const TEXTURE_EXTENSIONS = new Set(["dds", "tga", "plt", "txi", "mtr", "bmp"]);
 const TEXTURE_INDEX_FILE_NAME = "__aurora/meta/texture-index.v1.json";
+const TEXTURE_INDEX_LOOKUP_CACHE_TTL_MS = 30_000;
 
 export interface TextureIndexEntry {
   textureId: string;
@@ -156,6 +157,17 @@ interface TextureSupplementResult {
   };
 }
 
+interface TextureIndexLookup {
+  record: TextureIndexRecord;
+  byTextureId: Map<string, TextureIndexEntry>;
+  byResrefEntries: Map<string, TextureIndexEntry[]>;
+}
+
+interface TextureIndexLookupCacheEntry extends TextureIndexLookup {
+  cacheKey: string;
+  fetchedAtMs: number;
+}
+
 export interface ResolvedHakSourceSettings {
   mode: "disabled" | "inline" | "profile" | "none";
   includeHaks: boolean;
@@ -172,6 +184,7 @@ export type ResolvedHakSettingsByAsset = Record<
 @Injectable()
 export class RuntimeSettingsApplicationService {
   private readonly logger = new Logger(RuntimeSettingsApplicationService.name);
+  private textureIndexLookupCache: TextureIndexLookupCacheEntry | null = null;
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
@@ -203,6 +216,7 @@ export class RuntimeSettingsApplicationService {
       updatedBy
     };
     await this.repository.save(next);
+    this.clearTextureIndexLookupCache();
     return next;
   }
 
@@ -214,13 +228,14 @@ export class RuntimeSettingsApplicationService {
   async getTextureIndexMetadataSummary(): Promise<TextureIndexMetadataSummary> {
     const settings = await this.repository.get();
     const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
-    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
-    if (!record) {
+    const lookup = await this.getTextureIndexLookup(settings, indexObjectKey);
+    if (!lookup) {
       return {
         indexObjectKey,
         available: false
       };
     }
+    const { record } = lookup;
 
     return {
       indexObjectKey,
@@ -241,12 +256,12 @@ export class RuntimeSettingsApplicationService {
   }): Promise<TextureIndexQueryResult> {
     const settings = await this.repository.get();
     const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
-    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+    const lookup = await this.getTextureIndexLookup(settings, indexObjectKey);
     const limit = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
     const normalizedResref = options?.resref?.trim().toLowerCase();
 
-    if (!record) {
+    if (!lookup) {
       return {
         indexObjectKey,
         available: false,
@@ -259,11 +274,10 @@ export class RuntimeSettingsApplicationService {
         entries: []
       };
     }
+    const { record } = lookup;
 
     const sourceEntries = normalizedResref
-      ? record.entries.filter(
-          (entry) => entry.resref.trim().toLowerCase() === normalizedResref
-        )
+      ? (lookup.byResrefEntries.get(normalizedResref) ?? [])
       : record.entries;
     const paged = sourceEntries.slice(offset, offset + limit);
 
@@ -345,17 +359,19 @@ export class RuntimeSettingsApplicationService {
   async getTextureBlobById(textureId: string): Promise<TextureBlobDeliveryEnvelope> {
     const settings = await this.repository.get();
     const indexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
-    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+    const lookup = await this.getTextureIndexLookup(settings, indexObjectKey);
 
-    if (!record) {
+    if (!lookup) {
       throw new AppException({
         status: 404,
         code: "TEXTURE_INDEX_NOT_AVAILABLE",
         message: "Texture index was not found in module cache."
       });
     }
+    const { record } = lookup;
 
-    const entry = record.entries.find((candidate) => candidate.textureId === textureId);
+    const normalizedTextureId = textureId.trim().toLowerCase();
+    const entry = lookup.byTextureId.get(normalizedTextureId);
     if (!entry) {
       throw new AppException({
         status: 404,
@@ -406,6 +422,7 @@ export class RuntimeSettingsApplicationService {
       settings.blobStorage.modulePrefix,
       textureFiles
     );
+    const textureIndexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
     const textureIndexFile: PackedModuleFile = {
       fileName: TEXTURE_INDEX_FILE_NAME,
       resourceType: 0,
@@ -424,6 +441,7 @@ export class RuntimeSettingsApplicationService {
         forceFull: options?.forceFull === true
       }
     );
+    this.primeTextureIndexLookupCache(settings, textureIndexObjectKey, textureIndex);
 
     return {
       mode: options?.forceFull === true ? "full" : "incremental",
@@ -441,7 +459,7 @@ export class RuntimeSettingsApplicationService {
         moduleTextures: moduleTextureFiles.length,
         hakTextures: textureSupplement.summary.hakTextures,
         vanillaTextures: textureSupplement.summary.vanillaTextures,
-        textureIndexObjectKey: `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`
+        textureIndexObjectKey
       }
     };
   }
@@ -602,6 +620,73 @@ export class RuntimeSettingsApplicationService {
       );
       return null;
     }
+  }
+
+  private async getTextureIndexLookup(
+    settings: RuntimeSettingsRecord,
+    indexObjectKey: string
+  ): Promise<TextureIndexLookup | null> {
+    const cacheKey = buildTextureIndexLookupCacheKey(settings, indexObjectKey);
+    const now = Date.now();
+    const cached = this.textureIndexLookupCache;
+    if (
+      cached &&
+      cached.cacheKey === cacheKey &&
+      now - cached.fetchedAtMs < TEXTURE_INDEX_LOOKUP_CACHE_TTL_MS
+    ) {
+      return {
+        record: cached.record,
+        byTextureId: cached.byTextureId,
+        byResrefEntries: cached.byResrefEntries
+      };
+    }
+
+    const record = await this.readTextureIndexRecord(settings, indexObjectKey);
+    if (!record) {
+      if (cached?.cacheKey === cacheKey) {
+        this.clearTextureIndexLookupCache();
+      }
+      return null;
+    }
+
+    return this.primeTextureIndexLookupCache(settings, indexObjectKey, record);
+  }
+
+  private primeTextureIndexLookupCache(
+    settings: RuntimeSettingsRecord,
+    indexObjectKey: string,
+    record: TextureIndexRecord
+  ): TextureIndexLookup {
+    const byTextureId = new Map<string, TextureIndexEntry>();
+    const byResrefEntries = new Map<string, TextureIndexEntry[]>();
+
+    for (const entry of record.entries) {
+      const normalizedTextureId = entry.textureId.trim().toLowerCase();
+      byTextureId.set(normalizedTextureId, entry);
+
+      const normalizedResref = entry.resref.trim().toLowerCase();
+      const bucket = byResrefEntries.get(normalizedResref) ?? [];
+      bucket.push(entry);
+      byResrefEntries.set(normalizedResref, bucket);
+    }
+
+    this.textureIndexLookupCache = {
+      cacheKey: buildTextureIndexLookupCacheKey(settings, indexObjectKey),
+      record,
+      byTextureId,
+      byResrefEntries,
+      fetchedAtMs: Date.now()
+    };
+
+    return {
+      record,
+      byTextureId,
+      byResrefEntries
+    };
+  }
+
+  private clearTextureIndexLookupCache(): void {
+    this.textureIndexLookupCache = null;
   }
 
   private selectTextureEntries(
@@ -918,6 +1003,18 @@ function normalizeBlobPrefix(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function buildTextureIndexLookupCacheKey(
+  settings: RuntimeSettingsRecord,
+  indexObjectKey: string
+): string {
+  return [
+    settings.revision,
+    settings.blobStorage.bucket,
+    settings.blobStorage.modulePrefix,
+    indexObjectKey
+  ].join("|");
 }
 
 function buildTextureDeliveryPath(textureId: string): string {

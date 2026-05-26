@@ -1,5 +1,5 @@
 import { MemoryAuthRepository } from "../../src/modules/auth/adapters/outbound/memory/memory-auth.repository";
-import { PostgresAuthRepository } from "../../src/modules/auth/adapters/outbound/postgres/postgres-auth.repository";
+import { MySqlAuthRepository } from "../../src/modules/auth/adapters/outbound/mysql/mysql-auth.repository";
 import type { SessionRecord, UserRecord } from "../../src/modules/auth/domain/auth.types";
 
 describe("Auth repositories", () => {
@@ -36,7 +36,7 @@ describe("Auth repositories", () => {
     await expect(repository.findSessionWithUserByToken(session.token)).resolves.toBeNull();
   });
 
-  it("runs CRUD operations through postgres repository db API", async () => {
+  it("runs CRUD operations through mysql repository db API", async () => {
     const {
       db,
       insertValuesMock,
@@ -44,7 +44,7 @@ describe("Auth repositories", () => {
       selectLimitMock
     } = createDatabaseMock();
 
-    const repository = new PostgresAuthRepository({ db } as any);
+    const repository = new MySqlAuthRepository({ db } as any);
     selectLimitMock
       .mockResolvedValueOnce([]) // upsertUser -> findUserByUsername
       .mockResolvedValueOnce([
@@ -86,7 +86,7 @@ describe("Auth repositories", () => {
     expect(deleteWhereMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns existing user without inserting in postgres repository", async () => {
+  it("returns existing user without inserting in mysql repository", async () => {
     const { db, insertValuesMock, selectLimitMock } = createDatabaseMock();
     selectLimitMock.mockResolvedValueOnce([
       {
@@ -99,7 +99,7 @@ describe("Auth repositories", () => {
       }
     ]);
 
-    const repository = new PostgresAuthRepository({ db } as any);
+    const repository = new MySqlAuthRepository({ db } as any);
     await expect(repository.upsertUser(user)).resolves.toEqual(user);
     expect(insertValuesMock).not.toHaveBeenCalled();
   });

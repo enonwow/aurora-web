@@ -9,6 +9,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { CatalogModule } from "./modules/catalog/catalog.module";
 import { RuntimeSettingsModule } from "./modules/runtime-settings/runtime-settings.module";
 import { ProcessingGraphModule } from "./modules/processing-graph/processing-graph.module";
+import { ProcessingJobsModule } from "./modules/processing-jobs/processing-jobs.module";
 import { HealthModule } from "./health/health.module";
 import { TilesModule } from "./modules/tiles/tiles.module";
 import { SoundsModule } from "./modules/sounds/sounds.module";
@@ -23,6 +24,7 @@ import { SoundsModule } from "./modules/sounds/sounds.module";
     SoundsModule,
     AreasModule,
     ProcessingGraphModule,
+    ProcessingJobsModule,
     RuntimeSettingsModule,
     HealthModule
   ],
