@@ -11,6 +11,11 @@ import type {
   SceneObjectCreatureSpellEntry,
   SceneObjectCreatureStatisticsSettings,
   SceneObjectPlaceableAdvancedSettings,
+  SceneObjectDoorAdvancedSettings,
+  SceneObjectDoorLockSettings,
+  SceneObjectDoorProperties,
+  SceneObjectDoorScriptSlots,
+  SceneObjectDoorTrapSettings,
   SceneObjectPlaceableLockSettings,
   SceneObjectDoorTransitionPayload,
   SceneObject,
@@ -108,6 +113,66 @@ const DEFAULT_PLACEABLE_ADVANCED_SETTINGS: SceneObjectPlaceableAdvancedSettings 
   portraitResRef: "",
   initialState: "Default",
   treasureModel: "Default"
+};
+
+const DEFAULT_DOOR_PROPERTIES: SceneObjectDoorProperties = {
+  plot: false,
+  hardness: 5,
+  hitPoints: 80,
+  fortitudeSave: 16,
+  reflexSave: 0,
+  willSave: 0,
+  appearanceType: "Use Generic Appearance",
+  genericAppearance: "Wooden Door (Strong)"
+};
+
+const DEFAULT_DOOR_LOCK_SETTINGS: SceneObjectDoorLockSettings = {
+  locked: false,
+  canRelock: false,
+  autoRemoveKeyAfterUse: false,
+  keyRequiredToUnlockOrLock: false,
+  openLockDc: 18,
+  closeLockDc: 0,
+  keyTag: ""
+};
+
+const DEFAULT_DOOR_TRAP_SETTINGS: SceneObjectDoorTrapSettings = {
+  isTrapped: false,
+  trapType: "Spike Trap, Minor",
+  detectionDc: 0,
+  disarmDc: 15,
+  oneShot: true,
+  detectable: true,
+  disarmable: true,
+  onDisarmScript: "",
+  onTrapTriggeredScript: "",
+  setDc: 5,
+  detectDcModWhenSetByRogue: 10,
+  disarmDcModWhenSetByRogue: 22
+};
+
+const DEFAULT_DOOR_SCRIPT_SLOTS: SceneObjectDoorScriptSlots = {
+  onAreaTransitionClick: "",
+  onClose: "",
+  onDamaged: "",
+  onDeath: "",
+  onFailToOpen: "",
+  onHeartbeat: "",
+  onLock: "",
+  onPhysicalAttacked: "",
+  onOpen: "",
+  onSpellCastAt: "",
+  onUnlock: "",
+  onUserDefined: ""
+};
+
+const DEFAULT_DOOR_ADVANCED_SETTINGS: SceneObjectDoorAdvancedSettings = {
+  blueprintResRef: "",
+  belongsToFaction: "Hostile",
+  conversation: "",
+  noInterrupt: false,
+  portraitResRef: "",
+  initialState: "Closed"
 };
 
 const DEFAULT_CREATURE_PROPERTIES: SceneObjectCreatureProperties = {
@@ -456,6 +521,99 @@ function arePlaceableAdvancedSettingsEqual(
     left.portraitResRef === right.portraitResRef &&
     left.initialState === right.initialState &&
     left.treasureModel === right.treasureModel
+  );
+}
+
+function areDoorLockSettingsEqual(
+  left: SceneObjectDoorLockSettings | undefined,
+  right: SceneObjectDoorLockSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.locked === right.locked &&
+    left.canRelock === right.canRelock &&
+    left.autoRemoveKeyAfterUse === right.autoRemoveKeyAfterUse &&
+    left.keyRequiredToUnlockOrLock === right.keyRequiredToUnlockOrLock &&
+    left.openLockDc === right.openLockDc &&
+    left.closeLockDc === right.closeLockDc &&
+    left.keyTag === right.keyTag
+  );
+}
+
+function areDoorTrapSettingsEqual(
+  left: SceneObjectDoorTrapSettings | undefined,
+  right: SceneObjectDoorTrapSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.isTrapped === right.isTrapped &&
+    left.trapType === right.trapType &&
+    left.detectionDc === right.detectionDc &&
+    left.disarmDc === right.disarmDc &&
+    left.oneShot === right.oneShot &&
+    left.detectable === right.detectable &&
+    left.disarmable === right.disarmable &&
+    left.onDisarmScript === right.onDisarmScript &&
+    left.onTrapTriggeredScript === right.onTrapTriggeredScript &&
+    left.setDc === right.setDc &&
+    left.detectDcModWhenSetByRogue === right.detectDcModWhenSetByRogue &&
+    left.disarmDcModWhenSetByRogue === right.disarmDcModWhenSetByRogue
+  );
+}
+
+function areDoorScriptSlotsEqual(
+  left: SceneObjectDoorScriptSlots | undefined,
+  right: SceneObjectDoorScriptSlots | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.onAreaTransitionClick === right.onAreaTransitionClick &&
+    left.onClose === right.onClose &&
+    left.onDamaged === right.onDamaged &&
+    left.onDeath === right.onDeath &&
+    left.onFailToOpen === right.onFailToOpen &&
+    left.onHeartbeat === right.onHeartbeat &&
+    left.onLock === right.onLock &&
+    left.onPhysicalAttacked === right.onPhysicalAttacked &&
+    left.onOpen === right.onOpen &&
+    left.onSpellCastAt === right.onSpellCastAt &&
+    left.onUnlock === right.onUnlock &&
+    left.onUserDefined === right.onUserDefined
+  );
+}
+
+function areDoorAdvancedSettingsEqual(
+  left: SceneObjectDoorAdvancedSettings | undefined,
+  right: SceneObjectDoorAdvancedSettings | undefined
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.blueprintResRef === right.blueprintResRef &&
+    left.belongsToFaction === right.belongsToFaction &&
+    left.conversation === right.conversation &&
+    left.noInterrupt === right.noInterrupt &&
+    left.portraitResRef === right.portraitResRef &&
+    left.initialState === right.initialState
   );
 }
 
@@ -1071,6 +1229,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       isAdvancedSettingsUnchanged &&
       isDescriptionUnchanged &&
       isCommentsUnchanged &&
+      normalizedObject.doorProperties === undefined &&
       normalizedObject.creatureProperties === undefined &&
       normalizedObject.soundPositioning === undefined
     ) {
@@ -1080,6 +1239,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     return {
       ...normalizedObject,
       placeableProperties: nextPlaceableProperties,
+      doorProperties: undefined,
       creatureProperties: undefined,
       soundPositioning: undefined
     };
@@ -1764,6 +1924,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         nextSpecialAbilities
       ) &&
       isCommentsUnchanged &&
+      normalizedObject.doorProperties === undefined &&
       normalizedObject.placeableProperties === undefined &&
       normalizedObject.soundPositioning === undefined &&
       normalizedObject.doorTransition === undefined
@@ -1774,6 +1935,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     return {
       ...normalizedObject,
       name: nextFirstName,
+      doorProperties: undefined,
       creatureProperties: nextCreatureProperties,
       placeableProperties: undefined,
       soundPositioning: undefined,
@@ -1782,6 +1944,197 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
   }
 
   if (normalizedObject.kind === "doors") {
+    const rawDoorProperties =
+      (normalizedObject.doorProperties as
+        | Partial<Record<keyof SceneObjectDoorProperties, unknown>>
+        | undefined) ?? undefined;
+    const hasRawLockSettings = isRecord(rawDoorProperties?.lockSettings);
+    const hasRawTrapSettings = isRecord(rawDoorProperties?.trapSettings);
+    const hasRawScriptSlots = isRecord(rawDoorProperties?.scriptSlots);
+    const hasRawAdvancedSettings = isRecord(rawDoorProperties?.advancedSettings);
+
+    const rawLockSettings = hasRawLockSettings
+      ? (rawDoorProperties?.lockSettings as Partial<
+          Record<keyof SceneObjectDoorLockSettings, unknown>
+        >)
+      : undefined;
+    const rawTrapSettings = hasRawTrapSettings
+      ? (rawDoorProperties?.trapSettings as Partial<
+          Record<keyof SceneObjectDoorTrapSettings, unknown>
+        >)
+      : undefined;
+    const rawScriptSlots = hasRawScriptSlots
+      ? (rawDoorProperties?.scriptSlots as Partial<
+          Record<keyof SceneObjectDoorScriptSlots, unknown>
+        >)
+      : undefined;
+    const rawAdvancedSettings = hasRawAdvancedSettings
+      ? (rawDoorProperties?.advancedSettings as Partial<
+          Record<keyof SceneObjectDoorAdvancedSettings, unknown>
+        >)
+      : undefined;
+
+    const currentDoorProperties = normalizedObject.doorProperties;
+    const shouldNormalizeLockSettings =
+      hasRawLockSettings || currentDoorProperties?.lockSettings !== undefined;
+    const shouldNormalizeTrapSettings =
+      hasRawTrapSettings || currentDoorProperties?.trapSettings !== undefined;
+    const shouldNormalizeScriptSlots =
+      hasRawScriptSlots || currentDoorProperties?.scriptSlots !== undefined;
+    const shouldNormalizeAdvancedSettings =
+      hasRawAdvancedSettings || currentDoorProperties?.advancedSettings !== undefined;
+    const shouldNormalizeDescription =
+      typeof rawDoorProperties?.description === "string" ||
+      currentDoorProperties?.description !== undefined;
+    const shouldNormalizeComments =
+      typeof rawDoorProperties?.comments === "string" ||
+      currentDoorProperties?.comments !== undefined;
+
+    const nextLockSettings: SceneObjectDoorLockSettings | undefined =
+      shouldNormalizeLockSettings
+        ? {
+            locked: isBoolean(rawLockSettings?.locked)
+              ? rawLockSettings.locked
+              : DEFAULT_DOOR_LOCK_SETTINGS.locked,
+            canRelock: isBoolean(rawLockSettings?.canRelock)
+              ? rawLockSettings.canRelock
+              : DEFAULT_DOOR_LOCK_SETTINGS.canRelock,
+            autoRemoveKeyAfterUse: isBoolean(rawLockSettings?.autoRemoveKeyAfterUse)
+              ? rawLockSettings.autoRemoveKeyAfterUse
+              : DEFAULT_DOOR_LOCK_SETTINGS.autoRemoveKeyAfterUse,
+            keyRequiredToUnlockOrLock: isBoolean(rawLockSettings?.keyRequiredToUnlockOrLock)
+              ? rawLockSettings.keyRequiredToUnlockOrLock
+              : DEFAULT_DOOR_LOCK_SETTINGS.keyRequiredToUnlockOrLock,
+            openLockDc: asFiniteNumber(rawLockSettings?.openLockDc, DEFAULT_DOOR_LOCK_SETTINGS.openLockDc),
+            closeLockDc: asFiniteNumber(rawLockSettings?.closeLockDc, DEFAULT_DOOR_LOCK_SETTINGS.closeLockDc),
+            keyTag: asString(rawLockSettings?.keyTag, DEFAULT_DOOR_LOCK_SETTINGS.keyTag)
+          }
+        : undefined;
+
+    const nextTrapSettings: SceneObjectDoorTrapSettings | undefined =
+      shouldNormalizeTrapSettings
+        ? {
+            isTrapped: isBoolean(rawTrapSettings?.isTrapped)
+              ? rawTrapSettings.isTrapped
+              : DEFAULT_DOOR_TRAP_SETTINGS.isTrapped,
+            trapType: asString(rawTrapSettings?.trapType, DEFAULT_DOOR_TRAP_SETTINGS.trapType),
+            detectionDc: asFiniteNumber(rawTrapSettings?.detectionDc, DEFAULT_DOOR_TRAP_SETTINGS.detectionDc),
+            disarmDc: asFiniteNumber(rawTrapSettings?.disarmDc, DEFAULT_DOOR_TRAP_SETTINGS.disarmDc),
+            oneShot: isBoolean(rawTrapSettings?.oneShot)
+              ? rawTrapSettings.oneShot
+              : DEFAULT_DOOR_TRAP_SETTINGS.oneShot,
+            detectable: isBoolean(rawTrapSettings?.detectable)
+              ? rawTrapSettings.detectable
+              : DEFAULT_DOOR_TRAP_SETTINGS.detectable,
+            disarmable: isBoolean(rawTrapSettings?.disarmable)
+              ? rawTrapSettings.disarmable
+              : DEFAULT_DOOR_TRAP_SETTINGS.disarmable,
+            onDisarmScript: asString(rawTrapSettings?.onDisarmScript, DEFAULT_DOOR_TRAP_SETTINGS.onDisarmScript),
+            onTrapTriggeredScript: asString(
+              rawTrapSettings?.onTrapTriggeredScript,
+              DEFAULT_DOOR_TRAP_SETTINGS.onTrapTriggeredScript
+            ),
+            setDc: asFiniteNumber(rawTrapSettings?.setDc, DEFAULT_DOOR_TRAP_SETTINGS.setDc),
+            detectDcModWhenSetByRogue: asFiniteNumber(
+              rawTrapSettings?.detectDcModWhenSetByRogue,
+              DEFAULT_DOOR_TRAP_SETTINGS.detectDcModWhenSetByRogue
+            ),
+            disarmDcModWhenSetByRogue: asFiniteNumber(
+              rawTrapSettings?.disarmDcModWhenSetByRogue,
+              DEFAULT_DOOR_TRAP_SETTINGS.disarmDcModWhenSetByRogue
+            )
+          }
+        : undefined;
+
+    const nextScriptSlots: SceneObjectDoorScriptSlots | undefined =
+      shouldNormalizeScriptSlots
+        ? {
+            onAreaTransitionClick: asString(
+              rawScriptSlots?.onAreaTransitionClick,
+              DEFAULT_DOOR_SCRIPT_SLOTS.onAreaTransitionClick
+            ),
+            onClose: asString(rawScriptSlots?.onClose, DEFAULT_DOOR_SCRIPT_SLOTS.onClose),
+            onDamaged: asString(rawScriptSlots?.onDamaged, DEFAULT_DOOR_SCRIPT_SLOTS.onDamaged),
+            onDeath: asString(rawScriptSlots?.onDeath, DEFAULT_DOOR_SCRIPT_SLOTS.onDeath),
+            onFailToOpen: asString(rawScriptSlots?.onFailToOpen, DEFAULT_DOOR_SCRIPT_SLOTS.onFailToOpen),
+            onHeartbeat: asString(rawScriptSlots?.onHeartbeat, DEFAULT_DOOR_SCRIPT_SLOTS.onHeartbeat),
+            onLock: asString(rawScriptSlots?.onLock, DEFAULT_DOOR_SCRIPT_SLOTS.onLock),
+            onPhysicalAttacked: asString(
+              rawScriptSlots?.onPhysicalAttacked,
+              DEFAULT_DOOR_SCRIPT_SLOTS.onPhysicalAttacked
+            ),
+            onOpen: asString(rawScriptSlots?.onOpen, DEFAULT_DOOR_SCRIPT_SLOTS.onOpen),
+            onSpellCastAt: asString(rawScriptSlots?.onSpellCastAt, DEFAULT_DOOR_SCRIPT_SLOTS.onSpellCastAt),
+            onUnlock: asString(rawScriptSlots?.onUnlock, DEFAULT_DOOR_SCRIPT_SLOTS.onUnlock),
+            onUserDefined: asString(rawScriptSlots?.onUserDefined, DEFAULT_DOOR_SCRIPT_SLOTS.onUserDefined)
+          }
+        : undefined;
+
+    const nextAdvancedSettings: SceneObjectDoorAdvancedSettings | undefined =
+      shouldNormalizeAdvancedSettings
+        ? {
+            blueprintResRef: asString(
+              rawAdvancedSettings?.blueprintResRef,
+              DEFAULT_DOOR_ADVANCED_SETTINGS.blueprintResRef
+            ),
+            belongsToFaction: asString(
+              rawAdvancedSettings?.belongsToFaction,
+              DEFAULT_DOOR_ADVANCED_SETTINGS.belongsToFaction
+            ),
+            conversation: asString(
+              rawAdvancedSettings?.conversation,
+              DEFAULT_DOOR_ADVANCED_SETTINGS.conversation
+            ),
+            noInterrupt: isBoolean(rawAdvancedSettings?.noInterrupt)
+              ? rawAdvancedSettings.noInterrupt
+              : DEFAULT_DOOR_ADVANCED_SETTINGS.noInterrupt,
+            portraitResRef: asString(
+              rawAdvancedSettings?.portraitResRef,
+              DEFAULT_DOOR_ADVANCED_SETTINGS.portraitResRef
+            ),
+            initialState: asString(
+              rawAdvancedSettings?.initialState,
+              DEFAULT_DOOR_ADVANCED_SETTINGS.initialState
+            )
+          }
+        : undefined;
+
+    const nextDescription = shouldNormalizeDescription
+      ? asString(rawDoorProperties?.description, "")
+      : undefined;
+    const nextComments = shouldNormalizeComments
+      ? asString(rawDoorProperties?.comments, "")
+      : undefined;
+
+    const nextDoorProperties: SceneObjectDoorProperties = {
+      plot: isBoolean(rawDoorProperties?.plot) ? rawDoorProperties.plot : DEFAULT_DOOR_PROPERTIES.plot,
+      hardness: asFiniteNumber(rawDoorProperties?.hardness, DEFAULT_DOOR_PROPERTIES.hardness),
+      hitPoints: asFiniteNumber(rawDoorProperties?.hitPoints, DEFAULT_DOOR_PROPERTIES.hitPoints),
+      fortitudeSave: asFiniteNumber(rawDoorProperties?.fortitudeSave, DEFAULT_DOOR_PROPERTIES.fortitudeSave),
+      reflexSave: asFiniteNumber(rawDoorProperties?.reflexSave, DEFAULT_DOOR_PROPERTIES.reflexSave),
+      willSave: asFiniteNumber(rawDoorProperties?.willSave, DEFAULT_DOOR_PROPERTIES.willSave),
+      appearanceType: asString(rawDoorProperties?.appearanceType, DEFAULT_DOOR_PROPERTIES.appearanceType),
+      genericAppearance: asString(rawDoorProperties?.genericAppearance, DEFAULT_DOOR_PROPERTIES.genericAppearance)
+    };
+    if (nextLockSettings !== undefined) {
+      nextDoorProperties.lockSettings = nextLockSettings;
+    }
+    if (nextTrapSettings !== undefined) {
+      nextDoorProperties.trapSettings = nextTrapSettings;
+    }
+    if (nextScriptSlots !== undefined) {
+      nextDoorProperties.scriptSlots = nextScriptSlots;
+    }
+    if (nextAdvancedSettings !== undefined) {
+      nextDoorProperties.advancedSettings = nextAdvancedSettings;
+    }
+    if (nextDescription !== undefined) {
+      nextDoorProperties.description = nextDescription;
+    }
+    if (nextComments !== undefined) {
+      nextDoorProperties.comments = nextComments;
+    }
+
     const rawDoorTransition =
       (normalizedObject.doorTransition as
         | Partial<Record<keyof SceneObjectDoorTransitionPayload, unknown>>
@@ -1798,6 +2151,26 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         }
       : undefined;
     const currentDoorTransition = normalizedObject.doorTransition;
+    const isDoorPropertiesUnchanged =
+      currentDoorProperties?.plot === nextDoorProperties.plot &&
+      currentDoorProperties?.hardness === nextDoorProperties.hardness &&
+      currentDoorProperties?.hitPoints === nextDoorProperties.hitPoints &&
+      currentDoorProperties?.fortitudeSave === nextDoorProperties.fortitudeSave &&
+      currentDoorProperties?.reflexSave === nextDoorProperties.reflexSave &&
+      currentDoorProperties?.willSave === nextDoorProperties.willSave &&
+      currentDoorProperties?.appearanceType === nextDoorProperties.appearanceType &&
+      currentDoorProperties?.genericAppearance === nextDoorProperties.genericAppearance &&
+      areDoorLockSettingsEqual(currentDoorProperties?.lockSettings, nextLockSettings) &&
+      areDoorTrapSettingsEqual(currentDoorProperties?.trapSettings, nextTrapSettings) &&
+      areDoorScriptSlotsEqual(currentDoorProperties?.scriptSlots, nextScriptSlots) &&
+      areDoorAdvancedSettingsEqual(currentDoorProperties?.advancedSettings, nextAdvancedSettings) &&
+      (nextDescription === undefined
+        ? currentDoorProperties?.description === undefined
+        : (currentDoorProperties?.description ?? "") === nextDescription) &&
+      (nextComments === undefined
+        ? currentDoorProperties?.comments === undefined
+        : (currentDoorProperties?.comments ?? "") === nextComments);
+
     const isDoorTransitionUnchanged =
       nextDoorTransition === undefined
         ? currentDoorTransition === undefined
@@ -1809,6 +2182,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           areDoorTransitionFlagsEqual(currentDoorTransition?.flags ?? {}, nextDoorTransition.flags);
 
     if (
+      isDoorPropertiesUnchanged &&
       normalizedObject.placeableProperties === undefined &&
       normalizedObject.creatureProperties === undefined &&
       normalizedObject.soundPositioning === undefined &&
@@ -1819,6 +2193,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
 
     return {
       ...normalizedObject,
+      doorProperties: nextDoorProperties,
       placeableProperties: undefined,
       creatureProperties: undefined,
       soundPositioning: undefined,
@@ -1856,6 +2231,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         currentSoundPositioning?.preserve,
         nextSoundPositioning.preserve
       ) &&
+      normalizedObject.doorProperties === undefined &&
       normalizedObject.placeableProperties === undefined &&
       normalizedObject.creatureProperties === undefined
     ) {
@@ -1864,6 +2240,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
 
     return {
       ...normalizedObject,
+      doorProperties: undefined,
       placeableProperties: undefined,
       creatureProperties: undefined,
       soundPositioning: nextSoundPositioning
@@ -1871,6 +2248,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
   }
 
   if (
+    normalizedObject.doorProperties === undefined &&
     normalizedObject.placeableProperties === undefined &&
     normalizedObject.creatureProperties === undefined &&
     normalizedObject.soundPositioning === undefined
@@ -1882,6 +2260,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
   // This keeps runtime behavior deterministic without changing public API contracts.
   return {
     ...normalizedObject,
+    doorProperties: undefined,
     placeableProperties: undefined,
     creatureProperties: undefined,
     soundPositioning: undefined

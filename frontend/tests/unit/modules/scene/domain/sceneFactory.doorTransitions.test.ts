@@ -38,6 +38,16 @@ describe("sceneFactory door transition preserve-only normalization", () => {
 
     expect(normalized.placeableProperties).toBeUndefined();
     expect(normalized.soundPositioning).toBeUndefined();
+    expect(normalized.doorProperties).toEqual({
+      plot: false,
+      hardness: 5,
+      hitPoints: 80,
+      fortitudeSave: 16,
+      reflexSave: 0,
+      willSave: 0,
+      appearanceType: "Use Generic Appearance",
+      genericAppearance: "Wooden Door (Strong)"
+    });
     expect(normalized.doorTransition).toEqual({
       linkedTarget: "AREA_FOREST_01",
       linkedModule: "",
@@ -51,10 +61,20 @@ describe("sceneFactory door transition preserve-only normalization", () => {
     });
   });
 
-  it("keeps non-door objects untouched", () => {
+  it("strips door-only payload from non-door objects without mutating creature metadata", () => {
     const creature = createNewSceneObject("creatures", 0.8, 1.3, 99);
     const enriched = {
       ...creature,
+      doorProperties: {
+        plot: true,
+        hardness: 12,
+        hitPoints: 45,
+        fortitudeSave: 7,
+        reflexSave: 3,
+        willSave: 2,
+        appearanceType: "Use Generic Appearance",
+        genericAppearance: "Wooden Door (Strong)"
+      },
       doorTransition: {
         linkedTarget: "AREA_X",
         linkedModule: "mod_alpha",
@@ -69,8 +89,13 @@ describe("sceneFactory door transition preserve-only normalization", () => {
 
     const normalized = normalizeSceneObjectMetadata(enriched);
 
-    expect(normalized).toBe(enriched);
-    expect(normalized.doorTransition).toEqual(enriched.doorTransition);
+    expect(normalized).not.toBe(enriched);
+    expect(normalized.id).toBe(creature.id);
+    expect(normalized.kind).toBe("creatures");
+    expect(normalized.name).toBe(creature.name);
+    expect(normalized.creatureProperties).toEqual(creature.creatureProperties);
+    expect(normalized.doorProperties).toBeUndefined();
+    expect(normalized.doorTransition).toBeUndefined();
   });
 
   it("is stable across normalization roundtrip for door transition payload", () => {
@@ -93,6 +118,16 @@ describe("sceneFactory door transition preserve-only normalization", () => {
     const first = normalizeSceneObjectMetadata(noisy);
     const second = normalizeSceneObjectMetadata(first);
 
+    expect(first.doorProperties).toEqual({
+      plot: false,
+      hardness: 5,
+      hitPoints: 80,
+      fortitudeSave: 16,
+      reflexSave: 0,
+      willSave: 0,
+      appearanceType: "Use Generic Appearance",
+      genericAppearance: "Wooden Door (Strong)"
+    });
     expect(first.doorTransition).toEqual({
       linkedTarget: "AREA_CITY_02",
       linkedModule: "mod_city",
@@ -105,5 +140,129 @@ describe("sceneFactory door transition preserve-only normalization", () => {
     });
     expect(second).toBe(first);
   });
-});
 
+  it("normalizes door properties payload defensively and preserves nested door tabs", () => {
+    const door = createNewSceneObject("doors", 0.4, 0.9, 55);
+    const normalized = normalizeSceneObjectMetadata({
+      ...door,
+      doorProperties: {
+        plot: true,
+        hardness: "bad",
+        hitPoints: 120,
+        fortitudeSave: 18,
+        reflexSave: "bad",
+        willSave: 3,
+        appearanceType: 77,
+        genericAppearance: "Stone Door (Strong)",
+        lockSettings: {
+          locked: true,
+          canRelock: true,
+          autoRemoveKeyAfterUse: "bad",
+          keyRequiredToUnlockOrLock: true,
+          openLockDc: 21,
+          closeLockDc: "bad",
+          keyTag: 11
+        },
+        trapSettings: {
+          isTrapped: true,
+          trapType: "Spike Trap, Minor",
+          detectionDc: 14,
+          disarmDc: "bad",
+          oneShot: false,
+          detectable: true,
+          disarmable: true,
+          onDisarmScript: "door_disarm",
+          onTrapTriggeredScript: 19,
+          setDc: 7,
+          detectDcModWhenSetByRogue: 12,
+          disarmDcModWhenSetByRogue: "bad"
+        },
+        scriptSlots: {
+          onAreaTransitionClick: "door_on_click",
+          onClose: "",
+          onDamaged: "",
+          onDeath: "door_death",
+          onFailToOpen: "",
+          onHeartbeat: "",
+          onLock: "",
+          onPhysicalAttacked: "",
+          onOpen: "door_open",
+          onSpellCastAt: "",
+          onUnlock: "",
+          onUserDefined: 123
+        },
+        advancedSettings: {
+          blueprintResRef: "nw_door_ttr_11",
+          belongsToFaction: "Hostile",
+          conversation: 42,
+          noInterrupt: true,
+          portraitResRef: "po_door_001",
+          initialState: "Closed"
+        },
+        description: 12,
+        comments: "door comments"
+      } as unknown as NonNullable<typeof door.doorProperties>
+    });
+
+    expect(normalized.doorProperties).toEqual({
+      plot: true,
+      hardness: 5,
+      hitPoints: 120,
+      fortitudeSave: 18,
+      reflexSave: 0,
+      willSave: 3,
+      appearanceType: "Use Generic Appearance",
+      genericAppearance: "Stone Door (Strong)",
+      lockSettings: {
+        locked: true,
+        canRelock: true,
+        autoRemoveKeyAfterUse: false,
+        keyRequiredToUnlockOrLock: true,
+        openLockDc: 21,
+        closeLockDc: 0,
+        keyTag: ""
+      },
+      trapSettings: {
+        isTrapped: true,
+        trapType: "Spike Trap, Minor",
+        detectionDc: 14,
+        disarmDc: 15,
+        oneShot: false,
+        detectable: true,
+        disarmable: true,
+        onDisarmScript: "door_disarm",
+        onTrapTriggeredScript: "",
+        setDc: 7,
+        detectDcModWhenSetByRogue: 12,
+        disarmDcModWhenSetByRogue: 22
+      },
+      scriptSlots: {
+        onAreaTransitionClick: "door_on_click",
+        onClose: "",
+        onDamaged: "",
+        onDeath: "door_death",
+        onFailToOpen: "",
+        onHeartbeat: "",
+        onLock: "",
+        onPhysicalAttacked: "",
+        onOpen: "door_open",
+        onSpellCastAt: "",
+        onUnlock: "",
+        onUserDefined: ""
+      },
+      advancedSettings: {
+        blueprintResRef: "nw_door_ttr_11",
+        belongsToFaction: "Hostile",
+        conversation: "",
+        noInterrupt: true,
+        portraitResRef: "po_door_001",
+        initialState: "Closed"
+      },
+      description: "",
+      comments: "door comments"
+    });
+
+    const roundtrip = normalizeSceneObjectMetadata(normalized);
+    expect(roundtrip).toBe(normalized);
+  });
+});

@@ -268,8 +268,10 @@ describe("App workspace side panels", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
 
     const doorDialog = await screen.findByRole("dialog", { name: /door properties/i });
-    fireEvent.click(within(doorDialog).getByRole("button", { name: /^transition$/i }));
-    expect(within(doorDialog).getByRole("textbox", { name: /linked target/i })).toBeInTheDocument();
+    fireEvent.click(within(doorDialog).getByRole("button", { name: /^area transition$/i }));
+    expect(
+      within(doorDialog).getByRole("textbox", { name: /destination tag/i })
+    ).toBeInTheDocument();
   });
 
   it("restores collapsed sidebars after logout and next login", async () => {

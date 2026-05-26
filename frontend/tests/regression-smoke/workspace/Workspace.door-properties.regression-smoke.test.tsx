@@ -32,52 +32,86 @@ async function openDoorPropertiesDialog() {
   return screen.findByRole("dialog", { name: /door properties/i });
 }
 
-async function openPlaceablePropertiesDialog() {
-  const rightSidebar = screen.getByLabelText(/right sidebar/i);
-  const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
-  fireEvent.contextMenu(placeableRow, { clientX: 260, clientY: 210 });
-  fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
-  return screen.findByRole("dialog", { name: /placeable properties/i });
-}
-
-describe("Regression smoke: door properties shell (Aurora-first)", () => {
+describe("Regression smoke: door properties dialog (Aurora-first expanded)", () => {
   beforeEach(() => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
   });
 
-  it("opens Door Properties from context menu and keeps Adjust Location hidden for doors", async () => {
+  it("shows expanded door tabs/controls and keeps Adjust Location hidden for doors", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
     await openDoorContextMenu();
     expect(screen.queryByRole("menuitem", { name: /^adjust location$/i })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
-    const dialog = await screen.findByRole("dialog", { name: /door properties/i });
+    const dialog = await openDoorPropertiesDialog();
 
-    expect(within(dialog).getByRole("button", { name: /^basic$/i })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /^transition$/i })).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /^comments$/i })).toBeInTheDocument();
+    const expectedTabs = [
+      /^basic$/i,
+      /^lock$/i,
+      /^trap$/i,
+      /^area transition$/i,
+      /^scripts$/i,
+      /^advanced$/i,
+      /^description$/i,
+      /^comments$/i
+    ];
+    expectedTabs.forEach((tabName) => {
+      expect(within(dialog).getByRole("button", { name: tabName })).toBeInTheDocument();
+    });
 
-    const nameInput = within(dialog).getByRole("textbox", { name: /^name$/i });
-    const tagInput = within(dialog).getByRole("textbox", { name: /^tag$/i });
-    expect(nameInput).toHaveAttribute("readonly");
-    expect(tagInput).toHaveAttribute("readonly");
+    expect(within(dialog).getByRole("textbox", { name: /^name$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: /^tag$/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("combobox", { name: /^appearance type$/i })
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("combobox", { name: /^generic appearance$/i })
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox", { name: /^plot$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("spinbutton", { name: /^hardness$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("spinbutton", { name: /^hit points$/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("spinbutton", { name: /^fortitude save$/i })
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("spinbutton", { name: /^reflex save$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("spinbutton", { name: /^will save$/i })).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: /^transition$/i }));
-    const linkedTargetInput = within(dialog).getByRole("textbox", { name: /linked target/i });
-    const flagsInput = within(dialog).getByRole("textbox", { name: /^flags$/i });
-    expect(linkedTargetInput).toHaveAttribute("readonly");
-    expect(flagsInput).toHaveAttribute("readonly");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^area transition$/i }));
+    expect(
+      within(dialog).getByRole("textbox", { name: /^destination tag$/i })
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /^none$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /^door$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /^waypoint$/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("combobox", { name: /^loading screen$/i })
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: /^setup area transition$/i })
+    ).toBeInTheDocument();
   });
 
-  it("keeps shell dialog behavior for Apply/OK/Cancel", async () => {
+  it("persists Basic and Area Transition edits on Apply/OK and reverts transient edits on Cancel", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
     const dialog = await openDoorPropertiesDialog();
+
+    const persistedDoorName = "Door_Aurora_Persist_01";
+    const persistedDestinationTag = "WP_AURORA_PERSIST_01";
+
+    const nameInput = within(dialog).getByRole("textbox", { name: /^name$/i });
+    fireEvent.change(nameInput, { target: { value: persistedDoorName } });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^area transition$/i }));
+    const destinationTagInput = within(dialog).getByRole("textbox", {
+      name: /^destination tag$/i
+    });
+    fireEvent.change(destinationTagInput, { target: { value: persistedDestinationTag } });
+
     fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
     expect(screen.getByRole("dialog", { name: /door properties/i })).toBeInTheDocument();
 
@@ -86,68 +120,42 @@ describe("Regression smoke: door properties shell (Aurora-first)", () => {
       expect(screen.queryByRole("dialog", { name: /door properties/i })).not.toBeInTheDocument();
     });
 
-    const reopenedDialog = await openDoorPropertiesDialog();
-    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
+    const reopenedAfterPersist = await openDoorPropertiesDialog();
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^basic$/i }));
+    expect(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^name$/i })
+    ).toHaveValue(persistedDoorName);
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^area transition$/i }));
+    expect(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i })
+    ).toHaveValue(persistedDestinationTag);
+
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^basic$/i }));
+    fireEvent.change(within(reopenedAfterPersist).getByRole("textbox", { name: /^name$/i }), {
+      target: { value: "Door_Aurora_Transient_01" }
+    });
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^area transition$/i }));
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i }),
+      {
+        target: { value: "WP_AURORA_TRANSIENT_01" }
+      }
+    );
+
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^cancel$/i }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /door properties/i })).not.toBeInTheDocument();
     });
-  });
 
-  it("activates placeable phase-1 tabs and persists contract-backed fields", async () => {
-    renderAtPath("/login");
-    await signInAs("builder.user", "builder123");
-
-    const placeableDialog = await openPlaceablePropertiesDialog();
-    const plotCheckbox = within(placeableDialog).getByRole("checkbox", {
-      name: /plot active_now/i
-    });
-    fireEvent.click(plotCheckbox);
-
-    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^scripts$/i }));
-    const enableScriptSlots = within(placeableDialog).getByRole("checkbox", {
-      name: /enable script slots payload/i
-    });
-    fireEvent.click(enableScriptSlots);
-    const onClickScriptInput = within(placeableDialog).getByRole("textbox", {
-      name: /onclick script/i
-    });
-    fireEvent.change(onClickScriptInput, { target: { value: "plc_phase1_onclick" } });
-
-    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^advanced$/i }));
-    const enableDisabledFlags = within(placeableDialog).getByRole("checkbox", {
-      name: /enable disabled flags payload/i
-    });
-    fireEvent.click(enableDisabledFlags);
-    const useableDisabledCheckbox = within(placeableDialog).getByRole("checkbox", {
-      name: /useable disabled/i
-    });
-    fireEvent.click(useableDisabledCheckbox);
-
-    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^apply$/i }));
-    expect(screen.getByRole("dialog", { name: /placeable properties/i })).toBeInTheDocument();
-    fireEvent.click(within(placeableDialog).getByRole("button", { name: /^ok$/i }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
-    });
-
-    const reopenedDialog = await openPlaceablePropertiesDialog();
-    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^basic$/i }));
-    expect(
-      within(reopenedDialog).getByRole("checkbox", { name: /plot active_now/i })
-    ).toBeChecked();
-    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^scripts$/i }));
-    expect(
-      within(reopenedDialog).getByRole("checkbox", { name: /enable script slots payload/i })
-    ).toBeChecked();
-    expect(within(reopenedDialog).getByRole("textbox", { name: /onclick script/i })).toHaveValue(
-      "plc_phase1_onclick"
+    const reopenedAfterCancel = await openDoorPropertiesDialog();
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^basic$/i }));
+    expect(within(reopenedAfterCancel).getByRole("textbox", { name: /^name$/i })).toHaveValue(
+      persistedDoorName
     );
-    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^advanced$/i }));
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^area transition$/i }));
     expect(
-      within(reopenedDialog).getByRole("checkbox", { name: /enable disabled flags payload/i })
-    ).toBeChecked();
-    expect(
-      within(reopenedDialog).getByRole("checkbox", { name: /useable disabled/i })
-    ).toBeChecked();
+      within(reopenedAfterCancel).getByRole("textbox", { name: /^destination tag$/i })
+    ).toHaveValue(persistedDestinationTag);
   });
 });
+

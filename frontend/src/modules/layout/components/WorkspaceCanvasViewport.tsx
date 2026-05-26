@@ -183,7 +183,16 @@ type SoundWhenToPlay = "always" | "dayNight" | "hours";
 type SoundDayNight = "both" | "day" | "night";
 type SoundPlayStyle = "once" | "repeat" | "loop";
 type SoundPlayOrder = "sequential" | "random";
-type DoorPropertiesTab = "basic" | "transition" | "comments";
+type DoorPropertiesTab =
+  | "basic"
+  | "lock"
+  | "trap"
+  | "scripts"
+  | "advanced"
+  | "description"
+  | "comments"
+  | "areaTransition";
+type DoorTransitionDestinationType = "none" | "door" | "waypoint";
 type CreaturePropertiesTab =
   | "basic"
   | "statistics"
@@ -211,6 +220,20 @@ type PlaceableScriptSlotKey =
   | "onUsed"
   | "onUserDefined";
 
+type DoorScriptSlotKey =
+  | "onAreaTransitionClick"
+  | "onClose"
+  | "onDamaged"
+  | "onDeath"
+  | "onFailToOpen"
+  | "onHeartbeat"
+  | "onLock"
+  | "onPhysicalAttacked"
+  | "onOpen"
+  | "onSpellCastAt"
+  | "onUnlock"
+  | "onUserDefined";
+
 const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
   "onClick",
   "onClosed",
@@ -227,6 +250,21 @@ const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
   "onUserDefined"
 ];
 
+const DOOR_SCRIPT_SLOT_KEYS: DoorScriptSlotKey[] = [
+  "onAreaTransitionClick",
+  "onClose",
+  "onDamaged",
+  "onDeath",
+  "onFailToOpen",
+  "onHeartbeat",
+  "onLock",
+  "onPhysicalAttacked",
+  "onOpen",
+  "onSpellCastAt",
+  "onUnlock",
+  "onUserDefined"
+];
+
 const PLACEABLE_SCRIPT_SLOT_LABELS: Record<PlaceableScriptSlotKey, string> = {
   onClick: "OnClick",
   onClosed: "OnClose",
@@ -240,6 +278,21 @@ const PLACEABLE_SCRIPT_SLOT_LABELS: Record<PlaceableScriptSlotKey, string> = {
   onSpellCastAt: "OnSpellCastAt",
   onUnlock: "OnUnLock",
   onUsed: "OnUsed",
+  onUserDefined: "OnUserDefined"
+};
+
+const DOOR_SCRIPT_SLOT_LABELS: Record<DoorScriptSlotKey, string> = {
+  onAreaTransitionClick: "OnAreaTransitionClick",
+  onClose: "OnClose",
+  onDamaged: "OnDamaged",
+  onDeath: "OnDeath",
+  onFailToOpen: "OnFailToOpen",
+  onHeartbeat: "OnHeartbeat",
+  onLock: "OnLock",
+  onPhysicalAttacked: "OnPhysicalAttacked",
+  onOpen: "OnOpen",
+  onSpellCastAt: "OnSpellCastAt",
+  onUnlock: "OnUnLock",
   onUserDefined: "OnUserDefined"
 };
 
@@ -288,6 +341,14 @@ const PLACEABLE_TRAP_TYPE_OPTIONS = [
 const PLACEABLE_FACTION_OPTIONS = ["Hostile", "Commoner", "Defender", "Merchant", "Neutral"];
 const PLACEABLE_INITIAL_STATE_OPTIONS = ["Default", "Open", "Closed", "Destroyed"];
 const PLACEABLE_TREASURE_MODEL_OPTIONS = ["Default", "None", "Container", "Random"];
+const DOOR_APPEARANCE_TYPE_OPTIONS = ["Use Generic Appearance", "Custom Appearance"];
+const DOOR_GENERIC_APPEARANCE_OPTIONS = [
+  "Wooden Door (Strong)",
+  "Wooden Door (Weak)",
+  "Stone Door",
+  "Metal Door"
+];
+const DOOR_INITIAL_STATE_OPTIONS = ["Closed", "Open", "Destroyed"];
 const CREATURE_RACE_OPTIONS = [
   "Aberration",
   "Animal",
@@ -643,11 +704,55 @@ interface DoorPropertiesDraft {
   name: string;
   tag: string;
   resRef: string;
+  appearanceType: string;
+  genericAppearance: string;
+  plot: boolean;
+  hardness: number;
+  hitPoints: number;
+  fortitudeSave: number;
+  reflexSave: number;
+  willSave: number;
+  lockSettings: {
+    locked: boolean;
+    canRelock: boolean;
+    autoRemoveKeyAfterUse: boolean;
+    keyRequiredToUnlockOrLock: boolean;
+    openLockDc: number;
+    closeLockDc: number;
+    keyTag: string;
+  };
+  trapSettings: {
+    isTrapped: boolean;
+    trapType: string;
+    detectionDc: number;
+    disarmDc: number;
+    oneShot: boolean;
+    detectable: boolean;
+    disarmable: boolean;
+    onDisarmScript: string;
+    onTrapTriggeredScript: string;
+    setDc: number;
+    detectDcModWhenSetByRogue: number;
+    disarmDcModWhenSetByRogue: number;
+  };
+  scriptSlots: Record<DoorScriptSlotKey, string>;
+  advancedSettings: {
+    blueprintResRef: string;
+    belongsToFaction: string;
+    conversation: string;
+    noInterrupt: boolean;
+    portraitResRef: string;
+    initialState: string;
+  };
+  description: string;
+  comments: string;
+  destinationTag: string;
+  destinationType: DoorTransitionDestinationType;
   linkedTarget: string;
   linkedModule: string;
-  linkedTag: string;
   linkedWaypoint: string;
   loadScreen: string;
+  transitionFlags: Record<string, boolean>;
   flagsSummary: string;
 }
 
@@ -1671,10 +1776,25 @@ function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesDraft {
 }
 
 function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDraft {
+  const doorProperties = source.doorProperties;
+  const lockSettings = doorProperties?.lockSettings;
+  const trapSettings = doorProperties?.trapSettings;
+  const advancedSettings = doorProperties?.advancedSettings;
+  const scriptSlots = doorProperties?.scriptSlots;
   const transition = source.doorTransition;
+  const destinationType: DoorTransitionDestinationType =
+    transition?.linkedWaypoint && transition.linkedWaypoint.trim().length > 0
+      ? "waypoint"
+      : transition &&
+          (transition.linkedTarget.trim().length > 0 ||
+            transition.linkedTag.trim().length > 0 ||
+            transition.linkedModule.trim().length > 0)
+        ? "door"
+        : "none";
+  const transitionFlags = transition?.flags ? { ...transition.flags } : {};
   const flagsSummary =
-    transition && Object.keys(transition.flags).length > 0
-      ? Object.entries(transition.flags)
+    Object.keys(transitionFlags).length > 0
+      ? Object.entries(transitionFlags)
           .map(([key, value]) => `${key}=${value ? "1" : "0"}`)
           .sort((left, right) => left.localeCompare(right))
           .join(", ")
@@ -1684,11 +1804,68 @@ function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDraft {
     name: resolveSceneObjectName(source),
     tag: source.tag,
     resRef: source.resRef,
+    appearanceType: doorProperties?.appearanceType ?? DOOR_APPEARANCE_TYPE_OPTIONS[0]!,
+    genericAppearance: doorProperties?.genericAppearance ?? DOOR_GENERIC_APPEARANCE_OPTIONS[0]!,
+    plot: doorProperties?.plot ?? false,
+    hardness: doorProperties?.hardness ?? 5,
+    hitPoints: doorProperties?.hitPoints ?? 80,
+    fortitudeSave: doorProperties?.fortitudeSave ?? 16,
+    reflexSave: doorProperties?.reflexSave ?? 0,
+    willSave: doorProperties?.willSave ?? 0,
+    lockSettings: {
+      locked: lockSettings?.locked ?? false,
+      canRelock: lockSettings?.canRelock ?? false,
+      autoRemoveKeyAfterUse: lockSettings?.autoRemoveKeyAfterUse ?? false,
+      keyRequiredToUnlockOrLock: lockSettings?.keyRequiredToUnlockOrLock ?? false,
+      openLockDc: lockSettings?.openLockDc ?? 18,
+      closeLockDc: lockSettings?.closeLockDc ?? 0,
+      keyTag: lockSettings?.keyTag ?? ""
+    },
+    trapSettings: {
+      isTrapped: trapSettings?.isTrapped ?? false,
+      trapType: trapSettings?.trapType ?? PLACEABLE_TRAP_TYPE_OPTIONS[0]!,
+      detectionDc: trapSettings?.detectionDc ?? 0,
+      disarmDc: trapSettings?.disarmDc ?? 15,
+      oneShot: trapSettings?.oneShot ?? true,
+      detectable: trapSettings?.detectable ?? true,
+      disarmable: trapSettings?.disarmable ?? true,
+      onDisarmScript: trapSettings?.onDisarmScript ?? "",
+      onTrapTriggeredScript: trapSettings?.onTrapTriggeredScript ?? "",
+      setDc: trapSettings?.setDc ?? 5,
+      detectDcModWhenSetByRogue: trapSettings?.detectDcModWhenSetByRogue ?? 10,
+      disarmDcModWhenSetByRogue: trapSettings?.disarmDcModWhenSetByRogue ?? 22
+    },
+    scriptSlots: {
+      onAreaTransitionClick: scriptSlots?.onAreaTransitionClick ?? "",
+      onClose: scriptSlots?.onClose ?? "",
+      onDamaged: scriptSlots?.onDamaged ?? "",
+      onDeath: scriptSlots?.onDeath ?? "",
+      onFailToOpen: scriptSlots?.onFailToOpen ?? "",
+      onHeartbeat: scriptSlots?.onHeartbeat ?? "",
+      onLock: scriptSlots?.onLock ?? "",
+      onPhysicalAttacked: scriptSlots?.onPhysicalAttacked ?? "",
+      onOpen: scriptSlots?.onOpen ?? "",
+      onSpellCastAt: scriptSlots?.onSpellCastAt ?? "",
+      onUnlock: scriptSlots?.onUnlock ?? "",
+      onUserDefined: scriptSlots?.onUserDefined ?? ""
+    },
+    advancedSettings: {
+      blueprintResRef: advancedSettings?.blueprintResRef ?? source.resRef,
+      belongsToFaction: advancedSettings?.belongsToFaction ?? PLACEABLE_FACTION_OPTIONS[0]!,
+      conversation: advancedSettings?.conversation ?? "",
+      noInterrupt: advancedSettings?.noInterrupt ?? false,
+      portraitResRef: advancedSettings?.portraitResRef ?? "",
+      initialState: advancedSettings?.initialState ?? DOOR_INITIAL_STATE_OPTIONS[0]!
+    },
+    description: doorProperties?.description ?? "",
+    comments: doorProperties?.comments ?? "",
+    destinationTag: transition?.linkedTag ?? "",
+    destinationType,
     linkedTarget: transition?.linkedTarget ?? "",
     linkedModule: transition?.linkedModule ?? "",
-    linkedTag: transition?.linkedTag ?? "",
     linkedWaypoint: transition?.linkedWaypoint ?? "",
     loadScreen: transition?.loadScreen ?? "",
+    transitionFlags,
     flagsSummary
   };
 }
@@ -1934,11 +2111,32 @@ function areDoorPropertiesDraftsEqual(
     left.name === right.name &&
     left.tag === right.tag &&
     left.resRef === right.resRef &&
+    left.appearanceType === right.appearanceType &&
+    left.genericAppearance === right.genericAppearance &&
+    left.plot === right.plot &&
+    left.hardness === right.hardness &&
+    left.hitPoints === right.hitPoints &&
+    left.fortitudeSave === right.fortitudeSave &&
+    left.reflexSave === right.reflexSave &&
+    left.willSave === right.willSave &&
+    arePlaceableLockSettingsEqual(left.lockSettings, right.lockSettings) &&
+    arePlaceableTrapSettingsEqual(left.trapSettings, right.trapSettings) &&
+    stableJsonStringify(left.scriptSlots) === stableJsonStringify(right.scriptSlots) &&
+    left.advancedSettings.blueprintResRef === right.advancedSettings.blueprintResRef &&
+    left.advancedSettings.belongsToFaction === right.advancedSettings.belongsToFaction &&
+    left.advancedSettings.conversation === right.advancedSettings.conversation &&
+    left.advancedSettings.noInterrupt === right.advancedSettings.noInterrupt &&
+    left.advancedSettings.portraitResRef === right.advancedSettings.portraitResRef &&
+    left.advancedSettings.initialState === right.advancedSettings.initialState &&
+    left.description === right.description &&
+    left.comments === right.comments &&
+    left.destinationTag === right.destinationTag &&
+    left.destinationType === right.destinationType &&
     left.linkedTarget === right.linkedTarget &&
     left.linkedModule === right.linkedModule &&
-    left.linkedTag === right.linkedTag &&
     left.linkedWaypoint === right.linkedWaypoint &&
     left.loadScreen === right.loadScreen &&
+    stableJsonStringify(left.transitionFlags) === stableJsonStringify(right.transitionFlags) &&
     left.flagsSummary === right.flagsSummary
   );
 }
@@ -8063,15 +8261,241 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
+  const updateDoorPropertiesDraftField = useCallback(
+    (
+      field:
+        | "name"
+        | "tag"
+        | "resRef"
+        | "appearanceType"
+        | "genericAppearance"
+        | "plot"
+        | "hardness"
+        | "hitPoints"
+        | "fortitudeSave"
+        | "reflexSave"
+        | "willSave"
+        | "description"
+        | "comments",
+      value: string | boolean | number
+    ) => {
+      setDoorPropertiesDialog((current) => {
+        if (!current) {
+          return current;
+        }
+        if ((current.draft as unknown as Record<string, string | boolean | number>)[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            [field]: value
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateDoorLockDraftField = useCallback(
+    (field: keyof DoorPropertiesDraft["lockSettings"], value: string | boolean | number) => {
+      setDoorPropertiesDialog((current) => {
+        if (!current || current.draft.lockSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            lockSettings: {
+              ...current.draft.lockSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateDoorTrapDraftField = useCallback(
+    (field: keyof DoorPropertiesDraft["trapSettings"], value: string | boolean | number) => {
+      setDoorPropertiesDialog((current) => {
+        if (!current || current.draft.trapSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            trapSettings: {
+              ...current.draft.trapSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateDoorScriptSlotDraftField = useCallback((field: DoorScriptSlotKey, value: string) => {
+    setDoorPropertiesDialog((current) => {
+      if (!current || current.draft.scriptSlots[field] === value) {
+        return current;
+      }
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          scriptSlots: {
+            ...current.draft.scriptSlots,
+            [field]: value
+          }
+        }
+      };
+    });
+  }, []);
+
+  const updateDoorAdvancedDraftField = useCallback(
+    (field: keyof DoorPropertiesDraft["advancedSettings"], value: string | boolean) => {
+      setDoorPropertiesDialog((current) => {
+        if (!current || current.draft.advancedSettings[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            advancedSettings: {
+              ...current.draft.advancedSettings,
+              [field]: value
+            }
+          }
+        };
+      });
+    },
+    []
+  );
+
+  const updateDoorTransitionDraftField = useCallback(
+    (
+      field: "destinationTag" | "destinationType" | "linkedTarget" | "linkedModule" | "linkedWaypoint" | "loadScreen",
+      value: string
+    ) => {
+      setDoorPropertiesDialog((current) => {
+        if (!current || current.draft[field] === value) {
+          return current;
+        }
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            [field]: value
+          }
+        };
+      });
+    },
+    []
+  );
+
   const applyDoorPropertiesDraft = useCallback(
     (closeAfterApply: boolean) => {
       if (!doorPropertiesDialog) {
         return;
       }
 
+      const draft = doorPropertiesDialog.draft;
+      const objectId = doorPropertiesDialog.objectId;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === objectId);
+        if (!sourceObject || sourceObject.kind !== "doors") {
+          return current;
+        }
+        const sourceDraft = buildDoorPropertiesDraft(sourceObject);
+        if (areDoorPropertiesDraftsEqual(sourceDraft, draft)) {
+          return current;
+        }
+        const nextName = draft.name.trim();
+        const nextTag = draft.tag.trim();
+        const nextResRef = draft.resRef.trim();
+        const nextDoorProperties: NonNullable<SceneObject["doorProperties"]> = {
+          plot: draft.plot,
+          hardness: draft.hardness,
+          hitPoints: draft.hitPoints,
+          fortitudeSave: draft.fortitudeSave,
+          reflexSave: draft.reflexSave,
+          willSave: draft.willSave,
+          appearanceType: draft.appearanceType.trim() || DOOR_APPEARANCE_TYPE_OPTIONS[0]!,
+          genericAppearance: draft.genericAppearance.trim() || DOOR_GENERIC_APPEARANCE_OPTIONS[0]!,
+          lockSettings: { ...draft.lockSettings },
+          trapSettings: { ...draft.trapSettings },
+          scriptSlots: { ...draft.scriptSlots },
+          advancedSettings: {
+            ...draft.advancedSettings,
+            blueprintResRef: draft.advancedSettings.blueprintResRef.trim() || nextResRef
+          },
+          description: draft.description,
+          comments: draft.comments
+        };
+
+        const nextFlags = { ...draft.transitionFlags };
+        const hasTransitionFlags = Object.keys(nextFlags).length > 0;
+        const nextDestinationType = draft.destinationType;
+        const nextDestinationTag = draft.destinationTag.trim();
+        const nextLinkedTarget =
+          nextDestinationType === "none"
+            ? ""
+            : draft.linkedTarget.trim().length > 0
+              ? draft.linkedTarget.trim()
+              : nextDestinationType === "door"
+                ? "door"
+                : "waypoint";
+        const nextLinkedModule = draft.linkedModule.trim();
+        const nextLinkedWaypoint =
+          nextDestinationType === "waypoint" ? draft.linkedWaypoint.trim() : "";
+        const nextLoadScreen = draft.loadScreen.trim();
+        const shouldClearTransition =
+          nextDestinationType === "none" &&
+          nextDestinationTag.length === 0 &&
+          nextLinkedModule.length === 0 &&
+          nextLinkedWaypoint.length === 0 &&
+          nextLoadScreen.length === 0 &&
+          !hasTransitionFlags;
+        const nextDoorTransition = shouldClearTransition
+          ? undefined
+          : {
+              linkedTarget: nextLinkedTarget,
+              linkedModule: nextLinkedModule,
+              linkedTag: nextDestinationTag,
+              linkedWaypoint: nextLinkedWaypoint,
+              loadScreen: nextLoadScreen,
+              flags: nextFlags
+            };
+
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === objectId
+            ? {
+                ...object,
+                name: nextName,
+                tag: nextTag,
+                resRef: nextResRef,
+                doorProperties: nextDoorProperties,
+                doorTransition: nextDoorTransition
+              }
+            : object
+        );
+        const nextScene = {
+          ...current.present,
+          objects: nextObjects
+        };
+        return sceneViewportPort.commitHistory(current, nextScene);
+      });
+
       trackTelemetry("scene.door_properties.apply", {
         userId,
-        objectId: doorPropertiesDialog.objectId,
+        objectId,
         closeAfterApply
       });
 
@@ -8079,7 +8503,7 @@ export function WorkspaceCanvasViewport({
         setDoorPropertiesDialog(null);
       }
     },
-    [doorPropertiesDialog, trackTelemetry, userId]
+    [doorPropertiesDialog, sceneViewportPort, trackTelemetry, userId]
   );
 
   const cancelDoorPropertiesDialog = useCallback(() => {
@@ -13307,14 +13731,25 @@ export function WorkspaceCanvasViewport({
           {!doorPropertiesDialog.collapsed ? (
             <>
               <nav className="canvas-door-properties-tabs" aria-label="door properties tabs">
-                {(["basic", "transition", "comments"] as DoorPropertiesTab[]).map((tab) => (
+                {(
+                  [
+                    ["basic", "Basic"],
+                    ["lock", "Lock"],
+                    ["trap", "Trap"],
+                    ["areaTransition", "Area Transition"],
+                    ["scripts", "Scripts"],
+                    ["advanced", "Advanced"],
+                    ["description", "Description"],
+                    ["comments", "Comments"]
+                  ] as Array<[DoorPropertiesTab, string]>
+                ).map(([tab, label]) => (
                   <button
                     key={tab}
                     type="button"
                     className={doorPropertiesDialog.activeTab === tab ? "is-active" : undefined}
                     onClick={() => setDoorPropertiesActiveTab(tab)}
                   >
-                    {tab === "basic" ? "Basic" : tab === "transition" ? "Transition" : "Comments"}
+                    {label}
                   </button>
                 ))}
               </nav>
@@ -13322,67 +13757,639 @@ export function WorkspaceCanvasViewport({
               {doorPropertiesDialog.activeTab === "basic" ? (
                 <section className="canvas-door-properties-shell">
                   <fieldset className="canvas-door-properties-group">
-                    <legend>Identity</legend>
+                    <legend>Basic</legend>
                     <label>
                       Name
-                      <input type="text" value={doorPropertiesDialog.draft.name} readOnly />
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.name}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("name", event.target.value)
+                        }
+                      />
                     </label>
                     <label>
                       Tag
-                      <input type="text" value={doorPropertiesDialog.draft.tag} readOnly />
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.tag}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("tag", event.target.value)
+                        }
+                      />
                     </label>
                     <label>
-                      ResRef
-                      <input type="text" value={doorPropertiesDialog.draft.resRef} readOnly />
+                      Appearance Type
+                      <select
+                        value={doorPropertiesDialog.draft.appearanceType}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("appearanceType", event.target.value)
+                        }
+                      >
+                        {DOOR_APPEARANCE_TYPE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
                     </label>
-                    <p className="canvas-door-properties-note">
-                      Aurora-first shell: values are shown in <strong>preserve-first</strong> mode.
-                    </p>
+                    <label>
+                      Generic Appearance
+                      <select
+                        value={doorPropertiesDialog.draft.genericAppearance}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("genericAppearance", event.target.value)
+                        }
+                      >
+                        {DOOR_GENERIC_APPEARANCE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.plot}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("plot", event.target.checked)
+                        }
+                      />
+                      Plot
+                    </label>
+                    <label>
+                      Hardness
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.hardness}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField(
+                            "hardness",
+                            Math.max(0, Number.parseFloat(event.target.value) || 0)
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Hit Points
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.hitPoints}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField(
+                            "hitPoints",
+                            Math.max(0, Number.parseFloat(event.target.value) || 0)
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Fortitude Save
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.fortitudeSave}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField(
+                            "fortitudeSave",
+                            Number.parseFloat(event.target.value) || 0
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Reflex Save
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.reflexSave}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField(
+                            "reflexSave",
+                            Number.parseFloat(event.target.value) || 0
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Will Save
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.willSave}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField(
+                            "willSave",
+                            Number.parseFloat(event.target.value) || 0
+                          )
+                        }
+                      />
+                    </label>
                   </fieldset>
                 </section>
               ) : null}
 
-              {doorPropertiesDialog.activeTab === "transition" ? (
+              {doorPropertiesDialog.activeTab === "lock" ? (
                 <section className="canvas-door-properties-shell">
                   <fieldset className="canvas-door-properties-group">
-                    <legend>Transition Payload</legend>
+                    <legend>Lock</legend>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.lockSettings.locked}
+                        onChange={(event) =>
+                          updateDoorLockDraftField("locked", event.target.checked)
+                        }
+                      />
+                      Locked
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.lockSettings.canRelock}
+                        onChange={(event) =>
+                          updateDoorLockDraftField("canRelock", event.target.checked)
+                        }
+                      />
+                      Can be relocked
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.lockSettings.autoRemoveKeyAfterUse}
+                        onChange={(event) =>
+                          updateDoorLockDraftField("autoRemoveKeyAfterUse", event.target.checked)
+                        }
+                      />
+                      Automatically remove key after use
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.lockSettings.keyRequiredToUnlockOrLock}
+                        onChange={(event) =>
+                          updateDoorLockDraftField(
+                            "keyRequiredToUnlockOrLock",
+                            event.target.checked
+                          )
+                        }
+                      />
+                      Key required to unlock or lock
+                    </label>
+                    <label>
+                      Open Lock DC
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.lockSettings.openLockDc}
+                        onChange={(event) =>
+                          updateDoorLockDraftField(
+                            "openLockDc",
+                            Math.max(0, Number.parseFloat(event.target.value) || 0)
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Close Lock DC
+                      <input
+                        type="number"
+                        step="1"
+                        value={doorPropertiesDialog.draft.lockSettings.closeLockDc}
+                        onChange={(event) =>
+                          updateDoorLockDraftField(
+                            "closeLockDc",
+                            Math.max(0, Number.parseFloat(event.target.value) || 0)
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Key Tag
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.lockSettings.keyTag}
+                        onChange={(event) => updateDoorLockDraftField("keyTag", event.target.value)}
+                      />
+                    </label>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "trap" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Trap</legend>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.trapSettings.isTrapped}
+                        onChange={(event) =>
+                          updateDoorTrapDraftField("isTrapped", event.target.checked)
+                        }
+                      />
+                      Is Trapped
+                    </label>
+                    <fieldset
+                      className="canvas-door-properties-group"
+                      disabled={!doorPropertiesDialog.draft.trapSettings.isTrapped}
+                    >
+                      <legend>Trap Settings</legend>
+                      <label>
+                        Trap Type
+                        <select
+                          value={doorPropertiesDialog.draft.trapSettings.trapType}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("trapType", event.target.value)
+                          }
+                        >
+                          {PLACEABLE_TRAP_TYPE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Detection DC
+                        <input
+                          type="number"
+                          step="1"
+                          value={doorPropertiesDialog.draft.trapSettings.detectionDc}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField(
+                              "detectionDc",
+                              Math.max(0, Number.parseFloat(event.target.value) || 0)
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Disarm DC
+                        <input
+                          type="number"
+                          step="1"
+                          value={doorPropertiesDialog.draft.trapSettings.disarmDc}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField(
+                              "disarmDc",
+                              Math.max(0, Number.parseFloat(event.target.value) || 0)
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={doorPropertiesDialog.draft.trapSettings.oneShot}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("oneShot", event.target.checked)
+                          }
+                        />
+                        One Shot
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={doorPropertiesDialog.draft.trapSettings.detectable}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("detectable", event.target.checked)
+                          }
+                        />
+                        Detectable
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={doorPropertiesDialog.draft.trapSettings.disarmable}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("disarmable", event.target.checked)
+                          }
+                        />
+                        Disarmable
+                      </label>
+                      <label>
+                        OnDisarm
+                        <input
+                          type="text"
+                          value={doorPropertiesDialog.draft.trapSettings.onDisarmScript}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("onDisarmScript", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        OnTrapTriggered
+                        <input
+                          type="text"
+                          value={doorPropertiesDialog.draft.trapSettings.onTrapTriggeredScript}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField("onTrapTriggeredScript", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        Set DC
+                        <input
+                          type="number"
+                          step="1"
+                          value={doorPropertiesDialog.draft.trapSettings.setDc}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField(
+                              "setDc",
+                              Math.max(0, Number.parseFloat(event.target.value) || 0)
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Detect DC Mod. when set by Rogue
+                        <input
+                          type="number"
+                          step="1"
+                          value={doorPropertiesDialog.draft.trapSettings.detectDcModWhenSetByRogue}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField(
+                              "detectDcModWhenSetByRogue",
+                              Math.max(0, Number.parseFloat(event.target.value) || 0)
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Disarm DC Mod. when set by Rogue
+                        <input
+                          type="number"
+                          step="1"
+                          value={doorPropertiesDialog.draft.trapSettings.disarmDcModWhenSetByRogue}
+                          onChange={(event) =>
+                            updateDoorTrapDraftField(
+                              "disarmDcModWhenSetByRogue",
+                              Math.max(0, Number.parseFloat(event.target.value) || 0)
+                            )
+                          }
+                        />
+                      </label>
+                    </fieldset>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "areaTransition" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Area Transition</legend>
+                    <label>
+                      Destination Tag
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.destinationTag}
+                        onChange={(event) =>
+                          updateDoorTransitionDraftField("destinationTag", event.target.value)
+                        }
+                      />
+                    </label>
+                    <fieldset className="canvas-door-properties-group">
+                      <legend>Destination Type</legend>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="radio"
+                          name={`door-destination-type-${doorPropertiesDialog.objectId}`}
+                          checked={doorPropertiesDialog.draft.destinationType === "none"}
+                          onChange={() => updateDoorTransitionDraftField("destinationType", "none")}
+                        />
+                        None
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="radio"
+                          name={`door-destination-type-${doorPropertiesDialog.objectId}`}
+                          checked={doorPropertiesDialog.draft.destinationType === "door"}
+                          onChange={() => updateDoorTransitionDraftField("destinationType", "door")}
+                        />
+                        Door
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="radio"
+                          name={`door-destination-type-${doorPropertiesDialog.objectId}`}
+                          checked={doorPropertiesDialog.draft.destinationType === "waypoint"}
+                          onChange={() =>
+                            updateDoorTransitionDraftField("destinationType", "waypoint")
+                          }
+                        />
+                        Waypoint
+                      </label>
+                    </fieldset>
                     <label>
                       Linked Target
-                      <input type="text" value={doorPropertiesDialog.draft.linkedTarget} readOnly />
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.linkedTarget}
+                        onChange={(event) =>
+                          updateDoorTransitionDraftField("linkedTarget", event.target.value)
+                        }
+                      />
                     </label>
                     <label>
                       Linked Module
-                      <input type="text" value={doorPropertiesDialog.draft.linkedModule} readOnly />
-                    </label>
-                    <label>
-                      Linked Tag
-                      <input type="text" value={doorPropertiesDialog.draft.linkedTag} readOnly />
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.linkedModule}
+                        onChange={(event) =>
+                          updateDoorTransitionDraftField("linkedModule", event.target.value)
+                        }
+                      />
                     </label>
                     <label>
                       Linked Waypoint
-                      <input type="text" value={doorPropertiesDialog.draft.linkedWaypoint} readOnly />
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.linkedWaypoint}
+                        onChange={(event) =>
+                          updateDoorTransitionDraftField("linkedWaypoint", event.target.value)
+                        }
+                      />
                     </label>
                     <label>
-                      Load Screen
-                      <input type="text" value={doorPropertiesDialog.draft.loadScreen} readOnly />
+                      Loading Screen
+                      <select
+                        value={
+                          doorPropertiesDialog.draft.loadScreen.trim().length > 0
+                            ? doorPropertiesDialog.draft.loadScreen
+                            : "Default"
+                        }
+                        onChange={(event) =>
+                          updateDoorTransitionDraftField(
+                            "loadScreen",
+                            event.target.value === "Default" ? "" : event.target.value
+                          )
+                        }
+                      >
+                        <option value="Default">Default</option>
+                        {doorPropertiesDialog.draft.loadScreen.trim().length > 0 ? (
+                          <option value={doorPropertiesDialog.draft.loadScreen}>
+                            {doorPropertiesDialog.draft.loadScreen}
+                          </option>
+                        ) : null}
+                      </select>
                     </label>
+                    <button type="button">Setup Area Transition</button>
                     <label>
                       Flags
                       <input type="text" value={doorPropertiesDialog.draft.flagsSummary} readOnly />
                     </label>
-                    <p className="canvas-door-properties-note">
-                      Transition fields are currently read-only for payload preservation.
-                    </p>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "scripts" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Scripts</legend>
+                    {DOOR_SCRIPT_SLOT_KEYS.map((slotKey) => (
+                      <label key={slotKey}>
+                        {DOOR_SCRIPT_SLOT_LABELS[slotKey]}
+                        <input
+                          type="text"
+                          value={doorPropertiesDialog.draft.scriptSlots[slotKey]}
+                          onChange={(event) =>
+                            updateDoorScriptSlotDraftField(slotKey, event.target.value)
+                          }
+                        />
+                      </label>
+                    ))}
+                    <div className="canvas-placeable-properties-script-actions">
+                      <button type="button" disabled>
+                        Save Script Set
+                      </button>
+                      <button type="button" disabled>
+                        Load Script Set
+                      </button>
+                    </div>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "advanced" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Advanced</legend>
+                    <label>
+                      Blueprint ResRef
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.advancedSettings.blueprintResRef}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("blueprintResRef", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Belongs To Faction
+                      <select
+                        value={doorPropertiesDialog.draft.advancedSettings.belongsToFaction}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("belongsToFaction", event.target.value)
+                        }
+                      >
+                        {PLACEABLE_FACTION_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Conversation
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.advancedSettings.conversation}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("conversation", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="canvas-placeable-properties-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doorPropertiesDialog.draft.advancedSettings.noInterrupt}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("noInterrupt", event.target.checked)
+                        }
+                      />
+                      No Interrupt
+                    </label>
+                    <label>
+                      Portrait
+                      <input
+                        type="text"
+                        value={doorPropertiesDialog.draft.advancedSettings.portraitResRef}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("portraitResRef", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Initial State
+                      <select
+                        value={doorPropertiesDialog.draft.advancedSettings.initialState}
+                        onChange={(event) =>
+                          updateDoorAdvancedDraftField("initialState", event.target.value)
+                        }
+                      >
+                        {DOOR_INITIAL_STATE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="canvas-placeable-properties-variables-row">
+                      <button type="button" disabled>
+                        Variables
+                      </button>
+                    </div>
+                  </fieldset>
+                </section>
+              ) : null}
+
+              {doorPropertiesDialog.activeTab === "description" ? (
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Description</legend>
+                    <label>
+                      Description
+                      <textarea
+                        value={doorPropertiesDialog.draft.description}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("description", event.target.value)
+                        }
+                        rows={9}
+                      />
+                    </label>
                   </fieldset>
                 </section>
               ) : null}
 
               {doorPropertiesDialog.activeTab === "comments" ? (
-                <section className="canvas-door-properties-tab-placeholder">
-                  <p>
-                    This Aurora tab shell is present for parity. Runtime behavior for this tab is
-                    <strong> Preserve-only</strong>.
-                  </p>
+                <section className="canvas-door-properties-shell">
+                  <fieldset className="canvas-door-properties-group">
+                    <legend>Comments</legend>
+                    <label>
+                      Comments
+                      <textarea
+                        value={doorPropertiesDialog.draft.comments}
+                        onChange={(event) =>
+                          updateDoorPropertiesDraftField("comments", event.target.value)
+                        }
+                        rows={9}
+                      />
+                    </label>
+                  </fieldset>
                 </section>
               ) : null}
 

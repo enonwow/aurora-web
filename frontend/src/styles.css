@@ -2890,7 +2890,10 @@ input {
   font-size: 0.75rem;
 }
 
-.canvas-door-properties-group input[type="text"] {
+.canvas-door-properties-group input[type="text"],
+.canvas-door-properties-group input[type="number"],
+.canvas-door-properties-group select,
+.canvas-door-properties-group textarea {
   width: 100%;
   border: 1px solid #39597d;
   border-radius: 6px;
@@ -2898,6 +2901,35 @@ input {
   color: #e0ecfa;
   padding: 0.28rem 0.38rem;
   font-size: 0.78rem;
+  box-sizing: border-box;
+}
+
+.canvas-door-properties-group textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.canvas-door-properties-group fieldset {
+  margin: 0;
+}
+
+.canvas-door-properties-group button {
+  border: 1px solid #355170;
+  border-radius: 7px;
+  background: #122a45;
+  color: #e4f0ff;
+  padding: 0.32rem 0.6rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.canvas-door-properties-group button:hover {
+  background: #17365d;
+}
+
+.canvas-door-properties-group button[disabled] {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .canvas-door-properties-group input[readonly] {

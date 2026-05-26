@@ -94,6 +94,72 @@ export interface SceneObjectPlaceableAdvancedSettings {
   treasureModel: string;
 }
 
+export interface SceneObjectDoorLockSettings {
+  locked: boolean;
+  canRelock: boolean;
+  autoRemoveKeyAfterUse: boolean;
+  keyRequiredToUnlockOrLock: boolean;
+  openLockDc: number;
+  closeLockDc: number;
+  keyTag: string;
+}
+
+export interface SceneObjectDoorTrapSettings {
+  isTrapped: boolean;
+  trapType: string;
+  detectionDc: number;
+  disarmDc: number;
+  oneShot: boolean;
+  detectable: boolean;
+  disarmable: boolean;
+  onDisarmScript: string;
+  onTrapTriggeredScript: string;
+  setDc: number;
+  detectDcModWhenSetByRogue: number;
+  disarmDcModWhenSetByRogue: number;
+}
+
+export interface SceneObjectDoorScriptSlots {
+  onAreaTransitionClick: string;
+  onClose: string;
+  onDamaged: string;
+  onDeath: string;
+  onFailToOpen: string;
+  onHeartbeat: string;
+  onLock: string;
+  onPhysicalAttacked: string;
+  onOpen: string;
+  onSpellCastAt: string;
+  onUnlock: string;
+  onUserDefined: string;
+}
+
+export interface SceneObjectDoorAdvancedSettings {
+  blueprintResRef: string;
+  belongsToFaction: string;
+  conversation: string;
+  noInterrupt: boolean;
+  portraitResRef: string;
+  initialState: string;
+}
+
+export interface SceneObjectDoorProperties {
+  plot: boolean;
+  hardness: number;
+  hitPoints: number;
+  fortitudeSave: number;
+  reflexSave: number;
+  willSave: number;
+  appearanceType: string;
+  genericAppearance: string;
+  lockSettings?: SceneObjectDoorLockSettings;
+  trapSettings?: SceneObjectDoorTrapSettings;
+  scriptSlots?: SceneObjectDoorScriptSlots;
+  advancedSettings?: SceneObjectDoorAdvancedSettings;
+  description?: string;
+  comments?: string;
+}
+
 export interface SceneObjectCreatureAbilityScores {
   strength: number;
   dexterity: number;
@@ -359,6 +425,7 @@ export interface SceneObject {
   tag: string;
   isStatic?: boolean;
   placeableProperties?: SceneObjectPlaceableProperties;
+  doorProperties?: SceneObjectDoorProperties;
   creatureProperties?: SceneObjectCreatureProperties;
   soundPositioning?: SceneObjectSoundPositioning;
   doorTransition?: SceneObjectDoorTransitionPayload;
