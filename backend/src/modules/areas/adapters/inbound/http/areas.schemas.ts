@@ -24,6 +24,10 @@ const areaCacheKeySchema = z
   .max(128)
   .regex(/^[a-f0-9]+$/iu, "cacheKey must be hexadecimal.");
 
+const areaTextureDeliveryQuerySchema = z.object({
+  mode: z.enum(["proxy", "direct"]).default("proxy")
+});
+
 export function parseAreaListQuery(input: unknown) {
   const parsed = listQuerySchema.safeParse(input);
   if (parsed.success) {
@@ -68,6 +72,25 @@ export function parseAreaCacheKey(input: unknown): string {
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Area cache key validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseAreaTextureDeliveryQuery(
+  input: unknown
+): { mode: "proxy" | "direct" } {
+  const parsed = areaTextureDeliveryQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Area delivery query validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message

@@ -2,7 +2,8 @@ import { AppException } from "../../src/common/http/app-exception";
 import {
   parseAreaCacheKey,
   parseAreaListQuery,
-  parseAreaProcessPayload
+  parseAreaProcessPayload,
+  parseAreaTextureDeliveryQuery
 } from "../../src/modules/areas/adapters/inbound/http/areas.schemas";
 
 describe("areas.schemas", () => {
@@ -25,5 +26,19 @@ describe("areas.schemas", () => {
 
   it("rejects invalid area cache key", () => {
     expect(() => parseAreaCacheKey("invalid:key")).toThrow(AppException);
+  });
+
+  it("parses area texture delivery query defaults", () => {
+    const parsed = parseAreaTextureDeliveryQuery({});
+    expect(parsed.mode).toBe("proxy");
+  });
+
+  it("parses area texture delivery direct mode", () => {
+    const parsed = parseAreaTextureDeliveryQuery({ mode: "direct" });
+    expect(parsed.mode).toBe("direct");
+  });
+
+  it("rejects invalid area texture delivery mode", () => {
+    expect(() => parseAreaTextureDeliveryQuery({ mode: "invalid" })).toThrow(AppException);
   });
 });

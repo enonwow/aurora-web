@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   ModuleBlobObjectSummary,
@@ -40,6 +41,7 @@ interface AreaCandidate {
   resref: string;
   sourceKey: string;
   sourceSize: number;
+  sourceEtag?: string;
   updatedAt: string;
 }
 
@@ -233,6 +235,7 @@ function buildAreasFromSnapshot(objects: ModuleBlobObjectSummary[]): AreaCandida
       resref,
       sourceKey: object.key,
       sourceSize: object.size,
+      sourceEtag: object.etag,
       updatedAt: object.lastModified ?? new Date().toISOString()
     };
 
@@ -268,6 +271,11 @@ function mapCandidateToAreaRecord(candidate: AreaCandidate, benchmarkIds: Set<st
     benchmark: benchmarkIds.has(candidate.resref),
     previewImageUrl: `/assets/previews/areas/${candidate.resref}.webp`,
     textureAtlasId: `atlas_${biome}_v1`,
+    textureAtlasObjectKey: candidate.sourceKey,
+    textureAtlasContentType: "application/octet-stream",
+    textureAtlasSizeBytes: candidate.sourceSize,
+    textureAtlasEtag: candidate.sourceEtag,
+    textureAtlasFingerprint: buildAtlasFingerprint(candidate),
     objects: [],
     soundscape: buildAreaSoundscape(candidate, biome),
     updatedAt: candidate.updatedAt
@@ -393,6 +401,20 @@ function mapAreaToListItem(area: AreaRecord, composition: AreaObjectCounts): Are
 
 function buildAreaSearchableText(area: AreaRecord): string {
   return [area.name, area.areaId, ...area.tags].join("|").toLowerCase();
+}
+
+function buildAtlasFingerprint(candidate: AreaCandidate): string {
+  return createHash("sha256")
+    .update(
+      [
+        candidate.resref,
+        candidate.sourceKey,
+        String(candidate.sourceSize),
+        candidate.sourceEtag ?? "",
+        candidate.updatedAt
+      ].join("|")
+    )
+    .digest("hex");
 }
 
 function extractFileName(key: string): string {

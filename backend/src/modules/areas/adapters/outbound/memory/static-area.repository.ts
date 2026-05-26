@@ -39,6 +39,11 @@ const AREAS: AreaRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/areas/market-district-day.webp",
     textureAtlasId: "atlas_urban_day_v1",
+    textureAtlasObjectKey: "modules/current/areas/atlases/atlas_urban_day_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 524288,
+    textureAtlasEtag: "atlas-urban-day-v1",
+    textureAtlasFingerprint: "static:atlas:area_urban_day_v1",
     soundscape: buildAreaSoundscape("urban"),
     objects: [
       {
@@ -99,6 +104,11 @@ const AREAS: AreaRecord[] = [
     benchmark: false,
     previewImageUrl: "/assets/previews/areas/forest-crossing.webp",
     textureAtlasId: "atlas_forest_mixed_v1",
+    textureAtlasObjectKey: "modules/current/areas/atlases/atlas_forest_mixed_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 491520,
+    textureAtlasEtag: "atlas-forest-mixed-v1",
+    textureAtlasFingerprint: "static:atlas:area_forest_mixed_v1",
     soundscape: buildAreaSoundscape("forest"),
     objects: [
       {
@@ -141,6 +151,11 @@ const AREAS: AreaRecord[] = [
     benchmark: true,
     previewImageUrl: "/assets/previews/areas/dungeon-entry-hall.webp",
     textureAtlasId: "atlas_dungeon_stone_v1",
+    textureAtlasObjectKey: "modules/current/areas/atlases/atlas_dungeon_stone_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 458752,
+    textureAtlasEtag: "atlas-dungeon-stone-v1",
+    textureAtlasFingerprint: "static:atlas:area_dungeon_stone_v1",
     soundscape: buildAreaSoundscape("dungeon"),
     objects: [
       {

@@ -1,5 +1,16 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { AppException } from "../../../common/http/app-exception";
+import { AppConfigService } from "../../../common/config/app-config.service";
+import {
+  MODULE_BLOB_STORAGE,
+  type ModuleBlobObjectPayload,
+  type ModuleBlobStoragePort
+} from "../../runtime-settings/application/ports/module-blob-storage.port";
+import {
+  RUNTIME_SETTINGS_REPOSITORY,
+  type RuntimeSettingsRepositoryPort
+} from "../../runtime-settings/application/ports/runtime-settings-repository.port";
+import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
 import {
   AREA_PROCESSING_CACHE,
   type AreaProcessingCachePort
@@ -9,6 +20,8 @@ import {
   type AreaRepositoryPort
 } from "./ports/area-repository.port";
 import type {
+  AreaDeliveryMode,
+  AreaListQuery,
   AreaProcessQuery,
   AreaProcessingResult,
   AreaRecord
@@ -28,6 +41,30 @@ export interface AreaProcessingEnvelope {
   area: AreaProcessingResult;
 }
 
+export interface AreaTextureBlobEnvelope {
+  cacheKey: string;
+  textureAtlas: AreaProcessingResult["textureAtlas"];
+  payload: ModuleBlobObjectPayload;
+}
+
+export interface AreaTextureDeliveryContract {
+  mode: AreaDeliveryMode;
+  atlasId: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  etag?: string;
+  proxyPath: string;
+  proxyUrl: string;
+  directUrl?: string;
+  s3Url?: string;
+}
+
+export interface AreaTextureDeliveryEnvelope {
+  cacheKey: string;
+  textureAtlas: AreaTextureDeliveryContract;
+}
+
 @Injectable()
 export class AreasApplicationService {
   private readonly inFlightAreaProcessing = new Map<string, Promise<AreaProcessingEnvelope>>();
@@ -36,17 +73,15 @@ export class AreasApplicationService {
     @Inject(AREA_REPOSITORY)
     private readonly repository: AreaRepositoryPort,
     @Inject(AREA_PROCESSING_CACHE)
-    private readonly processingCache: AreaProcessingCachePort
+    private readonly processingCache: AreaProcessingCachePort,
+    private readonly appConfig?: AppConfigService,
+    @Inject(RUNTIME_SETTINGS_REPOSITORY)
+    private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
+    @Inject(MODULE_BLOB_STORAGE)
+    private readonly moduleBlobStorage?: ModuleBlobStoragePort
   ) {}
 
-  listAreas(query: {
-    query?: string;
-    biome?: string;
-    tag?: string;
-    benchmark?: boolean;
-    limit: number;
-    offset: number;
-  }) {
+  listAreas(query: AreaListQuery) {
     return this.repository.list(query);
   }
 
@@ -74,7 +109,11 @@ export class AreasApplicationService {
       textureAtlas: {
         atlasId: area.textureAtlasId,
         cacheKey: `${area.textureAtlasId}:${area.width}x${area.height}`,
-        strategy: "blob-cache"
+        strategy: "blob-cache",
+        objectKey: area.textureAtlasObjectKey,
+        contentType: area.textureAtlasContentType,
+        sizeBytes: area.textureAtlasSizeBytes,
+        etag: area.textureAtlasEtag
       },
       soundscape: area.soundscape,
       composition: counts,
@@ -115,6 +154,7 @@ export class AreasApplicationService {
     if (!query.bypassCache && precomputed) {
       const cached = await this.processingCache.get(precomputed.cacheKey);
       if (cached) {
+        const hydrated = await this.ensureAreaTextureAtlas(precomputed.cacheKey, cached.value);
         return {
           cache: {
             key: precomputed.cacheKey,
@@ -122,7 +162,7 @@ export class AreasApplicationService {
             storedAt: cached.storedAt,
             hits: cached.hits
           },
-          area: cached.value
+          area: hydrated
         };
       }
     }
@@ -134,6 +174,7 @@ export class AreasApplicationService {
     if (!query.bypassCache && !precomputed) {
       const cached = await this.processingCache.get(cacheKey);
       if (cached) {
+        const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
         return {
           cache: {
             key: cacheKey,
@@ -141,7 +182,7 @@ export class AreasApplicationService {
             storedAt: cached.storedAt,
             hits: cached.hits
           },
-          area: cached.value
+          area: hydrated
         };
       }
     }
@@ -161,7 +202,11 @@ export class AreasApplicationService {
         textureAtlas: {
           atlasId: area.textureAtlasId,
           cacheKey: textureAtlasCacheKey,
-          strategy: "blob-cache"
+          strategy: "blob-cache",
+          objectKey: area.textureAtlasObjectKey,
+          contentType: area.textureAtlasContentType,
+          sizeBytes: area.textureAtlasSizeBytes,
+          etag: area.textureAtlasEtag
         },
         soundscape: area.soundscape,
         composition,
@@ -197,6 +242,7 @@ export class AreasApplicationService {
       });
     }
 
+    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
     return {
       cache: {
         key: cacheKey,
@@ -204,8 +250,159 @@ export class AreasApplicationService {
         storedAt: cached.storedAt,
         hits: cached.hits
       },
-      area: cached.value
+      area: hydrated
     };
+  }
+
+  async getProcessedAreaTexture(cacheKey: string): Promise<AreaTextureBlobEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_CACHE_NOT_FOUND",
+        message: "Area cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+    if (
+      !hydrated.textureAtlas.objectKey ||
+      !hydrated.textureAtlas.contentType ||
+      !hydrated.textureAtlas.sizeBytes
+    ) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_TEXTURE_BLOB_NOT_FOUND",
+        message: "Area texture blob metadata is missing in cache entry."
+      });
+    }
+
+    const payload = await this.readModuleBlobObject(hydrated.textureAtlas.objectKey);
+    if (!payload) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_TEXTURE_BLOB_NOT_FOUND",
+        message: "Area texture blob object was not found."
+      });
+    }
+
+    return {
+      cacheKey,
+      textureAtlas: hydrated.textureAtlas,
+      payload
+    };
+  }
+
+  async getProcessedAreaTextureDelivery(
+    cacheKey: string,
+    mode: AreaDeliveryMode
+  ): Promise<AreaTextureDeliveryEnvelope> {
+    const cached = await this.processingCache.get(cacheKey);
+    if (!cached) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_CACHE_NOT_FOUND",
+        message: "Area cache entry was not found."
+      });
+    }
+
+    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+    if (
+      !hydrated.textureAtlas.objectKey ||
+      !hydrated.textureAtlas.contentType ||
+      !hydrated.textureAtlas.sizeBytes
+    ) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_TEXTURE_BLOB_NOT_FOUND",
+        message: "Area texture blob metadata is missing in cache entry."
+      });
+    }
+
+    const blobSettings = await this.getBlobStorageSettings();
+    if (mode === "direct" && !blobSettings) {
+      throw new AppException({
+        status: 422,
+        code: "AREA_DIRECT_DELIVERY_UNAVAILABLE",
+        message: "Direct area delivery is unavailable without blob storage settings."
+      });
+    }
+
+    const proxyPath = buildAreaTextureDeliveryPath(cacheKey);
+    return {
+      cacheKey,
+      textureAtlas: {
+        mode,
+        atlasId: hydrated.textureAtlas.atlasId,
+        objectKey: hydrated.textureAtlas.objectKey,
+        contentType: hydrated.textureAtlas.contentType,
+        sizeBytes: hydrated.textureAtlas.sizeBytes,
+        etag: hydrated.textureAtlas.etag,
+        proxyPath,
+        proxyUrl: proxyPath,
+        directUrl:
+          mode === "direct" && blobSettings
+            ? buildBlobObjectHttpUrl(blobSettings, hydrated.textureAtlas.objectKey)
+            : undefined,
+        s3Url: blobSettings
+          ? buildS3ObjectUrl(blobSettings.bucket, hydrated.textureAtlas.objectKey)
+          : undefined
+      }
+    };
+  }
+
+  private async ensureAreaTextureAtlas(
+    cacheKey: string,
+    value: AreaProcessingResult
+  ): Promise<AreaProcessingResult> {
+    if (
+      value.textureAtlas.objectKey &&
+      value.textureAtlas.contentType &&
+      (value.textureAtlas.sizeBytes ?? 0) > 0
+    ) {
+      return value;
+    }
+
+    const area = await this.repository.findById(value.areaId);
+    if (!area) {
+      return value;
+    }
+
+    const refreshed: AreaProcessingResult = {
+      ...value,
+      textureAtlas: {
+        ...value.textureAtlas,
+        objectKey: area.textureAtlasObjectKey,
+        contentType: area.textureAtlasContentType,
+        sizeBytes: area.textureAtlasSizeBytes,
+        etag: area.textureAtlasEtag
+      }
+    };
+
+    await this.processingCache.set(cacheKey, refreshed);
+    return refreshed;
+  }
+
+  private async readModuleBlobObject(key: string): Promise<ModuleBlobObjectPayload | null> {
+    if (!this.runtimeSettingsRepository || !this.moduleBlobStorage) {
+      return null;
+    }
+
+    if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+  }
+
+  private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
+    if (!this.runtimeSettingsRepository) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    return settings.blobStorage;
   }
 
   private async resolveAreaRecord(areaId: string): Promise<AreaRecord> {
@@ -236,4 +433,30 @@ export class AreasApplicationService {
     inFlight.set(key, pending);
     return pending;
   }
+}
+
+function buildAreaTextureDeliveryPath(cacheKey: string): string {
+  const encodedCacheKey = encodeURIComponent(cacheKey);
+  return `/api/v1/areas/cache/${encodedCacheKey}/textures`;
+}
+
+function buildS3ObjectUrl(bucket: string, objectKey: string): string {
+  const normalizedObjectKey = objectKey.replace(/^\/+/, "");
+  return `s3://${bucket}/${normalizedObjectKey}`;
+}
+
+function buildBlobObjectHttpUrl(settings: BlobStorageSettings, objectKey: string): string {
+  const endpoint = settings.endpoint.replace(/\/+$/u, "");
+  const encodedSegments = objectKey
+    .replace(/^\/+|\/+$/gu, "")
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  if (settings.forcePathStyle) {
+    return `${endpoint}/${encodeURIComponent(settings.bucket)}/${encodedSegments}`;
+  }
+
+  return `${endpoint}/${encodedSegments}`;
 }

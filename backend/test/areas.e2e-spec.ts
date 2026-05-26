@@ -94,6 +94,7 @@ describe("Areas API v1 (e2e)", () => {
     expect(response.body.data.areaId).toBe("area_market_district_001");
     expect(response.body.data.textureAtlas.cacheKey).toEqual(expect.any(String));
     expect(response.body.data.textureAtlas.strategy).toBe("blob-cache");
+    expect(response.body.data.textureAtlas.objectKey).toEqual(expect.any(String));
     expect(response.body.data.soundscape.bindingKeys.areaKey).toBe("GI_sound_area");
     expect(response.body.data.composition.total).toBeGreaterThan(0);
     expect(Array.isArray(response.body.data.objects)).toBe(true);
@@ -155,6 +156,62 @@ describe("Areas API v1 (e2e)", () => {
 
     expect(response.body.data.cache.hit).toBe(true);
     expect(response.body.data.area.areaId).toBe("area_market_district_001");
+  });
+
+  it("GET /api/v1/areas/cache/:cacheKey/textures/contracts returns proxy contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/areas/cache/${cacheKey}/textures/contracts?mode=proxy`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.textureAtlas.mode).toBe("proxy");
+    expect(response.body.data.textureAtlas.proxyPath).toBe(
+      `/api/v1/areas/cache/${cacheKey}/textures`
+    );
+  });
+
+  it("GET /api/v1/areas/cache/:cacheKey/textures/contracts returns direct contract", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/areas/cache/${cacheKey}/textures/contracts?mode=direct`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.textureAtlas.mode).toBe("direct");
+    expect(response.body.data.textureAtlas.directUrl).toEqual(expect.any(String));
+    expect(response.body.data.textureAtlas.s3Url).toEqual(expect.any(String));
+  });
+
+  it("GET /api/v1/areas/cache/:cacheKey/textures returns 404 when blob lookup is unavailable in test", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+    const processed = await supertest(httpServer)
+      .post("/api/v1/areas/area_market_district_001/process")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ bypassCache: false })
+      .expect(200);
+    const cacheKey = processed.body.data.cache.key as string;
+
+    const response = await supertest(httpServer)
+      .get(`/api/v1/areas/cache/${cacheKey}/textures`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(404);
+
+    expect(response.body.error.code).toBe("AREA_TEXTURE_BLOB_NOT_FOUND");
   });
 
   it("GET /api/v1/areas/:areaId returns 404 for unknown area", async () => {

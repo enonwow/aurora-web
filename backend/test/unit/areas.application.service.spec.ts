@@ -1,5 +1,7 @@
 import { AppException } from "../../src/common/http/app-exception";
 import { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
+import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { AreaProcessingCachePort } from "../../src/modules/areas/application/ports/area-processing-cache.port";
 import type { AreaRepositoryPort } from "../../src/modules/areas/application/ports/area-repository.port";
 import type {
@@ -77,6 +79,9 @@ describe("AreasApplicationService", () => {
     expect(detail.textureAtlas.atlasId).toBe("atlas_urban_v1");
     expect(detail.textureAtlas.cacheKey).toBe("atlas_urban_v1:12x12");
     expect(detail.textureAtlas.strategy).toBe("blob-cache");
+    expect(detail.textureAtlas.objectKey).toBe("modules/current/areas/atlases/atlas_urban_v1.webp");
+    expect(detail.textureAtlas.contentType).toBe("image/webp");
+    expect(detail.textureAtlas.sizeBytes).toBe(393216);
     expect(detail.composition.placeables).toBe(1);
     expect(detail.composition.creatures).toBe(2);
     expect(detail.composition.items).toBe(1);
@@ -146,7 +151,11 @@ describe("AreasApplicationService", () => {
       textureAtlas: {
         atlasId: "atlas_urban_v1",
         cacheKey: "atlas_urban_v1:12x12",
-        strategy: "blob-cache"
+        strategy: "blob-cache",
+        objectKey: "modules/current/areas/atlases/atlas_urban_v1.webp",
+        contentType: "image/webp",
+        sizeBytes: 393216,
+        etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
       composition: {
@@ -192,7 +201,11 @@ describe("AreasApplicationService", () => {
       textureAtlas: {
         atlasId: "atlas_urban_v1",
         cacheKey: "atlas_urban_v1:12x12",
-        strategy: "blob-cache"
+        strategy: "blob-cache",
+        objectKey: "modules/current/areas/atlases/atlas_urban_v1.webp",
+        contentType: "image/webp",
+        sizeBytes: 393216,
+        etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
       composition: {
@@ -312,7 +325,11 @@ describe("AreasApplicationService", () => {
       textureAtlas: {
         atlasId: "atlas_urban_v1",
         cacheKey: "atlas_urban_v1:12x12",
-        strategy: "blob-cache"
+        strategy: "blob-cache",
+        objectKey: "modules/current/areas/atlases/atlas_urban_v1.webp",
+        contentType: "image/webp",
+        sizeBytes: 393216,
+        etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
       composition: {
@@ -348,6 +365,115 @@ describe("AreasApplicationService", () => {
     });
   });
 
+  it("returns processed area texture payload from blob storage", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new AreasApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedAreaResult("area_test_001");
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: cached.textureAtlas.objectKey ?? "modules/current/areas/atlases/atlas_urban_v1.webp",
+      size: cached.textureAtlas.sizeBytes ?? 393216,
+      contentType: cached.textureAtlas.contentType ?? "image/webp",
+      etag: cached.textureAtlas.etag,
+      bytes: Buffer.from([0x01, 0x02, 0x03])
+    });
+
+    const result = await serviceWithBlob.getProcessedAreaTexture("a".repeat(64));
+
+    expect(result.cacheKey).toBe("a".repeat(64));
+    expect(result.textureAtlas.atlasId).toBe(cached.textureAtlas.atlasId);
+    expect(result.payload.size).toBe(cached.textureAtlas.sizeBytes);
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "aurora-module-assets"
+      }),
+      cached.textureAtlas.objectKey
+    );
+  });
+
+  it("builds proxy area texture delivery contract for cached area", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new AreasApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedAreaResult("area_test_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedAreaTextureDelivery("a".repeat(64), "proxy");
+
+    expect(result.textureAtlas.mode).toBe("proxy");
+    expect(result.textureAtlas.proxyPath).toBe(`/api/v1/areas/cache/${"a".repeat(64)}/textures`);
+    expect(result.textureAtlas.s3Url).toBe(
+      `s3://aurora-module-assets/${cached.textureAtlas.objectKey}`
+    );
+    expect(result.textureAtlas.directUrl).toBeUndefined();
+  });
+
+  it("builds direct area texture delivery contract for cached area", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new AreasApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cached = buildProcessedAreaResult("area_test_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 3
+    });
+
+    const result = await serviceWithBlob.getProcessedAreaTextureDelivery("a".repeat(64), "direct");
+
+    expect(result.textureAtlas.mode).toBe("direct");
+    expect(result.textureAtlas.directUrl).toBe(
+      `http://seaweedfs:8333/aurora-module-assets/${encodeURIComponent("modules")}/${encodeURIComponent("current")}/${encodeURIComponent("areas")}/${encodeURIComponent("atlases")}/${encodeURIComponent("atlas_urban_v1.webp")}`
+    );
+  });
+
+  it("rejects direct area delivery when blob settings are unavailable", async () => {
+    const cached = buildProcessedAreaResult("area_test_001");
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-24T11:00:00.000Z",
+      hits: 3
+    });
+
+    await expect(
+      service.getProcessedAreaTextureDelivery("a".repeat(64), "direct")
+    ).rejects.toMatchObject({
+      code: "AREA_DIRECT_DELIVERY_UNAVAILABLE"
+    });
+  });
+
   it("throws AREA_NOT_FOUND from processArea when target area is missing", async () => {
     repository.findById.mockResolvedValue(null);
 
@@ -374,6 +500,11 @@ function buildArea(id: string): AreaRecord {
     benchmark: true,
     previewImageUrl: `/previews/${id}.webp`,
     textureAtlasId: "atlas_urban_v1",
+    textureAtlasObjectKey: "modules/current/areas/atlases/atlas_urban_v1.webp",
+    textureAtlasContentType: "image/webp",
+    textureAtlasSizeBytes: 393216,
+    textureAtlasEtag: "atlas-urban-v1",
+    textureAtlasFingerprint: "static:atlas:area_urban_v1",
     soundscape: buildAreaSoundscape(),
     objects: [
       {
@@ -451,6 +582,138 @@ function buildAreaSoundscape(): AreaRecord["soundscape"] {
         ambientOnly: false
       }
     ]
+  };
+}
+
+function buildProcessedAreaResult(areaId: string): AreaProcessingResult {
+  const area = buildArea(areaId);
+  return {
+    areaId: area.areaId,
+    name: area.name,
+    biome: area.biome,
+    width: area.width,
+    height: area.height,
+    tags: area.tags,
+    benchmark: area.benchmark,
+    previewImageUrl: area.previewImageUrl,
+    textureAtlas: {
+      atlasId: area.textureAtlasId,
+      cacheKey: `${area.textureAtlasId}:${area.width}x${area.height}`,
+      strategy: "blob-cache",
+      objectKey: area.textureAtlasObjectKey,
+      contentType: area.textureAtlasContentType,
+      sizeBytes: area.textureAtlasSizeBytes,
+      etag: area.textureAtlasEtag
+    },
+    soundscape: area.soundscape,
+    composition: {
+      placeables: 1,
+      creatures: 2,
+      items: 1,
+      total: 4
+    },
+    objects: area.objects,
+    updatedAt: area.updatedAt,
+    processedAt: "2026-05-24T10:59:00.000Z"
+  };
+}
+
+function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
+  return {
+    get: jest.fn().mockResolvedValue({
+      revision: 1,
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      updatedBy: "test",
+      paths: {
+        vanillaDataPath: "",
+        hakDirectoryPath: "",
+        moduleDecompiledPath: "",
+        modulePackedPath: "",
+        tlkBasePath: "",
+        tlkCustomPath: ""
+      },
+      blobStorage: {
+        endpoint: "http://seaweedfs:8333",
+        region: "us-east-1",
+        bucket: "aurora-module-assets",
+        modulePrefix: "modules/current",
+        accessKeyId: "seaweedfs",
+        secretAccessKey: "secret",
+        forcePathStyle: true
+      },
+      telemetryDebugMode: "off",
+      hakProfiles: {},
+      sources: {
+        placeable: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        tile: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        area: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        },
+        sound: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        }
+      },
+      benchmarkCandidates: {
+        placeableHeavyNoVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableHeavyVfx: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        placeableVfxPlcAlternative: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavyInstance: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        },
+        doorHeavySingleMesh: {
+          resref: "",
+          metrics: { triangles: 0, meshes: 0, emitters: 0 },
+          context: { source: "test" }
+        }
+      }
+    }),
+    save: jest.fn()
+  };
+}
+
+function createModuleBlobStorage(): jest.Mocked<ModuleBlobStoragePort> {
+  return {
+    replaceModuleSnapshot: jest.fn(),
+    listModuleSnapshot: jest.fn(),
+    getModuleObject: jest.fn()
   };
 }
 

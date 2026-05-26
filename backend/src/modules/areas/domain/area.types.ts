@@ -1,4 +1,5 @@
 export type AreaObjectKind = "placeable" | "creature" | "item";
+export type AreaDeliveryMode = "proxy" | "direct";
 
 export interface AreaObjectPlacement {
   objectId: string;
@@ -48,6 +49,11 @@ export interface AreaRecord {
   benchmark: boolean;
   previewImageUrl: string;
   textureAtlasId: string;
+  textureAtlasObjectKey: string;
+  textureAtlasContentType: string;
+  textureAtlasSizeBytes: number;
+  textureAtlasEtag?: string;
+  textureAtlasFingerprint: string;
   objects: AreaObjectPlacement[];
   soundscape: AreaSoundscape;
   updatedAt: string;
@@ -101,6 +107,10 @@ export interface AreaProcessingResult {
     atlasId: string;
     cacheKey: string;
     strategy: "blob-cache";
+    objectKey?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    etag?: string;
   };
   soundscape: AreaSoundscape;
   composition: AreaObjectCounts;

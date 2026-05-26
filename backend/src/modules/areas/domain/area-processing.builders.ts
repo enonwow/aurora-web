@@ -28,7 +28,7 @@ export function countAreaObjectsByKind(objects: AreaObjectPlacement[]): AreaObje
 export function buildAreaProcessCacheKey(area: AreaRecord): string {
   const hash = createHash("sha256");
   hash.update(
-    `area-process/v2|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}`
+    `area-process/v3|${area.areaId}|${area.width}|${area.height}|${area.updatedAt}|${area.textureAtlasId}|${area.textureAtlasObjectKey}|${area.textureAtlasContentType}|${area.textureAtlasSizeBytes}|${area.textureAtlasEtag ?? ""}|${area.textureAtlasFingerprint}`
   );
 
   for (const object of area.objects) {

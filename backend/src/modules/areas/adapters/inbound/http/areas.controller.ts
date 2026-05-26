@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -7,6 +7,7 @@ import {
   ApiResponse,
   ApiTags
 } from "@nestjs/swagger";
+import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
@@ -14,7 +15,12 @@ import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { AreasApplicationService } from "../../../application/areas.application.service";
-import { parseAreaCacheKey, parseAreaListQuery, parseAreaProcessPayload } from "./areas.schemas";
+import {
+  parseAreaCacheKey,
+  parseAreaListQuery,
+  parseAreaProcessPayload,
+  parseAreaTextureDeliveryQuery
+} from "./areas.schemas";
 
 @Controller("areas")
 @ApiTags("areas")
@@ -105,4 +111,69 @@ export class AreasController {
     const data = await this.service.getProcessedArea(cacheKey);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
+
+  @Get("cache/:cacheKey/textures/contracts")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({
+    summary: "Get hybrid texture-atlas delivery contract for processed area cache entry."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiQuery({
+    name: "mode",
+    required: false,
+    enum: ["proxy", "direct"],
+    description:
+      "Delivery mode. `proxy` streams bytes through API; `direct` returns direct blob HTTP/S3 URLs."
+  })
+  @ApiResponse({ status: 200, description: "Area texture-atlas delivery contract." })
+  @ApiResponse({ status: 404, description: "Cache entry not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedTextureContract(
+    @Req() request: AppRequest,
+    @Param("cacheKey") rawCacheKey: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    const cacheKey = parseAreaCacheKey(rawCacheKey);
+    const parsed = parseAreaTextureDeliveryQuery(query);
+    const data = await this.service.getProcessedAreaTextureDelivery(cacheKey, parsed.mode);
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Get("cache/:cacheKey/textures")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Download processed area texture-atlas payload through backend proxy."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiResponse({ status: 200, description: "Binary texture-atlas payload." })
+  @ApiResponse({ status: 404, description: "Cache entry or texture-atlas blob not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedTexture(
+    @Param("cacheKey") rawCacheKey: string,
+    @Res() response: FastifyReply
+  ) {
+    const cacheKey = parseAreaCacheKey(rawCacheKey);
+    const data = await this.service.getProcessedAreaTexture(cacheKey);
+
+    response.header("Content-Type", data.payload.contentType);
+    response.header("Content-Length", String(data.payload.size));
+    response.header("Cache-Control", "private, max-age=120");
+    response.header("X-Aurora-Area-Atlas-Id", data.textureAtlas.atlasId);
+    response.header("X-Aurora-Area-Atlas-Object-Key", data.textureAtlas.objectKey ?? "");
+    response.header("X-Aurora-Cache-Key", data.cacheKey);
+    if (data.payload.etag) {
+      response.header("ETag", data.payload.etag);
+    }
+    response.header(
+      "Content-Disposition",
+      `inline; filename="${sanitizeHeaderFileName(data.textureAtlas.atlasId)}.bin"`
+    );
+    return response.send(data.payload.bytes);
+  }
+}
+
+function sanitizeHeaderFileName(value: string): string {
+  return value.replace(/["\\\r\n]/gu, "_");
 }

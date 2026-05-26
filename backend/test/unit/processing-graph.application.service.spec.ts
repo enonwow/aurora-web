@@ -23,6 +23,11 @@ describe("ProcessingGraphApplicationService", () => {
       benchmark: true,
       previewImageUrl: "/alpha.webp",
       textureAtlasId: "atlas_alpha",
+      textureAtlasObjectKey: "modules/current/areas/atlases/atlas_alpha.webp",
+      textureAtlasContentType: "image/webp",
+      textureAtlasSizeBytes: 262144,
+      textureAtlasEtag: "atlas-alpha-v1",
+      textureAtlasFingerprint: "static:atlas:alpha",
       soundscape: {
         bindingKeys: {
           areaKey: "GI_sound_area",

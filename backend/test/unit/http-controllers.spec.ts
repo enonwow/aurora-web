@@ -34,10 +34,38 @@ describe("HTTP controllers", () => {
       getArea: jest.fn().mockResolvedValue({ areaId: "area-1" }),
       getAreaPreview: jest.fn().mockResolvedValue({ areaId: "area-1" }),
       processArea: jest.fn().mockResolvedValue({ cacheKey: "a".repeat(64) }),
-      getProcessedArea: jest.fn().mockResolvedValue({ cacheKey: "a".repeat(64) })
+      getProcessedArea: jest.fn().mockResolvedValue({ cacheKey: "a".repeat(64) }),
+      getProcessedAreaTextureDelivery: jest.fn().mockResolvedValue({
+        cacheKey: "a".repeat(64),
+        textureAtlas: {
+          mode: "direct",
+          atlasId: "atlas_urban_v1",
+          objectKey: "modules/current/areas/atlases/atlas_urban_v1.webp",
+          contentType: "image/webp",
+          sizeBytes: 4,
+          proxyPath: "/api/v1/areas/cache/a/textures",
+          proxyUrl: "/api/v1/areas/cache/a/textures",
+          directUrl: "http://seaweedfs:8333/aurora-module-assets/modules/current/areas/atlases/atlas_urban_v1.webp",
+          s3Url: "s3://aurora-module-assets/modules/current/areas/atlases/atlas_urban_v1.webp"
+        }
+      }),
+      getProcessedAreaTexture: jest.fn().mockResolvedValue({
+        cacheKey: "a".repeat(64),
+        textureAtlas: {
+          atlasId: "atlas_urban_v1",
+          objectKey: "modules/current/areas/atlases/atlas_urban_v1.webp"
+        },
+        payload: {
+          contentType: "image/webp",
+          size: 4,
+          etag: "etag-1",
+          bytes: Buffer.from([0x01, 0x02, 0x03, 0x04])
+        }
+      })
     } as unknown as jest.Mocked<AreasApplicationService>;
     const controller = new AreasController(service, config);
     const request = appRequest();
+    const response = createReply();
 
     await expect(controller.list(request, {})).resolves.toMatchObject({
       contractVersion: "1.0.0"
@@ -46,6 +74,8 @@ describe("HTTP controllers", () => {
     await controller.preview(request, "area-1");
     await controller.process(request, "area-1", { bypassCache: true });
     await controller.getCached(request, "a".repeat(16));
+    await controller.getCachedTextureContract(request, "a".repeat(16), { mode: "direct" });
+    await controller.getCachedTexture("a".repeat(16), response as unknown as FastifyReply);
 
     expect(service.listAreas).toHaveBeenCalledWith({
       limit: 20,
@@ -58,6 +88,8 @@ describe("HTTP controllers", () => {
       bypassCache: true
     });
     expect(service.getProcessedArea).toHaveBeenCalledWith("a".repeat(16));
+    expect(service.getProcessedAreaTextureDelivery).toHaveBeenCalledWith("a".repeat(16), "direct");
+    expect(service.getProcessedAreaTexture).toHaveBeenCalledWith("a".repeat(16));
   });
 
   it("delegates tile controller calls", async () => {
