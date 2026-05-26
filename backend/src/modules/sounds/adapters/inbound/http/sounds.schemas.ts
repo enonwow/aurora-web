@@ -4,7 +4,22 @@ import { AppException } from "../../../../../common/http/app-exception";
 const listQuerySchema = z.object({
   query: z.string().trim().min(1).optional(),
   category: z.enum(["ambient", "music", "effect"]).optional(),
+  format: z.enum(["wav", "ogg", "bmu", "mp3"]).optional(),
+  spatialMode: z.enum(["2d", "3d"]).optional(),
   tag: z.string().trim().min(1).optional(),
+  bindingKey: z.enum(["GI_sound_area", "GI_sound_rndm", "GI_sound_pos"]).optional(),
+  sourceField: z
+    .enum([
+      "AmbientSoundDay",
+      "AmbientSoundNight",
+      "MusicDay",
+      "MusicNight",
+      "MusicBattle",
+      "PlacedSound",
+      "RandomSound"
+    ])
+    .optional(),
+  defaultsTable: z.enum(["sounddefaultstim", "sounddefaultspos"]).optional(),
   benchmark: z
     .enum(["true", "false"])
     .transform((value) => value === "true")

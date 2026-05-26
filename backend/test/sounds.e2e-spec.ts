@@ -53,6 +53,8 @@ describe("Sounds API v1 (e2e)", () => {
 
     expect(response.body.data.total).toBeGreaterThan(0);
     expect(response.body.data.items[0].soundId).toEqual(expect.any(String));
+    expect(response.body.data.items[0].format).toEqual(expect.any(String));
+    expect(response.body.data.items[0].auroraUsage.bindingKey).toEqual(expect.any(String));
   });
 
   it("GET /api/v1/catalog/sounds supports benchmark filter", async () => {
@@ -66,6 +68,29 @@ describe("Sounds API v1 (e2e)", () => {
     expect(response.body.data.items.length).toBeGreaterThan(0);
     for (const item of response.body.data.items as Array<{ benchmark: boolean }>) {
       expect(item.benchmark).toBe(true);
+    }
+  });
+
+  it("GET /api/v1/catalog/sounds supports aurora usage filter", async () => {
+    const token = await loginAndGetToken("viewer.user", "viewer123");
+
+    const response = await supertest(httpServer)
+      .get(
+        "/api/v1/catalog/sounds?bindingKey=GI_sound_area&sourceField=AmbientSoundDay&format=ogg&spatialMode=2d"
+      )
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.items.length).toBeGreaterThan(0);
+    for (const item of response.body.data.items as Array<{
+      auroraUsage: { bindingKey: string; sourceField: string };
+      format: string;
+      spatialMode: string;
+    }>) {
+      expect(item.auroraUsage.bindingKey).toBe("GI_sound_area");
+      expect(item.auroraUsage.sourceField).toBe("AmbientSoundDay");
+      expect(item.format).toBe("ogg");
+      expect(item.spatialMode).toBe("2d");
     }
   });
 

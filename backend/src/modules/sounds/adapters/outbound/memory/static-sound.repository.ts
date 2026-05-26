@@ -15,6 +15,11 @@ interface IndexedSound {
   processingCacheKey: string;
   searchable: string;
   categoryLower: string;
+  formatLower: string;
+  spatialModeLower: string;
+  bindingKeyLower: string;
+  sourceFieldLower: string;
+  defaultsTableLower: string | null;
   tagsLower: Set<string>;
 }
 
@@ -31,7 +36,9 @@ const DEFAULT_REVERSE_MAPPING: SoundReverseMapping = {
   soundSetTypeTable: "soundsettype",
   soundTypesTable: "soundtypes",
   categoryFilterTable: "soundcatfilters",
-  areaBinding: DEFAULT_AREA_BINDING
+  areaBinding: DEFAULT_AREA_BINDING,
+  soundDefaultsTimingTable: "sounddefaultstim",
+  soundDefaultsPositionTable: "sounddefaultspos"
 };
 
 const SOUNDS: SoundRecord[] = [
@@ -59,6 +66,10 @@ const SOUNDS: SoundRecord[] = [
       intervalSeconds: 30,
       ambientOnly: true
     },
+    auroraUsage: {
+      bindingKey: "GI_sound_area",
+      sourceField: "AmbientSoundDay"
+    },
     metrics: {
       durationMs: 32210,
       cues: 4,
@@ -80,7 +91,7 @@ const SOUNDS: SoundRecord[] = [
     sourceSizeBytes: 612384,
     sourceEtag: "static-mus-city-theme",
     sourceFingerprint: "static:sound:mus_city_theme_main:v2",
-    format: "ogg",
+    format: "bmu",
     sampleRateHz: 48000,
     channels: 2,
     spatialMode: "2d",
@@ -88,6 +99,10 @@ const SOUNDS: SoundRecord[] = [
     playback: {
       mode: "continuous",
       ambientOnly: false
+    },
+    auroraUsage: {
+      bindingKey: "GI_sound_area",
+      sourceField: "MusicDay"
     },
     metrics: {
       durationMs: 108442,
@@ -118,6 +133,11 @@ const SOUNDS: SoundRecord[] = [
     playback: {
       mode: "looping",
       ambientOnly: false
+    },
+    auroraUsage: {
+      bindingKey: "GI_sound_pos",
+      sourceField: "PlacedSound",
+      defaultsTable: "sounddefaultspos"
     },
     metrics: {
       durationMs: 15433,
@@ -150,6 +170,10 @@ const SOUNDS: SoundRecord[] = [
       intervalSeconds: 45,
       ambientOnly: true
     },
+    auroraUsage: {
+      bindingKey: "GI_sound_area",
+      sourceField: "AmbientSoundNight"
+    },
     metrics: {
       durationMs: 45220,
       cues: 5,
@@ -180,6 +204,11 @@ const SOUNDS: SoundRecord[] = [
       mode: "random",
       ambientOnly: false
     },
+    auroraUsage: {
+      bindingKey: "GI_sound_rndm",
+      sourceField: "RandomSound",
+      defaultsTable: "sounddefaultstim"
+    },
     metrics: {
       durationMs: 2780,
       cues: 2,
@@ -195,6 +224,11 @@ const INDEXED_SOUNDS: IndexedSound[] = SOUNDS.map((sound) => ({
   processingCacheKey: buildSoundProcessCacheKey(sound),
   searchable: buildSoundSearchableText(sound),
   categoryLower: sound.category.toLowerCase(),
+  formatLower: sound.format.toLowerCase(),
+  spatialModeLower: sound.spatialMode.toLowerCase(),
+  bindingKeyLower: sound.auroraUsage.bindingKey.toLowerCase(),
+  sourceFieldLower: sound.auroraUsage.sourceField.toLowerCase(),
+  defaultsTableLower: sound.auroraUsage.defaultsTable?.toLowerCase() ?? null,
   tagsLower: new Set(sound.tags.map((tag) => tag.toLowerCase()))
 }));
 
@@ -211,6 +245,11 @@ export class StaticSoundRepository implements SoundRepositoryPort {
   async list(query: SoundListQuery): Promise<SoundListResult> {
     const normalizedQuery = query.query?.toLowerCase().trim();
     const normalizedCategory = query.category?.toLowerCase().trim();
+    const normalizedFormat = query.format?.toLowerCase().trim();
+    const normalizedSpatialMode = query.spatialMode?.toLowerCase().trim();
+    const normalizedBindingKey = query.bindingKey?.toLowerCase().trim();
+    const normalizedSourceField = query.sourceField?.toLowerCase().trim();
+    const normalizedDefaultsTable = query.defaultsTable?.toLowerCase().trim();
     const normalizedTag = query.tag?.toLowerCase().trim();
 
     const filtered = INDEXED_SOUNDS.filter((sound) => {
@@ -224,6 +263,36 @@ export class StaticSoundRepository implements SoundRepositoryPort {
           return true;
         }
         return sound.categoryLower === normalizedCategory;
+      })
+      .filter((sound) => {
+        if (!query.format) {
+          return true;
+        }
+        return sound.formatLower === normalizedFormat;
+      })
+      .filter((sound) => {
+        if (!query.spatialMode) {
+          return true;
+        }
+        return sound.spatialModeLower === normalizedSpatialMode;
+      })
+      .filter((sound) => {
+        if (!query.bindingKey) {
+          return true;
+        }
+        return sound.bindingKeyLower === normalizedBindingKey;
+      })
+      .filter((sound) => {
+        if (!query.sourceField) {
+          return true;
+        }
+        return sound.sourceFieldLower === normalizedSourceField;
+      })
+      .filter((sound) => {
+        if (!query.defaultsTable) {
+          return true;
+        }
+        return sound.defaultsTableLower === normalizedDefaultsTable;
       })
       .filter((sound) => {
         if (!query.tag) {
@@ -265,10 +334,13 @@ function mapSoundToListItem(sound: SoundRecord): SoundListItem {
     resref: sound.resref,
     name: sound.name,
     category: sound.category,
+    format: sound.format,
     tags: sound.tags,
     benchmark: sound.benchmark,
     previewWaveformUrl: sound.previewWaveformUrl,
     spatialMode: sound.spatialMode,
+    playbackMode: sound.playback.mode,
+    auroraUsage: sound.auroraUsage,
     metrics: sound.metrics,
     updatedAt: sound.updatedAt
   };

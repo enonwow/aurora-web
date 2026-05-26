@@ -18,7 +18,9 @@ describe("StaticSoundRepository", () => {
     expect(result.offset).toBe(0);
     expect(result.items[0]).toMatchObject({
       soundId: expect.any(String),
-      category: expect.any(String)
+      category: expect.any(String),
+      format: expect.any(String),
+      auroraUsage: expect.any(Object)
     });
   });
 
@@ -55,6 +57,29 @@ describe("StaticSoundRepository", () => {
     expect(first.items[0].soundId).not.toBe(second.items[0].soundId);
   });
 
+  it("filters by aurora binding/source/defaults table and format", async () => {
+    const filtered = await repository.list({
+      bindingKey: "GI_sound_pos",
+      sourceField: "PlacedSound",
+      defaultsTable: "sounddefaultspos",
+      format: "wav",
+      spatialMode: "3d",
+      limit: 20,
+      offset: 0
+    });
+
+    expect(filtered.total).toBe(1);
+    expect(filtered.items[0]).toMatchObject({
+      soundId: "sound_effect_forge_loop_003",
+      format: "wav",
+      auroraUsage: {
+        bindingKey: "GI_sound_pos",
+        sourceField: "PlacedSound",
+        defaultsTable: "sounddefaultspos"
+      }
+    });
+  });
+
   it("returns sound by id with reverse mapping metadata", async () => {
     const sound = await repository.findById("sound_ambient_city_market_001");
 
@@ -68,6 +93,19 @@ describe("StaticSoundRepository", () => {
       mode: "interval",
       ambientOnly: true
     });
+    expect(sound?.auroraUsage).toMatchObject({
+      bindingKey: "GI_sound_area",
+      sourceField: "AmbientSoundDay"
+    });
+    expect(sound?.reverseMapping).toMatchObject({
+      soundDefaultsTimingTable: "sounddefaultstim",
+      soundDefaultsPositionTable: "sounddefaultspos"
+    });
+  });
+
+  it("keeps native BMU format for music assets", async () => {
+    const sound = await repository.findById("sound_music_city_theme_002");
+    expect(sound?.format).toBe("bmu");
   });
 
   it("returns null for unknown sound id", async () => {
@@ -86,4 +124,3 @@ describe("StaticSoundRepository", () => {
     expect(repository.getPrecomputedSoundProcessing("sound_unknown")).toBeNull();
   });
 });
-

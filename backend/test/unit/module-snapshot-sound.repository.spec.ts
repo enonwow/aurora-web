@@ -169,6 +169,31 @@ describe("ModuleSnapshotSoundRepository", () => {
     expect(music.items[0].soundId).toBe("sound_mus_city_theme");
   });
 
+  it("filters by aurora usage and technical sound metadata", async () => {
+    const runtimeSettings = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const repository = new ModuleSnapshotSoundRepository(runtimeSettings, moduleBlobStorage);
+
+    const filtered = await repository.list({
+      bindingKey: "GI_sound_area",
+      sourceField: "AmbientSoundDay",
+      format: "ogg",
+      spatialMode: "2d",
+      limit: 20,
+      offset: 0
+    });
+
+    expect(filtered.total).toBe(1);
+    expect(filtered.items[0]).toMatchObject({
+      soundId: "sound_amb_market_day",
+      format: "ogg",
+      auroraUsage: {
+        bindingKey: "GI_sound_area",
+        sourceField: "AmbientSoundDay"
+      }
+    });
+  });
+
   it("findById returns a mapped record", async () => {
     const runtimeSettings = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();
@@ -179,6 +204,15 @@ describe("ModuleSnapshotSoundRepository", () => {
     expect(sound?.format).toBe("wav");
     expect(sound?.category).toBe("effect");
     expect(sound?.spatialMode).toBe("3d");
+    expect(sound?.auroraUsage).toMatchObject({
+      bindingKey: "GI_sound_rndm",
+      sourceField: "RandomSound",
+      defaultsTable: "sounddefaultstim"
+    });
+    expect(sound?.reverseMapping).toMatchObject({
+      soundDefaultsTimingTable: "sounddefaultstim",
+      soundDefaultsPositionTable: "sounddefaultspos"
+    });
   });
 
   it("provides precomputed processing cache key", async () => {

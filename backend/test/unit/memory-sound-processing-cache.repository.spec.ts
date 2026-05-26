@@ -82,6 +82,11 @@ function buildSoundResult(soundId: string): SoundProcessingResult {
       mode: "random",
       ambientOnly: false
     },
+    auroraUsage: {
+      bindingKey: "GI_sound_rndm",
+      sourceField: "RandomSound",
+      defaultsTable: "sounddefaultstim"
+    },
     reverseMapping: {
       palette: "soundpalstd",
       soundPalette: "soundpal",
@@ -93,7 +98,9 @@ function buildSoundResult(soundId: string): SoundProcessingResult {
         areaKey: "GI_sound_area",
         randomKey: "GI_sound_rndm",
         positionalKey: "GI_sound_pos"
-      }
+      },
+      soundDefaultsTimingTable: "sounddefaultstim",
+      soundDefaultsPositionTable: "sounddefaultspos"
     },
     metrics: {
       durationMs: 1000,

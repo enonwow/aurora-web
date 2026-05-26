@@ -39,7 +39,24 @@ export class SoundsController {
   @ApiOperation({ summary: "List sound templates for area assembly." })
   @ApiQuery({ name: "query", required: false })
   @ApiQuery({ name: "category", required: false, enum: ["ambient", "music", "effect"] })
+  @ApiQuery({ name: "format", required: false, enum: ["wav", "ogg", "bmu", "mp3"] })
+  @ApiQuery({ name: "spatialMode", required: false, enum: ["2d", "3d"] })
   @ApiQuery({ name: "tag", required: false })
+  @ApiQuery({ name: "bindingKey", required: false, enum: ["GI_sound_area", "GI_sound_rndm", "GI_sound_pos"] })
+  @ApiQuery({
+    name: "sourceField",
+    required: false,
+    enum: [
+      "AmbientSoundDay",
+      "AmbientSoundNight",
+      "MusicDay",
+      "MusicNight",
+      "MusicBattle",
+      "PlacedSound",
+      "RandomSound"
+    ]
+  })
+  @ApiQuery({ name: "defaultsTable", required: false, enum: ["sounddefaultstim", "sounddefaultspos"] })
   @ApiQuery({ name: "benchmark", required: false, enum: ["true", "false"] })
   @ApiQuery({ name: "limit", required: false })
   @ApiQuery({ name: "offset", required: false })

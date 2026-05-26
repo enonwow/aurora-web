@@ -4,13 +4,16 @@ import type { SoundRecord } from "./sound.types";
 export function buildSoundProcessCacheKey(sound: SoundRecord): string {
   const hash = createHash("sha256");
   hash.update(
-    `sound-process/v2|${sound.soundId}|${sound.resref}|${sound.category}|${sound.audioAssetId}|${sound.sourceObjectKey}|${sound.sourceFingerprint}|${sound.format}|${sound.sampleRateHz}|${sound.channels}|${sound.spatialMode}|${sound.loop}|${sound.updatedAt}`
+    `sound-process/v3|${sound.soundId}|${sound.resref}|${sound.category}|${sound.audioAssetId}|${sound.sourceObjectKey}|${sound.sourceFingerprint}|${sound.format}|${sound.sampleRateHz}|${sound.channels}|${sound.spatialMode}|${sound.loop}|${sound.updatedAt}`
   );
   hash.update(
     `|${sound.playback.mode}|${sound.playback.intervalSeconds ?? "none"}|${sound.playback.ambientOnly}`
   );
   hash.update(
-    `|${sound.metrics.durationMs}|${sound.metrics.cues}|${sound.metrics.emitters}|${sound.reverseMapping.palette}|${sound.reverseMapping.soundSetTable}|${sound.reverseMapping.soundSetTypeTable}|${sound.reverseMapping.soundTypesTable}|${sound.reverseMapping.categoryFilterTable}`
+    `|${sound.auroraUsage.bindingKey}|${sound.auroraUsage.sourceField}|${sound.auroraUsage.defaultsTable ?? "none"}`
+  );
+  hash.update(
+    `|${sound.metrics.durationMs}|${sound.metrics.cues}|${sound.metrics.emitters}|${sound.reverseMapping.palette}|${sound.reverseMapping.soundSetTable}|${sound.reverseMapping.soundSetTypeTable}|${sound.reverseMapping.soundTypesTable}|${sound.reverseMapping.categoryFilterTable}|${sound.reverseMapping.soundDefaultsTimingTable}|${sound.reverseMapping.soundDefaultsPositionTable}`
   );
 
   for (const tag of sound.tags) {

@@ -34,10 +34,16 @@ describe("SoundsApplicationService", () => {
           resref: "amb_city_market_day",
           name: "City Market Day Ambience",
           category: "ambient",
+          format: "ogg",
           tags: ["city"],
           benchmark: true,
           previewWaveformUrl: "/preview.webp",
           spatialMode: "2d",
+          playbackMode: "interval",
+          auroraUsage: {
+            bindingKey: "GI_sound_area",
+            sourceField: "AmbientSoundDay"
+          },
           metrics: {
             durationMs: 1000,
             cues: 1,
@@ -371,10 +377,13 @@ describe("SoundsApplicationService", () => {
           resref: sound.resref,
           name: sound.name,
           category: sound.category,
+          format: sound.format,
           tags: sound.tags,
           benchmark: true,
           previewWaveformUrl: sound.previewWaveformUrl,
           spatialMode: sound.spatialMode,
+          playbackMode: sound.playback.mode,
+          auroraUsage: sound.auroraUsage,
           metrics: sound.metrics,
           updatedAt: sound.updatedAt
         }
@@ -433,10 +442,13 @@ describe("SoundsApplicationService", () => {
           resref: sound.resref,
           name: sound.name,
           category: sound.category,
+          format: sound.format,
           tags: sound.tags,
           benchmark: true,
           previewWaveformUrl: sound.previewWaveformUrl,
           spatialMode: sound.spatialMode,
+          playbackMode: sound.playback.mode,
+          auroraUsage: sound.auroraUsage,
           metrics: sound.metrics,
           updatedAt: sound.updatedAt
         }
@@ -670,6 +682,10 @@ function buildSound(soundId: string): SoundRecord {
       intervalSeconds: 30,
       ambientOnly: true
     },
+    auroraUsage: {
+      bindingKey: "GI_sound_area",
+      sourceField: "AmbientSoundDay"
+    },
     reverseMapping: {
       palette: "soundpalstd",
       soundPalette: "soundpal",
@@ -681,7 +697,9 @@ function buildSound(soundId: string): SoundRecord {
         areaKey: "GI_sound_area",
         randomKey: "GI_sound_rndm",
         positionalKey: "GI_sound_pos"
-      }
+      },
+      soundDefaultsTimingTable: "sounddefaultstim",
+      soundDefaultsPositionTable: "sounddefaultspos"
     },
     metrics: {
       durationMs: 32210,
@@ -719,6 +737,7 @@ function buildProcessedSoundResult(soundId: string): SoundProcessingResult {
       loop: sound.loop
     },
     playback: sound.playback,
+    auroraUsage: sound.auroraUsage,
     reverseMapping: sound.reverseMapping,
     metrics: sound.metrics,
     render: {

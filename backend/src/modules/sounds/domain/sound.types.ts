@@ -1,8 +1,18 @@
 export type SoundCategory = "ambient" | "music" | "effect";
 export type SoundSpatialMode = "2d" | "3d";
-export type SoundFormat = "wav" | "ogg";
+export type SoundFormat = "wav" | "ogg" | "bmu" | "mp3";
 export type SoundPlaybackMode = "looping" | "continuous" | "random" | "interval";
 export type SoundDeliveryMode = "proxy" | "direct";
+
+export type SoundAreaBindingKey = "GI_sound_area" | "GI_sound_rndm" | "GI_sound_pos";
+export type SoundAreaSourceField =
+  | "AmbientSoundDay"
+  | "AmbientSoundNight"
+  | "MusicDay"
+  | "MusicNight"
+  | "MusicBattle"
+  | "PlacedSound"
+  | "RandomSound";
 
 export interface SoundMetrics {
   durationMs: number;
@@ -11,9 +21,15 @@ export interface SoundMetrics {
 }
 
 export interface SoundAreaBinding {
-  areaKey: "GI_sound_area";
-  randomKey: "GI_sound_rndm";
-  positionalKey: "GI_sound_pos";
+  areaKey: SoundAreaBindingKey;
+  randomKey: SoundAreaBindingKey;
+  positionalKey: SoundAreaBindingKey;
+}
+
+export interface SoundAuroraUsageHint {
+  bindingKey: SoundAreaBindingKey;
+  sourceField: SoundAreaSourceField;
+  defaultsTable?: "sounddefaultstim" | "sounddefaultspos";
 }
 
 export interface SoundReverseMapping {
@@ -24,6 +40,8 @@ export interface SoundReverseMapping {
   soundTypesTable: "soundtypes";
   categoryFilterTable: "soundcatfilters";
   areaBinding: SoundAreaBinding;
+  soundDefaultsTimingTable: "sounddefaultstim";
+  soundDefaultsPositionTable: "sounddefaultspos";
 }
 
 export interface SoundRecord {
@@ -50,6 +68,7 @@ export interface SoundRecord {
     intervalSeconds?: number;
     ambientOnly: boolean;
   };
+  auroraUsage: SoundAuroraUsageHint;
   reverseMapping: SoundReverseMapping;
   metrics: SoundMetrics;
   updatedAt: string;
@@ -60,10 +79,13 @@ export interface SoundListItem {
   resref: string;
   name: string;
   category: SoundCategory;
+  format: SoundFormat;
   tags: string[];
   benchmark: boolean;
   previewWaveformUrl: string;
   spatialMode: SoundSpatialMode;
+  playbackMode: SoundPlaybackMode;
+  auroraUsage: SoundAuroraUsageHint;
   metrics: SoundMetrics;
   updatedAt: string;
 }
@@ -71,7 +93,12 @@ export interface SoundListItem {
 export interface SoundListQuery {
   query?: string;
   category?: SoundCategory;
+  format?: SoundFormat;
+  spatialMode?: SoundSpatialMode;
   tag?: string;
+  bindingKey?: SoundAreaBindingKey;
+  sourceField?: SoundAreaSourceField;
+  defaultsTable?: "sounddefaultstim" | "sounddefaultspos";
   benchmark?: boolean;
   limit: number;
   offset: number;
@@ -118,6 +145,7 @@ export interface SoundProcessingResult {
     intervalSeconds?: number;
     ambientOnly: boolean;
   };
+  auroraUsage: SoundAuroraUsageHint;
   reverseMapping: SoundReverseMapping;
   metrics: SoundMetrics;
   render: {

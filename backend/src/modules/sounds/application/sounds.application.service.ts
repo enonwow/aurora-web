@@ -25,6 +25,7 @@ import type {
   SoundBenchmarkResult,
   SoundBenchmarkRunQuery,
   SoundDeliveryMode,
+  SoundListQuery,
   SoundProcessQuery,
   SoundProcessingResult,
   SoundRecord
@@ -81,14 +82,7 @@ export class SoundsApplicationService {
     private readonly moduleBlobStorage?: ModuleBlobStoragePort
   ) {}
 
-  listSounds(query: {
-    query?: string;
-    category?: "ambient" | "music" | "effect";
-    tag?: string;
-    benchmark?: boolean;
-    limit: number;
-    offset: number;
-  }) {
+  listSounds(query: SoundListQuery) {
     return this.repository.list(query);
   }
 
@@ -127,6 +121,7 @@ export class SoundsApplicationService {
         loop: sound.loop
       },
       playback: sound.playback,
+      auroraUsage: sound.auroraUsage,
       reverseMapping: sound.reverseMapping,
       source: {
         fingerprint: sound.sourceFingerprint,
@@ -159,6 +154,7 @@ export class SoundsApplicationService {
       category: sound.category,
       spatialMode: sound.spatialMode,
       playbackMode: sound.playback.mode,
+      auroraBindingKey: sound.auroraUsage.bindingKey,
       metrics: sound.metrics,
       updatedAt: sound.updatedAt
     };
@@ -212,6 +208,7 @@ export class SoundsApplicationService {
           loop: sound.loop
         },
         playback: sound.playback,
+        auroraUsage: sound.auroraUsage,
         reverseMapping: sound.reverseMapping,
         metrics: sound.metrics,
         render: {
@@ -459,6 +456,7 @@ export class SoundsApplicationService {
         etag: sound.sourceEtag
       },
       playback: sound.playback,
+      auroraUsage: sound.auroraUsage,
       reverseMapping: sound.reverseMapping
     };
 

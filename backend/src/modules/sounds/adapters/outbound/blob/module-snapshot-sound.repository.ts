@@ -15,10 +15,12 @@ import type { SoundRepositoryPort } from "../../../application/ports/sound-repos
 import { buildSoundProcessCacheKey } from "../../../domain/sound-processing.builders";
 import type {
   SoundCategory,
+  SoundFormat,
   SoundListItem,
   SoundListQuery,
   SoundListResult,
   SoundPlaybackMode,
+  SoundAuroraUsageHint,
   SoundRecord,
   SoundReverseMapping
 } from "../../../domain/sound.types";
@@ -29,6 +31,11 @@ interface IndexedSound {
   processingCacheKey: string;
   searchable: string;
   categoryLower: string;
+  formatLower: string;
+  spatialModeLower: string;
+  bindingKeyLower: string;
+  sourceFieldLower: string;
+  defaultsTableLower: string | null;
   tagsLower: Set<string>;
 }
 
@@ -53,7 +60,7 @@ interface SoundCandidate {
   sourceSizeBytes: number;
   sourceEtag?: string;
   sourceFingerprint: string;
-  format: "wav" | "ogg";
+  format: SoundFormat;
   sampleRateHz: number;
   channels: 1 | 2;
   spatialMode: "2d" | "3d";
@@ -63,6 +70,7 @@ interface SoundCandidate {
     intervalSeconds?: number;
     ambientOnly: boolean;
   };
+  auroraUsage: SoundAuroraUsageHint;
   reverseMapping: SoundReverseMapping;
   durationMs: number;
   cues: number;
@@ -94,6 +102,11 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
     const index = await this.getSnapshotIndex();
     const normalizedQuery = query.query?.toLowerCase().trim();
     const normalizedCategory = query.category?.toLowerCase().trim();
+    const normalizedFormat = query.format?.toLowerCase().trim();
+    const normalizedSpatialMode = query.spatialMode?.toLowerCase().trim();
+    const normalizedBindingKey = query.bindingKey?.toLowerCase().trim();
+    const normalizedSourceField = query.sourceField?.toLowerCase().trim();
+    const normalizedDefaultsTable = query.defaultsTable?.toLowerCase().trim();
     const normalizedTag = query.tag?.toLowerCase().trim();
 
     const filtered = index.items.filter((entry) => {
@@ -107,6 +120,36 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
           return true;
         }
         return entry.categoryLower === normalizedCategory;
+      })
+      .filter((entry) => {
+        if (!query.format) {
+          return true;
+        }
+        return entry.formatLower === normalizedFormat;
+      })
+      .filter((entry) => {
+        if (!query.spatialMode) {
+          return true;
+        }
+        return entry.spatialModeLower === normalizedSpatialMode;
+      })
+      .filter((entry) => {
+        if (!query.bindingKey) {
+          return true;
+        }
+        return entry.bindingKeyLower === normalizedBindingKey;
+      })
+      .filter((entry) => {
+        if (!query.sourceField) {
+          return true;
+        }
+        return entry.sourceFieldLower === normalizedSourceField;
+      })
+      .filter((entry) => {
+        if (!query.defaultsTable) {
+          return true;
+        }
+        return entry.defaultsTableLower === normalizedDefaultsTable;
       })
       .filter((entry) => {
         if (!query.tag) {
@@ -188,6 +231,7 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
           spatialMode: record.spatialMode,
           loop: record.loop,
           playback: record.playback,
+          auroraUsage: record.auroraUsage,
           reverseMapping: record.reverseMapping,
           metrics: {
             durationMs: record.durationMs,
@@ -203,6 +247,11 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
           processingCacheKey: buildSoundProcessCacheKey(sound),
           searchable: buildSoundSearchableText(sound),
           categoryLower: sound.category.toLowerCase(),
+          formatLower: sound.format.toLowerCase(),
+          spatialModeLower: sound.spatialMode.toLowerCase(),
+          bindingKeyLower: sound.auroraUsage.bindingKey.toLowerCase(),
+          sourceFieldLower: sound.auroraUsage.sourceField.toLowerCase(),
+          defaultsTableLower: sound.auroraUsage.defaultsTable?.toLowerCase() ?? null,
           tagsLower: new Set(sound.tags.map((tag) => tag.toLowerCase()))
         };
       });
@@ -288,12 +337,13 @@ function buildSoundRecordsFromSnapshot(objects: ModuleBlobObjectSummary[]): Soun
 
     const normalizedResref = normalizeResref(basename);
     const category = classifyCategory(object.key, normalizedResref, extension);
-    const format = extension === "wav" ? "wav" : "ogg";
+    const format = toSoundFormat(extension);
     const sampleRateHz = inferSampleRate(category, format);
     const channels = inferChannels(category);
     const spatialMode = inferSpatialMode(category, object.key, normalizedResref);
     const loop = inferLoop(category, object.key, normalizedResref);
     const playback = inferPlayback(category, spatialMode, loop, object.key, normalizedResref);
+    const auroraUsage = inferAuroraUsage(category, spatialMode, playback.mode, object.key, normalizedResref);
     const durationMs = estimateDurationMs(object.size, format, sampleRateHz, channels, category);
     const tags = buildTags(category, extension, object.key, normalizedResref, loop, spatialMode);
     const soundId = buildSoundId(normalizedResref);
@@ -330,6 +380,7 @@ function buildSoundRecordsFromSnapshot(objects: ModuleBlobObjectSummary[]): Soun
       spatialMode,
       loop,
       playback,
+      auroraUsage,
       reverseMapping: buildReverseMapping(object.key),
       durationMs,
       cues: category === "effect" ? 2 : 1,
@@ -367,8 +418,14 @@ function selectBestCandidate(candidates: SoundCandidate[]): SoundCandidate {
     })[0];
 }
 
-function formatScore(format: "wav" | "ogg"): number {
+function formatScore(format: SoundFormat): number {
   if (format === "wav") {
+    return 4;
+  }
+  if (format === "ogg") {
+    return 3;
+  }
+  if (format === "bmu") {
     return 2;
   }
   return 1;
@@ -396,14 +453,27 @@ function classifyCategory(objectKey: string, resref: string, extension: string):
   return "effect";
 }
 
-function inferSampleRate(category: SoundCategory, format: "wav" | "ogg"): number {
+function inferSampleRate(category: SoundCategory, format: SoundFormat): number {
   if (category === "music") {
     return 48000;
   }
-  if (format === "ogg") {
+  if (format === "ogg" || format === "mp3" || format === "bmu") {
     return 48000;
   }
   return 44100;
+}
+
+function toSoundFormat(extension: string): SoundFormat {
+  if (extension === "wav") {
+    return "wav";
+  }
+  if (extension === "mp3") {
+    return "mp3";
+  }
+  if (extension === "bmu") {
+    return "bmu";
+  }
+  return "ogg";
 }
 
 function inferChannels(category: SoundCategory): 1 | 2 {
@@ -481,6 +551,58 @@ function inferPlayback(
   };
 }
 
+function inferAuroraUsage(
+  category: SoundCategory,
+  spatialMode: "2d" | "3d",
+  playbackMode: SoundPlaybackMode,
+  objectKey: string,
+  resref: string
+): SoundAuroraUsageHint {
+  const normalized = `${objectKey}|${resref}`.toLowerCase();
+
+  if (category === "ambient") {
+    return {
+      bindingKey: "GI_sound_area",
+      sourceField: normalized.includes("night") ? "AmbientSoundNight" : "AmbientSoundDay"
+    };
+  }
+
+  if (category === "music") {
+    if (normalized.includes("battle") || normalized.includes("combat")) {
+      return {
+        bindingKey: "GI_sound_area",
+        sourceField: "MusicBattle"
+      };
+    }
+    return {
+      bindingKey: "GI_sound_area",
+      sourceField: normalized.includes("night") ? "MusicNight" : "MusicDay"
+    };
+  }
+
+  if (playbackMode === "random") {
+    return {
+      bindingKey: "GI_sound_rndm",
+      sourceField: "RandomSound",
+      defaultsTable: "sounddefaultstim"
+    };
+  }
+
+  if (spatialMode === "3d") {
+    return {
+      bindingKey: "GI_sound_pos",
+      sourceField: "PlacedSound",
+      defaultsTable: "sounddefaultspos"
+    };
+  }
+
+  return {
+    bindingKey: "GI_sound_pos",
+    sourceField: "PlacedSound",
+    defaultsTable: "sounddefaultspos"
+  };
+}
+
 function buildReverseMapping(objectKey: string): SoundReverseMapping {
   const normalizedKey = objectKey.toLowerCase();
   const customPalette =
@@ -495,7 +617,9 @@ function buildReverseMapping(objectKey: string): SoundReverseMapping {
     soundSetTypeTable: "soundsettype",
     soundTypesTable: "soundtypes",
     categoryFilterTable: "soundcatfilters",
-    areaBinding: AREA_BINDING
+    areaBinding: AREA_BINDING,
+    soundDefaultsTimingTable: "sounddefaultstim",
+    soundDefaultsPositionTable: "sounddefaultspos"
   };
 }
 
@@ -515,7 +639,7 @@ function buildSourceFingerprint(input: {
   lastModified?: string;
   etag?: string;
   category: SoundCategory;
-  format: "wav" | "ogg";
+  format: SoundFormat;
   spatialMode: "2d" | "3d";
   loop: boolean;
   playbackMode: SoundPlaybackMode;
@@ -543,7 +667,7 @@ function buildSourceFingerprint(input: {
 
 function estimateDurationMs(
   sizeBytes: number,
-  format: "wav" | "ogg",
+  format: SoundFormat,
   sampleRateHz: number,
   channels: 1 | 2,
   category: SoundCategory
@@ -617,10 +741,13 @@ function mapSoundToListItem(sound: SoundRecord): SoundListItem {
     resref: sound.resref,
     name: sound.name,
     category: sound.category,
+    format: sound.format,
     tags: sound.tags,
     benchmark: sound.benchmark,
     previewWaveformUrl: sound.previewWaveformUrl,
     spatialMode: sound.spatialMode,
+    playbackMode: sound.playback.mode,
+    auroraUsage: sound.auroraUsage,
     metrics: sound.metrics,
     updatedAt: sound.updatedAt
   };

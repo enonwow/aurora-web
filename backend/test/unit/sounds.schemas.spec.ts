@@ -20,6 +20,24 @@ describe("sounds.schemas", () => {
     expect(parsed.category).toBe("music");
   });
 
+  it("parses sound list query aurora filters", () => {
+    const parsed = parseSoundListQuery({
+      format: "bmu",
+      spatialMode: "2d",
+      bindingKey: "GI_sound_area",
+      sourceField: "MusicDay",
+      defaultsTable: "sounddefaultspos"
+    });
+
+    expect(parsed).toMatchObject({
+      format: "bmu",
+      spatialMode: "2d",
+      bindingKey: "GI_sound_area",
+      sourceField: "MusicDay",
+      defaultsTable: "sounddefaultspos"
+    });
+  });
+
   it("parses sound process payload defaults", () => {
     const parsed = parseSoundProcessPayload({});
     expect(parsed.bypassCache).toBe(false);
