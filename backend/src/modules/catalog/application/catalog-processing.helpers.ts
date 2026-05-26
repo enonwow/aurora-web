@@ -9,7 +9,9 @@ import type {
   PlaceableAssetRole,
   PlaceableBenchmarkRunQuery,
   PlaceableRenderContract,
+  PlaceableRuntimeProjection,
   PlaceableSubtype,
+  PlaceableValidationIssue,
   TemplateProcessingResult,
   TemplateRenderContract
 } from "../domain/template.types";
@@ -390,6 +392,110 @@ export function buildTemplateRenderContract(
   };
 }
 
+export function buildPlaceableRuntimeProjection(
+  metadata: Record<string, string | number | boolean>
+): PlaceableRuntimeProjection {
+  const scripts = extractScriptMap(metadata);
+
+  return {
+    source: {
+      fileType: readMetadataString(metadata, "sourceFileType"),
+      fileVersion: readMetadataString(metadata, "sourceFileVersion"),
+      structTypeId: readMetadataNumber(metadata, "sourceStructTypeId")
+    },
+    identity: {
+      templateResRef: readMetadataString(metadata, "templateResRef"),
+      tag: readMetadataString(metadata, "tag"),
+      conversation: readMetadataString(metadata, "conversation"),
+      keyName: readMetadataString(metadata, "keyName")
+    },
+    interaction: {
+      useable: readMetadataBoolean(metadata, "useable"),
+      hasInventory: readMetadataBoolean(metadata, "hasInventory"),
+      bodyBag: readMetadataBoolean(metadata, "bodyBag"),
+      isStatic: readMetadataBoolean(metadata, "isStatic"),
+      autoRemoveKey: readMetadataBoolean(metadata, "autoRemoveKey"),
+      interruptable: readMetadataBoolean(metadata, "interruptable")
+    },
+    locking: {
+      factionId: readMetadataNumber(metadata, "factionId"),
+      keyRequired: readMetadataBoolean(metadata, "keyRequired"),
+      lockable: readMetadataBoolean(metadata, "lockable"),
+      locked: readMetadataBoolean(metadata, "locked"),
+      closeLockDc: readMetadataNumber(metadata, "closeLockDc"),
+      openLockDc: readMetadataNumber(metadata, "openLockDc"),
+      invulnerable: readMetadataBoolean(metadata, "invulnerable")
+    },
+    trap: {
+      trapDetectable: readMetadataBoolean(metadata, "trapDetectable"),
+      trapDetectDc: readMetadataNumber(metadata, "trapDetectDc"),
+      trapDisarmable: readMetadataBoolean(metadata, "trapDisarmable"),
+      disarmDc: readMetadataNumber(metadata, "disarmDc"),
+      trapFlag: readMetadataBoolean(metadata, "trapFlag"),
+      trapOneShot: readMetadataBoolean(metadata, "trapOneShot"),
+      trapType: readMetadataNumber(metadata, "trapType")
+    },
+    state: {
+      appearanceType: readMetadataNumber(metadata, "appearanceId"),
+      animationState: readMetadataNumber(metadata, "animationState"),
+      portraitId: readMetadataNumber(metadata, "portraitId"),
+      portraitResRef: readMetadataString(metadata, "portraitResRef"),
+      currentHitPoints: readMetadataNumber(metadata, "currentHitPoints"),
+      hardness: readMetadataNumber(metadata, "hardness"),
+      lightState: readMetadataNumber(metadata, "lightState")
+    },
+    scripts
+  };
+}
+
+export function buildPlaceableValidationIssues(
+  runtime: PlaceableRuntimeProjection
+): PlaceableValidationIssue[] {
+  const issues: PlaceableValidationIssue[] = [];
+
+  if (runtime.locking.lockable && typeof runtime.locking.openLockDc !== "number") {
+    issues.push({
+      code: "PLACEABLE_OPEN_LOCK_DC_MISSING",
+      severity: "warn",
+      message: "Lockable placeable is missing OpenLockDC."
+    });
+  }
+
+  if (runtime.locking.lockable && typeof runtime.locking.closeLockDc !== "number") {
+    issues.push({
+      code: "PLACEABLE_CLOSE_LOCK_DC_MISSING",
+      severity: "warn",
+      message: "Lockable placeable is missing CloseLockDC."
+    });
+  }
+
+  if (runtime.locking.keyRequired && !runtime.identity.keyName) {
+    issues.push({
+      code: "PLACEABLE_KEY_REQUIRED_WITHOUT_KEYNAME",
+      severity: "warn",
+      message: "KeyRequired is enabled but KeyName is missing."
+    });
+  }
+
+  if (runtime.trap.trapFlag && typeof runtime.trap.trapType !== "number") {
+    issues.push({
+      code: "PLACEABLE_TRAP_TYPE_MISSING",
+      severity: "warn",
+      message: "TrapFlag is enabled but TrapType is missing."
+    });
+  }
+
+  if (runtime.interaction.useable && !runtime.scripts.onused) {
+    issues.push({
+      code: "PLACEABLE_ONUSED_SCRIPT_MISSING",
+      severity: "warn",
+      message: "Useable placeable is missing OnUsed script."
+    });
+  }
+
+  return issues;
+}
+
 export function buildCreatureRuntimeProjection(
   metadata: Record<string, string | number | boolean>
 ): CreatureRuntimeProjection {
@@ -511,6 +617,33 @@ function readMetadataNumber(
     const parsed = Number(raw);
     if (Number.isFinite(parsed)) {
       return parsed;
+    }
+  }
+  return undefined;
+}
+
+function readMetadataBoolean(
+  metadata: Record<string, string | number | boolean>,
+  key: string
+): boolean | undefined {
+  const raw = metadata[key];
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw !== 0;
+  }
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed !== 0;
     }
   }
   return undefined;

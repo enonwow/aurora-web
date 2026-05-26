@@ -41,6 +41,8 @@ import {
   buildTemplateProcessCacheKey
 } from "../domain/cache-key.builders";
 import {
+  buildPlaceableRuntimeProjection,
+  buildPlaceableValidationIssues,
   buildCreatureRuntimeProjection,
   buildCreatureValidationIssues,
   buildBenchmarkFingerprint,
@@ -251,6 +253,8 @@ export class CatalogApplicationService {
     }
 
     const processMiss = async (): Promise<PlaceableProcessingEnvelope> => {
+      const placeableRuntime = buildPlaceableRuntimeProjection(template.metadata);
+      const placeableValidationIssues = buildPlaceableValidationIssues(placeableRuntime);
       const assetManifest = await this.buildPlaceableAssetManifest({
         templateId: template.templateId,
         resref: template.resref,
@@ -268,6 +272,8 @@ export class CatalogApplicationService {
         benchmarkCandidate: template.benchmarkCandidate ?? false,
         benchmarkBucket: template.benchmarkBucket,
         metadata: template.metadata,
+        placeableRuntime,
+        placeableValidationIssues,
         assetManifest,
         classification,
         processedAt: new Date().toISOString()
@@ -749,17 +755,18 @@ export class CatalogApplicationService {
     cacheKey: string,
     value: PlaceableProcessingResult
   ): Promise<PlaceableProcessingResult> {
-    const hasManifest = value.assetManifest?.version === "placeable-asset-manifest/v1";
+    const withProjection = await this.ensurePlaceableProjection(value);
+    const hasManifest = withProjection.assetManifest?.version === "placeable-asset-manifest/v1";
     if (!hasManifest) {
       const manifest = await this.buildPlaceableAssetManifest({
-        templateId: value.templateId,
-        resref: value.resref,
-        subtype: value.placeableSubtype,
-        metadata: value.metadata
+        templateId: withProjection.templateId,
+        resref: withProjection.resref,
+        subtype: withProjection.placeableSubtype,
+        metadata: withProjection.metadata
       });
 
       const refreshed: PlaceableProcessingResult = {
-        ...value,
+        ...withProjection,
         assetManifest: manifest
       };
       await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
@@ -767,14 +774,14 @@ export class CatalogApplicationService {
       return refreshed;
     }
 
-    const manifestModuleHash = value.assetManifest.moduleHash;
+    const manifestModuleHash = withProjection.assetManifest.moduleHash;
     if (this.isManifestValidationFresh(cacheKey, manifestModuleHash)) {
-      return value;
+      return withProjection;
     }
 
     if (this.appConfig?.isTest && !this.appConfig.enableBlobAssetLookupInTest) {
       this.rememberManifestValidation(cacheKey, manifestModuleHash);
-      return value;
+      return withProjection;
     }
 
     const currentModuleHash = await this.getCurrentModuleHash();
@@ -785,22 +792,37 @@ export class CatalogApplicationService {
 
     if (!shouldRefreshManifest) {
       this.rememberManifestValidation(cacheKey, manifestModuleHash);
-      return value;
+      return withProjection;
     }
 
     const manifest = await this.buildPlaceableAssetManifest({
-      templateId: value.templateId,
-      resref: value.resref,
-      subtype: value.placeableSubtype,
-      metadata: value.metadata
+      templateId: withProjection.templateId,
+      resref: withProjection.resref,
+      subtype: withProjection.placeableSubtype,
+      metadata: withProjection.metadata
     });
 
     const refreshed: PlaceableProcessingResult = {
-      ...value,
+      ...withProjection,
       assetManifest: manifest
     };
     await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
     this.rememberManifestValidation(cacheKey, manifest.moduleHash);
+    return refreshed;
+  }
+
+  private async ensurePlaceableProjection(value: PlaceableProcessingResult): Promise<PlaceableProcessingResult> {
+    if (value.placeableRuntime && value.placeableValidationIssues) {
+      return value;
+    }
+
+    const placeableRuntime = buildPlaceableRuntimeProjection(value.metadata);
+    const placeableValidationIssues = buildPlaceableValidationIssues(placeableRuntime);
+    const refreshed: PlaceableProcessingResult = {
+      ...value,
+      placeableRuntime,
+      placeableValidationIssues
+    };
     return refreshed;
   }
 

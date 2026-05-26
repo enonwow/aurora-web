@@ -201,7 +201,11 @@ describe("CatalogApplicationService", () => {
       resref: "plc_vfx_001",
       placeableSubtype: "vfx",
       benchmarkCandidate: true,
-      benchmarkBucket: "placeable_heavy_vfx"
+      benchmarkBucket: "placeable_heavy_vfx",
+      metadata: {
+        ...buildTemplate("placeable", "plc_vfx_001").metadata,
+        useable: true
+      }
     };
     repository.findByKindAndId.mockResolvedValue(template);
     placeableCache.get.mockResolvedValue(null);
@@ -225,6 +229,10 @@ describe("CatalogApplicationService", () => {
     expect(result.placeable.classification.mismatchWithTemplate).toBe(false);
     expect(result.placeable.benchmarkBucket).toBe("placeable_heavy_vfx");
     expect(result.placeable.assetManifest.version).toBe("placeable-asset-manifest/v1");
+    expect(result.placeable.placeableRuntime?.interaction.useable).toBe(true);
+    expect(result.placeable.placeableValidationIssues?.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["PLACEABLE_ONUSED_SCRIPT_MISSING"])
+    );
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
   });
 
@@ -466,6 +474,8 @@ describe("CatalogApplicationService", () => {
     expect(result.cache.hit).toBe(true);
     expect(result.cache.hits).toBe(4);
     expect(result.placeable.templateId).toBe("plc_cached_002");
+    expect(result.placeable.placeableRuntime).toBeDefined();
+    expect(result.placeable.placeableValidationIssues).toEqual([]);
     expect(result.placeable.benchmarkBucket).toBeUndefined();
     expect(placeableCache.set).not.toHaveBeenCalled();
   });

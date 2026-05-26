@@ -103,6 +103,62 @@ export interface TemplateRenderContract {
   rendererPreset: "creature-standard" | "item-standard";
 }
 
+export interface PlaceableRuntimeProjection {
+  source: {
+    fileType?: string;
+    fileVersion?: string;
+    structTypeId?: number;
+  };
+  identity: {
+    templateResRef?: string;
+    tag?: string;
+    conversation?: string;
+    keyName?: string;
+  };
+  interaction: {
+    useable?: boolean;
+    hasInventory?: boolean;
+    bodyBag?: boolean;
+    isStatic?: boolean;
+    autoRemoveKey?: boolean;
+    interruptable?: boolean;
+  };
+  locking: {
+    factionId?: number;
+    keyRequired?: boolean;
+    lockable?: boolean;
+    locked?: boolean;
+    closeLockDc?: number;
+    openLockDc?: number;
+    invulnerable?: boolean;
+  };
+  trap: {
+    trapDetectable?: boolean;
+    trapDetectDc?: number;
+    trapDisarmable?: boolean;
+    disarmDc?: number;
+    trapFlag?: boolean;
+    trapOneShot?: boolean;
+    trapType?: number;
+  };
+  state: {
+    appearanceType?: number;
+    animationState?: number;
+    portraitId?: number;
+    portraitResRef?: string;
+    currentHitPoints?: number;
+    hardness?: number;
+    lightState?: number;
+  };
+  scripts: Record<string, string>;
+}
+
+export interface PlaceableValidationIssue {
+  code: string;
+  severity: "warn" | "error";
+  message: string;
+}
+
 export interface CreatureRuntimeProjection {
   source: {
     fileType?: string;

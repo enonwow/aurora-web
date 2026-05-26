@@ -159,7 +159,13 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     const doorBytes = buildGffBuffer([
       { label: "TemplateResRef", type: "resref", value: "plc_city_gate" },
       { label: "LocName", type: "cexolocstring", value: "City Gate" },
-      { label: "Tag", type: "cexostring", value: "city_gate_main" }
+      { label: "Tag", type: "cexostring", value: "city_gate_main" },
+      { label: "KeyName", type: "resref", value: "key_city_gate" },
+      { label: "Lockable", type: "byte", value: 1 },
+      { label: "Locked", type: "byte", value: 1 },
+      { label: "OpenLockDC", type: "dword", value: 22 },
+      { label: "CloseLockDC", type: "dword", value: 20 },
+      { label: "OnLock", type: "resref", value: "script_city_gate_lock" }
     ], "UTD ");
 
     const creatureBytes = buildGffBuffer([
@@ -270,6 +276,13 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(items.total).toBe(1);
     expect(placeables.items.some((item) => item.placeableSubtype === "door")).toBe(true);
     expect(placeables.items.some((item) => item.placeableSubtype === "vfx")).toBe(true);
+    const door = placeables.items.find((item) => item.placeableSubtype === "door");
+    expect(door?.metadata?.keyName).toBe("key_city_gate");
+    expect(door?.metadata?.lockable).toBe(true);
+    expect(door?.metadata?.locked).toBe(true);
+    expect(door?.metadata?.openLockDc).toBe(22);
+    expect(door?.metadata?.closeLockDc).toBe(20);
+    expect(door?.metadata?.["script.onlock"]).toBe("script_city_gate_lock");
     expect(creatures.items[0]?.metadata?.appearanceId).toBe(17);
     expect(creatures.items[0]?.metadata?.factionId).toBe(3);
     expect(creatures.items[0]?.metadata?.challengeRating).toBe(6);

@@ -2,6 +2,8 @@ import {
   addSeed,
   buildAssetId,
   buildBenchmarkFingerprint,
+  buildPlaceableRuntimeProjection,
+  buildPlaceableValidationIssues,
   buildCreatureRuntimeProjection,
   buildCreatureValidationIssues,
   buildEmptyPlaceableAssetManifest,
@@ -225,6 +227,106 @@ describe("catalog-processing.helpers", () => {
       frontendType: "item",
       rendererPreset: "item-standard"
     });
+  });
+
+  it("buildPlaceableRuntimeProjection maps Aurora placeable runtime fields", () => {
+    const runtime = buildPlaceableRuntimeProjection({
+      sourceFileType: "UTP ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 44,
+      templateResRef: "plc_city_gate",
+      tag: "city_gate_main",
+      conversation: "conv_gate",
+      keyName: "city_gate_key",
+      useable: true,
+      hasInventory: 1,
+      bodyBag: "0",
+      isStatic: false,
+      autoRemoveKey: "1",
+      interruptable: "false",
+      factionId: 3,
+      keyRequired: true,
+      lockable: true,
+      locked: true,
+      closeLockDc: 22,
+      openLockDc: 24,
+      invulnerable: false,
+      trapDetectable: "1",
+      trapDetectDc: 12,
+      trapDisarmable: true,
+      disarmDc: 16,
+      trapFlag: false,
+      trapOneShot: false,
+      trapType: 7,
+      appearanceId: 104,
+      animationState: 2,
+      portraitId: 9,
+      portraitResRef: "po_gate",
+      currentHitPoints: 50,
+      hardness: 5,
+      lightState: 1,
+      "script.onused": "plc_gate_onused",
+      "script.onopen": "plc_gate_onopen"
+    });
+
+    expect(runtime.source).toMatchObject({
+      fileType: "UTP",
+      fileVersion: "V3.2",
+      structTypeId: 44
+    });
+    expect(runtime.identity).toMatchObject({
+      templateResRef: "plc_city_gate",
+      keyName: "city_gate_key"
+    });
+    expect(runtime.interaction).toMatchObject({
+      useable: true,
+      hasInventory: true,
+      bodyBag: false,
+      autoRemoveKey: true,
+      interruptable: false
+    });
+    expect(runtime.locking).toMatchObject({
+      keyRequired: true,
+      lockable: true,
+      locked: true,
+      closeLockDc: 22,
+      openLockDc: 24
+    });
+    expect(runtime.trap).toMatchObject({
+      trapDetectable: true,
+      trapDisarmable: true,
+      trapType: 7
+    });
+    expect(runtime.state).toMatchObject({
+      appearanceType: 104,
+      animationState: 2,
+      hardness: 5
+    });
+    expect(runtime.scripts).toMatchObject({
+      onused: "plc_gate_onused",
+      onopen: "plc_gate_onopen"
+    });
+  });
+
+  it("buildPlaceableValidationIssues reports missing lock/key/trap/script rules", () => {
+    const runtime = buildPlaceableRuntimeProjection({
+      templateResRef: "plc_broken",
+      useable: true,
+      lockable: true,
+      keyRequired: true,
+      trapFlag: true
+    });
+
+    const issues = buildPlaceableValidationIssues(runtime);
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "PLACEABLE_OPEN_LOCK_DC_MISSING",
+        "PLACEABLE_CLOSE_LOCK_DC_MISSING",
+        "PLACEABLE_KEY_REQUIRED_WITHOUT_KEYNAME",
+        "PLACEABLE_TRAP_TYPE_MISSING",
+        "PLACEABLE_ONUSED_SCRIPT_MISSING"
+      ])
+    );
   });
 
   it("buildCreatureRuntimeProjection maps creature metadata and scripts", () => {

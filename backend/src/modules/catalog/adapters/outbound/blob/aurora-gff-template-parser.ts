@@ -49,11 +49,30 @@ export interface ParsedTemplateBlueprint {
   description?: string;
   tag?: string;
   conversation?: string;
+  keyName?: string;
   appearanceId?: number;
+  animationState?: number;
   modelResRef?: string;
   hasInventory?: boolean;
+  bodyBag?: boolean;
   useable?: boolean;
   isStatic?: boolean;
+  autoRemoveKey?: boolean;
+  closeLockDc?: number;
+  openLockDc?: number;
+  interruptable?: boolean;
+  invulnerable?: boolean;
+  keyRequired?: boolean;
+  lockable?: boolean;
+  locked?: boolean;
+  trapDetectable?: boolean;
+  trapDetectDc?: number;
+  trapDisarmable?: boolean;
+  disarmDc?: number;
+  trapFlag?: boolean;
+  trapOneShot?: boolean;
+  trapType?: number;
+  hardness?: number;
   lightState?: number;
   gender?: number;
   race?: number;
@@ -131,6 +150,8 @@ const SCRIPT_FIELD_LABELS = [
   "onspellcastat",
   "onmeleedamaged",
   "ondisarm",
+  "onlock",
+  "onmeleeattacked",
   "ontraptriggered",
   "ontrapdisarmed",
   "oninventorydisturbed",
@@ -453,11 +474,30 @@ function mapFieldsToTemplateBlueprint(
   const description = readNameField(fields, ["description", "desc"]);
   const tag = readStringField(fields, ["tag"]);
   const conversation = readStringField(fields, ["conversation", "conv"]);
+  const keyName = readStringField(fields, ["keyname", "key"]);
   const modelResRef = readStringField(fields, ["modelname", "modelresref", "model"]);
   const appearanceId = readNumberField(fields, ["appearance", "appearance_type"]);
+  const animationState = readNumberField(fields, ["animationstate", "animation"]);
   const hasInventory = readBooleanField(fields, ["hasinventory", "inventory"]);
+  const bodyBag = readBooleanField(fields, ["bodybag"]);
   const useable = readBooleanField(fields, ["useable", "usable"]);
   const isStatic = readBooleanField(fields, ["static"]);
+  const autoRemoveKey = readBooleanField(fields, ["autoremovekey"]);
+  const closeLockDc = readNumberField(fields, ["closelockdc"]);
+  const openLockDc = readNumberField(fields, ["openlockdc"]);
+  const interruptable = readBooleanField(fields, ["interruptable", "interruptible"]);
+  const invulnerable = readBooleanField(fields, ["invulnerable"]);
+  const keyRequired = readBooleanField(fields, ["keyrequired"]);
+  const lockable = readBooleanField(fields, ["lockable"]);
+  const locked = readBooleanField(fields, ["locked"]);
+  const trapDetectable = readBooleanField(fields, ["trapdetectable"]);
+  const trapDetectDc = readNumberField(fields, ["trapdetectdc"]);
+  const trapDisarmable = readBooleanField(fields, ["trapdisarmable"]);
+  const disarmDc = readNumberField(fields, ["disarmdc"]);
+  const trapFlag = readBooleanField(fields, ["trapflag"]);
+  const trapOneShot = readBooleanField(fields, ["traponeshot"]);
+  const trapType = readNumberField(fields, ["traptype"]);
+  const hardness = readNumberField(fields, ["hardness"]);
   const lightState = readNumberField(fields, ["lightstate", "light"]);
   const gender = readNumberField(fields, ["gender"]);
   const race = readNumberField(fields, ["race"]);
@@ -475,7 +515,7 @@ function mapFieldsToTemplateBlueprint(
   const perceptionRange = readNumberField(fields, ["perceptionrange"]);
   const naturalAc = readNumberField(fields, ["naturalac"]);
   const hitPoints = readNumberField(fields, ["hitpoints"]);
-  const currentHitPoints = readNumberField(fields, ["currenthitpoints"]);
+  const currentHitPoints = readNumberField(fields, ["currenthitpoints", "currenthp"]);
   const maxHitPoints = readNumberField(fields, ["maxhitpoints"]);
   const reflexBonus = readNumberField(fields, ["refbonus"]);
   const willBonus = readNumberField(fields, ["willbonus"]);
@@ -515,11 +555,30 @@ function mapFieldsToTemplateBlueprint(
     description,
     tag,
     conversation,
+    keyName,
     appearanceId: Number.isFinite(appearanceId ?? Number.NaN) ? appearanceId : undefined,
+    animationState: Number.isFinite(animationState ?? Number.NaN) ? animationState : undefined,
     modelResRef,
     hasInventory,
+    bodyBag,
     useable,
     isStatic,
+    autoRemoveKey,
+    closeLockDc: Number.isFinite(closeLockDc ?? Number.NaN) ? closeLockDc : undefined,
+    openLockDc: Number.isFinite(openLockDc ?? Number.NaN) ? openLockDc : undefined,
+    interruptable,
+    invulnerable,
+    keyRequired,
+    lockable,
+    locked,
+    trapDetectable,
+    trapDetectDc: Number.isFinite(trapDetectDc ?? Number.NaN) ? trapDetectDc : undefined,
+    trapDisarmable,
+    disarmDc: Number.isFinite(disarmDc ?? Number.NaN) ? disarmDc : undefined,
+    trapFlag,
+    trapOneShot,
+    trapType: Number.isFinite(trapType ?? Number.NaN) ? trapType : undefined,
+    hardness: Number.isFinite(hardness ?? Number.NaN) ? hardness : undefined,
     gender: Number.isFinite(gender ?? Number.NaN) ? gender : undefined,
     race: Number.isFinite(race ?? Number.NaN) ? race : undefined,
     subrace,

@@ -75,6 +75,64 @@ describe("aurora-gff-template-parser", () => {
     expect(parsed?.vfxEvidence).toEqual(expect.arrayContaining(["modelResRef", "tag"]));
   });
 
+  it("parses Aurora placeable lock/trap/runtime aliases from UTP", () => {
+    const bytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_magicdoor_prop" },
+      { label: "LocName", type: "cexolocstring", value: "Magic Door" },
+      { label: "KeyName", type: "resref", value: "key_magicdoor" },
+      { label: "AnimationState", type: "dword", value: 2 },
+      { label: "BodyBag", type: "byte", value: 1 },
+      { label: "AutoRemoveKey", type: "byte", value: 1 },
+      { label: "CloseLockDC", type: "dword", value: 18 },
+      { label: "OpenLockDC", type: "dword", value: 20 },
+      { label: "Interruptable", type: "byte", value: 0 },
+      { label: "Invulnerable", type: "byte", value: 1 },
+      { label: "KeyRequired", type: "byte", value: 1 },
+      { label: "Lockable", type: "byte", value: 1 },
+      { label: "Locked", type: "byte", value: 1 },
+      { label: "TrapDetectable", type: "byte", value: 1 },
+      { label: "TrapDetectDC", type: "dword", value: 12 },
+      { label: "TrapDisarmable", type: "byte", value: 1 },
+      { label: "DisarmDC", type: "dword", value: 15 },
+      { label: "TrapFlag", type: "byte", value: 1 },
+      { label: "TrapOneShot", type: "byte", value: 0 },
+      { label: "TrapType", type: "dword", value: 7 },
+      { label: "CurrentHP", type: "dword", value: 35 },
+      { label: "Hardness", type: "dword", value: 4 },
+      { label: "OnLock", type: "resref", value: "script_magicdoor_lock" },
+      { label: "OnMeleeAttacked", type: "resref", value: "script_magicdoor_melee" }
+    ]);
+
+    const parsed = parseTemplateBlueprintFromGff(bytes);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toMatchObject({
+      keyName: "key_magicdoor",
+      animationState: 2,
+      bodyBag: true,
+      autoRemoveKey: true,
+      closeLockDc: 18,
+      openLockDc: 20,
+      interruptable: false,
+      invulnerable: true,
+      keyRequired: true,
+      lockable: true,
+      locked: true,
+      trapDetectable: true,
+      trapDetectDc: 12,
+      trapDisarmable: true,
+      disarmDc: 15,
+      trapFlag: true,
+      trapOneShot: false,
+      trapType: 7,
+      currentHitPoints: 35,
+      hardness: 4
+    });
+    expect(parsed?.scripts).toMatchObject({
+      onlock: "script_magicdoor_lock",
+      onmeleeattacked: "script_magicdoor_melee"
+    });
+  });
+
   it("extracts creature runtime fields and list counters", () => {
     const bytes = buildGffBuffer(
       [

@@ -444,6 +444,7 @@ function mapCandidateToTemplateRecord(
   addOptionalMetadata(metadata, "description", candidate.parsedBlueprint?.description);
   addOptionalMetadata(metadata, "tag", candidate.parsedBlueprint?.tag);
   addOptionalMetadata(metadata, "conversation", candidate.parsedBlueprint?.conversation);
+  addOptionalMetadata(metadata, "keyName", candidate.parsedBlueprint?.keyName);
   addOptionalMetadata(metadata, "modelResRef", candidate.parsedBlueprint?.modelResRef);
   addOptionalMetadata(
     metadata,
@@ -456,9 +457,27 @@ function mapCandidateToTemplateRecord(
     candidate.parsedBlueprint?.dependencyRefs.length
   );
   addOptionalMetadata(metadata, "appearanceId", candidate.parsedBlueprint?.appearanceId);
+  addOptionalMetadata(metadata, "animationState", candidate.parsedBlueprint?.animationState);
   addOptionalMetadata(metadata, "hasInventory", candidate.parsedBlueprint?.hasInventory);
+  addOptionalMetadata(metadata, "bodyBag", candidate.parsedBlueprint?.bodyBag);
   addOptionalMetadata(metadata, "useable", candidate.parsedBlueprint?.useable);
   addOptionalMetadata(metadata, "isStatic", candidate.parsedBlueprint?.isStatic);
+  addOptionalMetadata(metadata, "autoRemoveKey", candidate.parsedBlueprint?.autoRemoveKey);
+  addOptionalMetadata(metadata, "closeLockDc", candidate.parsedBlueprint?.closeLockDc);
+  addOptionalMetadata(metadata, "openLockDc", candidate.parsedBlueprint?.openLockDc);
+  addOptionalMetadata(metadata, "interruptable", candidate.parsedBlueprint?.interruptable);
+  addOptionalMetadata(metadata, "invulnerable", candidate.parsedBlueprint?.invulnerable);
+  addOptionalMetadata(metadata, "keyRequired", candidate.parsedBlueprint?.keyRequired);
+  addOptionalMetadata(metadata, "lockable", candidate.parsedBlueprint?.lockable);
+  addOptionalMetadata(metadata, "locked", candidate.parsedBlueprint?.locked);
+  addOptionalMetadata(metadata, "trapDetectable", candidate.parsedBlueprint?.trapDetectable);
+  addOptionalMetadata(metadata, "trapDetectDc", candidate.parsedBlueprint?.trapDetectDc);
+  addOptionalMetadata(metadata, "trapDisarmable", candidate.parsedBlueprint?.trapDisarmable);
+  addOptionalMetadata(metadata, "disarmDc", candidate.parsedBlueprint?.disarmDc);
+  addOptionalMetadata(metadata, "trapFlag", candidate.parsedBlueprint?.trapFlag);
+  addOptionalMetadata(metadata, "trapOneShot", candidate.parsedBlueprint?.trapOneShot);
+  addOptionalMetadata(metadata, "trapType", candidate.parsedBlueprint?.trapType);
+  addOptionalMetadata(metadata, "hardness", candidate.parsedBlueprint?.hardness);
   addOptionalMetadata(metadata, "lightState", candidate.parsedBlueprint?.lightState);
   addOptionalMetadata(metadata, "gender", candidate.parsedBlueprint?.gender);
   addOptionalMetadata(metadata, "race", candidate.parsedBlueprint?.race);
