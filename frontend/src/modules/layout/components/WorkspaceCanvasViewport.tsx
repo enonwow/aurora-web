@@ -61,6 +61,25 @@ import {
   setCurrentObjectAddDragPayload,
   tryParseObjectAddPayload
 } from "./objectAddDragPayload";
+import {
+  SharedLockPropertySection,
+  SharedTrapPropertySection
+} from "./properties/LockTrapPropertySections";
+import {
+  SharedAdvancedSettingsSection,
+  SharedDialogActionsFooter,
+  SharedPropertyDialogChrome,
+  SharedLongTextPropertySection,
+  SharedObjectPreviewPane,
+  SharedPropertyTabsNav,
+  SharedScriptSlotSection,
+  type SharedPropertyTabOption
+} from "./properties/SharedPropertyDialogSections";
+import {
+  DEFAULT_PROPERTY_DIALOG_DRAG_STATE,
+  usePropertyDialogDrag,
+  type PropertyDialogDragState
+} from "./usePropertyDialogDrag";
 
 type WorkspaceCanvasViewportFacade = Pick<
   ViewportFacade,
@@ -131,6 +150,14 @@ interface ContextMenuState {
   anchorOffsetY: number;
 }
 
+interface AnchoredDialogPositionState {
+  objectId: string;
+  windowX: number;
+  windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
+}
+
 interface AdjustLocationDraft {
   x: number;
   y: number;
@@ -154,13 +181,6 @@ interface AdjustLocationDialogState {
   windowX: number;
   windowY: number;
   collapsed: boolean;
-}
-
-interface AdjustLocationDialogDragState {
-  active: boolean;
-  pointerId: number | null;
-  offsetX: number;
-  offsetY: number;
 }
 
 interface BearingDialDragState {
@@ -233,6 +253,34 @@ type DoorScriptSlotKey =
   | "onSpellCastAt"
   | "onUnlock"
   | "onUserDefined";
+
+const PLACEABLE_PROPERTIES_TAB_OPTIONS: ReadonlyArray<SharedPropertyTabOption<PlaceablePropertiesTab>> =
+  [
+    { id: "basic", label: "Basic" },
+    { id: "lock", label: "Lock" },
+    { id: "trap", label: "Trap" },
+    { id: "scripts", label: "Scripts" },
+    { id: "advanced", label: "Advanced" },
+    { id: "description", label: "Description" },
+    { id: "comments", label: "Comments" }
+  ];
+
+const DOOR_PROPERTIES_TAB_OPTIONS: ReadonlyArray<SharedPropertyTabOption<DoorPropertiesTab>> = [
+  { id: "basic", label: "Basic" },
+  { id: "lock", label: "Lock" },
+  { id: "trap", label: "Trap" },
+  { id: "areaTransition", label: "Area Transition" },
+  { id: "scripts", label: "Scripts" },
+  { id: "advanced", label: "Advanced" },
+  { id: "description", label: "Description" },
+  { id: "comments", label: "Comments" }
+];
+
+const SOUND_PROPERTIES_TAB_OPTIONS: ReadonlyArray<SharedPropertyTabOption<SoundPropertiesTab>> = [
+  { id: "basic", label: "Basic" },
+  { id: "positioning", label: "Positioning" },
+  { id: "advanced", label: "Advanced" }
+];
 
 const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
   "onClick",
@@ -498,19 +546,20 @@ const CREATURE_SKILL_LABELS = [
   "Ride"
 ];
 
-const CREATURE_PROPERTIES_TABS: CreaturePropertiesTab[] = [
-  "basic",
-  "statistics",
-  "appearance",
-  "classes",
-  "skills",
-  "scripts",
-  "advanced",
-  "feats",
-  "spells",
-  "specialAbilities",
-  "comments"
-];
+const CREATURE_PROPERTIES_TAB_OPTIONS: ReadonlyArray<SharedPropertyTabOption<CreaturePropertiesTab>> =
+  [
+    { id: "basic", label: "Basic" },
+    { id: "statistics", label: "Statistics" },
+    { id: "appearance", label: "Appearance" },
+    { id: "classes", label: "Classes" },
+    { id: "skills", label: "Skills" },
+    { id: "scripts", label: "Scripts" },
+    { id: "advanced", label: "Advanced" },
+    { id: "feats", label: "Feats" },
+    { id: "spells", label: "Spells" },
+    { id: "specialAbilities", label: "Special Abilities" },
+    { id: "comments", label: "Comments" }
+  ];
 
 const CREATURE_APPEARANCE_CORE_FIELDS: Array<{
   key: keyof CreaturePropertiesDraft["appearanceParts"];
@@ -642,13 +691,6 @@ interface PlaceablePropertiesDialogState {
   collapsed: boolean;
 }
 
-interface PlaceablePropertiesDialogDragState {
-  active: boolean;
-  pointerId: number | null;
-  offsetX: number;
-  offsetY: number;
-}
-
 interface SoundPropertiesDraft {
   name: string;
   tag: string;
@@ -691,13 +733,6 @@ interface SoundPropertiesDialogState {
   anchorOffsetX: number;
   anchorOffsetY: number;
   collapsed: boolean;
-}
-
-interface SoundPropertiesDialogDragState {
-  active: boolean;
-  pointerId: number | null;
-  offsetX: number;
-  offsetY: number;
 }
 
 interface DoorPropertiesDraft {
@@ -766,13 +801,6 @@ interface DoorPropertiesDialogState {
   anchorOffsetX: number;
   anchorOffsetY: number;
   collapsed: boolean;
-}
-
-interface DoorPropertiesDialogDragState {
-  active: boolean;
-  pointerId: number | null;
-  offsetX: number;
-  offsetY: number;
 }
 
 type CreatureScriptSlotKey =
@@ -886,13 +914,6 @@ interface CreaturePropertiesDialogState {
   anchorOffsetX: number;
   anchorOffsetY: number;
   collapsed: boolean;
-}
-
-interface CreaturePropertiesDialogDragState {
-  active: boolean;
-  pointerId: number | null;
-  offsetX: number;
-  offsetY: number;
 }
 
 interface DragMoveState {
@@ -2146,35 +2167,6 @@ function areCreaturePropertiesDraftsEqual(
   right: CreaturePropertiesDraft
 ): boolean {
   return stableJsonStringify(left) === stableJsonStringify(right);
-}
-
-function resolveCreaturePropertiesTabLabel(tab: CreaturePropertiesTab): string {
-  switch (tab) {
-    case "basic":
-      return "Basic";
-    case "statistics":
-      return "Statistics";
-    case "appearance":
-      return "Appearance";
-    case "classes":
-      return "Classes";
-    case "skills":
-      return "Skills";
-    case "scripts":
-      return "Scripts";
-    case "advanced":
-      return "Advanced";
-    case "feats":
-      return "Feats";
-    case "spells":
-      return "Spells";
-    case "specialAbilities":
-      return "Special Abilities";
-    case "comments":
-      return "Comments";
-    default:
-      return tab;
-  }
 }
 
 function areNowPlayingBadgesEqual(
@@ -3777,25 +3769,16 @@ export function WorkspaceCanvasViewport({
   const clipboardObjectsRef = useRef<SceneObject[]>([]);
   const contextMenuRef = useRef<HTMLElement | null>(null);
   const adjustLocationDialogRef = useRef<HTMLElement | null>(null);
-  const adjustLocationDialogDragRef = useRef<AdjustLocationDialogDragState>({
-    active: false,
-    pointerId: null,
-    offsetX: 0,
-    offsetY: 0
+  const adjustLocationDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const placeablePropertiesDialogRef = useRef<HTMLElement | null>(null);
-  const placeablePropertiesDialogDragRef = useRef<PlaceablePropertiesDialogDragState>({
-    active: false,
-    pointerId: null,
-    offsetX: 0,
-    offsetY: 0
+  const placeablePropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const soundPropertiesDialogRef = useRef<HTMLElement | null>(null);
-  const soundPropertiesDialogDragRef = useRef<SoundPropertiesDialogDragState>({
-    active: false,
-    pointerId: null,
-    offsetX: 0,
-    offsetY: 0
+  const soundPropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const soundPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const runtimeSoundPlaybackStateRef = useRef<Map<string, RuntimeSoundPlaybackState>>(
@@ -3809,18 +3792,12 @@ export function WorkspaceCanvasViewport({
     new Map<string, RuntimeSoundNowPlayingState>()
   );
   const doorPropertiesDialogRef = useRef<HTMLElement | null>(null);
-  const doorPropertiesDialogDragRef = useRef<DoorPropertiesDialogDragState>({
-    active: false,
-    pointerId: null,
-    offsetX: 0,
-    offsetY: 0
+  const doorPropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const creaturePropertiesDialogRef = useRef<HTMLElement | null>(null);
-  const creaturePropertiesDialogDragRef = useRef<CreaturePropertiesDialogDragState>({
-    active: false,
-    pointerId: null,
-    offsetX: 0,
-    offsetY: 0
+  const creaturePropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const bearingDialDragRef = useRef<BearingDialDragState>({
     active: false,
@@ -5943,6 +5920,7 @@ export function WorkspaceCanvasViewport({
 
         setSelectedTileId(tile.id);
         setSelectedObjectIds([]);
+        const shouldTrackTerrainPaint = tile.terrain !== terrainBrush;
 
         setSceneHistory((current) => {
           const nextScene = sceneViewportPort.updateTileTerrain(
@@ -5953,15 +5931,15 @@ export function WorkspaceCanvasViewport({
           if (nextScene === current.present) {
             return current;
           }
-
+          return sceneViewportPort.commitHistory(current, nextScene);
+        });
+        if (shouldTrackTerrainPaint) {
           trackTelemetry("scene.tiles.paint", {
             userId,
             tileId: tile.id,
             terrain: terrainBrush
           });
-
-          return sceneViewportPort.commitHistory(current, nextScene);
-        });
+        }
         return;
       }
 
@@ -6527,85 +6505,19 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
-  const startAdjustLocationDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !adjustLocationDialog) {
-        return;
-      }
-      const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button")) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const panelRect = adjustLocationDialogRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-
-      const resolvedX = panelRect
-        ? panelRect.left - hostRect.left
-        : adjustLocationDialog.windowX;
-      const resolvedY = panelRect
-        ? panelRect.top - hostRect.top
-        : adjustLocationDialog.windowY;
-
-      adjustLocationDialogDragRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - (hostRect.left + resolvedX),
-        offsetY: event.clientY - (hostRect.top + resolvedY)
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [adjustLocationDialog]
-  );
-
-  const moveAdjustLocationDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = adjustLocationDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-      const desiredX = event.clientX - hostRect.left - drag.offsetX;
-      const desiredY = event.clientY - hostRect.top - drag.offsetY;
-      const nextPosition = clampAdjustLocationDialogPosition(desiredX, desiredY);
-      setAdjustLocationDialog((current) =>
-        current
-          ? {
-              ...current,
-              windowX: nextPosition.x,
-              windowY: nextPosition.y
-            }
-          : current
-      );
-      event.preventDefault();
-    },
-    [clampAdjustLocationDialogPosition]
-  );
-
-  const endAdjustLocationDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = adjustLocationDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      adjustLocationDialogDragRef.current = {
-        active: false,
-        pointerId: null,
-        offsetX: 0,
-        offsetY: 0
-      };
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    []
-  );
+  const {
+    onHeaderPointerDown: startAdjustLocationDialogDrag,
+    onHeaderPointerMove: moveAdjustLocationDialogDrag,
+    onHeaderPointerUp: endAdjustLocationDialogDrag,
+    onHeaderPointerCancel: cancelAdjustLocationDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: adjustLocationDialog,
+    setDialog: setAdjustLocationDialog,
+    hostRef,
+    panelRef: adjustLocationDialogRef,
+    dragRef: adjustLocationDialogDragRef,
+    clampPosition: clampAdjustLocationDialogPosition
+  });
 
   const clampPlaceablePropertiesDialogPosition = useCallback(
     (x: number, y: number, panelRect?: DOMRect | null) => {
@@ -7041,104 +6953,52 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
-  const startPlaceablePropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !placeablePropertiesDialog) {
-        return;
+  const mapAnchoredDialogPosition = useCallback(
+    function mapAnchoredDialogPosition<TDialogState extends AnchoredDialogPositionState>(
+      current: TDialogState,
+      nextPosition: { x: number; y: number }
+    ): TDialogState {
+      const runtime = runtimeRef.current;
+      const targetObject =
+        scene.objects.find((object) => object.id === current.objectId) ?? null;
+      if (!runtime || !targetObject) {
+        return {
+          ...current,
+          windowX: nextPosition.x,
+          windowY: nextPosition.y
+        };
       }
-      const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button, input, select, textarea")) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const panelRect = placeablePropertiesDialogRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-
-      const resolvedX = panelRect
-        ? panelRect.left - hostRect.left
-        : placeablePropertiesDialog.windowX;
-      const resolvedY = panelRect
-        ? panelRect.top - hostRect.top
-        : placeablePropertiesDialog.windowY;
-
-      placeablePropertiesDialogDragRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - (hostRect.left + resolvedX),
-        offsetY: event.clientY - (hostRect.top + resolvedY)
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [placeablePropertiesDialog]
-  );
-
-  const movePlaceablePropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = placeablePropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-      const desiredX = event.clientX - hostRect.left - drag.offsetX;
-      const desiredY = event.clientY - hostRect.top - drag.offsetY;
-      const nextPosition = clampPlaceablePropertiesDialogPosition(desiredX, desiredY);
-      setPlaceablePropertiesDialog((current) =>
-        current
-          ? (() => {
-              const runtime = runtimeRef.current;
-              const targetObject =
-                scene.objects.find((object) => object.id === current.objectId) ?? null;
-              if (!runtime || !targetObject) {
-                return {
-                  ...current,
-                  windowX: nextPosition.x,
-                  windowY: nextPosition.y
-                };
-              }
-              const anchorScreen = resolveContextMenuAnchorScreen(
-                runtime,
-                targetObject,
-                current.objectId
-              );
-              return {
-                ...current,
-                windowX: nextPosition.x,
-                windowY: nextPosition.y,
-                anchorOffsetX: nextPosition.x - anchorScreen.x,
-                anchorOffsetY: nextPosition.y - anchorScreen.y
-              };
-            })()
-          : current
+      const anchorScreen = resolveContextMenuAnchorScreen(
+        runtime,
+        targetObject,
+        current.objectId
       );
-      event.preventDefault();
+      return {
+        ...current,
+        windowX: nextPosition.x,
+        windowY: nextPosition.y,
+        anchorOffsetX: nextPosition.x - anchorScreen.x,
+        anchorOffsetY: nextPosition.y - anchorScreen.y
+      };
     },
-    [clampPlaceablePropertiesDialogPosition, scene.objects]
+    [scene.objects]
   );
 
-  const endPlaceablePropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = placeablePropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      placeablePropertiesDialogDragRef.current = {
-        active: false,
-        pointerId: null,
-        offsetX: 0,
-        offsetY: 0
-      };
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    []
-  );
+  const {
+    onHeaderPointerDown: startPlaceablePropertiesDialogDrag,
+    onHeaderPointerMove: movePlaceablePropertiesDialogDrag,
+    onHeaderPointerUp: endPlaceablePropertiesDialogDrag,
+    onHeaderPointerCancel: cancelPlaceablePropertiesDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: placeablePropertiesDialog,
+    setDialog: setPlaceablePropertiesDialog,
+    hostRef,
+    panelRef: placeablePropertiesDialogRef,
+    dragRef: placeablePropertiesDialogDragRef,
+    clampPosition: clampPlaceablePropertiesDialogPosition,
+    shouldIgnoreTarget: (target) => Boolean(target?.closest("button, input, select, textarea")),
+    mapPosition: mapAnchoredDialogPosition
+  });
 
   const clampSoundPropertiesDialogPosition = useCallback(
     (x: number, y: number, panelRect?: DOMRect | null) => {
@@ -8087,100 +7947,20 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
-  const startSoundPropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !soundPropertiesDialog) {
-        return;
-      }
-      const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button")) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const panelRect = soundPropertiesDialogRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-
-      const resolvedX = panelRect ? panelRect.left - hostRect.left : soundPropertiesDialog.windowX;
-      const resolvedY = panelRect ? panelRect.top - hostRect.top : soundPropertiesDialog.windowY;
-
-      soundPropertiesDialogDragRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - (hostRect.left + resolvedX),
-        offsetY: event.clientY - (hostRect.top + resolvedY)
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [soundPropertiesDialog]
-  );
-
-  const moveSoundPropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = soundPropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-      const desiredX = event.clientX - hostRect.left - drag.offsetX;
-      const desiredY = event.clientY - hostRect.top - drag.offsetY;
-      const nextPosition = clampSoundPropertiesDialogPosition(desiredX, desiredY);
-      setSoundPropertiesDialog((current) =>
-        current
-          ? (() => {
-              const runtime = runtimeRef.current;
-              const targetObject =
-                scene.objects.find((object) => object.id === current.objectId) ?? null;
-              if (!runtime || !targetObject) {
-                return {
-                  ...current,
-                  windowX: nextPosition.x,
-                  windowY: nextPosition.y
-                };
-              }
-              const anchorScreen = resolveContextMenuAnchorScreen(
-                runtime,
-                targetObject,
-                current.objectId
-              );
-              return {
-                ...current,
-                windowX: nextPosition.x,
-                windowY: nextPosition.y,
-                anchorOffsetX: nextPosition.x - anchorScreen.x,
-                anchorOffsetY: nextPosition.y - anchorScreen.y
-              };
-            })()
-          : current
-      );
-      event.preventDefault();
-    },
-    [clampSoundPropertiesDialogPosition, scene.objects]
-  );
-
-  const endSoundPropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = soundPropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      soundPropertiesDialogDragRef.current = {
-        active: false,
-        pointerId: null,
-        offsetX: 0,
-        offsetY: 0
-      };
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    []
-  );
+  const {
+    onHeaderPointerDown: startSoundPropertiesDialogDrag,
+    onHeaderPointerMove: moveSoundPropertiesDialogDrag,
+    onHeaderPointerUp: endSoundPropertiesDialogDrag,
+    onHeaderPointerCancel: cancelSoundPropertiesDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: soundPropertiesDialog,
+    setDialog: setSoundPropertiesDialog,
+    hostRef,
+    panelRef: soundPropertiesDialogRef,
+    dragRef: soundPropertiesDialogDragRef,
+    clampPosition: clampSoundPropertiesDialogPosition,
+    mapPosition: mapAnchoredDialogPosition
+  });
 
   const clampDoorPropertiesDialogPosition = useCallback(
     (x: number, y: number, panelRect?: DOMRect | null) => {
@@ -8527,97 +8307,20 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
-  const startDoorPropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !doorPropertiesDialog) {
-        return;
-      }
-      const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button")) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const panelRect = doorPropertiesDialogRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-
-      const resolvedX = panelRect ? panelRect.left - hostRect.left : doorPropertiesDialog.windowX;
-      const resolvedY = panelRect ? panelRect.top - hostRect.top : doorPropertiesDialog.windowY;
-
-      doorPropertiesDialogDragRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - (hostRect.left + resolvedX),
-        offsetY: event.clientY - (hostRect.top + resolvedY)
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [doorPropertiesDialog]
-  );
-
-  const moveDoorPropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = doorPropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-      const desiredX = event.clientX - hostRect.left - drag.offsetX;
-      const desiredY = event.clientY - hostRect.top - drag.offsetY;
-      const nextPosition = clampDoorPropertiesDialogPosition(desiredX, desiredY);
-      setDoorPropertiesDialog((current) =>
-        current
-          ? (() => {
-              const runtime = runtimeRef.current;
-              const targetObject =
-                scene.objects.find((object) => object.id === current.objectId) ?? null;
-              if (!runtime || !targetObject) {
-                return {
-                  ...current,
-                  windowX: nextPosition.x,
-                  windowY: nextPosition.y
-                };
-              }
-              const anchorScreen = resolveContextMenuAnchorScreen(
-                runtime,
-                targetObject,
-                current.objectId
-              );
-              return {
-                ...current,
-                windowX: nextPosition.x,
-                windowY: nextPosition.y,
-                anchorOffsetX: nextPosition.x - anchorScreen.x,
-                anchorOffsetY: nextPosition.y - anchorScreen.y
-              };
-            })()
-          : current
-      );
-      event.preventDefault();
-    },
-    [clampDoorPropertiesDialogPosition, scene.objects]
-  );
-
-  const endDoorPropertiesDialogDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const drag = doorPropertiesDialogDragRef.current;
-    if (!drag.active || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    doorPropertiesDialogDragRef.current = {
-      active: false,
-      pointerId: null,
-      offsetX: 0,
-      offsetY: 0
-    };
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  const {
+    onHeaderPointerDown: startDoorPropertiesDialogDrag,
+    onHeaderPointerMove: moveDoorPropertiesDialogDrag,
+    onHeaderPointerUp: endDoorPropertiesDialogDrag,
+    onHeaderPointerCancel: cancelDoorPropertiesDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: doorPropertiesDialog,
+    setDialog: setDoorPropertiesDialog,
+    hostRef,
+    panelRef: doorPropertiesDialogRef,
+    dragRef: doorPropertiesDialogDragRef,
+    clampPosition: clampDoorPropertiesDialogPosition,
+    mapPosition: mapAnchoredDialogPosition
+  });
 
   const clampCreaturePropertiesDialogPosition = useCallback(
     (x: number, y: number, panelRect?: DOMRect | null) => {
@@ -9004,97 +8707,20 @@ export function WorkspaceCanvasViewport({
     );
   }, []);
 
-  const startCreaturePropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !creaturePropertiesDialog) {
-        return;
-      }
-      const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button")) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      const panelRect = creaturePropertiesDialogRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-
-      const resolvedX = panelRect ? panelRect.left - hostRect.left : creaturePropertiesDialog.windowX;
-      const resolvedY = panelRect ? panelRect.top - hostRect.top : creaturePropertiesDialog.windowY;
-
-      creaturePropertiesDialogDragRef.current = {
-        active: true,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - (hostRect.left + resolvedX),
-        offsetY: event.clientY - (hostRect.top + resolvedY)
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [creaturePropertiesDialog]
-  );
-
-  const moveCreaturePropertiesDialogDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const drag = creaturePropertiesDialogDragRef.current;
-      if (!drag.active || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const hostRect = hostRef.current?.getBoundingClientRect();
-      if (!hostRect) {
-        return;
-      }
-      const desiredX = event.clientX - hostRect.left - drag.offsetX;
-      const desiredY = event.clientY - hostRect.top - drag.offsetY;
-      const nextPosition = clampCreaturePropertiesDialogPosition(desiredX, desiredY);
-      setCreaturePropertiesDialog((current) =>
-        current
-          ? (() => {
-              const runtime = runtimeRef.current;
-              const targetObject =
-                scene.objects.find((object) => object.id === current.objectId) ?? null;
-              if (!runtime || !targetObject) {
-                return {
-                  ...current,
-                  windowX: nextPosition.x,
-                  windowY: nextPosition.y
-                };
-              }
-              const anchorScreen = resolveContextMenuAnchorScreen(
-                runtime,
-                targetObject,
-                current.objectId
-              );
-              return {
-                ...current,
-                windowX: nextPosition.x,
-                windowY: nextPosition.y,
-                anchorOffsetX: nextPosition.x - anchorScreen.x,
-                anchorOffsetY: nextPosition.y - anchorScreen.y
-              };
-            })()
-          : current
-      );
-      event.preventDefault();
-    },
-    [clampCreaturePropertiesDialogPosition, scene.objects]
-  );
-
-  const endCreaturePropertiesDialogDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const drag = creaturePropertiesDialogDragRef.current;
-    if (!drag.active || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    creaturePropertiesDialogDragRef.current = {
-      active: false,
-      pointerId: null,
-      offsetX: 0,
-      offsetY: 0
-    };
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  const {
+    onHeaderPointerDown: startCreaturePropertiesDialogDrag,
+    onHeaderPointerMove: moveCreaturePropertiesDialogDrag,
+    onHeaderPointerUp: endCreaturePropertiesDialogDrag,
+    onHeaderPointerCancel: cancelCreaturePropertiesDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: creaturePropertiesDialog,
+    setDialog: setCreaturePropertiesDialog,
+    hostRef,
+    panelRef: creaturePropertiesDialogRef,
+    dragRef: creaturePropertiesDialogDragRef,
+    clampPosition: clampCreaturePropertiesDialogPosition,
+    mapPosition: mapAnchoredDialogPosition
+  });
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -9231,6 +8857,9 @@ export function WorkspaceCanvasViewport({
       }
 
       if (action === "delete") {
+        const shouldTrackContextMenuDelete = scene.objects.some(
+          (sceneObject) => sceneObject.id === contextMenu.objectId
+        );
         setSceneHistory((current) => {
           const nextScene = sceneViewportPort.deleteObjectById(
             current.present,
@@ -9239,18 +8868,18 @@ export function WorkspaceCanvasViewport({
           if (nextScene === current.present) {
             return current;
           }
-
-          trackTelemetry("scene.context_menu.delete_object", {
-            userId,
-            objectId: contextMenu.objectId,
-            objectKind: contextMenu.objectKind
-          });
-
           return sceneViewportPort.commitHistory(current, nextScene);
         });
         setSelectedObjectIds((current) =>
           current.filter((selectedId) => selectedId !== contextMenu.objectId)
         );
+        if (shouldTrackContextMenuDelete) {
+          trackTelemetry("scene.context_menu.delete_object", {
+            userId,
+            objectId: contextMenu.objectId,
+            objectKind: contextMenu.objectKind
+          });
+        }
         trackTelemetry("scene.context_menu.action", {
           userId,
           objectId: contextObj.id,
@@ -10698,7 +10327,7 @@ export function WorkspaceCanvasViewport({
             onPointerDown={startAdjustLocationDialogDrag}
             onPointerMove={moveAdjustLocationDialogDrag}
             onPointerUp={endAdjustLocationDialogDrag}
-            onPointerCancel={endAdjustLocationDialogDrag}
+            onPointerCancel={cancelAdjustLocationDialogDrag}
           >
             <div className="canvas-adjust-location-header-copy">
               <h2>Adjust Location</h2>
@@ -10932,101 +10561,46 @@ export function WorkspaceCanvasViewport({
       ) : null}
 
       {placeablePropertiesDialog ? (
-        <article
-          ref={placeablePropertiesDialogRef}
-          className={`canvas-placeable-properties-dialog ${
-            placeablePropertiesDialog.collapsed ? "is-collapsed" : ""
-          }`}
-          role="dialog"
-          aria-label="Placeable properties"
-          style={{
-            left: `${placeablePropertiesDialog.windowX}px`,
-            top: `${placeablePropertiesDialog.windowY}px`
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
+        <SharedPropertyDialogChrome
+          articleRef={placeablePropertiesDialogRef}
+          articleClassName="canvas-placeable-properties-dialog"
+          ariaLabel="Placeable properties"
+          windowX={placeablePropertiesDialog.windowX}
+          windowY={placeablePropertiesDialog.windowY}
+          headerClassName="canvas-placeable-properties-header"
+          headerCopyClassName="canvas-placeable-properties-header-copy"
+          headerActionsClassName="canvas-placeable-properties-header-actions"
+          title="Placeable Object Properties"
+          subtitle={placeablePropertiesDialog.draft.tag || placeablePropertiesDialog.objectId}
+          collapsed={placeablePropertiesDialog.collapsed}
+          collapseLabel="Collapse placeable properties dialog"
+          expandLabel="Expand placeable properties dialog"
+          closeLabel="Close placeable properties dialog"
+          onToggleCollapsed={togglePlaceablePropertiesDialogCollapsed}
+          onClose={cancelPlaceablePropertiesDialog}
+          onArticleMouseDown={(event) => event.stopPropagation()}
+          onArticleContextMenu={(event) => event.preventDefault()}
+          onHeaderPointerDown={startPlaceablePropertiesDialogDrag}
+          onHeaderPointerMove={movePlaceablePropertiesDialogDrag}
+          onHeaderPointerUp={endPlaceablePropertiesDialogDrag}
+          onHeaderPointerCancel={cancelPlaceablePropertiesDialogDrag}
         >
-          <header
-            className="canvas-placeable-properties-header"
-            onPointerDown={startPlaceablePropertiesDialogDrag}
-            onPointerMove={movePlaceablePropertiesDialogDrag}
-            onPointerUp={endPlaceablePropertiesDialogDrag}
-            onPointerCancel={endPlaceablePropertiesDialogDrag}
-          >
-            <div className="canvas-placeable-properties-header-copy">
-              <h2>Placeable Object Properties</h2>
-              <p>{placeablePropertiesDialog.draft.tag || placeablePropertiesDialog.objectId}</p>
-            </div>
-            <div className="canvas-placeable-properties-header-actions">
-              <button
-                type="button"
-                onClick={() => togglePlaceablePropertiesDialogCollapsed()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label={
-                  placeablePropertiesDialog.collapsed
-                    ? "Expand placeable properties dialog"
-                    : "Collapse placeable properties dialog"
-                }
-              >
-                {placeablePropertiesDialog.collapsed ? "+" : "-"}
-              </button>
-              <button
-                type="button"
-                onClick={() => cancelPlaceablePropertiesDialog()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label="Close placeable properties dialog"
-              >
-                x
-              </button>
-            </div>
-          </header>
-
-          {!placeablePropertiesDialog.collapsed ? (
-            <>
-              <nav className="canvas-placeable-properties-tabs" aria-label="placeable properties tabs">
-                {(
-                  [
-                    "basic",
-                    "lock",
-                    "trap",
-                    "scripts",
-                    "advanced",
-                    "description",
-                    "comments"
-                  ] as PlaceablePropertiesTab[]
-                ).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={placeablePropertiesDialog.activeTab === tab ? "is-active" : undefined}
-                    onClick={() => setPlaceablePropertiesActiveTab(tab)}
-                  >
-                    {tab === "basic"
-                      ? "Basic"
-                      : tab === "lock"
-                        ? "Lock"
-                        : tab === "trap"
-                          ? "Trap"
-                          : tab === "scripts"
-                            ? "Scripts"
-                            : tab === "advanced"
-                              ? "Advanced"
-                              : tab === "description"
-                                ? "Description"
-                                : "Comments"}
-                  </button>
-                ))}
-              </nav>
+          <>
+              <SharedPropertyTabsNav
+                className="canvas-placeable-properties-tabs"
+                ariaLabel="placeable properties tabs"
+                tabs={PLACEABLE_PROPERTIES_TAB_OPTIONS}
+                activeTab={placeablePropertiesDialog.activeTab}
+                onSelectTab={setPlaceablePropertiesActiveTab}
+              />
 
               <section className="canvas-placeable-properties-shell">
-                <aside className="canvas-placeable-properties-preview-pane" aria-hidden="true">
-                  <div className="canvas-placeable-properties-preview">
-                    <span>{placeablePropertiesDialog.draft.resRef || "Preview"}</span>
-                  </div>
-                  <button type="button" disabled className="canvas-placeable-properties-preview-action">
-                    Inventory ...
-                  </button>
-                </aside>
+                <SharedObjectPreviewPane
+                  className="canvas-placeable-properties-preview-pane"
+                  previewClassName="canvas-placeable-properties-preview"
+                  previewText={placeablePropertiesDialog.draft.resRef}
+                  actionClassName="canvas-placeable-properties-preview-action"
+                />
 
                 <div className="canvas-placeable-properties-pane">
                   {placeablePropertiesDialog.activeTab === "basic" ? (
@@ -11210,478 +10784,121 @@ export function WorkspaceCanvasViewport({
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "lock" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.lockSettings.locked}
-                          onChange={(event) =>
-                            updatePlaceableLockDraftField("locked", event.target.checked)
-                          }
-                        />
-                        Locked
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.lockSettings.canRelock}
-                          onChange={(event) =>
-                            updatePlaceableLockDraftField("canRelock", event.target.checked)
-                          }
-                        />
-                        Can be relocked
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.lockSettings.autoRemoveKeyAfterUse}
-                          disabled={
-                            !placeablePropertiesDialog.draft.lockSettings.locked ||
-                            !placeablePropertiesDialog.draft.lockSettings.canRelock
-                          }
-                          onChange={(event) =>
-                            updatePlaceableLockDraftField(
-                              "autoRemoveKeyAfterUse",
-                              event.target.checked
-                            )
-                          }
-                        />
-                        Automatically remove key after use
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={
-                            placeablePropertiesDialog.draft.lockSettings.keyRequiredToUnlockOrLock
-                          }
-                          disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
-                          onChange={(event) =>
-                            updatePlaceableLockDraftField(
-                              "keyRequiredToUnlockOrLock",
-                              event.target.checked
-                            )
-                          }
-                        />
-                        Key required to unlock or lock
-                      </label>
-                      <div className="canvas-placeable-properties-dual-fields">
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Open Lock DC</span>
-                          <div className="canvas-placeable-properties-field-control is-narrow">
-                            <input
-                              type="number"
-                              step="1"
-                              disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
-                              value={placeablePropertiesDialog.draft.lockSettings.openLockDc}
-                              onChange={(event) =>
-                                updatePlaceableLockDraftField(
-                                  "openLockDc",
-                                  Number.parseFloat(event.target.value) || 0
-                                )
-                              }
-                            />
-                          </div>
-                        </label>
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Close Lock DC</span>
-                          <div className="canvas-placeable-properties-field-control is-narrow">
-                            <input
-                              type="number"
-                              step="1"
-                              disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
-                              value={placeablePropertiesDialog.draft.lockSettings.closeLockDc}
-                              onChange={(event) =>
-                                updatePlaceableLockDraftField(
-                                  "closeLockDc",
-                                  Number.parseFloat(event.target.value) || 0
-                                )
-                              }
-                            />
-                          </div>
-                        </label>
-                      </div>
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Key Tag</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <input
-                            type="text"
-                            disabled={!placeablePropertiesDialog.draft.lockSettings.locked}
-                            value={placeablePropertiesDialog.draft.lockSettings.keyTag}
-                            onChange={(event) =>
-                              updatePlaceableLockDraftField("keyTag", event.target.value)
-                            }
-                          />
-                        </div>
-                      </label>
-                    </fieldset>
+                    <SharedLockPropertySection
+                      value={placeablePropertiesDialog.draft.lockSettings}
+                      onChange={updatePlaceableLockDraftField}
+                      classNames={{
+                        root: "canvas-placeable-properties-group",
+                        toggle: "canvas-placeable-properties-toggle",
+                        dualFields: "canvas-placeable-properties-dual-fields",
+                        fieldRow: "canvas-placeable-properties-field-row",
+                        fieldControl: "canvas-placeable-properties-field-control",
+                        fieldControlNarrow: "is-narrow"
+                      }}
+                      behavior={{
+                        disableLockDetailsWhenUnlocked: true,
+                        disableAutoRemoveKeyUnlessLockedAndRelockable: true
+                      }}
+                    />
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "trap" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.trapSettings.isTrapped}
-                          onChange={(event) =>
-                            updatePlaceableTrapDraftField("isTrapped", event.target.checked)
-                          }
-                        />
-                        Is Trapped
-                      </label>
-                      <fieldset
-                        className="canvas-placeable-properties-group canvas-placeable-properties-nested"
-                        disabled={!placeablePropertiesDialog.draft.trapSettings.isTrapped}
-                      >
-                        <legend>Trap Settings</legend>
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Trap Type</span>
-                          <div className="canvas-placeable-properties-field-control">
-                            <select
-                              value={placeablePropertiesDialog.draft.trapSettings.trapType}
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField("trapType", event.target.value)
-                              }
-                            >
-                              {PLACEABLE_TRAP_TYPE_OPTIONS.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </label>
-                        <div className="canvas-placeable-properties-dual-fields">
-                          <label className="canvas-placeable-properties-field-row">
-                            <span>Detection DC</span>
-                            <div className="canvas-placeable-properties-field-control is-narrow">
-                              <input
-                                type="number"
-                                step="1"
-                                value={placeablePropertiesDialog.draft.trapSettings.detectionDc}
-                                onChange={(event) =>
-                                  updatePlaceableTrapDraftField(
-                                    "detectionDc",
-                                    Number.parseFloat(event.target.value) || 0
-                                  )
-                                }
-                              />
-                            </div>
-                          </label>
-                          <label className="canvas-placeable-properties-field-row">
-                            <span>Disarm DC</span>
-                            <div className="canvas-placeable-properties-field-control is-narrow">
-                              <input
-                                type="number"
-                                step="1"
-                                value={placeablePropertiesDialog.draft.trapSettings.disarmDc}
-                                onChange={(event) =>
-                                  updatePlaceableTrapDraftField(
-                                    "disarmDc",
-                                    Number.parseFloat(event.target.value) || 0
-                                  )
-                                }
-                              />
-                            </div>
-                          </label>
-                        </div>
-                        <div className="canvas-placeable-properties-toggle-grid">
-                          <label className="canvas-placeable-properties-toggle">
-                            <input
-                              type="checkbox"
-                              checked={placeablePropertiesDialog.draft.trapSettings.oneShot}
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField("oneShot", event.target.checked)
-                              }
-                            />
-                            One Shot
-                          </label>
-                          <label className="canvas-placeable-properties-toggle">
-                            <input
-                              type="checkbox"
-                              checked={placeablePropertiesDialog.draft.trapSettings.detectable}
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField("detectable", event.target.checked)
-                              }
-                            />
-                            Detectable
-                          </label>
-                          <label className="canvas-placeable-properties-toggle">
-                            <input
-                              type="checkbox"
-                              checked={placeablePropertiesDialog.draft.trapSettings.disarmable}
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField("disarmable", event.target.checked)
-                              }
-                            />
-                            Disarmable
-                          </label>
-                        </div>
-                        <div className="canvas-placeable-properties-script-row">
-                          <label htmlFor="placeable-trap-ondisarm">OnDisarm</label>
-                          <input
-                            id="placeable-trap-ondisarm"
-                            type="text"
-                            value={placeablePropertiesDialog.draft.trapSettings.onDisarmScript}
-                            onChange={(event) =>
-                              updatePlaceableTrapDraftField("onDisarmScript", event.target.value)
-                            }
-                          />
-                          <button type="button" disabled>
-                            ...
-                          </button>
-                          <button type="button" disabled>
-                            Edit
-                          </button>
-                        </div>
-                        <div className="canvas-placeable-properties-script-row">
-                          <label htmlFor="placeable-trap-ontriggered">OnTrapTriggered</label>
-                          <input
-                            id="placeable-trap-ontriggered"
-                            type="text"
-                            value={placeablePropertiesDialog.draft.trapSettings.onTrapTriggeredScript}
-                            onChange={(event) =>
-                              updatePlaceableTrapDraftField(
-                                "onTrapTriggeredScript",
-                                event.target.value
-                              )
-                            }
-                          />
-                          <button type="button" disabled>
-                            ...
-                          </button>
-                          <button type="button" disabled>
-                            Edit
-                          </button>
-                        </div>
-                        <div className="canvas-placeable-properties-dual-fields">
-                          <label className="canvas-placeable-properties-field-row">
-                            <span>Set DC</span>
-                            <div className="canvas-placeable-properties-field-control is-narrow">
-                              <input
-                                type="number"
-                                step="1"
-                                value={placeablePropertiesDialog.draft.trapSettings.setDc}
-                                onChange={(event) =>
-                                  updatePlaceableTrapDraftField(
-                                    "setDc",
-                                    Number.parseFloat(event.target.value) || 0
-                                  )
-                                }
-                              />
-                            </div>
-                          </label>
-                        </div>
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Detect DC Mod. when set by Rogue</span>
-                          <div className="canvas-placeable-properties-field-control is-narrow">
-                            <input
-                              type="number"
-                              step="1"
-                              value={
-                                placeablePropertiesDialog.draft.trapSettings.detectDcModWhenSetByRogue
-                              }
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField(
-                                  "detectDcModWhenSetByRogue",
-                                  Number.parseFloat(event.target.value) || 0
-                                )
-                              }
-                            />
-                          </div>
-                        </label>
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Disarm DC Mod. when set by Rogue</span>
-                          <div className="canvas-placeable-properties-field-control is-narrow">
-                            <input
-                              type="number"
-                              step="1"
-                              value={
-                                placeablePropertiesDialog.draft.trapSettings.disarmDcModWhenSetByRogue
-                              }
-                              onChange={(event) =>
-                                updatePlaceableTrapDraftField(
-                                  "disarmDcModWhenSetByRogue",
-                                  Number.parseFloat(event.target.value) || 0
-                                )
-                              }
-                            />
-                          </div>
-                        </label>
-                      </fieldset>
-                    </fieldset>
+                    <SharedTrapPropertySection
+                      value={placeablePropertiesDialog.draft.trapSettings}
+                      onChange={updatePlaceableTrapDraftField}
+                      trapTypeOptions={PLACEABLE_TRAP_TYPE_OPTIONS}
+                      classNames={{
+                        root: "canvas-placeable-properties-group",
+                        nested: "canvas-placeable-properties-group canvas-placeable-properties-nested",
+                        toggle: "canvas-placeable-properties-toggle",
+                        toggleGrid: "canvas-placeable-properties-toggle-grid",
+                        dualFields: "canvas-placeable-properties-dual-fields",
+                        fieldRow: "canvas-placeable-properties-field-row",
+                        fieldControl: "canvas-placeable-properties-field-control",
+                        fieldControlNarrow: "is-narrow",
+                        scriptRow: "canvas-placeable-properties-script-row"
+                      }}
+                      behavior={{
+                        disableTrapDetailsWhenUntrapped: true
+                      }}
+                      scriptActionButtons={{
+                        onDisarmScript: [{ label: "...", disabled: true }, { label: "Edit", disabled: true }],
+                        onTrapTriggeredScript: [{ label: "...", disabled: true }, { label: "Edit", disabled: true }]
+                      }}
+                    />
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "scripts" ? (
-                    <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-scripts">
-                      <label className="canvas-accessibility-hidden">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.scriptSlotsEnabled}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField(
-                              "scriptSlotsEnabled",
-                              event.target.checked
-                            )
-                          }
-                        />
-                        Enable script slots payload
-                      </label>
-                      {PLACEABLE_SCRIPT_SLOT_KEYS.map((slotKey) => (
-                        <div key={slotKey} className="canvas-placeable-properties-script-row">
-                          <label
-                            htmlFor={`placeable-script-${slotKey}`}
-                            className="canvas-placeable-properties-script-input-label"
-                          >
-                            {PLACEABLE_SCRIPT_SLOT_LABELS[slotKey]}
-                            <span className="canvas-accessibility-hidden"> Script</span>
-                          </label>
-                          <input
-                            id={`placeable-script-${slotKey}`}
-                            type="text"
-                            value={placeablePropertiesDialog.draft.scriptSlots[slotKey]}
-                            onChange={(event) =>
-                              updatePlaceableScriptSlotDraftField(slotKey, event.target.value)
-                            }
-                          />
-                          <button type="button" disabled>
-                            ...
-                          </button>
-                          <button type="button" disabled>
-                            Edit
-                          </button>
-                        </div>
-                      ))}
-                      <div className="canvas-placeable-properties-script-actions">
-                        <button type="button" disabled>
-                          Save Script Set
-                        </button>
-                        <button type="button" disabled>
-                          Load Script Set
-                        </button>
-                      </div>
-                    </fieldset>
+                    <SharedScriptSlotSection
+                      className="canvas-placeable-properties-group canvas-placeable-properties-scripts"
+                      rowClassName="canvas-placeable-properties-script-row"
+                      rowLabelClassName="canvas-placeable-properties-script-input-label"
+                      slots={PLACEABLE_SCRIPT_SLOT_KEYS}
+                      labels={PLACEABLE_SCRIPT_SLOT_LABELS}
+                      values={placeablePropertiesDialog.draft.scriptSlots}
+                      onChange={updatePlaceableScriptSlotDraftField}
+                      inputIdPrefix="placeable-script"
+                      hiddenLabelSuffix={<span className="canvas-accessibility-hidden"> Script</span>}
+                      showInlineActionButtons
+                      inlineBrowseDisabled
+                      inlineEditDisabled
+                      showSaveLoadActions
+                      saveLoadActionsClassName="canvas-placeable-properties-script-actions"
+                      saveDisabled
+                      loadDisabled
+                      enablePayloadToggle={{
+                        checked: placeablePropertiesDialog.draft.scriptSlotsEnabled,
+                        onChange: (checked) =>
+                          updatePlaceablePropertiesDraftField("scriptSlotsEnabled", checked),
+                        className: "canvas-accessibility-hidden",
+                        label: "Enable script slots payload"
+                      }}
+                    />
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "advanced" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Blueprint ResRef</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <input
-                            type="text"
-                            value={placeablePropertiesDialog.draft.advancedSettings.blueprintResRef}
-                            onChange={(event) =>
-                              updatePlaceableAdvancedDraftField("blueprintResRef", event.target.value)
-                            }
-                          />
-                        </div>
-                      </label>
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Belongs To Faction</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <select
-                            value={placeablePropertiesDialog.draft.advancedSettings.belongsToFaction}
-                            onChange={(event) =>
-                              updatePlaceableAdvancedDraftField("belongsToFaction", event.target.value)
-                            }
-                          >
-                            {PLACEABLE_FACTION_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </label>
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Conversation</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <input
-                            type="text"
-                            value={placeablePropertiesDialog.draft.advancedSettings.conversation}
-                            onChange={(event) =>
-                              updatePlaceableAdvancedDraftField("conversation", event.target.value)
-                            }
-                          />
-                          <button type="button" disabled aria-label="Browse conversation">
-                            ...
-                          </button>
-                          <button type="button" disabled aria-label="Edit conversation">
-                            Edit
-                          </button>
-                        </div>
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={placeablePropertiesDialog.draft.advancedSettings.noInterrupt}
-                          onChange={(event) =>
-                            updatePlaceableAdvancedDraftField("noInterrupt", event.target.checked)
-                          }
-                        />
-                        No Interrupt
-                      </label>
-                      <div className="canvas-placeable-properties-portrait-row">
-                        <div className="canvas-placeable-properties-portrait-preview" aria-hidden="true">
-                          <span>
-                            {placeablePropertiesDialog.draft.advancedSettings.portraitResRef || "Portrait"}
-                          </span>
-                        </div>
-                        <label className="canvas-placeable-properties-field-row">
-                          <span>Portrait</span>
-                          <div className="canvas-placeable-properties-field-control">
-                            <input
-                              type="text"
-                              value={placeablePropertiesDialog.draft.advancedSettings.portraitResRef}
-                              onChange={(event) =>
-                                updatePlaceableAdvancedDraftField("portraitResRef", event.target.value)
-                              }
-                            />
-                            <button type="button" disabled aria-label="Browse portrait">
-                              ...
-                            </button>
-                          </div>
-                        </label>
-                      </div>
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Initial State</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <select
-                            value={placeablePropertiesDialog.draft.advancedSettings.initialState}
-                            onChange={(event) =>
-                              updatePlaceableAdvancedDraftField("initialState", event.target.value)
-                            }
-                          >
-                            {PLACEABLE_INITIAL_STATE_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </label>
-                      <label className="canvas-placeable-properties-field-row">
-                        <span>Treasure Model</span>
-                        <div className="canvas-placeable-properties-field-control">
-                          <select
-                            value={placeablePropertiesDialog.draft.advancedSettings.treasureModel}
-                            onChange={(event) =>
-                              updatePlaceableAdvancedDraftField("treasureModel", event.target.value)
-                            }
-                          >
-                            {PLACEABLE_TREASURE_MODEL_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </label>
-                      <div className="canvas-placeable-properties-variables-row">
-                        <button type="button" disabled>
-                          Variables
-                        </button>
-                      </div>
+                    <SharedAdvancedSettingsSection
+                      sectionClassName="canvas-placeable-properties-group"
+                      fieldRowClassName="canvas-placeable-properties-field-row"
+                      fieldControlClassName="canvas-placeable-properties-field-control"
+                      toggleClassName="canvas-placeable-properties-toggle"
+                      portraitRowClassName="canvas-placeable-properties-portrait-row"
+                      portraitPreviewClassName="canvas-placeable-properties-portrait-preview"
+                      variablesRowClassName="canvas-placeable-properties-variables-row"
+                      blueprintResRef={placeablePropertiesDialog.draft.advancedSettings.blueprintResRef}
+                      onBlueprintResRefChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("blueprintResRef", nextValue)
+                      }
+                      belongsToFaction={placeablePropertiesDialog.draft.advancedSettings.belongsToFaction}
+                      factionOptions={PLACEABLE_FACTION_OPTIONS}
+                      onBelongsToFactionChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("belongsToFaction", nextValue)
+                      }
+                      conversation={placeablePropertiesDialog.draft.advancedSettings.conversation}
+                      onConversationChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("conversation", nextValue)
+                      }
+                      showConversationActions
+                      noInterrupt={placeablePropertiesDialog.draft.advancedSettings.noInterrupt}
+                      onNoInterruptChange={(checked) =>
+                        updatePlaceableAdvancedDraftField("noInterrupt", checked)
+                      }
+                      portraitResRef={placeablePropertiesDialog.draft.advancedSettings.portraitResRef}
+                      onPortraitResRefChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("portraitResRef", nextValue)
+                      }
+                      showPortraitBrowseAction
+                      initialState={placeablePropertiesDialog.draft.advancedSettings.initialState}
+                      initialStateOptions={PLACEABLE_INITIAL_STATE_OPTIONS}
+                      onInitialStateChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("initialState", nextValue)
+                      }
+                      treasureModel={placeablePropertiesDialog.draft.advancedSettings.treasureModel}
+                      treasureModelOptions={PLACEABLE_TREASURE_MODEL_OPTIONS}
+                      onTreasureModelChange={(nextValue) =>
+                        updatePlaceableAdvancedDraftField("treasureModel", nextValue)
+                      }
+                    >
                       <details className="canvas-placeable-properties-preserve-note">
                         <summary>Preserve-only payload flags</summary>
                         <label className="canvas-placeable-properties-toggle">
@@ -11736,129 +10953,87 @@ export function WorkspaceCanvasViewport({
                           </label>
                         </div>
                       </details>
-                    </fieldset>
+                    </SharedAdvancedSettingsSection>
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "description" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <label className="canvas-placeable-properties-fulltext">
-                        <span>Description</span>
-                        <textarea
-                          value={placeablePropertiesDialog.draft.description}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("description", event.target.value)
-                          }
-                        />
-                      </label>
-                    </fieldset>
+                    <SharedLongTextPropertySection
+                      sectionClassName="canvas-placeable-properties-group"
+                      labelClassName="canvas-placeable-properties-fulltext"
+                      label="Description"
+                      value={placeablePropertiesDialog.draft.description}
+                      onChange={(nextValue) =>
+                        updatePlaceablePropertiesDraftField("description", nextValue)
+                      }
+                    />
                   ) : null}
 
                   {placeablePropertiesDialog.activeTab === "comments" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <label className="canvas-placeable-properties-fulltext">
-                        <span>Comments</span>
-                        <textarea
-                          value={placeablePropertiesDialog.draft.comments}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("comments", event.target.value)
-                          }
-                        />
-                      </label>
-                    </fieldset>
+                    <SharedLongTextPropertySection
+                      sectionClassName="canvas-placeable-properties-group"
+                      labelClassName="canvas-placeable-properties-fulltext"
+                      label="Comments"
+                      value={placeablePropertiesDialog.draft.comments}
+                      onChange={(nextValue) =>
+                        updatePlaceablePropertiesDraftField("comments", nextValue)
+                      }
+                    />
                   ) : null}
                 </div>
               </section>
 
-              <footer className="canvas-placeable-properties-actions">
-                <button type="button" onClick={() => applyPlaceablePropertiesDraft(false)}>
-                  Apply
-                </button>
-                <button type="button" onClick={() => applyPlaceablePropertiesDraft(true)}>
-                  OK
-                </button>
-                <button type="button" onClick={() => cancelPlaceablePropertiesDialog()}>
-                  Cancel
-                </button>
-              </footer>
-            </>
-          ) : null}
-        </article>
+              <SharedDialogActionsFooter
+                className="canvas-placeable-properties-actions"
+                onApply={() => applyPlaceablePropertiesDraft(false)}
+                onOk={() => applyPlaceablePropertiesDraft(true)}
+                onCancel={() => cancelPlaceablePropertiesDialog()}
+              />
+          </>
+        </SharedPropertyDialogChrome>
       ) : null}
 
       {creaturePropertiesDialog ? (
-        <article
-          ref={creaturePropertiesDialogRef}
-          className={`canvas-placeable-properties-dialog canvas-creature-properties-dialog ${
-            creaturePropertiesDialog.collapsed ? "is-collapsed" : ""
-          }`}
-          role="dialog"
-          aria-label="Creature properties"
-          style={{
-            left: `${creaturePropertiesDialog.windowX}px`,
-            top: `${creaturePropertiesDialog.windowY}px`
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
+        <SharedPropertyDialogChrome
+          articleRef={creaturePropertiesDialogRef}
+          articleClassName="canvas-placeable-properties-dialog canvas-creature-properties-dialog"
+          ariaLabel="Creature properties"
+          windowX={creaturePropertiesDialog.windowX}
+          windowY={creaturePropertiesDialog.windowY}
+          headerClassName="canvas-placeable-properties-header"
+          headerCopyClassName="canvas-placeable-properties-header-copy"
+          headerActionsClassName="canvas-placeable-properties-header-actions"
+          title="Creature Properties"
+          subtitle={creaturePropertiesDialog.draft.tag || creaturePropertiesDialog.objectId}
+          collapsed={creaturePropertiesDialog.collapsed}
+          collapseLabel="Collapse creature properties dialog"
+          expandLabel="Expand creature properties dialog"
+          closeLabel="Close creature properties dialog"
+          onToggleCollapsed={toggleCreaturePropertiesDialogCollapsed}
+          onClose={cancelCreaturePropertiesDialog}
+          onArticleMouseDown={(event) => event.stopPropagation()}
+          onArticleContextMenu={(event) => event.preventDefault()}
+          onHeaderPointerDown={startCreaturePropertiesDialogDrag}
+          onHeaderPointerMove={moveCreaturePropertiesDialogDrag}
+          onHeaderPointerUp={endCreaturePropertiesDialogDrag}
+          onHeaderPointerCancel={cancelCreaturePropertiesDialogDrag}
         >
-          <header
-            className="canvas-placeable-properties-header"
-            onPointerDown={startCreaturePropertiesDialogDrag}
-            onPointerMove={moveCreaturePropertiesDialogDrag}
-            onPointerUp={endCreaturePropertiesDialogDrag}
-            onPointerCancel={endCreaturePropertiesDialogDrag}
-          >
-            <div className="canvas-placeable-properties-header-copy">
-              <h2>Creature Properties</h2>
-              <p>{creaturePropertiesDialog.draft.tag || creaturePropertiesDialog.objectId}</p>
-            </div>
-            <div className="canvas-placeable-properties-header-actions">
-              <button
-                type="button"
-                onClick={() => toggleCreaturePropertiesDialogCollapsed()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label={
-                  creaturePropertiesDialog.collapsed
-                    ? "Expand creature properties dialog"
-                    : "Collapse creature properties dialog"
-                }
-              >
-                {creaturePropertiesDialog.collapsed ? "+" : "-"}
-              </button>
-              <button
-                type="button"
-                onClick={() => cancelCreaturePropertiesDialog()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label="Close creature properties dialog"
-              >
-                x
-              </button>
-            </div>
-          </header>
-
-          {!creaturePropertiesDialog.collapsed ? (
-            <>
-              <nav className="canvas-placeable-properties-tabs" aria-label="creature properties tabs">
-                {CREATURE_PROPERTIES_TABS.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={creaturePropertiesDialog.activeTab === tab ? "is-active" : undefined}
-                    onClick={() => setCreaturePropertiesActiveTab(tab)}
-                  >
-                    {resolveCreaturePropertiesTabLabel(tab)}
-                  </button>
-                ))}
-              </nav>
+          <>
+              <SharedPropertyTabsNav
+                className="canvas-placeable-properties-tabs"
+                ariaLabel="creature properties tabs"
+                tabs={CREATURE_PROPERTIES_TAB_OPTIONS}
+                activeTab={creaturePropertiesDialog.activeTab}
+                onSelectTab={setCreaturePropertiesActiveTab}
+              />
 
               <section className="canvas-placeable-properties-shell">
-                <aside className="canvas-placeable-properties-preview-pane" aria-hidden="true">
-                  <div className="canvas-placeable-properties-preview">
-                    <span>{creaturePropertiesDialog.draft.appearance || "Creature Preview"}</span>
-                  </div>
-                  <button type="button" disabled className="canvas-placeable-properties-preview-action">
-                    Inventory ...
-                  </button>
-                </aside>
+                <SharedObjectPreviewPane
+                  className="canvas-placeable-properties-preview-pane"
+                  previewClassName="canvas-placeable-properties-preview"
+                  previewText={creaturePropertiesDialog.draft.appearance}
+                  previewFallback="Creature Preview"
+                  actionClassName="canvas-placeable-properties-preview-action"
+                />
 
                 <div className="canvas-placeable-properties-pane">
                   {creaturePropertiesDialog.activeTab === "basic" ? (
@@ -12550,27 +11725,20 @@ export function WorkspaceCanvasViewport({
                   ) : null}
 
                   {creaturePropertiesDialog.activeTab === "scripts" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <legend>Scripts</legend>
-                      {CREATURE_SCRIPT_SLOT_KEYS.map((slotKey) => (
-                        <label key={slotKey} className="canvas-placeable-properties-field-row">
-                          <span>{CREATURE_SCRIPT_SLOT_LABELS[slotKey]}</span>
-                          <div className="canvas-placeable-properties-field-control">
-                            <input
-                              type="text"
-                              value={creaturePropertiesDialog.draft.scriptSlots[slotKey]}
-                              onChange={(event) => updateCreatureScriptSlot(slotKey, event.target.value)}
-                            />
-                            <button type="button" disabled aria-label={`Browse ${slotKey} script`}>
-                              ...
-                            </button>
-                            <button type="button" disabled aria-label={`Edit ${slotKey} script`}>
-                              Edit
-                            </button>
-                          </div>
-                        </label>
-                      ))}
-                    </fieldset>
+                    <SharedScriptSlotSection
+                      className="canvas-placeable-properties-group"
+                      legend="Scripts"
+                      slots={CREATURE_SCRIPT_SLOT_KEYS}
+                      labels={CREATURE_SCRIPT_SLOT_LABELS}
+                      values={creaturePropertiesDialog.draft.scriptSlots}
+                      onChange={updateCreatureScriptSlot}
+                      inputIdPrefix="creature-script"
+                      rowClassName="canvas-placeable-properties-field-row"
+                      rowControlClassName="canvas-placeable-properties-field-control"
+                      showInlineActionButtons
+                      inlineBrowseDisabled
+                      inlineEditDisabled
+                    />
                   ) : null}
 
                   {creaturePropertiesDialog.activeTab === "advanced" ? (
@@ -13050,100 +12218,63 @@ export function WorkspaceCanvasViewport({
                   ) : null}
 
                   {creaturePropertiesDialog.activeTab === "comments" ? (
-                    <fieldset className="canvas-placeable-properties-group">
-                      <legend>Comments</legend>
-                      <textarea
-                        rows={10}
-                        value={creaturePropertiesDialog.draft.comments}
-                        onChange={(event) =>
-                          updateCreaturePropertiesDraftField("comments", event.target.value)
-                        }
-                      />
-                    </fieldset>
+                    <SharedLongTextPropertySection
+                      sectionClassName="canvas-placeable-properties-group"
+                      legend="Comments"
+                      label="Comments"
+                      value={creaturePropertiesDialog.draft.comments}
+                      onChange={(nextValue) =>
+                        updateCreaturePropertiesDraftField("comments", nextValue)
+                      }
+                      rows={10}
+                    />
                   ) : null}
                 </div>
               </section>
 
-              <footer className="canvas-placeable-properties-actions">
-                <button type="button" onClick={() => applyCreaturePropertiesDraft(false)}>
-                  Apply
-                </button>
-                <button type="button" onClick={() => applyCreaturePropertiesDraft(true)}>
-                  OK
-                </button>
-                <button type="button" onClick={() => cancelCreaturePropertiesDialog()}>
-                  Cancel
-                </button>
-              </footer>
-            </>
-          ) : null}
-        </article>
+              <SharedDialogActionsFooter
+                className="canvas-placeable-properties-actions"
+                onApply={() => applyCreaturePropertiesDraft(false)}
+                onOk={() => applyCreaturePropertiesDraft(true)}
+                onCancel={() => cancelCreaturePropertiesDialog()}
+              />
+          </>
+        </SharedPropertyDialogChrome>
       ) : null}
 
       {soundPropertiesDialog ? (
-        <article
-          ref={soundPropertiesDialogRef}
-          className={`canvas-sound-properties-dialog ${
-            soundPropertiesDialog.collapsed ? "is-collapsed" : ""
-          }`}
-          role="dialog"
-          aria-label="Sound properties"
-          style={{
-            left: `${soundPropertiesDialog.windowX}px`,
-            top: `${soundPropertiesDialog.windowY}px`
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
+        <SharedPropertyDialogChrome
+          articleRef={soundPropertiesDialogRef}
+          articleClassName="canvas-sound-properties-dialog"
+          ariaLabel="Sound properties"
+          windowX={soundPropertiesDialog.windowX}
+          windowY={soundPropertiesDialog.windowY}
+          headerClassName="canvas-sound-properties-header"
+          headerCopyClassName="canvas-sound-properties-header-copy"
+          headerActionsClassName="canvas-sound-properties-header-actions"
+          title="Sound Properties"
+          subtitle={soundPropertiesDialog.draft.tag || soundPropertiesDialog.objectId}
+          collapsed={soundPropertiesDialog.collapsed}
+          collapseLabel="Collapse sound properties dialog"
+          expandLabel="Expand sound properties dialog"
+          closeLabel="Close sound properties dialog"
+          onToggleCollapsed={toggleSoundPropertiesDialogCollapsed}
+          onClose={cancelSoundPropertiesDialog}
+          onArticleMouseDown={(event) => event.stopPropagation()}
+          onArticleContextMenu={(event) => event.preventDefault()}
+          onHeaderPointerDown={startSoundPropertiesDialogDrag}
+          onHeaderPointerMove={moveSoundPropertiesDialogDrag}
+          onHeaderPointerUp={endSoundPropertiesDialogDrag}
+          onHeaderPointerCancel={cancelSoundPropertiesDialogDrag}
         >
-          <header
-            className="canvas-sound-properties-header"
-            onPointerDown={startSoundPropertiesDialogDrag}
-            onPointerMove={moveSoundPropertiesDialogDrag}
-            onPointerUp={endSoundPropertiesDialogDrag}
-            onPointerCancel={endSoundPropertiesDialogDrag}
-          >
-            <div className="canvas-sound-properties-header-copy">
-              <h2>Sound Properties</h2>
-              <p>{soundPropertiesDialog.draft.tag || soundPropertiesDialog.objectId}</p>
-            </div>
-            <div className="canvas-sound-properties-header-actions">
-              <button
-                type="button"
-                onClick={() => toggleSoundPropertiesDialogCollapsed()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label={
-                  soundPropertiesDialog.collapsed
-                    ? "Expand sound properties dialog"
-                    : "Collapse sound properties dialog"
-                }
-              >
-                {soundPropertiesDialog.collapsed ? "+" : "-"}
-              </button>
-              <button
-                type="button"
-                onClick={() => cancelSoundPropertiesDialog()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label="Close sound properties dialog"
-              >
-                x
-              </button>
-            </div>
-          </header>
-
-          {!soundPropertiesDialog.collapsed ? (
-            <>
-              <nav className="canvas-sound-properties-tabs" aria-label="sound properties tabs">
-                {(["basic", "positioning", "advanced"] as SoundPropertiesTab[]).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={soundPropertiesDialog.activeTab === tab ? "is-active" : undefined}
-                    onClick={() => setSoundPropertiesActiveTab(tab)}
-                  >
-                    {tab === "basic" ? "Basic" : tab === "positioning" ? "Positioning" : "Advanced"}
-                  </button>
-                ))}
-              </nav>
+          <>
+              <SharedPropertyTabsNav
+                className="canvas-sound-properties-tabs"
+                ariaLabel="sound properties tabs"
+                tabs={SOUND_PROPERTIES_TAB_OPTIONS}
+                activeTab={soundPropertiesDialog.activeTab}
+                onSelectTab={setSoundPropertiesActiveTab}
+              />
 
               {soundPropertiesDialog.activeTab === "basic" ? (
                 <section className="canvas-sound-properties-shell canvas-sound-properties-basic-shell">
@@ -13662,97 +12793,49 @@ export function WorkspaceCanvasViewport({
                 </section>
               ) : null}
 
-              <footer className="canvas-sound-properties-actions">
-                <button type="button" onClick={() => applySoundPropertiesDraft(false)}>
-                  Apply
-                </button>
-                <button type="button" onClick={() => applySoundPropertiesDraft(true)}>
-                  OK
-                </button>
-                <button type="button" onClick={() => cancelSoundPropertiesDialog()}>
-                  Cancel
-                </button>
-              </footer>
-            </>
-          ) : null}
-        </article>
+              <SharedDialogActionsFooter
+                className="canvas-sound-properties-actions"
+                onApply={() => applySoundPropertiesDraft(false)}
+                onOk={() => applySoundPropertiesDraft(true)}
+                onCancel={() => cancelSoundPropertiesDialog()}
+              />
+          </>
+        </SharedPropertyDialogChrome>
       ) : null}
 
       {doorPropertiesDialog ? (
-        <article
-          ref={doorPropertiesDialogRef}
-          className={`canvas-door-properties-dialog ${
-            doorPropertiesDialog.collapsed ? "is-collapsed" : ""
-          }`}
-          role="dialog"
-          aria-label="Door properties"
-          style={{
-            left: `${doorPropertiesDialog.windowX}px`,
-            top: `${doorPropertiesDialog.windowY}px`
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
+        <SharedPropertyDialogChrome
+          articleRef={doorPropertiesDialogRef}
+          articleClassName="canvas-door-properties-dialog"
+          ariaLabel="Door properties"
+          windowX={doorPropertiesDialog.windowX}
+          windowY={doorPropertiesDialog.windowY}
+          headerClassName="canvas-door-properties-header"
+          headerCopyClassName="canvas-door-properties-header-copy"
+          headerActionsClassName="canvas-door-properties-header-actions"
+          title="Door Properties"
+          subtitle={doorPropertiesDialog.draft.tag || doorPropertiesDialog.objectId}
+          collapsed={doorPropertiesDialog.collapsed}
+          collapseLabel="Collapse door properties dialog"
+          expandLabel="Expand door properties dialog"
+          closeLabel="Close door properties dialog"
+          onToggleCollapsed={toggleDoorPropertiesDialogCollapsed}
+          onClose={cancelDoorPropertiesDialog}
+          onArticleMouseDown={(event) => event.stopPropagation()}
+          onArticleContextMenu={(event) => event.preventDefault()}
+          onHeaderPointerDown={startDoorPropertiesDialogDrag}
+          onHeaderPointerMove={moveDoorPropertiesDialogDrag}
+          onHeaderPointerUp={endDoorPropertiesDialogDrag}
+          onHeaderPointerCancel={cancelDoorPropertiesDialogDrag}
         >
-          <header
-            className="canvas-door-properties-header"
-            onPointerDown={startDoorPropertiesDialogDrag}
-            onPointerMove={moveDoorPropertiesDialogDrag}
-            onPointerUp={endDoorPropertiesDialogDrag}
-            onPointerCancel={endDoorPropertiesDialogDrag}
-          >
-            <div className="canvas-door-properties-header-copy">
-              <h2>Door Properties</h2>
-              <p>{doorPropertiesDialog.draft.tag || doorPropertiesDialog.objectId}</p>
-            </div>
-            <div className="canvas-door-properties-header-actions">
-              <button
-                type="button"
-                onClick={() => toggleDoorPropertiesDialogCollapsed()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label={
-                  doorPropertiesDialog.collapsed
-                    ? "Expand door properties dialog"
-                    : "Collapse door properties dialog"
-                }
-              >
-                {doorPropertiesDialog.collapsed ? "+" : "-"}
-              </button>
-              <button
-                type="button"
-                onClick={() => cancelDoorPropertiesDialog()}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label="Close door properties dialog"
-              >
-                x
-              </button>
-            </div>
-          </header>
-
-          {!doorPropertiesDialog.collapsed ? (
-            <>
-              <nav className="canvas-door-properties-tabs" aria-label="door properties tabs">
-                {(
-                  [
-                    ["basic", "Basic"],
-                    ["lock", "Lock"],
-                    ["trap", "Trap"],
-                    ["areaTransition", "Area Transition"],
-                    ["scripts", "Scripts"],
-                    ["advanced", "Advanced"],
-                    ["description", "Description"],
-                    ["comments", "Comments"]
-                  ] as Array<[DoorPropertiesTab, string]>
-                ).map(([tab, label]) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={doorPropertiesDialog.activeTab === tab ? "is-active" : undefined}
-                    onClick={() => setDoorPropertiesActiveTab(tab)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </nav>
+          <>
+              <SharedPropertyTabsNav
+                className="canvas-door-properties-tabs"
+                ariaLabel="door properties tabs"
+                tabs={DOOR_PROPERTIES_TAB_OPTIONS}
+                activeTab={doorPropertiesDialog.activeTab}
+                onSelectTab={setDoorPropertiesActiveTab}
+              />
 
               {doorPropertiesDialog.activeTab === "basic" ? (
                 <section className="canvas-door-properties-shell">
@@ -13894,247 +12977,31 @@ export function WorkspaceCanvasViewport({
 
               {doorPropertiesDialog.activeTab === "lock" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Lock</legend>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.lockSettings.locked}
-                        onChange={(event) =>
-                          updateDoorLockDraftField("locked", event.target.checked)
-                        }
-                      />
-                      Locked
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.lockSettings.canRelock}
-                        onChange={(event) =>
-                          updateDoorLockDraftField("canRelock", event.target.checked)
-                        }
-                      />
-                      Can be relocked
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.lockSettings.autoRemoveKeyAfterUse}
-                        onChange={(event) =>
-                          updateDoorLockDraftField("autoRemoveKeyAfterUse", event.target.checked)
-                        }
-                      />
-                      Automatically remove key after use
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.lockSettings.keyRequiredToUnlockOrLock}
-                        onChange={(event) =>
-                          updateDoorLockDraftField(
-                            "keyRequiredToUnlockOrLock",
-                            event.target.checked
-                          )
-                        }
-                      />
-                      Key required to unlock or lock
-                    </label>
-                    <label>
-                      Open Lock DC
-                      <input
-                        type="number"
-                        step="1"
-                        value={doorPropertiesDialog.draft.lockSettings.openLockDc}
-                        onChange={(event) =>
-                          updateDoorLockDraftField(
-                            "openLockDc",
-                            Math.max(0, Number.parseFloat(event.target.value) || 0)
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      Close Lock DC
-                      <input
-                        type="number"
-                        step="1"
-                        value={doorPropertiesDialog.draft.lockSettings.closeLockDc}
-                        onChange={(event) =>
-                          updateDoorLockDraftField(
-                            "closeLockDc",
-                            Math.max(0, Number.parseFloat(event.target.value) || 0)
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      Key Tag
-                      <input
-                        type="text"
-                        value={doorPropertiesDialog.draft.lockSettings.keyTag}
-                        onChange={(event) => updateDoorLockDraftField("keyTag", event.target.value)}
-                      />
-                    </label>
-                  </fieldset>
+                  <SharedLockPropertySection
+                    value={doorPropertiesDialog.draft.lockSettings}
+                    onChange={updateDoorLockDraftField}
+                    legend="Lock"
+                    classNames={{
+                      root: "canvas-door-properties-group",
+                      toggle: "canvas-placeable-properties-toggle"
+                    }}
+                  />
                 </section>
               ) : null}
 
               {doorPropertiesDialog.activeTab === "trap" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Trap</legend>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.trapSettings.isTrapped}
-                        onChange={(event) =>
-                          updateDoorTrapDraftField("isTrapped", event.target.checked)
-                        }
-                      />
-                      Is Trapped
-                    </label>
-                    <fieldset
-                      className="canvas-door-properties-group"
-                      disabled={!doorPropertiesDialog.draft.trapSettings.isTrapped}
-                    >
-                      <legend>Trap Settings</legend>
-                      <label>
-                        Trap Type
-                        <select
-                          value={doorPropertiesDialog.draft.trapSettings.trapType}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("trapType", event.target.value)
-                          }
-                        >
-                          {PLACEABLE_TRAP_TYPE_OPTIONS.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Detection DC
-                        <input
-                          type="number"
-                          step="1"
-                          value={doorPropertiesDialog.draft.trapSettings.detectionDc}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField(
-                              "detectionDc",
-                              Math.max(0, Number.parseFloat(event.target.value) || 0)
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Disarm DC
-                        <input
-                          type="number"
-                          step="1"
-                          value={doorPropertiesDialog.draft.trapSettings.disarmDc}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField(
-                              "disarmDc",
-                              Math.max(0, Number.parseFloat(event.target.value) || 0)
-                            )
-                          }
-                        />
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={doorPropertiesDialog.draft.trapSettings.oneShot}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("oneShot", event.target.checked)
-                          }
-                        />
-                        One Shot
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={doorPropertiesDialog.draft.trapSettings.detectable}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("detectable", event.target.checked)
-                          }
-                        />
-                        Detectable
-                      </label>
-                      <label className="canvas-placeable-properties-toggle">
-                        <input
-                          type="checkbox"
-                          checked={doorPropertiesDialog.draft.trapSettings.disarmable}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("disarmable", event.target.checked)
-                          }
-                        />
-                        Disarmable
-                      </label>
-                      <label>
-                        OnDisarm
-                        <input
-                          type="text"
-                          value={doorPropertiesDialog.draft.trapSettings.onDisarmScript}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("onDisarmScript", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        OnTrapTriggered
-                        <input
-                          type="text"
-                          value={doorPropertiesDialog.draft.trapSettings.onTrapTriggeredScript}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField("onTrapTriggeredScript", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        Set DC
-                        <input
-                          type="number"
-                          step="1"
-                          value={doorPropertiesDialog.draft.trapSettings.setDc}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField(
-                              "setDc",
-                              Math.max(0, Number.parseFloat(event.target.value) || 0)
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Detect DC Mod. when set by Rogue
-                        <input
-                          type="number"
-                          step="1"
-                          value={doorPropertiesDialog.draft.trapSettings.detectDcModWhenSetByRogue}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField(
-                              "detectDcModWhenSetByRogue",
-                              Math.max(0, Number.parseFloat(event.target.value) || 0)
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        Disarm DC Mod. when set by Rogue
-                        <input
-                          type="number"
-                          step="1"
-                          value={doorPropertiesDialog.draft.trapSettings.disarmDcModWhenSetByRogue}
-                          onChange={(event) =>
-                            updateDoorTrapDraftField(
-                              "disarmDcModWhenSetByRogue",
-                              Math.max(0, Number.parseFloat(event.target.value) || 0)
-                            )
-                          }
-                        />
-                      </label>
-                    </fieldset>
-                  </fieldset>
+                  <SharedTrapPropertySection
+                    value={doorPropertiesDialog.draft.trapSettings}
+                    onChange={updateDoorTrapDraftField}
+                    trapTypeOptions={PLACEABLE_TRAP_TYPE_OPTIONS}
+                    legend="Trap"
+                    classNames={{
+                      root: "canvas-door-properties-group",
+                      nested: "canvas-door-properties-group",
+                      toggle: "canvas-placeable-properties-toggle"
+                    }}
+                  />
                 </section>
               ) : null}
 
@@ -14248,165 +13115,95 @@ export function WorkspaceCanvasViewport({
 
               {doorPropertiesDialog.activeTab === "scripts" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Scripts</legend>
-                    {DOOR_SCRIPT_SLOT_KEYS.map((slotKey) => (
-                      <label key={slotKey}>
-                        {DOOR_SCRIPT_SLOT_LABELS[slotKey]}
-                        <input
-                          type="text"
-                          value={doorPropertiesDialog.draft.scriptSlots[slotKey]}
-                          onChange={(event) =>
-                            updateDoorScriptSlotDraftField(slotKey, event.target.value)
-                          }
-                        />
-                      </label>
-                    ))}
-                    <div className="canvas-placeable-properties-script-actions">
-                      <button type="button" disabled>
-                        Save Script Set
-                      </button>
-                      <button type="button" disabled>
-                        Load Script Set
-                      </button>
-                    </div>
-                  </fieldset>
+                  <SharedScriptSlotSection
+                    className="canvas-door-properties-group"
+                    slots={DOOR_SCRIPT_SLOT_KEYS}
+                    labels={DOOR_SCRIPT_SLOT_LABELS}
+                    values={doorPropertiesDialog.draft.scriptSlots}
+                    onChange={updateDoorScriptSlotDraftField}
+                    inputIdPrefix="door-script"
+                    legend="Scripts"
+                    showSaveLoadActions
+                    saveLoadActionsClassName="canvas-placeable-properties-script-actions"
+                    saveDisabled
+                    loadDisabled
+                  />
                 </section>
               ) : null}
 
               {doorPropertiesDialog.activeTab === "advanced" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Advanced</legend>
-                    <label>
-                      Blueprint ResRef
-                      <input
-                        type="text"
-                        value={doorPropertiesDialog.draft.advancedSettings.blueprintResRef}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("blueprintResRef", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Belongs To Faction
-                      <select
-                        value={doorPropertiesDialog.draft.advancedSettings.belongsToFaction}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("belongsToFaction", event.target.value)
-                        }
-                      >
-                        {PLACEABLE_FACTION_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Conversation
-                      <input
-                        type="text"
-                        value={doorPropertiesDialog.draft.advancedSettings.conversation}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("conversation", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label className="canvas-placeable-properties-toggle">
-                      <input
-                        type="checkbox"
-                        checked={doorPropertiesDialog.draft.advancedSettings.noInterrupt}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("noInterrupt", event.target.checked)
-                        }
-                      />
-                      No Interrupt
-                    </label>
-                    <label>
-                      Portrait
-                      <input
-                        type="text"
-                        value={doorPropertiesDialog.draft.advancedSettings.portraitResRef}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("portraitResRef", event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Initial State
-                      <select
-                        value={doorPropertiesDialog.draft.advancedSettings.initialState}
-                        onChange={(event) =>
-                          updateDoorAdvancedDraftField("initialState", event.target.value)
-                        }
-                      >
-                        {DOOR_INITIAL_STATE_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="canvas-placeable-properties-variables-row">
-                      <button type="button" disabled>
-                        Variables
-                      </button>
-                    </div>
-                  </fieldset>
+                  <SharedAdvancedSettingsSection
+                    sectionClassName="canvas-door-properties-group"
+                    toggleClassName="canvas-placeable-properties-toggle"
+                    variablesRowClassName="canvas-placeable-properties-variables-row"
+                    blueprintResRef={doorPropertiesDialog.draft.advancedSettings.blueprintResRef}
+                    onBlueprintResRefChange={(nextValue) =>
+                      updateDoorAdvancedDraftField("blueprintResRef", nextValue)
+                    }
+                    belongsToFaction={doorPropertiesDialog.draft.advancedSettings.belongsToFaction}
+                    factionOptions={PLACEABLE_FACTION_OPTIONS}
+                    onBelongsToFactionChange={(nextValue) =>
+                      updateDoorAdvancedDraftField("belongsToFaction", nextValue)
+                    }
+                    conversation={doorPropertiesDialog.draft.advancedSettings.conversation}
+                    onConversationChange={(nextValue) =>
+                      updateDoorAdvancedDraftField("conversation", nextValue)
+                    }
+                    noInterrupt={doorPropertiesDialog.draft.advancedSettings.noInterrupt}
+                    onNoInterruptChange={(checked) =>
+                      updateDoorAdvancedDraftField("noInterrupt", checked)
+                    }
+                    portraitResRef={doorPropertiesDialog.draft.advancedSettings.portraitResRef}
+                    showPortraitPreview={false}
+                    onPortraitResRefChange={(nextValue) =>
+                      updateDoorAdvancedDraftField("portraitResRef", nextValue)
+                    }
+                    initialState={doorPropertiesDialog.draft.advancedSettings.initialState}
+                    initialStateOptions={DOOR_INITIAL_STATE_OPTIONS}
+                    onInitialStateChange={(nextValue) =>
+                      updateDoorAdvancedDraftField("initialState", nextValue)
+                    }
+                  />
                 </section>
               ) : null}
 
               {doorPropertiesDialog.activeTab === "description" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Description</legend>
-                    <label>
-                      Description
-                      <textarea
-                        value={doorPropertiesDialog.draft.description}
-                        onChange={(event) =>
-                          updateDoorPropertiesDraftField("description", event.target.value)
-                        }
-                        rows={9}
-                      />
-                    </label>
-                  </fieldset>
+                  <SharedLongTextPropertySection
+                    sectionClassName="canvas-door-properties-group"
+                    legend="Description"
+                    label="Description"
+                    value={doorPropertiesDialog.draft.description}
+                    onChange={(nextValue) =>
+                      updateDoorPropertiesDraftField("description", nextValue)
+                    }
+                    rows={9}
+                  />
                 </section>
               ) : null}
 
               {doorPropertiesDialog.activeTab === "comments" ? (
                 <section className="canvas-door-properties-shell">
-                  <fieldset className="canvas-door-properties-group">
-                    <legend>Comments</legend>
-                    <label>
-                      Comments
-                      <textarea
-                        value={doorPropertiesDialog.draft.comments}
-                        onChange={(event) =>
-                          updateDoorPropertiesDraftField("comments", event.target.value)
-                        }
-                        rows={9}
-                      />
-                    </label>
-                  </fieldset>
+                  <SharedLongTextPropertySection
+                    sectionClassName="canvas-door-properties-group"
+                    legend="Comments"
+                    label="Comments"
+                    value={doorPropertiesDialog.draft.comments}
+                    onChange={(nextValue) => updateDoorPropertiesDraftField("comments", nextValue)}
+                    rows={9}
+                  />
                 </section>
               ) : null}
 
-              <footer className="canvas-door-properties-actions">
-                <button type="button" onClick={() => applyDoorPropertiesDraft(false)}>
-                  Apply
-                </button>
-                <button type="button" onClick={() => applyDoorPropertiesDraft(true)}>
-                  OK
-                </button>
-                <button type="button" onClick={() => cancelDoorPropertiesDialog()}>
-                  Cancel
-                </button>
-              </footer>
-            </>
-          ) : null}
-        </article>
+              <SharedDialogActionsFooter
+                className="canvas-door-properties-actions"
+                onApply={() => applyDoorPropertiesDraft(false)}
+                onOk={() => applyDoorPropertiesDraft(true)}
+                onCancel={() => cancelDoorPropertiesDialog()}
+              />
+          </>
+        </SharedPropertyDialogChrome>
       ) : null}
 
       {toolbarState.canvasDebug.runtimeHud ? (
