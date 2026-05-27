@@ -1,0 +1,11 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testRegex": "test/.*\\.e2e-spec\\.ts$",
+  "modulePathIgnorePatterns": ["<rootDir>/.stryker-tmp"],
+  "testPathIgnorePatterns": ["<rootDir>/.stryker-tmp"],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "testEnvironment": "node"
+}

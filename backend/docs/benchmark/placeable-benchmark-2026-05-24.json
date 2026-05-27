@@ -1,0 +1,190 @@
+{
+  "generatedAt": "2026-05-24T13:47:19.285Z",
+  "templateIds": [
+    "plc_bench_c_wingsmeph_001",
+    "plc_bench_ad_top_lion_1_001",
+    "plc_bench_plc_x02_001",
+    "plc_bench_tn_sdoor_14_001",
+    "plc_bench_tn_gdoor_05_001"
+  ],
+  "cold": {
+    "datasetFingerprint": "8d7fbb84010f974b1db82291154f0911a59f32165dc75def7574812ecb9a8e42",
+    "config": {
+      "iterations": 200,
+      "warmupIterations": 20,
+      "bypassCache": true,
+      "candidates": 5
+    },
+    "timing": {
+      "startedAt": "2026-05-24T13:47:19.253Z",
+      "finishedAt": "2026-05-24T13:47:19.270Z"
+    },
+    "metrics": {
+      "overall": {
+        "minMs": 0.0098,
+        "maxMs": 0.2248,
+        "avgMs": 0.0141,
+        "p50Ms": 0.0113,
+        "p95Ms": 0.0218,
+        "p99Ms": 0.0729
+      },
+      "perCandidate": [
+        {
+          "templateId": "plc_bench_c_wingsmeph_001",
+          "resref": "c_wingsmeph",
+          "placeableSubtype": "generic",
+          "metrics": {
+            "minMs": 0.0108,
+            "maxMs": 0.0619,
+            "avgMs": 0.013,
+            "p50Ms": 0.0117,
+            "p95Ms": 0.0191,
+            "p99Ms": 0.0316
+          }
+        },
+        {
+          "templateId": "plc_bench_ad_top_lion_1_001",
+          "resref": "ad_top_lion_1",
+          "placeableSubtype": "vfx",
+          "metrics": {
+            "minMs": 0.0105,
+            "maxMs": 0.0304,
+            "avgMs": 0.0119,
+            "p50Ms": 0.0114,
+            "p95Ms": 0.0147,
+            "p99Ms": 0.0197
+          }
+        },
+        {
+          "templateId": "plc_bench_plc_x02_001",
+          "resref": "plc_x02",
+          "placeableSubtype": "vfx",
+          "metrics": {
+            "minMs": 0.0098,
+            "maxMs": 0.0422,
+            "avgMs": 0.0119,
+            "p50Ms": 0.011,
+            "p95Ms": 0.0175,
+            "p99Ms": 0.0289
+          }
+        },
+        {
+          "templateId": "plc_bench_tn_sdoor_14_001",
+          "resref": "tn_sdoor_14",
+          "placeableSubtype": "door",
+          "metrics": {
+            "minMs": 0.0104,
+            "maxMs": 0.2035,
+            "avgMs": 0.0147,
+            "p50Ms": 0.0111,
+            "p95Ms": 0.0251,
+            "p99Ms": 0.0963
+          }
+        },
+        {
+          "templateId": "plc_bench_tn_gdoor_05_001",
+          "resref": "tn_gdoor_05",
+          "placeableSubtype": "door",
+          "metrics": {
+            "minMs": 0.0105,
+            "maxMs": 0.2248,
+            "avgMs": 0.019,
+            "p50Ms": 0.0114,
+            "p95Ms": 0.0648,
+            "p99Ms": 0.1314
+          }
+        }
+      ]
+    }
+  },
+  "warm": {
+    "datasetFingerprint": "14428ff746fb20ad8a72d211ecaf85b083e89e204053507594eec5b9c22b6daf",
+    "config": {
+      "iterations": 200,
+      "warmupIterations": 20,
+      "bypassCache": false,
+      "candidates": 5
+    },
+    "timing": {
+      "startedAt": "2026-05-24T13:47:19.274Z",
+      "finishedAt": "2026-05-24T13:47:19.282Z"
+    },
+    "metrics": {
+      "overall": {
+        "minMs": 0.0048,
+        "maxMs": 0.2465,
+        "avgMs": 0.0067,
+        "p50Ms": 0.0054,
+        "p95Ms": 0.0075,
+        "p99Ms": 0.0312
+      },
+      "perCandidate": [
+        {
+          "templateId": "plc_bench_c_wingsmeph_001",
+          "resref": "c_wingsmeph",
+          "placeableSubtype": "generic",
+          "metrics": {
+            "minMs": 0.0049,
+            "maxMs": 0.1003,
+            "avgMs": 0.0062,
+            "p50Ms": 0.0053,
+            "p95Ms": 0.0068,
+            "p99Ms": 0.0169
+          }
+        },
+        {
+          "templateId": "plc_bench_ad_top_lion_1_001",
+          "resref": "ad_top_lion_1",
+          "placeableSubtype": "vfx",
+          "metrics": {
+            "minMs": 0.0049,
+            "maxMs": 0.0182,
+            "avgMs": 0.0055,
+            "p50Ms": 0.0052,
+            "p95Ms": 0.006,
+            "p99Ms": 0.0115
+          }
+        },
+        {
+          "templateId": "plc_bench_plc_x02_001",
+          "resref": "plc_x02",
+          "placeableSubtype": "vfx",
+          "metrics": {
+            "minMs": 0.0048,
+            "maxMs": 0.0312,
+            "avgMs": 0.0058,
+            "p50Ms": 0.0053,
+            "p95Ms": 0.007,
+            "p99Ms": 0.0174
+          }
+        },
+        {
+          "templateId": "plc_bench_tn_sdoor_14_001",
+          "resref": "tn_sdoor_14",
+          "placeableSubtype": "door",
+          "metrics": {
+            "minMs": 0.0049,
+            "maxMs": 0.0682,
+            "avgMs": 0.0059,
+            "p50Ms": 0.0053,
+            "p95Ms": 0.0068,
+            "p99Ms": 0.0129
+          }
+        },
+        {
+          "templateId": "plc_bench_tn_gdoor_05_001",
+          "resref": "tn_gdoor_05",
+          "placeableSubtype": "door",
+          "metrics": {
+            "minMs": 0.0052,
+            "maxMs": 0.2465,
+            "avgMs": 0.0101,
+            "p50Ms": 0.0058,
+            "p95Ms": 0.0139,
+            "p99Ms": 0.1354
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": ["typescript"],
+  "concurrency": 2,
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress"],
+  "mutate": ["src/modules/tiles/application/tiles.application.service.ts"],
+  "tsconfigFile": "tsconfig.json",
+  "tempDirName": "stryker-tmp-tiles",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.tiles.config.js",
+    "enableFindRelatedTests": false
+  }
+}

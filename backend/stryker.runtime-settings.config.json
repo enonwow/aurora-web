@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": ["typescript"],
+  "concurrency": 2,
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress"],
+  "mutate": [
+    "src/modules/runtime-settings/application/runtime-settings.application.service.ts",
+    "src/modules/runtime-settings/application/runtime-settings-bootstrap.service.ts",
+    "src/modules/runtime-settings/adapters/inbound/http/runtime-settings.schemas.ts",
+    "src/modules/runtime-settings/adapters/outbound/blob/s3-module-blob-storage.service.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.config.js",
+    "enableFindRelatedTests": true
+  }
+}

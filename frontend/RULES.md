@@ -16,7 +16,7 @@
    - raise logical risks early and propose alternatives with trade-offs
    - prefer short design discussions before implementation when architecture/UX impact is non-trivial
 7. Mutation tests are mandatory for logic changes:
-   - run `npm run test:mutation` for feature branches that modify business logic, state handling, auth, scene, or layout behavior
+   - run `npm.cmd run test:mutation` for feature branches that modify business logic, state handling, auth, scene, or layout behavior
    - do not merge if mutation quality regresses (mutation score must be >= current baseline or improved)
    - for survived mutants in changed modules: add/adjust tests before merge (no "known survivors" without explicit documented exception)
 8. Frontend architecture is hexagonal per context (`frontend/ARCHITECTURE.md`):
@@ -36,3 +36,20 @@
    - mirror Aurora property-window structure first (tabs/groups/labels/layout)
    - activate behaviors incrementally using explicit states: `ACTIVE_NOW`, `PRESERVE_ONLY`, `POST_MVP_DISABLED`
    - unsupported controls must be visible and non-destructive (no silent payload mutation/loss)
+
+## Golden Commands (PowerShell-safe)
+
+Use `npm.cmd` in this environment (Windows + PowerShell).
+
+1. Install deps: `npm.cmd ci`
+2. Unit tests: `npm.cmd run test:unit`
+3. Regression smoke: `npm.cmd run test:regression`
+4. Mutation tests (when rule #7 applies): `npm.cmd run test:mutation`
+
+## Pre-merge Must-Pass Gate (Minimal)
+
+Do not merge unless all required checks below pass:
+
+1. `npm.cmd run test:unit`
+2. `npm.cmd run test:regression`
+3. `npm.cmd run test:mutation` (only when changing business logic/state/auth/scene/layout behavior)
