@@ -1,7 +1,10 @@
+name: aurora-web
+
 services:
   seaweedfs:
     container_name: aurora-seaweedfs-dev
     image: chrislusf/seaweedfs:latest
+    command: 'server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0'
     environment:
       AWS_ACCESS_KEY_ID: seaweedfs
       AWS_SECRET_ACCESS_KEY: seaweedfs-secret
@@ -12,6 +15,12 @@ services:
       - "8888:8888"
     volumes:
       - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
 
   mysql:
@@ -110,7 +119,7 @@ services:
       mysql:
         condition: service_healthy
       seaweedfs:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -126,8 +135,14 @@ services:
 
 volumes:
   frontend_node_modules:
+    name: aurora_frontend_node_modules
   backend_node_modules:
+    name: aurora_backend_node_modules
   mysql_data:
+    name: aurora_mysql_data
   seaweedfs_data:
+    name: aurora_seaweedfs_data
   redis_data:
+    name: aurora_redis_data
   redis_insight_data:
+    name: aurora_redis_insight_data

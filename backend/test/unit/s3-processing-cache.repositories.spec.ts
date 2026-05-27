@@ -16,30 +16,44 @@ type RepositoryCtor = new (
   runtimeSettingsRepository: RuntimeSettingsRepositoryPort
 ) => CacheRepository;
 
-const CASES: Array<{ name: string; suffix: string; Ctor: RepositoryCtor }> = [
+const CASES: Array<{
+  name: string;
+  suffix: string;
+  Ctor: RepositoryCtor;
+  sampleValue: Record<string, unknown>;
+}> = [
   {
     name: "placeable",
     suffix: "cache/placeables",
-    Ctor: S3PlaceableProcessingCacheRepository as unknown as RepositoryCtor
+    Ctor: S3PlaceableProcessingCacheRepository as unknown as RepositoryCtor,
+    sampleValue: {
+      templateId: "tpl-001",
+      placeableSubtype: "generic",
+      metadata: {},
+      assetManifest: { version: "placeable-asset-manifest/v1", assets: [] }
+    }
   },
   {
     name: "area",
     suffix: "cache/areas",
-    Ctor: S3AreaProcessingCacheRepository as unknown as RepositoryCtor
+    Ctor: S3AreaProcessingCacheRepository as unknown as RepositoryCtor,
+    sampleValue: { areaId: "area-001" }
   },
   {
     name: "sound",
     suffix: "cache/sounds",
-    Ctor: S3SoundProcessingCacheRepository as unknown as RepositoryCtor
+    Ctor: S3SoundProcessingCacheRepository as unknown as RepositoryCtor,
+    sampleValue: { soundId: "sound-001" }
   },
   {
     name: "tile",
     suffix: "cache/tiles",
-    Ctor: S3TileProcessingCacheRepository as unknown as RepositoryCtor
+    Ctor: S3TileProcessingCacheRepository as unknown as RepositoryCtor,
+    sampleValue: { tileId: "tile-001" }
   }
 ];
 
-describe.each(CASES)("S3 processing cache repository (%s)", ({ suffix, Ctor }) => {
+describe.each(CASES)("S3 processing cache repository (%s)", ({ suffix, Ctor, sampleValue }) => {
   let sendSpy: jest.SpyInstance;
   let destroySpy: jest.SpyInstance;
 
@@ -146,22 +160,73 @@ describe.each(CASES)("S3 processing cache repository (%s)", ({ suffix, Ctor }) =
     };
   }
 
-  it("stores payload in S3 with normalized key", async () => {
+  it("stores payload in S3 with normalized key and updates current pointer", async () => {
     sendSpy.mockResolvedValue({} as never);
     const repository = new Ctor(createRuntimeSettingsRepository(" /modules/current/ "));
 
-    const entry = await repository.set("abc123", { ok: true });
+    const entry = await repository.set("abc123", sampleValue);
 
     expect(entry.key).toBe("abc123");
     expect(entry.hits).toBe(0);
     expect(entry.storedAt).toEqual(expect.any(String));
-    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).toHaveBeenCalledTimes(3);
 
-    const putCommand = sendSpy.mock.calls[0][0] as { input: Record<string, unknown> };
-    expect(putCommand.input).toMatchObject({
+    const commandInputs = sendSpy.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input);
+    const payloadPutInput = commandInputs.find(
+      (input) => input.Key === `modules/current/${suffix}/abc123.json`
+    );
+    expect(payloadPutInput).toMatchObject({
       Bucket: "aurora-module-assets",
       Key: `modules/current/${suffix}/abc123.json`,
       ContentType: "application/json; charset=utf-8"
+    });
+
+    const pointerPutInput = commandInputs.find(
+      (input) =>
+        typeof input.Key === "string" &&
+        input.Key.startsWith(`modules/current/${suffix}/current/`) &&
+        input.ContentType === "application/json; charset=utf-8"
+    );
+    expect(pointerPutInput).toBeDefined();
+    expect(pointerPutInput).toMatchObject({
+      Bucket: "aurora-module-assets",
+      ContentType: "application/json; charset=utf-8"
+    });
+  });
+
+  it("replaces previous current object when cache key changes for same logical entity", async () => {
+    const pointerFromPreviousVersion = JSON.stringify({
+      logicalId: "logical-id",
+      cacheKey: "old-key",
+      updatedAt: "2026-05-27T12:00:00.000Z"
+    });
+    const pointerFromCurrentVersion = JSON.stringify({
+      logicalId: "logical-id",
+      cacheKey: "new-key",
+      updatedAt: "2026-05-27T12:00:01.000Z"
+    });
+
+    sendSpy
+      .mockResolvedValueOnce({
+        Body: { transformToString: async () => pointerFromPreviousVersion }
+      } as never)
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({
+        Body: { transformToString: async () => pointerFromCurrentVersion }
+      } as never)
+      .mockResolvedValueOnce({} as never);
+
+    const repository = new Ctor(createRuntimeSettingsRepository("modules/current"));
+    await repository.set("new-key", sampleValue);
+
+    const commandInputs = sendSpy.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input);
+    const deleteInput = commandInputs.find(
+      (input) => input.Key === `modules/current/${suffix}/old-key.json`
+    );
+    expect(deleteInput).toMatchObject({
+      Bucket: "aurora-module-assets",
+      Key: `modules/current/${suffix}/old-key.json`
     });
   });
 

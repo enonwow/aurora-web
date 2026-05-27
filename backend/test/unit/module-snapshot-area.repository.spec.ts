@@ -196,8 +196,8 @@ describe("ModuleSnapshotAreaRepository", () => {
       bucket: "aurora-module-assets",
       prefix: "modules/current/",
       moduleHash: "hash-v2",
-      totalFiles: 2,
-      totalBytes: 2048,
+      totalFiles: 4,
+      totalBytes: 4096,
       truncated: false,
       continuationToken: undefined,
       objects: [
@@ -212,6 +212,18 @@ describe("ModuleSnapshotAreaRepository", () => {
           size: 1024,
           lastModified: "2026-05-25T10:00:00.000Z",
           etag: "g1"
+        },
+        {
+          key: "modules/current/sounds/ambient/amb_city_day_41.wav",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "s1"
+        },
+        {
+          key: "modules/current/sounds/music/mus_city_day_11.bmu",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "s2"
         }
       ]
     });
@@ -224,7 +236,9 @@ describe("ModuleSnapshotAreaRepository", () => {
             { label: "Width", type: "dword", value: 24 },
             { label: "Height", type: "dword", value: 20 },
             { label: "Tileset", type: "resref", value: "tno01" },
-            { label: "Tile_List", type: "list", value: [1, 2, 3] }
+            { label: "Tile_List", type: "list", value: [1, 2, 3] },
+            { label: "AmbientSndDay", type: "dword", value: 41 },
+            { label: "MusicDay", type: "dword", value: 11 }
           ]
         },
         { fields: [] },
@@ -320,6 +334,20 @@ describe("ModuleSnapshotAreaRepository", () => {
     expect(area?.height).toBe(20);
     expect(area?.textureAtlasId).toBe("atlas_tno01_v1");
     expect(area?.objects).toHaveLength(4);
+    expect(area?.soundscape.area).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          soundId: "sound_amb_city_day_41",
+          resref: "amb_city_day_41",
+          category: "ambient"
+        }),
+        expect.objectContaining({
+          soundId: "sound_mus_city_day_11",
+          resref: "mus_city_day_11",
+          category: "music"
+        })
+      ])
+    );
 
     const composition = repository.getPrecomputedAreaProcessing(list.items[0].areaId);
     expect(composition?.composition).toEqual({

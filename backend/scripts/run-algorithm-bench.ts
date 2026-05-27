@@ -16,6 +16,8 @@ interface BenchConfig {
   maxCandidatesPerType: number;
   iterations: number;
   warmupIterations: number;
+  areaLoadIterations: number;
+  areaLoadWarmupIterations: number;
   areaIterations: number;
   areaWarmupIterations: number;
   areaCacheReadIterations: number;
@@ -141,6 +143,14 @@ async function main() {
     );
     memorySnapshots.push(captureMemory("after-sounds"));
 
+    const areasLoad = await runAreaLoadBenchmark(
+      client,
+      token,
+      config.areaLoadIterations,
+      config.areaLoadWarmupIterations
+    );
+    memorySnapshots.push(captureMemory("after-areas-load"));
+
     const areasCold = await runAreaProcessingBenchmark(
       client,
       token,
@@ -190,6 +200,8 @@ async function main() {
         maxCandidatesPerType: config.maxCandidatesPerType,
         iterations: config.iterations,
         warmupIterations: config.warmupIterations,
+        areaLoadIterations: config.areaLoadIterations,
+        areaLoadWarmupIterations: config.areaLoadWarmupIterations,
         areaIterations: config.areaIterations,
         areaWarmupIterations: config.areaWarmupIterations,
         areaCacheReadIterations: config.areaCacheReadIterations,
@@ -216,6 +228,7 @@ async function main() {
           warm: soundsWarm
         },
         areas: {
+          load: areasLoad,
           cold: areasCold,
           warm: areasWarm,
           cacheRead: areaCacheRead
@@ -270,6 +283,11 @@ function parseArgs(args: string[]): BenchConfig {
     ),
     iterations: parsePositiveInt(values.get("iterations"), defaults.iterations),
     warmupIterations: parseNonNegativeInt(values.get("warmupIterations"), defaults.warmupIterations),
+    areaLoadIterations: parsePositiveInt(values.get("areaLoadIterations"), defaults.areaLoadIterations),
+    areaLoadWarmupIterations: parseNonNegativeInt(
+      values.get("areaLoadWarmupIterations"),
+      defaults.areaLoadWarmupIterations
+    ),
     areaIterations: parsePositiveInt(values.get("areaIterations"), defaults.areaIterations),
     areaWarmupIterations: parseNonNegativeInt(
       values.get("areaWarmupIterations"),
@@ -322,6 +340,8 @@ function profileDefaults(profile: BenchProfile) {
       maxCandidatesPerType: 10,
       iterations: 120,
       warmupIterations: 15,
+      areaLoadIterations: 20,
+      areaLoadWarmupIterations: 3,
       areaIterations: 60,
       areaWarmupIterations: 8,
       areaCacheReadIterations: 160,
@@ -335,6 +355,8 @@ function profileDefaults(profile: BenchProfile) {
       maxCandidatesPerType: 20,
       iterations: 300,
       warmupIterations: 25,
+      areaLoadIterations: 40,
+      areaLoadWarmupIterations: 5,
       areaIterations: 120,
       areaWarmupIterations: 12,
       areaCacheReadIterations: 300,
@@ -347,6 +369,8 @@ function profileDefaults(profile: BenchProfile) {
     maxCandidatesPerType: 5,
     iterations: 40,
     warmupIterations: 5,
+    areaLoadIterations: 8,
+    areaLoadWarmupIterations: 2,
     areaIterations: 20,
     areaWarmupIterations: 3,
     areaCacheReadIterations: 80,
@@ -543,6 +567,68 @@ async function runSoundBenchmark(
     .expect(200);
 
   return response.body.data as Record<string, unknown>;
+}
+
+async function runAreaLoadBenchmark(
+  client: HttpClient,
+  token: string,
+  iterations: number,
+  warmupIterations: number
+) {
+  for (let warmup = 0; warmup < warmupIterations; warmup += 1) {
+    await executeAreaLoadIteration(client, token);
+  }
+
+  const durations: number[] = [];
+  const areaCounts: number[] = [];
+  const startedAt = new Date().toISOString();
+
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const started = process.hrtime.bigint();
+    const areaCount = await executeAreaLoadIteration(client, token);
+    const ended = process.hrtime.bigint();
+    durations.push(Number(ended - started) / 1_000_000);
+    areaCounts.push(areaCount);
+  }
+
+  return {
+    config: {
+      iterations,
+      warmupIterations
+    },
+    timing: {
+      startedAt,
+      finishedAt: new Date().toISOString()
+    },
+    metrics: {
+      overall: summarizeDurations(durations),
+      areaCount: summarizeIntegerValues(areaCounts)
+    }
+  };
+}
+
+async function executeAreaLoadIteration(client: HttpClient, token: string): Promise<number> {
+  const listResponse = await client
+    .get("/api/v1/areas?limit=100&offset=0")
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+
+  const items = listResponse.body.data?.items as Array<{ areaId?: string }> | undefined;
+  const areaIds = Array.isArray(items)
+    ? items
+        .map((item) => item.areaId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+
+  const detailSample = areaIds.slice(0, 5);
+  for (const areaId of detailSample) {
+    await client
+      .get(`/api/v1/areas/${encodeURIComponent(areaId)}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+  }
+
+  return areaIds.length;
 }
 
 async function runAreaProcessingBenchmark(
@@ -850,6 +936,25 @@ function summarizeDurations(durations: number[]): DurationSummary {
     p50Ms: roundMetric(percentile(sorted, 0.5)),
     p95Ms: roundMetric(percentile(sorted, 0.95)),
     p99Ms: roundMetric(percentile(sorted, 0.99))
+  };
+}
+
+function summarizeIntegerValues(values: number[]) {
+  if (values.length === 0) {
+    return {
+      min: 0,
+      max: 0,
+      avg: 0
+    };
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return {
+    min,
+    max,
+    avg: roundMetric(avg)
   };
 }
 

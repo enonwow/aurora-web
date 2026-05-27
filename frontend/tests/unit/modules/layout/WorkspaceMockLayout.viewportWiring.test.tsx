@@ -5,6 +5,7 @@ import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/lay
 import { createWorkspaceChromeFacade } from "../../../../src/modules/layout/application/workspaceChromeFacade";
 import { DEFAULT_WORKSPACE_OPTION_SETTINGS } from "../../../../src/modules/layout/workspaceOptionSettings";
 import { createBrowserSceneViewportPort } from "../../../../src/modules/scene/composition/createBrowserSceneViewportPort";
+import type { AreaApiPort } from "../../../../src/modules/areas/ports/areaApiPort";
 
 const mockWiring = vi.hoisted(() => {
   return {
@@ -20,6 +21,22 @@ vi.mock("../../../../src/modules/layout/components/WorkspaceCanvasViewport", () 
 }));
 
 describe("WorkspaceMockLayout viewport wiring", () => {
+  const areaApiPortStub: AreaApiPort = {
+    login: vi.fn(async () => ({ accessToken: "token" })),
+    listAreas: vi.fn(async () => ({ items: [], total: 0, limit: 100, offset: 0 })),
+    getAreaById: vi.fn(async () => ({
+      areaId: "area_stub",
+      name: "Area Stub",
+      biome: "urban",
+      width: 2,
+      height: 2,
+      tags: [],
+      benchmark: false,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      objects: []
+    }))
+  };
+
   beforeEach(() => {
     mockWiring.viewportPropsSpy.mockClear();
   });
@@ -36,6 +53,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
         sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        backendAccessToken={null}
         sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
         trackTelemetryEvent={vi.fn()}
         toolbarState={toolbarState}
@@ -69,6 +88,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
         sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        backendAccessToken={null}
         sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
         trackTelemetryEvent={vi.fn()}
         toolbarState={toolbarState}
@@ -81,6 +102,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
+    expect(screen.getByRole("heading", { name: "Areas" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Add Objects" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Tile Catalog" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Paint Tools" })).not.toBeInTheDocument();

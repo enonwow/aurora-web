@@ -1,4 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { executeInFlight } from "../../../common/async/in-flight.helpers";
+import {
+  buildBlobObjectHttpUrl,
+  buildS3ObjectUrl
+} from "../../../common/blob/blob-url.helpers";
 import { AppException } from "../../../common/http/app-exception";
 import { AppConfigService } from "../../../common/config/app-config.service";
 import {
@@ -229,7 +234,7 @@ export class AreasApplicationService {
 
     return query.bypassCache
       ? processMiss()
-      : this.executeInFlight(this.inFlightAreaProcessing, cacheKey, processMiss);
+      : executeInFlight(this.inFlightAreaProcessing, cacheKey, processMiss);
   }
 
   async getProcessedArea(cacheKey: string) {
@@ -417,46 +422,9 @@ export class AreasApplicationService {
     return area;
   }
 
-  private executeInFlight<T>(
-    inFlight: Map<string, Promise<T>>,
-    key: string,
-    operation: () => Promise<T>
-  ): Promise<T> {
-    const existing = inFlight.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const pending = operation().finally(() => {
-      inFlight.delete(key);
-    });
-    inFlight.set(key, pending);
-    return pending;
-  }
 }
 
 function buildAreaTextureDeliveryPath(cacheKey: string): string {
   const encodedCacheKey = encodeURIComponent(cacheKey);
   return `/api/v1/areas/cache/${encodedCacheKey}/textures`;
-}
-
-function buildS3ObjectUrl(bucket: string, objectKey: string): string {
-  const normalizedObjectKey = objectKey.replace(/^\/+/, "");
-  return `s3://${bucket}/${normalizedObjectKey}`;
-}
-
-function buildBlobObjectHttpUrl(settings: BlobStorageSettings, objectKey: string): string {
-  const endpoint = settings.endpoint.replace(/\/+$/u, "");
-  const encodedSegments = objectKey
-    .replace(/^\/+|\/+$/gu, "")
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-
-  if (settings.forcePathStyle) {
-    return `${endpoint}/${encodeURIComponent(settings.bucket)}/${encodedSegments}`;
-  }
-
-  return `${endpoint}/${encodedSegments}`;
 }

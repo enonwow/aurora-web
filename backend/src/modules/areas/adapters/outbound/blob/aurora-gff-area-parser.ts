@@ -705,3 +705,12 @@ function clampNumber(value: number): number {
   }
   return Number(value.toFixed(4));
 }
+
+export const __auroraGffAreaParserInternals = {
+  deriveBearingFromOrientation,
+  normalizeBearing,
+  normalizeLabel,
+  sanitizeAscii,
+  sanitizeUtf8,
+  isRangeWithinBuffer
+} as const;

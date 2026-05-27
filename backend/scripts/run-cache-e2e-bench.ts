@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import * as path from "node:path";
 import { Test } from "@nestjs/testing";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import supertest = require("supertest");
@@ -34,6 +36,9 @@ interface BenchConfig {
   processHitIterations: number;
   cacheReadIterations: number;
   assetDeliveryIterations: number;
+  maxTotalRequests: number;
+  saveOutput: boolean;
+  outputPath: string;
 }
 
 interface RouteSummary {
@@ -89,37 +94,38 @@ async function main() {
   try {
     const token = await loginAndGetToken(client, "builder.user", "builder123");
     const candidates = await fetchCandidates(client, token, config.maxCandidatesPerType);
+    const executionPlan = buildExecutionPlan(config, candidates);
     const startedAt = new Date().toISOString();
     const results: CandidateBenchResult[] = [];
     const routeDurations = createRouteDurationsBucket();
     const routeDurationsByType = createRouteDurationsByTypeBucket();
     let requestCount = 0;
 
-    for (const candidate of candidates) {
+    for (const candidate of executionPlan.candidates) {
       const cacheKey = await primeCache(client, token, candidate);
       requestCount += 1;
 
       const processBypassDurations = await runIterations(
-        config.processBypassIterations,
+        executionPlan.config.processBypassIterations,
         async () => {
           await processCandidate(client, token, candidate, true);
         }
       );
-      requestCount += config.processBypassIterations;
+      requestCount += executionPlan.config.processBypassIterations;
       routeDurations.processBypass.push(...processBypassDurations);
       routeDurationsByType[candidate.type].processBypass.push(...processBypassDurations);
 
-      const processHitDurations = await runIterations(config.processHitIterations, async () => {
+      const processHitDurations = await runIterations(executionPlan.config.processHitIterations, async () => {
         await processCandidate(client, token, candidate, false);
       });
-      requestCount += config.processHitIterations;
+      requestCount += executionPlan.config.processHitIterations;
       routeDurations.processHit.push(...processHitDurations);
       routeDurationsByType[candidate.type].processHit.push(...processHitDurations);
 
-      const cacheReadDurations = await runIterations(config.cacheReadIterations, async () => {
+      const cacheReadDurations = await runIterations(executionPlan.config.cacheReadIterations, async () => {
         await getCachedCandidate(client, token, candidate, cacheKey);
       });
-      requestCount += config.cacheReadIterations;
+      requestCount += executionPlan.config.cacheReadIterations;
       routeDurations.cacheRead.push(...cacheReadDurations);
       routeDurationsByType[candidate.type].cacheRead.push(...cacheReadDurations);
 
@@ -128,7 +134,7 @@ async function main() {
         token,
         candidate,
         cacheKey,
-        config.assetDeliveryIterations
+        executionPlan.config.assetDeliveryIterations
       );
       if (delivery.status === "executed" && delivery.metrics) {
         routeDurations.assetDelivery.push(...(delivery as ExecutedDeliveryBenchResult).durations);
@@ -158,7 +164,32 @@ async function main() {
         startedAt,
         finishedAt
       },
-      config,
+      config: {
+        maxCandidatesPerType: config.maxCandidatesPerType,
+        processBypassIterations: executionPlan.config.processBypassIterations,
+        processHitIterations: executionPlan.config.processHitIterations,
+        cacheReadIterations: executionPlan.config.cacheReadIterations,
+        assetDeliveryIterations: executionPlan.config.assetDeliveryIterations
+      },
+      requestedConfig: {
+        maxCandidatesPerType: config.maxCandidatesPerType,
+        processBypassIterations: config.processBypassIterations,
+        processHitIterations: config.processHitIterations,
+        cacheReadIterations: config.cacheReadIterations,
+        assetDeliveryIterations: config.assetDeliveryIterations,
+        maxTotalRequests: config.maxTotalRequests
+      },
+      effectiveConfig: {
+        ...executionPlan.config,
+        estimatedRequests: executionPlan.estimatedRequestsAfterScale
+      },
+      stability: {
+        scaled: executionPlan.scaled,
+        candidateTrimmed: executionPlan.candidateTrimmed,
+        estimatedRequestsBeforeScale: executionPlan.estimatedRequestsBeforeScale,
+        estimatedRequestsAfterScale: executionPlan.estimatedRequestsAfterScale,
+        maxTotalRequests: config.maxTotalRequests
+      },
       totals: {
         candidates: results.length,
         requests: requestCount,
@@ -180,8 +211,15 @@ async function main() {
       perCandidate: results
     };
 
+    if (config.saveOutput) {
+      await mkdir(path.dirname(config.outputPath), { recursive: true });
+      await writeFile(config.outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");
+    }
+
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify(output, null, 2));
+    console.log(
+      JSON.stringify({ ...output, savedTo: config.saveOutput ? config.outputPath : null }, null, 2)
+    );
   } finally {
     await app.close();
   }
@@ -205,6 +243,25 @@ function setDefaultEnv(name: string, value: string): void {
 }
 
 function parseArgs(args: string[]): BenchConfig {
+  const values = parseArgsMap(args);
+  const timestamp = new Date().toISOString().replace(/[:.]/gu, "-");
+  const outputPath =
+    values.get("output") ??
+    path.resolve(process.cwd(), "docs", "benchmark", `cache-e2e-benchmark-${timestamp}.json`);
+
+  return {
+    maxCandidatesPerType: parsePositiveInt(values.get("maxCandidatesPerType"), 10),
+    processBypassIterations: parsePositiveInt(values.get("processBypassIterations"), 10),
+    processHitIterations: parsePositiveInt(values.get("processHitIterations"), 10),
+    cacheReadIterations: parsePositiveInt(values.get("cacheReadIterations"), 10),
+    assetDeliveryIterations: parsePositiveInt(values.get("assetDeliveryIterations"), 10),
+    maxTotalRequests: parsePositiveInt(values.get("maxTotalRequests"), 700),
+    saveOutput: parseBoolean(values.get("save"), true),
+    outputPath
+  };
+}
+
+function parseArgsMap(args: string[]): Map<string, string> {
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 1) {
     const raw = args[index];
@@ -220,14 +277,7 @@ function parseArgs(args: string[]): BenchConfig {
     values.set(key, next);
     index += 1;
   }
-
-  return {
-    maxCandidatesPerType: parsePositiveInt(values.get("maxCandidatesPerType"), 10),
-    processBypassIterations: parsePositiveInt(values.get("processBypassIterations"), 100),
-    processHitIterations: parsePositiveInt(values.get("processHitIterations"), 250),
-    cacheReadIterations: parsePositiveInt(values.get("cacheReadIterations"), 350),
-    assetDeliveryIterations: parsePositiveInt(values.get("assetDeliveryIterations"), 150)
-  };
+  return values;
 }
 
 function parsePositiveInt(input: string | undefined, fallback: number): number {
@@ -239,6 +289,124 @@ function parsePositiveInt(input: string | undefined, fallback: number): number {
     return fallback;
   }
   return parsed;
+}
+
+function parseBoolean(input: string | undefined, fallback: boolean): boolean {
+  if (!input) {
+    return fallback;
+  }
+  const normalized = input.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function buildExecutionPlan(config: BenchConfig, candidates: BenchCandidate[]) {
+  const estimatedBeforeScale = estimateRequestCount(candidates, config);
+  const effectiveConfig = {
+    processBypassIterations: config.processBypassIterations,
+    processHitIterations: config.processHitIterations,
+    cacheReadIterations: config.cacheReadIterations,
+    assetDeliveryIterations: config.assetDeliveryIterations
+  };
+
+  let scaled = false;
+  if (estimatedBeforeScale > config.maxTotalRequests) {
+    const scaleFactor = config.maxTotalRequests / estimatedBeforeScale;
+    effectiveConfig.processBypassIterations = scaleDownIterations(
+      effectiveConfig.processBypassIterations,
+      scaleFactor
+    );
+    effectiveConfig.processHitIterations = scaleDownIterations(
+      effectiveConfig.processHitIterations,
+      scaleFactor
+    );
+    effectiveConfig.cacheReadIterations = scaleDownIterations(
+      effectiveConfig.cacheReadIterations,
+      scaleFactor
+    );
+    effectiveConfig.assetDeliveryIterations = scaleDownIterations(
+      effectiveConfig.assetDeliveryIterations,
+      scaleFactor
+    );
+    scaled = true;
+  }
+
+  let plannedCandidates = [...candidates];
+  let estimatedAfterScale = estimateRequestCount(plannedCandidates, effectiveConfig);
+  let candidateTrimmed = false;
+  while (estimatedAfterScale > config.maxTotalRequests && plannedCandidates.length > 4) {
+    candidateTrimmed = true;
+    plannedCandidates = trimOneCandidate(plannedCandidates);
+    estimatedAfterScale = estimateRequestCount(plannedCandidates, effectiveConfig);
+  }
+
+  return {
+    config: effectiveConfig,
+    candidates: plannedCandidates,
+    scaled,
+    candidateTrimmed,
+    estimatedRequestsBeforeScale: estimatedBeforeScale,
+    estimatedRequestsAfterScale: estimatedAfterScale
+  };
+}
+
+function estimateRequestCount(
+  candidates: BenchCandidate[],
+  config: {
+    processBypassIterations: number;
+    processHitIterations: number;
+    cacheReadIterations: number;
+    assetDeliveryIterations: number;
+  }
+): number {
+  const placeableCount = candidates.filter((candidate) => candidate.type === "placeable").length;
+  const perCandidate =
+    1 + config.processBypassIterations + config.processHitIterations + config.cacheReadIterations;
+  const deliveryPerPlaceable = 2 + config.assetDeliveryIterations;
+  return candidates.length * perCandidate + placeableCount * deliveryPerPlaceable;
+}
+
+function scaleDownIterations(value: number, factor: number): number {
+  if (factor >= 1) {
+    return value;
+  }
+  return Math.max(1, Math.floor(value * factor));
+}
+
+function trimOneCandidate(candidates: BenchCandidate[]): BenchCandidate[] {
+  const perTypeCounts = countCandidatesByType(candidates);
+  const preferredTypes: BenchType[] = ["placeable", "area", "creature", "item"];
+  for (const type of preferredTypes) {
+    if ((perTypeCounts[type] ?? 0) > 1) {
+      for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        if (candidates[index].type !== type) {
+          continue;
+        }
+        return candidates.filter((_, candidateIndex) => candidateIndex !== index);
+      }
+    }
+  }
+  return candidates.slice(0, Math.max(4, candidates.length - 1));
+}
+
+function countCandidatesByType(candidates: BenchCandidate[]): Record<BenchType, number> {
+  return candidates.reduce<Record<BenchType, number>>(
+    (acc, candidate) => {
+      acc[candidate.type] = (acc[candidate.type] ?? 0) + 1;
+      return acc;
+    },
+    {
+      placeable: 0,
+      creature: 0,
+      item: 0,
+      area: 0
+    }
+  );
 }
 
 async function loginAndGetToken(

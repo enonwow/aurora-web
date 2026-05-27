@@ -798,6 +798,11 @@ input {
   color: #f2adad;
 }
 
+.auth-status-line {
+  margin: 0.1rem 0 0;
+  color: var(--text-muted);
+}
+
 .workspace-layout {
   width: 100%;
   height: calc(100vh - var(--topbar-height));

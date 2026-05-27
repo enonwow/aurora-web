@@ -131,6 +131,7 @@ interface WorkspaceCanvasViewportProps {
   rightPanelWidthPx: number;
   onSceneObjectsSnapshotChange?: (objects: SceneObject[]) => void;
   onSelectionSnapshotChange?: (selectedIds: string[]) => void;
+  externalSceneSeed?: AreaScene | null;
 }
 
 interface SelectionBoxState {
@@ -3758,7 +3759,8 @@ export function WorkspaceCanvasViewport({
   leftPanelWidthPx,
   rightPanelWidthPx,
   onSceneObjectsSnapshotChange,
-  onSelectionSnapshotChange
+  onSelectionSnapshotChange,
+  externalSceneSeed
 }: WorkspaceCanvasViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
@@ -4687,6 +4689,16 @@ export function WorkspaceCanvasViewport({
     setSelectedTileId(null);
     commandRevisionRef.current = 0;
   }, [sceneViewportPort, userId]);
+
+  useEffect(() => {
+    if (!externalSceneSeed) {
+      return;
+    }
+    setSceneHistory(sceneViewportPort.createHistoryFromScene(externalSceneSeed));
+    setSelectedObjectIds([]);
+    setSelectedTileId(null);
+    commandRevisionRef.current = 0;
+  }, [externalSceneSeed, sceneViewportPort]);
 
   useEffect(() => {
     nextObjectSequenceRef.current = scene.objects.length + 1;

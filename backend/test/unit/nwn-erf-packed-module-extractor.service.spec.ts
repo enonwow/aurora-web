@@ -1,9 +1,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { NwnErfPackedModuleExtractorService } from "../../src/modules/runtime-settings/adapters/outbound/nwn/nwn-erf-packed-module-extractor.service";
 
 describe("NwnErfPackedModuleExtractorService", () => {
-  const tempDir = path.resolve(process.cwd(), "test/.tmp/packed-module-extractor");
+  const tempDir = path.resolve(
+    tmpdir(),
+    "aurora-web-backend-tests",
+    "packed-module-extractor"
+  );
   const modulePath = path.join(tempDir, "test.mod");
   const service = new NwnErfPackedModuleExtractorService();
 

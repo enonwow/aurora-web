@@ -94,7 +94,7 @@ describe("Regression smoke: auth shell behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(
-      await screen.findByText(/invalid username or password/i)
+      await screen.findByText(/login failed/i)
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
   });

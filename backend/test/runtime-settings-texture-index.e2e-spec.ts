@@ -1,4 +1,5 @@
-﻿import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Test } from "@nestjs/testing";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -166,14 +167,14 @@ function classifySource(relativeKey: string): keyof ModuleBlobSourceDeltaSummary
 describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
   let app: NestFastifyApplication;
   let httpServer: ReturnType<NestFastifyApplication["getHttpServer"]>;
-
+  const tempRoot = path.resolve(tmpdir(), "aurora-web-backend-e2e");
   const runtimeSettingsFile = path.resolve(
-    process.cwd(),
-    "test/.tmp/runtime-settings-texture-index.e2e.json"
+    tempRoot,
+    "runtime-settings-texture-index.e2e.json"
   );
   const moduleFixtureRoot = path.resolve(
-    process.cwd(),
-    "test/.tmp/runtime-settings-texture-index-module"
+    tempRoot,
+    "runtime-settings-texture-index-module"
   );
 
   beforeAll(async () => {
@@ -421,3 +422,5 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
     return login.body.data.session.accessToken as string;
   }
 });
+
+

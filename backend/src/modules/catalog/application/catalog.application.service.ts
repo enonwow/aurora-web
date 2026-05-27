@@ -1,4 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { executeInFlight } from "../../../common/async/in-flight.helpers";
+import { buildS3ObjectUrl } from "../../../common/blob/blob-url.helpers";
 import { AppException } from "../../../common/http/app-exception";
 import { AppConfigService } from "../../../common/config/app-config.service";
 import {
@@ -296,7 +298,7 @@ export class CatalogApplicationService {
 
     const result = query.bypassCache
       ? await processMiss()
-      : await this.executeInFlight(
+      : await executeInFlight(
           this.inFlightPlaceableProcessing,
           cacheKey,
           processMiss
@@ -686,7 +688,7 @@ export class CatalogApplicationService {
 
     const result = query.bypassCache
       ? await processMiss()
-      : await this.executeInFlight(
+      : await executeInFlight(
           this.inFlightTemplateProcessing,
           cacheKey,
           processMiss
@@ -1169,23 +1171,6 @@ export class CatalogApplicationService {
     });
   }
 
-  private executeInFlight<T>(
-    inFlight: Map<string, Promise<T>>,
-    key: string,
-    operation: () => Promise<T>
-  ): Promise<T> {
-    const existing = inFlight.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const pending = operation().finally(() => {
-      inFlight.delete(key);
-    });
-    inFlight.set(key, pending);
-    return pending;
-  }
-
   private async ensureTemplateProjection(
     kind: TemplateProcessingKind,
     cacheKey: string,
@@ -1246,11 +1231,6 @@ function buildPlaceableAssetDeliveryPath(cacheKey: string, assetId: string): str
   const encodedCacheKey = encodeURIComponent(cacheKey);
   const encodedAssetId = encodeURIComponent(assetId);
   return `/api/v1/catalog/placeables/cache/${encodedCacheKey}/assets/${encodedAssetId}`;
-}
-
-function buildS3ObjectUrl(bucket: string, objectKey: string): string {
-  const normalizedObjectKey = objectKey.replace(/^\/+/u, "");
-  return `s3://${bucket}/${normalizedObjectKey}`;
 }
 
 function normalizeLookupKey(value: string): string {

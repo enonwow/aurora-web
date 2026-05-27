@@ -56,6 +56,7 @@ export interface SceneViewportCopyTranslationParams {
 
 export interface SceneViewportPort {
   createInitialHistory(userId: string): SceneHistoryState;
+  createHistoryFromScene(scene: AreaScene): SceneHistoryState;
   saveLocalDraft(userId: string, scene: AreaScene): void;
   commitHistory(history: SceneHistoryState, nextScene: AreaScene): SceneHistoryState;
   undoHistory(history: SceneHistoryState): SceneHistoryState;
@@ -104,6 +105,9 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
   return {
     createInitialHistory(userId: string): SceneHistoryState {
       return bundle.canvas.createInitialHistory(userId);
+    },
+    createHistoryFromScene(scene: AreaScene): SceneHistoryState {
+      return bundle.canvas.createHistoryFromScene(scene);
     },
     saveLocalDraft(userId: string, scene: AreaScene): void {
       bundle.canvas.saveLocalDraft(userId, scene);

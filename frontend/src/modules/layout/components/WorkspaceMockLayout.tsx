@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { SceneObject, SceneObjectKind } from "../contracts";
+import type { AreaScene, SceneObject, SceneObjectKind } from "../contracts";
 import type {
   WorkspaceChromeFacade,
   WorkspaceCommandSignal,
@@ -15,12 +15,16 @@ import type { SceneObjectCatalogType } from "./SceneObjectListPanel";
 import { WorkspaceCanvasViewport } from "./WorkspaceCanvasViewport";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
+import { AreaSelectionPanel } from "./AreaSelectionPanel";
+import type { AreaApiPort } from "../../areas/ports/areaApiPort";
 
 interface WorkspaceMockLayoutProps {
   role: WorkspaceUserRole;
   userId: string;
   workspaceChromeFacade: WorkspaceChromeFacade;
   sceneViewportPort: SceneViewportPort;
+  areaApiPort: AreaApiPort;
+  backendAccessToken: string | null;
   sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
   toolbarState: WorkspaceToolbarState;
@@ -156,6 +160,8 @@ export function WorkspaceMockLayout({
   userId,
   workspaceChromeFacade,
   sceneViewportPort,
+  areaApiPort,
+  backendAccessToken,
   sceneObjectCatalogQueryFacade,
   trackTelemetryEvent,
   toolbarState,
@@ -181,6 +187,7 @@ export function WorkspaceMockLayout({
       sourceType: "all",
       allowedObjectIds: sceneObjectsSnapshot.map((object) => object.id)
     });
+  const [externalSceneSeed, setExternalSceneSeed] = useState<AreaScene | null>(null);
   const sidebarSignalRevisionRef = useRef(0);
   const leftPanelWidthPx = leftCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH_PX
@@ -191,6 +198,7 @@ export function WorkspaceMockLayout({
 
   const shouldRenderSceneObjectsPanel = role === "builder";
   const shouldRenderSceneObjectAddPanel = role === "builder";
+  const shouldRenderAreaSelectionPanel = role === "builder";
   const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
     setSceneObjectsSnapshot(objects);
   }, []);
@@ -245,6 +253,7 @@ export function WorkspaceMockLayout({
           rightPanelWidthPx={rightPanelWidthPx}
           onSceneObjectsSnapshotChange={handleSceneObjectsSnapshotChange}
           onSelectionSnapshotChange={setSelectedObjectIdsSnapshot}
+          externalSceneSeed={externalSceneSeed}
         />
       </section>
 
@@ -254,12 +263,29 @@ export function WorkspaceMockLayout({
         sections={panels.left}
         customContent={
           shouldRenderSceneObjectAddPanel ? (
-            <SceneObjectAddPanel
-              userId={userId}
-              objects={sceneObjectsSnapshot}
-              sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
-              trackTelemetryEvent={trackTelemetryEvent}
-            />
+            <>
+              {shouldRenderAreaSelectionPanel ? (
+                <AreaSelectionPanel
+                  userId={userId}
+                  backendAccessToken={backendAccessToken}
+                  areaApiPort={areaApiPort}
+                  trackTelemetryEvent={trackTelemetryEvent}
+                  onAreaSceneSelected={(scene) => {
+                    setExternalSceneSeed(scene);
+                    setSceneObjectCatalogScope({
+                      sourceType: "all",
+                      allowedObjectIds: scene.objects.map((object) => object.id)
+                    });
+                  }}
+                />
+              ) : null}
+              <SceneObjectAddPanel
+                userId={userId}
+                objects={sceneObjectsSnapshot}
+                sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+                trackTelemetryEvent={trackTelemetryEvent}
+              />
+            </>
           ) : undefined
         }
         collapsed={leftCollapsed}

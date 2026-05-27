@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, extname, isAbsolute, resolve } from "node:path";
+import { buildS3ObjectUrl } from "../../../common/blob/blob-url.helpers";
 import { AppException } from "../../../common/http/app-exception";
 import type {
   RuntimeAssetKind,
@@ -1019,11 +1020,6 @@ function buildTextureIndexLookupCacheKey(
 
 function buildTextureDeliveryPath(textureId: string): string {
   return `/api/v1/settings/runtime/module-cache/textures/${encodeURIComponent(textureId)}`;
-}
-
-function buildS3ObjectUrl(bucket: string, objectKey: string): string {
-  const normalizedObjectKey = objectKey.replace(/^\/+/u, "");
-  return `s3://${bucket}/${normalizedObjectKey}`;
 }
 
 function inferTextureContentType(extension: string): string {

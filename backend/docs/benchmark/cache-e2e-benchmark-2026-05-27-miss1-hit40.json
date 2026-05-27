@@ -1,0 +1,873 @@
+{
+  "generatedAt": "2026-05-27T13:15:23.232Z",
+  "timing": {
+    "startedAt": "2026-05-27T13:13:42.643Z",
+    "finishedAt": "2026-05-27T13:15:23.232Z"
+  },
+  "config": {
+    "maxCandidatesPerType": 10,
+    "processBypassIterations": 1,
+    "processHitIterations": 17,
+    "cacheReadIterations": 17,
+    "assetDeliveryIterations": 8
+  },
+  "requestedConfig": {
+    "maxCandidatesPerType": 10,
+    "processBypassIterations": 1,
+    "processHitIterations": 20,
+    "cacheReadIterations": 20,
+    "assetDeliveryIterations": 10,
+    "maxTotalRequests": 700
+  },
+  "effectiveConfig": {
+    "processBypassIterations": 1,
+    "processHitIterations": 17,
+    "cacheReadIterations": 17,
+    "assetDeliveryIterations": 8,
+    "estimatedRequests": 666
+  },
+  "stability": {
+    "scaled": true,
+    "candidateTrimmed": false,
+    "estimatedRequestsBeforeScale": 780,
+    "estimatedRequestsAfterScale": 666,
+    "maxTotalRequests": 700
+  },
+  "totals": {
+    "candidates": 16,
+    "requests": 594,
+    "delivery": {
+      "eligibleCandidates": 9,
+      "executedCandidates": 0,
+      "skippedByReason": {
+        "placeable_manifest_has_no_assets_and_texture_fallback_empty": 9
+      }
+    }
+  },
+  "routeGroups": {
+    "processBypass": {
+      "count": 16,
+      "p50Ms": 1.6086,
+      "p95Ms": 2.6609,
+      "p99Ms": 2.6609
+    },
+    "processHit": {
+      "count": 272,
+      "p50Ms": 1.5451,
+      "p95Ms": 2.5687,
+      "p99Ms": 3.811
+    },
+    "cacheRead": {
+      "count": 272,
+      "p50Ms": 1.4004,
+      "p95Ms": 2.2534,
+      "p99Ms": 4.4193
+    },
+    "assetDelivery": {
+      "count": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0
+    }
+  },
+  "summaryByType": {
+    "placeable": {
+      "candidates": 9,
+      "processBypass": {
+        "minMs": 1.4509,
+        "maxMs": 2.6609,
+        "avgMs": 2.0551,
+        "p50Ms": 2.1135,
+        "p95Ms": 2.6609,
+        "p99Ms": 2.6609
+      },
+      "processHit": {
+        "minMs": 1.2718,
+        "maxMs": 4.2954,
+        "avgMs": 2.5268,
+        "p50Ms": 2.4862,
+        "p95Ms": 4.2954,
+        "p99Ms": 4.2954
+      },
+      "cacheRead": {
+        "minMs": 1.1794,
+        "maxMs": 5.494,
+        "avgMs": 2.0976,
+        "p50Ms": 2.0767,
+        "p95Ms": 5.494,
+        "p99Ms": 5.494
+      },
+      "delivery": {
+        "eligibleCandidates": 9,
+        "executedCandidates": 0,
+        "skippedByReason": {
+          "placeable_manifest_has_no_assets_and_texture_fallback_empty": 9
+        }
+      }
+    },
+    "creature": {
+      "candidates": 2,
+      "processBypass": {
+        "minMs": 1.3363,
+        "maxMs": 1.4166,
+        "avgMs": 1.3765,
+        "p50Ms": 1.3363,
+        "p95Ms": 1.4166,
+        "p99Ms": 1.4166
+      },
+      "processHit": {
+        "minMs": 1.1727,
+        "maxMs": 2.7964,
+        "avgMs": 2.0384,
+        "p50Ms": 2.1653,
+        "p95Ms": 2.7964,
+        "p99Ms": 2.7964
+      },
+      "cacheRead": {
+        "minMs": 1.1359,
+        "maxMs": 5.1143,
+        "avgMs": 2.702,
+        "p50Ms": 2.1774,
+        "p95Ms": 5.1143,
+        "p99Ms": 5.1143
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    },
+    "item": {
+      "candidates": 2,
+      "processBypass": {
+        "minMs": 1.3633,
+        "maxMs": 1.6822,
+        "avgMs": 1.5227,
+        "p50Ms": 1.3633,
+        "p95Ms": 1.6822,
+        "p99Ms": 1.6822
+      },
+      "processHit": {
+        "minMs": 1.1912,
+        "maxMs": 1.95,
+        "avgMs": 1.5962,
+        "p50Ms": 1.7202,
+        "p95Ms": 1.95,
+        "p99Ms": 1.95
+      },
+      "cacheRead": {
+        "minMs": 1.1061,
+        "maxMs": 2.3559,
+        "avgMs": 1.893,
+        "p50Ms": 2.228,
+        "p95Ms": 2.3559,
+        "p99Ms": 2.3559
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    },
+    "area": {
+      "candidates": 3,
+      "processBypass": {
+        "minMs": 1.307,
+        "maxMs": 1.3441,
+        "avgMs": 1.325,
+        "p50Ms": 1.3238,
+        "p95Ms": 1.3441,
+        "p99Ms": 1.3441
+      },
+      "processHit": {
+        "minMs": 1.1317,
+        "maxMs": 2.2763,
+        "avgMs": 1.8208,
+        "p50Ms": 2.1009,
+        "p95Ms": 2.2763,
+        "p99Ms": 2.2763
+      },
+      "cacheRead": {
+        "minMs": 1.0709,
+        "maxMs": 4.4193,
+        "avgMs": 2.218,
+        "p50Ms": 1.7926,
+        "p95Ms": 4.4193,
+        "p99Ms": 4.4193
+      },
+      "delivery": {
+        "eligibleCandidates": 0,
+        "executedCandidates": 0,
+        "skippedByReason": {}
+      }
+    }
+  },
+  "routeGroupsByType": {
+    "placeable": {
+      "processBypass": {
+        "count": 9,
+        "p50Ms": 2.1135,
+        "p95Ms": 2.6609,
+        "p99Ms": 2.6609
+      },
+      "processHit": {
+        "count": 153,
+        "p50Ms": 1.7054,
+        "p95Ms": 2.9641,
+        "p99Ms": 3.8807
+      },
+      "cacheRead": {
+        "count": 153,
+        "p50Ms": 1.4724,
+        "p95Ms": 2.2597,
+        "p99Ms": 2.4139
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "creature": {
+      "processBypass": {
+        "count": 2,
+        "p50Ms": 1.3363,
+        "p95Ms": 1.4166,
+        "p99Ms": 1.4166
+      },
+      "processHit": {
+        "count": 34,
+        "p50Ms": 1.4995,
+        "p95Ms": 2.1653,
+        "p99Ms": 2.7964
+      },
+      "cacheRead": {
+        "count": 34,
+        "p50Ms": 1.2902,
+        "p95Ms": 2.1774,
+        "p99Ms": 5.1143
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "item": {
+      "processBypass": {
+        "count": 2,
+        "p50Ms": 1.3633,
+        "p95Ms": 1.6822,
+        "p99Ms": 1.6822
+      },
+      "processHit": {
+        "count": 34,
+        "p50Ms": 1.2803,
+        "p95Ms": 1.7809,
+        "p99Ms": 1.95
+      },
+      "cacheRead": {
+        "count": 34,
+        "p50Ms": 1.366,
+        "p95Ms": 2.228,
+        "p99Ms": 2.3559
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    },
+    "area": {
+      "processBypass": {
+        "count": 3,
+        "p50Ms": 1.3238,
+        "p95Ms": 1.3441,
+        "p99Ms": 1.3441
+      },
+      "processHit": {
+        "count": 51,
+        "p50Ms": 1.3393,
+        "p95Ms": 2.1395,
+        "p99Ms": 2.2763
+      },
+      "cacheRead": {
+        "count": 51,
+        "p50Ms": 1.2635,
+        "p95Ms": 2.5203,
+        "p99Ms": 4.4193
+      },
+      "assetDelivery": {
+        "count": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0
+      }
+    }
+  },
+  "perCandidate": [
+    {
+      "type": "placeable",
+      "id": "plc_market_stall_001",
+      "cacheKey": "58ec7903b133c9910c76e2420f1d724d242c96fee11b737ec6f62d6f86a8a540",
+      "processBypass": {
+        "minMs": 2.6609,
+        "maxMs": 2.6609,
+        "avgMs": 2.6609,
+        "p50Ms": 2.6609,
+        "p95Ms": 2.6609,
+        "p99Ms": 2.6609
+      },
+      "processHit": {
+        "minMs": 1.5026,
+        "maxMs": 3.5763,
+        "avgMs": 1.8695,
+        "p50Ms": 1.7702,
+        "p95Ms": 3.5763,
+        "p99Ms": 3.5763
+      },
+      "cacheRead": {
+        "minMs": 1.3023,
+        "maxMs": 2.1248,
+        "avgMs": 1.6464,
+        "p50Ms": 1.4872,
+        "p95Ms": 2.1248,
+        "p99Ms": 2.1248
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "58ec7903b133c9910c76e2420f1d724d242c96fee11b737ec6f62d6f86a8a540",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_crate_stack_001",
+      "cacheKey": "8f87fa1ae13841e751f3abceca25059b2a3f0ca8e409579278447cbcdaa15fd3",
+      "processBypass": {
+        "minMs": 1.6086,
+        "maxMs": 1.6086,
+        "avgMs": 1.6086,
+        "p50Ms": 1.6086,
+        "p95Ms": 1.6086,
+        "p99Ms": 1.6086
+      },
+      "processHit": {
+        "minMs": 1.4137,
+        "maxMs": 2.9695,
+        "avgMs": 2.0293,
+        "p50Ms": 1.963,
+        "p95Ms": 2.9695,
+        "p99Ms": 2.9695
+      },
+      "cacheRead": {
+        "minMs": 1.2858,
+        "maxMs": 2.3486,
+        "avgMs": 1.6074,
+        "p50Ms": 1.5325,
+        "p95Ms": 2.3486,
+        "p99Ms": 2.3486
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "8f87fa1ae13841e751f3abceca25059b2a3f0ca8e409579278447cbcdaa15fd3",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_city_gate_001",
+      "cacheKey": "323e3aaea0ab3a3d876fa62b5a4affc964ff14656a3ef835a0d367b01071587e",
+      "processBypass": {
+        "minMs": 2.3185,
+        "maxMs": 2.3185,
+        "avgMs": 2.3185,
+        "p50Ms": 2.3185,
+        "p95Ms": 2.3185,
+        "p99Ms": 2.3185
+      },
+      "processHit": {
+        "minMs": 1.4056,
+        "maxMs": 2.2376,
+        "avgMs": 1.7708,
+        "p50Ms": 1.8241,
+        "p95Ms": 2.2376,
+        "p99Ms": 2.2376
+      },
+      "cacheRead": {
+        "minMs": 1.2779,
+        "maxMs": 2.3992,
+        "avgMs": 1.709,
+        "p50Ms": 1.5448,
+        "p95Ms": 2.3992,
+        "p99Ms": 2.3992
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "323e3aaea0ab3a3d876fa62b5a4affc964ff14656a3ef835a0d367b01071587e",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_torch_smoke_vfx_001",
+      "cacheKey": "9cdc73a40994e7ed6559dafe213f97e46339842bc9e3c057d1b4b82fb2744ebc",
+      "processBypass": {
+        "minMs": 2.1068,
+        "maxMs": 2.1068,
+        "avgMs": 2.1068,
+        "p50Ms": 2.1068,
+        "p95Ms": 2.1068,
+        "p99Ms": 2.1068
+      },
+      "processHit": {
+        "minMs": 1.4078,
+        "maxMs": 2.4862,
+        "avgMs": 1.7477,
+        "p50Ms": 1.6171,
+        "p95Ms": 2.4862,
+        "p99Ms": 2.4862
+      },
+      "cacheRead": {
+        "minMs": 1.2724,
+        "maxMs": 2.2795,
+        "avgMs": 1.5461,
+        "p50Ms": 1.4046,
+        "p95Ms": 2.2795,
+        "p99Ms": 2.2795
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "9cdc73a40994e7ed6559dafe213f97e46339842bc9e3c057d1b4b82fb2744ebc",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_bench_c_wingsmeph_001",
+      "cacheKey": "3377d4f3b402d879bbba2f020087b6f29d6db1937f2d01250cb87bf519e0a597",
+      "processBypass": {
+        "minMs": 1.8217,
+        "maxMs": 1.8217,
+        "avgMs": 1.8217,
+        "p50Ms": 1.8217,
+        "p95Ms": 1.8217,
+        "p99Ms": 1.8217
+      },
+      "processHit": {
+        "minMs": 1.3085,
+        "maxMs": 4.2954,
+        "avgMs": 2.018,
+        "p50Ms": 1.7772,
+        "p95Ms": 4.2954,
+        "p99Ms": 4.2954
+      },
+      "cacheRead": {
+        "minMs": 1.2525,
+        "maxMs": 2.4139,
+        "avgMs": 1.6132,
+        "p50Ms": 1.4118,
+        "p95Ms": 2.4139,
+        "p99Ms": 2.4139
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "3377d4f3b402d879bbba2f020087b6f29d6db1937f2d01250cb87bf519e0a597",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_bench_ad_top_lion_1_001",
+      "cacheKey": "2825de4ff9e353d4296292f269a2be5cbef8a6e41fb9e6b00b88decfdbd13cb3",
+      "processBypass": {
+        "minMs": 1.4509,
+        "maxMs": 1.4509,
+        "avgMs": 1.4509,
+        "p50Ms": 1.4509,
+        "p95Ms": 1.4509,
+        "p99Ms": 1.4509
+      },
+      "processHit": {
+        "minMs": 1.4267,
+        "maxMs": 3.7072,
+        "avgMs": 2.0306,
+        "p50Ms": 1.7501,
+        "p95Ms": 3.7072,
+        "p99Ms": 3.7072
+      },
+      "cacheRead": {
+        "minMs": 1.2128,
+        "maxMs": 2.071,
+        "avgMs": 1.4777,
+        "p50Ms": 1.3718,
+        "p95Ms": 2.071,
+        "p99Ms": 2.071
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "2825de4ff9e353d4296292f269a2be5cbef8a6e41fb9e6b00b88decfdbd13cb3",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_bench_plc_x02_001",
+      "cacheKey": "315dbe00b4ab47ca3701f51d4aa2c5ee1d1e0fb6da700c8f492afba4753106d0",
+      "processBypass": {
+        "minMs": 2.1307,
+        "maxMs": 2.1307,
+        "avgMs": 2.1307,
+        "p50Ms": 2.1307,
+        "p95Ms": 2.1307,
+        "p99Ms": 2.1307
+      },
+      "processHit": {
+        "minMs": 1.3427,
+        "maxMs": 3.8807,
+        "avgMs": 1.8633,
+        "p50Ms": 1.5999,
+        "p95Ms": 3.8807,
+        "p99Ms": 3.8807
+      },
+      "cacheRead": {
+        "minMs": 1.3202,
+        "maxMs": 2.1597,
+        "avgMs": 1.6188,
+        "p50Ms": 1.5055,
+        "p95Ms": 2.1597,
+        "p99Ms": 2.1597
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "315dbe00b4ab47ca3701f51d4aa2c5ee1d1e0fb6da700c8f492afba4753106d0",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_bench_tn_sdoor_14_001",
+      "cacheKey": "90a4b199fab44bb9d2ffe8325ff14c64355cb2cc14f5d81c1f306d7e9ab9ca10",
+      "processBypass": {
+        "minMs": 2.2842,
+        "maxMs": 2.2842,
+        "avgMs": 2.2842,
+        "p50Ms": 2.2842,
+        "p95Ms": 2.2842,
+        "p99Ms": 2.2842
+      },
+      "processHit": {
+        "minMs": 1.3778,
+        "maxMs": 2.9423,
+        "avgMs": 1.7727,
+        "p50Ms": 1.7054,
+        "p95Ms": 2.9423,
+        "p99Ms": 2.9423
+      },
+      "cacheRead": {
+        "minMs": 1.1794,
+        "maxMs": 5.494,
+        "avgMs": 1.7171,
+        "p50Ms": 1.3745,
+        "p95Ms": 5.494,
+        "p99Ms": 5.494
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "90a4b199fab44bb9d2ffe8325ff14c64355cb2cc14f5d81c1f306d7e9ab9ca10",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "placeable",
+      "id": "plc_bench_tn_gdoor_05_001",
+      "cacheKey": "b2318a8202b2be814cd57dbf8bdd5d31c0cdc720a49f2b27e2001fb424c04da0",
+      "processBypass": {
+        "minMs": 2.1135,
+        "maxMs": 2.1135,
+        "avgMs": 2.1135,
+        "p50Ms": 2.1135,
+        "p95Ms": 2.1135,
+        "p99Ms": 2.1135
+      },
+      "processHit": {
+        "minMs": 1.2718,
+        "maxMs": 2.4898,
+        "avgMs": 1.5577,
+        "p50Ms": 1.4889,
+        "p95Ms": 2.4898,
+        "p99Ms": 2.4898
+      },
+      "cacheRead": {
+        "minMs": 1.1849,
+        "maxMs": 2.0767,
+        "avgMs": 1.5127,
+        "p50Ms": 1.3698,
+        "p95Ms": 2.0767,
+        "p99Ms": 2.0767
+      },
+      "assetDelivery": {
+        "status": "no_manifest_assets",
+        "cacheKey": "b2318a8202b2be814cd57dbf8bdd5d31c0cdc720a49f2b27e2001fb424c04da0",
+        "requestCount": 2,
+        "reason": "placeable_manifest_has_no_assets_and_texture_fallback_empty"
+      }
+    },
+    {
+      "type": "creature",
+      "id": "cre_guard_human_001",
+      "cacheKey": "a45b4c88e11aa3cf33b7eb76daf2c684fa2788cd0cdcddd14b113fcb1f4415b4",
+      "processBypass": {
+        "minMs": 1.4166,
+        "maxMs": 1.4166,
+        "avgMs": 1.4166,
+        "p50Ms": 1.4166,
+        "p95Ms": 1.4166,
+        "p99Ms": 1.4166
+      },
+      "processHit": {
+        "minMs": 1.2489,
+        "maxMs": 2.7964,
+        "avgMs": 1.6557,
+        "p50Ms": 1.4995,
+        "p95Ms": 2.7964,
+        "p99Ms": 2.7964
+      },
+      "cacheRead": {
+        "minMs": 1.1904,
+        "maxMs": 2.1774,
+        "avgMs": 1.4223,
+        "p50Ms": 1.2611,
+        "p95Ms": 2.1774,
+        "p99Ms": 2.1774
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "a45b4c88e11aa3cf33b7eb76daf2c684fa2788cd0cdcddd14b113fcb1f4415b4",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "creature",
+      "id": "cre_wolf_001",
+      "cacheKey": "e96434a27856e3e458db56f03639cd0ee2113a34e920648daf8b4fc83ab35d54",
+      "processBypass": {
+        "minMs": 1.3363,
+        "maxMs": 1.3363,
+        "avgMs": 1.3363,
+        "p50Ms": 1.3363,
+        "p95Ms": 1.3363,
+        "p99Ms": 1.3363
+      },
+      "processHit": {
+        "minMs": 1.1727,
+        "maxMs": 2.1653,
+        "avgMs": 1.5745,
+        "p50Ms": 1.5778,
+        "p95Ms": 2.1653,
+        "p99Ms": 2.1653
+      },
+      "cacheRead": {
+        "minMs": 1.1359,
+        "maxMs": 5.1143,
+        "avgMs": 1.7172,
+        "p50Ms": 1.5576,
+        "p95Ms": 5.1143,
+        "p99Ms": 5.1143
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "e96434a27856e3e458db56f03639cd0ee2113a34e920648daf8b4fc83ab35d54",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "item",
+      "id": "itm_health_potion_001",
+      "cacheKey": "66c0443f5a2c1e43524e13a3ca3908b9b79589ea7d64b7ac4ad07ac8b83cf95e",
+      "processBypass": {
+        "minMs": 1.3633,
+        "maxMs": 1.3633,
+        "avgMs": 1.3633,
+        "p50Ms": 1.3633,
+        "p95Ms": 1.3633,
+        "p99Ms": 1.3633
+      },
+      "processHit": {
+        "minMs": 1.1912,
+        "maxMs": 1.95,
+        "avgMs": 1.3807,
+        "p50Ms": 1.3008,
+        "p95Ms": 1.95,
+        "p99Ms": 1.95
+      },
+      "cacheRead": {
+        "minMs": 1.1061,
+        "maxMs": 2.228,
+        "avgMs": 1.3994,
+        "p50Ms": 1.3481,
+        "p95Ms": 2.228,
+        "p99Ms": 2.228
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "66c0443f5a2c1e43524e13a3ca3908b9b79589ea7d64b7ac4ad07ac8b83cf95e",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "item",
+      "id": "itm_scroll_fireball_001",
+      "cacheKey": "24655141385850261fa16355309d73f69e6bf761973aba03b6176288738aa079",
+      "processBypass": {
+        "minMs": 1.6822,
+        "maxMs": 1.6822,
+        "avgMs": 1.6822,
+        "p50Ms": 1.6822,
+        "p95Ms": 1.6822,
+        "p99Ms": 1.6822
+      },
+      "processHit": {
+        "minMs": 1.2012,
+        "maxMs": 1.7202,
+        "avgMs": 1.3259,
+        "p50Ms": 1.2581,
+        "p95Ms": 1.7202,
+        "p99Ms": 1.7202
+      },
+      "cacheRead": {
+        "minMs": 1.1775,
+        "maxMs": 2.3559,
+        "avgMs": 1.5473,
+        "p50Ms": 1.5467,
+        "p95Ms": 2.3559,
+        "p99Ms": 2.3559
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "24655141385850261fa16355309d73f69e6bf761973aba03b6176288738aa079",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "area",
+      "id": "area_market_district_001",
+      "cacheKey": "8f2f481b4a2c632824a03b39e1015c6abdd7df196ef0d8981df369cb90ca3df6",
+      "processBypass": {
+        "minMs": 1.3238,
+        "maxMs": 1.3238,
+        "avgMs": 1.3238,
+        "p50Ms": 1.3238,
+        "p95Ms": 1.3238,
+        "p99Ms": 1.3238
+      },
+      "processHit": {
+        "minMs": 1.1935,
+        "maxMs": 2.2315,
+        "avgMs": 1.4006,
+        "p50Ms": 1.2848,
+        "p95Ms": 2.2315,
+        "p99Ms": 2.2315
+      },
+      "cacheRead": {
+        "minMs": 1.107,
+        "maxMs": 4.4193,
+        "avgMs": 1.6355,
+        "p50Ms": 1.2815,
+        "p95Ms": 4.4193,
+        "p99Ms": 4.4193
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "8f2f481b4a2c632824a03b39e1015c6abdd7df196ef0d8981df369cb90ca3df6",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "area",
+      "id": "area_forest_crossing_001",
+      "cacheKey": "fdef9e63add3e8b95c64b497640b11abbf138a69496aa36117bfa7237751a649",
+      "processBypass": {
+        "minMs": 1.3441,
+        "maxMs": 1.3441,
+        "avgMs": 1.3441,
+        "p50Ms": 1.3441,
+        "p95Ms": 1.3441,
+        "p99Ms": 1.3441
+      },
+      "processHit": {
+        "minMs": 1.1483,
+        "maxMs": 2.2763,
+        "avgMs": 1.5015,
+        "p50Ms": 1.3829,
+        "p95Ms": 2.2763,
+        "p99Ms": 2.2763
+      },
+      "cacheRead": {
+        "minMs": 1.0709,
+        "maxMs": 2.5203,
+        "avgMs": 1.3591,
+        "p50Ms": 1.226,
+        "p95Ms": 2.5203,
+        "p99Ms": 2.5203
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "fdef9e63add3e8b95c64b497640b11abbf138a69496aa36117bfa7237751a649",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    },
+    {
+      "type": "area",
+      "id": "area_dungeon_entry_001",
+      "cacheKey": "ff72a40ee076aeba1effe0ce0e68810ce77f127b3f67e8b1ec6d717f4293cdab",
+      "processBypass": {
+        "minMs": 1.307,
+        "maxMs": 1.307,
+        "avgMs": 1.307,
+        "p50Ms": 1.307,
+        "p95Ms": 1.307,
+        "p99Ms": 1.307
+      },
+      "processHit": {
+        "minMs": 1.1317,
+        "maxMs": 2.1009,
+        "avgMs": 1.4188,
+        "p50Ms": 1.345,
+        "p95Ms": 2.1009,
+        "p99Ms": 2.1009
+      },
+      "cacheRead": {
+        "minMs": 1.102,
+        "maxMs": 1.7926,
+        "avgMs": 1.314,
+        "p50Ms": 1.2854,
+        "p95Ms": 1.7926,
+        "p99Ms": 1.7926
+      },
+      "assetDelivery": {
+        "status": "unsupported_type",
+        "cacheKey": "ff72a40ee076aeba1effe0ce0e68810ce77f127b3f67e8b1ec6d717f4293cdab",
+        "requestCount": 0,
+        "reason": "delivery_endpoint_supported_for_placeables_only"
+      }
+    }
+  ]
+}

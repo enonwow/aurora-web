@@ -29,6 +29,7 @@ interface SceneCanvasFacadeDependencies {
 
 export interface SceneCanvasFacade {
   createInitialHistory(userId: string): SceneHistoryState;
+  createHistoryFromScene(scene: AreaScene): SceneHistoryState;
   saveLocalDraft(userId: string, scene: AreaScene): void;
   getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null;
 }
@@ -170,6 +171,9 @@ export function createSceneCanvasFacade(
         return createSceneHistory(normalizeDraftVisualTransform(migrateLegacySeedDraft(draft, now)));
       }
       return createSceneHistory(normalizeDraftVisualTransform(draft));
+    },
+    createHistoryFromScene(scene: AreaScene): SceneHistoryState {
+      return createSceneHistory(scene);
     },
     saveLocalDraft(userId: string, scene: AreaScene): void {
       dependencies.draftPort.saveByUserId(userId, normalizeDraftVisualTransform(scene));

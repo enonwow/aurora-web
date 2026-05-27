@@ -60,11 +60,33 @@ interface AreaCandidate {
   sourceFingerprint: string;
 }
 
+type AreaSoundSourceField =
+  | "AmbientSoundDay"
+  | "AmbientSoundNight"
+  | "MusicDay"
+  | "MusicNight"
+  | "MusicBattle";
+
+interface SnapshotSoundCandidate {
+  soundId: string;
+  resref: string;
+  sourceField: AreaSoundSourceField;
+  category: "ambient" | "music";
+  playbackMode: "interval" | "continuous";
+  ambientOnly: boolean;
+  numericTokens: number[];
+}
+
+interface SnapshotSoundLookup {
+  bySourceField: Map<AreaSoundSourceField, SnapshotSoundCandidate[]>;
+}
+
 const DEFAULT_SOUND_BINDING_KEYS = {
   areaKey: "GI_sound_area" as const,
   randomKey: "GI_sound_rndm" as const,
   positionalKey: "GI_sound_pos" as const
 };
+const SUPPORTED_SOUND_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
 
 @Injectable()
 export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
@@ -152,6 +174,7 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
     const settings = await this.runtimeSettingsRepository.get();
     const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
     const candidates = buildAreaCandidatesFromSnapshot(snapshot.objects);
+    const soundLookup = buildSnapshotSoundLookup(snapshot.objects);
     await this.enrichAreaCandidatesFromSnapshot(settings.blobStorage, candidates);
 
     if (candidates.length === 0) {
@@ -164,7 +187,7 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
 
     const benchmarkIds = pickBenchmarkIds(candidates);
     const indexed = candidates
-      .map((candidate) => mapCandidateToAreaRecord(candidate, benchmarkIds))
+      .map((candidate) => mapCandidateToAreaRecord(candidate, benchmarkIds, soundLookup))
       .sort((left, right) => left.areaId.localeCompare(right.areaId))
       .map((record) => {
         const composition = countAreaObjectsByKind(record.objects);
@@ -359,7 +382,11 @@ function updateGitSource(candidate: AreaCandidate, object: ModuleBlobObjectSumma
   }
 }
 
-function mapCandidateToAreaRecord(candidate: AreaCandidate, benchmarkIds: Set<string>): AreaRecord {
+function mapCandidateToAreaRecord(
+  candidate: AreaCandidate,
+  benchmarkIds: Set<string>,
+  soundLookup: SnapshotSoundLookup
+): AreaRecord {
   const biome = inferBiome(candidate);
   const dimensions = resolveDimensions(candidate);
   const areaId = `area_${candidate.resref}`.slice(0, 80);
@@ -382,7 +409,7 @@ function mapCandidateToAreaRecord(candidate: AreaCandidate, benchmarkIds: Set<st
     textureAtlasEtag: candidate.areSourceEtag,
     textureAtlasFingerprint: buildAtlasFingerprint(candidate),
     objects,
-    soundscape: buildAreaSoundscape(candidate, biome),
+    soundscape: buildAreaSoundscape(candidate, biome, soundLookup),
     updatedAt
   };
 }
@@ -594,56 +621,18 @@ function buildTags(candidate: AreaCandidate, biome: string): string[] {
 
 function buildAreaSoundscape(
   candidate: AreaCandidate,
-  biome: string
+  biome: string,
+  soundLookup: SnapshotSoundLookup
 ): AreaRecord["soundscape"] {
   const ids = candidate.parsedArea?.soundIds;
   const area: AreaSoundReference[] = [];
+  const usedSoundIds = new Set<string>();
 
-  if (isPositiveInt(ids?.ambientDay)) {
-    area.push({
-      soundId: `sound_ambient_day_${ids!.ambientDay}`,
-      resref: `ambient_day_${ids!.ambientDay}`,
-      category: "ambient",
-      playbackMode: "interval",
-      ambientOnly: true
-    });
-  }
-  if (isPositiveInt(ids?.ambientNight)) {
-    area.push({
-      soundId: `sound_ambient_night_${ids!.ambientNight}`,
-      resref: `ambient_night_${ids!.ambientNight}`,
-      category: "ambient",
-      playbackMode: "interval",
-      ambientOnly: true
-    });
-  }
-  if (isPositiveInt(ids?.musicDay)) {
-    area.push({
-      soundId: `sound_music_day_${ids!.musicDay}`,
-      resref: `music_day_${ids!.musicDay}`,
-      category: "music",
-      playbackMode: "continuous",
-      ambientOnly: true
-    });
-  }
-  if (isPositiveInt(ids?.musicNight)) {
-    area.push({
-      soundId: `sound_music_night_${ids!.musicNight}`,
-      resref: `music_night_${ids!.musicNight}`,
-      category: "music",
-      playbackMode: "continuous",
-      ambientOnly: true
-    });
-  }
-  if (isPositiveInt(ids?.musicBattle)) {
-    area.push({
-      soundId: `sound_music_battle_${ids!.musicBattle}`,
-      resref: `music_battle_${ids!.musicBattle}`,
-      category: "music",
-      playbackMode: "continuous",
-      ambientOnly: false
-    });
-  }
+  tryAddResolvedAreaSound(area, usedSoundIds, soundLookup, "AmbientSoundDay", ids?.ambientDay);
+  tryAddResolvedAreaSound(area, usedSoundIds, soundLookup, "AmbientSoundNight", ids?.ambientNight);
+  tryAddResolvedAreaSound(area, usedSoundIds, soundLookup, "MusicDay", ids?.musicDay);
+  tryAddResolvedAreaSound(area, usedSoundIds, soundLookup, "MusicNight", ids?.musicNight);
+  tryAddResolvedAreaSound(area, usedSoundIds, soundLookup, "MusicBattle", ids?.musicBattle);
 
   if (area.length === 0) {
     const normalized = `${candidate.resref}|${candidate.areSourceKey}|${biome}`.toLowerCase();
@@ -690,6 +679,83 @@ function buildAreaSoundscape(
     area,
     random,
     positional
+  };
+}
+
+function tryAddResolvedAreaSound(
+  target: AreaSoundReference[],
+  usedSoundIds: Set<string>,
+  lookup: SnapshotSoundLookup,
+  sourceField: AreaSoundSourceField,
+  rawId: number | undefined
+): void {
+  if (!isPositiveInt(rawId)) {
+    return;
+  }
+
+  const resolved = resolveAreaSoundFromLookup(lookup, sourceField, rawId);
+  const candidate =
+    resolved ??
+    buildSyntheticAreaSoundReference({
+      sourceField,
+      rawId
+    });
+
+  if (usedSoundIds.has(candidate.soundId)) {
+    return;
+  }
+  usedSoundIds.add(candidate.soundId);
+  target.push(candidate);
+}
+
+function resolveAreaSoundFromLookup(
+  lookup: SnapshotSoundLookup,
+  sourceField: AreaSoundSourceField,
+  rawId: number
+): AreaSoundReference | null {
+  const candidates = lookup.bySourceField.get(sourceField) ?? [];
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const direct = candidates.find((entry) => entry.numericTokens.includes(rawId));
+  const selected = direct ?? candidates[rawId % candidates.length];
+  return {
+    soundId: selected.soundId,
+    resref: selected.resref,
+    category: selected.category,
+    playbackMode: selected.playbackMode,
+    ambientOnly: selected.ambientOnly
+  };
+}
+
+function buildSyntheticAreaSoundReference(input: {
+  sourceField: AreaSoundSourceField;
+  rawId: number;
+}): AreaSoundReference {
+  if (input.sourceField.startsWith("AmbientSound")) {
+    const variant = input.sourceField.endsWith("Night") ? "night" : "day";
+    return {
+      soundId: `sound_ambient_${variant}_${input.rawId}`,
+      resref: `ambient_${variant}_${input.rawId}`,
+      category: "ambient",
+      playbackMode: "interval",
+      ambientOnly: true
+    };
+  }
+
+  const battle = input.sourceField === "MusicBattle";
+  const variant = battle
+    ? "battle"
+    : input.sourceField.endsWith("Night")
+      ? "night"
+      : "day";
+  return {
+    soundId: `sound_music_${variant}_${input.rawId}`,
+    resref: `music_${variant}_${input.rawId}`,
+    category: "music",
+    playbackMode: "continuous",
+    ambientOnly: !battle
   };
 }
 
@@ -757,6 +823,106 @@ function buildSourceFingerprint(candidate: AreaCandidate): string {
       ].join("|")
     )
     .digest("hex");
+}
+
+function buildSnapshotSoundLookup(objects: ModuleBlobObjectSummary[]): SnapshotSoundLookup {
+  const bySourceField = new Map<AreaSoundSourceField, SnapshotSoundCandidate[]>();
+
+  for (const object of objects) {
+    const fileName = extractFileName(object.key);
+    const extension = extractExtension(fileName);
+    if (!SUPPORTED_SOUND_EXTENSIONS.has(extension)) {
+      continue;
+    }
+
+    const resref = normalizeResref(extractBasename(fileName));
+    if (!resref) {
+      continue;
+    }
+
+    const sourceField = inferAreaSoundSourceField(object.key, resref);
+    if (!sourceField) {
+      continue;
+    }
+
+    const category = sourceField.startsWith("AmbientSound") ? "ambient" : "music";
+    const playbackMode = category === "ambient" ? "interval" : "continuous";
+    const ambientOnly = sourceField !== "MusicBattle";
+    const soundId = buildSoundId(resref);
+    const entry: SnapshotSoundCandidate = {
+      soundId,
+      resref,
+      sourceField,
+      category,
+      playbackMode,
+      ambientOnly,
+      numericTokens: extractNumericTokens(resref)
+    };
+
+    const bucket = bySourceField.get(sourceField) ?? [];
+    bucket.push(entry);
+    bySourceField.set(sourceField, bucket);
+  }
+
+  for (const [key, values] of bySourceField.entries()) {
+    values.sort((left, right) => left.soundId.localeCompare(right.soundId));
+    bySourceField.set(key, dedupeSoundCandidates(values));
+  }
+
+  return {
+    bySourceField
+  };
+}
+
+function inferAreaSoundSourceField(
+  objectKey: string,
+  resref: string
+): AreaSoundSourceField | null {
+  const normalized = `${objectKey}|${resref}`.toLowerCase();
+
+  if (normalized.includes("battle") || normalized.includes("combat")) {
+    return "MusicBattle";
+  }
+  if (normalized.includes("music") || normalized.includes("/mus/") || normalized.endsWith(".bmu")) {
+    return normalized.includes("night") ? "MusicNight" : "MusicDay";
+  }
+  if (normalized.includes("ambient") || normalized.includes("/amb/") || resref.startsWith("amb_")) {
+    return normalized.includes("night") ? "AmbientSoundNight" : "AmbientSoundDay";
+  }
+
+  return null;
+}
+
+function buildSoundId(resref: string): string {
+  if (resref.startsWith("sound_")) {
+    return resref.slice(0, 72);
+  }
+  return `sound_${resref}`.slice(0, 72);
+}
+
+function extractNumericTokens(input: string): number[] {
+  const matches = input.match(/\d+/gu) ?? [];
+  const values = new Set<number>();
+  for (const token of matches) {
+    const parsed = Number.parseInt(token, 10);
+    if (Number.isInteger(parsed) && parsed >= 0) {
+      values.add(parsed);
+    }
+  }
+  return [...values].sort((left, right) => left - right);
+}
+
+function dedupeSoundCandidates(values: SnapshotSoundCandidate[]): SnapshotSoundCandidate[] {
+  const seen = new Set<string>();
+  const output: SnapshotSoundCandidate[] = [];
+  for (const value of values) {
+    if (seen.has(value.soundId)) {
+      continue;
+    }
+    seen.add(value.soundId);
+    output.push(value);
+  }
+  return output;
 }
 
 function extractFileName(key: string): string {
@@ -861,3 +1027,30 @@ async function mapWithConcurrency<T>(
 
   await Promise.all(workers);
 }
+
+export const __moduleSnapshotAreaRepositoryInternals = {
+  buildAreaCandidatesFromSnapshot,
+  pickBenchmarkIds,
+  inferBiome,
+  resolveDimensions,
+  buildTags,
+  buildSnapshotSoundLookup,
+  inferAreaSoundSourceField,
+  buildSoundId,
+  extractNumericTokens,
+  dedupeSoundCandidates,
+  extractFileName,
+  extractExtension,
+  extractBasename,
+  normalizeResref,
+  humanizeName,
+  clamp,
+  isPositiveInt,
+  clampCoordinate,
+  clampBearing,
+  estimateDimensions,
+  normalizePrefixForLookup,
+  resolveAreaSoundFromLookup,
+  buildSyntheticAreaSoundReference,
+  mapWithConcurrency
+} as const;

@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
 import { FileProcessingGraphSnapshotRepository } from "../../src/modules/processing-graph/adapters/outbound/file/file-processing-graph-snapshot.repository";
@@ -6,8 +7,9 @@ import type { ProcessingGraphSnapshot } from "../../src/modules/processing-graph
 
 describe("FileProcessingGraphSnapshotRepository", () => {
   const tmpDir = path.resolve(
-    process.cwd(),
-    "test/.tmp/file-processing-graph-snapshot-repository"
+    tmpdir(),
+    "aurora-web-backend-tests",
+    "file-processing-graph-snapshot-repository"
   );
 
   beforeEach(async () => {

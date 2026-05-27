@@ -1,4 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Test } from "@nestjs/testing";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -23,9 +24,10 @@ const POC_PATHS = {
 describe("Runtime Settings API v1 (e2e)", () => {
   let app: NestFastifyApplication;
   let httpServer: ReturnType<NestFastifyApplication["getHttpServer"]>;
+  const tempRoot = path.resolve(tmpdir(), "aurora-web-backend-e2e");
   const runtimeSettingsFile = path.resolve(
-    process.cwd(),
-    "test/.tmp/runtime-settings.e2e.json"
+    tempRoot,
+    "runtime-settings.e2e.json"
   );
 
   beforeAll(async () => {

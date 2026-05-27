@@ -1,103 +1,36 @@
 import { Injectable } from "@nestjs/common";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
+import { MemoryProcessingCacheStore } from "../../../../../common/processing-cache/memory-processing-cache.store";
 import type {
   PlaceableProcessingCachePort,
   ProcessingCacheEntry
 } from "../../../application/ports/placeable-processing-cache.port";
 
-interface MemoryProcessingCacheEntry<TValue> extends ProcessingCacheEntry<TValue> {
-  expiresAtMs: number;
-}
-
 @Injectable()
 export class MemoryPlaceableProcessingCacheRepository
   implements PlaceableProcessingCachePort
 {
-  private readonly entries = new Map<string, MemoryProcessingCacheEntry<unknown>>();
-  private readonly maxEntries: number;
-  private readonly maxEntryBytes: number;
-  private readonly ttlMs: number;
+  private readonly store: MemoryProcessingCacheStore<unknown>;
 
   constructor(config: AppConfigService) {
-    this.maxEntries = config.processingCacheL1CatalogMaxEntries;
-    this.maxEntryBytes = config.processingCacheL1CatalogMaxEntryBytes;
-    this.ttlMs = config.processingCacheL1TtlSeconds * 1000;
+    this.store = new MemoryProcessingCacheStore<unknown>(
+      config.processingCacheL1CatalogMaxEntries,
+      config.processingCacheL1CatalogMaxEntryBytes,
+      config.processingCacheL1TtlSeconds * 1000
+    );
   }
 
   async get<TValue = unknown>(key: string): Promise<ProcessingCacheEntry<TValue> | null> {
-    const entry = this.entries.get(key);
-    if (!entry) {
-      return null;
-    }
-
-    const now = Date.now();
-    if (entry.expiresAtMs <= now) {
-      this.entries.delete(key);
-      return null;
-    }
-
-    const updated: MemoryProcessingCacheEntry<unknown> = {
-      ...entry,
-      hits: entry.hits + 1,
-      expiresAtMs: now + this.ttlMs
-    };
-    this.entries.delete(key);
-    this.entries.set(key, updated);
-
-    return {
-      key: updated.key,
-      value: updated.value,
-      storedAt: updated.storedAt,
-      hits: updated.hits
-    } as ProcessingCacheEntry<TValue>;
+    const entry = await this.store.get(key);
+    return entry as ProcessingCacheEntry<TValue> | null;
   }
 
   async set<TValue = unknown>(
     key: string,
     value: TValue
   ): Promise<ProcessingCacheEntry<TValue>> {
-    const now = Date.now();
-    const entry: MemoryProcessingCacheEntry<unknown> = {
-      key,
-      value,
-      storedAt: new Date(now).toISOString(),
-      hits: 0,
-      expiresAtMs: now + this.ttlMs
-    };
-
-    if (!isOverMaxEntrySize(value, this.maxEntryBytes)) {
-      this.entries.delete(key);
-      this.entries.set(key, entry);
-      this.evictOverflowEntries();
-    }
-
-    return {
-      key: entry.key,
-      value: entry.value,
-      storedAt: entry.storedAt,
-      hits: entry.hits
-    } as ProcessingCacheEntry<TValue>;
-  }
-
-  private evictOverflowEntries(): void {
-    while (this.entries.size > this.maxEntries) {
-      const oldestKey = this.entries.keys().next().value;
-      if (!oldestKey) {
-        return;
-      }
-      this.entries.delete(oldestKey);
-    }
+    const entry = await this.store.set(key, value);
+    return entry as ProcessingCacheEntry<TValue>;
   }
 }
 
-function isOverMaxEntrySize(value: unknown, maxEntryBytes: number): boolean {
-  try {
-    const serialized = JSON.stringify(value);
-    if (!serialized) {
-      return false;
-    }
-    return Buffer.byteLength(serialized, "utf-8") > maxEntryBytes;
-  } catch {
-    return true;
-  }
-}

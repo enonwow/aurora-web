@@ -42,14 +42,16 @@ npx ts-node --transpile-only scripts/run-cache-e2e-bench.ts `
   --processHitIterations 8 `
   --cacheReadIterations 10 `
   --assetDeliveryIterations 6 `
-  > docs/benchmark/cache-e2e-benchmark-<yyyy-mm-dd>.json
+  --maxTotalRequests 700 `
+  --save true `
+  --output docs/benchmark/cache-e2e-benchmark-<yyyy-mm-dd>.json
 ```
 
 Alternative (same script through npm):
 
 ```powershell
 $env:NODE_ENV="test"
-npm run bench:cache:e2e -- --maxCandidatesPerType 1 --processBypassIterations 5 --processHitIterations 8 --cacheReadIterations 10 --assetDeliveryIterations 6
+npm run bench:cache:e2e -- --maxCandidatesPerType 1 --processBypassIterations 5 --processHitIterations 8 --cacheReadIterations 10 --assetDeliveryIterations 6 --maxTotalRequests 700 --save true
 ```
 
 ## Expected JSON output keys
@@ -57,6 +59,9 @@ Top level:
 - `generatedAt`
 - `timing` (`startedAt`, `finishedAt`)
 - `config`
+- `requestedConfig`
+- `effectiveConfig`
+- `stability`
 - `totals`
 - `routeGroups`
 - `summaryByType`
@@ -65,6 +70,9 @@ Top level:
 
 Required nested contract keys:
 - `config`: `maxCandidatesPerType`, `processBypassIterations`, `processHitIterations`, `cacheReadIterations`, `assetDeliveryIterations`
+- `requestedConfig`: includes requested iterations + `maxTotalRequests`
+- `effectiveConfig`: effective iterations + estimated request count after scaling
+- `stability`: scaling/trim flags + pre/post estimate
 - `totals`: `candidates`, `requests`, `delivery`
 - `totals.delivery`: `eligibleCandidates`, `executedCandidates`, `skippedByReason`
 - `routeGroups`: `processBypass`, `processHit`, `cacheRead`, `assetDelivery`
@@ -72,3 +80,7 @@ Required nested contract keys:
 - `perCandidate[]`: `type`, `id`, `cacheKey`, `processBypass`, `processHit`, `cacheRead`, `assetDelivery`
 - `perCandidate[].assetDelivery`: always `status`, `cacheKey`, `requestCount`; optional `reason`, `assetId`, `routePath`, `metrics`
 
+## Stability semantics
+- If requested workload exceeds `maxTotalRequests`, the script auto-scales iteration counts down.
+- If scaled workload still exceeds `maxTotalRequests`, script trims candidates while keeping at least one candidate per type.
+- This keeps local runs repeatable and prevents native process crashes during heavy loops.

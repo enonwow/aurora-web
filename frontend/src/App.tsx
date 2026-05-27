@@ -24,8 +24,11 @@ import {
 } from "./modules/layout/application/layoutPreferencesFacade";
 import { createBrowserLayoutFacadeBundle } from "./modules/layout/composition/createBrowserLayoutFacadeBundle";
 import { createBrowserSceneViewportPort } from "./modules/scene/composition/createBrowserSceneViewportPort";
+import { createHttpAreaApiPort } from "./modules/areas/adapters/httpAreaApiPort";
+import { probeBackendHealth } from "./modules/auth/adapters/httpBackendAuthFacade";
 
 type AppRoute = "/login" | "/app";
+type BackendHealthState = "checking" | "available" | "unavailable";
 
 function resolveRoute(pathname: string): AppRoute {
   return pathname === "/app" ? "/app" : "/login";
@@ -60,6 +63,7 @@ export default function App({
     []
   );
   const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
+  const areaApiPort = useMemo(() => createHttpAreaApiPort(), []);
   const sceneObjectCatalogQueryFacade = useMemo(
     () => createSceneObjectCatalogQueryFacade(),
     []
@@ -83,6 +87,10 @@ export default function App({
   const [events, setEvents] = useState<TelemetryEvent[]>(() =>
     telemetryFacade.getEvents()
   );
+  const [backendAccessToken, setBackendAccessToken] = useState<string | null>(null);
+  const [backendHealthState, setBackendHealthState] =
+    useState<BackendHealthState>("unavailable");
+  const [backendHealthService, setBackendHealthService] = useState<string | null>(null);
   const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>(() =>
     layoutFacades.preferences.loadLayoutSettings()
   );
@@ -165,12 +173,42 @@ export default function App({
     }
   }, [isMainView, route, telemetryFacade]);
 
+  const runBackendHealthCheck = useCallback(async () => {
+    if (import.meta.env.MODE === "test") {
+      setBackendHealthState("available");
+      setBackendHealthService("test");
+      return;
+    }
+
+    setBackendHealthState("checking");
+    const result = await probeBackendHealth();
+    if (result.available) {
+      setBackendHealthState("available");
+      setBackendHealthService(result.service);
+      telemetryFacade.track("ui.backend.health.ok", {
+        service: result.service ?? "unknown"
+      });
+      return;
+    }
+
+    setBackendHealthState("unavailable");
+    setBackendHealthService(null);
+    telemetryFacade.track("ui.backend.health.failed");
+  }, [telemetryFacade]);
+
   const handleSignIn = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       telemetryFacade.track("ui.auth.login_submit", { route });
 
-      if (!username.trim() || !password.trim()) {
+      const formData = new FormData(event.currentTarget);
+      const submittedUsername = String(formData.get("username") ?? "").trim();
+      const submittedPassword = String(formData.get("password") ?? "");
+
+      setUsername(submittedUsername);
+      setPassword(submittedPassword);
+
+      if (!submittedUsername || !submittedPassword) {
         setAuthError("Username and password are required.");
         telemetryFacade.track("ui.auth.login_blocked", {
           reason: "EMPTY_CREDENTIALS"
@@ -183,12 +221,12 @@ export default function App({
 
       try {
         const authResult = await authFacade.authenticate({
-          username: username.trim(),
-          password
+          username: submittedUsername,
+          password: submittedPassword
         });
 
         if (!authResult.ok) {
-          setAuthError(authResult.error.message);
+          setAuthError("Login failed.");
           telemetryFacade.track("ui.auth.login_failed", {
             code: authResult.error.code
           });
@@ -204,9 +242,13 @@ export default function App({
         setWorkspaceOptions(reloadedWorkspaceOptions);
         setSession(authResult.session);
         setAuthorization(authz);
+        setBackendAccessToken(authResult.session.accessToken);
+        setBackendHealthState("available");
         setToolbarState(workspaceChromeFacade.createDefaultToolbarState());
         setCommandSignal(null);
-        telemetryFacade.track("ui.auth.login_success", { role: authz.role });
+        telemetryFacade.track("ui.auth.login_success", {
+          role: authz.role
+        });
         navigate("/app");
       } finally {
         setIsSigningIn(false);
@@ -216,10 +258,8 @@ export default function App({
       authFacade,
       layoutFacades,
       navigate,
-      password,
       route,
       telemetryFacade,
-      username,
       workspaceChromeFacade
     ]
   );
@@ -232,6 +272,7 @@ export default function App({
     setShowDebugPanel(false);
     setSession(null);
     setAuthorization(null);
+    setBackendAccessToken(null);
     setUsername("");
     setPassword("");
     setIsSigningIn(false);
@@ -304,6 +345,8 @@ export default function App({
             userId={session!.user.id}
             workspaceChromeFacade={workspaceChromeFacade}
             sceneViewportPort={sceneViewportPort}
+            areaApiPort={areaApiPort}
+            backendAccessToken={backendAccessToken}
             sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
             trackTelemetryEvent={handleWorkspaceTelemetryEvent}
             toolbarState={toolbarState}
@@ -361,6 +404,25 @@ export default function App({
               />
 
               {authError ? <p className="error-text">{authError}</p> : null}
+              <p className="auth-status-line" role="status" aria-live="polite">
+                Backend:{" "}
+                <strong>
+                  {backendHealthState === "available"
+                    ? "available"
+                    : backendHealthState === "checking"
+                      ? "checking"
+                      : "unavailable"}
+                </strong>
+                {backendHealthService ? ` (${backendHealthService})` : ""}
+              </p>
+              <button
+                className="topbar-btn"
+                type="button"
+                onClick={() => void runBackendHealthCheck()}
+                disabled={backendHealthState === "checking"}
+              >
+                Check backend
+              </button>
 
               <button className="primary-btn" type="submit" disabled={isSigningIn}>
                 {isSigningIn ? "Signing in..." : "Sign in"}
