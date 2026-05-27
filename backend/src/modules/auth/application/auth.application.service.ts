@@ -14,6 +14,13 @@ import {
 } from "../domain/auth.types";
 import { ROLE_PERMISSIONS } from "../domain/auth.policy";
 
+interface CreateUserCommand {
+  username: string;
+  password: string;
+  displayName: string;
+  role: UserRecord["role"];
+}
+
 @Injectable()
 export class AuthApplicationService implements OnModuleInit {
   constructor(
@@ -71,6 +78,47 @@ export class AuthApplicationService implements OnModuleInit {
         roles: [user.role],
         displayName: user.displayName
       }
+    };
+  }
+
+  async createUser(command: CreateUserCommand, createdBy: string) {
+    const username = command.username.trim();
+    const displayName = command.displayName.trim();
+
+    const existing = await this.authRepository.findUserByUsername(username);
+    if (existing) {
+      throw new AppException({
+        status: 409,
+        code: "USER_ALREADY_EXISTS",
+        message: "User with this username already exists."
+      });
+    }
+
+    const user: UserRecord = {
+      id: `u_${randomUUID().replace(/-/g, "")}`,
+      username,
+      passwordHash: await bcrypt.hash(command.password, 10),
+      displayName,
+      role: command.role,
+      createdAt: new Date()
+    };
+
+    const stored = await this.authRepository.upsertUser(user);
+    if (stored.id !== user.id) {
+      throw new AppException({
+        status: 409,
+        code: "USER_ALREADY_EXISTS",
+        message: "User with this username already exists."
+      });
+    }
+
+    return {
+      userId: stored.id,
+      username: stored.username,
+      displayName: stored.displayName,
+      role: stored.role,
+      createdAt: stored.createdAt.toISOString(),
+      createdBy
     };
   }
 

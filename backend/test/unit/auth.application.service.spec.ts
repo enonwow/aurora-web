@@ -70,6 +70,56 @@ describe("AuthApplicationService", () => {
     expect(repository.createSession).toHaveBeenCalledTimes(1);
   });
 
+  it("creates user account with hashed password", async () => {
+    repository.findUserByUsername.mockResolvedValue(null);
+    repository.upsertUser.mockImplementation(async (user: UserRecord) => user);
+
+    const result = await service.createUser(
+      {
+        username: "qa.viewer",
+        password: "StrongPass123",
+        displayName: "QA Viewer",
+        role: "viewer"
+      },
+      "admin.user"
+    );
+
+    expect(result.username).toBe("qa.viewer");
+    expect(result.displayName).toBe("QA Viewer");
+    expect(result.role).toBe("viewer");
+    expect(result.createdBy).toBe("admin.user");
+    expect(result.userId).toEqual(expect.any(String));
+    expect(result.createdAt).toEqual(expect.any(String));
+
+    expect(repository.upsertUser).toHaveBeenCalledTimes(1);
+    const upserted = repository.upsertUser.mock.calls[0][0];
+    expect(upserted.username).toBe("qa.viewer");
+    expect(upserted.displayName).toBe("QA Viewer");
+    expect(upserted.role).toBe("viewer");
+    expect(upserted.passwordHash).not.toBe("StrongPass123");
+    await expect(bcrypt.compare("StrongPass123", upserted.passwordHash)).resolves.toBe(true);
+  });
+
+  it("rejects duplicate username when creating user", async () => {
+    const existing = await buildUser("qa.viewer", "viewer", "StrongPass123");
+    repository.findUserByUsername.mockResolvedValue(existing);
+
+    await expect(
+      service.createUser(
+        {
+          username: "qa.viewer",
+          password: "StrongPass123",
+          displayName: "QA Viewer",
+          role: "viewer"
+        },
+        "admin.user"
+      )
+    ).rejects.toMatchObject({
+      code: "USER_ALREADY_EXISTS"
+    });
+    expect(repository.upsertUser).not.toHaveBeenCalled();
+  });
+
   it("returns null and deletes expired session", async () => {
     const sessionWithUser: SessionWithUser = {
       session: {

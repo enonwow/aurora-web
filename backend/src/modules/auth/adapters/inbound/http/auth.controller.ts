@@ -16,9 +16,10 @@ import {
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { buildSuccessEnvelope } from "../../../../../common/http/contract";
 import type { AppRequest } from "../../../../../common/http/request.types";
-import { parseLoginRequest } from "./auth.schemas";
+import { parseCreateUserRequest, parseLoginRequest } from "./auth.schemas";
 import { AuthApplicationService } from "../../../application/auth.application.service";
 import { ALL_ROLES } from "../../../domain/auth.types";
+import { CreateUserRequestDto } from "./dto/create-user.request.dto";
 import { LoginRequestDto } from "./dto/login.request.dto";
 import { Permissions } from "./permissions.decorator";
 import { Public } from "./public.decorator";
@@ -46,6 +47,24 @@ export class AuthController {
       parsed.username,
       parsed.password
     );
+    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+  }
+
+  @Post("users")
+  @Roles("admin")
+  @Permissions("admin.user.manage")
+  @HttpCode(201)
+  @ApiBearerAuth("bearer")
+  @ApiOperation({ summary: "Create user account (admin only)." })
+  @ApiBody({ type: CreateUserRequestDto })
+  @ApiResponse({ status: 201, description: "User account created." })
+  @ApiResponse({ status: 401, description: "Missing or invalid session." })
+  @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
+  @ApiResponse({ status: 409, description: "Username already exists." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async createUser(@Req() request: AppRequest, @Body() body: CreateUserRequestDto) {
+    const parsed = parseCreateUserRequest(body);
+    const data = await this.authService.createUser(parsed, request.auth!.user.username);
     return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 

@@ -161,6 +161,102 @@ describe("Auth API v1 (e2e)", () => {
     expect(allowed.body.data.status).toBe("ok");
   });
 
+  it("POST /api/v1/auth/users denies non-admin role", async () => {
+    const login = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({
+        username: "builder.user",
+        password: "builder123"
+      })
+      .expect(200);
+
+    const token = login.body.data.session.accessToken as string;
+    const denied = await supertest(httpServer)
+      .post("/api/v1/auth/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        username: "qa.viewer.denied",
+        password: "StrongPass123",
+        displayName: "Denied Viewer",
+        role: "viewer"
+      })
+      .expect(403);
+
+    expect(denied.body.error.code).toBe("FORBIDDEN_ROLE");
+  });
+
+  it("POST /api/v1/auth/users allows admin role and created user can login", async () => {
+    const login = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({
+        username: "admin.user",
+        password: "admin123"
+      })
+      .expect(200);
+
+    const adminToken = login.body.data.session.accessToken as string;
+    const username = `qa.viewer.${Date.now()}`;
+
+    const created = await supertest(httpServer)
+      .post("/api/v1/auth/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        username,
+        password: "StrongPass123",
+        displayName: "QA Viewer",
+        role: "viewer"
+      })
+      .expect(201);
+
+    expect(created.body.data.userId).toEqual(expect.any(String));
+    expect(created.body.data.username).toBe(username);
+    expect(created.body.data.displayName).toBe("QA Viewer");
+    expect(created.body.data.role).toBe("viewer");
+
+    const createdLogin = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({
+        username,
+        password: "StrongPass123"
+      })
+      .expect(200);
+
+    expect(createdLogin.body.data.user.roles).toEqual(["viewer"]);
+    expect(createdLogin.body.data.user.displayName).toBe("QA Viewer");
+  });
+
+  it("POST /api/v1/auth/users rejects duplicate username", async () => {
+    const login = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({
+        username: "admin.user",
+        password: "admin123"
+      })
+      .expect(200);
+
+    const adminToken = login.body.data.session.accessToken as string;
+    const payload = {
+      username: "qa.viewer.duplicate",
+      password: "StrongPass123",
+      displayName: "Duplicate Viewer",
+      role: "viewer"
+    };
+
+    await supertest(httpServer)
+      .post("/api/v1/auth/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(payload)
+      .expect(201);
+
+    const duplicate = await supertest(httpServer)
+      .post("/api/v1/auth/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(payload)
+      .expect(409);
+
+    expect(duplicate.body.error.code).toBe("USER_ALREADY_EXISTS");
+  });
+
   it("POST /api/v1/auth/logout invalidates token", async () => {
     const login = await supertest(httpServer)
       .post("/api/v1/auth/login")

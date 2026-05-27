@@ -263,6 +263,14 @@ describe("HTTP controllers", () => {
   it("delegates auth controller calls", async () => {
     const service = {
       authenticate: jest.fn().mockResolvedValue({ accessToken: "token" }),
+      createUser: jest.fn().mockResolvedValue({
+        userId: "u_new_001",
+        username: "qa.viewer",
+        displayName: "QA Viewer",
+        role: "viewer",
+        createdAt: "2026-05-27T09:00:00.000Z",
+        createdBy: "admin.user"
+      }),
       logout: jest.fn().mockResolvedValue(undefined)
     } as unknown as jest.Mocked<AuthApplicationService>;
     const controller = new AuthController(service, config);
@@ -274,6 +282,21 @@ describe("HTTP controllers", () => {
         data: { accessToken: "token" }
       }
     );
+    await expect(
+      controller.createUser(request, {
+        username: "qa.viewer",
+        password: "StrongPass123",
+        displayName: "QA Viewer",
+        role: "viewer"
+      })
+    ).resolves.toMatchObject({
+      data: {
+        userId: "u_new_001",
+        username: "qa.viewer",
+        displayName: "QA Viewer",
+        role: "viewer"
+      }
+    });
     await expect(controller.logout(request)).resolves.toBeUndefined();
     await expect(controller.me(request)).resolves.toMatchObject({
       data: {
@@ -290,6 +313,15 @@ describe("HTTP controllers", () => {
     });
 
     expect(service.authenticate).toHaveBeenCalledWith("a", "b");
+    expect(service.createUser).toHaveBeenCalledWith(
+      {
+        username: "qa.viewer",
+        password: "StrongPass123",
+        displayName: "QA Viewer",
+        role: "viewer"
+      },
+      "admin.user"
+    );
     expect(service.logout).toHaveBeenCalledWith("token-1");
   });
 
@@ -667,3 +699,4 @@ function buildRuntimeSettingsPayload() {
 
   return payload;
 }
+
