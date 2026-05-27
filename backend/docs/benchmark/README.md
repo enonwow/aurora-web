@@ -65,29 +65,41 @@ curl -L "http://localhost:3000/api/v1/catalog/placeables/cache/<CACHE_KEY>/asset
   -o out.bin
 ```
 
-## 4) Run end-to-end benchmark script
+## 4) Run API integration benchmark (test profile)
+
+This benchmark runs full HTTP flows through Nest app routes, but it is not a full environment E2E run.
+It uses the local test profile (for example `NODE_ENV=test`) to keep runs stable and repeatable.
 
 From `backend/`:
 
 ```bash
-npm run bench:cache:e2e
+npm run bench:cache:integration
 ```
 
 Useful tuning flags:
 
 ```bash
-npm run bench:cache:e2e -- \
+npm run bench:cache:integration -- \
   --maxCandidatesPerType 10 \
-  --processBypassIterations 100 \
-  --processHitIterations 250 \
-  --cacheReadIterations 350 \
-  --assetDeliveryIterations 150
+  --processBypassIterations 10 \
+  --processHitIterations 10 \
+  --cacheReadIterations 10 \
+  --assetDeliveryIterations 10 \
+  --maxTotalRequests 700 \
+  --save true \
+  --output docs/benchmark/cache-e2e-benchmark-custom.json
 ```
 
 Script output is JSON with:
 - global route-group latencies (`p50/p95/p99`),
 - per-type summaries,
 - per-candidate results (including asset delivery status).
+- stability metadata (`requestedConfig`, `effectiveConfig`, `stability`) for auto-scaling/trim decisions.
+
+Notes:
+- Script now auto-scales iteration counts when requested load exceeds `--maxTotalRequests`, to avoid process crashes on overloaded local runs.
+- Backward-compatible `config` key remains in output and contains effective iteration values.
+- Deprecated alias: `npm run bench:cache:e2e` currently points to `bench:cache:integration` for backward compatibility.
 
 ## 5) Run algorithm benchmark suite (placeable/tile/sound/area + queue)
 
@@ -113,6 +125,8 @@ npm run bench:algorithms -- \
   --maxCandidatesPerType 10 \
   --iterations 120 \
   --warmupIterations 15 \
+  --areaLoadIterations 20 \
+  --areaLoadWarmupIterations 3 \
   --areaIterations 60 \
   --areaCacheReadIterations 160 \
   --queueJobs 80 \
@@ -122,6 +136,11 @@ npm run bench:algorithms -- \
 
 By default script saves JSON to:
 `backend/docs/benchmark/algorithm-benchmark-<timestamp>.json`.
+
+`results.areas` now includes:
+- `load` (area list/detail read path, includes snapshot parse and repository hydration),
+- `cold`/`warm` processing,
+- `cacheRead` endpoint latency.
 
 Disable saving:
 

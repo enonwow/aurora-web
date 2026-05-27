@@ -18,6 +18,9 @@
     "test:mutation:catalog:service": "stryker run stryker.catalog.service.config.json",
     "test:mutation:catalog:helpers": "stryker run stryker.catalog.helpers.config.json",
     "test:mutation:areas": "stryker run stryker.areas.config.json",
+    "test:mutation:areas:parser": "stryker run stryker.areas.parser.config.json",
+    "test:mutation:areas:repository": "stryker run stryker.areas.repository.config.json",
+    "test:mutation:areas:batches": "npm run test:mutation:areas:parser && npm run test:mutation:areas:repository",
     "test:mutation:tiles": "stryker run stryker.tiles.config.json",
     "test:mutation:sounds": "stryker run stryker.sounds.config.json",
     "test:mutation:auth": "stryker run stryker.auth.config.json",
@@ -28,7 +31,8 @@
     "bench:tiles": "ts-node --transpile-only scripts/run-tile-bench.ts",
     "bench:sounds": "ts-node --transpile-only scripts/run-sound-bench.ts",
     "bench:algorithms": "ts-node --transpile-only scripts/run-algorithm-bench.ts",
-    "bench:cache:e2e": "ts-node --transpile-only scripts/run-cache-e2e-bench.ts",
+    "bench:cache:integration": "ts-node --transpile-only scripts/run-cache-e2e-bench.ts",
+    "bench:cache:e2e": "npm run bench:cache:integration",
     "cache:module:sync": "ts-node --transpile-only scripts/run-module-cache-sync.ts"
   },
   "dependencies": {
