@@ -92,9 +92,41 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     expect(
       within(dialog).getByRole("button", { name: /^setup area transition$/i })
     ).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^lock$/i }));
+    const lockedCheckbox = within(dialog).getByRole("checkbox", { name: /^locked$/i });
+    const openLockDcInput = within(dialog).getByRole("spinbutton", { name: /^open lock dc$/i });
+    const keyTagInput = within(dialog).getByRole("textbox", { name: /^key tag$/i });
+    expect(lockedCheckbox).toBeInTheDocument();
+    expect(openLockDcInput).toBeInTheDocument();
+    expect(keyTagInput).toBeInTheDocument();
+
+    fireEvent.click(lockedCheckbox);
+    fireEvent.change(openLockDcInput, { target: { value: "29" } });
+    fireEvent.change(keyTagInput, { target: { value: "DOR_KEY_INTERACT_01" } });
+    expect(lockedCheckbox).toBeChecked();
+    expect(openLockDcInput).toHaveValue(29);
+    expect(keyTagInput).toHaveValue("DOR_KEY_INTERACT_01");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^trap$/i }));
+    const isTrappedCheckbox = within(dialog).getByRole("checkbox", { name: /^is trapped$/i });
+    const disarmDcInput = within(dialog).getByRole("spinbutton", { name: /^disarm dc$/i });
+    const onTrapTriggeredInput = within(dialog).getByRole("textbox", {
+      name: /^ontraptriggered$/i
+    });
+    expect(isTrappedCheckbox).toBeInTheDocument();
+    expect(disarmDcInput).toBeInTheDocument();
+    expect(onTrapTriggeredInput).toBeInTheDocument();
+
+    fireEvent.click(isTrappedCheckbox);
+    fireEvent.change(disarmDcInput, { target: { value: "24" } });
+    fireEvent.change(onTrapTriggeredInput, { target: { value: "door_trap_interact_01" } });
+    expect(isTrappedCheckbox).toBeChecked();
+    expect(disarmDcInput).toHaveValue(24);
+    expect(onTrapTriggeredInput).toHaveValue("door_trap_interact_01");
   });
 
-  it("persists Basic and Area Transition edits on Apply/OK and reverts transient edits on Cancel", async () => {
+  it("persists Basic/Lock/Trap/Area edits on Apply/OK and reverts transient lock/trap edits on Cancel", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -102,9 +134,34 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
 
     const persistedDoorName = "Door_Aurora_Persist_01";
     const persistedDestinationTag = "WP_AURORA_PERSIST_01";
+    const persistedKeyTag = "DOR_KEY_PERSIST_01";
+    const persistedOnTrapTriggered = "door_trap_persist_01";
 
     const nameInput = within(dialog).getByRole("textbox", { name: /^name$/i });
     fireEvent.change(nameInput, { target: { value: persistedDoorName } });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^lock$/i }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /^locked$/i }));
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", {
+        name: /^key required to unlock or lock$/i
+      })
+    );
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^open lock dc$/i }), {
+      target: { value: "33" }
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /^key tag$/i }), {
+      target: { value: persistedKeyTag }
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^trap$/i }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /^is trapped$/i }));
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^disarm dc$/i }), {
+      target: { value: "22" }
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /^ontraptriggered$/i }), {
+      target: { value: persistedOnTrapTriggered }
+    });
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^area transition$/i }));
     const destinationTagInput = within(dialog).getByRole("textbox", {
@@ -129,6 +186,29 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     expect(
       within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i })
     ).toHaveValue(persistedDestinationTag);
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
+    expect(within(reopenedAfterPersist).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("checkbox", {
+        name: /^key required to unlock or lock$/i
+      })
+    ).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i })
+    ).toHaveValue(33);
+    expect(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
+      persistedKeyTag
+    );
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
+    expect(
+      within(reopenedAfterPersist).getByRole("checkbox", { name: /^is trapped$/i })
+    ).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i })
+    ).toHaveValue(22);
+    expect(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i })
+    ).toHaveValue(persistedOnTrapTriggered);
 
     fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^basic$/i }));
     fireEvent.change(within(reopenedAfterPersist).getByRole("textbox", { name: /^name$/i }), {
@@ -139,6 +219,29 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
       within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i }),
       {
         target: { value: "WP_AURORA_TRANSIENT_01" }
+      }
+    );
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i }),
+      {
+        target: { value: "7" }
+      }
+    );
+    fireEvent.change(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i }), {
+      target: { value: "DOR_KEY_TRANSIENT_01" }
+    });
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i }),
+      {
+        target: { value: "5" }
+      }
+    );
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i }),
+      {
+        target: { value: "door_trap_transient_01" }
       }
     );
 
@@ -156,6 +259,19 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     expect(
       within(reopenedAfterCancel).getByRole("textbox", { name: /^destination tag$/i })
     ).toHaveValue(persistedDestinationTag);
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^lock$/i }));
+    expect(
+      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^open lock dc$/i })
+    ).toHaveValue(33);
+    expect(within(reopenedAfterCancel).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
+      persistedKeyTag
+    );
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^trap$/i }));
+    expect(
+      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^disarm dc$/i })
+    ).toHaveValue(22);
+    expect(
+      within(reopenedAfterCancel).getByRole("textbox", { name: /^ontraptriggered$/i })
+    ).toHaveValue(persistedOnTrapTriggered);
   });
 });
-

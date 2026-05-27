@@ -710,6 +710,147 @@ describe("Regression smoke: workspace interactions", () => {
     expect(screen.queryByRole("menuitem", { name: /^adjust location$/i })).not.toBeInTheDocument();
   });
 
+  it("renders placeable lock/trap controls and persists apply/ok while cancel discards transient edits", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+
+    const openPlaceablePropertiesDialog = async () => {
+      const placeableRow = within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i });
+      fireEvent.contextMenu(placeableRow, { clientX: 260, clientY: 200 });
+      fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
+      return screen.findByRole("dialog", { name: /placeable properties/i });
+    };
+
+    const dialog = await openPlaceablePropertiesDialog();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^lock$/i }));
+    const lockedCheckbox = within(dialog).getByRole("checkbox", { name: /^locked$/i });
+    const canRelockCheckbox = within(dialog).getByRole("checkbox", { name: /^can be relocked$/i });
+    const keyRequiredCheckbox = within(dialog).getByRole("checkbox", {
+      name: /^key required to unlock or lock$/i
+    });
+    const openLockDcInput = within(dialog).getByRole("spinbutton", { name: /^open lock dc$/i });
+    const keyTagInput = within(dialog).getByRole("textbox", { name: /^key tag$/i });
+
+    expect(lockedCheckbox).toBeInTheDocument();
+    expect(canRelockCheckbox).toBeInTheDocument();
+    expect(keyRequiredCheckbox).toBeInTheDocument();
+    expect(openLockDcInput).toBeInTheDocument();
+    expect(keyTagInput).toBeInTheDocument();
+
+    fireEvent.click(lockedCheckbox);
+    fireEvent.click(canRelockCheckbox);
+    fireEvent.click(keyRequiredCheckbox);
+    fireEvent.change(openLockDcInput, { target: { value: "31" } });
+    fireEvent.change(keyTagInput, { target: { value: "PLC_KEY_PERSIST_01" } });
+
+    expect(lockedCheckbox).toBeChecked();
+    expect(canRelockCheckbox).toBeChecked();
+    expect(keyRequiredCheckbox).toBeChecked();
+    expect(openLockDcInput).toHaveValue(31);
+    expect(keyTagInput).toHaveValue("PLC_KEY_PERSIST_01");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^trap$/i }));
+    const isTrappedCheckbox = within(dialog).getByRole("checkbox", { name: /^is trapped$/i });
+    const disarmDcInput = within(dialog).getByRole("spinbutton", { name: /^disarm dc$/i });
+    const onTrapTriggeredInput = within(dialog).getByRole("textbox", {
+      name: /^ontraptriggered$/i
+    });
+
+    expect(isTrappedCheckbox).toBeInTheDocument();
+    expect(disarmDcInput).toBeInTheDocument();
+    expect(onTrapTriggeredInput).toBeInTheDocument();
+
+    fireEvent.click(isTrappedCheckbox);
+    fireEvent.change(disarmDcInput, { target: { value: "27" } });
+    fireEvent.change(onTrapTriggeredInput, {
+      target: { value: "plc_trap_persist_trigger_01" }
+    });
+
+    expect(isTrappedCheckbox).toBeChecked();
+    expect(disarmDcInput).toHaveValue(27);
+    expect(onTrapTriggeredInput).toHaveValue("plc_trap_persist_trigger_01");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+    expect(screen.getByRole("dialog", { name: /placeable properties/i })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
+    });
+
+    const reopenedAfterPersist = await openPlaceablePropertiesDialog();
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
+    expect(within(reopenedAfterPersist).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("checkbox", {
+        name: /^key required to unlock or lock$/i
+      })
+    ).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i })
+    ).toHaveValue(31);
+    expect(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
+      "PLC_KEY_PERSIST_01"
+    );
+
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
+    expect(
+      within(reopenedAfterPersist).getByRole("checkbox", { name: /^is trapped$/i })
+    ).toBeChecked();
+    expect(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i })
+    ).toHaveValue(27);
+    expect(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i })
+    ).toHaveValue("plc_trap_persist_trigger_01");
+
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i }),
+      { target: { value: "11" } }
+    );
+    fireEvent.change(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i }), {
+      target: { value: "PLC_KEY_TRANSIENT_01" }
+    });
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i }),
+      { target: { value: "8" } }
+    );
+    fireEvent.change(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i }),
+      {
+        target: { value: "plc_trap_transient_trigger_01" }
+      }
+    );
+
+    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^cancel$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
+    });
+
+    const reopenedAfterCancel = await openPlaceablePropertiesDialog();
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^lock$/i }));
+    expect(within(reopenedAfterCancel).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
+    expect(
+      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^open lock dc$/i })
+    ).toHaveValue(31);
+    expect(within(reopenedAfterCancel).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
+      "PLC_KEY_PERSIST_01"
+    );
+
+    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^trap$/i }));
+    expect(
+      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^disarm dc$/i })
+    ).toHaveValue(27);
+    expect(
+      within(reopenedAfterCancel).getByRole("textbox", { name: /^ontraptriggered$/i })
+    ).toHaveValue("plc_trap_persist_trigger_01");
+  });
+
   it("keeps object catalog interactive for type switch and filtering", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
