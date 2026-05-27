@@ -1,5 +1,5 @@
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
+import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import {
   CatalogApplicationService,
@@ -11,33 +11,36 @@ import {
   parseTemplateProcessPayload
 } from "./template-processing.schemas";
 
-export abstract class TemplateCatalogBaseController {
+export abstract class TemplateCatalogBaseController extends ProcessingHttpBaseController {
   protected constructor(
     protected readonly service: CatalogApplicationService,
-    protected readonly config: AppConfigService,
+    config: AppConfigService,
     private readonly kind: TemplateProcessingKind
-  ) {}
+  ) {
+    super(config);
+  }
 
   protected async handleList(request: AppRequest, query: Record<string, unknown>) {
-    const parsed = parseCatalogListQuery(query);
-    const data = await this.service.listTemplateKind(this.kind, parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseCatalogListQuery, (parsed) =>
+      this.service.listTemplateKind(this.kind, parsed)
+    );
   }
 
   protected async handlePreview(request: AppRequest, templateId: string) {
-    const data = await this.service.getTemplateKindPreview(this.kind, templateId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, templateId, (id) =>
+      this.service.getTemplateKindPreview(this.kind, id)
+    );
   }
 
   protected async handleProcess(request: AppRequest, body: Record<string, unknown>) {
-    const parsed = parseTemplateProcessPayload(body);
-    const data = await this.service.processTemplateKind(this.kind, parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedBody(request, body, parseTemplateProcessPayload, (parsed) =>
+      this.service.processTemplateKind(this.kind, parsed)
+    );
   }
 
   protected async handleGetCached(request: AppRequest, rawCacheKey: string) {
-    const cacheKey = parseTemplateCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedTemplateKind(this.kind, cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKey(request, rawCacheKey, parseTemplateCacheKey, (cacheKey) =>
+      this.service.getProcessedTemplateKind(this.kind, cacheKey)
+    );
   }
 }

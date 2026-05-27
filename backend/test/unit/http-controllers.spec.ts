@@ -414,6 +414,39 @@ describe("HTTP controllers", () => {
     });
   });
 
+  it("streams runtime texture blob with sanitized filename headers", async () => {
+    const service = {
+      getTextureBlobById: jest.fn().mockResolvedValue({
+        texture: {
+          textureId: "abcdefabcdefabcdefabcdef",
+          resref: "bad\"name\r\n",
+          extension: "txi\\tga",
+          objectKey: "modules/current/textures/bad.tga"
+        },
+        payload: {
+          contentType: "image/x-tga",
+          size: 3,
+          etag: "etag-1",
+          bytes: Buffer.from([1, 2, 3])
+        }
+      })
+    } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
+    const controller = new RuntimeSettingsController(service, config);
+    const response = createReply();
+
+    await controller.getTextureBlob(
+      "abcdefabcdefabcdefabcdef",
+      response as unknown as FastifyReply
+    );
+
+    expect(service.getTextureBlobById).toHaveBeenCalledWith("abcdefabcdefabcdefabcdef");
+    expect(response.header).toHaveBeenCalledWith(
+      "Content-Disposition",
+      "inline; filename=\"bad_name__.txi_tga\""
+    );
+    expect(response.send).toHaveBeenCalledWith(Buffer.from([1, 2, 3]));
+  });
+
   it("delegates base template catalog controllers", async () => {
     const service = {
       listTemplateKind: jest.fn().mockResolvedValue({ items: [], total: 0 }),

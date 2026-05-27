@@ -9,7 +9,11 @@ import {
 } from "@nestjs/swagger";
 import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
+import {
+  applyBinaryPayloadHeaders,
+  setInlineContentDisposition
+} from "../../../../../common/http/binary-response";
+import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
@@ -30,11 +34,13 @@ import {
 @ApiTags("runtime-settings")
 @ApiBearerAuth("bearer")
 @Roles("admin")
-export class RuntimeSettingsController {
+export class RuntimeSettingsController extends ProcessingHttpBaseController {
   constructor(
     private readonly settingsService: RuntimeSettingsApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+    config: AppConfigService
+  ) {
+    super(config);
+  }
 
   @Get()
   @ApiOperation({
@@ -44,8 +50,7 @@ export class RuntimeSettingsController {
   @ApiResponse({ status: 200, description: "Runtime settings payload." })
   @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
   async getRuntimeSettings(@Req() request: AppRequest) {
-    const data = await this.settingsService.getRuntimeSettings();
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.success(request, await this.settingsService.getRuntimeSettings());
   }
 
   @Get("haks/resolved")
@@ -56,8 +61,7 @@ export class RuntimeSettingsController {
   @ApiResponse({ status: 200, description: "Resolved HAK settings payload." })
   @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
   async getResolvedHakSettings(@Req() request: AppRequest) {
-    const data = await this.settingsService.getResolvedHakSettings();
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.success(request, await this.settingsService.getResolvedHakSettings());
   }
 
   @Get("module-cache")
@@ -71,9 +75,9 @@ export class RuntimeSettingsController {
     @Req() request: AppRequest,
     @Query() query: Record<string, unknown>
   ) {
-    const parsed = parseModuleCacheSummaryQuery(query);
-    const data = await this.settingsService.getModuleBlobCacheSummary(parsed.limit);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseModuleCacheSummaryQuery, (parsed) =>
+      this.settingsService.getModuleBlobCacheSummary(parsed.limit)
+    );
   }
 
   @Get("module-cache/textures/summary")
@@ -84,8 +88,7 @@ export class RuntimeSettingsController {
   @ApiResponse({ status: 200, description: "Texture index metadata summary." })
   @ApiResponse({ status: 403, description: "Forbidden for non-admin roles." })
   async getTextureIndexSummary(@Req() request: AppRequest) {
-    const data = await this.settingsService.getTextureIndexMetadataSummary();
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.success(request, await this.settingsService.getTextureIndexMetadataSummary());
   }
 
   @Get("module-cache/textures")
@@ -130,9 +133,9 @@ export class RuntimeSettingsController {
     @Req() request: AppRequest,
     @Query() query: Record<string, unknown>
   ) {
-    const parsed = parseTextureIndexQuery(query);
-    const data = await this.settingsService.queryTextureIndex(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseTextureIndexQuery, (parsed) =>
+      this.settingsService.queryTextureIndex(parsed)
+    );
   }
 
   @Get("module-cache/textures/contracts")
@@ -181,9 +184,9 @@ export class RuntimeSettingsController {
     @Req() request: AppRequest,
     @Query() query: Record<string, unknown>
   ) {
-    const parsed = parseTextureDeliveryQuery(query);
-    const data = await this.settingsService.getTextureDeliveryContracts(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseTextureDeliveryQuery, (parsed) =>
+      this.settingsService.getTextureDeliveryContracts(parsed)
+    );
   }
 
   @Get("module-cache/textures/:textureId")
@@ -207,19 +210,15 @@ export class RuntimeSettingsController {
     const textureId = parseTextureIdParam(rawTextureId);
     const data = await this.settingsService.getTextureBlobById(textureId);
 
-    response.header("Content-Type", data.payload.contentType);
-    response.header("Content-Length", String(data.payload.size));
-    response.header("Cache-Control", "private, max-age=120");
-    if (data.payload.etag) {
-      response.header("ETag", data.payload.etag);
-    }
-    response.header("X-Aurora-Texture-Id", data.texture.textureId);
-    response.header("X-Aurora-Texture-Resref", data.texture.resref);
-    response.header("X-Aurora-Texture-Object-Key", data.texture.objectKey);
-    response.header(
-      "Content-Disposition",
-      `inline; filename="${sanitizeHeaderFileName(data.texture.resref)}.${sanitizeHeaderFileName(data.texture.extension)}"`
-    );
+    applyBinaryPayloadHeaders(response, data.payload, {
+      cacheControl: "private, max-age=120",
+      extraHeaders: {
+        "X-Aurora-Texture-Id": data.texture.textureId,
+        "X-Aurora-Texture-Resref": data.texture.resref,
+        "X-Aurora-Texture-Object-Key": data.texture.objectKey
+      }
+    });
+    setInlineContentDisposition(response, `${data.texture.resref}.${data.texture.extension}`);
 
     return response.send(data.payload.bytes);
   }
@@ -240,14 +239,11 @@ export class RuntimeSettingsController {
     @Req() request: AppRequest,
     @Query() query: Record<string, unknown>
   ) {
-    const parsed = parseModuleCacheRebuildQuery(query);
-    const data = await this.settingsService.rebuildModuleBlobCache(
-      request.auth!.user.username,
-      {
+    return this.handleParsedQuery(request, query, parseModuleCacheRebuildQuery, (parsed) =>
+      this.settingsService.rebuildModuleBlobCache(request.auth!.user.username, {
         forceFull: parsed.forceFull
-      }
+      })
     );
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
   @Put()
@@ -262,15 +258,8 @@ export class RuntimeSettingsController {
     @Req() request: AppRequest,
     @Body() body: Record<string, unknown>
   ) {
-    const parsed = parseReplaceRuntimeSettingsRequest(body);
-    const data = await this.settingsService.replaceRuntimeSettings(
-      parsed,
-      request.auth!.user.username
+    return this.handleParsedBody(request, body, parseReplaceRuntimeSettingsRequest, (parsed) =>
+      this.settingsService.replaceRuntimeSettings(parsed, request.auth!.user.username)
     );
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
-}
-
-function sanitizeHeaderFileName(value: string): string {
-  return value.replace(/["\\\r\n]/gu, "_");
 }

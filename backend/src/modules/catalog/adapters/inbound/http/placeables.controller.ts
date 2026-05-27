@@ -10,7 +10,11 @@ import {
 } from "@nestjs/swagger";
 import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
+import {
+  applyBinaryPayloadHeaders,
+  setInlineContentDisposition
+} from "../../../../../common/http/binary-response";
+import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { CatalogApplicationService } from "../../../application/catalog.application.service";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
@@ -30,11 +34,10 @@ import {
 @ApiBearerAuth("bearer")
 @Roles(...ALL_ROLES)
 @Permissions("scene.read")
-export class PlaceablesController {
-  constructor(
-    private readonly service: CatalogApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+export class PlaceablesController extends ProcessingHttpBaseController {
+  constructor(private readonly service: CatalogApplicationService, config: AppConfigService) {
+    super(config);
+  }
 
   @Get()
   @ApiOperation({ summary: "List placeable templates for area composition." })
@@ -64,9 +67,9 @@ export class PlaceablesController {
   @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
-    const parsed = parseCatalogListQuery(query);
-    const data = await this.service.listPlaceables(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseCatalogListQuery, (parsed) =>
+      this.service.listPlaceables(parsed)
+    );
   }
 
   @Get(":templateId/preview")
@@ -75,8 +78,7 @@ export class PlaceablesController {
   @ApiResponse({ status: 200, description: "Placeable preview." })
   @ApiResponse({ status: 404, description: "Template not found." })
   async preview(@Req() request: AppRequest, @Param("templateId") templateId: string) {
-    const data = await this.service.getPlaceablePreview(templateId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, templateId, (id) => this.service.getPlaceablePreview(id));
   }
 
   @Post("process")
@@ -115,9 +117,9 @@ export class PlaceablesController {
   @ApiResponse({ status: 404, description: "Template not found." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async process(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    const parsed = parsePlaceableProcessPayload(body);
-    const data = await this.service.processPlaceable(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedBody(request, body, parsePlaceableProcessPayload, (parsed) =>
+      this.service.processPlaceable(parsed)
+    );
   }
 
   @Get("cache/:cacheKey")
@@ -131,9 +133,9 @@ export class PlaceablesController {
     @Req() request: AppRequest,
     @Param("cacheKey") rawCacheKey: string
   ) {
-    const cacheKey = parsePlaceableCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedPlaceable(cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKey(request, rawCacheKey, parsePlaceableCacheKey, (cacheKey) =>
+      this.service.getProcessedPlaceable(cacheKey)
+    );
   }
 
   @Get("cache/:cacheKey/assets/contracts")
@@ -158,13 +160,15 @@ export class PlaceablesController {
     @Param("cacheKey") rawCacheKey: string,
     @Query() query: Record<string, unknown>
   ) {
-    const cacheKey = parsePlaceableCacheKey(rawCacheKey);
-    const parsedQuery = parsePlaceableAssetDeliveryQuery(query);
-    const data = await this.service.getProcessedPlaceableAssetDelivery(
-      cacheKey,
-      parsedQuery.assetIds
+    return this.handleCacheKeyAndParsedQuery(
+      request,
+      rawCacheKey,
+      query,
+      parsePlaceableCacheKey,
+      parsePlaceableAssetDeliveryQuery,
+      (cacheKey, parsedQuery) =>
+        this.service.getProcessedPlaceableAssetDelivery(cacheKey, parsedQuery.assetIds)
     );
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
   }
 
   @Get("cache/:cacheKey/assets/:assetId")
@@ -187,19 +191,15 @@ export class PlaceablesController {
     const assetId = parsePlaceableAssetId(rawAssetId);
     const data = await this.service.getProcessedPlaceableAsset(cacheKey, assetId);
 
-    response.header("Content-Type", data.payload.contentType);
-    response.header("Content-Length", String(data.payload.size));
-    response.header("Cache-Control", "private, max-age=120");
-    if (data.payload.etag) {
-      response.header("ETag", data.payload.etag);
-    }
-    response.header("X-Aurora-Asset-Id", data.asset.assetId);
-    response.header("X-Aurora-Cache-Key", data.cacheKey);
-    response.header("X-Aurora-Module-Hash", data.moduleHash ?? "");
-    response.header(
-      "Content-Disposition",
-      `inline; filename="${sanitizeHeaderFileName(data.asset.fileName)}"`
-    );
+    applyBinaryPayloadHeaders(response, data.payload, {
+      cacheControl: "private, max-age=120",
+      extraHeaders: {
+        "X-Aurora-Asset-Id": data.asset.assetId,
+        "X-Aurora-Cache-Key": data.cacheKey,
+        "X-Aurora-Module-Hash": data.moduleHash ?? ""
+      }
+    });
+    setInlineContentDisposition(response, data.asset.fileName);
 
     return response.send(data.payload.bytes);
   }
@@ -228,12 +228,8 @@ export class PlaceablesController {
   @ApiResponse({ status: 200, description: "Benchmark run output." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async benchmark(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    const parsed = parsePlaceableBenchmarkPayload(body);
-    const data = await this.service.benchmarkPlaceables(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedBody(request, body, parsePlaceableBenchmarkPayload, (parsed) =>
+      this.service.benchmarkPlaceables(parsed)
+    );
   }
-}
-
-function sanitizeHeaderFileName(value: string): string {
-  return value.replace(/["\\\r\n]/gu, "_");
 }

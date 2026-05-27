@@ -10,7 +10,11 @@ import {
 } from "@nestjs/swagger";
 import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
+import {
+  applyBinaryPayloadHeaders,
+  setInlineContentDisposition
+} from "../../../../../common/http/binary-response";
+import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
@@ -29,11 +33,10 @@ import {
 @ApiBearerAuth("bearer")
 @Roles(...ALL_ROLES)
 @Permissions("scene.read")
-export class SoundsController {
-  constructor(
-    private readonly service: SoundsApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+export class SoundsController extends ProcessingHttpBaseController {
+  constructor(private readonly service: SoundsApplicationService, config: AppConfigService) {
+    super(config);
+  }
 
   @Get()
   @ApiOperation({ summary: "List sound templates for area assembly." })
@@ -65,9 +68,9 @@ export class SoundsController {
   @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
-    const parsed = parseSoundListQuery(query);
-    const data = await this.service.listSounds(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseSoundListQuery, (parsed) =>
+      this.service.listSounds(parsed)
+    );
   }
 
   @Get(":soundId")
@@ -76,8 +79,7 @@ export class SoundsController {
   @ApiResponse({ status: 200, description: "Sound payload." })
   @ApiResponse({ status: 404, description: "Sound not found." })
   async getById(@Req() request: AppRequest, @Param("soundId") soundId: string) {
-    const data = await this.service.getSound(soundId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, soundId, (id) => this.service.getSound(id));
   }
 
   @Get(":soundId/preview")
@@ -86,8 +88,7 @@ export class SoundsController {
   @ApiResponse({ status: 200, description: "Sound preview payload." })
   @ApiResponse({ status: 404, description: "Sound not found." })
   async preview(@Req() request: AppRequest, @Param("soundId") soundId: string) {
-    const data = await this.service.getSoundPreview(soundId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, soundId, (id) => this.service.getSoundPreview(id));
   }
 
   @Post(":soundId/process")
@@ -106,12 +107,17 @@ export class SoundsController {
     @Param("soundId") soundId: string,
     @Body() body: Record<string, unknown>
   ) {
-    const parsed = parseSoundProcessPayload(body);
-    const data = await this.service.processSound({
+    return this.handleByIdAndParsedBody(
+      request,
       soundId,
-      bypassCache: parsed.bypassCache
-    });
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+      body,
+      parseSoundProcessPayload,
+      (id, parsed) =>
+        this.service.processSound({
+          soundId: id,
+          bypassCache: parsed.bypassCache
+        })
+    );
   }
 
   @Post("benchmark")
@@ -138,9 +144,9 @@ export class SoundsController {
   @ApiResponse({ status: 200, description: "Benchmark run output." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async benchmark(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    const parsed = parseSoundBenchmarkPayload(body);
-    const data = await this.service.benchmarkSounds(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedBody(request, body, parseSoundBenchmarkPayload, (parsed) =>
+      this.service.benchmarkSounds(parsed)
+    );
   }
 
   @Get("cache/:cacheKey")
@@ -151,9 +157,9 @@ export class SoundsController {
   @ApiResponse({ status: 200, description: "Cached sound payload." })
   @ApiResponse({ status: 404, description: "Cache entry not found." })
   async getCached(@Req() request: AppRequest, @Param("cacheKey") rawCacheKey: string) {
-    const cacheKey = parseSoundCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedSound(cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKey(request, rawCacheKey, parseSoundCacheKey, (cacheKey) =>
+      this.service.getProcessedSound(cacheKey)
+    );
   }
 
   @Get("cache/:cacheKey/audio/contracts")
@@ -178,10 +184,14 @@ export class SoundsController {
     @Param("cacheKey") rawCacheKey: string,
     @Query() query: Record<string, unknown>
   ) {
-    const cacheKey = parseSoundCacheKey(rawCacheKey);
-    const parsed = parseSoundAudioDeliveryQuery(query);
-    const data = await this.service.getProcessedSoundAudioDelivery(cacheKey, parsed.mode);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKeyAndParsedQuery(
+      request,
+      rawCacheKey,
+      query,
+      parseSoundCacheKey,
+      parseSoundAudioDeliveryQuery,
+      (cacheKey, parsed) => this.service.getProcessedSoundAudioDelivery(cacheKey, parsed.mode)
+    );
   }
 
   @Get("cache/:cacheKey/audio")
@@ -205,15 +215,16 @@ export class SoundsController {
     const data = await this.service.getProcessedSoundAudio(cacheKey);
     const range = parseSingleByteRange(rangeHeader, data.payload.size);
 
-    response.header("Content-Type", data.payload.contentType);
-    response.header("Accept-Ranges", "bytes");
-    response.header("Cache-Control", "private, max-age=120");
-    response.header("X-Aurora-Sound-Asset-Id", data.audio.assetId);
-    response.header("X-Aurora-Sound-Object-Key", data.audio.objectKey);
-    response.header("X-Aurora-Cache-Key", data.cacheKey);
-    if (data.payload.etag) {
-      response.header("ETag", data.payload.etag);
-    }
+    applyBinaryPayloadHeaders(response, data.payload, {
+      cacheControl: "private, max-age=120",
+      includeContentLength: false,
+      extraHeaders: {
+        "Accept-Ranges": "bytes",
+        "X-Aurora-Sound-Asset-Id": data.audio.assetId,
+        "X-Aurora-Sound-Object-Key": data.audio.objectKey,
+        "X-Aurora-Cache-Key": data.cacheKey
+      }
+    });
 
     if (range && range.kind === "invalid") {
       response.code(416);
@@ -226,24 +237,14 @@ export class SoundsController {
       response.code(206);
       response.header("Content-Length", String(chunk.length));
       response.header("Content-Range", `bytes ${range.start}-${range.end}/${data.payload.size}`);
-      response.header(
-        "Content-Disposition",
-        `inline; filename="${sanitizeHeaderFileName(data.audio.assetId)}.${sanitizeHeaderFileName(data.audio.format)}"`
-      );
+      setInlineContentDisposition(response, `${data.audio.assetId}.${data.audio.format}`);
       return response.send(chunk);
     }
 
     response.header("Content-Length", String(data.payload.size));
-    response.header(
-      "Content-Disposition",
-      `inline; filename="${sanitizeHeaderFileName(data.audio.assetId)}.${sanitizeHeaderFileName(data.audio.format)}"`
-    );
+    setInlineContentDisposition(response, `${data.audio.assetId}.${data.audio.format}`);
     return response.send(data.payload.bytes);
   }
-}
-
-function sanitizeHeaderFileName(value: string): string {
-  return value.replace(/["\\\r\n]/gu, "_");
 }
 
 function parseSingleByteRange(

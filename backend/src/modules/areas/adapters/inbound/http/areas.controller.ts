@@ -9,7 +9,11 @@ import {
 } from "@nestjs/swagger";
 import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
-import { buildSuccessEnvelope } from "../../../../../common/http/contract";
+import {
+  applyBinaryPayloadHeaders,
+  setInlineContentDisposition
+} from "../../../../../common/http/binary-response";
+import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
@@ -27,11 +31,10 @@ import {
 @ApiBearerAuth("bearer")
 @Roles(...ALL_ROLES)
 @Permissions("scene.read")
-export class AreasController {
-  constructor(
-    private readonly service: AreasApplicationService,
-    private readonly config: AppConfigService
-  ) {}
+export class AreasController extends ProcessingHttpBaseController {
+  constructor(private readonly service: AreasApplicationService, config: AppConfigService) {
+    super(config);
+  }
 
   @Get()
   @ApiOperation({ summary: "List areas available for benchmark and editing." })
@@ -50,9 +53,9 @@ export class AreasController {
   @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
-    const parsed = parseAreaListQuery(query);
-    const data = await this.service.listAreas(parsed);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleParsedQuery(request, query, parseAreaListQuery, (parsed) =>
+      this.service.listAreas(parsed)
+    );
   }
 
   @Get(":areaId")
@@ -61,8 +64,7 @@ export class AreasController {
   @ApiResponse({ status: 200, description: "Area payload." })
   @ApiResponse({ status: 404, description: "Area not found." })
   async getById(@Req() request: AppRequest, @Param("areaId") areaId: string) {
-    const data = await this.service.getArea(areaId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, areaId, (id) => this.service.getArea(id));
   }
 
   @Get(":areaId/preview")
@@ -71,8 +73,7 @@ export class AreasController {
   @ApiResponse({ status: 200, description: "Area preview payload." })
   @ApiResponse({ status: 404, description: "Area not found." })
   async preview(@Req() request: AppRequest, @Param("areaId") areaId: string) {
-    const data = await this.service.getAreaPreview(areaId);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleById(request, areaId, (id) => this.service.getAreaPreview(id));
   }
 
   @Post(":areaId/process")
@@ -91,12 +92,17 @@ export class AreasController {
     @Param("areaId") areaId: string,
     @Body() body: Record<string, unknown>
   ) {
-    const parsed = parseAreaProcessPayload(body);
-    const data = await this.service.processArea({
+    return this.handleByIdAndParsedBody(
+      request,
       areaId,
-      bypassCache: parsed.bypassCache
-    });
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+      body,
+      parseAreaProcessPayload,
+      (id, parsed) =>
+        this.service.processArea({
+          areaId: id,
+          bypassCache: parsed.bypassCache
+        })
+    );
   }
 
   @Get("cache/:cacheKey")
@@ -107,9 +113,9 @@ export class AreasController {
   @ApiResponse({ status: 200, description: "Cached area payload." })
   @ApiResponse({ status: 404, description: "Cache entry not found." })
   async getCached(@Req() request: AppRequest, @Param("cacheKey") rawCacheKey: string) {
-    const cacheKey = parseAreaCacheKey(rawCacheKey);
-    const data = await this.service.getProcessedArea(cacheKey);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKey(request, rawCacheKey, parseAreaCacheKey, (cacheKey) =>
+      this.service.getProcessedArea(cacheKey)
+    );
   }
 
   @Get("cache/:cacheKey/textures/contracts")
@@ -134,10 +140,14 @@ export class AreasController {
     @Param("cacheKey") rawCacheKey: string,
     @Query() query: Record<string, unknown>
   ) {
-    const cacheKey = parseAreaCacheKey(rawCacheKey);
-    const parsed = parseAreaTextureDeliveryQuery(query);
-    const data = await this.service.getProcessedAreaTextureDelivery(cacheKey, parsed.mode);
-    return buildSuccessEnvelope(this.config.contractVersion, request, data);
+    return this.handleCacheKeyAndParsedQuery(
+      request,
+      rawCacheKey,
+      query,
+      parseAreaCacheKey,
+      parseAreaTextureDeliveryQuery,
+      (cacheKey, parsed) => this.service.getProcessedAreaTextureDelivery(cacheKey, parsed.mode)
+    );
   }
 
   @Get("cache/:cacheKey/textures")
@@ -157,23 +167,15 @@ export class AreasController {
     const cacheKey = parseAreaCacheKey(rawCacheKey);
     const data = await this.service.getProcessedAreaTexture(cacheKey);
 
-    response.header("Content-Type", data.payload.contentType);
-    response.header("Content-Length", String(data.payload.size));
-    response.header("Cache-Control", "private, max-age=120");
-    response.header("X-Aurora-Area-Atlas-Id", data.textureAtlas.atlasId);
-    response.header("X-Aurora-Area-Atlas-Object-Key", data.textureAtlas.objectKey ?? "");
-    response.header("X-Aurora-Cache-Key", data.cacheKey);
-    if (data.payload.etag) {
-      response.header("ETag", data.payload.etag);
-    }
-    response.header(
-      "Content-Disposition",
-      `inline; filename="${sanitizeHeaderFileName(data.textureAtlas.atlasId)}.bin"`
-    );
+    applyBinaryPayloadHeaders(response, data.payload, {
+      cacheControl: "private, max-age=120",
+      extraHeaders: {
+        "X-Aurora-Area-Atlas-Id": data.textureAtlas.atlasId,
+        "X-Aurora-Area-Atlas-Object-Key": data.textureAtlas.objectKey ?? "",
+        "X-Aurora-Cache-Key": data.cacheKey
+      }
+    });
+    setInlineContentDisposition(response, `${data.textureAtlas.atlasId}.bin`);
     return response.send(data.payload.bytes);
   }
-}
-
-function sanitizeHeaderFileName(value: string): string {
-  return value.replace(/["\\\r\n]/gu, "_");
 }
