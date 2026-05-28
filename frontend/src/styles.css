@@ -944,6 +944,60 @@ input {
   line-height: 1.35;
 }
 
+.workspace-mode-switch {
+  display: grid;
+  gap: 0.48rem;
+}
+
+.workspace-mode-switch-header h2 {
+  margin: 0;
+}
+
+.workspace-mode-switch-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.workspace-mode-switch-button {
+  width: 100%;
+  border: 1px solid #375373;
+  border-radius: 8px;
+  background: #0e243b;
+  color: #d7e8ff;
+  padding: 0.42rem 0.5rem;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.workspace-mode-switch-button strong {
+  font-size: 0.78rem;
+  line-height: 1.15;
+}
+
+.workspace-mode-switch-button small {
+  color: #a4bddc;
+  font-size: 0.67rem;
+  line-height: 1.25;
+}
+
+.workspace-mode-switch-button:hover {
+  background: #163558;
+}
+
+.workspace-mode-switch-button.is-active {
+  border-color: #6ea2d7;
+  background: #1f3f65;
+}
+
+@media (max-width: 1100px) {
+  .workspace-mode-switch-buttons {
+    grid-template-columns: 1fr;
+  }
+}
+
 .scene-objects-section {
   display: flex;
   flex-direction: column;

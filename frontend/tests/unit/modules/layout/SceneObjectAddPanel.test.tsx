@@ -134,4 +134,51 @@ describe("SceneObjectAddPanel", () => {
     expect(within(list).queryByText(/placeables_013/i)).not.toBeInTheDocument();
     expect(within(list).getAllByText(/plc_a02/i)).toHaveLength(1);
   });
+
+  it("supports placeables-only constrained mode and hides unsupported options", () => {
+    render(
+      <SceneObjectAddPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        allowedCatalogTypes={["placeables"]}
+        defaultActiveType="sounds"
+        hideUnsupportedCatalogTypes
+      />
+    );
+
+    const selector = screen.getByRole("combobox", { name: /add object type selector/i });
+    expect(selector).toHaveValue("placeables");
+
+    const options = within(selector).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveValue("placeables");
+    expect(screen.queryByRole("option", { name: /sounds/i })).not.toBeInTheDocument();
+
+    const list = screen.getByRole("list", { name: /placeables add list/i });
+    expect(within(list).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+    expect(within(list).queryByText(/crt_devourer_01/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps forbidden types disabled and non-selectable when constrained without hiding", () => {
+    render(
+      <SceneObjectAddPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        allowedCatalogTypes={["placeables"]}
+        defaultActiveType="placeables"
+      />
+    );
+
+    const selector = screen.getByRole("combobox", { name: /add object type selector/i });
+    const soundsOption = within(selector).getByRole("option", { name: /sounds \(2\)/i });
+    expect(soundsOption).toBeDisabled();
+
+    fireEvent.change(selector, { target: { value: "sounds" } });
+    expect(selector).toHaveValue("placeables");
+    expect(screen.getByRole("list", { name: /placeables add list/i })).toBeInTheDocument();
+  });
 });

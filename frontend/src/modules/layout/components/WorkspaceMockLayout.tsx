@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { AreaScene, SceneObject, SceneObjectKind } from "../contracts";
 import type {
@@ -17,6 +17,13 @@ import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFa
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 import { AreaSelectionPanel } from "./AreaSelectionPanel";
 import type { AreaApiPort } from "../../areas/ports/areaApiPort";
+import {
+  getDefaultWorkspaceModeId,
+  listWorkspaceModes,
+  resolveWorkspaceMode,
+  type WorkspaceModeDefinition,
+  type WorkspaceModeId
+} from "../workspaceModes";
 
 interface WorkspaceMockLayoutProps {
   role: WorkspaceUserRole;
@@ -58,6 +65,71 @@ interface SidebarContextMenuSignal {
 interface SceneObjectCatalogScope {
   sourceType: SceneObjectCatalogType;
   allowedObjectIds: string[];
+}
+
+const SCENE_KIND_TO_CATALOG_TYPE: Record<SceneObjectKind, SceneObjectCatalogType> = {
+  placeables: "placeables",
+  creatures: "creatures",
+  doors: "doors",
+  items: "items",
+  sounds: "sounds"
+};
+
+function filterObjectsForWorkspaceMode(
+  objects: SceneObject[],
+  mode: WorkspaceModeDefinition
+): SceneObject[] {
+  const allowedTypes = new Set(mode.allowedCatalogTypes);
+  if (allowedTypes.has("all")) {
+    return objects;
+  }
+  return objects.filter((object) => allowedTypes.has(SCENE_KIND_TO_CATALOG_TYPE[object.kind]));
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function BuilderModeSwitch({
+  activeModeId,
+  onModeSelect
+}: {
+  activeModeId: WorkspaceModeId;
+  onModeSelect: (modeId: WorkspaceModeId) => void;
+}) {
+  const modes = listWorkspaceModes();
+  return (
+    <article className="sidebar-section workspace-mode-switch" aria-label="workspace mode switch">
+      <header className="workspace-mode-switch-header">
+        <h2>Workspace Mode</h2>
+      </header>
+      <div className="workspace-mode-switch-buttons" role="group" aria-label="workspace mode selector">
+        {modes.map((mode) => {
+          const isActive = mode.id === activeModeId;
+          return (
+            <button
+              key={mode.id}
+              type="button"
+              className={`workspace-mode-switch-button ${isActive ? "is-active" : ""}`}
+              onClick={() => onModeSelect(mode.id)}
+              aria-pressed={isActive}
+            >
+              <strong>{mode.label}</strong>
+              <small>{mode.description}</small>
+            </button>
+          );
+        })}
+      </div>
+    </article>
+  );
 }
 
 function SidebarColumn({
@@ -173,8 +245,23 @@ export function WorkspaceMockLayout({
   onToggleRightCollapsed
 }: WorkspaceMockLayoutProps) {
   const panels = workspaceChromeFacade.getRoleWorkspacePanels(role);
+  const [activeBuilderModeId, setActiveBuilderModeId] = useState<WorkspaceModeId>(
+    getDefaultWorkspaceModeId()
+  );
+  const activeBuilderMode = useMemo(
+    () => resolveWorkspaceMode(activeBuilderModeId),
+    [activeBuilderModeId]
+  );
   const [sceneObjectsSnapshot, setSceneObjectsSnapshot] = useState<SceneObject[]>(
     () => sceneViewportPort.createInitialHistory(userId).present.objects
+  );
+  const modeScopedObjects = useMemo(
+    () => filterObjectsForWorkspaceMode(sceneObjectsSnapshot, activeBuilderMode),
+    [activeBuilderMode, sceneObjectsSnapshot]
+  );
+  const modeScopedObjectIds = useMemo(
+    () => modeScopedObjects.map((object) => object.id),
+    [modeScopedObjects]
   );
   const [selectedObjectIdsSnapshot, setSelectedObjectIdsSnapshot] = useState<string[]>([]);
   const [sidebarSelectSignal, setSidebarSelectSignal] = useState<SidebarSelectSignal | null>(
@@ -196,9 +283,29 @@ export function WorkspaceMockLayout({
     ? SIDEBAR_COLLAPSED_WIDTH_PX
     : SIDEBAR_EXPANDED_WIDTH_PX;
 
-  const shouldRenderSceneObjectsPanel = role === "builder";
-  const shouldRenderSceneObjectAddPanel = role === "builder";
-  const shouldRenderAreaSelectionPanel = role === "builder";
+  const isBuilder = role === "builder";
+  const shouldRenderSceneObjectsPanel = isBuilder && activeBuilderMode.showSceneObjectListPanel;
+  const shouldRenderSceneObjectAddPanel = isBuilder && activeBuilderMode.showSceneObjectAddPanel;
+  const shouldRenderAreaSelectionPanel =
+    isBuilder && activeBuilderMode.showAreaSelectionPanel;
+
+  useEffect(() => {
+    if (!isBuilder) {
+      return;
+    }
+    setSceneObjectCatalogScope((current) => {
+      if (
+        current.sourceType === activeBuilderMode.defaultListType &&
+        areStringArraysEqual(current.allowedObjectIds, modeScopedObjectIds)
+      ) {
+        return current;
+      }
+      return {
+        sourceType: activeBuilderMode.defaultListType,
+        allowedObjectIds: modeScopedObjectIds
+      };
+    });
+  }, [activeBuilderMode.defaultListType, isBuilder, modeScopedObjectIds]);
   const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
     setSceneObjectsSnapshot(objects);
   }, []);
@@ -264,6 +371,16 @@ export function WorkspaceMockLayout({
         customContent={
           shouldRenderSceneObjectAddPanel ? (
             <>
+              <BuilderModeSwitch
+                activeModeId={activeBuilderModeId}
+                onModeSelect={(modeId) => {
+                  setActiveBuilderModeId(modeId);
+                  trackTelemetryEvent("ui.workspace.mode.changed", {
+                    userId,
+                    mode: modeId
+                  });
+                }}
+              />
               {shouldRenderAreaSelectionPanel ? (
                 <AreaSelectionPanel
                   userId={userId}
@@ -271,19 +388,27 @@ export function WorkspaceMockLayout({
                   areaApiPort={areaApiPort}
                   trackTelemetryEvent={trackTelemetryEvent}
                   onAreaSceneSelected={(scene) => {
+                    const scopedObjects = filterObjectsForWorkspaceMode(
+                      scene.objects,
+                      activeBuilderMode
+                    );
                     setExternalSceneSeed(scene);
                     setSceneObjectCatalogScope({
-                      sourceType: "all",
-                      allowedObjectIds: scene.objects.map((object) => object.id)
+                      sourceType: activeBuilderMode.defaultListType,
+                      allowedObjectIds: scopedObjects.map((object) => object.id)
                     });
                   }}
                 />
               ) : null}
               <SceneObjectAddPanel
+                key={`scene-object-add-panel-${activeBuilderModeId}`}
                 userId={userId}
-                objects={sceneObjectsSnapshot}
+                objects={modeScopedObjects}
                 sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
                 trackTelemetryEvent={trackTelemetryEvent}
+                allowedCatalogTypes={[...activeBuilderMode.allowedCatalogTypes]}
+                defaultActiveType={activeBuilderMode.defaultAddType}
+                hideUnsupportedCatalogTypes
               />
             </>
           ) : undefined
@@ -299,10 +424,14 @@ export function WorkspaceMockLayout({
         customContent={
           shouldRenderSceneObjectsPanel ? (
             <SceneObjectListPanel
+              key={`scene-object-list-panel-${activeBuilderModeId}`}
               userId={userId}
-              objects={sceneObjectsSnapshot}
+              objects={modeScopedObjects}
               sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
               trackTelemetryEvent={trackTelemetryEvent}
+              allowedCatalogTypes={[...activeBuilderMode.allowedCatalogTypes]}
+              defaultActiveType={activeBuilderMode.defaultListType}
+              hideUnsupportedCatalogTypes
               selectedObjectIds={selectedObjectIdsSnapshot}
               onCatalogScopeChange={setSceneObjectCatalogScope}
               onObjectSelect={handleSceneObjectSelect}

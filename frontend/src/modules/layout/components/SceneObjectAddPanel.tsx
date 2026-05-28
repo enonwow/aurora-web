@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SceneObject } from "../contracts";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import {
@@ -17,6 +17,9 @@ interface SceneObjectAddPanelProps {
   objects: SceneObject[];
   sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
+  allowedCatalogTypes?: SceneObjectCatalogType[];
+  defaultActiveType?: SceneObjectCatalogType;
+  hideUnsupportedCatalogTypes?: boolean;
 }
 
 type ConcreteSceneObjectCatalogType = Exclude<SceneObjectCatalogType, "all">;
@@ -100,7 +103,10 @@ export function SceneObjectAddPanel({
   userId,
   objects,
   sceneObjectCatalogQueryFacade,
-  trackTelemetryEvent
+  trackTelemetryEvent,
+  allowedCatalogTypes,
+  defaultActiveType,
+  hideUnsupportedCatalogTypes = false
 }: SceneObjectAddPanelProps) {
   const templateObjects = useMemo(() => dedupeTemplatesByResRef(objects), [objects]);
   const baseViewModel = useMemo(
@@ -113,19 +119,56 @@ export function SceneObjectAddPanel({
     [templateObjects, sceneObjectCatalogQueryFacade]
   );
 
+  const allConcreteTypes = useMemo(
+    () => [
+      ...toConcreteTypes(baseViewModel.mvpTypes.map((entry) => entry.key)),
+      ...toConcreteTypes(baseViewModel.postMvpTypes.map((entry) => entry.key))
+    ],
+    [baseViewModel.mvpTypes, baseViewModel.postMvpTypes]
+  );
+  const allowedTypeSet = useMemo(() => {
+    if (!allowedCatalogTypes || allowedCatalogTypes.length === 0) {
+      return new Set<ConcreteSceneObjectCatalogType>(allConcreteTypes);
+    }
+    const filtered = toConcreteTypes(allowedCatalogTypes).filter((type) =>
+      allConcreteTypes.includes(type)
+    );
+    return new Set<ConcreteSceneObjectCatalogType>(filtered.length > 0 ? filtered : allConcreteTypes);
+  }, [allConcreteTypes, allowedCatalogTypes]);
   const selectableMvpTypes = useMemo(
-    () => toConcreteTypes(baseViewModel.mvpTypes.map((entry) => entry.key)),
-    [baseViewModel.mvpTypes]
+    () =>
+      toConcreteTypes(baseViewModel.mvpTypes.map((entry) => entry.key)).filter((type) =>
+        allowedTypeSet.has(type)
+      ),
+    [allowedTypeSet, baseViewModel.mvpTypes]
   );
   const selectablePostMvpTypes = useMemo(
-    () => toConcreteTypes(baseViewModel.postMvpTypes.map((entry) => entry.key)),
-    [baseViewModel.postMvpTypes]
+    () =>
+      toConcreteTypes(baseViewModel.postMvpTypes.map((entry) => entry.key)).filter((type) =>
+        allowedTypeSet.has(type)
+      ),
+    [allowedTypeSet, baseViewModel.postMvpTypes]
   );
   const fallbackType = selectablePostMvpTypes[0] ?? "placeables";
-  const defaultType = selectableMvpTypes[0] ?? fallbackType;
+  const fallbackDefaultType = selectableMvpTypes[0] ?? fallbackType;
+  const resolvedDefaultType = (() => {
+    if (defaultActiveType && defaultActiveType !== "all") {
+      const candidate = defaultActiveType as ConcreteSceneObjectCatalogType;
+      if (allowedTypeSet.has(candidate)) {
+        return candidate;
+      }
+    }
+    return fallbackDefaultType;
+  })();
 
-  const [activeType, setActiveType] = useState<ConcreteSceneObjectCatalogType>(defaultType);
+  const [activeType, setActiveType] = useState<ConcreteSceneObjectCatalogType>(resolvedDefaultType);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    if (!allowedTypeSet.has(activeType)) {
+      setActiveType(resolvedDefaultType);
+    }
+  }, [activeType, allowedTypeSet, resolvedDefaultType]);
 
   const catalogViewModel = useMemo(
     () =>
@@ -156,6 +199,9 @@ export function SceneObjectAddPanel({
           value={activeType}
           onChange={(event) => {
             const nextType = event.target.value as ConcreteSceneObjectCatalogType;
+            if (!allowedTypeSet.has(nextType)) {
+              return;
+            }
             const count = groupedRows[nextType]?.length ?? 0;
             setActiveType(nextType);
             trackTelemetryEvent("ui.workspace.add_objects.type_changed", {
@@ -166,28 +212,42 @@ export function SceneObjectAddPanel({
             });
           }}
         >
-          <optgroup label="MVP">
-            {baseViewModel.mvpTypes
-              .filter((entry) => entry.key !== "all")
-              .map((entry) => {
+          {(!hideUnsupportedCatalogTypes || baseViewModel.mvpTypes.some((entry) => entry.key !== "all" && allowedTypeSet.has(entry.key as ConcreteSceneObjectCatalogType))) && (
+            <optgroup label="MVP">
+              {baseViewModel.mvpTypes
+                .filter((entry) => entry.key !== "all")
+                .map((entry) => {
+                  const key = entry.key as ConcreteSceneObjectCatalogType;
+                  const allowed = allowedTypeSet.has(key);
+                  if (hideUnsupportedCatalogTypes && !allowed) {
+                    return null;
+                  }
+                  const count = groupedRows[entry.key]?.length ?? 0;
+                  return (
+                    <option value={entry.key} key={entry.key} disabled={!allowed}>
+                      {entry.label} ({count})
+                    </option>
+                  );
+                })}
+            </optgroup>
+          )}
+          {(!hideUnsupportedCatalogTypes || baseViewModel.postMvpTypes.some((entry) => allowedTypeSet.has(entry.key as ConcreteSceneObjectCatalogType))) && (
+            <optgroup label="Post-MVP">
+              {baseViewModel.postMvpTypes.map((entry) => {
+                const key = entry.key as ConcreteSceneObjectCatalogType;
+                const allowed = allowedTypeSet.has(key);
+                if (hideUnsupportedCatalogTypes && !allowed) {
+                  return null;
+                }
                 const count = groupedRows[entry.key]?.length ?? 0;
                 return (
-                  <option value={entry.key} key={entry.key}>
+                  <option value={entry.key} key={entry.key} disabled={!allowed}>
                     {entry.label} ({count})
                   </option>
                 );
               })}
-          </optgroup>
-          <optgroup label="Post-MVP">
-            {baseViewModel.postMvpTypes.map((entry) => {
-              const count = groupedRows[entry.key]?.length ?? 0;
-              return (
-                <option value={entry.key} key={entry.key}>
-                  {entry.label} ({count})
-                </option>
-              );
-            })}
-          </optgroup>
+            </optgroup>
+          )}
         </select>
       </label>
 

@@ -223,6 +223,37 @@ describe("App workspace side panels", () => {
     expect(optionValues).not.toContain("all");
   });
 
+  it("shows builder workspace mode switch and toggles panel behavior to placeables mode", async () => {
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const leftSidebar = screen.getByLabelText(/left sidebar/i);
+    const rightSidebar = screen.getByLabelText(/right sidebar/i);
+    const areasModeButton = within(leftSidebar).getByRole("button", { name: /areas mode/i });
+    const placeablesModeButton = within(leftSidebar).getByRole("button", {
+      name: /placeables mode/i
+    });
+
+    expect(areasModeButton).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(leftSidebar).getByRole("heading", {
+        name: /^areas$/i
+      })
+    ).toBeInTheDocument();
+    expect(within(rightSidebar).getByText(/crt_devourer_01/i)).toBeInTheDocument();
+
+    fireEvent.click(placeablesModeButton);
+
+    expect(placeablesModeButton).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(leftSidebar).queryByRole("heading", {
+        name: /^areas$/i
+      })
+    ).not.toBeInTheDocument();
+    expect(within(rightSidebar).queryByText(/crt_devourer_01/i)).not.toBeInTheDocument();
+    expect(within(rightSidebar).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+  });
+
   it("renders placeable, creature, and door properties panels from context flow", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");

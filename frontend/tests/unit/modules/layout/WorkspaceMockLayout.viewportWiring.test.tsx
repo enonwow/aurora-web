@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceMockLayout } from "../../../../src/modules/layout/components/WorkspaceMockLayout";
 import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
@@ -102,10 +102,79 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
+    expect(screen.getByRole("heading", { name: "Workspace Mode" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /areas mode/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     expect(screen.getByRole("heading", { name: "Areas" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Add Objects" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Tile Catalog" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Paint Tools" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Asset Browser" })).not.toBeInTheDocument();
+  });
+
+  it("switches builder workspace mode to placeables and hides area selection panel", () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+
+    render(
+      <WorkspaceMockLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        backendAccessToken={null}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Areas" })).toBeInTheDocument();
+    const placeablesModeButton = screen.getByRole("button", { name: /placeables mode/i });
+    fireEvent.click(placeablesModeButton);
+
+    expect(placeablesModeButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("heading", { name: "Areas" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add Objects" })).toBeInTheDocument();
+  });
+
+  it("does not render workspace mode switch for non-builder roles", () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+
+    render(
+      <WorkspaceMockLayout
+        role="viewer"
+        userId="u_viewer_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        backendAccessToken={null}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Workspace Mode" })).not.toBeInTheDocument();
   });
 });

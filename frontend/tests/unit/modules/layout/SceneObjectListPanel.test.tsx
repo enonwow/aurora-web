@@ -272,4 +272,61 @@ describe("SceneObjectListPanel", () => {
       })
     );
   });
+
+  it("supports placeables-only constrained mode and hides unsupported options", () => {
+    const onCatalogScopeChange = vi.fn();
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        allowedCatalogTypes={["placeables"]}
+        defaultActiveType="doors"
+        hideUnsupportedCatalogTypes
+        onCatalogScopeChange={onCatalogScopeChange}
+      />
+    );
+
+    const selector = screen.getByRole("combobox", { name: /object type selector/i });
+    expect(selector).toHaveValue("placeables");
+    expect(screen.queryByRole("option", { name: /doors/i })).not.toBeInTheDocument();
+
+    const list = screen.getByRole("list", { name: /placeables list/i });
+    expect(within(list).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+    expect(within(list).queryByText(/door_west_01/i)).not.toBeInTheDocument();
+
+    expect(onCatalogScopeChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: "placeables",
+        allowedObjectIds: expect.arrayContaining([
+          "plc_barrel_01",
+          "plc_table_02",
+          "plc_chair_03",
+          "plc_crate_04"
+        ])
+      })
+    );
+  });
+
+  it("keeps forbidden types disabled and non-selectable when constrained without hiding", () => {
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        allowedCatalogTypes={["placeables"]}
+        defaultActiveType="placeables"
+      />
+    );
+
+    const selector = screen.getByRole("combobox", { name: /object type selector/i });
+    const doorsOption = within(selector).getByRole("option", { name: /doors \(2\)/i });
+    expect(doorsOption).toBeDisabled();
+
+    fireEvent.change(selector, { target: { value: "doors" } });
+    expect(selector).toHaveValue("placeables");
+    expect(screen.getByRole("list", { name: /placeables list/i })).toBeInTheDocument();
+  });
 });

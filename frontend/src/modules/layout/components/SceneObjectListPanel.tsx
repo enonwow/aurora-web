@@ -11,6 +11,9 @@ interface SceneObjectListPanelProps {
   objects: SceneObject[];
   sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
   trackTelemetryEvent: (name: string, payload: TelemetryPayload) => void;
+  allowedCatalogTypes?: SceneObjectCatalogType[];
+  defaultActiveType?: SceneObjectCatalogType;
+  hideUnsupportedCatalogTypes?: boolean;
   selectedObjectIds?: string[];
   onCatalogScopeChange?: (scope: {
     sourceType: SceneObjectCatalogType;
@@ -84,12 +87,38 @@ export function SceneObjectListPanel({
   objects,
   sceneObjectCatalogQueryFacade,
   trackTelemetryEvent,
+  allowedCatalogTypes,
+  defaultActiveType = "all",
+  hideUnsupportedCatalogTypes = false,
   selectedObjectIds = [],
   onCatalogScopeChange,
   onObjectSelect,
   onObjectContextMenu
 }: SceneObjectListPanelProps) {
-  const [activeType, setActiveType] = useState<SceneObjectCatalogType>("all");
+  const baselineViewModel = useMemo(
+    () =>
+      sceneObjectCatalogQueryFacade.query({
+        objects,
+        activeType: "all",
+        searchQuery: ""
+      }),
+    [objects, sceneObjectCatalogQueryFacade]
+  );
+  const allCatalogTypes = useMemo(
+    () => [...baselineViewModel.mvpTypes, ...baselineViewModel.postMvpTypes].map((entry) => entry.key),
+    [baselineViewModel.mvpTypes, baselineViewModel.postMvpTypes]
+  );
+  const allowedTypeSet = useMemo(() => {
+    if (!allowedCatalogTypes || allowedCatalogTypes.length === 0) {
+      return new Set<SceneObjectCatalogType>(allCatalogTypes);
+    }
+    const filtered = allowedCatalogTypes.filter((type) => allCatalogTypes.includes(type));
+    return new Set<SceneObjectCatalogType>(filtered.length > 0 ? filtered : allCatalogTypes);
+  }, [allCatalogTypes, allowedCatalogTypes]);
+  const resolvedDefaultType = allowedTypeSet.has(defaultActiveType)
+    ? defaultActiveType
+    : allCatalogTypes.find((type) => allowedTypeSet.has(type)) ?? "all";
+  const [activeType, setActiveType] = useState<SceneObjectCatalogType>(resolvedDefaultType);
   const [searchQuery, setSearchQuery] = useState("");
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const catalogViewModel = useMemo(
@@ -112,6 +141,12 @@ export function SceneObjectListPanel({
   } = catalogViewModel;
 
   useEffect(() => {
+    if (!allowedTypeSet.has(activeType)) {
+      setActiveType(resolvedDefaultType);
+    }
+  }, [activeType, allowedTypeSet, resolvedDefaultType]);
+
+  useEffect(() => {
     onCatalogScopeChange?.({
       sourceType: activeType,
       allowedObjectIds
@@ -132,6 +167,9 @@ export function SceneObjectListPanel({
           value={activeType}
           onChange={(event) => {
             const nextType = event.target.value as SceneObjectCatalogType;
+            if (!allowedTypeSet.has(nextType)) {
+              return;
+            }
             const count = groupedRows[nextType]?.length ?? 0;
             setActiveType(nextType);
             trackTelemetryEvent("ui.workspace.scene_objects.type_changed", {
@@ -142,26 +180,38 @@ export function SceneObjectListPanel({
             });
           }}
         >
-          <optgroup label="MVP">
-            {mvpTypes.map((entry) => {
-              const count = groupedRows[entry.key]?.length ?? 0;
-              return (
-                <option value={entry.key} key={entry.key}>
-                  {entry.label} ({count})
-                </option>
-              );
-            })}
-          </optgroup>
-          <optgroup label="Post-MVP">
-            {postMvpTypes.map((entry) => {
-              const count = groupedRows[entry.key]?.length ?? 0;
-              return (
-                <option value={entry.key} key={entry.key}>
-                  {entry.label} ({count})
-                </option>
-              );
-            })}
-          </optgroup>
+          {(!hideUnsupportedCatalogTypes || mvpTypes.some((entry) => allowedTypeSet.has(entry.key))) && (
+            <optgroup label="MVP">
+              {mvpTypes.map((entry) => {
+                const allowed = allowedTypeSet.has(entry.key);
+                if (hideUnsupportedCatalogTypes && !allowed) {
+                  return null;
+                }
+                const count = groupedRows[entry.key]?.length ?? 0;
+                return (
+                  <option value={entry.key} key={entry.key} disabled={!allowed}>
+                    {entry.label} ({count})
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
+          {(!hideUnsupportedCatalogTypes || postMvpTypes.some((entry) => allowedTypeSet.has(entry.key))) && (
+            <optgroup label="Post-MVP">
+              {postMvpTypes.map((entry) => {
+                const allowed = allowedTypeSet.has(entry.key);
+                if (hideUnsupportedCatalogTypes && !allowed) {
+                  return null;
+                }
+                const count = groupedRows[entry.key]?.length ?? 0;
+                return (
+                  <option value={entry.key} key={entry.key} disabled={!allowed}>
+                    {entry.label} ({count})
+                  </option>
+                );
+              })}
+            </optgroup>
+          )}
         </select>
       </label>
 
