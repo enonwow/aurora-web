@@ -15,25 +15,31 @@ export class RuntimeSettingsBootstrapService implements OnApplicationBootstrap {
       return;
     }
 
-    const result = await this.settingsService.syncModuleBlobCache("system.bootstrap", {
-      forceFull: false
-    });
-    if (result.sync.status === "noop") {
-      this.logger.log(
-        `Module cache is up to date (${result.source.type} source, hash ${result.sync.moduleHash}).`
-      );
-      return;
-    }
+    try {
+      const result = await this.settingsService.syncModuleBlobCache("system.bootstrap", {
+        forceFull: false
+      });
+      if (result.sync.status === "noop") {
+        this.logger.log(
+          `Module cache is up to date (${result.source.type} source, hash ${result.sync.moduleHash}).`
+        );
+        return;
+      }
 
-    this.logger.log(
-      [
-        `Module cache sync updated (${result.mode}, ${result.source.type}).`,
-        `uploaded=${result.sync.uploadedFiles}`,
-        `deleted=${result.sync.deletedFiles}`,
-        `unchanged=${result.sync.unchangedFiles}`,
-        `hash=${result.sync.moduleHash}`
-      ].join(" ")
-    );
+      this.logger.log(
+        [
+          `Module cache sync updated (${result.mode}, ${result.source.type}).`,
+          `uploaded=${result.sync.uploadedFiles}`,
+          `deleted=${result.sync.deletedFiles}`,
+          `unchanged=${result.sync.unchangedFiles}`,
+          `hash=${result.sync.moduleHash}`
+        ].join(" ")
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Module cache bootstrap sync failed; continuing startup. reason=${stringifyError(error)}`
+      );
+    }
   }
 }
 
@@ -43,4 +49,11 @@ function isBootstrapSyncDisabled(): boolean {
     return true;
   }
   return process.env.NODE_ENV === "test";
+}
+
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

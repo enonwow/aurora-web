@@ -99,7 +99,7 @@ services:
     environment:
       NODE_ENV: development
       DATABASE_URL: mysql://aurora:aurora@mysql:3306/aurora_web
-      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       CONTRACT_VERSION: "1.0.0"
       SWAGGER_ENABLED: "true"
       SWAGGER_PATH: docs

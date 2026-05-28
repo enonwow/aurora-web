@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import * as mysql from "mysql2/promise";
 import { AppConfigService } from "../common/config/app-config.service";
 import * as schema from "./schema";
 
@@ -75,9 +75,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ) ENGINE=InnoDB
     `);
 
-    await this.pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
-    `);
+    await this.ensureIndexExists("sessions", "idx_sessions_user_id", ["user_id"]);
 
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS processing_jobs (
@@ -108,14 +106,45 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ) ENGINE=InnoDB
     `);
 
-    await this.pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_processing_jobs_status_created_at
-      ON processing_jobs(status, created_at)
-    `);
+    await this.ensureIndexExists("processing_jobs", "idx_processing_jobs_status_created_at", [
+      "status",
+      "created_at"
+    ]);
 
-    await this.pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_processing_jobs_status_retry
-      ON processing_jobs(status, next_retry_at)
-    `);
+    await this.ensureIndexExists("processing_jobs", "idx_processing_jobs_status_retry", [
+      "status",
+      "next_retry_at"
+    ]);
+  }
+
+  private async ensureIndexExists(
+    tableName: string,
+    indexName: string,
+    columns: readonly string[]
+  ): Promise<void> {
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
+      `
+        SELECT 1 AS index_exists
+        FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = ?
+          AND index_name = ?
+        LIMIT 1
+      `,
+      [tableName, indexName]
+    );
+
+    if (rows.length > 0) {
+      return;
+    }
+
+    const table = this.quoteIdentifier(tableName);
+    const index = this.quoteIdentifier(indexName);
+    const columnList = columns.map((columnName) => this.quoteIdentifier(columnName)).join(", ");
+    await this.pool.query(`CREATE INDEX ${index} ON ${table} (${columnList})`);
+  }
+
+  private quoteIdentifier(value: string): string {
+    return `\`${value.replace(/`/gu, "``")}\``;
   }
 }

@@ -10,10 +10,7 @@ describe("DatabaseService", () => {
     const drizzleMock = jest.fn().mockReturnValue({ marker: "db" });
 
     jest.doMock("mysql2/promise", () => ({
-      __esModule: true,
-      default: {
-        createPool: createPoolMockFn
-      }
+      createPool: createPoolMockFn
     }));
     jest.doMock("drizzle-orm/mysql2", () => ({
       drizzle: drizzleMock
@@ -40,10 +37,7 @@ describe("DatabaseService", () => {
     const drizzleMock = jest.fn().mockReturnValue(db);
 
     jest.doMock("mysql2/promise", () => ({
-      __esModule: true,
-      default: {
-        createPool: createPoolMockFn
-      }
+      createPool: createPoolMockFn
     }));
     jest.doMock("drizzle-orm/mysql2", () => ({
       drizzle: drizzleMock
@@ -64,7 +58,26 @@ describe("DatabaseService", () => {
       })
     );
     expect(drizzleMock).toHaveBeenCalledTimes(1);
-    expect(pool.query).toHaveBeenCalledTimes(6);
+    expect(pool.query).toHaveBeenCalledTimes(9);
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM information_schema.statistics"),
+      ["sessions", "idx_sessions_user_id"]
+    );
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM information_schema.statistics"),
+      ["processing_jobs", "idx_processing_jobs_status_created_at"]
+    );
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM information_schema.statistics"),
+      ["processing_jobs", "idx_processing_jobs_status_retry"]
+    );
+    expect(pool.query).toHaveBeenCalledWith("CREATE INDEX `idx_sessions_user_id` ON `sessions` (`user_id`)");
+    expect(pool.query).toHaveBeenCalledWith(
+      "CREATE INDEX `idx_processing_jobs_status_created_at` ON `processing_jobs` (`status`, `created_at`)"
+    );
+    expect(pool.query).toHaveBeenCalledWith(
+      "CREATE INDEX `idx_processing_jobs_status_retry` ON `processing_jobs` (`status`, `next_retry_at`)"
+    );
     expect(service.db).toBe(db);
 
     await service.onModuleDestroy();
@@ -74,7 +87,12 @@ describe("DatabaseService", () => {
 
 function createPoolMock() {
   const pool = {
-    query: jest.fn().mockResolvedValue(undefined),
+    query: jest.fn().mockImplementation((statement: string) => {
+      if (statement.includes("FROM information_schema.statistics")) {
+        return Promise.resolve([[], undefined]);
+      }
+      return Promise.resolve([undefined, undefined]);
+    }),
     end: jest.fn().mockResolvedValue(undefined)
   } as {
     query: jest.Mock;

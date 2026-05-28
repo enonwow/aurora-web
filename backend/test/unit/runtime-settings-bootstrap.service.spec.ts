@@ -114,13 +114,15 @@ describe("RuntimeSettingsBootstrapService", () => {
     );
   });
 
-  it("fails startup when sync throws", async () => {
+  it("does not fail startup when sync throws", async () => {
     settingsService.syncModuleBlobCache.mockRejectedValue(
       new Error("Runtime settings invalid")
     );
 
-    await expect(service.onApplicationBootstrap()).rejects.toThrow(
-      "Runtime settings invalid"
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    expect(settingsService.syncModuleBlobCache).toHaveBeenCalledWith(
+      "system.bootstrap",
+      { forceFull: false }
     );
   });
 

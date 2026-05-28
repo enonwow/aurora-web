@@ -88,6 +88,19 @@ describe("AppConfigService", () => {
     expect(config.enableBlobAssetLookupInTest).toBe(false);
   });
 
+  it("uses localhost and 127.0.0.1 as default CORS origins", () => {
+    process.env = {
+      ...originalEnv
+    };
+    delete process.env.CORS_ALLOWED_ORIGINS;
+
+    const config = new AppConfigService();
+    expect(config.corsAllowedOrigins).toEqual([
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ]);
+  });
+
   it("declares config module providers", () => {
     const providers = Reflect.getMetadata("providers", AppConfigModule) as unknown[];
     const exportsList = Reflect.getMetadata("exports", AppConfigModule) as unknown[];

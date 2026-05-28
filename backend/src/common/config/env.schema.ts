@@ -35,7 +35,10 @@ export const envSchema = z.object({
     .string()
     .min(1)
     .default("mysql://aurora:aurora@mysql:3306/aurora_web"),
-  CORS_ALLOWED_ORIGINS: z.string().min(1).default("http://localhost:5173"),
+  CORS_ALLOWED_ORIGINS: z
+    .string()
+    .min(1)
+    .default("http://localhost:5173,http://127.0.0.1:5173"),
   CONTRACT_VERSION: z.string().min(1).default("1.0.0"),
   SWAGGER_ENABLED: booleanEnvSchema(true),
   SWAGGER_PATH: z.string().min(1).default("docs"),
