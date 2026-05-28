@@ -17,6 +17,8 @@ import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFa
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 import { AreaSelectionPanel } from "./AreaSelectionPanel";
 import type { AreaApiPort } from "../../areas/ports/areaApiPort";
+import type { PlaceableApiPort } from "../../placeables/ports/placeableApiPort";
+import { mapPlaceablePreviewToScene } from "../../placeables/application/placeablePreviewSceneMapper";
 import {
   getDefaultWorkspaceModeId,
   listWorkspaceModes,
@@ -31,6 +33,7 @@ interface WorkspaceMockLayoutProps {
   workspaceChromeFacade: WorkspaceChromeFacade;
   sceneViewportPort: SceneViewportPort;
   areaApiPort: AreaApiPort;
+  placeableApiPort?: PlaceableApiPort;
   backendAccessToken: string | null;
   sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
@@ -67,6 +70,16 @@ interface SceneObjectCatalogScope {
   allowedObjectIds: string[];
 }
 
+const DEFAULT_VISUAL_TRANSFORM = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  offsetZ: 0,
+  pitch: 0,
+  roll: 0,
+  yaw: 0
+} as const;
+
 const SCENE_KIND_TO_CATALOG_TYPE: Record<SceneObjectKind, SceneObjectCatalogType> = {
   placeables: "placeables",
   creatures: "creatures",
@@ -84,6 +97,84 @@ function filterObjectsForWorkspaceMode(
     return objects;
   }
   return objects.filter((object) => allowedTypes.has(SCENE_KIND_TO_CATALOG_TYPE[object.kind]));
+}
+
+function buildPreviewSceneFromObject(object: SceneObject, now = () => Date.now()): AreaScene {
+  return mapPlaceablePreviewToScene(
+    {
+      templateId: object.id,
+      resref: object.resRef,
+      name: object.name ?? object.tag,
+      tag: object.tag,
+      kind: "placeables",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: object.bearing
+    },
+    {
+      now,
+      width: 1,
+      height: 1
+    }
+  );
+}
+
+function filterPlaceablesByQuery(objects: SceneObject[], query: string): SceneObject[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return objects;
+  }
+  return objects.filter((object) => {
+    const normalizedTag = object.tag.toLowerCase();
+    const normalizedResRef = object.resRef.toLowerCase();
+    return (
+      normalizedTag.includes(normalizedQuery) || normalizedResRef.includes(normalizedQuery)
+    );
+  });
+}
+
+function dedupePlaceableTemplates(objects: SceneObject[]): SceneObject[] {
+  const uniqueByTemplateId = new Map<string, SceneObject>();
+  objects.forEach((object) => {
+    const normalizedTemplateId = object.id.trim().toLowerCase();
+    if (!uniqueByTemplateId.has(normalizedTemplateId)) {
+      uniqueByTemplateId.set(normalizedTemplateId, object);
+    }
+  });
+  return Array.from(uniqueByTemplateId.values());
+}
+
+function mapPlaceableListItemToSceneObject(
+  item: {
+    templateId: string;
+    resref: string;
+    name: string;
+    category: string;
+  },
+  index: number
+): SceneObject {
+  const fallbackTag = item.resref.trim().length > 0 ? item.resref : item.templateId;
+  const normalizedName = item.name.trim().length > 0 ? item.name : `${item.category} ${String(index + 1).padStart(3, "0")}`;
+  const normalizedTagSource = normalizedName.trim().length > 0 ? normalizedName : fallbackTag;
+  return {
+    id: item.templateId,
+    kind: "placeables",
+    name: normalizedName,
+    resRef: item.resref,
+    tag: normalizedTagSource.toUpperCase(),
+    isStatic: true,
+    x: 0.5,
+    y: 0.5,
+    z: 0,
+    bearing: 0,
+    visualTransform: { ...DEFAULT_VISUAL_TRANSFORM },
+    placeableProperties: {
+      plot: false,
+      useable: false,
+      hasInventory: false
+    }
+  };
 }
 
 function areStringArraysEqual(left: string[], right: string[]): boolean {
@@ -121,13 +212,97 @@ function BuilderModeSwitch({
               className={`workspace-mode-switch-button ${isActive ? "is-active" : ""}`}
               onClick={() => onModeSelect(mode.id)}
               aria-pressed={isActive}
+              title={mode.description}
             >
               <strong>{mode.label}</strong>
-              <small>{mode.description}</small>
             </button>
           );
         })}
       </div>
+    </article>
+  );
+}
+
+function PlaceablesModePanel({
+  objects,
+  activeObjectId,
+  searchQuery,
+  onSearchQueryChange,
+  onObjectClick,
+  isLoading,
+  loadErrorMessage,
+  previewErrorMessage
+}: {
+  objects: SceneObject[];
+  activeObjectId: string | null;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  onObjectClick: (objectId: string) => void;
+  isLoading: boolean;
+  loadErrorMessage: string | null;
+  previewErrorMessage: string | null;
+}) {
+  const shouldShowEmpty = !isLoading && !loadErrorMessage && objects.length === 0;
+  return (
+    <article
+      className="sidebar-section scene-objects-section scene-object-add-panel"
+      aria-label="placeables mode section"
+    >
+      <header className="scene-objects-header scene-object-add-panel-header">
+        <h2>Placeables</h2>
+        <span className="scene-objects-total">{objects.length}</span>
+      </header>
+
+      <label className="scene-objects-search">
+        <input
+          type="search"
+          aria-label="Filter placeables"
+          value={searchQuery}
+          onChange={(event) => onSearchQueryChange(event.target.value)}
+          placeholder="Filter by tag / resref"
+        />
+      </label>
+
+      {isLoading ? (
+        <p className="scene-objects-empty" role="status">
+          Loading placeables from backend...
+        </p>
+      ) : null}
+      {loadErrorMessage ? (
+        <p className="scene-objects-empty" role="alert">
+          {loadErrorMessage}
+        </p>
+      ) : null}
+      {previewErrorMessage ? (
+        <p className="scene-objects-empty" role="alert">
+          {previewErrorMessage}
+        </p>
+      ) : null}
+
+      {shouldShowEmpty ? (
+        <p className="scene-objects-empty">No placeables available.</p>
+      ) : (
+        <ul className="scene-object-list scene-object-add-list" aria-label="placeables mode list">
+          {objects.map((object) => {
+            const isSelected = object.id === activeObjectId;
+            return (
+              <li key={object.id}>
+                <button
+                  type="button"
+                  className={`scene-object-row scene-object-add-row ${isSelected ? "is-selected" : ""}`}
+                  aria-selected={isSelected}
+                  onClick={() => onObjectClick(object.id)}
+                >
+                  <span className="scene-object-row-meta scene-object-add-row-meta">
+                    <strong>{object.tag}</strong>
+                    <small>{object.resRef}</small>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </article>
   );
 }
@@ -233,6 +408,7 @@ export function WorkspaceMockLayout({
   workspaceChromeFacade,
   sceneViewportPort,
   areaApiPort,
+  placeableApiPort,
   backendAccessToken,
   sceneObjectCatalogQueryFacade,
   trackTelemetryEvent,
@@ -274,7 +450,18 @@ export function WorkspaceMockLayout({
       sourceType: "all",
       allowedObjectIds: sceneObjectsSnapshot.map((object) => object.id)
     });
-  const [externalSceneSeed, setExternalSceneSeed] = useState<AreaScene | null>(null);
+  const [placeablesCatalogObjects, setPlaceablesCatalogObjects] = useState<SceneObject[]>([]);
+  const [placeablesCatalogStatus, setPlaceablesCatalogStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [placeablesCatalogError, setPlaceablesCatalogError] = useState<string | null>(null);
+  const [placeablesPreviewError, setPlaceablesPreviewError] = useState<string | null>(null);
+  const [activePlaceablesPreviewObjectId, setActivePlaceablesPreviewObjectId] = useState<
+    string | null
+  >(null);
+  const [placeablesSearchQuery, setPlaceablesSearchQuery] = useState("");
+  const [areaSceneSeed, setAreaSceneSeed] = useState<AreaScene | null>(null);
+  const [placeablesModeSceneSeed, setPlaceablesModeSceneSeed] = useState<AreaScene | null>(null);
   const sidebarSignalRevisionRef = useRef(0);
   const leftPanelWidthPx = leftCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH_PX
@@ -288,6 +475,19 @@ export function WorkspaceMockLayout({
   const shouldRenderSceneObjectAddPanel = isBuilder && activeBuilderMode.showSceneObjectAddPanel;
   const shouldRenderAreaSelectionPanel =
     isBuilder && activeBuilderMode.showAreaSelectionPanel;
+  const isPlaceablesMode = isBuilder && activeBuilderMode.id === "placeables_mode";
+  const placeablesModeObjects = useMemo(() => placeablesCatalogObjects, [placeablesCatalogObjects]);
+  const filteredPlaceablesModeObjects = useMemo(
+    () => filterPlaceablesByQuery(placeablesModeObjects, placeablesSearchQuery),
+    [placeablesModeObjects, placeablesSearchQuery]
+  );
+  const renderObjectIds =
+    isPlaceablesMode
+      ? placeablesModeSceneSeed?.objects[0]?.id
+        ? [placeablesModeSceneSeed.objects[0].id]
+        : ["__placeables_mode_render_none__"]
+      : null;
+  const externalSceneSeed = isPlaceablesMode ? placeablesModeSceneSeed : areaSceneSeed;
 
   useEffect(() => {
     if (!isBuilder) {
@@ -306,6 +506,170 @@ export function WorkspaceMockLayout({
       };
     });
   }, [activeBuilderMode.defaultListType, isBuilder, modeScopedObjectIds]);
+
+  useEffect(() => {
+    if (!isPlaceablesMode) {
+      return;
+    }
+    if (!placeableApiPort || !backendAccessToken) {
+      setPlaceablesCatalogObjects([]);
+      setActivePlaceablesPreviewObjectId(null);
+      setPlaceablesModeSceneSeed(null);
+      setPlaceablesCatalogStatus("error");
+      setPlaceablesCatalogError("Backend placeables catalog is unavailable.");
+      setPlaceablesPreviewError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPlaceablesCatalogStatus("loading");
+    setPlaceablesCatalogObjects([]);
+    setActivePlaceablesPreviewObjectId(null);
+    setPlaceablesModeSceneSeed(null);
+    setPlaceablesCatalogError(null);
+    setPlaceablesPreviewError(null);
+
+    const fetchAllPages = async () => {
+      const pageSize = 100;
+      let offset = 0;
+      const aggregated: Array<{
+        templateId: string;
+        resref: string;
+        name: string;
+        category: string;
+      }> = [];
+
+      while (true) {
+        const result = await placeableApiPort.listPlaceables(backendAccessToken, {
+          limit: pageSize,
+          offset
+        });
+        aggregated.push(...result.items);
+        const pageCount = result.items.length;
+        const reachedEnd = pageCount < result.limit || offset + pageCount >= result.total;
+        if (reachedEnd) {
+          break;
+        }
+        offset += pageCount;
+      }
+      return aggregated;
+    };
+
+    void fetchAllPages()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const mapped = dedupePlaceableTemplates(
+          result.map((item, index) => mapPlaceableListItemToSceneObject(item, index))
+        );
+        setPlaceablesCatalogObjects(mapped);
+        setPlaceablesCatalogStatus("ready");
+        setPlaceablesCatalogError(null);
+        trackTelemetryEvent("ui.workspace.placeables_mode.catalog_loaded", {
+          userId,
+          count: mapped.length
+        });
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setPlaceablesCatalogObjects([]);
+        setActivePlaceablesPreviewObjectId(null);
+        setPlaceablesModeSceneSeed(null);
+        setPlaceablesCatalogStatus("error");
+        setPlaceablesCatalogError("Failed to load placeables from backend.");
+        trackTelemetryEvent("ui.workspace.placeables_mode.catalog_load_failed", {
+          userId
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    backendAccessToken,
+    isPlaceablesMode,
+    placeableApiPort,
+    trackTelemetryEvent,
+    userId
+  ]);
+
+  useEffect(() => {
+    if (!isPlaceablesMode) {
+      return;
+    }
+    const placeableIds = placeablesModeObjects.map((object) => object.id);
+    setActivePlaceablesPreviewObjectId((current) =>
+      current && placeableIds.includes(current) ? current : (placeableIds[0] ?? null)
+    );
+  }, [isPlaceablesMode, placeablesModeObjects]);
+
+  useEffect(() => {
+    if (!isPlaceablesMode) {
+      setPlaceablesSearchQuery("");
+      setPlaceablesPreviewError(null);
+    }
+  }, [isPlaceablesMode]);
+
+  useEffect(() => {
+    if (!isPlaceablesMode || placeablesModeObjects.length < 1) {
+      setPlaceablesModeSceneSeed(null);
+      setPlaceablesPreviewError(null);
+      return;
+    }
+    const activeObject =
+      placeablesModeObjects.find((object) => object.id === activePlaceablesPreviewObjectId) ??
+      placeablesModeObjects[0];
+    if (!activeObject) {
+      setPlaceablesModeSceneSeed(null);
+      setPlaceablesPreviewError(null);
+      return;
+    }
+    if (!placeableApiPort || !backendAccessToken) {
+      setPlaceablesModeSceneSeed(null);
+      setPlaceablesPreviewError("Backend placeable preview is unavailable.");
+      return;
+    }
+    let cancelled = false;
+    setPlaceablesPreviewError(null);
+    setPlaceablesModeSceneSeed(buildPreviewSceneFromObject(activeObject));
+    void placeableApiPort
+      .getPlaceablePreview(backendAccessToken, activeObject.id)
+      .then((preview) => {
+        if (cancelled) {
+          return;
+        }
+        setPlaceablesModeSceneSeed(
+          mapPlaceablePreviewToScene(
+            {
+              ...preview,
+              kind: "placeables",
+              x: 0.5,
+              y: 0.5,
+              z: 0
+            },
+            { width: 1, height: 1 }
+          )
+        );
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setPlaceablesModeSceneSeed(null);
+        setPlaceablesPreviewError("Failed to load placeable preview from backend.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePlaceablesPreviewObjectId,
+    backendAccessToken,
+    isPlaceablesMode,
+    placeableApiPort,
+    placeablesModeObjects
+  ]);
   const handleSceneObjectsSnapshotChange = useCallback((objects: SceneObject[]) => {
     setSceneObjectsSnapshot(objects);
   }, []);
@@ -342,7 +706,6 @@ export function WorkspaceMockLayout({
     },
     []
   );
-
   return (
     <section className="workspace-layout" aria-label="workspace layout">
       <section className="workspace-canvas-layer" aria-label="workspace canvas">
@@ -361,6 +724,7 @@ export function WorkspaceMockLayout({
           onSceneObjectsSnapshotChange={handleSceneObjectsSnapshotChange}
           onSelectionSnapshotChange={setSelectedObjectIdsSnapshot}
           externalSceneSeed={externalSceneSeed}
+          renderObjectIds={renderObjectIds}
         />
       </section>
 
@@ -381,35 +745,71 @@ export function WorkspaceMockLayout({
                   });
                 }}
               />
-              {shouldRenderAreaSelectionPanel ? (
-                <AreaSelectionPanel
-                  userId={userId}
-                  backendAccessToken={backendAccessToken}
-                  areaApiPort={areaApiPort}
-                  trackTelemetryEvent={trackTelemetryEvent}
-                  onAreaSceneSelected={(scene) => {
-                    const scopedObjects = filterObjectsForWorkspaceMode(
-                      scene.objects,
-                      activeBuilderMode
-                    );
-                    setExternalSceneSeed(scene);
-                    setSceneObjectCatalogScope({
-                      sourceType: activeBuilderMode.defaultListType,
-                      allowedObjectIds: scopedObjects.map((object) => object.id)
+              {isPlaceablesMode ? (
+                <PlaceablesModePanel
+                  objects={filteredPlaceablesModeObjects}
+                  activeObjectId={activePlaceablesPreviewObjectId}
+                  searchQuery={placeablesSearchQuery}
+                  isLoading={placeablesCatalogStatus === "loading"}
+                  loadErrorMessage={placeablesCatalogError}
+                  previewErrorMessage={placeablesPreviewError}
+                  onSearchQueryChange={(value) => {
+                    setPlaceablesSearchQuery(value);
+                    trackTelemetryEvent("ui.workspace.placeables_mode.filter_changed", {
+                      userId,
+                      query: value
                     });
                   }}
+                  onObjectClick={(objectId) => {
+                    setActivePlaceablesPreviewObjectId(objectId);
+                    setSceneObjectCatalogScope({
+                      sourceType: "placeables",
+                      allowedObjectIds: [objectId]
+                    });
+                    trackTelemetryEvent("ui.workspace.placeables_mode.object_selected", {
+                      userId,
+                      objectId
+                    });
+                    const clickedObject = placeablesModeObjects.find((object) => object.id === objectId);
+                    if (!clickedObject) {
+                      return;
+                    }
+                    setPlaceablesModeSceneSeed(buildPreviewSceneFromObject(clickedObject));
+                  }}
                 />
-              ) : null}
-              <SceneObjectAddPanel
-                key={`scene-object-add-panel-${activeBuilderModeId}`}
-                userId={userId}
-                objects={modeScopedObjects}
-                sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
-                trackTelemetryEvent={trackTelemetryEvent}
-                allowedCatalogTypes={[...activeBuilderMode.allowedCatalogTypes]}
-                defaultActiveType={activeBuilderMode.defaultAddType}
-                hideUnsupportedCatalogTypes
-              />
+              ) : (
+                <>
+                  {shouldRenderAreaSelectionPanel ? (
+                    <AreaSelectionPanel
+                      userId={userId}
+                      backendAccessToken={backendAccessToken}
+                      areaApiPort={areaApiPort}
+                      trackTelemetryEvent={trackTelemetryEvent}
+                      onAreaSceneSelected={(scene) => {
+                        const scopedObjects = filterObjectsForWorkspaceMode(
+                          scene.objects,
+                          activeBuilderMode
+                        );
+                        setAreaSceneSeed(scene);
+                        setSceneObjectCatalogScope({
+                          sourceType: activeBuilderMode.defaultListType,
+                          allowedObjectIds: scopedObjects.map((object) => object.id)
+                        });
+                      }}
+                    />
+                  ) : null}
+                  <SceneObjectAddPanel
+                    key={`scene-object-add-panel-${activeBuilderModeId}`}
+                    userId={userId}
+                    objects={modeScopedObjects}
+                    sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+                    trackTelemetryEvent={trackTelemetryEvent}
+                    allowedCatalogTypes={[...activeBuilderMode.allowedCatalogTypes]}
+                    defaultActiveType={activeBuilderMode.defaultAddType}
+                    hideUnsupportedCatalogTypes
+                  />
+                </>
+              )}
             </>
           ) : undefined
         }
