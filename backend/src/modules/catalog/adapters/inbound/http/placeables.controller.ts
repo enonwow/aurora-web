@@ -17,15 +17,18 @@ import {
 import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { CatalogApplicationService } from "../../../application/catalog.application.service";
+import { Public } from "../../../../auth/adapters/inbound/http/public.decorator";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { parseCatalogListQuery } from "./catalog.schemas";
 import {
   parsePlaceableAssetId,
+  parsePlaceableAssetDeliveryBatchPayload,
   parsePlaceableAssetDeliveryQuery,
   parsePlaceableBenchmarkPayload,
   parsePlaceableCacheKey,
+  parsePlaceableProcessBatchPayload,
   parsePlaceableProcessPayload
 } from "./placeables.schemas";
 
@@ -81,6 +84,21 @@ export class PlaceablesController extends ProcessingHttpBaseController {
     return this.handleById(request, templateId, (id) => this.service.getPlaceablePreview(id));
   }
 
+  @Public()
+  @Get(":templateId/thumbnail")
+  @ApiOperation({ summary: "Get generated placeable thumbnail image." })
+  @ApiParam({ name: "templateId" })
+  @ApiResponse({ status: 200, description: "Placeable thumbnail image." })
+  @ApiResponse({ status: 404, description: "Template not found." })
+  async thumbnail(@Param("templateId") templateId: string, @Res() response: FastifyReply) {
+    const thumbnail = await this.service.getPlaceableThumbnail(templateId);
+    applyBinaryPayloadHeaders(response, thumbnail, {
+      cacheControl: "public, max-age=300"
+    });
+    setInlineContentDisposition(response, thumbnail.fileName);
+    return response.send(thumbnail.bytes);
+  }
+
   @Post("process")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
@@ -108,6 +126,8 @@ export class PlaceablesController extends ProcessingHttpBaseController {
             "trigger_proxy"
           ]
         },
+        appearanceType: { type: "integer", minimum: 0 },
+        genericType: { type: "integer", minimum: 0 },
         bypassCache: { type: "boolean", default: false },
         includeBenchmarkMetadata: { type: "boolean", default: true }
       }
@@ -119,6 +139,22 @@ export class PlaceablesController extends ProcessingHttpBaseController {
   async process(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
     return this.handleParsedBody(request, body, parsePlaceableProcessPayload, (parsed) =>
       this.service.processPlaceable(parsed)
+    );
+  }
+
+  @Post("process/batch")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary:
+      "Process multiple placeables into backend render contracts for Area render payload batching."
+  })
+  @ApiResponse({ status: 200, description: "Processed placeable payload batch." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async processBatch(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
+    return this.handleParsedBody(request, body, parsePlaceableProcessBatchPayload, (parsed) =>
+      this.service.processPlaceablesBatch(parsed.items)
     );
   }
 
@@ -168,6 +204,26 @@ export class PlaceablesController extends ProcessingHttpBaseController {
       parsePlaceableAssetDeliveryQuery,
       (cacheKey, parsedQuery) =>
         this.service.getProcessedPlaceableAssetDelivery(cacheKey, parsedQuery.assetIds)
+    );
+  }
+
+  @Post("cache/assets/contracts/batch")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.read")
+  @ApiOperation({
+    summary:
+      "Get delivery contracts for multiple cached placeable payloads in one Area render batch."
+  })
+  @ApiResponse({ status: 200, description: "Placeable asset delivery contract batch." })
+  @ApiResponse({ status: 404, description: "Cache entry or asset was not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedAssetContractsBatch(
+    @Req() request: AppRequest,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleParsedBody(request, body, parsePlaceableAssetDeliveryBatchPayload, (parsed) =>
+      this.service.getProcessedPlaceableAssetDeliveryBatch(parsed.items)
     );
   }
 

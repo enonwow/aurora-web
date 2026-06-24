@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "aurora-vfx-runtime-tick-dump/v1",
+  "fixtureId": "vfx-retail-scripted-effectvisualeffect-row-50",
+  "status": "missing",
+  "effectInstance": {
+    "constructorKind": "EffectVisualEffect",
+    "sourceRowId": 50,
+    "applicationMode": "object",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "targetRef": "vfx_retail_target",
+    "effectorRef": null
+  },
+  "phaseSchedule": {
+    "impact": "missing",
+    "duration": null,
+    "cessation": null,
+    "timingNotes": "Instant scripted EffectVisualEffect fixture; retail tick timing still required."
+  },
+  "runtimeFamily": {
+    "emitterType": null,
+    "renderMode": null,
+    "texture": null,
+    "chunkName": null,
+    "model": null
+  },
+  "tickInputs": {
+    "startTimeSeconds": null,
+    "endTimeSeconds": null,
+    "deltaSeconds": null,
+    "randomSeed": null,
+    "cameraRef": null
+  },
+  "ticks": [],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+      "severity": "missing",
+      "message": "No retail or backend runtime tick dump has been captured for row 50."
+    }
+  ],
+  "operatorNotes": "Capture deterministic tick input/state/output after running the scripted EffectVisualEffect fixture in retail."
+}

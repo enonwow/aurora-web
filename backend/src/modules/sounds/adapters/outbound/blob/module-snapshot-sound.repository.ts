@@ -22,7 +22,8 @@ import type {
   SoundPlaybackMode,
   SoundAuroraUsageHint,
   SoundRecord,
-  SoundReverseMapping
+  SoundReverseMapping,
+  SoundSourceLayer
 } from "../../../domain/sound.types";
 
 interface IndexedSound {
@@ -747,10 +748,27 @@ function mapSoundToListItem(sound: SoundRecord): SoundListItem {
     previewWaveformUrl: sound.previewWaveformUrl,
     spatialMode: sound.spatialMode,
     playbackMode: sound.playback.mode,
+    source: {
+      layer: resolveSoundSourceLayer(sound.sourceObjectKey)
+    },
     auroraUsage: sound.auroraUsage,
     metrics: sound.metrics,
     updatedAt: sound.updatedAt
   };
+}
+
+function resolveSoundSourceLayer(objectKey: string): SoundSourceLayer {
+  const normalizedKey = objectKey.replace(/\\/gu, "/").toLowerCase();
+  if (normalizedKey.includes("/__aurora/sources/vanilla/")) {
+    return "vanilla";
+  }
+  if (normalizedKey.includes("/__aurora/sources/hak/")) {
+    return "hak";
+  }
+  if (normalizedKey.startsWith("modules/current/") || normalizedKey.includes("/__aurora/sources/module/")) {
+    return "module";
+  }
+  return "other";
 }
 
 function buildSoundSearchableText(sound: SoundRecord): string {

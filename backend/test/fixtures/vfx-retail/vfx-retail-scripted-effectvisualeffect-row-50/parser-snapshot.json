@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "aurora-vfx-parser-snapshot/v1",
+  "fixtureId": "vfx-retail-scripted-effectvisualeffect-row-50",
+  "status": "missing",
+  "parser": {
+    "name": "aurora-vfx-source.parser",
+    "version": null,
+    "commit": null
+  },
+  "input": {
+    "sourceTablePath": null,
+    "sourceTableHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "tableName": "visualeffects.2da",
+    "profile": "nwn-ee-8193.34-selected-source",
+    "rowId": 50
+  },
+  "output": {
+    "rowKind": "visualeffects.2da",
+    "rowId": 50,
+    "label": "VFX_IMP_DEATH",
+    "sourceRefs": {
+      "impact": null,
+      "duration": null,
+      "cessation": null,
+      "progfxImpact": null,
+      "progfxDuration": null,
+      "progfxCessation": null
+    },
+    "rawCells": {
+      "rawRow": "missing"
+    },
+    "decodedCells": {
+      "rowId": 50,
+      "label": "VFX_IMP_DEATH"
+    },
+    "diagnostics": [
+      {
+        "code": "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "severity": "missing",
+        "message": "Parser snapshot has not been generated from a verified retail-source row."
+      }
+    ]
+  },
+  "provenance": {
+    "sourceObjectKey": "visualeffects.2da",
+    "sourceLayer": "selectedSource2da",
+    "sourceHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "runtimeSettingsRevision": null,
+    "hakListHashSha256": null
+  }
+}

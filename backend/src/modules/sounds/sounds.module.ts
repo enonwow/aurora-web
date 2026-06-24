@@ -41,7 +41,7 @@ import { SOUND_REPOSITORY } from "./application/ports/sound-repository.port";
         config: AppConfigService,
         layeredCache: LayeredSoundProcessingCacheRepository,
         memoryCache: MemorySoundProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : layeredCache)
+      ) => (config.useMemoryInfrastructure ? memoryCache : layeredCache)
     }
   ],
   exports: [SOUND_REPOSITORY, SoundsApplicationService]

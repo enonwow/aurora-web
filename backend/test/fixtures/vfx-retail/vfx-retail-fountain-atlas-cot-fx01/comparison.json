@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "aurora-vfx-retail-comparison/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "method": {
+    "type": "TODO: multi-second Fountain atlas playback comparison",
+    "tool": null,
+    "toolVersion": null,
+    "operator": null,
+    "comparedAt": null
+  },
+  "artifacts": {
+    "retailBuild": "retail-build.json",
+    "sourceTableSnapshot": "source-table.snapshot.json",
+    "effectContext": "effect-context.json",
+    "parserSnapshot": "parser-snapshot.json",
+    "resolverTrace": "resolver-trace.json",
+    "runtimeTickDump": "runtime-tick-dump.json",
+    "renderContractSnapshot": "render-contract-snapshot.json",
+    "capture": "capture.json"
+  },
+  "checks": [
+    {
+      "name": "source admission",
+      "kind": "structured",
+      "expected": "retail row/context or selected retail resource resolves to cot_fx01/fire!03",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No retail row/context was found in this context."
+    },
+    {
+      "name": "atlas fields",
+      "kind": "structured",
+      "expected": "xgrid 4, ygrid 4, fps 10, framestart 0, frameend 24, random 1",
+      "actual": null,
+      "result": "unknown",
+      "notes": "Local MDL contains these fields, but retail parser/runtime evidence is missing."
+    },
+    {
+      "name": "spawn rate and lifetime",
+      "kind": "runtime",
+      "expected": "birthrate 5 and lifeExp 5 drive several seconds of Fountain particles",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No retail runtime tick dump or video exists yet."
+    },
+    {
+      "name": "texture material TXI lanes",
+      "kind": "resource",
+      "expected": "fxpa_smoke01 texture/material/TXI resource provenance is recorded if present",
+      "actual": null,
+      "result": "unknown",
+      "notes": "Texture/material/TXI hashes are missing."
+    }
+  ],
+  "visualChecks": [
+    {
+      "name": "multi-second atlas playback video",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Retail video and sampled frames have not been captured."
+    },
+    {
+      "name": "random 1 frame behavior",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Per-particle random starting frame behavior is unverified."
+    },
+    {
+      "name": "UV orientation and billboard behavior",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "No retail capture exists for UV/frame orientation or Billboard_to_World_Z behavior."
+    }
+  ],
+  "result": null,
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "Comparison evidence is missing."
+    },
+    {
+      "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+      "severity": "missing",
+      "message": "Local MDL setup cannot be compared as retail parity without retail capture and source admission."
+    }
+  ],
+  "operatorNotes": "Leave result null/unknown until retail source admission, multi-second capture, runtime ticks, render contract snapshot, hashes, and comparison exist."
+}

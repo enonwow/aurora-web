@@ -34,8 +34,10 @@ describe("LayeredAreaProcessingCacheRepository", () => {
     },
     composition: {
       placeables: 1,
+      doors: 0,
       creatures: 0,
       items: 0,
+      sounds: 0,
       total: 1
     },
     objects: [

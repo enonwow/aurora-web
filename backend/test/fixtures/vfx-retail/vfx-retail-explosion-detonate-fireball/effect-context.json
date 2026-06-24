@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "constructor": {
+    "kind": "EffectVisualEffect",
+    "sourceRowId": 22,
+    "rawInvocation": "EffectVisualEffect(VFX_FNF_FIREBALL) plus MDL animation event detonate",
+    "scriptSource": "effect-fireball-script.nss",
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "location",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "targetRef": "retail-fireball-location",
+    "effectorRef": null,
+    "creatorRef": "retail-fireball-operator",
+    "bodyNode": null,
+    "missFlag": false,
+    "location": {
+      "areaTag": "retail-fireball-capture-area",
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "detonateEvent": {
+    "required": true,
+    "eventName": "detonate",
+    "eventSource": "MDL animation event",
+    "expectedObservation": "TODO: retail capture must identify the detonate frame/time and whether particles begin only after that event.",
+    "observedAtSeconds": null
+  },
+  "retailCommandOrScript": {
+    "command": "dm_runscript vfx_p12_fireball22",
+    "moduleScriptName": "vfx_p12_fireball22",
+    "trigger": "DM console while waypoint or placeable tag retail-fireball-location identifies the blast location"
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_EFFECT_CONTEXT_EXECUTION_REQUIRED",
+      "severity": "missing",
+      "message": "The intended fireball NWScript invocation is documented, but it has not been executed in retail in this context."
+    },
+    {
+      "code": "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+      "severity": "missing",
+      "message": "Retail capture must prove the MDL detonate event timing for VFX_FNF_FIREBALL."
+    }
+  ],
+  "operatorNotes": "Compile effect-fireball-script.nss as vfx_p12_fireball22, place a waypoint or object tagged retail-fireball-location, run dm_runscript vfx_p12_fireball22, and capture pre-detonate, detonate, and post-detonate frames."
+}

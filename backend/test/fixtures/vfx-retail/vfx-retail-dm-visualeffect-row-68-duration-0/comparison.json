@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "aurora-vfx-retail-comparison/v1",
+  "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+  "status": "missing",
+  "method": {
+    "type": "missing",
+    "tool": null,
+    "toolVersion": null,
+    "operator": null,
+    "comparedAt": null
+  },
+  "artifacts": {
+    "retailBuild": "retail-build.json",
+    "sourceTableSnapshot": "source-table.snapshot.json",
+    "effectContext": "effect-context.json",
+    "parserSnapshot": "parser-snapshot.json",
+    "resolverTrace": "resolver-trace.json",
+    "runtimeTickDump": "runtime-tick-dump.json",
+    "renderContractSnapshot": "render-contract-snapshot.json",
+    "capture": "capture.json"
+  },
+  "checks": [
+    {
+      "name": "retail capture exists",
+      "kind": "required-evidence",
+      "expected": "real screenshot/video/capture metadata from dm_visualeffect 68 0",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No retail capture exists in this context."
+    }
+  ],
+  "visualChecks": [],
+  "result": null,
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "Comparison cannot be run until retail capture and backend snapshots exist."
+    }
+  ],
+  "operatorNotes": "Leave result null until real retail artifacts and deterministic comparison evidence are available."
+}

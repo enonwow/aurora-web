@@ -41,7 +41,7 @@ import { TILE_REPOSITORY } from "./application/ports/tile-repository.port";
         config: AppConfigService,
         layeredCache: LayeredTileProcessingCacheRepository,
         memoryCache: MemoryTileProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : layeredCache)
+      ) => (config.useMemoryInfrastructure ? memoryCache : layeredCache)
     }
   ],
   exports: [TILE_REPOSITORY, TilesApplicationService]

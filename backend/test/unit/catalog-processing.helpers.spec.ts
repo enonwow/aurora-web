@@ -11,6 +11,7 @@ import {
   buildEmptyPlaceableAssetManifest,
   buildLookupSeeds,
   buildModuleSnapshotIndex,
+  buildPlaceableRenderPackage,
   buildRenderContract,
   buildTemplateRenderContract,
   collectPlaceableAssetsFromSnapshot,
@@ -66,8 +67,14 @@ describe("catalog-processing.helpers", () => {
   });
 
   it("inferContentTypeForExtension maps known extensions", () => {
+    expect(inferContentTypeForExtension("glb")).toBe("model/gltf-binary");
+    expect(inferContentTypeForExtension("gltf")).toBe("model/gltf+json");
     expect(inferContentTypeForExtension("dds")).toBe("image/vnd-ms.dds");
     expect(inferContentTypeForExtension("tga")).toBe("image/x-tga");
+    expect(inferContentTypeForExtension("png")).toBe("image/png");
+    expect(inferContentTypeForExtension("jpg")).toBe("image/jpeg");
+    expect(inferContentTypeForExtension("jpeg")).toBe("image/jpeg");
+    expect(inferContentTypeForExtension("webp")).toBe("image/webp");
     expect(inferContentTypeForExtension("mdl")).toBe("application/octet-stream");
     expect(inferContentTypeForExtension("unknown")).toBe("application/octet-stream");
   });
@@ -96,6 +103,7 @@ describe("catalog-processing.helpers", () => {
     expect(normalizePlaceableSubtypeHint("container")).toBe("container");
     expect(normalizePlaceableSubtypeHint("light_source")).toBe("light_source");
     expect(normalizePlaceableSubtypeHint(" trigger_proxy ")).toBe("trigger_proxy");
+    expect(normalizePlaceableSubtypeHint("corpse")).toBeNull();
     expect(normalizePlaceableSubtypeHint("bad")).toBeNull();
     expect(normalizePlaceableSubtypeHint(undefined)).toBeNull();
   });
@@ -518,7 +526,8 @@ describe("catalog-processing.helpers", () => {
         model: "x_model",
         texturePrefix: "x_tex",
         materialPrefix: "x_mat",
-        vfxPreset: "x_vfx"
+        vfxPreset: "x_vfx",
+        modelTextureReferences: "x_model_tex"
       }
     });
 
@@ -529,7 +538,8 @@ describe("catalog-processing.helpers", () => {
         "x_model",
         "x_tex",
         "x_mat",
-        "x_vfx"
+        "x_vfx",
+        "x_model_tex"
       ])
     );
   });
@@ -548,6 +558,7 @@ describe("catalog-processing.helpers", () => {
   it("buildModuleSnapshotIndex groups by basename/prefix and counts scanned files", () => {
     const snapshot = buildSnapshot([
       { key: "modules/current/models/plc_gate.mdl", size: 10, etag: "e1" },
+      { key: "modules/current/__aurora/derived/models/plc_gate.glb", size: 15, etag: "eglb" },
       { key: "modules/current/textures/plc_gate.dds", size: 20, etag: "e2" },
       { key: "modules/current/fx/plc_gate_vfx.vis", size: 30, etag: "e3" },
       { key: "modules/current/misc/plc_gate.custom", size: 5, etag: "e5" },
@@ -556,10 +567,13 @@ describe("catalog-processing.helpers", () => {
 
     const index = buildModuleSnapshotIndex(snapshot);
     expect(index.moduleHash).toBe("hash-v1");
-    expect(index.candidatesScanned).toBe(5);
-    expect(index.byBasename.get("plc_gate")?.length).toBe(3);
-    expect(index.byPrefix.get("plc_")?.length).toBe(4);
+    expect(index.candidatesScanned).toBe(6);
+    expect(index.byBasename.get("plc_gate")?.length).toBe(4);
+    expect(index.byPrefix.get("plc_")?.length).toBe(5);
     expect(index.byBasename.has("")).toBe(false);
+    expect(
+      index.byBasename.get("plc_gate")?.find((asset) => asset.fileName === "plc_gate.glb")?.role
+    ).toBe("model");
     expect(index.byBasename.get("plc_gate")?.some((asset) => asset.role === "unknown")).toBe(true);
   });
 
@@ -568,6 +582,7 @@ describe("catalog-processing.helpers", () => {
       { key: "modules/current/models/plc_gate.mdl", size: 10, etag: "1" },
       { key: "modules/current/textures/plc_gate_a.dds", size: 10, etag: "5" },
       { key: "modules/current/textures/plc_gate_b.dds", size: 10, etag: "6" },
+      { key: "modules/current/textures/plc_gate_c.png", size: 10, etag: "8" },
       { key: "modules/current/materials/plc_gate.mtr", size: 10, etag: "2" },
       { key: "modules/current/textures/plc_gate.dds", size: 10, etag: "3" },
       { key: "modules/current/fx/plc_gate_vfx.vis", size: 10, etag: "4" },
@@ -582,10 +597,11 @@ describe("catalog-processing.helpers", () => {
       metadata: {}
     });
 
-    expect(result.length).toBe(6);
-    expect(new Set(result.map((entry) => entry.objectKey)).size).toBe(6);
+    expect(result.length).toBe(7);
+    expect(new Set(result.map((entry) => entry.objectKey)).size).toBe(7);
     expect(result.map((entry) => entry.role)).toEqual([
       "model",
+      "texture",
       "texture",
       "texture",
       "texture",
@@ -595,7 +611,7 @@ describe("catalog-processing.helpers", () => {
     const textureNames = result
       .filter((entry) => entry.role === "texture")
       .map((entry) => entry.fileName);
-    expect(textureNames).toHaveLength(3);
+    expect(textureNames).toHaveLength(4);
     expect(textureNames).toEqual([...textureNames].sort((left, right) => left.localeCompare(right)));
   });
 
@@ -657,6 +673,89 @@ describe("catalog-processing.helpers", () => {
     });
 
     expect(result).toHaveLength(200);
+  });
+
+  it("collectPlaceableAssetsFromSnapshot orders duplicate texture resrefs by Aurora source priority", () => {
+    const index = buildModuleSnapshotIndex(
+      buildSnapshot([
+        {
+          key: "modules/current/__aurora/sources/vanilla/textures/tx_shared.dds",
+          size: 1,
+          etag: "vanilla"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/lc_low/textures/tx_shared.dds",
+          size: 1,
+          etag: "hak-low"
+        },
+        {
+          key: "modules/current/textures/tx_shared.dds",
+          size: 1,
+          etag: "module"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/lc_high/textures/tx_shared.dds",
+          size: 1,
+          etag: "hak-high"
+        }
+      ])
+    );
+
+    const result = collectPlaceableAssetsFromSnapshot(index, {
+      templateId: "plc_shared",
+      resref: "plc_shared",
+      subtype: "generic",
+      metadata: {
+        modelTextureReferences: "tx_shared"
+      },
+      sourcePriority: {
+        hakNames: ["lc_high", "lc_low"]
+      }
+    });
+
+    expect(result.filter((entry) => entry.role === "texture").map((entry) => entry.objectKey)).toEqual([
+      "modules/current/textures/tx_shared.dds",
+      "modules/current/__aurora/sources/hak/lc_high/textures/tx_shared.dds",
+      "modules/current/__aurora/sources/hak/lc_low/textures/tx_shared.dds",
+      "modules/current/__aurora/sources/vanilla/textures/tx_shared.dds"
+    ]);
+  });
+
+  it("collectPlaceableAssetsFromSnapshot does not use texture references to pull sibling models", () => {
+    const index = buildModuleSnapshotIndex(
+      buildSnapshot([
+        {
+          key: "modules/current/__aurora/sources/hak/cep3_core2/plc_arcirc_01blh.mdl",
+          size: 1,
+          etag: "horizontal-model"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/cep3_core2/plc_arcirc_01blv.mdl",
+          size: 1,
+          etag: "vertical-model"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/cep3_core2/plc_arcirc_01b.dds",
+          size: 1,
+          etag: "shared-texture"
+        }
+      ])
+    );
+
+    const result = collectPlaceableAssetsFromSnapshot(index, {
+      templateId: "plc_plc_arcirc_01blv",
+      resref: "plc_arcirc_01blv",
+      subtype: "vfx",
+      metadata: {
+        lookupModelResRef: "plc_arcirc_01blv",
+        modelTextureReferences: "plc_arcirc_01b"
+      }
+    });
+
+    expect(result.map((entry) => entry.fileName)).toEqual([
+      "plc_arcirc_01blv.mdl",
+      "plc_arcirc_01b.dds"
+    ]);
   });
 
   it("summarizeDurations and percentile produce stable metrics", () => {
@@ -742,6 +841,200 @@ describe("catalog-processing.helpers", () => {
     expect(manifest.source).toBe("module-blob-snapshot");
     expect(manifest.assetCount).toBe(0);
     expect(manifest.assets).toEqual([]);
+  });
+
+  it("buildPlaceableRenderPackage reports missing assets without model entries", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("missing_assets");
+    expect(renderPackage.assetRefs).toEqual({});
+    expect(renderPackage.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_ASSETS_MISSING",
+          severity: "error"
+        })
+      ])
+    );
+  });
+
+  it("buildPlaceableRenderPackage flags raw model assets as missing derived", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+    manifest.assets = [
+      {
+        assetId: "abc",
+        role: "model",
+        fileName: "plc_raw.mdl",
+        objectKey: "modules/current/models/plc_raw.mdl",
+        extension: "mdl",
+        sizeBytes: 1,
+        contentType: "application/octet-stream",
+        etag: "e"
+      }
+    ];
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("missing_derived");
+    expect(renderPackage.assetRefs.modelAssetIds).toEqual(["abc"]);
+    expect(renderPackage.glbUrl).toBeUndefined();
+    expect(renderPackage.modelUrl).toBeUndefined();
+    expect(renderPackage.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_DERIVED_MISSING",
+          severity: "error"
+        })
+      ])
+    );
+  });
+
+  it("buildPlaceableRenderPackage reports unknown source model assets as unrenderable", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+    manifest.assets = [
+      {
+        assetId: "legacy-mdl",
+        role: "unknown",
+        fileName: "plc_u02.mdl",
+        objectKey: "modules/current/__aurora/sources/vanilla/models/plc_u02.mdl",
+        extension: "mdl",
+        sizeBytes: 1,
+        contentType: "application/octet-stream",
+        etag: "e"
+      }
+    ];
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("unsupported");
+    expect(renderPackage.assetRefs.otherAssetIds).toEqual(["legacy-mdl"]);
+    expect(renderPackage.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_SOURCE_MODEL_UNRENDERABLE",
+          severity: "warn",
+          message:
+            "Source model assets were found but no derived GLB/GLTF is available for web rendering."
+        })
+      ])
+    );
+  });
+
+  it("buildPlaceableRenderPackage is ready when derived model asset is present", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+    manifest.assets = [
+      {
+        assetId: "abc",
+        role: "unknown",
+        fileName: "plc.raw.glb",
+        objectKey: "modules/current/models/plc.raw.glb",
+        extension: "glb",
+        sizeBytes: 2,
+        contentType: "model/gltf-binary",
+        etag: "g"
+      },
+      {
+        assetId: "ddd",
+        role: "texture",
+        fileName: "plc.diffuse.dds",
+        objectKey: "modules/current/textures/plc.diffuse.dds",
+        extension: "dds",
+        sizeBytes: 3,
+        contentType: "image/vnd-ms.dds",
+        etag: "d"
+      }
+    ];
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("ready");
+    expect(renderPackage.assetRefs.derivedModelAssetIds).toEqual(["abc"]);
+    expect(renderPackage.assetRefs.textureAssetIds).toEqual(["ddd"]);
+  });
+
+  it("buildPlaceableRenderPackage prefers GLB over GLTF when both derived model assets exist", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+    manifest.assets = [
+      {
+        assetId: "model-gltf",
+        role: "model",
+        fileName: "plc_dual.gltf",
+        objectKey: "modules/current/models/plc_dual.gltf",
+        extension: "gltf",
+        sizeBytes: 4,
+        contentType: "model/gltf+json",
+        etag: "gltf"
+      },
+      {
+        assetId: "model-glb",
+        role: "model",
+        fileName: "plc_dual.glb",
+        objectKey: "modules/current/models/plc_dual.glb",
+        extension: "glb",
+        sizeBytes: 5,
+        contentType: "model/gltf-binary",
+        etag: "glb"
+      }
+    ];
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("ready");
+    expect(renderPackage.assetRefs.derivedModelAssetIds).toEqual(["model-glb", "model-gltf"]);
+  });
+
+  it("buildPlaceableRenderPackage keeps all texture references when many textures are discovered", () => {
+    const manifest = buildEmptyPlaceableAssetManifest();
+    manifest.assets = [
+      {
+        assetId: "tex-a",
+        role: "texture",
+        fileName: "plc_multi.a.dds",
+        objectKey: "modules/current/textures/plc_multi.a.dds",
+        extension: "dds",
+        sizeBytes: 3,
+        contentType: "image/vnd-ms.dds",
+        etag: "ta"
+      },
+      {
+        assetId: "tex-b",
+        role: "texture",
+        fileName: "plc_multi.b.dds",
+        objectKey: "modules/current/textures/plc_multi.b.dds",
+        extension: "dds",
+        sizeBytes: 3,
+        contentType: "image/vnd-ms.dds",
+        etag: "tb"
+      },
+      {
+        assetId: "model",
+        role: "model",
+        fileName: "plc_multi.mdl",
+        objectKey: "modules/current/models/plc_multi.mdl",
+        extension: "mdl",
+        sizeBytes: 12,
+        contentType: "application/octet-stream",
+        etag: "m"
+      },
+      {
+        assetId: "tex-c",
+        role: "texture",
+        fileName: "plc_multi.c.dds",
+        objectKey: "modules/current/textures/plc_multi.c.dds",
+        extension: "dds",
+        sizeBytes: 3,
+        contentType: "image/vnd-ms.dds",
+        etag: "tc"
+      }
+    ];
+
+    const renderPackage = buildPlaceableRenderPackage(manifest);
+
+    expect(renderPackage.status).toBe("missing_derived");
+    expect(renderPackage.assetRefs.textureAssetIds).toEqual(["tex-a", "tex-b", "tex-c"]);
+    expect(renderPackage.assetRefs.modelAssetIds).toEqual(["model"]);
   });
 });
 

@@ -130,8 +130,10 @@ describe("ProcessingGraphApplicationService", () => {
           textureAtlasId: areas[0].textureAtlasId,
           objectCounts: {
             placeables: 1,
+            doors: 0,
             creatures: 1,
             items: 0,
+            sounds: 0,
             total: 2
           },
           updatedAt: areas[0].updatedAt

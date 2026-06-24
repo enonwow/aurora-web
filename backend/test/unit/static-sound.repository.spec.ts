@@ -20,6 +20,9 @@ describe("StaticSoundRepository", () => {
       soundId: expect.any(String),
       category: expect.any(String),
       format: expect.any(String),
+      source: {
+        layer: "module"
+      },
       auroraUsage: expect.any(Object)
     });
   });

@@ -62,6 +62,51 @@ describe("processing-jobs.schemas", () => {
     ).toThrow(AppException);
   });
 
+  it("parses VFX runtime package job options", () => {
+    const parsed = parseCreateJobPayload({
+      task: "process_vfx_runtime_package",
+      targetId: "modules/current/vfx/visualeffects.2da",
+      options: {
+        bypassCache: "false",
+        includeBenchmarkMetadata: "false",
+        vfx: {
+          sourceTableText: "2DA V2.0\n\nLabel Type_FD\n0 VFX_TEST F",
+          sourceRowId: 0
+        }
+      }
+    });
+
+    expect(parsed).toEqual({
+      task: "process_vfx_runtime_package",
+      targetId: "modules/current/vfx/visualeffects.2da",
+      idempotencyKey: undefined,
+      traceId: undefined,
+      options: {
+        bypassCache: false,
+        includeBenchmarkMetadata: false,
+        subtypeHint: undefined,
+        vfx: {
+          sourceTableText: "2DA V2.0\n\nLabel Type_FD\n0 VFX_TEST F",
+          sourceRowId: 0
+        }
+      }
+    });
+  });
+
+  it("rejects VFX job options for non-VFX tasks", () => {
+    expect(() =>
+      parseCreateJobPayload({
+        task: "process_area",
+        targetId: "area_market_district_001",
+        options: {
+          vfx: {
+            sourceTableText: "2DA V2.0"
+          }
+        }
+      })
+    ).toThrow(AppException);
+  });
+
   it("parses list query defaults", () => {
     expect(parseJobListQuery({})).toEqual({ limit: 20 });
   });

@@ -21,6 +21,15 @@ describe("placeables.schemas", () => {
     expect(parsedVvxy.subtypeHint).toBe("vvxy");
   });
 
+  it("rejects corpse as a non-Aurora subtype hint in process payload", () => {
+    expect(() =>
+      parsePlaceableProcessPayload({
+        templateId: "plc_invis_corpse_bdy",
+        subtypeHint: "corpse"
+      })
+    ).toThrow(AppException);
+  });
+
   it("requires templateId or resref for process payload", () => {
     expect(() => parsePlaceableProcessPayload({})).toThrow(AppException);
   });
@@ -44,6 +53,11 @@ describe("placeables.schemas", () => {
   it("accepts hexadecimal asset ids", () => {
     const assetId = "abc123ff";
     expect(parsePlaceableAssetId(assetId)).toBe(assetId);
+  });
+
+  it("accepts asset id path params with a delivery extension suffix", () => {
+    expect(parsePlaceableAssetId("abc123ff.glb")).toBe("abc123ff");
+    expect(parsePlaceableAssetId("abc123ff.gltf")).toBe("abc123ff");
   });
 
   it("rejects invalid asset ids", () => {

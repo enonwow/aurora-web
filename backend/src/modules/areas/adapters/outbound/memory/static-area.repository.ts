@@ -44,6 +44,7 @@ const AREAS: AreaRecord[] = [
     textureAtlasSizeBytes: 524288,
     textureAtlasEtag: "atlas-urban-day-v1",
     textureAtlasFingerprint: "static:atlas:area_urban_day_v1",
+    tiles: [],
     soundscape: buildAreaSoundscape("urban"),
     objects: [
       {
@@ -90,6 +91,46 @@ const AREAS: AreaRecord[] = [
         y: 8.5,
         z: 0,
         bearing: 0
+      },
+      {
+        objectId: "obj_snd_001",
+        kind: "sound",
+        templateId: "sfx_forge_loop_heavy",
+        x: 6.1,
+        y: 7.9,
+        z: 0.4,
+        bearing: 0,
+        soundPositioning: {
+          mode: "specific",
+          elevation: 0.4,
+          maxVolumeDistance: 1.5,
+          cutoffDistance: 12,
+          randomRangeWestEast: 0,
+          randomRangeNorthSouth: 0,
+          preserve: {
+            timeWindow: "",
+            hourMask: "",
+            active: true,
+            whenToPlay: "always",
+            dayNight: "both",
+            playStyle: "loop",
+            playOrder: "sequential",
+            intervalMs: 6000,
+            intervalVariationMs: 0,
+            volume: 0.9,
+            volumeVariation: 0,
+            pitchVariation: 0,
+            priority: 1,
+            flags: {
+              active: true,
+              looping: true,
+              positional: true
+            },
+            extra: {
+              auroraSoundList: "sfx_forge_loop_heavy"
+            }
+          }
+        }
       }
     ],
     updatedAt: "2026-05-22T12:30:00.000Z"
@@ -109,6 +150,7 @@ const AREAS: AreaRecord[] = [
     textureAtlasSizeBytes: 491520,
     textureAtlasEtag: "atlas-forest-mixed-v1",
     textureAtlasFingerprint: "static:atlas:area_forest_mixed_v1",
+    tiles: [],
     soundscape: buildAreaSoundscape("forest"),
     objects: [
       {
@@ -137,6 +179,47 @@ const AREAS: AreaRecord[] = [
         y: 6.3,
         z: 0,
         bearing: 0
+      },
+      {
+        objectId: "obj_snd_101",
+        kind: "sound",
+        templateId: "amb_forest_day",
+        x: 14.4,
+        y: 7.2,
+        z: 0,
+        bearing: 0,
+        soundPositioning: {
+          mode: "random",
+          elevation: 0,
+          maxVolumeDistance: 2,
+          cutoffDistance: 18,
+          randomRangeWestEast: 5,
+          randomRangeNorthSouth: 4,
+          preserve: {
+            timeWindow: "",
+            hourMask: "",
+            active: true,
+            whenToPlay: "always",
+            dayNight: "both",
+            playStyle: "repeat",
+            playOrder: "random",
+            intervalMs: 9000,
+            intervalVariationMs: 3000,
+            volume: 0.75,
+            volumeVariation: 0.15,
+            pitchVariation: 0.05,
+            priority: 0,
+            flags: {
+              active: true,
+              random: true,
+              randomPosition: true,
+              positional: true
+            },
+            extra: {
+              auroraSoundList: "amb_forest_day\namb_forest_day1\namb_forest_day2"
+            }
+          }
+        }
       }
     ],
     updatedAt: "2026-05-20T08:12:00.000Z"
@@ -156,6 +239,7 @@ const AREAS: AreaRecord[] = [
     textureAtlasSizeBytes: 458752,
     textureAtlasEtag: "atlas-dungeon-stone-v1",
     textureAtlasFingerprint: "static:atlas:area_dungeon_stone_v1",
+    tiles: [],
     soundscape: buildAreaSoundscape("dungeon"),
     objects: [
       {
@@ -184,6 +268,46 @@ const AREAS: AreaRecord[] = [
         y: 11.5,
         z: 0,
         bearing: 90
+      },
+      {
+        objectId: "obj_snd_201",
+        kind: "sound",
+        templateId: "amb_swamp_night",
+        x: 5.5,
+        y: 6.5,
+        z: 0,
+        bearing: 0,
+        soundPositioning: {
+          mode: "everywhere",
+          elevation: 0,
+          maxVolumeDistance: 0,
+          cutoffDistance: 0,
+          randomRangeWestEast: 0,
+          randomRangeNorthSouth: 0,
+          preserve: {
+            timeWindow: "",
+            hourMask: "",
+            active: true,
+            whenToPlay: "always",
+            dayNight: "both",
+            playStyle: "repeat",
+            playOrder: "sequential",
+            intervalMs: 12000,
+            intervalVariationMs: 2000,
+            volume: 0.65,
+            volumeVariation: 0.1,
+            pitchVariation: 0,
+            priority: 0,
+            flags: {
+              active: true,
+              continuous: true,
+              positional: false
+            },
+            extra: {
+              auroraSoundList: "amb_swamp_night"
+            }
+          }
+        }
       }
     ],
     updatedAt: "2026-05-21T17:40:00.000Z"

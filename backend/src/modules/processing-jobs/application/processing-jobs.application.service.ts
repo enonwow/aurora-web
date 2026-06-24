@@ -4,6 +4,7 @@ import { AppConfigService } from "../../../common/config/app-config.service";
 import { AppException } from "../../../common/http/app-exception";
 import { AreasApplicationService } from "../../areas/application/areas.application.service";
 import { CatalogApplicationService } from "../../catalog/application/catalog.application.service";
+import { VfxApplicationService } from "../../vfx/application/vfx.application.service";
 import {
   PROCESSING_JOBS_PUBLISHER,
   type ProcessingJobsPublisherPort
@@ -31,6 +32,7 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
   constructor(
     private readonly catalogService: CatalogApplicationService,
     private readonly areasService: AreasApplicationService,
+    private readonly vfxService: VfxApplicationService,
     private readonly config: AppConfigService,
     @Inject(PROCESSING_JOBS_REPOSITORY)
     private readonly repository: ProcessingJobsRepositoryPort,
@@ -427,6 +429,19 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
       });
       return {
         entityType: "item",
+        entityId: command.targetId,
+        cache: response.cache,
+        payload: response
+      };
+    }
+
+    if (command.task === "process_vfx_runtime_package") {
+      const response = await this.vfxService.processVfxRuntimePackageFromJob(
+        command.targetId,
+        command.options
+      );
+      return {
+        entityType: "vfx",
         entityId: command.targetId,
         cache: response.cache,
         payload: response

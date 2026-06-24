@@ -2,6 +2,7 @@ import { AppException } from "../../src/common/http/app-exception";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
 import type { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
 import type { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
+import type { VfxApplicationService } from "../../src/modules/vfx/application/vfx.application.service";
 import { MemoryProcessingJobsRepository } from "../../src/modules/processing-jobs/adapters/outbound/memory/memory-processing-jobs.repository";
 import type { ProcessingJobsPublisherPort } from "../../src/modules/processing-jobs/application/ports/processing-jobs-publisher.port";
 import { ProcessingJobsApplicationService } from "../../src/modules/processing-jobs/application/processing-jobs.application.service";
@@ -10,6 +11,7 @@ import type { ProcessingJobRecord } from "../../src/modules/processing-jobs/doma
 describe("ProcessingJobsApplicationService", () => {
   let catalogService: jest.Mocked<CatalogApplicationService>;
   let areasService: jest.Mocked<AreasApplicationService>;
+  let vfxService: jest.Mocked<VfxApplicationService>;
   let publisher: jest.Mocked<ProcessingJobsPublisherPort>;
   let repository: MemoryProcessingJobsRepository;
   let service: ProcessingJobsApplicationService;
@@ -41,6 +43,10 @@ describe("ProcessingJobsApplicationService", () => {
       getProcessedArea: jest.fn()
     } as unknown as jest.Mocked<AreasApplicationService>;
 
+    vfxService = {
+      processVfxRuntimePackageFromJob: jest.fn()
+    } as unknown as jest.Mocked<VfxApplicationService>;
+
     publisher = {
       publishQueued: jest.fn().mockResolvedValue(1),
       publishDeadLetter: jest.fn().mockResolvedValue(1)
@@ -50,6 +56,7 @@ describe("ProcessingJobsApplicationService", () => {
     service = new ProcessingJobsApplicationService(
       catalogService,
       areasService,
+      vfxService,
       buildConfig({ processingJobsInlineEnabled: true, processingJobsMaxAttempts: 2 }),
       repository,
       publisher
@@ -95,6 +102,64 @@ describe("ProcessingJobsApplicationService", () => {
       includeBenchmarkMetadata: true
     });
     expect(publisher.publishQueued).toHaveBeenCalled();
+  });
+
+  it("enqueues and completes VFX runtime package job without catalog preview processing", async () => {
+    vfxService.processVfxRuntimePackageFromJob.mockResolvedValue({
+      cache: {
+        key: "cache-vfx",
+        hit: false,
+        storedAt: "2026-05-24T00:00:00.000Z",
+        hits: 0
+      },
+      vfx: {
+        version: "aurora-vfx-package/v1",
+        packageKind: "runtime_package",
+        sourceRows: [],
+        dependencyGraph: { edges: [], diagnostics: [] },
+        diagnostics: [],
+        observability: {
+          sourceHash: "source-hash",
+          cacheHit: false,
+          diagnosticsCount: 0,
+          unresolvedDependencyCount: 0,
+          runtimePackageStatus: "source_only",
+          renderContractStatus: "source_only"
+        }
+      } as never
+    });
+
+    const queued = await service.enqueueJob(
+      {
+        task: "process_vfx_runtime_package",
+        targetId: "modules/current/vfx/visualeffects.2da",
+        options: {
+          bypassCache: false,
+          includeBenchmarkMetadata: false,
+          vfx: {
+            sourceTableText: "2DA V2.0\n\nLabel Type_FD\n0 VFX_TEST F"
+          }
+        }
+      },
+      "builder.user"
+    );
+
+    await waitForJobStatus(service, queued.jobId, "completed");
+    const result = await service.getJobResult(queued.jobId);
+
+    expect(result.entityType).toBe("vfx");
+    expect(result.entityId).toBe("modules/current/vfx/visualeffects.2da");
+    expect(vfxService.processVfxRuntimePackageFromJob).toHaveBeenCalledWith(
+      "modules/current/vfx/visualeffects.2da",
+      {
+        bypassCache: false,
+        includeBenchmarkMetadata: false,
+        vfx: {
+          sourceTableText: "2DA V2.0\n\nLabel Type_FD\n0 VFX_TEST F"
+        }
+      }
+    );
+    expect(catalogService.processPlaceable).not.toHaveBeenCalled();
   });
 
   it("returns not-ready for running job result and then completes item job", async () => {
@@ -166,6 +231,7 @@ describe("ProcessingJobsApplicationService", () => {
     const localService = new ProcessingJobsApplicationService(
       catalogService,
       areasService,
+      vfxService,
       buildConfig({ processingJobsInlineEnabled: false }),
       new MemoryProcessingJobsRepository(),
       publisher
@@ -193,6 +259,7 @@ describe("ProcessingJobsApplicationService", () => {
     const localService = new ProcessingJobsApplicationService(
       catalogService,
       areasService,
+      vfxService,
       buildConfig({ processingJobsInlineEnabled: false }),
       new MemoryProcessingJobsRepository(),
       publisher

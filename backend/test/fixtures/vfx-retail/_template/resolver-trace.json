@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "aurora-vfx-resolver-trace/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "sourcePolicy": {
+    "sourcesVfxProfileId": null,
+    "selectedSourceLayer": null,
+    "runtimeSettingsRevision": null,
+    "runtimeSettingsHashSha256": null,
+    "hakListHashSha256": null
+  },
+  "selectedCandidate": {
+    "objectKey": null,
+    "resourceType": null,
+    "sourceLayer": null,
+    "hashSha256": null,
+    "reason": "TODO"
+  },
+  "lowerPrecedenceCandidates": [
+    {
+      "objectKey": "TODO",
+      "resourceType": null,
+      "sourceLayer": null,
+      "hashSha256": null,
+      "reasonSkipped": "missing"
+    }
+  ],
+  "resourceHashes": [
+    {
+      "objectKey": "TODO",
+      "resourceType": null,
+      "hashSha256": null,
+      "sourceLayer": null
+    }
+  ],
+  "dependencyEdges": [
+    {
+      "from": "TODO",
+      "to": "TODO",
+      "kind": "missing",
+      "resolved": false
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Resolver trace has not been captured."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

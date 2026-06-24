@@ -10,6 +10,9 @@ import type {
   PlaceableAssetManifest,
   PlaceableAssetRole,
   PlaceableBenchmarkRunQuery,
+  PlaceableRenderPackage,
+  PlaceableRenderPackageAssetRefs,
+  PlaceableRenderPackageStatus,
   PlaceableRenderContract,
   PlaceableRuntimeProjection,
   PlaceableSubtype,
@@ -31,6 +34,7 @@ export interface PlaceableAssetLookupInput {
   resref: string;
   subtype: PlaceableSubtype;
   metadata: Record<string, string | number | boolean>;
+  sourcePriority?: PlaceableAssetSourcePriority;
 }
 
 export interface PlaceableClassification {
@@ -40,20 +44,104 @@ export interface PlaceableClassification {
   mismatchWithTemplate: boolean;
 }
 
+export interface PlaceableAssetSourcePriority {
+  hakNames: string[];
+}
+
+type PlaceableAssetSourceLayer = "module" | "hak" | "vanilla";
+
+interface PlaceableAssetSourceDescriptor {
+  layer: PlaceableAssetSourceLayer;
+  hakName?: string;
+}
+
+interface PlaceableLookupSeedDescriptor {
+  seed: string;
+  roles?: Set<PlaceableAssetRole>;
+}
+
 const ROLE_BY_EXTENSION: Record<string, PlaceableAssetRole> = {
   mdl: "model",
   mdb: "model",
+  glb: "model",
+  gltf: "model",
   plt: "model",
   dwk: "metadata",
   pwk: "metadata",
   wok: "metadata",
   dds: "texture",
   tga: "texture",
+  png: "texture",
+  jpg: "texture",
+  jpeg: "texture",
+  webp: "texture",
   txi: "material",
   mtr: "material",
   vis: "vfx",
   pfx: "vfx"
 };
+
+const DERIVED_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
+
+const PLACEABLE_LOOKUP_METADATA_KEYS = new Set([
+  "modelresref",
+  "appearanceresref",
+  "model",
+  "textureprefix",
+  "materialprefix",
+  "vfxpreset",
+  "templateresref",
+  "resref",
+  "sourceobjectkey",
+  "dependencyrefs",
+  "dependencyref",
+  "lookuptemplateresref",
+  "lookupmodelresref",
+  "lookupdependencyrefs",
+  "chunkmodelreferences",
+  "modeltexturereferences"
+]);
+
+const PLACEABLE_TEMPLATE_ID_PREFIXES = ["plc_", "cre_", "itm_"] as const;
+const TEXTURE_LOOKUP_ROLES = new Set<PlaceableAssetRole>(["texture", "material"]);
+const MATERIAL_LOOKUP_ROLES = new Set<PlaceableAssetRole>(["material"]);
+const MODEL_LOOKUP_ROLES = new Set<PlaceableAssetRole>(["model", "unknown"]);
+
+function isModelAsset(entry: PlaceableAssetEntry): boolean {
+  return entry.role === "model" && !isDerivedModelAsset(entry);
+}
+
+function isDerivedModelAsset(entry: PlaceableAssetEntry): boolean {
+  return (
+    (entry.role === "model" || entry.role === "unknown") &&
+    DERIVED_MODEL_EXTENSIONS.has(entry.extension)
+  );
+}
+
+function isUnrenderableSourceModelAsset(entry: PlaceableAssetEntry): boolean {
+  const extension = entry.extension.trim().toLowerCase();
+  return entry.role === "unknown" && (extension === "mdl" || extension === "mdb");
+}
+
+function rankDerivedModelAsset(entry: PlaceableAssetEntry | undefined): number {
+  const extension = entry?.extension.toLowerCase();
+  if (extension === "glb") {
+    return 0;
+  }
+  if (extension === "gltf") {
+    return 1;
+  }
+  return 2;
+}
+
+function addAssetRef(
+  refs: PlaceableRenderPackageAssetRefs,
+  key: keyof PlaceableRenderPackageAssetRefs,
+  value: string
+) {
+  const current = (refs[key] ??= []);
+  current.push(value);
+}
 
 export function buildModuleSnapshotIndex(
   snapshot: ModuleBlobSnapshotSummary
@@ -102,12 +190,24 @@ export function collectPlaceableAssetsFromSnapshot(
   index: ModuleSnapshotIndex,
   input: PlaceableAssetLookupInput
 ): PlaceableAssetEntry[] {
-  const seeds = buildLookupSeeds(input);
+  const seeds = buildLookupSeedDescriptors(input);
   const uniqueByObjectKey = new Map<string, PlaceableAssetEntry>();
 
-  for (const seed of seeds) {
+  for (const descriptor of seeds) {
+    const { seed } = descriptor;
+    const basenameBucket = index.byBasename.get(seed) ?? [];
+    for (const asset of basenameBucket) {
+      if (!matchesLookupSeedRoles(asset, descriptor)) {
+        continue;
+      }
+      uniqueByObjectKey.set(asset.objectKey, asset);
+    }
+
     const prefixBucket = index.byPrefix.get(seed.slice(0, 4)) ?? [];
     for (const asset of prefixBucket) {
+      if (!matchesLookupSeedRoles(asset, descriptor)) {
+        continue;
+      }
       const assetBasename = extractBasename(asset.fileName);
       if (assetBasename.startsWith(seed)) {
         uniqueByObjectKey.set(asset.objectKey, asset);
@@ -120,6 +220,18 @@ export function collectPlaceableAssetsFromSnapshot(
     if (roleDelta !== 0) {
       return roleDelta;
     }
+    const leftBasename = extractBasename(left.fileName);
+    const rightBasename = extractBasename(right.fileName);
+    if (leftBasename === rightBasename) {
+      const sourceDelta = compareAssetSourcePriority(
+        left,
+        right,
+        input.sourcePriority
+      );
+      if (sourceDelta !== 0) {
+        return sourceDelta;
+      }
+    }
     if (left.fileName !== right.fileName) {
       return left.fileName.localeCompare(right.fileName);
     }
@@ -130,39 +242,183 @@ export function collectPlaceableAssetsFromSnapshot(
 }
 
 export function buildLookupSeeds(input: PlaceableAssetLookupInput): string[] {
-  const seeds = new Set<string>();
-  addSeed(seeds, input.resref);
-  addSeed(seeds, input.templateId);
+  return buildLookupSeedDescriptors(input).map((descriptor) => descriptor.seed);
+}
 
-  const metadataKeys = [
-    "modelResref",
-    "appearanceResref",
-    "model",
-    "texturePrefix",
-    "materialPrefix",
-    "vfxPreset"
-  ];
+function buildLookupSeedDescriptors(input: PlaceableAssetLookupInput): PlaceableLookupSeedDescriptor[] {
+  const seeds = new Map<string, Set<PlaceableAssetRole> | null>();
+  addLookupSeed(seeds, input.resref);
+  addLookupSeed(seeds, input.templateId);
+  addLookupTemplateIdSeeds(seeds, input.templateId);
 
-  for (const key of metadataKeys) {
-    const value = input.metadata[key];
-    if (typeof value === "string") {
-      addSeed(seeds, value);
+  for (const [rawKey, rawValue] of Object.entries(input.metadata)) {
+    if (typeof rawValue !== "string") {
+      continue;
     }
+    const key = rawKey.trim().toLowerCase();
+    const isExplicitLookupKey = PLACEABLE_LOOKUP_METADATA_KEYS.has(key);
+    const isDependencyLookupKey =
+      key.startsWith("dependencyref") || key.startsWith("dependency.");
+    if (!isExplicitLookupKey && !isDependencyLookupKey) {
+      continue;
+    }
+    addSeedFromMetadataValue(seeds, rawValue, resolveLookupSeedRolesForMetadataKey(key));
   }
 
   if (input.subtype === "vfx") {
-    addSeed(seeds, `${input.resref}_vfx`);
+    addLookupSeed(seeds, `${input.resref}_vfx`);
   }
 
-  return [...seeds];
+  return [...seeds.entries()]
+    .map(([seed, roles]) => ({
+      seed,
+      ...(roles ? { roles } : {})
+    }))
+    .sort((left, right) => left.seed.localeCompare(right.seed));
 }
 
 export function addSeed(target: Set<string>, value: string): void {
-  const normalized = extractBasename(value);
+  const normalized = normalizeSeedValue(value);
   if (normalized.length < 3) {
     return;
   }
   target.add(normalized);
+  addTemplateIdSeeds(target, normalized);
+}
+
+function addSeedFromMetadataValue(
+  target: Map<string, Set<PlaceableAssetRole> | null>,
+  value: string,
+  roles?: Set<PlaceableAssetRole>
+): void {
+  const normalized = value.trim();
+  if (!normalized) {
+    return;
+  }
+
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(normalized) as unknown;
+      if (Array.isArray(parsed)) {
+        parsed.forEach((entry) => {
+          if (typeof entry === "string") {
+            addLookupSeed(target, entry, roles);
+          }
+        });
+        return;
+      }
+    } catch {
+      // Fall through to tokenized parsing when JSON parsing fails.
+    }
+  }
+
+  normalized
+    .split(/[|,;\n\r\t ]+/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .forEach((entry) => addLookupSeed(target, entry, roles));
+}
+
+function addTemplateIdSeeds(target: Set<string>, value: string): void {
+  const normalized = normalizeSeedValue(value);
+  if (normalized.length < 3) {
+    return;
+  }
+  for (const prefix of PLACEABLE_TEMPLATE_ID_PREFIXES) {
+    if (!normalized.startsWith(prefix)) {
+      continue;
+    }
+    const trimmed = normalized.slice(prefix.length);
+    if (trimmed.length >= 3) {
+      target.add(trimmed);
+    }
+  }
+}
+
+function addLookupSeed(
+  target: Map<string, Set<PlaceableAssetRole> | null>,
+  value: string,
+  roles?: Set<PlaceableAssetRole>
+): void {
+  const normalized = normalizeSeedValue(value);
+  if (normalized.length < 3) {
+    return;
+  }
+  addLookupSeedValue(target, normalized, roles);
+  addLookupTemplateIdSeeds(target, normalized, roles);
+}
+
+function addLookupTemplateIdSeeds(
+  target: Map<string, Set<PlaceableAssetRole> | null>,
+  value: string,
+  roles?: Set<PlaceableAssetRole>
+): void {
+  const normalized = normalizeSeedValue(value);
+  if (normalized.length < 3) {
+    return;
+  }
+  for (const prefix of PLACEABLE_TEMPLATE_ID_PREFIXES) {
+    if (!normalized.startsWith(prefix)) {
+      continue;
+    }
+    const trimmed = normalized.slice(prefix.length);
+    if (trimmed.length >= 3) {
+      addLookupSeedValue(target, trimmed, roles);
+    }
+  }
+}
+
+function addLookupSeedValue(
+  target: Map<string, Set<PlaceableAssetRole> | null>,
+  seed: string,
+  roles?: Set<PlaceableAssetRole>
+): void {
+  if (!roles) {
+    target.set(seed, null);
+    return;
+  }
+  if (target.get(seed) === null) {
+    return;
+  }
+  const existing = target.get(seed);
+  if (existing) {
+    roles.forEach((role) => existing.add(role));
+    return;
+  }
+  target.set(seed, new Set(roles));
+}
+
+function resolveLookupSeedRolesForMetadataKey(
+  key: string
+): Set<PlaceableAssetRole> | undefined {
+  switch (key) {
+    case "modeltexturereferences":
+    case "textureprefix":
+      return TEXTURE_LOOKUP_ROLES;
+    case "materialprefix":
+      return MATERIAL_LOOKUP_ROLES;
+    case "chunkmodelreferences":
+      return MODEL_LOOKUP_ROLES;
+    default:
+      return undefined;
+  }
+}
+
+function matchesLookupSeedRoles(
+  asset: PlaceableAssetEntry,
+  descriptor: PlaceableLookupSeedDescriptor
+): boolean {
+  return !descriptor.roles || descriptor.roles.has(asset.role);
+}
+
+function normalizeSeedValue(value: string): string {
+  const withoutQuotes = value.trim().replace(/^['"]+|['"]+$/gu, "");
+  if (!withoutQuotes) {
+    return "";
+  }
+  const withoutQuery = withoutQuotes.split(/[?#]/u, 1)[0] ?? "";
+  const fileName = extractFileName(withoutQuery);
+  return extractBasename(fileName);
 }
 
 export function buildAssetId(
@@ -201,11 +457,29 @@ export function extractBasename(fileName: string): string {
 }
 
 export function inferContentTypeForExtension(extension: string): string {
+  if (extension === "glb") {
+    return "model/gltf-binary";
+  }
+  if (extension === "gltf") {
+    return "model/gltf+json";
+  }
   if (extension === "dds") {
     return "image/vnd-ms.dds";
   }
   if (extension === "tga") {
     return "image/x-tga";
+  }
+  if (extension === "bmp") {
+    return "image/bmp";
+  }
+  if (extension === "png") {
+    return "image/png";
+  }
+  if (extension === "jpg" || extension === "jpeg") {
+    return "image/jpeg";
+  }
+  if (extension === "webp") {
+    return "image/webp";
   }
   return "application/octet-stream";
 }
@@ -221,6 +495,77 @@ export function compareAssetRole(left: PlaceableAssetRole, right: PlaceableAsset
   };
 
   return order[left] - order[right];
+}
+
+export function compareAssetSourcePriority(
+  left: PlaceableAssetEntry,
+  right: PlaceableAssetEntry,
+  sourcePriority?: PlaceableAssetSourcePriority
+): number {
+  const leftSource = classifyPlaceableAssetSource(left.objectKey);
+  const rightSource = classifyPlaceableAssetSource(right.objectKey);
+  const layerDelta =
+    getPlaceableAssetSourceLayerRank(leftSource.layer) -
+    getPlaceableAssetSourceLayerRank(rightSource.layer);
+  if (layerDelta !== 0) {
+    return layerDelta;
+  }
+
+  if (leftSource.layer === "hak" && rightSource.layer === "hak") {
+    const hakDelta =
+      getPlaceableHakRank(leftSource.hakName, sourcePriority) -
+      getPlaceableHakRank(rightSource.hakName, sourcePriority);
+    if (hakDelta !== 0) {
+      return hakDelta;
+    }
+  }
+
+  return 0;
+}
+
+function classifyPlaceableAssetSource(objectKey: string): PlaceableAssetSourceDescriptor {
+  const normalized = objectKey.replace(/\\/gu, "/").toLowerCase();
+  const hakMarker = "/__aurora/sources/hak/";
+  const hakIndex = normalized.indexOf(hakMarker);
+  if (hakIndex >= 0) {
+    const hakNameStart = hakIndex + hakMarker.length;
+    const hakName = normalized.slice(hakNameStart).split("/", 1)[0] ?? "";
+    return {
+      layer: "hak",
+      hakName
+    };
+  }
+
+  if (normalized.includes("/__aurora/sources/vanilla/")) {
+    return {
+      layer: "vanilla"
+    };
+  }
+
+  return {
+    layer: "module"
+  };
+}
+
+function getPlaceableAssetSourceLayerRank(layer: PlaceableAssetSourceLayer): number {
+  if (layer === "module") {
+    return 0;
+  }
+  if (layer === "hak") {
+    return 1;
+  }
+  return 2;
+}
+
+function getPlaceableHakRank(
+  hakName: string | undefined,
+  sourcePriority: PlaceableAssetSourcePriority | undefined
+): number {
+  if (!hakName || !sourcePriority) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const index = sourcePriority.hakNames.indexOf(hakName);
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
 export function normalizePrefixForLookup(value: string): string {
@@ -496,6 +841,133 @@ export function buildPlaceableValidationIssues(
   }
 
   return issues;
+}
+
+export function buildPlaceableRenderPackage(
+  manifest: PlaceableAssetManifest
+): PlaceableRenderPackage {
+  const diagnostics: Array<{ code: string; severity: "warn" | "error"; message: string }> = [];
+  const assetRefs: PlaceableRenderPackageAssetRefs = {};
+  const modelAssets: string[] = [];
+  const derivedModelAssets: string[] = [];
+
+  for (const asset of manifest.assets) {
+    if (isDerivedModelAsset(asset)) {
+      addAssetRef(assetRefs, "derivedModelAssetIds", asset.assetId);
+      addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+      derivedModelAssets.push(asset.assetId);
+      continue;
+    }
+
+    if (isModelAsset(asset)) {
+      addAssetRef(assetRefs, "modelAssetIds", asset.assetId);
+      addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+      modelAssets.push(asset.assetId);
+      continue;
+    }
+
+    if (asset.role === "texture") {
+      addAssetRef(assetRefs, "textureAssetIds", asset.assetId);
+      addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+      continue;
+    }
+
+    if (asset.role === "material") {
+      addAssetRef(assetRefs, "materialAssetIds", asset.assetId);
+      addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+      continue;
+    }
+
+    if (asset.role === "metadata") {
+      addAssetRef(assetRefs, "metadataAssetIds", asset.assetId);
+      addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+      continue;
+    }
+
+    addAssetRef(assetRefs, "otherAssetIds", asset.assetId);
+  }
+
+  if (assetRefs.derivedModelAssetIds && assetRefs.derivedModelAssetIds.length > 1) {
+    const assetById = new Map(manifest.assets.map((asset) => [asset.assetId, asset]));
+    const manifestIndexById = new Map(
+      manifest.assets.map((asset, index) => [asset.assetId, index])
+    );
+    assetRefs.derivedModelAssetIds = [...assetRefs.derivedModelAssetIds].sort(
+      (leftId, rightId) => {
+        const rankDiff =
+          rankDerivedModelAsset(assetById.get(leftId)) -
+          rankDerivedModelAsset(assetById.get(rightId));
+        if (rankDiff !== 0) {
+          return rankDiff;
+        }
+        return (
+          (manifestIndexById.get(leftId) ?? Number.MAX_SAFE_INTEGER) -
+          (manifestIndexById.get(rightId) ?? Number.MAX_SAFE_INTEGER)
+        );
+      }
+    );
+  }
+
+  const hasDerived = derivedModelAssets.length > 0;
+  const hasRawModel = modelAssets.length > 0;
+  const hasAnyModel = hasDerived || hasRawModel;
+
+  if (!hasAnyModel) {
+    const status: PlaceableRenderPackageStatus = manifest.assets.length === 0
+      ? "missing_assets"
+      : "unsupported";
+
+    if (manifest.assets.length === 0) {
+      diagnostics.push({
+        code: "PLACEABLE_RENDER_ASSETS_MISSING",
+        severity: "error",
+        message: "No model assets were discovered for this placeable."
+      });
+    } else {
+      const hasUnrenderableSourceModel = manifest.assets.some(isUnrenderableSourceModelAsset);
+      diagnostics.push({
+        code: hasUnrenderableSourceModel
+          ? "PLACEABLE_RENDER_SOURCE_MODEL_UNRENDERABLE"
+          : "PLACEABLE_RENDER_UNSUPPORTED_ASSET_SET",
+        severity: "warn",
+        message: hasUnrenderableSourceModel
+          ? "Source model assets were found but no derived GLB/GLTF is available for web rendering."
+          : "Placeable assets were found but no recognized source model asset exists."
+      });
+    }
+
+    return {
+      status,
+      diagnostics,
+      assetRefs
+    };
+  }
+
+  if (hasDerived) {
+    diagnostics.push({
+      code: "PLACEABLE_RENDER_READY",
+      severity: "warn",
+      message: "Derived model asset exists; backend render package can be produced."
+    });
+    return {
+      status: "ready",
+      diagnostics,
+      assetRefs
+    };
+  }
+
+  diagnostics.push({
+    code: "PLACEABLE_RENDER_DERIVED_MISSING",
+    severity: "error",
+    message:
+      "Placeable exposes raw model assets but no derived GLB/Gltf is available yet."
+  });
+
+  return {
+    status: "missing_derived",
+    diagnostics,
+    assetRefs,
+  };
 }
 
 export function buildCreatureRuntimeProjection(

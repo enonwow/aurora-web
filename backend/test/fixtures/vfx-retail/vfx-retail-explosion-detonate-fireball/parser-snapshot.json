@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "aurora-vfx-parser-snapshot/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "parser": {
+    "name": "aurora-vfx-source.parser",
+    "version": null,
+    "commit": null
+  },
+  "input": {
+    "sourceTablePath": "TODO: retail-selected visualeffects.2da path",
+    "sourceTableHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "tableName": "visualeffects.2da",
+    "profile": "nwn-ee-8193.34-selected-source",
+    "rowId": 22
+  },
+  "output": {
+    "rowKind": "visualeffects",
+    "rowId": 22,
+    "label": "VFX_FNF_FIREBALL",
+    "sourceRefs": {
+      "impact": null,
+      "duration": null,
+      "cessation": null,
+      "progfxImpact": null,
+      "progfxDuration": null,
+      "progfxCessation": null
+    },
+    "requiredEvents": [
+      {
+        "name": "detonate",
+        "source": "MDL animation event",
+        "observed": null
+      }
+    ],
+    "rawCells": {
+      "Label": "VFX_FNF_FIREBALL",
+      "Impact": "TODO: parser output missing until source row is captured",
+      "Duration": "TODO: parser output missing until source row is captured",
+      "Cessation": "TODO: parser output missing until source row is captured"
+    },
+    "decodedCells": {
+      "Label": "VFX_FNF_FIREBALL",
+      "Impact": null,
+      "Duration": null,
+      "Cessation": null
+    },
+    "diagnostics": [
+      {
+        "code": "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "severity": "missing",
+        "message": "Parser snapshot has not been generated from the captured retail source row."
+      },
+      {
+        "code": "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+        "severity": "missing",
+        "message": "Parser/resolver output must identify the emitter resource that owns the detonate event."
+      }
+    ]
+  },
+  "provenance": {
+    "sourceObjectKey": "visualeffects.2da",
+    "sourceLayer": "selected-source-candidate",
+    "sourceHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "runtimeSettingsRevision": null,
+    "hakListHashSha256": null
+  }
+}

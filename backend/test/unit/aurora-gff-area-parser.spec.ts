@@ -59,9 +59,26 @@ describe("aurora-gff-area-parser", () => {
             { label: "MusicBattle", type: "dword", value: 13 }
           ]
         },
-        { fields: [] },
-        { fields: [] },
-        { fields: [] }
+        {
+          fields: [
+            { label: "Tile_ID", type: "dword", value: 101 },
+            { label: "Orientation", type: "dword", value: 1 },
+            { label: "Height", type: "float", value: 0.5 },
+            { label: "ModelResRef", type: "resref", value: "tno01_a01_01" }
+          ]
+        },
+        {
+          fields: [
+            { label: "Tile_ID", type: "dword", value: 102 },
+            { label: "Orientation", type: "dword", value: 2 }
+          ]
+        },
+        {
+          fields: [
+            { label: "Tile_ID", type: "dword", value: 103 },
+            { label: "Orientation", type: "dword", value: 3 }
+          ]
+        }
       ],
       "ARE "
     );
@@ -77,6 +94,31 @@ describe("aurora-gff-area-parser", () => {
       height: 18,
       tileSet: "tno01",
       tileCount: 3,
+      tiles: [
+        {
+          index: 0,
+          row: 0,
+          col: 0,
+          tileId: 101,
+          modelResRef: "tno01_a01_01",
+          orientation: 1,
+          height: 0.5
+        },
+        {
+          index: 1,
+          row: 0,
+          col: 1,
+          tileId: 102,
+          orientation: 2
+        },
+        {
+          index: 2,
+          row: 0,
+          col: 2,
+          tileId: 103,
+          orientation: 3
+        }
+      ],
       soundIds: {
         ambientDay: 41,
         ambientNight: 52,
@@ -95,7 +137,8 @@ describe("aurora-gff-area-parser", () => {
             { label: "Placeable List", type: "list", value: [1] },
             { label: "Door List", type: "list", value: [2] },
             { label: "Creature List", type: "list", value: [3] },
-            { label: "Item List", type: "list", value: [4] }
+            { label: "Item List", type: "list", value: [4] },
+            { label: "SoundList", type: "list", value: [6] }
           ]
         },
         {
@@ -137,6 +180,38 @@ describe("aurora-gff-area-parser", () => {
             { label: "Y", type: "float", value: 2.5 },
             { label: "Z", type: "float", value: 0 }
           ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "snd_forge_loop" },
+            { label: "Tag", type: "cexostring", value: "forge_sound" },
+            { label: "XPosition", type: "float", value: 4.5 },
+            { label: "YPosition", type: "float", value: 5.5 },
+            { label: "ZPosition", type: "float", value: 1.25 },
+            { label: "Active", type: "byte", value: 1 },
+            { label: "Looping", type: "byte", value: 1 },
+            { label: "Positional", type: "byte", value: 1 },
+            { label: "RandomPosition", type: "byte", value: 1 },
+            { label: "Random", type: "byte", value: 1 },
+            { label: "Elevation", type: "float", value: 1.25 },
+            { label: "MaxDistance", type: "float", value: 14 },
+            { label: "MinDistance", type: "float", value: 2 },
+            { label: "RandomRangeX", type: "float", value: 3 },
+            { label: "RandomRangeY", type: "float", value: 4 },
+            { label: "Interval", type: "dword", value: 8000 },
+            { label: "IntervalVrtn", type: "dword", value: 1200 },
+            { label: "PitchVariation", type: "float", value: 0.1 },
+            { label: "Priority", type: "byte", value: 2 },
+            { label: "Volume", type: "byte", value: 80 },
+            { label: "VolumeVrtn", type: "byte", value: 15 },
+            { label: "Sounds", type: "list", value: [7, 8] }
+          ]
+        },
+        {
+          fields: [{ label: "Sound", type: "resref", value: "forge_loop_a" }]
+        },
+        {
+          fields: [{ label: "Sound", type: "resref", value: "forge_loop_b" }]
         }
       ],
       "GIT "
@@ -149,6 +224,7 @@ describe("aurora-gff-area-parser", () => {
     expect(parsed?.doors).toHaveLength(1);
     expect(parsed?.creatures).toHaveLength(1);
     expect(parsed?.items).toHaveLength(1);
+    expect(parsed?.sounds).toHaveLength(1);
 
     expect(parsed?.placeables[0]).toMatchObject({
       templateResRef: "plc_crate_01",
@@ -174,6 +250,36 @@ describe("aurora-gff-area-parser", () => {
       y: 2.5,
       z: 0,
       bearing: 0
+    });
+    expect(parsed?.sounds[0]).toMatchObject({
+      templateResRef: "snd_forge_loop",
+      tag: "forge_sound",
+      x: 4.5,
+      y: 5.5,
+      z: 1.25,
+      bearing: 0,
+      soundPositioning: {
+        mode: "random",
+        elevation: 1.25,
+        maxVolumeDistance: 2,
+        cutoffDistance: 14,
+        randomRangeWestEast: 3,
+        randomRangeNorthSouth: 4,
+        preserve: {
+          active: true,
+          playStyle: "loop",
+          playOrder: "random",
+          intervalMs: 8000,
+          intervalVariationMs: 1200,
+          volume: 0.8,
+          volumeVariation: 0.15,
+          pitchVariation: 0.1,
+          priority: 2,
+          extra: {
+            auroraSoundList: "forge_loop_a\nforge_loop_b"
+          }
+        }
+      }
     });
   });
 

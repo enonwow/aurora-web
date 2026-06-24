@@ -169,6 +169,47 @@ describe("ModuleSnapshotSoundRepository", () => {
     expect(music.items[0].soundId).toBe("sound_mus_city_theme");
   });
 
+  it("exposes list-level source provenance for HAK and vanilla audio", async () => {
+    const runtimeSettings = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValueOnce({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-audio-sources",
+      totalFiles: 2,
+      totalBytes: 32000,
+      truncated: false,
+      continuationToken: undefined,
+      objects: [
+        {
+          key: "modules/current/__aurora/sources/hak/npc_sounds/dia_hakon_add_12.wav",
+          size: 12000,
+          lastModified: "2026-06-16T10:00:00.000Z",
+          etag: "hak-audio"
+        },
+        {
+          key: "modules/current/__aurora/sources/vanilla/audio/wav/al_an_bees1.wav",
+          size: 20000,
+          lastModified: "2026-06-16T10:01:00.000Z",
+          etag: "vanilla-audio"
+        }
+      ]
+    });
+    const repository = new ModuleSnapshotSoundRepository(runtimeSettings, moduleBlobStorage);
+
+    const result = await repository.list({
+      limit: 20,
+      offset: 0
+    });
+
+    expect(
+      Object.fromEntries(result.items.map((item) => [item.soundId, item.source.layer]))
+    ).toEqual({
+      sound_al_an_bees1: "vanilla",
+      sound_dia_hakon_add_12: "hak"
+    });
+  });
+
   it("filters by aurora usage and technical sound metadata", async () => {
     const runtimeSettings = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();

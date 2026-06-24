@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "constructor": {
+    "kind": "TODO",
+    "sourceRowId": null,
+    "rawInvocation": "TODO",
+    "scriptSource": null,
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "TODO",
+    "durationType": null,
+    "durationSeconds": null,
+    "targetRef": null,
+    "effectorRef": null,
+    "creatorRef": null,
+    "bodyNode": null,
+    "missFlag": null,
+    "location": {
+      "areaTag": null,
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "retailCommandOrScript": {
+    "command": "TODO",
+    "moduleScriptName": null,
+    "trigger": "TODO"
+  },
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Effect context has not been captured from retail."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

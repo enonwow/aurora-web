@@ -17,6 +17,8 @@ const processPayloadSchema = z
         "trigger_proxy"
       ])
       .optional(),
+    appearanceType: z.coerce.number().int().nonnegative().optional(),
+    genericType: z.coerce.number().int().nonnegative().optional(),
     bypassCache: z.coerce.boolean().default(false),
     includeBenchmarkMetadata: z.coerce.boolean().default(true)
   })
@@ -29,6 +31,10 @@ const processPayloadSchema = z
       });
     }
   });
+
+const processBatchPayloadSchema = z.object({
+  items: z.array(processPayloadSchema).min(1).max(256)
+});
 
 const benchmarkPayloadSchema = z.object({
   templateIds: z.array(z.string().trim().min(1)).max(50).optional(),
@@ -51,8 +57,24 @@ const assetIdSchema = z
   .max(64)
   .regex(/^[a-f0-9]+$/iu, "assetId must be hexadecimal.");
 
+const assetIdPathParamSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(80)
+  .regex(/^[a-f0-9]+(?:\.[a-z0-9]{1,12})?$/iu, "assetId must be hexadecimal.");
+
 const assetDeliveryQuerySchema = z.object({
   assetIds: z.union([z.string(), z.array(z.string())]).optional()
+});
+
+const assetDeliveryBatchItemSchema = z.object({
+  cacheKey: cacheKeySchema,
+  assetIds: z.array(assetIdSchema).max(128).optional()
+});
+
+const assetDeliveryBatchPayloadSchema = z.object({
+  items: z.array(assetDeliveryBatchItemSchema).min(1).max(256)
 });
 
 export function parsePlaceableProcessPayload(input: unknown) {
@@ -62,6 +84,15 @@ export function parsePlaceableProcessPayload(input: unknown) {
   }
 
   throwValidationError(parsed.error.issues, "Placeable process payload validation failed.");
+}
+
+export function parsePlaceableProcessBatchPayload(input: unknown) {
+  const parsed = processBatchPayloadSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(parsed.error.issues, "Placeable process batch payload validation failed.");
 }
 
 export function parsePlaceableBenchmarkPayload(input: unknown) {
@@ -83,9 +114,9 @@ export function parsePlaceableCacheKey(input: unknown): string {
 }
 
 export function parsePlaceableAssetId(input: unknown): string {
-  const parsed = assetIdSchema.safeParse(input);
+  const parsed = assetIdPathParamSchema.safeParse(input);
   if (parsed.success) {
-    return parsed.data;
+    return parsed.data.split(".", 1)[0];
   }
 
   throwValidationError(parsed.error.issues, "Placeable asset id validation failed.");
@@ -128,6 +159,20 @@ export function parsePlaceableAssetDeliveryQuery(
   });
 
   return { assetIds };
+}
+
+export function parsePlaceableAssetDeliveryBatchPayload(input: unknown): {
+  items: Array<{ cacheKey: string; assetIds?: string[] }>;
+} {
+  const parsed = assetDeliveryBatchPayloadSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throwValidationError(
+    parsed.error.issues,
+    "Placeable asset delivery batch payload validation failed."
+  );
 }
 
 function throwValidationError(

@@ -11,7 +11,9 @@ export const PERMISSIONS = [
   "admin.config.write",
   "admin.user.manage",
   "processing.placeable.read",
-  "processing.placeable.run"
+  "processing.placeable.run",
+  "processing.vfx.read",
+  "processing.vfx.run"
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -24,14 +26,18 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "asset.place",
     "asset.delete",
     "processing.placeable.read",
-    "processing.placeable.run"
+    "processing.placeable.run",
+    "processing.vfx.read",
+    "processing.vfx.run"
   ],
   dm: [
     "scene.read",
     "dm.spawn_creature",
     "dm.spawn_vfx",
     "processing.placeable.read",
-    "processing.placeable.run"
+    "processing.placeable.run",
+    "processing.vfx.read",
+    "processing.vfx.run"
   ],
   admin: [
     "scene.read",
@@ -41,7 +47,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "admin.config.write",
     "admin.user.manage",
     "processing.placeable.read",
-    "processing.placeable.run"
+    "processing.placeable.run",
+    "processing.vfx.read",
+    "processing.vfx.run"
   ]
 };
 

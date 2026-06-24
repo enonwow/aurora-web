@@ -40,6 +40,9 @@ describe("SoundsApplicationService", () => {
           previewWaveformUrl: "/preview.webp",
           spatialMode: "2d",
           playbackMode: "interval",
+          source: {
+            layer: "module"
+          },
           auroraUsage: {
             bindingKey: "GI_sound_area",
             sourceField: "AmbientSoundDay"
@@ -70,6 +73,7 @@ describe("SoundsApplicationService", () => {
       offset: 0
     });
     expect(response).toEqual(result);
+    expect(response.items[0]?.source.layer).toBe("module");
   });
 
   it("returns full sound payload", async () => {
@@ -286,6 +290,64 @@ describe("SoundsApplicationService", () => {
     );
   });
 
+  it("returns browser-friendly PCM WAV payload for mono IMA ADPCM WAV while preserving source metadata", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new SoundsApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const imaWav = buildMonoImaAdpcmWavFixture();
+    const cached: SoundProcessingResult = {
+      ...buildProcessedSoundResult("sound_ambient_city_market_001"),
+      audio: {
+        ...buildProcessedSoundResult("sound_ambient_city_market_001").audio,
+        objectKey: "modules/current/__aurora/sources/vanilla/audio/wav/al_an_bees1.wav",
+        contentType: "audio/wav",
+        sizeBytes: imaWav.length,
+        etag: "source-ima-etag",
+        format: "wav",
+        sampleRateHz: 8000,
+        channels: 1
+      }
+    };
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: cached.audio.objectKey,
+      size: imaWav.length,
+      contentType: "audio/wav",
+      etag: "source-ima-etag",
+      bytes: imaWav
+    });
+
+    const result = await serviceWithBlob.getProcessedSoundAudio("a".repeat(64));
+
+    expect(result.audio.objectKey).toBe("modules/current/__aurora/sources/vanilla/audio/wav/al_an_bees1.wav");
+    expect(result.audio.sizeBytes).toBe(imaWav.length);
+    expect(result.audio.etag).toBe("source-ima-etag");
+    expect(result.payload.key).toBe(cached.audio.objectKey);
+    expect(result.payload.contentType).toBe("audio/wav");
+    expect(result.payload.etag).not.toBe("source-ima-etag");
+    expect(result.payload.bytes.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(result.payload.bytes.toString("ascii", 8, 12)).toBe("WAVE");
+    expect(result.payload.bytes.readUInt16LE(20)).toBe(1);
+    expect(result.payload.bytes.readUInt16LE(22)).toBe(1);
+    expect(result.payload.bytes.readUInt32LE(24)).toBe(8000);
+    expect(result.payload.bytes.readUInt16LE(34)).toBe(16);
+    expect(result.payload.bytes.toString("ascii", 36, 40)).toBe("data");
+    expect(result.payload.bytes.readUInt32LE(40)).toBe(18);
+    expect(result.payload.bytes.readInt16LE(44)).toBe(1000);
+  });
+
   it("builds proxy delivery contract for cached sound", async () => {
     const runtimeSettingsRepository = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();
@@ -383,6 +445,9 @@ describe("SoundsApplicationService", () => {
           previewWaveformUrl: sound.previewWaveformUrl,
           spatialMode: sound.spatialMode,
           playbackMode: sound.playback.mode,
+          source: {
+            layer: "module"
+          },
           auroraUsage: sound.auroraUsage,
           metrics: sound.metrics,
           updatedAt: sound.updatedAt
@@ -448,6 +513,9 @@ describe("SoundsApplicationService", () => {
           previewWaveformUrl: sound.previewWaveformUrl,
           spatialMode: sound.spatialMode,
           playbackMode: sound.playback.mode,
+          source: {
+            layer: "module"
+          },
           auroraUsage: sound.auroraUsage,
           metrics: sound.metrics,
           updatedAt: sound.updatedAt
@@ -761,6 +829,39 @@ async function expectSoundNotFound(promise: Promise<unknown>): Promise<void> {
     expect(appError.getStatus()).toBe(404);
     expect((appError.getResponse() as { message: string }).message).toBe("Sound was not found.");
   }
+}
+
+function buildMonoImaAdpcmWavFixture(): Buffer {
+  const sampleRate = 8000;
+  const blockAlign = 8;
+  const samplesPerBlock = 9;
+  const dataSize = blockAlign;
+  const output = Buffer.alloc(60 + dataSize);
+
+  output.write("RIFF", 0, "ascii");
+  output.writeUInt32LE(output.length - 8, 4);
+  output.write("WAVE", 8, "ascii");
+  output.write("fmt ", 12, "ascii");
+  output.writeUInt32LE(20, 16);
+  output.writeUInt16LE(17, 20);
+  output.writeUInt16LE(1, 22);
+  output.writeUInt32LE(sampleRate, 24);
+  output.writeUInt32LE(sampleRate * 4, 28);
+  output.writeUInt16LE(blockAlign, 32);
+  output.writeUInt16LE(4, 34);
+  output.writeUInt16LE(2, 36);
+  output.writeUInt16LE(samplesPerBlock, 38);
+  output.write("fact", 40, "ascii");
+  output.writeUInt32LE(4, 44);
+  output.writeUInt32LE(samplesPerBlock, 48);
+  output.write("data", 52, "ascii");
+  output.writeUInt32LE(dataSize, 56);
+  output.writeInt16LE(1000, 60);
+  output.writeUInt8(0, 62);
+  output.writeUInt8(0, 63);
+  output.fill(0, 64);
+
+  return output;
 }
 
 function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {

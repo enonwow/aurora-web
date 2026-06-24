@@ -181,8 +181,10 @@ describe("ModuleSnapshotAreaRepository", () => {
       cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/u),
       composition: {
         placeables: 0,
+        doors: 0,
         creatures: 0,
         items: 0,
+        sounds: 0,
         total: 0
       }
     });
@@ -196,7 +198,7 @@ describe("ModuleSnapshotAreaRepository", () => {
       bucket: "aurora-module-assets",
       prefix: "modules/current/",
       moduleHash: "hash-v2",
-      totalFiles: 4,
+      totalFiles: 5,
       totalBytes: 4096,
       truncated: false,
       continuationToken: undefined,
@@ -212,6 +214,12 @@ describe("ModuleSnapshotAreaRepository", () => {
           size: 1024,
           lastModified: "2026-05-25T10:00:00.000Z",
           etag: "g1"
+        },
+        {
+          key: "modules/current/tiles/tno01.set",
+          size: 180,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "set1"
         },
         {
           key: "modules/current/sounds/ambient/amb_city_day_41.wav",
@@ -241,9 +249,9 @@ describe("ModuleSnapshotAreaRepository", () => {
             { label: "MusicDay", type: "dword", value: 11 }
           ]
         },
-        { fields: [] },
-        { fields: [] },
-        { fields: [] }
+        { fields: [{ label: "Tile_ID", type: "dword", value: 101 }] },
+        { fields: [{ label: "Tile_ID", type: "dword", value: 102 }] },
+        { fields: [{ label: "Tile_ID", type: "dword", value: 103 }] }
       ],
       "ARE "
     );
@@ -255,7 +263,8 @@ describe("ModuleSnapshotAreaRepository", () => {
             { label: "Placeable List", type: "list", value: [1] },
             { label: "Door List", type: "list", value: [2] },
             { label: "Creature List", type: "list", value: [3] },
-            { label: "Item List", type: "list", value: [4] }
+            { label: "Item List", type: "list", value: [4] },
+            { label: "SoundList", type: "list", value: [6] }
           ]
         },
         {
@@ -293,9 +302,37 @@ describe("ModuleSnapshotAreaRepository", () => {
             { label: "Y", type: "float", value: 2.5 },
             { label: "Z", type: "float", value: 0 }
           ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "snd_forge_loop" },
+            { label: "Tag", type: "cexostring", value: "forge_sound" },
+            { label: "XPosition", type: "float", value: 9.5 },
+            { label: "YPosition", type: "float", value: 10.5 },
+            { label: "Active", type: "dword", value: 1 },
+            { label: "Looping", type: "dword", value: 1 },
+            { label: "Positional", type: "dword", value: 1 },
+            { label: "MaxDistance", type: "float", value: 16 },
+            { label: "MinDistance", type: "float", value: 2 },
+            { label: "Sounds", type: "list", value: [7] }
+          ]
+        },
+        {
+          fields: [{ label: "Sound", type: "resref", value: "forge_loop_a" }]
         }
       ],
       "GIT "
+    );
+    const setBytes = Buffer.from(
+      [
+        "[TILE101]",
+        "Model=tno01_a01_01",
+        "[TILE102]",
+        "Model=tno01_a01_02",
+        "[TILE103]",
+        "Model=tno01_a01_03"
+      ].join("\n"),
+      "utf-8"
     );
 
     moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
@@ -306,6 +343,16 @@ describe("ModuleSnapshotAreaRepository", () => {
           contentType: "application/octet-stream",
           bytes: areBytes,
           etag: "a1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      if (key.endsWith(".set")) {
+        return {
+          key,
+          size: setBytes.length,
+          contentType: "text/plain",
+          bytes: setBytes,
+          etag: "set1",
           lastModified: "2026-05-25T10:00:00.000Z"
         };
       }
@@ -333,7 +380,57 @@ describe("ModuleSnapshotAreaRepository", () => {
     expect(area?.width).toBe(24);
     expect(area?.height).toBe(20);
     expect(area?.textureAtlasId).toBe("atlas_tno01_v1");
-    expect(area?.objects).toHaveLength(4);
+    expect(area?.tiles).toEqual([
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:0",
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 0,
+        tileIndex: 0,
+        tileId: 101,
+        modelResRef: "tno01_a01_01",
+        modelSource: "set-tile-section",
+        source: "are-tile-list"
+      }),
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:1",
+        tileId: 102,
+        modelResRef: "tno01_a01_02",
+        modelSource: "set-tile-section"
+      }),
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:2",
+        tileId: 103,
+        modelResRef: "tno01_a01_03",
+        modelSource: "set-tile-section"
+      })
+    ]);
+    expect(area?.objects).toHaveLength(5);
+    expect(area?.objects.filter((entry) => entry.kind === "door")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "sound")).toHaveLength(1);
+    expect(area?.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "door",
+          templateId: "utd_city_gate_01"
+        }),
+        expect.objectContaining({
+          kind: "sound",
+          templateId: "snd_forge_loop",
+          soundPositioning: expect.objectContaining({
+            mode: "specific",
+            maxVolumeDistance: 2,
+            cutoffDistance: 16,
+            preserve: expect.objectContaining({
+              playStyle: "loop",
+              extra: {
+                auroraSoundList: "forge_loop_a"
+              }
+            })
+          })
+        })
+      ])
+    );
     expect(area?.soundscape.area).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -351,10 +448,12 @@ describe("ModuleSnapshotAreaRepository", () => {
 
     const composition = repository.getPrecomputedAreaProcessing(list.items[0].areaId);
     expect(composition?.composition).toEqual({
-      placeables: 2,
+      placeables: 1,
+      doors: 1,
       creatures: 1,
       items: 1,
-      total: 4
+      sounds: 1,
+      total: 5
     });
   });
 

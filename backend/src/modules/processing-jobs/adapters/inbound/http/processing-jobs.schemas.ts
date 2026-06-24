@@ -9,7 +9,8 @@ const jobTasks = [
   "process_placeable",
   "process_creature",
   "process_item",
-  "process_area"
+  "process_area",
+  "process_vfx_runtime_package"
 ] as const;
 
 const placeableSubtypeHints = [
@@ -57,7 +58,8 @@ const createJobPayloadSchema = z
       .object({
         bypassCache: parseBooleanSchema().optional(),
         includeBenchmarkMetadata: parseBooleanSchema().optional(),
-        subtypeHint: z.enum(placeableSubtypeHints).optional()
+        subtypeHint: z.enum(placeableSubtypeHints).optional(),
+        vfx: z.record(z.unknown()).optional()
       })
       .optional()
   })
@@ -70,6 +72,13 @@ const createJobPayloadSchema = z
         message: "subtypeHint is only allowed for process_placeable jobs."
       });
     }
+    if (value.task !== "process_vfx_runtime_package" && value.options?.vfx) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["options", "vfx"],
+        message: "vfx options are only allowed for process_vfx_runtime_package jobs."
+      });
+    }
   })
   .transform((value): ProcessingJobCreateCommand => ({
     task: value.task as ProcessingJobTask,
@@ -79,7 +88,8 @@ const createJobPayloadSchema = z
     options: {
       bypassCache: value.options?.bypassCache ?? true,
       includeBenchmarkMetadata: value.options?.includeBenchmarkMetadata ?? true,
-      subtypeHint: value.options?.subtypeHint
+      subtypeHint: value.options?.subtypeHint,
+      ...(value.options?.vfx ? { vfx: value.options.vfx } : {})
     }
   }));
 

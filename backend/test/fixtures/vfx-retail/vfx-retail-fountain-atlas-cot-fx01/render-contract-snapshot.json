@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "aurora-vfx-render-contract-snapshot/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "renderContract": {
+    "contractVersion": null,
+    "sourceFixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+    "drawRecords": [
+      {
+        "recordId": "TODO: first captured Fountain draw record",
+        "lane": "textured-particle",
+        "particleId": null,
+        "texture": "fxpa_smoke01",
+        "chunkModel": null,
+        "atlasFrame": null,
+        "blendMode": "Normal",
+        "depthWrite": null,
+        "color": null,
+        "alpha": null,
+        "position": null,
+        "size": null
+      }
+    ],
+    "atlas": {
+      "texture": "fxpa_smoke01",
+      "xgrid": 4,
+      "ygrid": 4,
+      "fps": 10,
+      "frameStart": 0,
+      "frameEnd": 24,
+      "random": 1
+    },
+    "renderState": {
+      "blend": "Normal",
+      "renderMode": "Billboard_to_World_Z",
+      "punchThroughCandidate": null,
+      "lightenModeCandidate": null
+    },
+    "fountain": {
+      "birthrate": 5,
+      "lifeExp": 5,
+      "atlasProgressionCaptured": false,
+      "randomStartFrameCaptured": false,
+      "uvOrientationCaptured": false,
+      "billboardOrientationCaptured": false,
+      "colorAlphaSizeTimelineCaptured": false
+    },
+    "textureMaterialTxi": {
+      "texture": "fxpa_smoke01",
+      "material": null,
+      "txi": null,
+      "hashesCaptured": false
+    },
+    "chunkLane": {
+      "enabled": false,
+      "model": null,
+      "diagnostics": []
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+      "severity": "missing",
+      "message": "Render contract snapshot has not been generated for Fountain atlas playback."
+    }
+  ],
+  "operatorNotes": "Generate renderer-agnostic draw records over several seconds so atlas frame progression and random 1 behavior can be compared."
+}

@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { AreasModule } from "../areas/areas.module";
 import { CatalogModule } from "../catalog/catalog.module";
+import { VfxModule } from "../vfx/vfx.module";
 import { ProcessingJobsController } from "./adapters/inbound/http/processing-jobs.controller";
 import { MemoryProcessingJobsRepository } from "./adapters/outbound/memory/memory-processing-jobs.repository";
 import { NoopProcessingJobsPublisher } from "./adapters/outbound/memory/noop-processing-jobs.publisher";
@@ -16,7 +17,7 @@ import {
 } from "./application/ports/processing-jobs-repository.port";
 
 @Module({
-  imports: [CatalogModule, AreasModule],
+  imports: [CatalogModule, AreasModule, VfxModule],
   controllers: [ProcessingJobsController],
   providers: [
     ProcessingJobsApplicationService,
@@ -31,7 +32,7 @@ import {
         config: AppConfigService,
         memoryRepository: MemoryProcessingJobsRepository,
         mysqlRepository: MySqlProcessingJobsRepository
-      ) => (config.isTest ? memoryRepository : mysqlRepository)
+      ) => (config.useMemoryInfrastructure ? memoryRepository : mysqlRepository)
     },
     {
       provide: PROCESSING_JOBS_PUBLISHER,
@@ -40,7 +41,7 @@ import {
         config: AppConfigService,
         noopPublisher: NoopProcessingJobsPublisher,
         redisPublisher: RedisProcessingJobsPublisher
-      ) => (config.isTest ? noopPublisher : redisPublisher)
+      ) => (config.useMemoryInfrastructure ? noopPublisher : redisPublisher)
     }
   ],
   exports: [ProcessingJobsApplicationService]

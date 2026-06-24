@@ -15,6 +15,7 @@ import {
 } from "../../../../../common/http/binary-response";
 import { ProcessingHttpBaseController } from "../../../../../common/http/processing-http.base-controller";
 import type { AppRequest } from "../../../../../common/http/request.types";
+import { Public } from "../../../../auth/adapters/inbound/http/public.decorator";
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
@@ -74,6 +75,21 @@ export class AreasController extends ProcessingHttpBaseController {
   @ApiResponse({ status: 404, description: "Area not found." })
   async preview(@Req() request: AppRequest, @Param("areaId") areaId: string) {
     return this.handleById(request, areaId, (id) => this.service.getAreaPreview(id));
+  }
+
+  @Public()
+  @Get(":areaId/thumbnail")
+  @ApiOperation({ summary: "Get generated area thumbnail image." })
+  @ApiParam({ name: "areaId" })
+  @ApiResponse({ status: 200, description: "Area thumbnail image." })
+  @ApiResponse({ status: 404, description: "Area not found." })
+  async thumbnail(@Param("areaId") areaId: string, @Res() response: FastifyReply) {
+    const thumbnail = await this.service.getAreaThumbnail(areaId);
+    applyBinaryPayloadHeaders(response, thumbnail, {
+      cacheControl: "public, max-age=300"
+    });
+    setInlineContentDisposition(response, thumbnail.fileName);
+    return response.send(thumbnail.bytes);
   }
 
   @Post(":areaId/process")

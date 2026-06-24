@@ -6,4 +6,5 @@ export interface TileRepositoryPort {
   list(query: TileListQuery): Promise<TileListResult>;
   findById(tileId: string): Promise<TileRecord | null>;
   getPrecomputedTileProcessing?(tileId: string): { cacheKey: string } | null;
+  refreshSnapshot?(): Promise<void> | void;
 }

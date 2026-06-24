@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "aurora-vfx-retail-comparison/v1",
+  "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+  "status": "missing",
+  "method": {
+    "type": "missing",
+    "tool": null,
+    "toolVersion": null,
+    "operator": null,
+    "comparedAt": null
+  },
+  "artifacts": {
+    "retailBuild": "retail-build.json",
+    "sourceTableSnapshot": "source-table.snapshot.json",
+    "effectContext": "effect-context.json",
+    "parserSnapshot": "parser-snapshot.json",
+    "resolverTrace": "resolver-trace.json",
+    "runtimeTickDump": "runtime-tick-dump.json",
+    "renderContractSnapshot": "render-contract-snapshot.json",
+    "capture": "capture.json",
+    "harness": "effect-beam-script.nss"
+  },
+  "checks": [
+    {
+      "name": "retail beam capture exists",
+      "kind": "required-evidence",
+      "expected": "real screenshot/video/capture metadata showing source, target, BODY_NODE_CHEST anchoring, and at least 3 seconds of beam duration",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No retail beam capture exists in this context."
+    }
+  ],
+  "visualChecks": [
+    {
+      "name": "beam endpoint framing",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Retail video/screenshot must show beam start and end before this can be compared."
+    },
+    {
+      "name": "BODY_NODE_CHEST anchor",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Retail capture must record whether the beam anchors to BODY_NODE_CHEST."
+    }
+  ],
+  "result": null,
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "Comparison cannot be run until retail beam capture and backend snapshots exist."
+    }
+  ],
+  "operatorNotes": "Leave result null until real retail artifacts and deterministic comparison evidence are available."
+}

@@ -51,7 +51,7 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
         config: AppConfigService,
         layeredCache: LayeredPlaceableProcessingCacheRepository,
         memoryCache: MemoryPlaceableProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : layeredCache)
+      ) => (config.useMemoryInfrastructure ? memoryCache : layeredCache)
     }
   ],
   exports: [TEMPLATE_CATALOG_REPOSITORY, CatalogApplicationService]

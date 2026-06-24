@@ -41,7 +41,7 @@ import { AREA_REPOSITORY } from "./application/ports/area-repository.port";
         config: AppConfigService,
         layeredCache: LayeredAreaProcessingCacheRepository,
         memoryCache: MemoryAreaProcessingCacheRepository
-      ) => (config.isTest ? memoryCache : layeredCache)
+      ) => (config.useMemoryInfrastructure ? memoryCache : layeredCache)
     }
   ],
   exports: [AREA_REPOSITORY, AreasApplicationService]

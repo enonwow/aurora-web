@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "aurora-vfx-retail-capture/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "retailExecution": {
+    "commandOrScript": null,
+    "startedAt": null,
+    "finishedAt": null,
+    "retailBuildRef": "retail-build.json",
+    "effectContextRef": "effect-context.json",
+    "harnessRef": null
+  },
+  "camera": {
+    "areaTag": "retail-fountain-atlas-capture-area",
+    "position": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "orientation": {
+      "pitch": null,
+      "yaw": null,
+      "roll": null
+    },
+    "fov": null,
+    "near": null,
+    "far": null,
+    "framingRequirement": "Camera must remain static and show the Fountain emitter for several seconds so spawn rate, atlas frame progression, random 1 behavior, UV orientation, and billboard orientation are visible."
+  },
+  "sceneSetup": {
+    "targetRef": "retail-fountain-atlas-target-or-model-placement",
+    "effectorRef": null,
+    "sourceModel": "cot_fx01",
+    "emitter": "fire!03",
+    "lightingProfile": null,
+    "weather": null,
+    "timeOfDay": null,
+    "background": "missing"
+  },
+  "fountainCaptureRequirements": {
+    "minimumVideoSeconds": 5,
+    "screenshotsRequired": true,
+    "spawnRateBirthrateCaptured": false,
+    "lifetimeCaptured": false,
+    "atlasFrameProgressionCaptured": false,
+    "randomOneBehaviorCaptured": false,
+    "uvFrameOrientationCaptured": false,
+    "colorAlphaSizeTimelineCaptured": false,
+    "billboardOrientationCaptured": false,
+    "textureMaterialTxiLanesCaptured": false
+  },
+  "media": {
+    "screenshots": [],
+    "videoPath": null,
+    "frameRange": {
+      "startSeconds": null,
+      "endSeconds": null,
+      "sampledFrames": []
+    },
+    "mediaHashesSha256": []
+  },
+  "captureNotes": "Retail client is unavailable in this context; no video, screenshots, source admission, or capture metadata was produced.",
+  "notParityEvidenceByItself": true
+}

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "aurora-vfx-parser-snapshot/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "parser": {
+    "name": "aurora-mdl-vfx-source.parser",
+    "version": null,
+    "commit": null
+  },
+  "input": {
+    "sourceTablePath": null,
+    "sourceTableHashSha256": null,
+    "tableName": null,
+    "profile": null,
+    "rowId": null,
+    "sourceModelPath": "backend/tmp_cot_fx01.mdl",
+    "sourceModelHashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5"
+  },
+  "output": {
+    "rowKind": "MDL_EMITTER",
+    "rowId": null,
+    "label": "cot_fx01/fire!03",
+    "sourceRefs": {
+      "impact": null,
+      "duration": null,
+      "cessation": null,
+      "progfxImpact": null,
+      "progfxDuration": null,
+      "progfxCessation": null
+    },
+    "emitter": {
+      "name": "fire!03",
+      "family": "Fountain",
+      "render": "Billboard_to_World_Z",
+      "blend": "Normal",
+      "texture": "fxpa_smoke01",
+      "atlas": {
+        "xgrid": 4,
+        "ygrid": 4,
+        "fps": 10,
+        "framestart": 0,
+        "frameend": 24,
+        "random": 1
+      },
+      "simulation": {
+        "birthrate": 5,
+        "lifeExp": 5,
+        "velocity": 0.5,
+        "randvel": 0.4,
+        "particleRot": 0.2,
+        "spread": 1.0472
+      },
+      "timelines": {
+        "colorStart": [0.392157, 0, 0],
+        "colorEnd": [0.184314, 0, 0],
+        "alphaStart": 0.5,
+        "alphaEnd": 0,
+        "sizeStart": 1,
+        "sizeEnd": 6
+      }
+    },
+    "rawCells": {
+      "sourceModel": "backend/tmp_cot_fx01.mdl",
+      "emitterLineRange": "17-83"
+    },
+    "decodedCells": {
+      "sourceModel": "cot_fx01",
+      "emitter": "fire!03"
+    },
+    "diagnostics": [
+      {
+        "code": "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "severity": "missing",
+        "message": "A committed parser snapshot from the capture pipeline has not been generated for this fixture."
+      },
+      {
+        "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+        "severity": "missing",
+        "message": "Local MDL parser facts are fixture setup data only, not retail parity evidence."
+      }
+    ]
+  },
+  "provenance": {
+    "sourceObjectKey": "backend/tmp_cot_fx01.mdl",
+    "sourceLayer": "local-untracked-repo-candidate",
+    "sourceHashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5",
+    "runtimeSettingsRevision": null,
+    "hakListHashSha256": null
+  }
+}

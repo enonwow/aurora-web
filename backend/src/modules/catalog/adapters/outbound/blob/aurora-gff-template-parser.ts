@@ -63,6 +63,7 @@ export interface ParsedTemplateBlueprint {
   identified?: boolean;
   stolen?: boolean;
   appearanceId?: number;
+  genericType?: number;
   animationState?: number;
   modelResRef?: string;
   hasInventory?: boolean;
@@ -529,6 +530,12 @@ function mapFieldsToTemplateBlueprint(
   const stolen = readBooleanField(fields, ["stolen"]);
   const modelResRef = readStringField(fields, ["modelname", "modelresref", "model"]);
   const appearanceId = readNumberField(fields, ["appearance", "appearance_type"]);
+  const genericType = readNumberField(fields, [
+    "generictype",
+    "generic_type",
+    "genericappearance",
+    "genericappearancetype"
+  ]);
   const animationState = readNumberField(fields, ["animationstate", "animation"]);
   const hasInventory = readBooleanField(fields, ["hasinventory", "inventory"]);
   const bodyBag = readBooleanField(fields, ["bodybag"]);
@@ -648,6 +655,7 @@ function mapFieldsToTemplateBlueprint(
     identified,
     stolen,
     appearanceId: Number.isFinite(appearanceId ?? Number.NaN) ? appearanceId : undefined,
+    genericType: Number.isFinite(genericType ?? Number.NaN) ? genericType : undefined,
     animationState: Number.isFinite(animationState ?? Number.NaN) ? animationState : undefined,
     modelResRef,
     hasInventory,

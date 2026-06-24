@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "aurora-vfx-runtime-tick-dump/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "effectInstance": {
+    "constructorKind": "MDL_EMITTER",
+    "sourceRowId": null,
+    "applicationMode": "source_only",
+    "durationType": null,
+    "durationSeconds": null,
+    "targetRef": null,
+    "effectorRef": null
+  },
+  "phaseSchedule": {
+    "impact": null,
+    "duration": null,
+    "cessation": null,
+    "timingNotes": "TODO: source-only local MDL does not provide a retail effect phase schedule."
+  },
+  "runtimeFamily": {
+    "emitterType": "Fountain",
+    "renderMode": "Billboard_to_World_Z",
+    "texture": "fxpa_smoke01",
+    "chunkName": null,
+    "model": "cot_fx01",
+    "emitter": "fire!03"
+  },
+  "fountainRequirements": {
+    "birthrate": 5,
+    "lifeExp": 5,
+    "atlasFrameProgression": "TODO: capture frame progression over several seconds",
+    "randomBehavior": "TODO: capture random 1 behavior and per-particle starting frame distribution",
+    "uvFrameOrientation": "TODO: capture atlas UV orientation/frame addressing",
+    "billboardOrientation": "TODO: capture Billboard_to_World_Z behavior",
+    "colorAlphaSizeTimeline": "TODO: capture color, alpha, and size progression"
+  },
+  "tickInputs": {
+    "startTimeSeconds": null,
+    "endTimeSeconds": null,
+    "deltaSeconds": null,
+    "randomSeed": null,
+    "cameraRef": "retail-fountain-atlas-camera"
+  },
+  "ticks": [
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: initial spawn-rate tick"
+      ]
+    },
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: atlas frame progression tick"
+      ]
+    },
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: lifetime/color/alpha/size tick"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+      "severity": "missing",
+      "message": "Runtime tick dump with multiple Fountain/atlas ticks has not been captured."
+    },
+    {
+      "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+      "severity": "missing",
+      "message": "Local MDL source facts cannot stand in for retail runtime behavior."
+    }
+  ],
+  "operatorNotes": "Retail capture must include multiple ticks over several seconds, not a single screenshot."
+}

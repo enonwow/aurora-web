@@ -1,5 +1,6 @@
 import type {
   PlaceableAssetManifest,
+  PlaceableRenderPackage,
   PlaceableRenderContract,
   PlaceableRuntimeProjection,
   PlaceableSubtype,
@@ -27,6 +28,7 @@ export interface PlaceableProcessingResult {
   metadata: Record<string, string | number | boolean>;
   placeableRuntime?: PlaceableRuntimeProjection;
   placeableValidationIssues?: PlaceableValidationIssue[];
+  renderPackage?: PlaceableRenderPackage;
   assetManifest: PlaceableAssetManifest;
   classification: {
     source: "template" | "hint";

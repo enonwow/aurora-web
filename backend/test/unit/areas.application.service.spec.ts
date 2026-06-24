@@ -43,8 +43,10 @@ describe("AreasApplicationService", () => {
           textureAtlasId: "atlas_urban_v1",
           objectCounts: {
             placeables: 1,
+            doors: 0,
             creatures: 1,
             items: 1,
+            sounds: 0,
             total: 3
           },
           updatedAt: "2026-05-23T00:00:00.000Z"
@@ -67,7 +69,78 @@ describe("AreasApplicationService", () => {
       limit: 20,
       offset: 0
     });
-    expect(response).toEqual(result);
+    expect(response).toEqual({
+      ...result,
+      items: [
+        {
+          ...result.items[0],
+          previewImageUrl: "/api/v1/areas/area_test_001/thumbnail"
+        }
+      ]
+    });
+  });
+
+  it("reuses in-memory area list cache for repeated identical queries", async () => {
+    const result: AreaListResult = {
+      items: [buildAreaListItem("area_cached_001")],
+      total: 1,
+      limit: 100,
+      offset: 0
+    };
+    repository.list.mockResolvedValue(result);
+
+    const first = await service.listAreas({ limit: 100, offset: 0 });
+    const second = await service.listAreas({ limit: 100, offset: 0 });
+
+    expect(repository.list).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(first.items[0].previewImageUrl).toBe("/api/v1/areas/area_cached_001/thumbnail");
+  });
+
+  it("deduplicates concurrent identical area list requests", async () => {
+    const result: AreaListResult = {
+      items: [buildAreaListItem("area_concurrent_001")],
+      total: 1,
+      limit: 100,
+      offset: 0
+    };
+    repository.list.mockResolvedValue(result);
+
+    const [first, second] = await Promise.all([
+      service.listAreas({ limit: 100, offset: 0 }),
+      service.listAreas({ limit: 100, offset: 0 })
+    ]);
+
+    expect(repository.list).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(first.items[0].previewImageUrl).toBe("/api/v1/areas/area_concurrent_001/thumbnail");
+  });
+
+  it("expires in-memory area list cache after ttl", async () => {
+    const firstResult: AreaListResult = {
+      items: [buildAreaListItem("area_cached_001")],
+      total: 1,
+      limit: 100,
+      offset: 0
+    };
+    const secondResult: AreaListResult = {
+      items: [buildAreaListItem("area_cached_002")],
+      total: 1,
+      limit: 100,
+      offset: 0
+    };
+    repository.list.mockResolvedValueOnce(firstResult).mockResolvedValueOnce(secondResult);
+
+    let now = 1_000;
+    const dateNowSpy = jest.spyOn(Date, "now").mockImplementation(() => now);
+    const first = await service.listAreas({ limit: 100, offset: 0 });
+    now += 61_000;
+    const second = await service.listAreas({ limit: 100, offset: 0 });
+    dateNowSpy.mockRestore();
+
+    expect(repository.list).toHaveBeenCalledTimes(2);
+    expect(first.items[0].previewImageUrl).toBe("/api/v1/areas/area_cached_001/thumbnail");
+    expect(second.items[0].previewImageUrl).toBe("/api/v1/areas/area_cached_002/thumbnail");
   });
 
   it("returns full area payload with composition counts", async () => {
@@ -82,7 +155,9 @@ describe("AreasApplicationService", () => {
     expect(detail.textureAtlas.objectKey).toBe("modules/current/areas/atlases/atlas_urban_v1.webp");
     expect(detail.textureAtlas.contentType).toBe("image/webp");
     expect(detail.textureAtlas.sizeBytes).toBe(393216);
+    expect(detail.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
     expect(detail.composition.placeables).toBe(1);
+    expect(detail.composition.doors).toBe(0);
     expect(detail.composition.creatures).toBe(2);
     expect(detail.composition.items).toBe(1);
     expect(detail.composition.total).toBe(4);
@@ -102,6 +177,18 @@ describe("AreasApplicationService", () => {
     expect(preview.objectCounts.creatures).toBe(2);
     expect(preview.objectCounts.items).toBe(1);
     expect(preview.objectCounts.total).toBe(4);
+    expect(preview.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
+  });
+
+  it("returns generated area thumbnail image payload", async () => {
+    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+
+    const thumbnail = await service.getAreaThumbnail("area_test_001");
+
+    expect(thumbnail.contentType).toBe("image/svg+xml; charset=utf-8");
+    expect(thumbnail.fileName).toBe("area_test_001.svg");
+    expect(thumbnail.bytes.toString("utf-8")).toContain("Test Area");
+    expect(thumbnail.etag).toMatch(/^W\/"/u);
   });
 
   it("throws AREA_NOT_FOUND when area is missing", async () => {
@@ -134,6 +221,27 @@ describe("AreasApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(result.area.areaId).toBe("area_test_001");
     expect(result.area.textureAtlas.cacheKey).toBe("atlas_urban_v1:12x12");
+    expect(result.area.tileSet).toBe("tno01");
+    expect(result.area.tiles).toEqual([
+      expect.objectContaining({
+        tileInstanceId: "area_test_001:tile:0",
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 0,
+        tileIndex: 0,
+        tileId: 101,
+        modelResRef: "tno01_a01_01",
+        source: "are-tile-list"
+      }),
+      expect.objectContaining({
+        tileInstanceId: "area_test_001:tile:1",
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 1,
+        tileIndex: 1,
+        fallbackReason: "tile-model-reference-missing"
+      })
+    ]);
     expect(result.area.processedAt).toEqual(expect.any(String));
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
@@ -160,8 +268,10 @@ describe("AreasApplicationService", () => {
       soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
+        doors: 0,
         creatures: 2,
         items: 1,
+        sounds: 0,
         total: 4
       },
       objects: [],
@@ -184,6 +294,7 @@ describe("AreasApplicationService", () => {
     expect(result.cache.hit).toBe(true);
     expect(result.cache.hits).toBe(6);
     expect(result.area.areaId).toBe("area_test_001");
+    expect(result.area.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
     expect(processingCache.set).not.toHaveBeenCalled();
   });
 
@@ -210,8 +321,10 @@ describe("AreasApplicationService", () => {
       soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
+        doors: 0,
         creatures: 2,
         items: 1,
+        sounds: 0,
         total: 4
       },
       objects: [],
@@ -238,6 +351,7 @@ describe("AreasApplicationService", () => {
     expect(result.cache.key).toBe(cacheKey);
     expect(result.cache.hits).toBe(9);
     expect(result.area.areaId).toBe("area_test_001");
+    expect(result.area.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
     expect(repository.findById).not.toHaveBeenCalled();
     expect(processingCache.set).not.toHaveBeenCalled();
   });
@@ -257,6 +371,7 @@ describe("AreasApplicationService", () => {
     });
 
     expect(result.cache.hit).toBe(false);
+    expect(result.area.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
     expect(processingCache.get).not.toHaveBeenCalled();
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
@@ -334,8 +449,10 @@ describe("AreasApplicationService", () => {
       soundscape: buildAreaSoundscape(),
       composition: {
         placeables: 1,
+        doors: 0,
         creatures: 2,
         items: 1,
+        sounds: 0,
         total: 4
       },
       objects: [],
@@ -354,6 +471,7 @@ describe("AreasApplicationService", () => {
     expect(result.cache.hit).toBe(true);
     expect(result.cache.hits).toBe(3);
     expect(result.area.areaId).toBe("area_test_001");
+    expect(result.area.previewImageUrl).toBe("/api/v1/areas/area_test_001/thumbnail");
   });
 
   it("throws AREA_CACHE_NOT_FOUND when processed area key is missing", async () => {
@@ -505,6 +623,34 @@ function buildArea(id: string): AreaRecord {
     textureAtlasSizeBytes: 393216,
     textureAtlasEtag: "atlas-urban-v1",
     textureAtlasFingerprint: "static:atlas:area_urban_v1",
+    tileSet: "tno01",
+    tiles: [
+      {
+        tileInstanceId: `${id}:tile:0`,
+        areaId: id,
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 0,
+        tileIndex: 0,
+        tileId: 101,
+        modelResRef: "tno01_a01_01",
+        orientation: 1,
+        height: 0.5,
+        source: "are-tile-list"
+      },
+      {
+        tileInstanceId: `${id}:tile:1`,
+        areaId: id,
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 1,
+        tileIndex: 1,
+        tileId: 102,
+        orientation: 2,
+        source: "are-tile-list",
+        fallbackReason: "tile-model-reference-missing"
+      }
+    ],
     soundscape: buildAreaSoundscape(),
     objects: [
       {
@@ -545,6 +691,30 @@ function buildArea(id: string): AreaRecord {
       }
     ],
     updatedAt: "2026-05-23T00:00:00.000Z"
+  };
+}
+
+function buildAreaListItem(id: string): AreaListResult["items"][number] {
+  const area = buildArea(id);
+  return {
+    areaId: area.areaId,
+    name: area.name,
+    biome: area.biome,
+    width: area.width,
+    height: area.height,
+    tags: area.tags,
+    benchmark: area.benchmark,
+    previewImageUrl: area.previewImageUrl,
+    textureAtlasId: area.textureAtlasId,
+    objectCounts: {
+      placeables: 1,
+      doors: 0,
+      creatures: 2,
+      items: 1,
+      sounds: 0,
+      total: 4
+    },
+    updatedAt: area.updatedAt
   };
 }
 
@@ -608,8 +778,10 @@ function buildProcessedAreaResult(areaId: string): AreaProcessingResult {
     soundscape: area.soundscape,
     composition: {
       placeables: 1,
+      doors: 0,
       creatures: 2,
       items: 1,
+      sounds: 0,
       total: 4
     },
     objects: area.objects,

@@ -5,6 +5,7 @@ import {
 } from "../../src/modules/tiles/application/tiles.application.service";
 import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
+import type { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
 import type { TileProcessingCachePort } from "../../src/modules/tiles/application/ports/tile-processing-cache.port";
 import type { TileRepositoryPort } from "../../src/modules/tiles/application/ports/tile-repository.port";
 import type { TileListResult, TileProcessingResult, TileRecord } from "../../src/modules/tiles/domain/tile.types";
@@ -193,6 +194,60 @@ describe("TilesApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(processingCache.get).not.toHaveBeenCalled();
     expect(processingCache.set).toHaveBeenCalledTimes(1);
+  });
+
+  it("processTile bypassCache=true refreshes source-backed tile models missing derived GLB", async () => {
+    const sourceOnlyTile = {
+      ...buildTile("tile_tno01_a01_01"),
+      resref: "tno01_a01_01",
+      sourceAssetObjectKey: "modules/current/__aurora/sources/vanilla/models/tno01_a01_01.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 1024,
+      sourceAssetOrigin: "module-snapshot" as const
+    };
+    const renderReadyTile = {
+      ...sourceOnlyTile,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/tno01_a01_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096,
+      renderModelEtag: "glb1"
+    };
+    const syncVanillaTileModelSources = jest.fn().mockResolvedValue({
+      uploadedFiles: 2
+    });
+    repository.refreshSnapshot = jest.fn();
+    repository.findById
+      .mockResolvedValueOnce(sourceOnlyTile)
+      .mockResolvedValueOnce(renderReadyTile);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+    const serviceWithSync = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      undefined,
+      undefined,
+      { syncVanillaTileModelSources } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithSync.processTile({
+      tileId: "tile_tno01_a01_01",
+      bypassCache: true
+    });
+
+    expect(syncVanillaTileModelSources).toHaveBeenCalledWith(
+      "areas-tile-process-auto-sync",
+      ["tno01_a01_01"]
+    );
+    expect(repository.refreshSnapshot).toHaveBeenCalledTimes(2);
+    expect(result.tile.renderAssetContract?.modelDeliveryStatus).toBe("ready");
+    expect(result.tile.renderAssetContract?.modelAsset?.objectKey).toBe(
+      "modules/current/__aurora/derived/models/tno01_a01_01.glb"
+    );
   });
 
   it("deduplicates concurrent tile processing misses by cache key", async () => {
@@ -421,7 +476,7 @@ describe("TilesApplicationService", () => {
       })
     ).rejects.toMatchObject({
       code: "TILE_NOT_FOUND",
-      message: "Tile was not found."
+      message: "Tile was not found. Tile id is not a model-resref catalog candidate."
     });
   });
 

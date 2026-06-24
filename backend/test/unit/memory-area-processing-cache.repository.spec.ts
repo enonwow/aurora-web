@@ -82,8 +82,10 @@ function buildAreaResult(areaId: string): AreaProcessingResult {
     },
     composition: {
       placeables: 0,
+      doors: 0,
       creatures: 0,
       items: 0,
+      sounds: 0,
       total: 0
     },
     objects: [],

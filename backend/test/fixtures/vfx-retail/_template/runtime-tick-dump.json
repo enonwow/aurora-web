@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "aurora-vfx-runtime-tick-dump/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "effectInstance": {
+    "constructorKind": "TODO",
+    "sourceRowId": null,
+    "applicationMode": "TODO",
+    "durationType": null,
+    "durationSeconds": null,
+    "targetRef": null,
+    "effectorRef": null
+  },
+  "phaseSchedule": {
+    "impact": null,
+    "duration": null,
+    "cessation": null,
+    "timingNotes": "TODO"
+  },
+  "runtimeFamily": {
+    "emitterType": null,
+    "renderMode": null,
+    "texture": null,
+    "chunkName": null,
+    "model": null
+  },
+  "tickInputs": {
+    "startTimeSeconds": null,
+    "endTimeSeconds": null,
+    "deltaSeconds": null,
+    "randomSeed": null,
+    "cameraRef": null
+  },
+  "ticks": [
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Runtime tick dump has not been captured."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

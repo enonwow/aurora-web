@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "aurora-vfx-source-table-snapshot/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "sourceTable": {
+    "tableName": null,
+    "profile": null,
+    "objectKey": null,
+    "sourceLayer": null,
+    "tableHashSha256": null,
+    "capturedAt": null
+  },
+  "selectedRow": {
+    "rowId": null,
+    "label": null,
+    "physicalLine": null,
+    "rawCells": {
+      "TODO": "missing"
+    },
+    "decodedCells": {
+      "TODO": null
+    },
+    "extraCells": [],
+    "missingCells": [
+      "TODO"
+    ]
+  },
+  "sourceAuthority": "TODO",
+  "profileMismatchFields": [
+    "TODO"
+  ],
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Source table snapshot has not been captured."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

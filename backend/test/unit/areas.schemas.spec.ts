@@ -14,6 +14,19 @@ describe("areas.schemas", () => {
     expect(parsed.offset).toBe(0);
   });
 
+  it("accepts large area pages for frontend list caching", () => {
+    const parsed = parseAreaListQuery({
+      limit: "1000",
+      offset: "0"
+    });
+
+    expect(parsed.limit).toBe(1000);
+  });
+
+  it("rejects area pages above the frontend cache limit", () => {
+    expect(() => parseAreaListQuery({ limit: "1001" })).toThrow(AppException);
+  });
+
   it("parses area process payload defaults", () => {
     const parsed = parseAreaProcessPayload({});
     expect(parsed.bypassCache).toBe(false);

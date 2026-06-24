@@ -46,15 +46,26 @@ interface TileCandidate {
   sourceSize: number;
   sourceEtag?: string;
   updatedAt: string;
+  renderModel?: DerivedTileModelCandidate;
+}
+
+interface DerivedTileModelCandidate {
+  sourceKey: string;
+  extension: "glb" | "gltf";
+  sourceSize: number;
+  sourceEtag?: string;
+  updatedAt: string;
 }
 
 const CANDIDATE_EXTENSIONS = new Set(["set", "itp", "mdl", "wok"]);
+const DERIVED_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
 
 @Injectable()
 export class ModuleSnapshotTileRepository implements TileRepositoryPort {
   private readonly logger = new Logger(ModuleSnapshotTileRepository.name);
   private readonly fallback = new StaticTileRepository();
   private snapshotIndex: SnapshotIndex | null = null;
+  private snapshotIndexPromise: Promise<SnapshotIndex | null> | null = null;
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
@@ -140,12 +151,29 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
     return this.snapshotIndex.processingById.get(tileId) ?? null;
   }
 
+  refreshSnapshot(): void {
+    this.snapshotIndex = null;
+    this.snapshotIndexPromise = null;
+  }
+
   private async getSnapshotIndex(): Promise<SnapshotIndex | null> {
     const now = Date.now();
     if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < 30_000) {
       return this.snapshotIndex;
     }
+    if (this.snapshotIndexPromise) {
+      return this.snapshotIndexPromise;
+    }
 
+    this.snapshotIndexPromise = this.rebuildSnapshotIndex(now);
+    try {
+      return await this.snapshotIndexPromise;
+    } finally {
+      this.snapshotIndexPromise = null;
+    }
+  }
+
+  private async rebuildSnapshotIndex(now: number): Promise<SnapshotIndex | null> {
     const settings = await this.runtimeSettingsRepository.get();
     const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
     const records = buildTilesFromSnapshot(snapshot.objects);
@@ -220,15 +248,34 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
 
 function buildTilesFromSnapshot(objects: ModuleBlobObjectSummary[]): TileCandidate[] {
   const byResref = new Map<string, TileCandidate>();
+  const derivedModelByResref = new Map<string, DerivedTileModelCandidate>();
 
   for (const object of objects) {
     const fileName = extractFileName(object.key);
     const extension = extractExtension(fileName);
+    const basename = normalizeResref(extractBasename(fileName));
+    if (
+      DERIVED_MODEL_EXTENSIONS.has(extension) &&
+      object.key.replace(/\\/gu, "/").toLowerCase().includes("__aurora/derived/models/")
+    ) {
+      const current = derivedModelByResref.get(basename);
+      const next: DerivedTileModelCandidate = {
+        sourceKey: object.key,
+        extension: extension as "glb" | "gltf",
+        sourceSize: object.size,
+        sourceEtag: object.etag,
+        updatedAt: object.lastModified ?? new Date().toISOString()
+      };
+      if (!current || derivedModelScore(next) > derivedModelScore(current)) {
+        derivedModelByResref.set(basename, next);
+      }
+      continue;
+    }
+
     if (!CANDIDATE_EXTENSIONS.has(extension)) {
       continue;
     }
 
-    const basename = normalizeResref(extractBasename(fileName));
     if (!looksLikeTileResref(basename, object.key)) {
       continue;
     }
@@ -266,7 +313,38 @@ function buildTilesFromSnapshot(objects: ModuleBlobObjectSummary[]): TileCandida
     }
   }
 
-  return [...byResref.values()];
+  const sourceBackedCandidates: TileCandidate[] = [...byResref.values()].map((candidate) => ({
+    ...candidate,
+    renderModel: derivedModelByResref.get(candidate.resref)
+  }));
+  return sourceBackedCandidates.concat(
+    buildDerivedOnlyTileModelCandidates(byResref, derivedModelByResref)
+  );
+}
+
+function buildDerivedOnlyTileModelCandidates(
+  sourceCandidatesByResref: ReadonlyMap<string, TileCandidate>,
+  derivedModelByResref: ReadonlyMap<string, DerivedTileModelCandidate>
+): TileCandidate[] {
+  const candidates: TileCandidate[] = [];
+  for (const [resref, renderModel] of derivedModelByResref.entries()) {
+    if (
+      sourceCandidatesByResref.has(resref) ||
+      !looksLikeTileResref(resref, renderModel.sourceKey)
+    ) {
+      continue;
+    }
+    candidates.push({
+      resref,
+      sourceKey: renderModel.sourceKey,
+      extension: renderModel.extension,
+      sourceSize: renderModel.sourceSize,
+      sourceEtag: renderModel.sourceEtag,
+      updatedAt: renderModel.updatedAt,
+      renderModel
+    });
+  }
+  return candidates;
 }
 
 function mapCandidateToTileRecord(candidate: TileCandidate, benchmarkIds: Set<string>): TileRecord {
@@ -291,10 +369,24 @@ function mapCandidateToTileRecord(candidate: TileCandidate, benchmarkIds: Set<st
     textureAtlasSizeBytes: candidate.sourceSize,
     textureAtlasEtag: candidate.sourceEtag,
     textureAtlasFingerprint: buildAtlasFingerprint(candidate),
+    sourceAssetObjectKey: candidate.sourceKey,
+    sourceAssetExtension: candidate.extension,
+    sourceAssetSizeBytes: candidate.sourceSize,
+    sourceAssetEtag: candidate.sourceEtag,
+    sourceAssetOrigin: "module-snapshot",
+    renderModelObjectKey: candidate.renderModel?.sourceKey,
+    renderModelExtension: candidate.renderModel?.extension,
+    renderModelSizeBytes: candidate.renderModel?.sourceSize,
+    renderModelEtag: candidate.renderModel?.sourceEtag,
     walkmesh,
     metrics,
     updatedAt: candidate.updatedAt
   };
+}
+
+function derivedModelScore(candidate: DerivedTileModelCandidate): number {
+  const extensionRank = candidate.extension === "glb" ? 10_000_000 : 5_000_000;
+  return extensionRank + candidate.sourceSize;
 }
 
 function pickBenchmarkIds(records: TileCandidate[]): Set<string> {

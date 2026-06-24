@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "aurora-vfx-resolver-trace/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "missing",
+  "sourcePolicy": {
+    "sourcesVfxProfileId": null,
+    "selectedSourceLayer": null,
+    "runtimeSettingsRevision": null,
+    "runtimeSettingsHashSha256": null,
+    "hakListHashSha256": null
+  },
+  "selectedCandidate": {
+    "objectKey": "backend/tmp_cot_fx01.mdl",
+    "resourceType": "mdl",
+    "sourceLayer": "local-untracked-repo-candidate",
+    "hashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5",
+    "reason": "Local source-only Fountain/atlas candidate; not an admitted retail-selected source."
+  },
+  "lowerPrecedenceCandidates": [
+    {
+      "objectKey": "TODO: retail visualeffects/progfx/resource candidate resolving to cot_fx01",
+      "resourceType": null,
+      "sourceLayer": null,
+      "hashSha256": null,
+      "reasonSkipped": "missing"
+    }
+  ],
+  "resourceHashes": [
+    {
+      "objectKey": "backend/tmp_cot_fx01.mdl",
+      "resourceType": "mdl",
+      "hashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5",
+      "sourceLayer": "local-untracked-repo-candidate"
+    },
+    {
+      "objectKey": "fxpa_smoke01",
+      "resourceType": "texture-or-material",
+      "hashSha256": null,
+      "sourceLayer": null
+    }
+  ],
+  "dependencyEdges": [
+    {
+      "from": "cot_fx01",
+      "to": "fire!03",
+      "kind": "mdl_emitter",
+      "resolved": true
+    },
+    {
+      "from": "fire!03",
+      "to": "fxpa_smoke01",
+      "kind": "texture",
+      "resolved": false
+    },
+    {
+      "from": "TODO: retail EffectVisualEffect row",
+      "to": "cot_fx01",
+      "kind": "retail_source_context",
+      "resolved": false
+    }
+  ],
+  "atlas": {
+    "xgrid": 4,
+    "ygrid": 4,
+    "fps": 10,
+    "framestart": 0,
+    "frameend": 24,
+    "random": 1
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+      "severity": "missing",
+      "message": "Resolver trace from the selected retail source policy has not been captured."
+    },
+    {
+      "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+      "severity": "missing",
+      "message": "Local cot_fx01 provenance does not prove a retail effect context."
+    },
+    {
+      "code": "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "Texture/material/TXI hashes and retail resource provenance are still required."
+    }
+  ],
+  "operatorNotes": "If retail source lookup finds a visualeffects.2da row or selected HAK/module resource for cot_fx01, replace the local-only candidate fields with the retail resolver trace."
+}

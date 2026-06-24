@@ -8,6 +8,7 @@ import type {
 import { MODULE_BLOB_STORAGE } from "../../../../runtime-settings/application/ports/module-blob-storage.port";
 import type { RuntimeSettingsRepositoryPort } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
 import { RUNTIME_SETTINGS_REPOSITORY } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
+import { RuntimeSettingsApplicationService } from "../../../../runtime-settings/application/runtime-settings.application.service";
 import type { BlobStorageSettings } from "../../../../runtime-settings/domain/runtime-settings.types";
 import type { AreaRepositoryPort } from "../../../application/ports/area-repository.port";
 import { buildAreaProcessCacheKey, countAreaObjectsByKind } from "../../../domain/area-processing.builders";
@@ -17,6 +18,7 @@ import type {
   AreaListResult,
   AreaObjectCounts,
   AreaRecord,
+  AreaTileInstance,
   AreaSoundReference
 } from "../../../domain/area.types";
 import {
@@ -57,7 +59,21 @@ interface AreaCandidate {
   gitUpdatedAt?: string;
   parsedArea?: ParsedAreaMetadataBlueprint;
   parsedObjects?: ParsedAreaObjectBlueprint;
+  parsedTileset?: ParsedTilesetBlueprint;
   sourceFingerprint: string;
+}
+
+interface ParsedTilesetTileBlueprint {
+  tileId: number;
+  modelResRef?: string;
+}
+
+interface ParsedTilesetBlueprint {
+  sourceKey: string;
+  sourceSize: number;
+  updatedAt: string;
+  sourceEtag?: string;
+  tilesById: Map<number, ParsedTilesetTileBlueprint>;
 }
 
 type AreaSoundSourceField =
@@ -87,18 +103,22 @@ const DEFAULT_SOUND_BINDING_KEYS = {
   positionalKey: "GI_sound_pos" as const
 };
 const SUPPORTED_SOUND_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
+const AURORA_GIT_UNITS_PER_TILE = 10;
+const SNAPSHOT_INDEX_CACHE_TTL_MS = 10 * 60_000;
 
 @Injectable()
 export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
   private readonly logger = new Logger(ModuleSnapshotAreaRepository.name);
   private readonly fallback = new StaticAreaRepository();
   private snapshotIndex: SnapshotIndex | null = null;
+  private snapshotIndexRefreshInFlight: Promise<SnapshotIndex | null> | null = null;
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
-    private readonly moduleBlobStorage: ModuleBlobStoragePort
+    private readonly moduleBlobStorage: ModuleBlobStoragePort,
+    private readonly runtimeSettingsApplicationService: RuntimeSettingsApplicationService
   ) {}
 
   async list(query: AreaListQuery): Promise<AreaListResult> {
@@ -167,15 +187,63 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
 
   private async getSnapshotIndex(): Promise<SnapshotIndex | null> {
     const now = Date.now();
-    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < 30_000) {
+    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < SNAPSHOT_INDEX_CACHE_TTL_MS) {
       return this.snapshotIndex;
     }
 
+    if (this.snapshotIndex) {
+      this.refreshSnapshotIndexInBackground();
+      return this.snapshotIndex;
+    }
+
+    if (!this.snapshotIndexRefreshInFlight) {
+      this.snapshotIndexRefreshInFlight = this.rebuildSnapshotIndex().finally(() => {
+        this.snapshotIndexRefreshInFlight = null;
+      });
+    }
+    return this.snapshotIndexRefreshInFlight;
+  }
+
+  private refreshSnapshotIndexInBackground(): void {
+    if (this.snapshotIndexRefreshInFlight) {
+      return;
+    }
+    const previousIndex = this.snapshotIndex;
+    this.snapshotIndexRefreshInFlight = this.rebuildSnapshotIndex()
+      .catch((error) => {
+        this.logger.warn(
+          `Area snapshot index refresh failed; keeping stale index. ${formatErrorForLog(error)}`
+        );
+        return previousIndex;
+      })
+      .finally(() => {
+        this.snapshotIndexRefreshInFlight = null;
+      });
+  }
+
+  private async rebuildSnapshotIndex(): Promise<SnapshotIndex | null> {
+    const now = Date.now();
     const settings = await this.runtimeSettingsRepository.get();
-    const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
+    let snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
     const candidates = buildAreaCandidatesFromSnapshot(snapshot.objects);
     const soundLookup = buildSnapshotSoundLookup(snapshot.objects);
-    await this.enrichAreaCandidatesFromSnapshot(settings.blobStorage, candidates);
+    let tilesetLookup = await this.buildTilesetLookupFromSnapshot(settings.blobStorage, snapshot.objects);
+    await this.enrichAreaCandidatesFromSnapshot(settings.blobStorage, candidates, tilesetLookup);
+    const missingTilesetSetResRefs = collectMissingTilesetSetResRefs(candidates, tilesetLookup);
+    if (missingTilesetSetResRefs.length > 0) {
+      const syncResult =
+        await this.runtimeSettingsApplicationService.syncVanillaTilesetSetSources(
+          "areas-tileset-set-auto-sync"
+        );
+      if (syncResult.uploadedFiles > 0) {
+        snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
+        tilesetLookup = await this.buildTilesetLookupFromSnapshot(
+          settings.blobStorage,
+          snapshot.objects
+        );
+        refreshCandidateTilesetsFromLookup(candidates, tilesetLookup);
+      }
+    }
 
     if (candidates.length === 0) {
       this.logger.warn(
@@ -256,7 +324,8 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
 
   private async enrichAreaCandidatesFromSnapshot(
     settings: BlobStorageSettings,
-    candidates: AreaCandidate[]
+    candidates: AreaCandidate[],
+    tilesetLookup: ReadonlyMap<string, ParsedTilesetBlueprint>
   ): Promise<void> {
     await mapWithConcurrency(candidates, 6, async (candidate) => {
       try {
@@ -288,8 +357,75 @@ export class ModuleSnapshotAreaRepository implements AreaRepositoryPort {
         }
       }
 
+      const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+      if (tileSet) {
+        candidate.parsedTileset = tilesetLookup.get(tileSet);
+      }
+
       candidate.sourceFingerprint = buildSourceFingerprint(candidate);
     });
+  }
+
+  private async buildTilesetLookupFromSnapshot(
+    settings: BlobStorageSettings,
+    objects: ModuleBlobObjectSummary[]
+  ): Promise<Map<string, ParsedTilesetBlueprint>> {
+    const setObjects = collectTilesetSetObjects(objects);
+    const lookup = new Map<string, ParsedTilesetBlueprint>();
+    await mapWithConcurrency(setObjects, 4, async (object) => {
+      const resref = normalizeResref(extractBasename(extractFileName(object.key)));
+      if (!resref || lookup.has(resref)) {
+        return;
+      }
+      try {
+        const payload = await this.moduleBlobStorage.getModuleObject(settings, object.key);
+        if (!payload) {
+          return;
+        }
+        const parsedTiles = parseAuroraSetTiles(payload.bytes);
+        lookup.set(resref, {
+          sourceKey: object.key,
+          sourceSize: object.size,
+          updatedAt: object.lastModified ?? payload.lastModified ?? new Date(0).toISOString(),
+          sourceEtag: object.etag ?? payload.etag,
+          tilesById: parsedTiles
+        });
+      } catch {
+        // Missing or unreadable SET payload keeps tile instances traceable to ARE only.
+      }
+    });
+    return lookup;
+  }
+}
+
+function collectMissingTilesetSetResRefs(
+  candidates: AreaCandidate[],
+  tilesetLookup: ReadonlyMap<string, ParsedTilesetBlueprint>
+): string[] {
+  const missing = new Set<string>();
+  for (const candidate of candidates) {
+    const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+    if (!tileSet || candidate.parsedArea?.tiles.length === 0 || tilesetLookup.has(tileSet)) {
+      continue;
+    }
+    missing.add(tileSet);
+  }
+  return [...missing].sort((left, right) => left.localeCompare(right));
+}
+
+function refreshCandidateTilesetsFromLookup(
+  candidates: AreaCandidate[],
+  tilesetLookup: ReadonlyMap<string, ParsedTilesetBlueprint>
+): void {
+  for (const candidate of candidates) {
+    const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+    const parsedTileset = tileSet ? tilesetLookup.get(tileSet) : undefined;
+    if (parsedTileset) {
+      candidate.parsedTileset = parsedTileset;
+    } else {
+      delete candidate.parsedTileset;
+    }
+    candidate.sourceFingerprint = buildSourceFingerprint(candidate);
   }
 }
 
@@ -390,6 +526,8 @@ function mapCandidateToAreaRecord(
   const biome = inferBiome(candidate);
   const dimensions = resolveDimensions(candidate);
   const areaId = `area_${candidate.resref}`.slice(0, 80);
+  const tileSet = normalizeResref(candidate.parsedArea?.tileSet ?? "");
+  const tiles = buildAreaTiles(candidate, areaId, dimensions, tileSet);
   const objects = buildAreaObjects(candidate);
   const updatedAt = chooseUpdatedAt(candidate);
 
@@ -408,6 +546,8 @@ function mapCandidateToAreaRecord(
     textureAtlasSizeBytes: candidate.areSourceSize,
     textureAtlasEtag: candidate.areSourceEtag,
     textureAtlasFingerprint: buildAtlasFingerprint(candidate),
+    ...(tileSet ? { tileSet } : {}),
+    tiles,
     objects,
     soundscape: buildAreaSoundscape(candidate, biome, soundLookup),
     updatedAt
@@ -427,7 +567,8 @@ function scoreCandidate(candidate: AreaCandidate): number {
     (candidate.parsedObjects?.placeables.length ?? 0) +
     (candidate.parsedObjects?.doors.length ?? 0) +
     (candidate.parsedObjects?.creatures.length ?? 0) +
-    (candidate.parsedObjects?.items.length ?? 0);
+    (candidate.parsedObjects?.items.length ?? 0) +
+    (candidate.parsedObjects?.sounds.length ?? 0);
   return candidate.areSourceSize + (candidate.gitSourceSize ?? 0) + objectCount * 1024;
 }
 
@@ -508,11 +649,140 @@ function buildAreaObjects(candidate: AreaCandidate): AreaRecord["objects"] {
   const objects: AreaRecord["objects"] = [];
 
   appendPlacements(objects, usedIds, placements.placeables, "placeable");
-  appendPlacements(objects, usedIds, placements.doors, "placeable");
+  appendPlacements(objects, usedIds, placements.doors, "door");
   appendPlacements(objects, usedIds, placements.creatures, "creature");
   appendPlacements(objects, usedIds, placements.items, "item");
+  appendPlacements(objects, usedIds, placements.sounds, "sound");
 
   return objects;
+}
+
+function buildAreaTiles(
+  candidate: AreaCandidate,
+  areaId: string,
+  dimensions: { width: number; height: number },
+  tileSet: string
+): AreaTileInstance[] {
+  const parsedTiles = candidate.parsedArea?.tiles ?? [];
+  if (!tileSet || parsedTiles.length === 0) {
+    return [];
+  }
+
+  return parsedTiles.map((tile) => {
+    const row = isPositiveInt(tile.row + 1) ? tile.row : Math.floor(tile.index / dimensions.width);
+    const col = isPositiveInt(tile.col + 1) ? tile.col : tile.index % dimensions.width;
+    const modelFromAre = tile.modelResRef ? normalizeResref(tile.modelResRef) : undefined;
+    const modelFromSet =
+      tile.tileId === undefined
+        ? undefined
+        : normalizeResref(candidate.parsedTileset?.tilesById.get(tile.tileId)?.modelResRef ?? "");
+    const modelResRef = modelFromAre || modelFromSet || undefined;
+    const modelSource = modelFromAre ? "are-tile-list" : modelFromSet ? "set-tile-section" : undefined;
+    return {
+      tileInstanceId: `${areaId}:tile:${tile.index}`,
+      areaId,
+      tilesetResRef: tileSet,
+      row,
+      col,
+      tileIndex: tile.index,
+      ...(tile.tileId !== undefined ? { tileId: tile.tileId } : {}),
+      ...(modelResRef ? { modelResRef } : {}),
+      ...(modelSource ? { modelSource } : {}),
+      ...(tile.orientation !== undefined ? { orientation: tile.orientation } : {}),
+      ...(tile.height !== undefined ? { height: tile.height } : {}),
+      source: "are-tile-list",
+      ...(!modelResRef ? { fallbackReason: "tile-model-reference-missing" } : {})
+    };
+  });
+}
+
+function collectTilesetSetObjects(objects: ModuleBlobObjectSummary[]): ModuleBlobObjectSummary[] {
+  return objects
+    .filter((object) => extractExtension(extractFileName(object.key)) === "set")
+    .sort((left, right) => {
+      const leftPriority = resolveTilesetSetSourcePriority(left.key);
+      const rightPriority = resolveTilesetSetSourcePriority(right.key);
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      const leftDepth = left.key.split(/[\\/]+/u).length;
+      const rightDepth = right.key.split(/[\\/]+/u).length;
+      if (leftDepth !== rightDepth) {
+        return leftDepth - rightDepth;
+      }
+      return left.key.localeCompare(right.key);
+    });
+}
+
+function resolveTilesetSetSourcePriority(objectKey: string): number {
+  const normalized = objectKey.replace(/\\/gu, "/").toLowerCase();
+  if (normalized.includes("/__aurora/sources/hak/")) {
+    return 1;
+  }
+  if (normalized.includes("/__aurora/sources/vanilla/")) {
+    return 2;
+  }
+  if (normalized.includes("/__aurora/sources/")) {
+    return 3;
+  }
+  return 0;
+}
+
+function parseAuroraSetTiles(bytes: Buffer): Map<number, ParsedTilesetTileBlueprint> {
+  const tiles = new Map<number, ParsedTilesetTileBlueprint>();
+  const lines = bytes.toString("utf-8").replace(/^\uFEFF/u, "").split(/\r?\n/gu);
+  let currentTileId: number | null = null;
+
+  for (const rawLine of lines) {
+    const line = stripIniComment(rawLine).trim();
+    if (!line) {
+      continue;
+    }
+
+    const section = line.match(/^\[\s*tile\s*(\d+)\s*\]$/iu);
+    if (section) {
+      const tileId = Number.parseInt(section[1], 10);
+      currentTileId = Number.isInteger(tileId) && tileId >= 0 ? tileId : null;
+      if (currentTileId !== null && !tiles.has(currentTileId)) {
+        tiles.set(currentTileId, { tileId: currentTileId });
+      }
+      continue;
+    }
+
+    if (currentTileId === null) {
+      continue;
+    }
+
+    const assignment = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/u);
+    if (!assignment) {
+      continue;
+    }
+    const key = assignment[1].trim().toLowerCase();
+    if (key !== "model" && key !== "modelname" && key !== "modelresref") {
+      continue;
+    }
+
+    const modelResRef = normalizeResref(assignment[2].replace(/^"|"$/gu, ""));
+    if (!modelResRef) {
+      continue;
+    }
+    tiles.set(currentTileId, {
+      tileId: currentTileId,
+      modelResRef
+    });
+  }
+
+  return tiles;
+}
+
+function stripIniComment(line: string): string {
+  const semicolonIndex = line.indexOf(";");
+  const slashIndex = line.indexOf("//");
+  const candidates = [semicolonIndex, slashIndex].filter((index) => index >= 0);
+  if (candidates.length === 0) {
+    return line;
+  }
+  return line.slice(0, Math.min(...candidates));
 }
 
 function appendPlacements(
@@ -521,12 +791,21 @@ function appendPlacements(
   placements: ParsedAreaPlacementBlueprint[],
   kind: AreaRecord["objects"][number]["kind"]
 ): void {
-  const prefix = kind === "creature" ? "cre" : kind === "item" ? "itm" : "plc";
+  const prefix =
+    kind === "creature"
+      ? "cre"
+      : kind === "item"
+        ? "itm"
+        : kind === "door"
+          ? "dr"
+          : kind === "sound"
+            ? "snd"
+            : "plc";
 
   placements.forEach((placement, index) => {
     const templateResRef = normalizeResref(placement.templateResRef ?? "");
     const templateId = templateResRef
-      ? `${prefix}_${templateResRef}`.slice(0, 80)
+      ? buildAreaObjectTemplateId(kind, prefix, templateResRef)
       : `${prefix}_unknown_${String(index + 1).padStart(3, "0")}`;
 
     const objectId = buildStableObjectId(usedIds, {
@@ -540,19 +819,89 @@ function appendPlacements(
       objectId,
       kind,
       templateId,
-      x: clampCoordinate(placement.x),
-      y: clampCoordinate(placement.y),
-      z: clampCoordinate(placement.z),
-      bearing: clampBearing(placement.bearing)
+      ...(templateResRef ? { resRef: templateResRef } : {}),
+      ...(placement.appearanceType !== undefined
+        ? { appearanceType: Math.trunc(placement.appearanceType) }
+        : {}),
+      ...(placement.genericType !== undefined
+        ? { genericType: Math.trunc(placement.genericType) }
+        : {}),
+      x: clampCoordinate(toAreaSceneTileCoordinate(placement.x)),
+      y: clampCoordinate(toAreaSceneTileCoordinate(placement.y)),
+      z: clampCoordinate(toAreaSceneTileCoordinate(placement.z)),
+      bearing: clampBearing(placement.bearing),
+      ...(placement.soundPositioning
+        ? {
+            soundPositioning: {
+              ...placement.soundPositioning,
+              elevation: clampCoordinate(
+                toAreaSceneTileCoordinate(placement.soundPositioning.elevation)
+              ),
+              maxVolumeDistance: clampCoordinate(
+                toAreaSceneTileCoordinate(placement.soundPositioning.maxVolumeDistance)
+              ),
+              cutoffDistance: clampCoordinate(
+                toAreaSceneTileCoordinate(placement.soundPositioning.cutoffDistance)
+              ),
+              randomRangeWestEast: clampCoordinate(
+                toAreaSceneTileCoordinate(placement.soundPositioning.randomRangeWestEast)
+              ),
+              randomRangeNorthSouth: clampCoordinate(
+                toAreaSceneTileCoordinate(placement.soundPositioning.randomRangeNorthSouth)
+              )
+            }
+          }
+        : {}),
+      ...(placement.doorTransition
+        ? {
+            doorTransition: {
+              linkedTarget: placement.doorTransition.linkedTarget,
+              linkedModule: placement.doorTransition.linkedModule,
+              linkedTag: placement.doorTransition.linkedTag,
+              linkedWaypoint: placement.doorTransition.linkedWaypoint,
+              loadScreen: placement.doorTransition.loadScreen,
+              flags: { ...placement.doorTransition.flags },
+              extra: { ...placement.doorTransition.extra }
+            }
+          }
+        : {})
     });
   });
 }
 
+function buildAreaObjectTemplateId(
+  kind: AreaRecord["objects"][number]["kind"],
+  prefix: string,
+  templateResRef: string
+): string {
+  if (kind === "door" || kind === "sound") {
+    return templateResRef.slice(0, 80);
+  }
+  const prefixedPattern = new RegExp(`^${prefix}_`, "iu");
+  return (prefixedPattern.test(templateResRef)
+    ? templateResRef
+    : `${prefix}_${templateResRef}`).slice(0, 80);
+}
+
 function buildStableObjectId(
   usedIds: Set<string>,
-  input: { tag?: string; templateResRef?: string; kind: "placeable" | "creature" | "item"; index: number }
+  input: {
+    tag?: string;
+    templateResRef?: string;
+    kind: "placeable" | "door" | "creature" | "item" | "sound";
+    index: number;
+  }
 ): string {
-  const kindPrefix = input.kind === "creature" ? "cre" : input.kind === "item" ? "itm" : "plc";
+  const kindPrefix =
+    input.kind === "creature"
+      ? "cre"
+      : input.kind === "item"
+        ? "itm"
+        : input.kind === "door"
+          ? "dr"
+          : input.kind === "sound"
+            ? "snd"
+            : "plc";
   const baseToken = normalizeResref(input.tag ?? "") || input.templateResRef || `entry_${input.index + 1}`;
   const base = `obj_${kindPrefix}_${baseToken}`.slice(0, 72);
 
@@ -610,7 +959,8 @@ function buildTags(candidate: AreaCandidate, biome: string): string[] {
     (candidate.parsedObjects?.placeables.length ?? 0) +
     (candidate.parsedObjects?.doors.length ?? 0) +
     (candidate.parsedObjects?.creatures.length ?? 0) +
-    (candidate.parsedObjects?.items.length ?? 0);
+    (candidate.parsedObjects?.items.length ?? 0) +
+    (candidate.parsedObjects?.sounds.length ?? 0);
   if (objectCount > 0) {
     tags.add("git");
     tags.add("objects");
@@ -819,10 +1169,28 @@ function buildSourceFingerprint(candidate: AreaCandidate): string {
         candidate.parsedObjects?.sourceFileType ?? "",
         candidate.parsedObjects?.sourceFileVersion ?? "",
         String(candidate.parsedObjects?.sourceStructTypeId ?? -1),
-        candidate.parsedObjects?.dependencyFingerprint ?? ""
+        candidate.parsedObjects?.dependencyFingerprint ?? "",
+        stringifyTilesetFingerprint(candidate.parsedTileset)
       ].join("|")
     )
     .digest("hex");
+}
+
+function stringifyTilesetFingerprint(tileset: ParsedTilesetBlueprint | undefined): string {
+  if (!tileset) {
+    return "";
+  }
+  const tileModels = [...tileset.tilesById.values()]
+    .sort((left, right) => left.tileId - right.tileId)
+    .map((tile) => `${tile.tileId}:${tile.modelResRef ?? ""}`)
+    .join(",");
+  return [
+    tileset.sourceKey,
+    String(tileset.sourceSize),
+    tileset.sourceEtag ?? "",
+    tileset.updatedAt,
+    tileModels
+  ].join(":");
 }
 
 function buildSnapshotSoundLookup(objects: ModuleBlobObjectSummary[]): SnapshotSoundLookup {
@@ -976,6 +1344,13 @@ function clampCoordinate(value: number): number {
   return Number(value.toFixed(4));
 }
 
+function toAreaSceneTileCoordinate(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return value / AURORA_GIT_UNITS_PER_TILE;
+}
+
 function clampBearing(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
@@ -1000,6 +1375,13 @@ function normalizePrefixForLookup(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 async function mapWithConcurrency<T>(
@@ -1052,5 +1434,7 @@ export const __moduleSnapshotAreaRepositoryInternals = {
   normalizePrefixForLookup,
   resolveAreaSoundFromLookup,
   buildSyntheticAreaSoundReference,
-  mapWithConcurrency
+  mapWithConcurrency,
+  collectTilesetSetObjects,
+  parseAuroraSetTiles
 } as const;

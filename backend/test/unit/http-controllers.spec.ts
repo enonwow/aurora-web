@@ -33,6 +33,13 @@ describe("HTTP controllers", () => {
       listAreas: jest.fn().mockResolvedValue({ items: [], total: 0 }),
       getArea: jest.fn().mockResolvedValue({ areaId: "area-1" }),
       getAreaPreview: jest.fn().mockResolvedValue({ areaId: "area-1" }),
+      getAreaThumbnail: jest.fn().mockResolvedValue({
+        contentType: "image/svg+xml; charset=utf-8",
+        size: 12,
+        etag: 'W/"area-thumb"',
+        fileName: "area-1.svg",
+        bytes: Buffer.from("<svg></svg>")
+      }),
       processArea: jest.fn().mockResolvedValue({ cacheKey: "a".repeat(64) }),
       getProcessedArea: jest.fn().mockResolvedValue({ cacheKey: "a".repeat(64) }),
       getProcessedAreaTextureDelivery: jest.fn().mockResolvedValue({
@@ -66,6 +73,7 @@ describe("HTTP controllers", () => {
     const controller = new AreasController(service, config);
     const request = appRequest();
     const response = createReply();
+    const thumbnailResponse = createReply();
 
     await expect(controller.list(request, {})).resolves.toMatchObject({
       contractVersion: "1.0.0"
@@ -74,6 +82,7 @@ describe("HTTP controllers", () => {
     await controller.preview(request, "area-1");
     await controller.process(request, "area-1", { bypassCache: true });
     await controller.getCached(request, "a".repeat(16));
+    await controller.thumbnail("area-1", thumbnailResponse as unknown as FastifyReply);
     await controller.getCachedTextureContract(request, "a".repeat(16), { mode: "direct" });
     await controller.getCachedTexture("a".repeat(16), response as unknown as FastifyReply);
 
@@ -83,6 +92,7 @@ describe("HTTP controllers", () => {
     });
     expect(service.getArea).toHaveBeenCalledWith("area-1");
     expect(service.getAreaPreview).toHaveBeenCalledWith("area-1");
+    expect(service.getAreaThumbnail).toHaveBeenCalledWith("area-1");
     expect(service.processArea).toHaveBeenCalledWith({
       areaId: "area-1",
       bypassCache: true
@@ -90,6 +100,15 @@ describe("HTTP controllers", () => {
     expect(service.getProcessedArea).toHaveBeenCalledWith("a".repeat(16));
     expect(service.getProcessedAreaTextureDelivery).toHaveBeenCalledWith("a".repeat(16), "direct");
     expect(service.getProcessedAreaTexture).toHaveBeenCalledWith("a".repeat(16));
+    expect(thumbnailResponse.header).toHaveBeenCalledWith(
+      "Content-Type",
+      "image/svg+xml; charset=utf-8"
+    );
+    expect(thumbnailResponse.header).toHaveBeenCalledWith(
+      "Content-Disposition",
+      "inline; filename=\"area-1.svg\""
+    );
+    expect(thumbnailResponse.send).toHaveBeenCalledWith(Buffer.from("<svg></svg>"));
   });
 
   it("delegates tile controller calls", async () => {
@@ -348,6 +367,43 @@ describe("HTTP controllers", () => {
           index: { uploadedFiles: 1 }
         }
       }),
+      syncVanillaTilesetSetSources: jest.fn().mockResolvedValue({
+        mode: "vanilla-tileset-set-source-sync",
+        enabled: true,
+        uploadedFiles: 1,
+        uploadedBytes: 42,
+        files: [
+          {
+            fileName: "__aurora/sources/vanilla/tilesets/tcn01.set",
+            objectKey: "modules/current/__aurora/sources/vanilla/tilesets/tcn01.set",
+            size: 42,
+            resourceType: 2013
+          }
+        ]
+      }),
+      syncVanillaTileModelSources: jest.fn().mockResolvedValue({
+        mode: "vanilla-tile-model-source-sync",
+        enabled: true,
+        requestedModelResRefs: ["tcn01_c01_01"],
+        missingModelResRefs: [],
+        uploadedFiles: 2,
+        uploadedBytes: 16,
+        files: [
+          {
+            fileName: "__aurora/sources/vanilla/models/tcn01_c01_01.mdl",
+            objectKey: "modules/current/__aurora/sources/vanilla/models/tcn01_c01_01.mdl",
+            size: 8,
+            resourceType: 2002
+          },
+          {
+            fileName: "__aurora/sources/vanilla/walkmeshes/tcn01_c01_01.wok",
+            objectKey:
+              "modules/current/__aurora/sources/vanilla/walkmeshes/tcn01_c01_01.wok",
+            size: 8,
+            resourceType: 2016
+          }
+        ]
+      }),
       replaceRuntimeSettings: jest.fn().mockResolvedValue({ revision: 2 })
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
     const controller = new RuntimeSettingsController(service, config);
@@ -376,6 +432,36 @@ describe("HTTP controllers", () => {
         })
       }
     });
+    await expect(controller.syncVanillaTilesetSetSources(request)).resolves.toMatchObject({
+      data: {
+        mode: "vanilla-tileset-set-source-sync",
+        uploadedFiles: 1,
+        files: [
+          expect.objectContaining({
+            objectKey: "modules/current/__aurora/sources/vanilla/tilesets/tcn01.set"
+          })
+        ]
+      }
+    });
+    await expect(
+      controller.syncVanillaTileModelSources(request, {
+        modelResRefs: ["TCN01_C01_01", "tcn01_c01_01"]
+      })
+    ).resolves.toMatchObject({
+      data: {
+        mode: "vanilla-tile-model-source-sync",
+        uploadedFiles: 2,
+        files: [
+          expect.objectContaining({
+            objectKey: "modules/current/__aurora/sources/vanilla/models/tcn01_c01_01.mdl"
+          }),
+          expect.objectContaining({
+            objectKey:
+              "modules/current/__aurora/sources/vanilla/walkmeshes/tcn01_c01_01.wok"
+          })
+        ]
+      }
+    });
     await controller.replaceRuntimeSettings(request, payload);
 
     expect(service.getRuntimeSettings).toHaveBeenCalledTimes(1);
@@ -390,6 +476,10 @@ describe("HTTP controllers", () => {
     expect(service.rebuildModuleBlobCache).toHaveBeenCalledWith("admin.user", {
       forceFull: true
     });
+    expect(service.syncVanillaTilesetSetSources).toHaveBeenCalledWith("admin.user");
+    expect(service.syncVanillaTileModelSources).toHaveBeenCalledWith("admin.user", [
+      "tcn01_c01_01"
+    ]);
     expect(service.replaceRuntimeSettings).toHaveBeenCalledWith(payload, "admin.user");
   });
 
@@ -487,6 +577,13 @@ describe("HTTP controllers", () => {
       getProcessedTemplateKind: jest.fn().mockResolvedValue({ cacheKey: "d".repeat(64) }),
       listPlaceables: jest.fn().mockResolvedValue({ items: [], total: 0 }),
       getPlaceablePreview: jest.fn().mockResolvedValue({ templateId: "id" }),
+      getPlaceableThumbnail: jest.fn().mockResolvedValue({
+        contentType: "image/svg+xml; charset=utf-8",
+        size: 12,
+        etag: 'W/"plc-thumb"',
+        fileName: "plc_market_stall_001.svg",
+        bytes: Buffer.from("<svg></svg>")
+      }),
       processPlaceable: jest.fn().mockResolvedValue({ cacheKey: "d".repeat(64) }),
       getProcessedPlaceable: jest.fn().mockResolvedValue({ cacheKey: "d".repeat(64) }),
       benchmarkPlaceables: jest.fn().mockResolvedValue({ stats: [] }),
@@ -524,6 +621,7 @@ describe("HTTP controllers", () => {
     const itemsController = new ItemsController(service, config);
     const placeablesController = new PlaceablesController(service, config);
     const response = createReply();
+    const placeableThumbnailResponse = createReply();
 
     await creaturesController.list(request, {});
     await creaturesController.preview(request, "template-1");
@@ -537,6 +635,10 @@ describe("HTTP controllers", () => {
 
     await placeablesController.list(request, {});
     await placeablesController.preview(request, "plc_market_stall_001");
+    await placeablesController.thumbnail(
+      "plc_market_stall_001",
+      placeableThumbnailResponse as unknown as FastifyReply
+    );
     await placeablesController.process(request, { templateId: "plc_market_stall_001" });
     await placeablesController.getCached(request, "d".repeat(16));
     await placeablesController.benchmark(request, {
@@ -549,7 +651,7 @@ describe("HTTP controllers", () => {
     });
     await placeablesController.getCachedAsset(
       "d".repeat(16),
-      "e".repeat(8),
+      `${"e".repeat(8)}.glb`,
       response as unknown as FastifyReply
     );
 
@@ -563,6 +665,7 @@ describe("HTTP controllers", () => {
     );
     expect(service.processTemplateKind).toHaveBeenCalledTimes(2);
     expect(service.listPlaceables).toHaveBeenCalledTimes(1);
+    expect(service.getPlaceableThumbnail).toHaveBeenCalledWith("plc_market_stall_001");
     expect(service.processPlaceable).toHaveBeenCalledWith({
       templateId: "plc_market_stall_001",
       bypassCache: false,
@@ -578,6 +681,15 @@ describe("HTTP controllers", () => {
       "inline; filename=\"bad_name__.bin\""
     );
     expect(response.send).toHaveBeenCalledWith(Buffer.from([1, 2, 3]));
+    expect(placeableThumbnailResponse.header).toHaveBeenCalledWith(
+      "Content-Type",
+      "image/svg+xml; charset=utf-8"
+    );
+    expect(placeableThumbnailResponse.header).toHaveBeenCalledWith(
+      "Content-Disposition",
+      "inline; filename=\"plc_market_stall_001.svg\""
+    );
+    expect(placeableThumbnailResponse.send).toHaveBeenCalledWith(Buffer.from("<svg></svg>"));
   });
 
   it("validates placeable asset delivery query before calling service", async () => {

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "aurora-vfx-resolver-trace/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "sourcePolicy": {
+    "sourcesVfxProfileId": "nwn-ee-8193.34-selected-source",
+    "selectedSourceLayer": "selected-source-candidate",
+    "runtimeSettingsRevision": null,
+    "runtimeSettingsHashSha256": null,
+    "hakListHashSha256": null
+  },
+  "selectedCandidate": {
+    "objectKey": "visualeffects.2da#22",
+    "resourceType": "2da-row",
+    "sourceLayer": "selected-source-candidate",
+    "hashSha256": null,
+    "reason": "Candidate manifest row for VFX_FNF_FIREBALL; retail resolver trace has not been generated."
+  },
+  "lowerPrecedenceCandidates": [
+    {
+      "objectKey": "TODO: vanilla or lower-precedence visualeffects.2da candidate",
+      "resourceType": "2da-row",
+      "sourceLayer": null,
+      "hashSha256": null,
+      "reasonSkipped": "missing"
+    }
+  ],
+  "resourceHashes": [
+    {
+      "objectKey": "TODO: resolved fireball MDL/progfx resource containing detonate",
+      "resourceType": "mdl-or-progfx",
+      "hashSha256": null,
+      "sourceLayer": null
+    }
+  ],
+  "dependencyEdges": [
+    {
+      "from": "visualeffects.2da#22",
+      "to": "TODO: fireball explosion emitter resource",
+      "kind": "impact_or_progfx_resource",
+      "resolved": false
+    },
+    {
+      "from": "TODO: fireball explosion emitter resource",
+      "to": "detonate",
+      "kind": "mdl_animation_event",
+      "resolved": false
+    }
+  ],
+  "detonateEventResolution": {
+    "requiredEvent": "detonate",
+    "resolvedResource": null,
+    "eventTimeSeconds": null,
+    "particlesSpawnAfterEvent": null
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+      "severity": "missing",
+      "message": "Resolver trace has not been captured for the fireball explosion fixture."
+    },
+    {
+      "code": "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+      "severity": "missing",
+      "message": "The resource and timing for the detonate event must be resolved from retail artifacts."
+    }
+  ],
+  "operatorNotes": "Resolve the selected row 22 dependencies, record all lower-precedence candidates and hashes, and identify the MDL/progfx resource that emits detonate."
+}

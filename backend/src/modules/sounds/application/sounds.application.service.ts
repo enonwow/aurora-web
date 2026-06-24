@@ -287,7 +287,7 @@ export class SoundsApplicationService {
     return {
       cacheKey,
       audio: hydrated.audio,
-      payload
+      payload: toBrowserFriendlySoundAudioPayload(payload)
     };
   }
 
@@ -545,9 +545,195 @@ function buildSoundAudioDeliveryPath(cacheKey: string): string {
   return `/api/v1/catalog/sounds/cache/${encodedCacheKey}/audio`;
 }
 
+function toBrowserFriendlySoundAudioPayload(payload: ModuleBlobObjectPayload): ModuleBlobObjectPayload {
+  const pcmWav = transcodeMonoImaAdpcmWavToPcmWav(payload.bytes);
+  if (!pcmWav) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    size: pcmWav.length,
+    contentType: "audio/wav",
+    etag: createHash("sha256").update(pcmWav).digest("hex"),
+    bytes: pcmWav
+  };
+}
+
+interface WavChunk {
+  id: string;
+  start: number;
+  size: number;
+}
+
+interface ImaAdpcmFormat {
+  channels: number;
+  sampleRate: number;
+  blockAlign: number;
+  bitsPerSample: number;
+}
+
+const IMA_ADPCM_FORMAT = 17;
+const PCM_FORMAT = 1;
+const IMA_INDEX_TABLE = [-1, -1, -1, -1, 2, 4, 6, 8] as const;
+const IMA_STEP_TABLE = [
+  7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
+  19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
+  50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+  130, 143, 157, 173, 190, 209, 230, 253, 279, 307,
+  337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+  876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
+  2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
+  5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
+  15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+] as const;
+
+function transcodeMonoImaAdpcmWavToPcmWav(wav: Buffer): Buffer | null {
+  if (wav.length < 44 || wav.toString("ascii", 0, 4) !== "RIFF" || wav.toString("ascii", 8, 12) !== "WAVE") {
+    return null;
+  }
+
+  const chunks = readWavChunks(wav);
+  const fmtChunk = chunks.find((chunk) => chunk.id === "fmt ");
+  const dataChunk = chunks.find((chunk) => chunk.id === "data");
+  if (!fmtChunk || !dataChunk || fmtChunk.size < 20) {
+    return null;
+  }
+
+  const format = readImaAdpcmFormat(wav, fmtChunk);
+  if (
+    !format ||
+    format.channels !== 1 ||
+    format.bitsPerSample !== 4 ||
+    format.blockAlign <= 4 ||
+    dataChunk.start + dataChunk.size > wav.length
+  ) {
+    return null;
+  }
+
+  const factChunk = chunks.find((chunk) => chunk.id === "fact");
+  const expectedSamples =
+    factChunk && factChunk.size >= 4 && factChunk.start + 4 <= wav.length
+      ? wav.readUInt32LE(factChunk.start)
+      : undefined;
+  const samples = decodeMonoImaAdpcmBlocks(
+    wav.subarray(dataChunk.start, dataChunk.start + dataChunk.size),
+    format.blockAlign,
+    expectedSamples
+  );
+  if (samples.length === 0) {
+    return null;
+  }
+
+  return buildPcm16Wav(samples, format.sampleRate, format.channels);
+}
+
+function readWavChunks(wav: Buffer): WavChunk[] {
+  const chunks: WavChunk[] = [];
+  let offset = 12;
+  while (offset + 8 <= wav.length) {
+    const id = wav.toString("ascii", offset, offset + 4);
+    const size = wav.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    if (start + size > wav.length) {
+      break;
+    }
+    chunks.push({ id, start, size });
+    offset = start + size + (size % 2);
+  }
+  return chunks;
+}
+
+function readImaAdpcmFormat(wav: Buffer, chunk: WavChunk): ImaAdpcmFormat | null {
+  if (chunk.start + 20 > wav.length || wav.readUInt16LE(chunk.start) !== IMA_ADPCM_FORMAT) {
+    return null;
+  }
+
+  return {
+    channels: wav.readUInt16LE(chunk.start + 2),
+    sampleRate: wav.readUInt32LE(chunk.start + 4),
+    blockAlign: wav.readUInt16LE(chunk.start + 12),
+    bitsPerSample: wav.readUInt16LE(chunk.start + 14)
+  };
+}
+
+function decodeMonoImaAdpcmBlocks(data: Buffer, blockAlign: number, expectedSamples?: number): number[] {
+  const samples: number[] = [];
+  const sampleLimit = expectedSamples && expectedSamples > 0 ? expectedSamples : Number.POSITIVE_INFINITY;
+
+  for (let blockStart = 0; blockStart + 4 <= data.length && samples.length < sampleLimit; blockStart += blockAlign) {
+    const blockEnd = Math.min(blockStart + blockAlign, data.length);
+    let sample = clampPcmSample(data.readInt16LE(blockStart));
+    let index = clampImaIndex(data.readUInt8(blockStart + 2));
+    samples.push(sample);
+
+    for (let offset = blockStart + 4; offset < blockEnd && samples.length < sampleLimit; offset += 1) {
+      const byte = data.readUInt8(offset);
+      [byte & 0x0f, byte >> 4].forEach((nibble) => {
+        if (samples.length >= sampleLimit) {
+          return;
+        }
+        const decoded = decodeImaNibble(nibble, sample, index);
+        sample = decoded.sample;
+        index = decoded.index;
+        samples.push(sample);
+      });
+    }
+  }
+
+  return samples;
+}
+
+function decodeImaNibble(nibble: number, previousSample: number, previousIndex: number) {
+  const step = IMA_STEP_TABLE[previousIndex] ?? IMA_STEP_TABLE[0];
+  let diff = step >> 3;
+  if ((nibble & 0x01) !== 0) {
+    diff += step >> 2;
+  }
+  if ((nibble & 0x02) !== 0) {
+    diff += step >> 1;
+  }
+  if ((nibble & 0x04) !== 0) {
+    diff += step;
+  }
+
+  const sample = clampPcmSample((nibble & 0x08) !== 0 ? previousSample - diff : previousSample + diff);
+  const index = clampImaIndex(previousIndex + (IMA_INDEX_TABLE[nibble & 0x07] ?? 0));
+  return { sample, index };
+}
+
+function buildPcm16Wav(samples: number[], sampleRate: number, channels: number): Buffer {
+  const dataSize = samples.length * 2;
+  const output = Buffer.alloc(44 + dataSize);
+  output.write("RIFF", 0, "ascii");
+  output.writeUInt32LE(36 + dataSize, 4);
+  output.write("WAVE", 8, "ascii");
+  output.write("fmt ", 12, "ascii");
+  output.writeUInt32LE(16, 16);
+  output.writeUInt16LE(PCM_FORMAT, 20);
+  output.writeUInt16LE(channels, 22);
+  output.writeUInt32LE(sampleRate, 24);
+  output.writeUInt32LE(sampleRate * channels * 2, 28);
+  output.writeUInt16LE(channels * 2, 32);
+  output.writeUInt16LE(16, 34);
+  output.write("data", 36, "ascii");
+  output.writeUInt32LE(dataSize, 40);
+  samples.forEach((sample, index) => output.writeInt16LE(clampPcmSample(sample), 44 + index * 2));
+  return output;
+}
+
+function clampPcmSample(value: number): number {
+  return Math.max(-32768, Math.min(32767, value));
+}
+
+function clampImaIndex(value: number): number {
+  return Math.max(0, Math.min(88, value));
+}
+
 export const __soundsApplicationServiceInternals = {
   buildBenchmarkFingerprint,
   summarizeDurations,
   percentile,
-  buildBlobObjectHttpUrl
+  buildBlobObjectHttpUrl,
+  transcodeMonoImaAdpcmWavToPcmWav
 } as const;

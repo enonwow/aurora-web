@@ -4,7 +4,8 @@ export const PROCESSING_JOB_TASKS = [
   "process_placeable",
   "process_creature",
   "process_item",
-  "process_area"
+  "process_area",
+  "process_vfx_runtime_package"
 ] as const;
 
 export type ProcessingJobTask = (typeof PROCESSING_JOB_TASKS)[number];
@@ -13,6 +14,7 @@ export interface ProcessingJobOptions {
   bypassCache: boolean;
   includeBenchmarkMetadata: boolean;
   subtypeHint?: PlaceableSubtypeInput;
+  vfx?: Record<string, unknown>;
 }
 
 export interface ProcessingJobCreateCommand {
@@ -36,7 +38,7 @@ export interface ProcessingJobError {
 }
 
 export interface ProcessingJobExecutionResult {
-  entityType: "placeable" | "creature" | "item" | "area";
+  entityType: "placeable" | "creature" | "item" | "area" | "vfx";
   entityId: string;
   cache: {
     key: string;

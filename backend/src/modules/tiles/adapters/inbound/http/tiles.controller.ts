@@ -207,4 +207,33 @@ export class TilesController extends ProcessingHttpBaseController {
     setInlineContentDisposition(response, `${data.textureAtlas.atlasId}.bin`);
     return response.send(data.payload.bytes);
   }
+
+  @Get("cache/:cacheKey/model")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Download processed tile model GLB/GLTF payload through backend proxy."
+  })
+  @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
+  @ApiResponse({ status: 200, description: "Binary tile model payload." })
+  @ApiResponse({ status: 404, description: "Cache entry or model blob not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async getCachedModel(
+    @Param("cacheKey") rawCacheKey: string,
+    @Res() response: FastifyReply
+  ) {
+    const cacheKey = parseTileCacheKey(rawCacheKey);
+    const data = await this.service.getProcessedTileModel(cacheKey);
+
+    applyBinaryPayloadHeaders(response, data.payload, {
+      cacheControl: "private, max-age=120",
+      extraHeaders: {
+        "X-Aurora-Tile-Model-Object-Key": data.modelAsset.objectKey,
+        "X-Aurora-Tile-Model-Extension": data.modelAsset.extension,
+        "X-Aurora-Cache-Key": data.cacheKey
+      }
+    });
+    setInlineContentDisposition(response, `tile-model.${data.modelAsset.extension}`);
+    return response.send(data.payload.bytes);
+  }
 }

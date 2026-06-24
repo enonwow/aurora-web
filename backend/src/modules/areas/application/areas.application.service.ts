@@ -27,6 +27,7 @@ import {
 import type {
   AreaDeliveryMode,
   AreaListQuery,
+  AreaListResult,
   AreaProcessQuery,
   AreaProcessingResult,
   AreaRecord
@@ -35,6 +36,10 @@ import {
   buildAreaProcessCacheKey,
   countAreaObjectsByKind
 } from "../domain/area-processing.builders";
+import {
+  buildAreaThumbnailPayload,
+  withAreaPreviewImageUrl
+} from "../domain/area-thumbnail";
 
 export interface AreaProcessingEnvelope {
   cache: {
@@ -70,9 +75,19 @@ export interface AreaTextureDeliveryEnvelope {
   textureAtlas: AreaTextureDeliveryContract;
 }
 
+const AREA_LIST_CACHE_TTL_MS = 60_000;
+const AREA_LIST_CACHE_MAX_ENTRIES = 128;
+
+interface AreaListCacheEntry {
+  result: AreaListResult;
+  expiresAtMs: number;
+}
+
 @Injectable()
 export class AreasApplicationService {
   private readonly inFlightAreaProcessing = new Map<string, Promise<AreaProcessingEnvelope>>();
+  private readonly areaListCache = new Map<string, AreaListCacheEntry>();
+  private readonly areaListInFlight = new Map<string, Promise<AreaListResult>>();
 
   constructor(
     @Inject(AREA_REPOSITORY)
@@ -87,7 +102,39 @@ export class AreasApplicationService {
   ) {}
 
   listAreas(query: AreaListQuery) {
-    return this.repository.list(query);
+    const cacheKey = buildAreaListCacheKey(query);
+    const now = Date.now();
+    const cached = this.areaListCache.get(cacheKey);
+    if (cached && cached.expiresAtMs > now) {
+      this.areaListCache.delete(cacheKey);
+      this.areaListCache.set(cacheKey, cached);
+      return Promise.resolve(cached.result);
+    }
+    if (cached) {
+      this.areaListCache.delete(cacheKey);
+    }
+
+    const inFlight = this.areaListInFlight.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const request = this.repository
+      .list(query)
+      .then((result) => this.withAreaListPreviewImageUrls(result))
+      .then((result) => {
+        this.areaListCache.set(cacheKey, {
+          result,
+          expiresAtMs: Date.now() + AREA_LIST_CACHE_TTL_MS
+        });
+        trimOldestMapEntries(this.areaListCache, AREA_LIST_CACHE_MAX_ENTRIES);
+        return result;
+      })
+      .finally(() => {
+        this.areaListInFlight.delete(cacheKey);
+      });
+    this.areaListInFlight.set(cacheKey, request);
+    return request;
   }
 
   async getArea(areaId: string) {
@@ -110,7 +157,7 @@ export class AreasApplicationService {
       height: area.height,
       tags: area.tags,
       benchmark: area.benchmark,
-      previewImageUrl: area.previewImageUrl,
+      previewImageUrl: withAreaPreviewImageUrl(area).previewImageUrl,
       textureAtlas: {
         atlasId: area.textureAtlasId,
         cacheKey: `${area.textureAtlasId}:${area.width}x${area.height}`,
@@ -120,6 +167,8 @@ export class AreasApplicationService {
         sizeBytes: area.textureAtlasSizeBytes,
         etag: area.textureAtlasEtag
       },
+      tileSet: area.tileSet,
+      tiles: area.tiles,
       soundscape: area.soundscape,
       composition: counts,
       objects: area.objects,
@@ -141,7 +190,7 @@ export class AreasApplicationService {
     return {
       areaId: area.areaId,
       name: area.name,
-      previewImageUrl: area.previewImageUrl,
+      previewImageUrl: withAreaPreviewImageUrl(area).previewImageUrl,
       benchmark: area.benchmark,
       dimensions: {
         width: area.width,
@@ -154,12 +203,23 @@ export class AreasApplicationService {
     };
   }
 
+  async getAreaThumbnail(areaId: string) {
+    const area = await this.resolveAreaRecord(areaId);
+    const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
+    return buildAreaThumbnailPayload(
+      area,
+      precomputed?.composition ?? countAreaObjectsByKind(area.objects)
+    );
+  }
+
   async processArea(query: AreaProcessQuery) {
     let precomputed = this.repository.getPrecomputedAreaProcessing?.(query.areaId);
     if (!query.bypassCache && precomputed) {
       const cached = await this.processingCache.get(precomputed.cacheKey);
       if (cached) {
-        const hydrated = await this.ensureAreaTextureAtlas(precomputed.cacheKey, cached.value);
+        const hydrated = this.withAreaProcessingPreviewImageUrl(
+          await this.ensureAreaTextureAtlas(precomputed.cacheKey, cached.value)
+        );
         return {
           cache: {
             key: precomputed.cacheKey,
@@ -179,7 +239,9 @@ export class AreasApplicationService {
     if (!query.bypassCache && !precomputed) {
       const cached = await this.processingCache.get(cacheKey);
       if (cached) {
-        const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+        const hydrated = this.withAreaProcessingPreviewImageUrl(
+          await this.ensureAreaTextureAtlas(cacheKey, cached.value)
+        );
         return {
           cache: {
             key: cacheKey,
@@ -203,7 +265,7 @@ export class AreasApplicationService {
         height: area.height,
         tags: area.tags,
         benchmark: area.benchmark,
-        previewImageUrl: area.previewImageUrl,
+        previewImageUrl: withAreaPreviewImageUrl(area).previewImageUrl,
         textureAtlas: {
           atlasId: area.textureAtlasId,
           cacheKey: textureAtlasCacheKey,
@@ -213,6 +275,8 @@ export class AreasApplicationService {
           sizeBytes: area.textureAtlasSizeBytes,
           etag: area.textureAtlasEtag
         },
+        tileSet: area.tileSet,
+        tiles: area.tiles,
         soundscape: area.soundscape,
         composition,
         objects: area.objects,
@@ -247,7 +311,9 @@ export class AreasApplicationService {
       });
     }
 
-    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+    const hydrated = this.withAreaProcessingPreviewImageUrl(
+      await this.ensureAreaTextureAtlas(cacheKey, cached.value)
+    );
     return {
       cache: {
         key: cacheKey,
@@ -269,7 +335,9 @@ export class AreasApplicationService {
       });
     }
 
-    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+    const hydrated = this.withAreaProcessingPreviewImageUrl(
+      await this.ensureAreaTextureAtlas(cacheKey, cached.value)
+    );
     if (
       !hydrated.textureAtlas.objectKey ||
       !hydrated.textureAtlas.contentType ||
@@ -311,7 +379,9 @@ export class AreasApplicationService {
       });
     }
 
-    const hydrated = await this.ensureAreaTextureAtlas(cacheKey, cached.value);
+    const hydrated = this.withAreaProcessingPreviewImageUrl(
+      await this.ensureAreaTextureAtlas(cacheKey, cached.value)
+    );
     if (
       !hydrated.textureAtlas.objectKey ||
       !hydrated.textureAtlas.contentType ||
@@ -410,6 +480,19 @@ export class AreasApplicationService {
     return settings.blobStorage;
   }
 
+  private withAreaListPreviewImageUrls(result: AreaListResult): AreaListResult {
+    return {
+      ...result,
+      items: result.items.map(withAreaPreviewImageUrl)
+    };
+  }
+
+  private withAreaProcessingPreviewImageUrl(
+    area: AreaProcessingResult
+  ): AreaProcessingResult {
+    return withAreaPreviewImageUrl(area);
+  }
+
   private async resolveAreaRecord(areaId: string): Promise<AreaRecord> {
     const area = await this.repository.findById(areaId);
     if (!area) {
@@ -422,6 +505,31 @@ export class AreasApplicationService {
     return area;
   }
 
+}
+
+function buildAreaListCacheKey(query: AreaListQuery): string {
+  return [
+    normalizeAreaListCacheValue(query.query ?? ""),
+    normalizeAreaListCacheValue(query.biome ?? ""),
+    normalizeAreaListCacheValue(query.tag ?? ""),
+    typeof query.benchmark === "boolean" ? String(query.benchmark) : "",
+    String(query.limit),
+    String(query.offset)
+  ].join("|");
+}
+
+function normalizeAreaListCacheValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function trimOldestMapEntries<TKey, TValue>(store: Map<TKey, TValue>, maxEntries: number): void {
+  while (store.size > maxEntries) {
+    const oldestKey = store.keys().next().value;
+    if (typeof oldestKey === "undefined") {
+      return;
+    }
+    store.delete(oldestKey);
+  }
 }
 
 function buildAreaTextureDeliveryPath(cacheKey: string): string {

@@ -36,7 +36,7 @@ export class ProcessingJobsController {
   @Permissions("processing.placeable.run")
   @ApiOperation({
     summary:
-      "Enqueue processing job for placeable/creature/item/area. Intended to evolve into Redis-backed async queue."
+      "Enqueue processing job for placeable/creature/item/area/VFX. Intended to evolve into Redis-backed async queue."
   })
   @ApiResponse({ status: 202, description: "Job was accepted and queued." })
   @ApiResponse({ status: 401, description: "Missing or invalid session." })

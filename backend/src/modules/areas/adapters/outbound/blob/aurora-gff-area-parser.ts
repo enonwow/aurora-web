@@ -52,18 +52,73 @@ export interface ParsedAreaMetadataBlueprint {
   height?: number;
   tileSet?: string;
   tileCount?: number;
+  tiles: ParsedAreaTileBlueprint[];
   soundIds: ParsedAreaSoundIds;
   dependencyFingerprint: string;
 }
 
+export interface ParsedAreaTileBlueprint {
+  index: number;
+  row: number;
+  col: number;
+  tileId?: number;
+  modelResRef?: string;
+  orientation?: number;
+  height?: number;
+}
+
 export interface ParsedAreaPlacementBlueprint {
-  listKind: "placeable" | "door" | "creature" | "item";
+  listKind: "placeable" | "door" | "creature" | "item" | "sound";
   templateResRef?: string;
   tag?: string;
+  appearanceType?: number;
+  genericType?: number;
   x: number;
   y: number;
   z: number;
   bearing: number;
+  soundPositioning?: ParsedAreaSoundPositioningBlueprint;
+  doorTransition?: ParsedAreaDoorTransitionBlueprint;
+}
+
+export interface ParsedAreaDoorTransitionBlueprint {
+  linkedTarget: string;
+  linkedModule: string;
+  linkedTag: string;
+  linkedWaypoint: string;
+  loadScreen: string;
+  flags: Record<string, boolean>;
+  extra: Record<string, string | number | boolean | null>;
+}
+
+export interface ParsedAreaSoundPositioningPreserveBlueprint {
+  timeWindow: string;
+  hourMask: string;
+  active?: boolean;
+  whenToPlay?: "always" | "dayNight" | "hours";
+  dayNight?: "both" | "day" | "night";
+  hoursStart?: number;
+  hoursEnd?: number;
+  playStyle?: "once" | "repeat" | "loop";
+  playOrder?: "sequential" | "random";
+  intervalMs: number;
+  intervalVariationMs: number;
+  volume: number;
+  volumeVariation: number;
+  pitchVariation: number;
+  priority: number;
+  flags: Record<string, boolean>;
+  extra: Record<string, string | number | boolean | null>;
+}
+
+export interface ParsedAreaSoundPositioningBlueprint {
+  mode: "everywhere" | "random" | "specific";
+  elevation: number;
+  maxVolumeDistance: number;
+  cutoffDistance: number;
+  randomRangeWestEast: number;
+  randomRangeNorthSouth: number;
+  preserve: ParsedAreaSoundPositioningPreserveBlueprint;
 }
 
 export interface ParsedAreaObjectBlueprint {
@@ -74,6 +129,7 @@ export interface ParsedAreaObjectBlueprint {
   doors: ParsedAreaPlacementBlueprint[];
   creatures: ParsedAreaPlacementBlueprint[];
   items: ParsedAreaPlacementBlueprint[];
+  sounds: ParsedAreaPlacementBlueprint[];
   dependencyFingerprint: string;
 }
 
@@ -256,7 +312,8 @@ export function parseAreaMetadataFromAreGff(
   const width = readNumberByAliases(view, root, ["width"]);
   const height = readNumberByAliases(view, root, ["height"]);
   const tileSet = readStringByAliases(view, root, ["tileset", "tilesetresref", "tilesetname"]);
-  const tileCount = readListCountByAliases(view, root, ["tilelist"]);
+  const tiles = parseAreaTileList(view, root, width);
+  const tileCount = tiles.length;
 
   const soundIds: ParsedAreaSoundIds = {
     ambientDay: readNumberByAliases(view, root, ["ambientsndday", "ambientsoundday"]),
@@ -275,6 +332,7 @@ export function parseAreaMetadataFromAreGff(
         String(height ?? -1),
         tileSet ?? "",
         String(tileCount ?? -1),
+        ...tiles.map((tile) => stringifyAreaTile(tile)),
         String(soundIds.ambientDay ?? -1),
         String(soundIds.ambientNight ?? -1),
         String(soundIds.musicDay ?? -1),
@@ -294,9 +352,79 @@ export function parseAreaMetadataFromAreGff(
     height,
     tileSet,
     tileCount,
+    tiles,
     soundIds,
     dependencyFingerprint
   };
+}
+
+function parseAreaTileList(
+  view: GffView,
+  root: Map<string, GffFieldRef>,
+  width: number | undefined
+): ParsedAreaTileBlueprint[] {
+  const listField = findFieldByAliases(root, ["tilelist"]);
+  const structIndices = view.readListStructIndices(listField);
+  const gridWidth = Number.isFinite(width ?? Number.NaN) && (width ?? 0) > 0 ? Math.floor(width ?? 0) : 0;
+  return structIndices.map((structIndex, index) => {
+    const fields = view.getStructFields(structIndex);
+    const row = gridWidth > 0 ? Math.floor(index / gridWidth) : 0;
+    const col = gridWidth > 0 ? index % gridWidth : index;
+    const tileId = readNumberByAliases(view, fields, [
+      "tileid",
+      "tile_id",
+      "id",
+      "modelid",
+      "model_id"
+    ]);
+    const orientation = readNumberByAliases(view, fields, [
+      "orientation",
+      "tileorientation",
+      "tile_orientation",
+      "rotation",
+      "rotate"
+    ]);
+    const height = readNumberByAliases(view, fields, [
+      "height",
+      "tileheight",
+      "tile_height",
+      "z",
+      "zposition"
+    ]);
+    const modelResRef = readStringByAliases(view, fields, [
+      "modelresref",
+      "model",
+      "resref",
+      "tileresref",
+      "tile_resref"
+    ]);
+    return {
+      index,
+      row,
+      col,
+      ...(Number.isFinite(tileId ?? Number.NaN) ? { tileId: Math.trunc(tileId ?? 0) } : {}),
+      ...(modelResRef ? { modelResRef } : {}),
+      ...(Number.isFinite(orientation ?? Number.NaN) ? { orientation: normalizeTileOrientation(orientation ?? 0) } : {}),
+      ...(Number.isFinite(height ?? Number.NaN) ? { height: clampNumber(height ?? 0) } : {})
+    };
+  });
+}
+
+function stringifyAreaTile(tile: ParsedAreaTileBlueprint): string {
+  return [
+    tile.index,
+    tile.row,
+    tile.col,
+    tile.tileId ?? "",
+    tile.modelResRef ?? "",
+    tile.orientation ?? "",
+    tile.height ?? ""
+  ].join(":");
+}
+
+function normalizeTileOrientation(value: number): number {
+  const numeric = Math.trunc(value);
+  return ((numeric % 4) + 4) % 4;
 }
 
 export function parseAreaObjectsFromGitGff(
@@ -316,6 +444,7 @@ export function parseAreaObjectsFromGitGff(
   const doors = parsePlacementList(view, root, ["doorlist"], "door");
   const creatures = parsePlacementList(view, root, ["creaturelist"], "creature");
   const items = parsePlacementList(view, root, ["itemlist"], "item");
+  const sounds = parsePlacementList(view, root, ["soundlist"], "sound");
 
   const dependencyFingerprint = createHash("sha256")
     .update(
@@ -323,7 +452,8 @@ export function parseAreaObjectsFromGitGff(
         ...placeables.map((entry) => stringifyPlacement(entry)),
         ...doors.map((entry) => stringifyPlacement(entry)),
         ...creatures.map((entry) => stringifyPlacement(entry)),
-        ...items.map((entry) => stringifyPlacement(entry))
+        ...items.map((entry) => stringifyPlacement(entry)),
+        ...sounds.map((entry) => stringifyPlacement(entry))
       ].join("|")
     )
     .digest("hex");
@@ -336,6 +466,7 @@ export function parseAreaObjectsFromGitGff(
     doors,
     creatures,
     items,
+    sounds,
     dependencyFingerprint
   };
 }
@@ -386,9 +517,21 @@ function parsePlacementList(
     const templateResRef = readStringByAliases(view, fields, [
       "templateresref",
       "resref",
-      "template"
+      "template",
+      "sound",
+      "soundresref"
     ]);
     const tag = readStringByAliases(view, fields, ["tag"]);
+    const appearanceType =
+      kind === "placeable" || kind === "door"
+        ? readIntegerByAliases(view, fields, ["appearance", "appearancetype", "appearanceid"])
+        : undefined;
+    const genericType =
+      kind === "door" ? readIntegerByAliases(view, fields, ["generictype", "genericappearance"]) : undefined;
+    const soundPositioning =
+      kind === "sound" ? parseSoundPositioning(view, fields, clampNumber(z)) : undefined;
+    const doorTransition =
+      kind === "door" ? parseDoorTransition(view, fields) : undefined;
 
     if (!Number.isFinite(x ?? Number.NaN) || !Number.isFinite(y ?? Number.NaN)) {
       continue;
@@ -398,14 +541,175 @@ function parsePlacementList(
       listKind: kind,
       templateResRef,
       tag,
+      ...(appearanceType !== undefined ? { appearanceType } : {}),
+      ...(genericType !== undefined ? { genericType } : {}),
       x: clampNumber(x ?? 0),
       y: clampNumber(y ?? 0),
       z: clampNumber(z),
-      bearing: normalizeBearing(derivedBearing)
+      bearing: normalizeBearing(derivedBearing),
+      ...(soundPositioning ? { soundPositioning } : {}),
+      ...(doorTransition ? { doorTransition } : {})
     });
   }
 
   return placements;
+}
+
+function parseDoorTransition(
+  view: GffView,
+  fields: Map<string, GffFieldRef>
+): ParsedAreaDoorTransitionBlueprint | undefined {
+  const linkedTarget = readStringByAliases(view, fields, ["linkedto"]) ?? "";
+  const linkedModule = readStringByAliases(view, fields, ["linkedtomodule"]) ?? "";
+  const linkedTag =
+    readStringByAliases(view, fields, ["transitiondestination", "transitiondestin"]) ?? "";
+  const linkedWaypoint = readStringByAliases(view, fields, ["linkedwaypoint"]) ?? "";
+  const loadScreenId = readIntegerByAliases(view, fields, ["loadscreenid", "loadscreen"]);
+  const loadScreen =
+    readStringByAliases(view, fields, ["loadscreenid", "loadscreen"]) ??
+    (loadScreenId === undefined ? "" : String(Math.trunc(loadScreenId)));
+  const linkedToFlags = readIntegerByAliases(view, fields, ["linkedtoflags"]);
+  const extra: Record<string, string | number | boolean | null> = {};
+
+  if (linkedToFlags !== undefined) {
+    extra.linkedToFlags = Math.trunc(linkedToFlags);
+  }
+  if (loadScreenId !== undefined) {
+    extra.loadScreenId = Math.trunc(loadScreenId);
+  }
+
+  const hasTransitionPayload =
+    linkedTarget.length > 0 ||
+    linkedModule.length > 0 ||
+    linkedTag.length > 0 ||
+    linkedWaypoint.length > 0 ||
+    loadScreen.length > 0 ||
+    Object.keys(extra).length > 0;
+
+  if (!hasTransitionPayload) {
+    return undefined;
+  }
+
+  return {
+    linkedTarget,
+    linkedModule,
+    linkedTag,
+    linkedWaypoint,
+    loadScreen,
+    flags: {},
+    extra
+  };
+}
+
+function parseSoundPositioning(
+  view: GffView,
+  fields: Map<string, GffFieldRef>,
+  fallbackElevation: number
+): ParsedAreaSoundPositioningBlueprint {
+  const active = readBooleanByAliases(view, fields, ["active"]);
+  const continuous = readBooleanByAliases(view, fields, ["continuous"]);
+  const looping = readBooleanByAliases(view, fields, ["looping"]);
+  const positional = readBooleanByAliases(view, fields, ["positional"]);
+  const randomPosition = readBooleanByAliases(view, fields, ["randomposition"]);
+  const random = readBooleanByAliases(view, fields, ["random"]);
+  const elevation = clampNonNegative(
+    readNumberByAliases(view, fields, ["elevation"]) ?? fallbackElevation
+  );
+  const cutoffDistance = clampNonNegative(
+    readNumberByAliases(view, fields, ["maxdistance"]) ?? 10
+  );
+  const maxVolumeDistance = Math.min(
+    clampNonNegative(readNumberByAliases(view, fields, ["mindistance"]) ?? 1),
+    cutoffDistance
+  );
+  const randomRangeWestEast = clampNonNegative(
+    readNumberByAliases(view, fields, ["randomrangex", "randomxrange"]) ?? 0
+  );
+  const randomRangeNorthSouth = clampNonNegative(
+    readNumberByAliases(view, fields, ["randomrangey", "randomyrange"]) ?? 0
+  );
+  const mode =
+    positional === false
+      ? "everywhere"
+      : randomPosition === true || randomRangeWestEast > 0 || randomRangeNorthSouth > 0
+        ? "random"
+        : "specific";
+  const intervalMs = clampNonNegative(
+    Math.round(readNumberByAliases(view, fields, ["interval"]) ?? 6000)
+  );
+  const intervalVariationMs = Math.min(
+    clampNonNegative(Math.round(readNumberByAliases(view, fields, ["intervalvrtn"]) ?? 0)),
+    intervalMs
+  );
+  const rawVolume = readNumberByAliases(view, fields, ["volume"]);
+  const rawVolumeVariation = readNumberByAliases(view, fields, ["volumevrtn"]);
+  const pitchVariation = clampNonNegative(
+    readNumberByAliases(view, fields, ["pitchvariation"]) ?? 0
+  );
+  const priority = clampNonNegative(
+    Math.round(readNumberByAliases(view, fields, ["priority"]) ?? 0)
+  );
+  const hours = readNumberByAliases(view, fields, ["hours"]);
+  const times = readNumberByAliases(view, fields, ["times"]);
+  const soundList = parseSoundList(view, fields);
+  const flags = compactBooleanFlags({
+    active,
+    continuous,
+    looping,
+    positional,
+    randomPosition,
+    random
+  });
+  const extra: Record<string, string | number | boolean | null> = {};
+  if (soundList.length > 0) {
+    extra.auroraSoundList = soundList.join("\n");
+  }
+  if (hours !== undefined) {
+    extra.auroraHours = clampNumber(hours);
+  }
+  if (times !== undefined) {
+    extra.auroraTimes = clampNumber(times);
+  }
+
+  return {
+    mode,
+    elevation,
+    maxVolumeDistance,
+    cutoffDistance,
+    randomRangeWestEast: mode === "random" ? randomRangeWestEast : 0,
+    randomRangeNorthSouth: mode === "random" ? randomRangeNorthSouth : 0,
+    preserve: {
+      timeWindow: times === undefined ? "" : String(clampNumber(times)),
+      hourMask: hours === undefined ? "" : String(Math.round(hours)),
+      active: active ?? true,
+      whenToPlay: hours === undefined && times === undefined ? "always" : "hours",
+      dayNight: "both",
+      playStyle: looping ? "loop" : continuous ? "repeat" : "once",
+      playOrder: random ? "random" : "sequential",
+      intervalMs,
+      intervalVariationMs,
+      volume: normalizePercentLike(rawVolume, 1),
+      volumeVariation: normalizePercentLike(rawVolumeVariation, 0),
+      pitchVariation,
+      priority,
+      flags,
+      extra
+    }
+  };
+}
+
+function parseSoundList(view: GffView, fields: Map<string, GffFieldRef>): string[] {
+  const listField = findFieldByAliases(fields, ["sounds"]);
+  const structIndices = view.readListStructIndices(listField);
+  const sounds: string[] = [];
+  for (const structIndex of structIndices) {
+    const soundFields = view.getStructFields(structIndex);
+    const sound = readStringByAliases(view, soundFields, ["sound", "resref", "soundresref"]);
+    if (sound) {
+      sounds.push(sound);
+    }
+  }
+  return sounds;
 }
 
 function stringifyPlacement(entry: ParsedAreaPlacementBlueprint): string {
@@ -413,10 +717,14 @@ function stringifyPlacement(entry: ParsedAreaPlacementBlueprint): string {
     entry.listKind,
     entry.templateResRef ?? "",
     entry.tag ?? "",
+    entry.appearanceType ?? "",
+    entry.genericType ?? "",
     entry.x,
     entry.y,
     entry.z,
-    entry.bearing
+    entry.bearing,
+    entry.soundPositioning ? JSON.stringify(entry.soundPositioning) : "",
+    entry.doorTransition ? JSON.stringify(entry.doorTransition) : ""
   ].join("|");
 }
 
@@ -480,6 +788,30 @@ function readNumberByAliases(
     return undefined;
   }
   return value;
+}
+
+function readIntegerByAliases(
+  view: GffView,
+  fields: Map<string, GffFieldRef>,
+  aliases: readonly string[]
+): number | undefined {
+  const value = readNumberByAliases(view, fields, aliases);
+  if (!Number.isFinite(value ?? Number.NaN)) {
+    return undefined;
+  }
+  return Math.trunc(value ?? 0);
+}
+
+function readBooleanByAliases(
+  view: GffView,
+  fields: Map<string, GffFieldRef>,
+  aliases: readonly string[]
+): boolean | undefined {
+  const value = readNumberByAliases(view, fields, aliases);
+  if (value === undefined) {
+    return undefined;
+  }
+  return value !== 0;
 }
 
 function readListCountByAliases(
@@ -706,11 +1038,37 @@ function clampNumber(value: number): number {
   return Number(value.toFixed(4));
 }
 
+function clampNonNegative(value: number): number {
+  return Math.max(0, clampNumber(value));
+}
+
+function normalizePercentLike(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value ?? Number.NaN)) {
+    return fallback;
+  }
+  const numeric = clampNonNegative(value ?? fallback);
+  return numeric > 1 ? Math.min(numeric / 100, 1) : Math.min(numeric, 1);
+}
+
+function compactBooleanFlags(
+  flags: Record<string, boolean | undefined>
+): Record<string, boolean> {
+  const output: Record<string, boolean> = {};
+  Object.entries(flags).forEach(([key, value]) => {
+    if (typeof value === "boolean") {
+      output[key] = value;
+    }
+  });
+  return output;
+}
+
 export const __auroraGffAreaParserInternals = {
   deriveBearingFromOrientation,
   normalizeBearing,
+  normalizeTileOrientation,
   normalizeLabel,
   sanitizeAscii,
   sanitizeUtf8,
-  isRangeWithinBuffer
+  isRangeWithinBuffer,
+  normalizePercentLike
 } as const;

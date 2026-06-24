@@ -3,6 +3,7 @@ export type SoundSpatialMode = "2d" | "3d";
 export type SoundFormat = "wav" | "ogg" | "bmu" | "mp3";
 export type SoundPlaybackMode = "looping" | "continuous" | "random" | "interval";
 export type SoundDeliveryMode = "proxy" | "direct";
+export type SoundSourceLayer = "vanilla" | "hak" | "module" | "other";
 
 export type SoundAreaBindingKey = "GI_sound_area" | "GI_sound_rndm" | "GI_sound_pos";
 export type SoundAreaSourceField =
@@ -85,6 +86,9 @@ export interface SoundListItem {
   previewWaveformUrl: string;
   spatialMode: SoundSpatialMode;
   playbackMode: SoundPlaybackMode;
+  source: {
+    layer: SoundSourceLayer;
+  };
   auroraUsage: SoundAuroraUsageHint;
   metrics: SoundMetrics;
   updatedAt: string;
