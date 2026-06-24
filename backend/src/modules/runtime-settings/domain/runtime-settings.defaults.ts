@@ -28,9 +28,18 @@ export function buildDefaultRuntimeSettings(
     telemetryDebugMode: "full",
     hakProfiles: {
       lc_core: ["lc_core.hak"],
-      lc_models: ["lc_placeables.hak", "lc_creatures.hak"],
-      lc_tiles: ["lc_tiles.hak"],
-      lc_audio: ["lc_sounds.hak"]
+      lc_models: [
+        "lc_2da.hak",
+        "lc_placeable.hak",
+        "lc_placeable_cust.hak",
+        "lc_hd_plcbls.hak",
+        "q_placeables.hak",
+        "cep3_core0.hak",
+        "nwic_placeables.hak"
+      ],
+      lc_tiles: ["medieval.hak"],
+      lc_audio: ["lc_music.hak", "lc_sounds.hak", "npc_sounds.hak"],
+      lc_vfx: ["lc_2da.hak", "lc_vfx.hak", "cep3_vfx.hak"]
     },
     sources: {
       placeable: {
@@ -63,6 +72,14 @@ export function buildDefaultRuntimeSettings(
         includeHaks: true,
         includeVanilla: false,
         hakProfileId: "lc_audio",
+        hakPriorityList: []
+      },
+      vfx: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: true,
+        includeVanilla: true,
+        hakProfileId: "lc_vfx",
         hakPriorityList: []
       }
     },

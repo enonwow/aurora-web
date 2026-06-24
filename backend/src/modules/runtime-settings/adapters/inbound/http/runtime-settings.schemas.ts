@@ -77,6 +77,24 @@ const textureIdParamSchema = z
     message: "Texture id must be a 24-character lowercase hex string."
   });
 
+const vanillaTileModelSourceSyncBodySchema = z
+  .object({
+    modelResRefs: z.array(z.string()).optional()
+  })
+  .transform((input) => ({
+    modelResRefs: normalizeModelResRefs(input.modelResRefs)
+  }));
+
+const placeableModelSourceSyncBodySchema = z
+  .object({
+    appearanceTypes: z.array(z.coerce.number().int().min(0)).optional(),
+    modelResRefs: z.array(z.string()).optional()
+  })
+  .transform((input) => ({
+    appearanceTypes: normalizeAppearanceTypes(input.appearanceTypes),
+    modelResRefs: normalizeModelResRefs(input.modelResRefs)
+  }));
+
 export function parseReplaceRuntimeSettingsRequest(
   input: unknown
 ): RuntimeSettingsPayloadDto {
@@ -188,6 +206,66 @@ export function parseTextureIdParam(input: unknown): string {
       reason: issue.message
     }))
   });
+}
+
+export function parseVanillaTileModelSourceSyncBody(input: unknown): {
+  modelResRefs: string[];
+} {
+  const parsed = vanillaTileModelSourceSyncBodySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Vanilla tile model source sync request validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parsePlaceableModelSourceSyncBody(input: unknown): {
+  appearanceTypes: number[];
+  modelResRefs: string[];
+} {
+  const parsed = placeableModelSourceSyncBodySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Placeable model source sync request validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+function normalizeAppearanceTypes(values: number[] | undefined): number[] {
+  const normalized = new Set<number>();
+  for (const value of values ?? []) {
+    if (Number.isInteger(value) && value >= 0) {
+      normalized.add(value);
+    }
+  }
+  return [...normalized].sort((left, right) => left - right);
+}
+
+function normalizeModelResRefs(values: string[] | undefined): string[] {
+  const normalized = new Set<string>();
+  for (const value of values ?? []) {
+    const resref = value.trim().toLowerCase().replace(/[^a-z0-9_-]+/gu, "_").slice(0, 64);
+    if (resref && resref !== "____" && /[a-z0-9]/u.test(resref)) {
+      normalized.add(resref);
+    }
+  }
+  return [...normalized].sort((left, right) => left.localeCompare(right));
 }
 
 function normalizeTextureIds(input: string | string[] | undefined): string[] {

@@ -82,4 +82,9 @@ export interface ModuleBlobStoragePort {
     settings: BlobStorageSettings,
     key: string
   ): Promise<ModuleBlobObjectPayload | null>;
+
+  putModuleObject?(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile
+  ): Promise<ModuleBlobObjectSummary>;
 }

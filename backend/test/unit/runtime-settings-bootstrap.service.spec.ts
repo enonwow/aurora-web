@@ -57,6 +57,12 @@ describe("RuntimeSettingsBootstrapService", () => {
       settingsRevision: 7,
       triggeredBy: "system.bootstrap",
       triggeredAt: "2026-05-24T08:00:00.000Z",
+      derivedAssets: {
+        generator: "cli",
+        generatedFiles: 0,
+        generatedBytes: 0,
+        skippedReason: "converter_not_configured"
+      },
       textures: {
         uploadedTextureFiles: 2,
         uploadedTextureBytes: 2048,
@@ -97,6 +103,12 @@ describe("RuntimeSettingsBootstrapService", () => {
       settingsRevision: 8,
       triggeredBy: "system.bootstrap",
       triggeredAt: "2026-05-24T08:10:00.000Z",
+      derivedAssets: {
+        generator: "cli",
+        generatedFiles: 0,
+        generatedBytes: 0,
+        skippedReason: "converter_not_configured"
+      },
       textures: {
         uploadedTextureFiles: 2,
         uploadedTextureBytes: 2048,

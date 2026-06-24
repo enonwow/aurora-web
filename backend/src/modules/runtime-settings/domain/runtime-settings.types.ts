@@ -33,6 +33,7 @@ export interface RuntimeSourcesByAsset {
   tile: RuntimeSourceSettings;
   area: RuntimeSourceSettings;
   sound: RuntimeSourceSettings;
+  vfx: RuntimeSourceSettings;
 }
 
 export type RuntimeAssetKind = keyof RuntimeSourcesByAsset;

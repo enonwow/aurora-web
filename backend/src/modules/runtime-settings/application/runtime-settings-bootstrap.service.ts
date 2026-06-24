@@ -1,14 +1,18 @@
 import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { AppConfigService } from "../../../common/config/app-config.service";
 import { RuntimeSettingsApplicationService } from "./runtime-settings.application.service";
 
 @Injectable()
 export class RuntimeSettingsBootstrapService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RuntimeSettingsBootstrapService.name);
 
-  constructor(private readonly settingsService: RuntimeSettingsApplicationService) {}
+  constructor(
+    private readonly settingsService: RuntimeSettingsApplicationService,
+    private readonly config: AppConfigService
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    if (isBootstrapSyncDisabled()) {
+    if (isBootstrapSyncDisabled(this.config)) {
       this.logger.log(
         "Module cache bootstrap sync is disabled for current environment."
       );
@@ -43,7 +47,10 @@ export class RuntimeSettingsBootstrapService implements OnApplicationBootstrap {
   }
 }
 
-function isBootstrapSyncDisabled(): boolean {
+function isBootstrapSyncDisabled(config: AppConfigService): boolean {
+  if (config.hostLocalRuntime) {
+    return true;
+  }
   const raw = process.env.RUNTIME_SETTINGS_BOOTSTRAP_SYNC?.trim().toLowerCase();
   if (raw === "false" || raw === "0" || raw === "off") {
     return true;

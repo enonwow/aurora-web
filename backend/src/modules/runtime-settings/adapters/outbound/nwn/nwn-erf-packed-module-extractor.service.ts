@@ -151,6 +151,76 @@ export class NwnErfPackedModuleExtractorService
   }
 }
 
+export async function readNwnErfResource(
+  modulePackedPath: string,
+  resref: string,
+  resourceType: number
+): Promise<Buffer | null> {
+  const resolvedModulePath = resolveModulePath(modulePackedPath);
+  const fileHandle = await open(resolvedModulePath, "r");
+
+  try {
+    const stats = await fileHandle.stat();
+    if (stats.size < ERF_HEADER_SIZE_BYTES) {
+      return null;
+    }
+
+    const header = await readExact(fileHandle, 0, ERF_HEADER_SIZE_BYTES);
+    const signature = header.toString("ascii", 0, 4);
+    const version = header.toString("ascii", 4, 8);
+    if (!VALID_ERF_SIGNATURES.has(signature)) {
+      return null;
+    }
+    if (version !== "V1.0" && version !== "V1.1") {
+      return null;
+    }
+
+    const keyEntrySize =
+      version === "V1.1" ? ERF_KEY_ENTRY_SIZE_V11 : ERF_KEY_ENTRY_SIZE_V10;
+    const resrefLength =
+      version === "V1.1" ? ERF_RESREF_LENGTH_V11 : ERF_RESREF_LENGTH_V10;
+    const entryCount = header.readUInt32LE(16);
+    const keyListOffset = header.readUInt32LE(24);
+    const resourceListOffset = header.readUInt32LE(28);
+    const keyTableLength = entryCount * keyEntrySize;
+    assertRangeWithinFile(resolvedModulePath, stats.size, keyListOffset, keyTableLength);
+    assertRangeWithinFile(resolvedModulePath, stats.size, resourceListOffset, entryCount * 8);
+
+    const keyTable = await readExact(fileHandle, keyListOffset, keyTableLength);
+    const targetResref = resref.trim().toLowerCase();
+    for (let index = 0; index < entryCount; index += 1) {
+      const keyOffset = index * keyEntrySize;
+      const currentResref = decodeResref(
+        keyTable.subarray(keyOffset, keyOffset + resrefLength)
+      );
+      if (currentResref !== targetResref) {
+        continue;
+      }
+
+      const currentResourceType = keyTable.readUInt16LE(
+        keyOffset + resrefLength + 4
+      );
+      if (currentResourceType !== resourceType) {
+        continue;
+      }
+
+      const resourceEntry = await readExact(
+        fileHandle,
+        resourceListOffset + index * 8,
+        8
+      );
+      const fileOffset = resourceEntry.readUInt32LE(0);
+      const fileSize = resourceEntry.readUInt32LE(4);
+      assertRangeWithinFile(resolvedModulePath, stats.size, fileOffset, fileSize);
+      return readExact(fileHandle, fileOffset, fileSize);
+    }
+
+    return null;
+  } finally {
+    await fileHandle.close();
+  }
+}
+
 async function readExact(
   handle: FileHandle,
   position: number,

@@ -13,6 +13,7 @@ import { ProcessingJobsModule } from "./modules/processing-jobs/processing-jobs.
 import { HealthModule } from "./health/health.module";
 import { TilesModule } from "./modules/tiles/tiles.module";
 import { SoundsModule } from "./modules/sounds/sounds.module";
+import { VfxModule } from "./modules/vfx/vfx.module";
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { SoundsModule } from "./modules/sounds/sounds.module";
     CatalogModule,
     TilesModule,
     SoundsModule,
+    VfxModule,
     AreasModule,
     ProcessingGraphModule,
     ProcessingJobsModule,

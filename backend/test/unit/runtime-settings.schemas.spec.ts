@@ -47,6 +47,39 @@ describe("runtime settings payload schema", () => {
       "Runtime settings validation failed."
     );
   });
+
+  it("accepts a dedicated VFX source policy", () => {
+    const payload = buildPayload();
+    payload.hakProfiles.lc_vfx = ["lc_2da.hak", "lc_vfx.hak", "cep3_vfx.hak"];
+    payload.sources.vfx = {
+      includeModuleTemp0: true,
+      includeModulePacked: false,
+      includeHaks: true,
+      includeVanilla: true,
+      hakProfileId: "lc_vfx",
+      hakPriorityList: []
+    };
+
+    expect(() => parseReplaceRuntimeSettingsRequest(payload)).not.toThrow();
+  });
+
+  it("rejects payload without VFX source policy", () => {
+    const payload = buildPayload();
+    delete (payload.sources as Partial<typeof payload.sources>).vfx;
+
+    expect(() => parseReplaceRuntimeSettingsRequest(payload)).toThrow(
+      "Runtime settings validation failed."
+    );
+  });
+
+  it("rejects VFX source policy when hakProfileId points to unknown profile", () => {
+    const payload = buildPayload();
+    payload.sources.vfx.hakProfileId = "missing_vfx_profile";
+
+    expect(() => parseReplaceRuntimeSettingsRequest(payload)).toThrow(
+      "Runtime settings validation failed."
+    );
+  });
 });
 
 describe("module cache rebuild query schema", () => {

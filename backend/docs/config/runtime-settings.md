@@ -4,8 +4,8 @@
 Backend przechowuje centralne ustawienia runtime dla pipeline eksportu/benchmarku:
 - sciezki NWN (vanilla/hak/module/tlk),
 - konfiguracje blob storage (SeaweedFS S3 API) dla snapshotu zdekompilowanego modulu,
-- profile hakow (`hakProfiles`) do logicznego podzialu list per modele/tiles/sound,
-- polityki zrodel dla assetow (`placeable`, `tile`, `area`, `sound`),
+- profile hakow (`hakProfiles`) do logicznego podzialu list per modele/tiles/sound/VFX,
+- polityki zrodel dla assetow (`placeable`, `tile`, `area`, `sound`, `vfx`),
 - kandydatow benchmarkowych (heavy placeable / VFX / doors).
 
 To jest backendowy odpowiednik ustawien z PoC:
@@ -67,11 +67,16 @@ To jest backendowy odpowiednik ustawien z PoC:
   - manifest hashy jest zapisywany w bucketcie (metadane snapshotu), zeby kolejne uruchomienia nie robily full recache.
 - Walidacja requestu `PUT` wymusza co najmniej jedna sciezke modulu (`moduleDecompiledPath` lub `modulePackedPath`).
 - Walidacja requestu `PUT` sprawdza, czy `sources.<asset>.hakProfileId` wskazuje istniejacy profil w `hakProfiles`.
+- VFX ma dedykowana polityke `sources.vfx`; parsery VFX nie powinny pozyczac po cichu `sources.placeable`.
 - Rozwiazywanie list hakow odbywa sie z priorytetem:
   - `includeHaks=false` -> tryb `disabled`,
   - `hakPriorityList` (inline) -> najwyzszy priorytet,
   - `hakProfileId` -> lista z `hakProfiles`,
   - brak listy i profilu -> tryb `none`.
+- Zalecany profil VFX to `lc_vfx`, np. `lc_2da.hak`, `lc_vfx.hak`, `cep3_vfx.hak`.
+- VFX source trace zapisuje wybrana warstwe zrodla (`module`, `hak`, `vanilla`, `external_fixture`),
+  lower-precedence candidates, hash tabeli/zasobu, revision runtime settings, hash listy HAK oraz
+  provenance dla `lc_vfx.hak` i `cep3_vfx.hak`, gdy sa uzyte.
 - Lokalne sciezki `exports` / `cache` nie sa juz utrzymywane w runtime settings; dane robocze i cache trzymamy w blob storage.
 - W docker-compose domyslny endpoint bloba to `http://seaweedfs:8333` (nazwa uslugi compose).
 
@@ -80,3 +85,34 @@ To jest backendowy odpowiednik ustawien z PoC:
   - uruchamia ten sam flow co endpoint `module-cache/rebuild` w trybie inkrementalnym.
 - `npm run cache:module:sync -- --force-full`
   - wymusza pelny rebuild snapshotu.
+
+## Derived asset converter (MDL -> GLB)
+- `AURORA_DERIVED_ASSET_CONVERTER_COMMAND`
+  - komenda uruchamiana przez backendowy generator derived assets.
+  - dla lokalnego wrappera po buildzie: `node`.
+- `AURORA_DERIVED_ASSET_CONVERTER_ARGS`
+  - JSON array argumentow przekazywanych do komendy.
+  - backend podstawia placeholdery:
+    - `{source}`: tymczasowa sciezka do surowego `.mdl/.mdb`,
+    - `{output}`: docelowa tymczasowa sciezka derived `.glb/.gltf`,
+    - `{resref}`: znormalizowany resref,
+    - `{extension}`: oryginalne rozszerzenie,
+    - `{workDir}`: katalog roboczy konwersji.
+  - przyklad lokalny po `npm run build`:
+    - `["C:/Projects/aurora-web/backend/dist/scripts/aurora-mdl-to-glb.js","--input","{source}","--output","{output}","--resref","{resref}","--extension","{extension}"]`
+  - przyklad dev bez builda, z `command=node`:
+    - `["C:/Projects/aurora-web/backend/node_modules/ts-node/dist/bin.js","--transpile-only","C:/Projects/aurora-web/backend/scripts/aurora-mdl-to-glb.ts","--input","{source}","--output","{output}","--resref","{resref}","--extension","{extension}"]`
+  - w docker-compose backend uzywa wariantu dev z absolutnymi sciezkami `/app/...`.
+- `AURORA_DERIVED_ASSET_OUTPUT_EXTENSION`
+  - rekomendowane: `glb`, bo wrapper emituje self-contained plik binarny bez sidecarow.
+- `AURORA_DERIVED_ASSET_MAX_MODELS`
+  - guard liczby modeli konwertowanych w jednym syncu.
+- `npm run assets:convert:mdl -- --input <model.mdl> --output <model.glb>`
+  - uruchamia lokalny ASCII MDL -> GLB converter bez pelnego sync cache.
+
+Obecny wrapper `scripts/aurora-mdl-to-glb.ts` obsluguje tylko ASCII MDL z wezlem `trimesh`
+(`verts`, `tverts`, `faces`). Binary MDL/MDB jest jawnie odrzucany i wymaga docelowego
+narzedzia/konwertera w kolejnej fazie.
+
+W dev compose bootstrap sync jest wylaczony (`RUNTIME_SETTINGS_BOOTSTRAP_SYNC=false`),
+zeby backend najpierw startowal HTTP, a ciezki rebuild cache byl odpalany jawnie.

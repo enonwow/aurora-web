@@ -44,6 +44,8 @@ export const envSchema = z.object({
   SWAGGER_PATH: z.string().min(1).default("docs"),
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["mysql", "memory"]).default("mysql"),
+  AURORA_HOST_LOCAL_RUNTIME: booleanEnvSchema(false),
+  AURORA_LOCAL_BLOB_MIRROR: z.string().default("../.codex-tmp/module-blob-mirror"),
   REDIS_URL: z.string().min(1).default("redis://redis:6379"),
   PROCESSING_JOBS_REDIS_CHANNEL: z.string().min(1).default("aurora.jobs"),
   PROCESSING_JOBS_REDIS_DEAD_LETTER_CHANNEL: z
@@ -81,7 +83,18 @@ export const envSchema = z.object({
     .string()
     .min(1)
     .default("./config/processing-graph-snapshot.json"),
-  ENABLE_BLOB_ASSET_LOOKUP_IN_TEST: booleanEnvSchema(false)
+  ENABLE_BLOB_ASSET_LOOKUP_IN_TEST: booleanEnvSchema(false),
+  AURORA_DERIVED_ASSET_CONVERTER_COMMAND: z.string().default(""),
+  AURORA_DERIVED_ASSET_CONVERTER_ARGS: z
+    .string()
+    .default("[\"--input\",\"{source}\",\"--output\",\"{output}\"]"),
+  AURORA_DERIVED_ASSET_CONVERTER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30_000),
+  AURORA_DERIVED_ASSET_MAX_MODELS: z.coerce.number().int().positive().default(200),
+  AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: z.enum(["glb", "gltf"]).default("glb")
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

@@ -49,7 +49,19 @@ export class AppConfigService {
   }
 
   get authRepositoryDriver() {
-    return this.env.AUTH_REPOSITORY_DRIVER;
+    return this.hostLocalRuntime ? "memory" : this.env.AUTH_REPOSITORY_DRIVER;
+  }
+
+  get hostLocalRuntime() {
+    return this.env.AURORA_HOST_LOCAL_RUNTIME;
+  }
+
+  get localBlobMirrorPath() {
+    return this.env.AURORA_LOCAL_BLOB_MIRROR;
+  }
+
+  get useMemoryInfrastructure() {
+    return this.isTest || this.hostLocalRuntime;
   }
 
   get redisUrl() {
@@ -130,5 +142,25 @@ export class AppConfigService {
 
   get enableBlobAssetLookupInTest() {
     return this.env.ENABLE_BLOB_ASSET_LOOKUP_IN_TEST;
+  }
+
+  get derivedAssetConverterCommand() {
+    return this.env.AURORA_DERIVED_ASSET_CONVERTER_COMMAND.trim();
+  }
+
+  get derivedAssetConverterArgs() {
+    return this.env.AURORA_DERIVED_ASSET_CONVERTER_ARGS;
+  }
+
+  get derivedAssetConverterTimeoutMs() {
+    return this.env.AURORA_DERIVED_ASSET_CONVERTER_TIMEOUT_MS;
+  }
+
+  get derivedAssetMaxModels() {
+    return this.env.AURORA_DERIVED_ASSET_MAX_MODELS;
+  }
+
+  get derivedAssetOutputExtension() {
+    return this.env.AURORA_DERIVED_ASSET_OUTPUT_EXTENSION;
   }
 }

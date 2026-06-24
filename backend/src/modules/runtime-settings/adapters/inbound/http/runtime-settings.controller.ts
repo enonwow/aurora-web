@@ -26,6 +26,8 @@ import {
   parseTextureDeliveryQuery,
   parseTextureIdParam,
   parseTextureIndexQuery,
+  parsePlaceableModelSourceSyncBody,
+  parseVanillaTileModelSourceSyncBody,
   TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
   TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
 } from "./runtime-settings.schemas";
@@ -243,6 +245,73 @@ export class RuntimeSettingsController extends ProcessingHttpBaseController {
       this.settingsService.rebuildModuleBlobCache(request.auth!.user.username, {
         forceFull: parsed.forceFull
       })
+    );
+  }
+
+  @Post("module-cache/sources/vanilla/tilesets/sync")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync vanilla KEY/BIF tileset SET source objects into the module cache without rebuilding the full module snapshot."
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Vanilla tileset SET source objects were written or the sync was skipped with a concrete reason."
+  })
+  async syncVanillaTilesetSetSources(@Req() request: AppRequest) {
+    return this.success(
+      request,
+      await this.settingsService.syncVanillaTilesetSetSources(request.auth!.user.username)
+    );
+  }
+
+  @Post("module-cache/sources/vanilla/tile-models/sync")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync selected vanilla KEY/BIF tile model source objects into the module cache by model resref."
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Vanilla tile model source objects were written or the sync was skipped with a concrete reason."
+  })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async syncVanillaTileModelSources(
+    @Req() request: AppRequest,
+    @Body() body: unknown
+  ) {
+    const parsed = parseVanillaTileModelSourceSyncBody(body);
+    return this.success(
+      request,
+      await this.settingsService.syncVanillaTileModelSources(
+        request.auth!.user.username,
+        parsed.modelResRefs
+      )
+    );
+  }
+
+  @Post("module-cache/sources/placeable-models/sync")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync selected placeable 2DA/model source objects into the module cache by appearance row or model resref."
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Placeable model source objects were written or the sync was skipped with a concrete reason."
+  })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async syncPlaceableModelSources(
+    @Req() request: AppRequest,
+    @Body() body: unknown
+  ) {
+    const parsed = parsePlaceableModelSourceSyncBody(body);
+    return this.success(
+      request,
+      await this.settingsService.syncPlaceableModelSources(request.auth!.user.username, parsed)
     );
   }
 

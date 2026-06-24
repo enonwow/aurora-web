@@ -377,6 +377,41 @@ describe("S3ModuleBlobStorageService", () => {
     expect(object?.contentType).toBe("application/octet-stream");
   });
 
+  it("serves derived glb assets with a GLTF binary content type", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("__aurora/derived/models/p_gate.glb", "glb-v1")
+    ]);
+
+    const object = await service.getModuleObject(
+      settings,
+      "modules/current/__aurora/derived/models/p_gate.glb"
+    );
+
+    expect(object?.contentType).toBe("model/gltf-binary");
+  });
+
+  it("serves module texture assets with image content types", async () => {
+    await service.replaceModuleSnapshot(settings, [
+      file("textures/p_gate.dds", "dds-v1"),
+      file("textures/p_gate.tga", "tga-v1"),
+      file("textures/p_gate.png", "png-v1"),
+      file("textures/p_gate.webp", "webp-v1")
+    ]);
+
+    await expect(
+      service.getModuleObject(settings, "modules/current/textures/p_gate.dds")
+    ).resolves.toMatchObject({ contentType: "image/vnd-ms.dds" });
+    await expect(
+      service.getModuleObject(settings, "modules/current/textures/p_gate.tga")
+    ).resolves.toMatchObject({ contentType: "image/x-tga" });
+    await expect(
+      service.getModuleObject(settings, "modules/current/textures/p_gate.png")
+    ).resolves.toMatchObject({ contentType: "image/png" });
+    await expect(
+      service.getModuleObject(settings, "modules/current/textures/p_gate.webp")
+    ).resolves.toMatchObject({ contentType: "image/webp" });
+  });
+
   it("returns null for missing module object key", async () => {
     const object = await service.getModuleObject(settings, "modules/current/missing.file");
     expect(object).toBeNull();

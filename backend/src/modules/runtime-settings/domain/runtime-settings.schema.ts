@@ -87,7 +87,8 @@ const runtimeSettingsPayloadObjectSchema = z.object({
     placeable: runtimeSourceSettingsSchema,
     tile: runtimeSourceSettingsSchema,
     area: runtimeSourceSettingsSchema,
-    sound: runtimeSourceSettingsSchema
+    sound: runtimeSourceSettingsSchema,
+    vfx: runtimeSourceSettingsSchema
   }),
   benchmarkCandidates: benchmarkCandidatesSettingsSchema
 });
@@ -114,6 +115,7 @@ function validateRuntimeSettingsCrossFieldRules(
       tile: { hakProfileId: string };
       area: { hakProfileId: string };
       sound: { hakProfileId: string };
+      vfx: { hakProfileId: string };
     };
   },
   context: z.RefinementCtx
@@ -130,7 +132,7 @@ function validateRuntimeSettingsCrossFieldRules(
     });
   }
 
-  const sourceKinds = ["placeable", "tile", "area", "sound"] as const;
+  const sourceKinds = ["placeable", "tile", "area", "sound", "vfx"] as const;
   for (const sourceKind of sourceKinds) {
     const profileId = value.sources[sourceKind].hakProfileId.trim();
     if (profileId.length === 0) {

@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import type {
   ModuleBlobSourceDeltaSummary,
   ModuleBlobSyncSource,
+  ModuleBlobObjectSummary,
   ModuleBlobObjectPayload,
   ModuleBlobSnapshotSummary,
   ModuleBlobStoragePort,
@@ -333,6 +334,36 @@ export class S3ModuleBlobStorageService
       }
       throw error;
     }
+  }
+
+  async putModuleObject(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile
+  ): Promise<ModuleBlobObjectSummary> {
+    const normalizedPrefix = normalizePrefix(settings.modulePrefix);
+    if (!normalizedPrefix) {
+      throw new Error(
+        "blobStorage.modulePrefix cannot be empty when writing module blob object."
+      );
+    }
+
+    const key = `${normalizedPrefix}${normalizeFileName(file.fileName)}`;
+    const bytes = Buffer.from(file.bytes);
+    const client = this.resolveClient(settings);
+    await ensureBucketExists(client, settings.bucket);
+    const response = await client.send(
+      new PutObjectCommand({
+        Bucket: settings.bucket,
+        Key: key,
+        Body: bytes
+      })
+    );
+
+    return {
+      key,
+      size: bytes.length,
+      etag: response.ETag?.replace(/"/gu, "")
+    };
   }
 
   private resolveClient(settings: BlobStorageSettings): S3Client {
@@ -839,6 +870,21 @@ function isMissingObjectError(error: unknown): boolean {
 function inferContentType(fileName: string): string {
   const extension = fileName.split(".").pop()?.toLowerCase();
   switch (extension) {
+    case "glb":
+      return "model/gltf-binary";
+    case "gltf":
+      return "model/gltf+json";
+    case "dds":
+      return "image/vnd-ms.dds";
+    case "tga":
+      return "image/x-tga";
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
     case "txt":
     case "ini":
     case "nss":
