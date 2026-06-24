@@ -34,6 +34,20 @@ caches/
 local-cache/
 runtime-cache/
 .aurora-cache/
+.codex/
+.codex-tmp/
+
+# Local proof and generated Aurora artifacts
+backend/backend/
+backend/docs/aurora-reverse/artifacts/
+backend/docs/aurora-reverse/guard-reports/
+backend/.placeable-render-audit*.json
+backend/tmp_*
+backend/*.bin
+backend/*.glb
+backend/*.mdl
+Sword/
+tmp_*
 
 # Editor/IDE
 .vscode/
