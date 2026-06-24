@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/reference-promotion-record.schema.json",
+  "title": "NWN Skill Reference Promotion Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "feedback_record_id",
+    "proposal_path",
+    "result",
+    "maintainer",
+    "target_references",
+    "evidence_label",
+    "semver",
+    "verification",
+    "release_updates",
+    "follow_up_actions",
+    "non_proof_boundaries",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "feedback_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposal_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result": {
+      "enum": [
+        "accepted",
+        "accepted-with-follow-up",
+        "held",
+        "rejected"
+      ]
+    },
+    "maintainer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence_label": {
+      "enum": [
+        "docs-verified",
+        "runtime-tested",
+        "project-specific",
+        "unverified"
+      ]
+    },
+    "semver": {
+      "enum": [
+        "PATCH",
+        "MINOR",
+        "MAJOR",
+        "NONE"
+      ]
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "proposal_reviewed",
+        "references_patched",
+        "authoring_and_plugin_synced",
+        "privacy_checked",
+        "checks_run",
+        "checks_passed"
+      ],
+      "properties": {
+        "proposal_reviewed": {
+          "type": "boolean"
+        },
+        "references_patched": {
+          "type": "boolean"
+        },
+        "authoring_and_plugin_synced": {
+          "type": "boolean"
+        },
+        "privacy_checked": {
+          "type": "boolean"
+        },
+        "checks_run": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checks_passed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "release_updates": {
+      "type": "object",
+      "required": [
+        "version_manifest_updated",
+        "plugin_manifest_updated",
+        "release_handoff_updated",
+        "source_of_truth_updated",
+        "promoted_record_path"
+      ],
+      "properties": {
+        "version_manifest_updated": {
+          "type": "boolean"
+        },
+        "plugin_manifest_updated": {
+          "type": "boolean"
+        },
+        "release_handoff_updated": {
+          "type": "boolean"
+        },
+        "source_of_truth_updated": {
+          "type": "boolean"
+        },
+        "promoted_record_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "follow_up_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "non_proof_boundaries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "enum": [
+              "accepted",
+              "accepted-with-follow-up"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_label": {
+            "enum": [
+              "docs-verified",
+              "runtime-tested",
+              "project-specific"
+            ]
+          },
+          "semver": {
+            "enum": [
+              "PATCH",
+              "MINOR",
+              "MAJOR"
+            ]
+          },
+          "target_references": {
+            "minItems": 2
+          },
+          "non_proof_boundaries": {
+            "minItems": 1
+          },
+          "verification": {
+            "properties": {
+              "proposal_reviewed": {
+                "const": true
+              },
+              "references_patched": {
+                "const": true
+              },
+              "authoring_and_plugin_synced": {
+                "const": true
+              },
+              "privacy_checked": {
+                "const": true
+              },
+              "checks_run": {
+                "minItems": 1
+              },
+              "checks_passed": {
+                "minItems": 1
+              }
+            }
+          },
+          "release_updates": {
+            "properties": {
+              "version_manifest_updated": {
+                "const": true
+              },
+              "plugin_manifest_updated": {
+                "const": true
+              },
+              "source_of_truth_updated": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "accepted-with-follow-up"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "follow_up_actions": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

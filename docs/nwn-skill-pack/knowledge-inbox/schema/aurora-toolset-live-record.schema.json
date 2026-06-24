@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/aurora-toolset-live-record.schema.json",
+  "title": "Aurora Toolset Live Operator Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "checklist_path",
+    "operator",
+    "environment",
+    "atoms",
+    "overall_result",
+    "promotion"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checklist_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operator": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "toolset_version",
+        "nwn_version",
+        "module_path_or_copy_id",
+        "hak_list",
+        "custom_tlk",
+        "screenshots_folder",
+        "log_folder"
+      ],
+      "properties": {
+        "toolset_version": {
+          "type": "string"
+        },
+        "nwn_version": {
+          "type": "string"
+        },
+        "module_path_or_copy_id": {
+          "type": "string"
+        },
+        "hak_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "custom_tlk": {
+          "type": "string"
+        },
+        "screenshots_folder": {
+          "type": "string"
+        },
+        "log_folder": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "atoms": {
+      "type": "array",
+      "minItems": 17,
+      "items": {
+        "type": "object",
+        "required": [
+          "atom",
+          "status",
+          "evidence_label",
+          "observations",
+          "artifacts",
+          "blockers",
+          "promotion_ready"
+        ],
+        "properties": {
+          "atom": {
+            "enum": [
+              "area.createWithWizard",
+              "area.editProperties",
+              "palette.switchBlueprintSource",
+              "palette.selectObjectFamilyByIcon",
+              "placeable.editBlueprintOrInstance",
+              "inventory.insertItem",
+              "item.editBlueprint",
+              "creature.editBlueprintOrInstance",
+              "door.editBlueprintOrInstance",
+              "door.linkAreaTransition",
+              "trigger.editBlueprintOrInstance",
+              "sound.editPlacedSound",
+              "conversation.editAndTest",
+              "script.createEditSearch",
+              "module.configureEventsAndEntry",
+              "customContent.verify2daHakTlkLoad",
+              "toolset.buildAndClientRun"
+            ]
+          },
+          "status": {
+            "enum": [
+              "not-run",
+              "observed-toolset",
+              "static-checked",
+              "compiled",
+              "runtime-tested",
+              "blocked",
+              "rejected"
+            ]
+          },
+          "evidence_label": {
+            "enum": [
+              "local-reverse-lead",
+              "toolset-observed",
+              "static-checked",
+              "compiled",
+              "runtime-tested",
+              "rejected"
+            ]
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "promotion_ready": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "overall_result": {
+      "enum": [
+        "not-run",
+        "partial",
+        "pass",
+        "blocked",
+        "rejected"
+      ]
+    },
+    "promotion": {
+      "type": "object",
+      "required": [
+        "candidate_references",
+        "requires_reference_promotion_proposal",
+        "notes"
+      ],
+      "properties": {
+        "candidate_references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires_reference_promotion_proposal": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

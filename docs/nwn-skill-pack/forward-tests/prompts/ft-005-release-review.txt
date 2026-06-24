@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to review this proposed NWN:EE server release note: "We added custom races, a crafting NUI, and new forest encounters." Ask what evidence is missing before this can be called release-ready.

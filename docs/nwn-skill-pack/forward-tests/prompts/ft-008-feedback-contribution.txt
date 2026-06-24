@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to turn this NWN:EE server user report into a skill feedback record: "Our crafting NUI broke after relog because the watched bind did not refresh until the player reopened the window." Classify the domain, evidence, status, target reference, and review questions.

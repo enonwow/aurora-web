@@ -1,0 +1,34 @@
+{
+  "schema_version": "1",
+  "id": "20260618T075533Z-nui-feedback-record-smoke-test",
+  "created_at": "2026-06-18T07:55:33+00:00",
+  "domain": "nui",
+  "title": "NUI feedback record smoke test",
+  "summary": "Smoke test record for the skill-pack feedback workflow.",
+  "source_type": "codex-session",
+  "status": "rejected",
+  "nwn_version": "",
+  "server_context": "",
+  "evidence": [
+    "Script smoke test created a structured feedback record."
+  ],
+  "files_or_scripts": [],
+  "runtime_steps": [],
+  "failure_mode": "",
+  "proposed_skill_update": {
+    "file": "references/nui-player-ui.md",
+    "summary": "Use this as a format example, not promoted domain knowledge."
+  },
+  "notes": "Generated during first research loop.",
+  "review": {
+    "reviewed_at": "2026-06-18T11:11:12+00:00",
+    "reviewer": "maintainer-smoke-test",
+    "decision": "reject",
+    "promotion_ready": false,
+    "target_reference": "references/nui-player-ui.md",
+    "required_actions": [
+      "Do not promote smoke-test records as NWN knowledge."
+    ],
+    "notes": "Validation of review command only; not a domain fact."
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Aurora Live Retest Result Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "source_dispatch_path",
+    "dispatch_manifest_path",
+    "source_review_outcome_id",
+    "source_review_outcome_path",
+    "live_record_id",
+    "live_record_path",
+    "evidence_manifest_path",
+    "target_atom",
+    "requested_next_action",
+    "operator",
+    "result",
+    "decision_summary",
+    "passed_atoms",
+    "partial_atoms",
+    "failed_atoms",
+    "blocked_atoms",
+    "returned_artifacts",
+    "artifact_hashes",
+    "checks_run",
+    "checks_passed",
+    "privacy_confirmation",
+    "privacy_findings",
+    "maintainer_verification",
+    "next_actions",
+    "non_proof_boundaries",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "source_dispatch_path": { "type": "string", "minLength": 1 },
+    "dispatch_manifest_path": { "type": "string" },
+    "source_review_outcome_id": { "type": "string", "minLength": 1 },
+    "source_review_outcome_path": { "type": "string", "minLength": 1 },
+    "live_record_id": { "type": "string", "minLength": 1 },
+    "live_record_path": { "type": "string", "minLength": 1 },
+    "evidence_manifest_path": { "type": "string" },
+    "target_atom": { "type": "string", "minLength": 1 },
+    "requested_next_action": { "type": "string" },
+    "operator": {
+      "type": "object",
+      "required": [
+        "handle",
+        "toolset_version",
+        "nwn_ee_version",
+        "environment_summary"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "handle": { "type": "string" },
+        "toolset_version": { "type": "string" },
+        "nwn_ee_version": { "type": "string" },
+        "environment_summary": { "type": "string" }
+      }
+    },
+    "result": {
+      "type": "string",
+      "enum": ["pass", "partial", "fail", "blocked", "not-run"]
+    },
+    "decision_summary": { "type": "string" },
+    "passed_atoms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "partial_atoms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "failed_atoms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "blocked_atoms": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "returned_artifacts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "artifact_hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "checks_run": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "checks_passed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "privacy_confirmation": {
+      "type": "object",
+      "required": ["no_private_data", "quarantine_required", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "no_private_data": { "type": "boolean" },
+        "quarantine_required": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "privacy_findings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "maintainer_verification": {
+      "type": "object",
+      "required": [
+        "dispatch_check",
+        "result_template_check",
+        "records_check",
+        "evidence_manifest_check",
+        "intake_consistency_check",
+        "redaction_policy_check",
+        "visual_redaction_check",
+        "notes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dispatch_check": { "type": "boolean" },
+        "result_template_check": { "type": "boolean" },
+        "records_check": { "type": "boolean" },
+        "evidence_manifest_check": { "type": "boolean" },
+        "intake_consistency_check": { "type": "boolean" },
+        "redaction_policy_check": { "type": "boolean" },
+        "visual_redaction_check": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "non_proof_boundaries": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": { "type": "string" }
+  }
+}

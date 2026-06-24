@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to plan a custom craftable spear line for a NWN:EE server. Include item blueprint naming, loot/crafting integration, possible 2DA/TLK/HAK impacts, scripts needed, packaging, rollback, and verification.

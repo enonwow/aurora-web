@@ -1,0 +1,40 @@
+{
+  "schema_version": "1",
+  "id": "pkg-003-post-workflow-install-marketplace-refresh",
+  "created_at": "2026-06-18T13:45:16+00:00",
+  "record_type": "static-check",
+  "test_id": "PKG-003",
+  "title": "Post-workflow local install and marketplace sandbox refresh",
+  "result": "pass",
+  "tester": "Codex",
+  "context": "After adding human-feedback-release-workflow.md, rebuild repo-local install candidate and marketplace sandbox without mutating the personal Codex marketplace.",
+  "prompt_or_command": "python docs\\\\nwn-skill-pack\\\\tools\\\\build_plugin_install_candidate.py docs\\\\nwn-skill-pack --force --json; python docs\\\\nwn-skill-pack\\\\tools\\\\build_local_marketplace_candidate.py docs\\\\nwn-skill-pack --force --json",
+  "skill_path": "docs/nwn-skill-pack/draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev",
+  "expected_references": [
+    "docs/nwn-skill-pack/package-boundaries.md",
+    "docs/nwn-skill-pack/forward-tests/install-smoke-packet.md",
+    "docs/nwn-skill-pack/human-feedback-release-workflow.md"
+  ],
+  "observed_references": [
+    "docs/nwn-skill-pack/.codex-tmp/install-candidate/nwn-server-gamedev-pack",
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/marketplace.json"
+  ],
+  "evidence_labels": [
+    "static-check"
+  ],
+  "evidence": [
+    "Install candidate builder copied 20 plugin-boundary files; local marketplace sandbox builder produced marketplace.json and plugin root with 20 plugin files. Both builders explicitly state this is not Codex install proof."
+  ],
+  "issues": [],
+  "missing_evidence": [],
+  "artifacts": [
+    "docs/nwn-skill-pack/.codex-tmp/install-candidate/nwn-server-gamedev-pack",
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/marketplace.json"
+  ],
+  "feedback_record_ids": [],
+  "improvement_action": {
+    "needed": false,
+    "summary": ""
+  },
+  "notes": "Static packaging refresh only; install-smoke and trigger behavior remain blocked until INSTALL-001 is executed in a new Codex context."
+}

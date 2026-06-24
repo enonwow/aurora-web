@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/forward-test-record.schema.json",
+  "title": "NWN Skill Forward-Test Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "record_type",
+    "test_id",
+    "title",
+    "result",
+    "prompt_or_command",
+    "skill_path",
+    "evidence",
+    "issues",
+    "missing_evidence",
+    "improvement_action"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_type": {
+      "enum": [
+        "prompt-forward-test",
+        "static-check",
+        "install-smoke-test"
+      ]
+    },
+    "test_id": {
+      "type": "string",
+      "pattern": "^(FT|PKG|INSTALL)-[0-9]{3}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result": {
+      "enum": [
+        "pass",
+        "partial",
+        "fail",
+        "not-run"
+      ]
+    },
+    "tester": {
+      "type": "string"
+    },
+    "context": {
+      "type": "string"
+    },
+    "prompt_or_command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skill_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_references": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "observed_references": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "feedback_record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reviewer_assertions": {
+      "type": "object",
+      "required": [
+        "first_implementable_slice"
+      ],
+      "properties": {
+        "first_implementable_slice": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "install_verification": {
+      "type": "object",
+      "required": [
+        "registered_or_installed",
+        "fresh_context_started",
+        "skill_visible_or_invokable",
+        "expected_references_routed",
+        "runtime_boundary_preserved",
+        "preparation_only"
+      ],
+      "properties": {
+        "registered_or_installed": {
+          "type": "boolean"
+        },
+        "fresh_context_started": {
+          "type": "boolean"
+        },
+        "skill_visible_or_invokable": {
+          "type": "boolean"
+        },
+        "expected_references_routed": {
+          "type": "boolean"
+        },
+        "runtime_boundary_preserved": {
+          "type": "boolean"
+        },
+        "preparation_only": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "improvement_action": {
+      "type": "object",
+      "required": [
+        "needed",
+        "summary"
+      ],
+      "properties": {
+        "needed": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "improvement_action": {
+            "properties": {
+              "needed": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "fail"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "issues": {
+            "minItems": 1
+          },
+          "improvement_action": {
+            "properties": {
+              "needed": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "prompt-forward-test"
+          },
+          "result": {
+            "enum": [
+              "pass",
+              "partial"
+            ]
+          }
+        },
+        "required": [
+          "record_type",
+          "result"
+        ]
+      },
+      "then": {
+        "required": [
+          "reviewer_assertions"
+        ],
+        "properties": {
+          "reviewer_assertions": {
+            "required": [
+              "first_implementable_slice"
+            ],
+            "properties": {
+              "first_implementable_slice": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "install-smoke-test"
+          }
+        },
+        "required": [
+          "record_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "test_id": {
+            "pattern": "^INSTALL-[0-9]{3}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "install-smoke-test"
+          },
+          "result": {
+            "const": "pass"
+          }
+        },
+        "required": [
+          "record_type",
+          "result"
+        ]
+      },
+      "then": {
+        "required": [
+          "install_verification"
+        ],
+        "properties": {
+          "install_verification": {
+            "required": [
+              "registered_or_installed",
+              "fresh_context_started",
+              "skill_visible_or_invokable",
+              "expected_references_routed",
+              "runtime_boundary_preserved",
+              "preparation_only"
+            ],
+            "properties": {
+              "registered_or_installed": {
+                "const": true
+              },
+              "fresh_context_started": {
+                "const": true
+              },
+              "skill_visible_or_invokable": {
+                "const": true
+              },
+              "expected_references_routed": {
+                "const": true
+              },
+              "runtime_boundary_preserved": {
+                "const": true
+              },
+              "preparation_only": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

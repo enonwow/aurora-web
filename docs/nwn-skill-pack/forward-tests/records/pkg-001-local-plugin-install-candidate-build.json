@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "id": "pkg-001-local-plugin-install-candidate-build",
+  "created_at": "2026-06-18T12:44:21+00:00",
+  "record_type": "static-check",
+  "test_id": "PKG-001",
+  "title": "Local plugin install candidate build",
+  "result": "pass",
+  "tester": "Codex heartbeat loop",
+  "context": "Built a clean local plugin root from package-inventory plugin_install_include entries.",
+  "prompt_or_command": "python docs\\nwn-skill-pack\\tools\\build_plugin_install_candidate.py docs\\nwn-skill-pack --force",
+  "skill_path": "docs/nwn-skill-pack/.codex-tmp/install-candidate/nwn-server-gamedev-pack/skills/nwn-server-gamedev",
+  "expected_references": [
+    "package-boundaries.md",
+    "package-inventory.json"
+  ],
+  "observed_references": [
+    "docs/nwn-skill-pack/.codex-tmp/install-candidate/build-manifest.json"
+  ],
+  "evidence_labels": [
+    "static-checked"
+  ],
+  "evidence": [
+    "Builder copied 20 plugin boundary files into docs/nwn-skill-pack/.codex-tmp/install-candidate/nwn-server-gamedev-pack.",
+    "Built candidate passed plugin-creator validate_plugin.py after setting PYTHONPATH to the local PyYAML dependency folder.",
+    "Packaged skill inside the built candidate passed skill-creator quick_validate.py."
+  ],
+  "issues": [],
+  "missing_evidence": [
+    "This record does not prove Codex marketplace installation, trigger behavior, or NWN runtime correctness."
+  ],
+  "artifacts": [
+    "docs/nwn-skill-pack/.codex-tmp/install-candidate/nwn-server-gamedev-pack",
+    "docs/nwn-skill-pack/.codex-tmp/install-candidate/build-manifest.json"
+  ],
+  "feedback_record_ids": [],
+  "improvement_action": {
+    "needed": false,
+    "summary": ""
+  },
+  "notes": "Static build evidence only; INSTALL-001 is still required for actual install smoke."
+}

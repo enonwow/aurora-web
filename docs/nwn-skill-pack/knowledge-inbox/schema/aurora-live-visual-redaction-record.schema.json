@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/aurora-live-visual-redaction-record.schema.json",
+  "title": "Aurora Live Visual Redaction Review Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "live_record_id",
+    "evidence_manifest_path",
+    "reviewer",
+    "result",
+    "artifacts_reviewed",
+    "visual_review",
+    "privacy_findings",
+    "blocked_atoms",
+    "checks_run",
+    "checks_passed",
+    "non_proof_boundaries",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "live_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer": {
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "pass",
+        "hold",
+        "fail",
+        "not-run"
+      ]
+    },
+    "artifacts_reviewed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "atom",
+          "kind",
+          "path_or_external_ref",
+          "redaction_status",
+          "review_result"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "atom": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "screenshot",
+              "log",
+              "saved-module-note",
+              "external-evidence-bundle",
+              "other"
+            ]
+          },
+          "path_or_external_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "reviewed_artifact_sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "external_provenance_note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "external_storage_provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "external_access_checked_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "redaction_status": {
+            "enum": [
+              "redacted",
+              "not-private",
+              "pending-redaction",
+              "blocked"
+            ]
+          },
+          "review_result": {
+            "enum": [
+              "passed",
+              "held",
+              "failed"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "visual_review": {
+      "type": "object",
+      "required": [
+        "all_artifacts_opened",
+        "screenshots_reviewed",
+        "logs_reviewed",
+        "no_private_data_visible",
+        "redaction_irreversible",
+        "hashes_or_external_notes_checked",
+        "raw_reverse_excluded"
+      ],
+      "properties": {
+        "all_artifacts_opened": {
+          "type": "boolean"
+        },
+        "screenshots_reviewed": {
+          "type": "boolean"
+        },
+        "logs_reviewed": {
+          "type": "boolean"
+        },
+        "no_private_data_visible": {
+          "type": "boolean"
+        },
+        "redaction_irreversible": {
+          "type": "boolean"
+        },
+        "hashes_or_external_notes_checked": {
+          "type": "boolean"
+        },
+        "raw_reverse_excluded": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "privacy_findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocked_atoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks_passed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "non_proof_boundaries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reviewer": {
+            "minLength": 1
+          },
+          "artifacts_reviewed": {
+            "minItems": 1
+          },
+          "privacy_findings": {
+            "maxItems": 0
+          },
+          "blocked_atoms": {
+            "maxItems": 0
+          },
+          "checks_run": {
+            "minItems": 1
+          },
+          "checks_passed": {
+            "minItems": 1
+          },
+          "non_proof_boundaries": {
+            "minItems": 1
+          },
+          "visual_review": {
+            "properties": {
+              "all_artifacts_opened": {
+                "const": true
+              },
+              "screenshots_reviewed": {
+                "const": true
+              },
+              "logs_reviewed": {
+                "const": true
+              },
+              "no_private_data_visible": {
+                "const": true
+              },
+              "redaction_irreversible": {
+                "const": true
+              },
+              "hashes_or_external_notes_checked": {
+                "const": true
+              },
+              "raw_reverse_excluded": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

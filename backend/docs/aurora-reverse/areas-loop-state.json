@@ -1,0 +1,506 @@
+{
+    "version":  "aurora-areas-loop-state/v1",
+    "updatedAt":  "2026-06-17T17:09:37.1119817+02:00",
+    "factory":  {
+                    "name":  "Aurora Areas Loop Factory",
+                    "status":  "ACTIVE",
+                    "cadence":  "one-minute-heartbeat",
+                    "auroraFirst":  true,
+                    "visibleChangeFirst":  true,
+                    "newTestsAllowedInCurrentPhase":  false,
+                    "executorAutomationId":  "aurora-areas-implementation-loop"
+                },
+    "contexts":  [
+                     {
+                         "role":  "coordinator",
+                         "name":  "Aurora Areas Coordinator",
+                         "automationId":  "aurora-areas-coordinator",
+                         "threadId":  "019ed47a-2c6c-7301-bec3-154865bc10a4",
+                         "heartbeat":  "FREQ=MINUTELY;INTERVAL=1",
+                         "status":  "ACTIVE",
+                         "reads":  [
+                                       "backend/docs/aurora-reverse/areas-loop-factory.md",
+                                       "backend/docs/aurora-reverse/areas-context-pack.md",
+                                       "backend/docs/aurora-reverse/areas-loop-state.json",
+                                       "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+                                       "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md"
+                                   ],
+                         "writes":  [
+                                        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+                                        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+                                    ]
+                     },
+                     {
+                         "role":  "worker-alpha",
+                         "name":  "Aurora Areas Worker Alpha",
+                         "automationId":  "aurora-areas-worker-alpha",
+                         "threadId":  "019ed47a-8459-79d2-b19b-ee0080f5eebb",
+                         "heartbeat":  "FREQ=MINUTELY;INTERVAL=1",
+                         "status":  "ACTIVE_ASSIGNED_ITERATION_010",
+                         "activeAssignmentId":  "areas-worker-alpha-iteration-010-tile-render-loader-handoff-proof-contract"
+                     },
+                     {
+                         "role":  "worker-beta",
+                         "name":  "Aurora Areas Worker Beta",
+                         "automationId":  "aurora-areas-worker-beta",
+                         "threadId":  "019ed47a-db3f-7081-a3f4-edd2216a8060",
+                         "heartbeat":  "FREQ=MINUTELY;INTERVAL=1",
+                         "status":  "ACTIVE_CHECKPOINTED_ITERATION_010",
+                         "activeAssignmentId":  "areas-worker-beta-iteration-010-doortypes-genericdoors-source-lookup-contract"
+                     },
+                     {
+                         "role":  "independent-audit",
+                         "name":  "Aurora Areas Independent Audit",
+                         "automationId":  "aurora-areas-independent-audit",
+                         "threadId":  "019ed47b-3c1b-7a20-976a-5df23ae60929",
+                         "heartbeat":  "FREQ=MINUTELY;INTERVAL=1",
+                         "status":  "ACTIVE_ASSIGNED_ITERATION_016",
+                         "activeAssignmentId":  "areas-audit-iteration-016-alpha010-beta010-no-wait-loader-door-2da-guard"
+                     }
+                 ],
+    "loopStatus":  "areas_ikea_reuses_normalized_placeable_model_prototypes",
+    "iteration":  88,
+    "activeClaim":  "areas-ikea-reuses-normalized-glb-model-prototypes",
+    "claimStatus":  "completed",
+    "visibleChange":  "Areas now forward source GIT Appearance/GenericType facts into the existing Placeables process contract, backend resolves placeable/door model metadata from source placeables.2da/doortypes.2da/genericdoors.2da lookups, area-instance payload cache keys cannot poison normal Placeables mode, Area actions stay beside the area list, object/placeable adding is no longer buried below the area loader, canvas wheel events stay in the viewport, source GIT world-unit object coordinates are normalized into the same tile-space used by ARE TileList terrain, ARE TileList terrain remains visible as a source-backed tile layout even when some SET model metadata is incomplete, runtime canvas exposes aggregate backend render payload/modelUrl/fallback readiness for source GIT placeables and doors, Area object contracts preserve raw GIT TemplateResRef as resRef while avoiding double placeable prefixes such as plc_plc_*, the frontend HTTP Area adapter preserves resRef instead of dropping it before scene mapping, Areas queue backend render payload requests for placeables/doors with bounded concurrency instead of firing hundreds of process calls at once, the selected Area camera now frames real Aurora TileList plus GIT object bounds instead of relying only on declared width/height, shared Placeables/Door render payloads are now published under each source GIT scene object id so the Area renderer receives the backend payload for the exact placed instance, opening a selected Area now automatically runs backend tile process contract readiness for real SET/ARE modelResRef candidates instead of requiring a separate manual terrain readiness click, the runtime exposes shared Placeables renderer binding evidence both on the canvas container and on each Area object mesh userData, the Runtime HUD now shows Area PLC/DOR shared renderer payload/model/fallback counts directly, the canvas container emits a browser-readable shared renderer runtime snapshot for automated proof, the frontend Tile HTTP adapter now preserves backend sourceAsset/renderAssetContract from tile process results instead of stripping them during parsing, the Area tile process readiness produced from those backend contracts now flows into the canvas runtime/HUD as data-area-tile-process-runtime-* diagnostics and visible Tile process runtime/source/blocker lines, the canvas container emits a browser-readable aurora:areas:tile-process-runtime-snapshot event plus areaTileProcessRuntimeSnapshot JSON carrying real source/MDL/GLB/loader counts and backend blocker summaries, and backend Tiles now bind module-snapshot derived GLB/GLTF files from __aurora/derived/models/\u003cresref\u003e into renderAssetContract.modelAsset with a real /catalog/tiles/cache/:cacheKey/model delivery endpoint; if no derived model exists, the contract reports the expected derived object key instead of a generic loader-missing blocker. Frontend terrain now consumes backend AreaTileProcess renderAssetContract.modelAsset.deliveryUrl through the shared Placeables GLTF loader/cache, creates a terrain-backend-tile-models scene layer positioned at ARE TileList row/col/orientation/height transforms, exposes data-area-terrain-tile-model-* runtime counters, and keeps the bridge mesh only for tiles whose backend model delivery contract is still blocked. The terrain tile model runtime now emits aurora:areas:terrain-tile-model-runtime-snapshot and writes data-area-terrain-tile-model-runtime-* evidence plus scene.userData.auroraTerrainTileModelRuntimeSnapshot, so browser/runtime proof can verify terrain-backend-tile-models loaded/pending/bridge counts without relying on text-only claims. Terrain tile model runtime evidence now separates loaded, pending, failed, and bridge-only tiles; failed shared-GLTF-loader requests write data-area-terrain-tile-model-failed-count, data-area-terrain-tile-model-loader-error-sample, and tile_model_loader_failed blocker details into the browser-readable snapshot instead of leaving Areas stuck as unexplained pending. The Areas canvas now shows a visible loading/blocker overlay for terrain tile model runtime snapshots, keeps terrain blockers visible instead of hiding them when placeable pending queues finish, and shows a non-debug Area PLC/DOR placeholder alert with primitive fallback and missing payload counts so _IKEA-style placeholder scenes are visible as exact renderer blockers. The central Areas loading overlay is now a small neutral spinner with only the loading scope and x/y count, for example Modele kafli Areas 0/4 or Modele PLC/DOR n/m; technical terrain blockers remain in runtime snapshots/HUD instead of covering the scene. The Area PLC/DOR placeholder alert and Runtime HUD now render a compact issue summary with fallback and missing-payload counts instead of dumping every missing object id onto the canvas; full id lists remain available in the browser-readable shared renderer snapshot/dataset. While Areas or PLC/DOR assets are loading, the canvas now disables OrbitControls and marks data-area-canvas-interaction-blocked=asset-loading with the loading source, preventing expensive rotate/pan/zoom interactions until loading clears. The terrain renderer now adds a full scene-dimensions footprint layer named terrain-area-extent-footprint using AreaScene.width/height, and camera framing always includes declared Area dimensions before partial TileList/model coverage, so _IKEA displays the full 16x16 canvas extent instead of only the currently loaded small tile/model fragment.",
+    "auroraSourceUsed":  [
+                             "backend/docs/aurora-reverse/areas-loop-factory.md",
+                             "backend/docs/aurora-reverse/areas-context-pack.md",
+                             "backend/docs/aurora-reverse/areas-loop-state.json",
+                             "backend/docs/aurora-reverse/areas-loop-factory.md",
+                             "backend/src/modules/catalog/domain/template.types.ts",
+                             "backend/src/modules/catalog/adapters/inbound/http/placeables.schemas.ts",
+                             "backend/src/modules/catalog/adapters/inbound/http/placeables.controller.ts",
+                             "backend/src/modules/catalog/application/ports/template-catalog-repository.port.ts",
+                             "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+                             "backend/src/modules/catalog/application/catalog.application.service.ts",
+                             "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
+                             "backend/src/modules/areas/domain/area.types.ts",
+                             "backend/src/modules/areas/domain/area-processing.builders.ts",
+                             "backend/scripts/check-areas-render-contract-loop.mjs",
+                             "frontend/src/modules/areas/contracts.ts",
+                             "frontend/src/modules/areas/adapters/httpAreaApiPort.ts",
+                             "frontend/src/modules/areas/application/areaSceneMapper.ts",
+                             "frontend/src/modules/placeables/contracts.ts",
+                             "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+                             "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+                             "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+                             "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+                             "frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts",
+                             "frontend/src/styles.css",
+                             "backend/src/modules/tiles/domain/tile.types.ts",
+                             "backend/src/modules/tiles/domain/tile-processing.builders.ts",
+                             "backend/src/modules/tiles/application/tiles.application.service.ts",
+                             "backend/src/modules/tiles/adapters/inbound/http/tiles.controller.ts",
+                             "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+                             "frontend/src/modules/tiles/contracts.ts",
+                             "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+                             "frontend/src/modules/tiles/adapters/httpTileApiPort.ts"
+                         ],
+    "hypothesisTested":  "_IKEA still had a frontend render bottleneck after backend process and asset-contract batching because repeated GIT instances cloned raw GLB models and re-ran bounding-box normalization per object. To reach the 60 second target, Areas needs to reuse Placeables-mode model presentations by normalized render facts and avoid disposing shared cached geometry while rebuilding the object layer.",
+    "disproofResult":  "Not disproven by frontend typecheck or the executable areas render contract loop gate. The Placeables GLTF loader now builds normalized model cache keys from model URL, objectRadius, and target max-axis factor, stores one normalized prototype per key, returns cloned normalized presentations to Areas, and marks shared GLB geometry so object-layer cleanup does not dispose cached geometry between _IKEA scene rebuilds.",
+    "commandsRun":  [
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after UX gate expansion)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after UX changes)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run build (frontend)",
+                            "result":  "passed with existing Vite large chunk warning"
+                        },
+                        {
+                            "command":  "npm.cmd run build (backend)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after GIT coordinate contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after GIT coordinate contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after source-backed tile layout visibility)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after source-backed tile layout visibility)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after backend render contract readiness diagnostics)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after backend render contract readiness diagnostics)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after raw GIT resRef preservation)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after raw GIT resRef preservation)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after raw GIT resRef preservation)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after Area HTTP resRef preservation)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after Area HTTP resRef preservation)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after queued Area render payload requests)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after queued Area render payload requests)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after selected Area camera frame bounds)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after selected Area camera frame bounds)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after Area payload object-id binding)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after Area payload object-id binding)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after automatic tile process readiness on Area open)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after automatic tile process readiness on Area open)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after shared renderer runtime evidence)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after shared renderer runtime evidence)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after Runtime HUD shared renderer evidence)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after Runtime HUD shared renderer evidence)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after browser-readable shared renderer snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after browser-readable shared renderer snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after tile process render asset contract parser)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile process render asset contract parser)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after tile process readiness flows to canvas runtime)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile process readiness flows to canvas runtime)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after tile process runtime snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile process runtime snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after tile model loader delivery contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after tile model loader delivery contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile model loader delivery contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after terrain consumes backend tile model delivery contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after terrain consumes backend tile model delivery contract)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after terrain tile model runtime snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after terrain tile model runtime snapshot)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after exact terrain tile model loader failure reporting)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after exact terrain tile model loader failure reporting)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "node --check scripts/capture-areas-runtime-cdp.mjs (backend Areas runtime capture syntax)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:runtime-capture -- --help (backend Areas runtime capture command exposure)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after Areas loading/blocker overlays)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after Areas loading/blocker overlays)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after simple Areas loading overlay)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after simple Areas loading overlay)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after compact Area PLC/DOR placeholder alert)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after compact Area PLC/DOR placeholder alert)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after disabling canvas orbit during Areas asset loading)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after disabling canvas orbit during Areas asset loading)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after full Area extent footprint)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after full Area extent footprint)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after tile texture/material runtime blockers)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile texture/material runtime blockers)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after targeted vanilla tile model derived asset sync)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after targeted vanilla tile model derived asset sync)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after tile process bypass snapshot refresh)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after Area tile readiness bypasses stale tile cache)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after tile process bypass snapshot refresh)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after debounced tile snapshot refresh)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after debounced tile snapshot refresh)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after missing vanilla tile model source auto-sync)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after missing vanilla tile model source auto-sync)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after preserving backend tile process failure blockers)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after preserving backend tile process failure blockers)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after capping mass Areas primitive fallback rendering)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "node --check scripts/capture-areas-runtime-cdp.mjs (backend Areas runtime capture syntax after ikea target support)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:runtime-capture -- --help (backend Areas runtime capture command exposure after ikea target support)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after capping mass Areas primitive fallback rendering)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after _IKEA Area render payload row-key dedupe)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after _IKEA Area render payload row-key dedupe)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after _IKEA Placeables render payload batch endpoint)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after _IKEA Areas render payload batch fast path)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after _IKEA Areas render payload batch fast path)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.json --pretty false --noEmit (backend after _IKEA asset contract batch endpoint)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after _IKEA asset contract batch fast path)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after _IKEA asset contract batch fast path)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npx.cmd tsc -p tsconfig.app.json --pretty false --noEmit (frontend after _IKEA normalized placeable model prototype cache)",
+                            "result":  "passed"
+                        },
+                        {
+                            "command":  "npm.cmd run areas:contract-gate (backend after _IKEA normalized placeable model prototype cache)",
+                            "result":  "passed"
+                        }
+                    ],
+    "filesChanged":  [
+                         "backend/src/modules/catalog/domain/template.types.ts",
+                         "backend/src/modules/catalog/adapters/inbound/http/placeables.schemas.ts",
+                         "backend/src/modules/catalog/adapters/inbound/http/placeables.controller.ts",
+                         "backend/src/modules/catalog/application/ports/template-catalog-repository.port.ts",
+                         "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+                         "backend/src/modules/catalog/application/catalog.application.service.ts",
+                         "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
+                         "backend/src/modules/areas/domain/area.types.ts",
+                         "backend/src/modules/areas/domain/area-processing.builders.ts",
+                         "backend/scripts/check-areas-render-contract-loop.mjs",
+                         "backend/src/modules/runtime-settings/runtime-settings.module.ts",
+                         "backend/src/modules/runtime-settings/application/runtime-settings.application.service.ts",
+                         "backend/src/modules/tiles/application/ports/tile-repository.port.ts",
+                         "backend/src/modules/tiles/application/tiles.application.service.ts",
+                         "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+                         "frontend/src/modules/areas/contracts.ts",
+                         "frontend/src/modules/areas/adapters/httpAreaApiPort.ts",
+                         "frontend/src/modules/areas/application/areaSceneMapper.ts",
+                         "backend/package.json",
+                         "frontend/src/modules/placeables/contracts.ts",
+                         "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+                         "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+                         "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+                         "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+                         "frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts",
+                         "frontend/src/modules/layout/adapters/three/workspaceObjectLayerDisposal.ts",
+                         "frontend/src/modules/tiles/adapters/httpTileApiPort.ts",
+                         "frontend/src/modules/tiles/contracts.ts",
+                         "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+                         "backend/src/modules/tiles/domain/tile.types.ts",
+                         "backend/src/modules/tiles/domain/tile-processing.builders.ts",
+                         "backend/src/modules/tiles/application/tiles.application.service.ts",
+                         "backend/src/modules/tiles/adapters/inbound/http/tiles.controller.ts",
+                         "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+                         "frontend/src/styles.css",
+                         "backend/docs/aurora-reverse/areas-loop-factory.md",
+                         "backend/docs/aurora-reverse/areas-loop-state.json",
+                         "frontend/src/modules/placeables/application/placeableRenderAssetResolver.ts",
+                         "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
+                         "frontend/src/modules/placeables/ports/placeableApiPort.ts",
+                         "frontend/src/modules/placeables/adapters/httpPlaceableApiPort.ts",
+                         "frontend/src/modules/placeables/application/placeableRenderPayloadResolver.ts",
+                         "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
+                         "backend/scripts/capture-areas-runtime-cdp.mjs"
+                     ],
+    "blockers":  [
+                     "browser_visual_verification_not_captured_in_this_slice",
+                     "ikea_60_second_runtime_capture_not_verified_after_normalized_model_cache",
+                     "tile_model_glb_geometry_missing_when_module_snapshot_has_no_derived_glb",
+                     "door_transition_runtime_execution_not_implemented",
+                     "door_dwk_wok_walkmesh_behavior_not_implemented",
+                     "full_retail_aurora_parity_not_proven",
+                     "terrain_tile_material_binding_contract_not_applied_to_loaded_models",
+                     "ikea_runtime_still_missing_real_tile_and_placeables_mode_model_payloads"
+                 ],
+    "nextStep":  "Continue with actual _IKEA asset delivery, not placeholder UX: run a live _IKEA runtime capture when backend/frontend are healthy, measure total open-to-settled time against the 60 second target, and use the shared renderer plus terrain tile runtime snapshots to fix remaining real model/texture/tile blockers instead of adding placeholders.",
+    "resumeInstruction":  "Resume from the active areas render contract loop gate. Aurora First, visible changes first, no new tests, no prompt-only/doc-only checkpoints, no POC code transplant, no UI-only fallback acceptance, no invented 2DA rows/models/assets/animations/browser proof/retail parity. Run npm.cmd run areas:contract-gate from backend before accepting any implementation checkpoint."
+}
