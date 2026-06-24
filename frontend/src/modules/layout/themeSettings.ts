@@ -1,4 +1,5 @@
 export type LayoutThemeId =
+  | "aurora-toolset-classic"
   | "aurora-deep-blue"
   | "obsidian-slate"
   | "dawn-steel"
@@ -11,9 +12,10 @@ export interface LayoutThemeOption {
 
 export const LAYOUT_THEME_STORAGE_KEY = "aurora_web.layout_theme";
 
-export const DEFAULT_LAYOUT_THEME: LayoutThemeId = "aurora-deep-blue";
+export const DEFAULT_LAYOUT_THEME: LayoutThemeId = "aurora-toolset-classic";
 
 export const LAYOUT_THEME_OPTIONS: LayoutThemeOption[] = [
+  { id: "aurora-toolset-classic", label: "Aurora Toolset Classic" },
   { id: "aurora-deep-blue", label: "Aurora Deep Blue" },
   { id: "obsidian-slate", label: "Obsidian Slate" },
   { id: "dawn-steel", label: "Dawn Steel" },

@@ -15,12 +15,14 @@ import {
   type WorkspaceOptionSettings
 } from "../application/layoutPreferencesFacade";
 import type { WorkspaceTopbarActionStateFacade } from "../application/workspaceTopbarActionStateFacade";
+import type { WorkspaceModeId } from "../workspaceModes";
 
 interface WorkspaceTopbarProps {
   isAuthenticated: boolean;
   role?: WorkspaceUserRole;
   workspaceChromeFacade: WorkspaceChromeFacade;
   workspaceTopbarActionStateFacade: WorkspaceTopbarActionStateFacade;
+  workspaceModeId?: WorkspaceModeId;
   toolbarState: WorkspaceToolbarState;
   layoutTheme: LayoutThemeId;
   onLayoutThemeChange: (theme: LayoutThemeId) => void;
@@ -107,11 +109,41 @@ const CANVAS_TEXTURE_OPTIONS: Array<{
   { value: "uastc", label: "UASTC", actionKey: "debug_texture_compression_uastc" }
 ];
 
+const EMPTY_TOOLBAR_GROUPS: ToolbarGroup[] = [];
+
+function filterToolbarGroupsForWorkspaceMode(
+  groups: ToolbarGroup[],
+  isAreasMode: boolean
+): ToolbarGroup[] {
+  return groups
+    .map((group) => {
+      const actions = group.actions.filter((action) => {
+        if (action.key === "fit_area_view") {
+          return isAreasMode;
+        }
+        if (action.key === "reorient_camera") {
+          return !isAreasMode;
+        }
+        return true;
+      });
+      return { ...group, actions };
+    })
+    .filter((group) => group.actions.length > 0);
+}
+
+function filterQuickActionsForWorkspaceMode(
+  actions: ToolbarAction[],
+  isAreasMode: boolean
+): ToolbarAction[] {
+  return actions.filter((action) => action.key !== "fit_area_view" || isAreasMode);
+}
+
 export function WorkspaceTopbar({
   isAuthenticated,
   role,
   workspaceChromeFacade,
   workspaceTopbarActionStateFacade,
+  workspaceModeId,
   toolbarState,
   layoutTheme,
   onLayoutThemeChange,
@@ -122,10 +154,25 @@ export function WorkspaceTopbar({
   onToggleDebug,
   onSignOut
 }: WorkspaceTopbarProps) {
-  const sectionGroups =
-    isAuthenticated && role ? workspaceChromeFacade.getRoleToolbarGroups(role) : [];
-  const quickActions =
+  const isAreasMode = workspaceModeId === undefined || workspaceModeId === "areas_mode";
+  const isPlaceablesMode = workspaceModeId === "placeables_mode";
+  const roleToolbarGroups =
+    isAuthenticated && role
+      ? workspaceChromeFacade.getRoleToolbarGroups(role)
+      : EMPTY_TOOLBAR_GROUPS;
+  const sectionGroups = useMemo(
+    () =>
+      isPlaceablesMode
+        ? EMPTY_TOOLBAR_GROUPS
+        : filterToolbarGroupsForWorkspaceMode(roleToolbarGroups, isAreasMode),
+    [isAreasMode, isPlaceablesMode, roleToolbarGroups]
+  );
+  const roleQuickActions =
     isAuthenticated && role ? workspaceChromeFacade.getRoleQuickActions(role) : [];
+  const quickActions = useMemo(
+    () => filterQuickActionsForWorkspaceMode(roleQuickActions, isAreasMode),
+    [isAreasMode, roleQuickActions]
+  );
   const baseShortcuts =
     isAuthenticated && role ? workspaceChromeFacade.getRoleKeyboardShortcuts(role) : [];
   const shortcuts = useMemo(() => {
@@ -138,11 +185,23 @@ export function WorkspaceTopbar({
         group.actions.filter((action) => action.supported).map((action) => action.key)
       )
     );
+    const viewportShortcuts: KeyboardShortcut[] = [
+      { key: "MMB", description: "Rotate camera." },
+      { key: "Ctrl + RMB", description: "Pan camera." },
+      { key: "Wheel", description: "Zoom camera." }
+    ];
+    if (isPlaceablesMode) {
+      return [
+        ...baseShortcuts.filter((shortcut) => shortcut.key === "?" || shortcut.key === "Esc"),
+        ...viewportShortcuts
+      ];
+    }
+
     const hasGizmoVtRotate = supportedActionKeys.has("canvas_gizmo_vt_rotate");
     const hasGizmoVtTranslate = supportedActionKeys.has("canvas_gizmo_vt_translate");
     const hasGizmoVtScale = supportedActionKeys.has("canvas_gizmo_vt_scale");
 
-    const viewportShortcuts: KeyboardShortcut[] = [
+    const editorViewportShortcuts: KeyboardShortcut[] = [
       { key: "MMB", description: "Rotate camera." },
       { key: "Ctrl + RMB", description: "Pan camera." },
       { key: "RMB on object", description: "Open object context menu." },
@@ -188,10 +247,10 @@ export function WorkspaceTopbar({
 
     return [
       ...baseShortcuts,
-      ...viewportShortcuts,
+      ...editorViewportShortcuts,
       ...canvasWorkflowShortcuts
     ];
-  }, [baseShortcuts, isAuthenticated, role, sectionGroups]);
+  }, [baseShortcuts, isAuthenticated, isPlaceablesMode, role, sectionGroups]);
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(
     resolveInitialGroup(sectionGroups)
   );
@@ -209,7 +268,7 @@ export function WorkspaceTopbar({
     setIsShortcutsOpen(false);
     setIsQuickOptionsOpen(false);
     setIsLayoutOptionsExpanded(true);
-  }, [role, isAuthenticated, sectionGroups.length]);
+  }, [role, isAuthenticated, isPlaceablesMode, sectionGroups.length]);
 
   const activeGroup = useMemo(() => {
     if (!activeGroupKey) {
@@ -265,6 +324,12 @@ export function WorkspaceTopbar({
     const hasGizmoVtRotate = supportedActionKeys.has("canvas_gizmo_vt_rotate");
     const hasGizmoVtTranslate = supportedActionKeys.has("canvas_gizmo_vt_translate");
     const hasGizmoVtScale = supportedActionKeys.has("canvas_gizmo_vt_scale");
+    const hasFitAreaView =
+      supportedActionKeys.has("fit_area_view") ||
+      quickActions.some(
+        (action) => action.key === "fit_area_view" && action.supported
+      );
+    const hasReorientCamera = supportedActionKeys.has("reorient_camera");
 
     const handleKeyboardShortcuts = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
@@ -339,6 +404,12 @@ export function WorkspaceTopbar({
       ) {
         event.preventDefault();
         onAction("redo");
+        return;
+      }
+
+      if (isMeta && lowerKey === "r" && (hasFitAreaView || hasReorientCamera)) {
+        event.preventDefault();
+        onAction(hasFitAreaView ? "fit_area_view" : "reorient_camera");
         return;
       }
 
@@ -471,6 +542,7 @@ export function WorkspaceTopbar({
           {renderCanvasActionButton("select_radius", "In Radius")}
           {renderCanvasActionButton("copy_selected_objects", "Copy Sel")}
           {renderCanvasActionButton("delete_selected_objects", "Delete Sel")}
+          {renderCanvasActionButton("fit_area_view", "Fit Area")}
           {renderCanvasActionButton("camera_bookmark_save_1", "Save #1")}
           {renderCanvasActionButton("camera_bookmark_load_1", "Load #1")}
         </div>
@@ -651,11 +723,20 @@ export function WorkspaceTopbar({
               className="topbar-btn"
               type="button"
               onClick={() => setIsShortcutsOpen(true)}
+              aria-label="Open keyboard shortcuts"
+              title="Keyboard shortcuts"
             >
               Shortcuts
             </button>
-            <button className="topbar-btn" type="button" onClick={onToggleDebug}>
-              {showDebugPanel ? "Hide debug panel" : "Show debug panel"}
+            <button
+              className="topbar-btn"
+              type="button"
+              onClick={onToggleDebug}
+              aria-label={showDebugPanel ? "Hide debug panel" : "Show debug panel"}
+              aria-pressed={showDebugPanel}
+              title={showDebugPanel ? "Hide debug panel" : "Show debug panel"}
+            >
+              {showDebugPanel ? "Hide Debug" : "Debug"}
             </button>
             <button
               className="topbar-btn"
@@ -745,193 +826,197 @@ export function WorkspaceTopbar({
               </div>
             </details>
 
-            <details className="topbar-options-section" open role="group" aria-label="Viewport controls">
-              <summary className="topbar-options-summary">
-                <span>Viewport</span>
-              </summary>
-              <div className="topbar-options-content">
-                <label className="topbar-options-label" htmlFor="camera-rotate-speed">
-                  Camera rotate speed
-                </label>
-                <input
-                  id="camera-rotate-speed"
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="4"
-                  className="topbar-options-select"
-                  value={workspaceOptions.cameraRotateSpeed}
-                  onChange={(event) => updateNumberOption("cameraRotateSpeed", event.target.value)}
-                />
+            {!isPlaceablesMode ? (
+              <>
+                <details className="topbar-options-section" open role="group" aria-label="Viewport controls">
+                  <summary className="topbar-options-summary">
+                    <span>Viewport</span>
+                  </summary>
+                  <div className="topbar-options-content">
+                    <label className="topbar-options-label" htmlFor="camera-rotate-speed">
+                      Camera rotate speed
+                    </label>
+                    <input
+                      id="camera-rotate-speed"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="4"
+                      className="topbar-options-select"
+                      value={workspaceOptions.cameraRotateSpeed}
+                      onChange={(event) => updateNumberOption("cameraRotateSpeed", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="camera-zoom-speed">
-                  Camera zoom speed
-                </label>
-                <input
-                  id="camera-zoom-speed"
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="4"
-                  className="topbar-options-select"
-                  value={workspaceOptions.cameraZoomSpeed}
-                  onChange={(event) => updateNumberOption("cameraZoomSpeed", event.target.value)}
-                />
+                    <label className="topbar-options-label" htmlFor="camera-zoom-speed">
+                      Camera zoom speed
+                    </label>
+                    <input
+                      id="camera-zoom-speed"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="4"
+                      className="topbar-options-select"
+                      value={workspaceOptions.cameraZoomSpeed}
+                      onChange={(event) => updateNumberOption("cameraZoomSpeed", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="camera-pan-speed">
-                  Camera pan speed
-                </label>
-                <input
-                  id="camera-pan-speed"
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="4"
-                  className="topbar-options-select"
-                  value={workspaceOptions.cameraPanSpeed}
-                  onChange={(event) => updateNumberOption("cameraPanSpeed", event.target.value)}
-                />
+                    <label className="topbar-options-label" htmlFor="camera-pan-speed">
+                      Camera pan speed
+                    </label>
+                    <input
+                      id="camera-pan-speed"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="4"
+                      className="topbar-options-select"
+                      value={workspaceOptions.cameraPanSpeed}
+                      onChange={(event) => updateNumberOption("cameraPanSpeed", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="camera-damping-factor">
-                  Camera damping
-                </label>
-                <input
-                  id="camera-damping-factor"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max="0.35"
-                  className="topbar-options-select"
-                  value={workspaceOptions.cameraDampingFactor}
-                  onChange={(event) => updateNumberOption("cameraDampingFactor", event.target.value)}
-                />
-              </div>
-            </details>
+                    <label className="topbar-options-label" htmlFor="camera-damping-factor">
+                      Camera damping
+                    </label>
+                    <input
+                      id="camera-damping-factor"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="0.35"
+                      className="topbar-options-select"
+                      value={workspaceOptions.cameraDampingFactor}
+                      onChange={(event) => updateNumberOption("cameraDampingFactor", event.target.value)}
+                    />
+                  </div>
+                </details>
 
-            <details className="topbar-options-section" open role="group" aria-label="Snap and selection">
-              <summary className="topbar-options-summary">
-                <span>Snap & Selection</span>
-              </summary>
-              <div className="topbar-options-content">
-                <label className="topbar-options-label" htmlFor="snap-grid-step">
-                  Grid step
-                </label>
-                <input
-                  id="snap-grid-step"
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="8"
-                  className="topbar-options-select"
-                  value={workspaceOptions.snapGridStep}
-                  onChange={(event) => updateNumberOption("snapGridStep", event.target.value)}
-                />
+                <details className="topbar-options-section" open role="group" aria-label="Snap and selection">
+                  <summary className="topbar-options-summary">
+                    <span>Snap & Selection</span>
+                  </summary>
+                  <div className="topbar-options-content">
+                    <label className="topbar-options-label" htmlFor="snap-grid-step">
+                      Grid step
+                    </label>
+                    <input
+                      id="snap-grid-step"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="8"
+                      className="topbar-options-select"
+                      value={workspaceOptions.snapGridStep}
+                      onChange={(event) => updateNumberOption("snapGridStep", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="snap-angle-step">
-                  Angle step
-                </label>
-                <input
-                  id="snap-angle-step"
-                  type="number"
-                  step="1"
-                  min="1"
-                  max="180"
-                  className="topbar-options-select"
-                  value={workspaceOptions.snapAngleStepDeg}
-                  onChange={(event) => updateNumberOption("snapAngleStepDeg", event.target.value)}
-                />
+                    <label className="topbar-options-label" htmlFor="snap-angle-step">
+                      Angle step
+                    </label>
+                    <input
+                      id="snap-angle-step"
+                      type="number"
+                      step="1"
+                      min="1"
+                      max="180"
+                      className="topbar-options-select"
+                      value={workspaceOptions.snapAngleStepDeg}
+                      onChange={(event) => updateNumberOption("snapAngleStepDeg", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="snap-height-step">
-                  Height step
-                </label>
-                <input
-                  id="snap-height-step"
-                  type="number"
-                  step="0.05"
-                  min="0.05"
-                  max="8"
-                  className="topbar-options-select"
-                  value={workspaceOptions.snapHeightStep}
-                  onChange={(event) => updateNumberOption("snapHeightStep", event.target.value)}
-                />
+                    <label className="topbar-options-label" htmlFor="snap-height-step">
+                      Height step
+                    </label>
+                    <input
+                      id="snap-height-step"
+                      type="number"
+                      step="0.05"
+                      min="0.05"
+                      max="8"
+                      className="topbar-options-select"
+                      value={workspaceOptions.snapHeightStep}
+                      onChange={(event) => updateNumberOption("snapHeightStep", event.target.value)}
+                    />
 
-                <label className="topbar-options-label" htmlFor="selection-box-mode">
-                  Selection box mode
-                </label>
-                <select
-                  id="selection-box-mode"
-                  className="topbar-options-select"
-                  value={workspaceOptions.selectionBoxMode}
-                  onChange={(event) =>
-                    onWorkspaceOptionsChange({
-                      selectionBoxMode: event.target.value as SelectionBoxMode
-                    })
-                  }
-                >
-                  <option value="replace">replace</option>
-                  <option value="add">add</option>
-                  <option value="subtract">subtract</option>
-                  <option value="intersect">intersect</option>
-                </select>
+                    <label className="topbar-options-label" htmlFor="selection-box-mode">
+                      Selection box mode
+                    </label>
+                    <select
+                      id="selection-box-mode"
+                      className="topbar-options-select"
+                      value={workspaceOptions.selectionBoxMode}
+                      onChange={(event) =>
+                        onWorkspaceOptionsChange({
+                          selectionBoxMode: event.target.value as SelectionBoxMode
+                        })
+                      }
+                    >
+                      <option value="replace">replace</option>
+                      <option value="add">add</option>
+                      <option value="subtract">subtract</option>
+                      <option value="intersect">intersect</option>
+                    </select>
 
-                <label className="topbar-options-checkbox" htmlFor="show-per-object-gizmo-hints">
-                  <input
-                    id="show-per-object-gizmo-hints"
-                    type="checkbox"
-                    checked={workspaceOptions.showPerObjectGizmoHints}
-                    onChange={(event) =>
-                      onWorkspaceOptionsChange({
-                        showPerObjectGizmoHints: event.target.checked
-                      })
-                    }
-                  />
-                  Show per-object gizmo hints (multi-select)
-                </label>
+                    <label className="topbar-options-checkbox" htmlFor="show-per-object-gizmo-hints">
+                      <input
+                        id="show-per-object-gizmo-hints"
+                        type="checkbox"
+                        checked={workspaceOptions.showPerObjectGizmoHints}
+                        onChange={(event) =>
+                          onWorkspaceOptionsChange({
+                            showPerObjectGizmoHints: event.target.checked
+                          })
+                        }
+                      />
+                      Show per-object gizmo hints (multi-select)
+                    </label>
 
-                <label className="topbar-options-checkbox" htmlFor="show-tile-grid-overlay">
-                  <input
-                    id="show-tile-grid-overlay"
-                    type="checkbox"
-                    checked={workspaceOptions.showTileGridOverlay}
-                    onChange={(event) =>
-                      onWorkspaceOptionsChange({
-                        showTileGridOverlay: event.target.checked
-                      })
-                    }
-                  />
-                  Display tile grid overlay (Aurora-style)
-                </label>
+                    <label className="topbar-options-checkbox" htmlFor="show-tile-grid-overlay">
+                      <input
+                        id="show-tile-grid-overlay"
+                        type="checkbox"
+                        checked={workspaceOptions.showTileGridOverlay}
+                        onChange={(event) =>
+                          onWorkspaceOptionsChange({
+                            showTileGridOverlay: event.target.checked
+                          })
+                        }
+                      />
+                      Display tile grid overlay (Aurora-style)
+                    </label>
 
-                <label className="topbar-options-checkbox" htmlFor="enable-runtime-sound-preview">
-                  <input
-                    id="enable-runtime-sound-preview"
-                    type="checkbox"
-                    checked={workspaceOptions.enableRuntimeSoundPreview}
-                    onChange={(event) =>
-                      onWorkspaceOptionsChange({
-                        enableRuntimeSoundPreview: event.target.checked
-                      })
-                    }
-                  />
-                  Enable runtime sound preview (Aurora mock)
-                </label>
+                    <label className="topbar-options-checkbox" htmlFor="enable-runtime-sound-preview">
+                      <input
+                        id="enable-runtime-sound-preview"
+                        type="checkbox"
+                        checked={workspaceOptions.enableRuntimeSoundPreview}
+                        onChange={(event) =>
+                          onWorkspaceOptionsChange({
+                            enableRuntimeSoundPreview: event.target.checked
+                          })
+                        }
+                      />
+                      Enable runtime sound preview (Aurora mock)
+                    </label>
 
-                <label className="topbar-options-checkbox" htmlFor="show-runtime-sound-now-playing">
-                  <input
-                    id="show-runtime-sound-now-playing"
-                    type="checkbox"
-                    checked={workspaceOptions.showRuntimeSoundNowPlaying}
-                    onChange={(event) =>
-                      onWorkspaceOptionsChange({
-                        showRuntimeSoundNowPlaying: event.target.checked
-                      })
-                    }
-                    disabled={!workspaceOptions.enableRuntimeSoundPreview}
-                  />
-                  Show now-playing marker for active sounds
-                </label>
-              </div>
-            </details>
+                    <label className="topbar-options-checkbox" htmlFor="show-runtime-sound-now-playing">
+                      <input
+                        id="show-runtime-sound-now-playing"
+                        type="checkbox"
+                        checked={workspaceOptions.showRuntimeSoundNowPlaying}
+                        onChange={(event) =>
+                          onWorkspaceOptionsChange({
+                            showRuntimeSoundNowPlaying: event.target.checked
+                          })
+                        }
+                        disabled={!workspaceOptions.enableRuntimeSoundPreview}
+                      />
+                      Show now-playing marker for active sounds
+                    </label>
+                  </div>
+                </details>
+              </>
+            ) : null}
 
           </article>
         </section>

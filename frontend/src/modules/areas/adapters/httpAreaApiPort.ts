@@ -5,7 +5,11 @@ import type {
   AreaApiListQuery,
   AreaApiListResult,
   AreaApiLoginResult,
-  AreaApiObjectPlacement
+  AreaApiObjectPlacement,
+  AreaApiProcessOptions,
+  AreaApiProcessResult,
+  AreaApiTextureDeliveryMode,
+  AreaApiTextureDeliveryResult
 } from "../contracts";
 import type { AreaApiPort } from "../ports/areaApiPort";
 
@@ -29,6 +33,41 @@ const loginEnvelopeSchema = z.object({
   })
 });
 
+const areaObjectCountsSchema = z.object({
+  placeables: z.number().int().nonnegative(),
+  doors: z.number().int().nonnegative(),
+  creatures: z.number().int().nonnegative(),
+  items: z.number().int().nonnegative(),
+  sounds: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative()
+});
+
+const areaTextureAtlasSchema = z.object({
+  atlasId: z.string().min(1),
+  cacheKey: z.string().min(1),
+  strategy: z.literal("blob-cache"),
+  objectKey: z.string().optional(),
+  contentType: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  etag: z.string().optional()
+});
+
+const areaTileInstanceSchema = z.object({
+  tileInstanceId: z.string().min(1),
+  areaId: z.string().min(1),
+  tilesetResRef: z.string().min(1),
+  row: z.number().int().nonnegative(),
+  col: z.number().int().nonnegative(),
+  tileIndex: z.number().int().nonnegative(),
+  tileId: z.number().int().nonnegative().optional(),
+  modelResRef: z.string().min(1).optional(),
+  modelSource: z.enum(["are-tile-list", "set-tile-section"]).optional(),
+  orientation: z.number().int().min(0).max(3).optional(),
+  height: z.number().finite().optional(),
+  source: z.literal("are-tile-list"),
+  fallbackReason: z.string().min(1).optional()
+});
+
 const areaListItemSchema = z.object({
   areaId: z.string().min(1),
   name: z.string().min(1),
@@ -37,6 +76,9 @@ const areaListItemSchema = z.object({
   height: z.number().finite().positive(),
   tags: z.array(z.string()),
   benchmark: z.boolean(),
+  previewImageUrl: z.string(),
+  textureAtlasId: z.string().min(1),
+  objectCounts: areaObjectCountsSchema,
   updatedAt: z.string().min(1)
 });
 
@@ -49,14 +91,66 @@ const areaListEnvelopeSchema = z.object({
   })
 });
 
+const areaPreservePrimitiveSchema = z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null()
+]);
+
+const areaSoundPositioningPreserveSchema = z.object({
+  timeWindow: z.string(),
+  hourMask: z.string(),
+  active: z.boolean().optional(),
+  whenToPlay: z.enum(["always", "dayNight", "hours"]).optional(),
+  dayNight: z.enum(["both", "day", "night"]).optional(),
+  hoursStart: z.number().finite().optional(),
+  hoursEnd: z.number().finite().optional(),
+  playStyle: z.enum(["once", "repeat", "loop"]).optional(),
+  playOrder: z.enum(["sequential", "random"]).optional(),
+  intervalMs: z.number().finite().nonnegative(),
+  intervalVariationMs: z.number().finite().nonnegative(),
+  volume: z.number().finite().nonnegative(),
+  volumeVariation: z.number().finite().nonnegative(),
+  pitchVariation: z.number().finite().nonnegative(),
+  priority: z.number().finite().nonnegative(),
+  flags: z.record(z.boolean()),
+  extra: z.record(areaPreservePrimitiveSchema)
+});
+
+const areaSoundPositioningSchema = z.object({
+  mode: z.enum(["everywhere", "random", "specific"]),
+  elevation: z.number().finite().nonnegative(),
+  maxVolumeDistance: z.number().finite().nonnegative(),
+  cutoffDistance: z.number().finite().nonnegative(),
+  randomRangeWestEast: z.number().finite().nonnegative(),
+  randomRangeNorthSouth: z.number().finite().nonnegative(),
+  preserve: areaSoundPositioningPreserveSchema.optional()
+});
+
+const areaDoorTransitionSchema = z.object({
+  linkedTarget: z.string(),
+  linkedModule: z.string(),
+  linkedTag: z.string(),
+  linkedWaypoint: z.string(),
+  loadScreen: z.string(),
+  flags: z.record(z.boolean()),
+  extra: z.record(areaPreservePrimitiveSchema).optional()
+});
+
 const areaObjectSchema = z.object({
   objectId: z.string().min(1),
-  kind: z.enum(["placeable", "creature", "item"]),
+  kind: z.enum(["placeable", "door", "creature", "item", "sound"]),
   templateId: z.string().min(1),
+  resRef: z.string().min(1).optional(),
+  appearanceType: z.number().finite().optional(),
+  genericType: z.number().finite().optional(),
   x: z.number().finite(),
   y: z.number().finite(),
   z: z.number().finite(),
-  bearing: z.number().finite()
+  bearing: z.number().finite(),
+  soundPositioning: areaSoundPositioningSchema.optional(),
+  doorTransition: areaDoorTransitionSchema.optional()
 });
 
 const areaDetailEnvelopeSchema = z.object({
@@ -68,8 +162,49 @@ const areaDetailEnvelopeSchema = z.object({
     height: z.number().finite().positive(),
     tags: z.array(z.string()),
     benchmark: z.boolean(),
+    previewImageUrl: z.string(),
+    textureAtlas: areaTextureAtlasSchema,
+    tileSet: z.string().min(1).optional(),
+    tiles: z.array(areaTileInstanceSchema).default([]),
+    composition: areaObjectCountsSchema,
     updatedAt: z.string().min(1),
     objects: z.array(areaObjectSchema)
+  })
+});
+
+const areaProcessedAreaSchema = areaDetailEnvelopeSchema.shape.data.extend({
+  processedAt: z.string().min(1)
+});
+
+const areaProcessEnvelopeSchema = z.object({
+  data: z.object({
+    cache: z.object({
+      key: z.string().min(1),
+      hit: z.boolean(),
+      storedAt: z.string().min(1),
+      hits: z.number().int().nonnegative()
+    }),
+    area: areaProcessedAreaSchema
+  })
+});
+
+const areaTextureDeliveryContractSchema = z.object({
+  mode: z.enum(["proxy", "direct"]),
+  atlasId: z.string().min(1),
+  objectKey: z.string().min(1),
+  contentType: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+  etag: z.string().optional(),
+  proxyPath: z.string().min(1),
+  proxyUrl: z.string().min(1),
+  directUrl: z.string().optional(),
+  s3Url: z.string().optional()
+});
+
+const areaTextureDeliveryEnvelopeSchema = z.object({
+  data: z.object({
+    cacheKey: z.string().min(1),
+    textureAtlas: areaTextureDeliveryContractSchema
   })
 });
 
@@ -78,7 +213,7 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 function resolveBaseUrl(): string {
   const candidate = import.meta.env.VITE_BACKEND_API_BASE_URL as string | undefined;
   if (!candidate || candidate.trim().length === 0) {
-    return "http://localhost:3000/api/v1";
+    return import.meta.env.DEV ? "/_aurora/v1" : "/api/v1";
   }
   return candidate.replace(/\/+$/u, "");
 }
@@ -150,6 +285,9 @@ function mapListItem(input: z.infer<typeof areaListItemSchema>): AreaApiListItem
     height: input.height,
     tags: input.tags,
     benchmark: input.benchmark,
+    previewImageUrl: input.previewImageUrl,
+    textureAtlasId: input.textureAtlasId,
+    objectCounts: input.objectCounts,
     updatedAt: input.updatedAt
   };
 }
@@ -161,10 +299,40 @@ function mapAreaObject(
     objectId: input.objectId,
     kind: input.kind,
     templateId: input.templateId,
+    resRef: input.resRef,
+    appearanceType: input.appearanceType,
+    genericType: input.genericType,
     x: input.x,
     y: input.y,
     z: input.z,
-    bearing: input.bearing
+    bearing: input.bearing,
+    soundPositioning: input.soundPositioning,
+    doorTransition: input.doorTransition
+      ? {
+          ...input.doorTransition,
+          flags: { ...input.doorTransition.flags },
+          ...(input.doorTransition.extra ? { extra: { ...input.doorTransition.extra } } : {})
+        }
+      : undefined
+  };
+}
+
+function mapAreaDetail(input: z.infer<typeof areaDetailEnvelopeSchema>["data"]): AreaApiDetail {
+  return {
+    areaId: input.areaId,
+    name: input.name,
+    biome: input.biome,
+    width: input.width,
+    height: input.height,
+    tags: input.tags,
+    benchmark: input.benchmark,
+    previewImageUrl: input.previewImageUrl,
+    textureAtlas: input.textureAtlas,
+    tileSet: input.tileSet,
+    tiles: input.tiles,
+    composition: input.composition,
+    updatedAt: input.updatedAt,
+    objects: input.objects.map(mapAreaObject)
   };
 }
 
@@ -221,16 +389,55 @@ export class HttpAreaApiPort implements AreaApiPort {
     });
     const payload = await parseResponseOrThrow(response);
     const parsed = areaDetailEnvelopeSchema.parse(payload);
+    return mapAreaDetail(parsed.data);
+  }
+
+  async processArea(
+    accessToken: string,
+    areaId: string,
+    options?: AreaApiProcessOptions
+  ): Promise<AreaApiProcessResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/areas/${encodeURIComponent(areaId)}/process`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ bypassCache: options?.bypassCache ?? false })
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = areaProcessEnvelopeSchema.parse(payload);
     return {
-      areaId: parsed.data.areaId,
-      name: parsed.data.name,
-      biome: parsed.data.biome,
-      width: parsed.data.width,
-      height: parsed.data.height,
-      tags: parsed.data.tags,
-      benchmark: parsed.data.benchmark,
-      updatedAt: parsed.data.updatedAt,
-      objects: parsed.data.objects.map(mapAreaObject)
+      cache: parsed.data.cache,
+      area: {
+        ...mapAreaDetail(parsed.data.area),
+        processedAt: parsed.data.area.processedAt
+      }
+    };
+  }
+
+  async getAreaTextureAtlasContracts(
+    accessToken: string,
+    cacheKey: string,
+    mode: AreaApiTextureDeliveryMode = "proxy"
+  ): Promise<AreaApiTextureDeliveryResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/areas/cache/${encodeURIComponent(cacheKey)}/textures/contracts?mode=${encodeURIComponent(mode)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = areaTextureDeliveryEnvelopeSchema.parse(payload);
+    return {
+      cacheKey: parsed.data.cacheKey,
+      textureAtlas: parsed.data.textureAtlas
     };
   }
 }

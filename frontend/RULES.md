@@ -36,6 +36,10 @@
    - mirror Aurora property-window structure first (tabs/groups/labels/layout)
    - activate behaviors incrementally using explicit states: `ACTIVE_NOW`, `PRESERVE_ONLY`, `POST_MVP_DISABLED`
    - unsupported controls must be visible and non-destructive (no silent payload mutation/loss)
+13. Multi-agent execution acceleration is mandatory for non-trivial implementation work:
+   - default orchestration target is **6 subagents** running parallelizable subtasks
+   - keep tasks sliced small, reassign freed subagents immediately, and integrate continuously
+   - each merged slice must keep TDD + regression discipline from rules `#1`, `#4`, `#7`
 
 ## Golden Commands (PowerShell-safe)
 

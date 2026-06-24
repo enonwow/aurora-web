@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createBlankAreaScene,
   createNewSceneObject,
   createSeedAreaScene,
   normalizeSceneObjectMetadata,
@@ -7,6 +8,19 @@ import {
 } from "../../../../../src/modules/scene/domain/sceneFactory";
 
 describe("sceneFactory placeable preserve-only normalization", () => {
+  it("creates a blank startup area without demo objects", () => {
+    const scene = createBlankAreaScene(2, 2, 1700000000000);
+
+    expect(scene.sceneId).toBe("blank_builder_v1");
+    expect(scene.areaName).toBe("Untitled Area");
+    expect(scene.width).toBe(2);
+    expect(scene.height).toBe(2);
+    expect(scene.tiles).toHaveLength(4);
+    expect(scene.objects).toEqual([]);
+    expect(scene.tileSource?.fallbackReason).toBe("blank-startup-scene");
+    expect(scene.updatedAtUnixMs).toBe(1700000000000);
+  });
+
   it("normalizes preserve-only script slots and disabled flags defensively", () => {
     const placeable = createNewSceneObject("placeables", 1, 1, 77);
     const normalized = normalizeSceneObjectMetadata({
@@ -148,6 +162,26 @@ describe("sceneFactory placeable preserve-only normalization", () => {
         profile: "vfx_magic_a",
         emitter: 777,
         script: "fx_heartbeat",
+        sourceKind: "placeable_preview",
+        sourceProfile: "catalog-placeable-vfx",
+        sourceTable: "placeable-template-catalog",
+        sourceRowId: 286,
+        sourceLabel: "Screen Shake",
+        sourceResRef: "vfx_screen_shake",
+        previewMode: "derived_model_preview",
+        canonicalStatus: "preview_only",
+        diagnostics: [
+          {
+            code: "VFX_PROJECT_RENDER_PACKAGE_NOT_RUNTIME_PARITY",
+            severity: "warn",
+            message: "preview only"
+          },
+          {
+            code: "",
+            severity: "bad",
+            message: 12
+          }
+        ],
         flags: {
           billboard: true,
           castShadow: "bad"
@@ -163,9 +197,25 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     });
 
     expect(normalized.vfxPayload).toEqual({
+      version: "scene-object-vfx-preserve/v1",
       profile: "vfx_magic_a",
       emitter: "",
       script: "fx_heartbeat",
+      sourceKind: "placeable_preview",
+      sourceProfile: "catalog-placeable-vfx",
+      sourceTable: "placeable-template-catalog",
+      sourceRowId: 286,
+      sourceLabel: "Screen Shake",
+      sourceResRef: "vfx_screen_shake",
+      previewMode: "derived_model_preview",
+      canonicalStatus: "preview_only",
+      diagnostics: [
+        {
+          code: "VFX_PROJECT_RENDER_PACKAGE_NOT_RUNTIME_PARITY",
+          severity: "warn",
+          message: "preview only"
+        }
+      ],
       flags: {
         billboard: true
       },

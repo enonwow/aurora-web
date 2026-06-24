@@ -386,13 +386,108 @@ export interface SceneObjectDoorTransitionPayload {
   linkedWaypoint: string;
   loadScreen: string;
   flags: Record<string, boolean>;
+  extra?: Record<string, ScenePreservePrimitive>;
+}
+
+export type SceneObjectVfxSourceKind =
+  | "unknown"
+  | "placeable_preview"
+  | "visualeffects_2da"
+  | "effect_instance";
+
+export type SceneObjectVfxCanonicalStatus =
+  | "unmapped"
+  | "preview_only"
+  | "canonical";
+
+export type SceneObjectVfxPreviewMode =
+  | "none"
+  | "sprite_scaffold"
+  | "derived_model_preview"
+  | "static_model_preview"
+  | "aurora_emitter_particle_preview"
+  | "aurora_light_node_preview"
+  | "aurora_light_node_source_only"
+  | "texture_particle_preview"
+  | "chunk_model_source_only"
+  | "chunk_model_particle_preview";
+
+export interface SceneObjectVfxDiagnostic {
+  code: string;
+  severity: "info" | "warn" | "error";
+  message: string;
+}
+
+export type AuroraVfxPayloadVersion = "aurora-vfx-payload/v1";
+
+export type AuroraVfxJsonValue =
+  | ScenePreservePrimitive
+  | AuroraVfxJsonValue[]
+  | { [key: string]: AuroraVfxJsonValue };
+
+export type AuroraVfxDiagnosticGroupKey =
+  | "sourceRows"
+  | "effectInstance"
+  | "phaseSchedule"
+  | "dependencyGraph"
+  | "runtimeState"
+  | "renderContract"
+  | "payload";
+
+export type AuroraVfxPayloadDiagnostics = Record<
+  AuroraVfxDiagnosticGroupKey,
+  SceneObjectVfxDiagnostic[]
+>;
+
+export interface AuroraVfxPayloadContracts {
+  sourceRows?: AuroraVfxJsonValue;
+  effectInstance?: AuroraVfxJsonValue;
+  phaseSchedule?: AuroraVfxJsonValue;
+  dependencyGraph?: AuroraVfxJsonValue;
+  runtimeState?: AuroraVfxJsonValue;
+  renderContract?: AuroraVfxJsonValue;
+}
+
+export interface AuroraVfxPayloadProvenance {
+  backendPayloadVersion?: string;
+  sourceProfile?: string;
+  sourceTable?: string;
+  sourceRowId?: number;
+  sourceLabel?: string;
+  sourceResRef?: string;
+  effectInstanceId?: string;
+  runtimeProfile?: string;
+  renderContractVersion?: string;
+}
+
+export interface AuroraVfxPayload {
+  version: AuroraVfxPayloadVersion;
+  canonicalStatus: SceneObjectVfxCanonicalStatus;
+  backendCanonical: boolean;
+  sourceKind: SceneObjectVfxSourceKind;
+  previewMode: SceneObjectVfxPreviewMode;
+  diagnostics: AuroraVfxPayloadDiagnostics;
+  contracts: AuroraVfxPayloadContracts;
+  provenance: AuroraVfxPayloadProvenance;
 }
 
 export interface SceneObjectVfxPreservePayload {
-  // Preserve-only placeholder until VFX editor/runtime lane is implemented.
+  // Preserve-first shell for Aurora VFX. Preview adapters may render it, but
+  // canonical runtime behavior must come from source rows + effect instances.
+  version?: "scene-object-vfx-preserve/v1";
   profile: string;
   emitter: string;
   script: string;
+  sourceKind: SceneObjectVfxSourceKind;
+  sourceProfile: string;
+  sourceTable: string;
+  sourceRowId?: number;
+  sourceLabel: string;
+  sourceResRef: string;
+  previewMode: SceneObjectVfxPreviewMode;
+  canonicalStatus: SceneObjectVfxCanonicalStatus;
+  diagnostics: SceneObjectVfxDiagnostic[];
+  auroraPayload?: AuroraVfxPayload;
   flags: Record<string, boolean>;
   extra: Record<string, ScenePreservePrimitive>;
 }
@@ -405,6 +500,15 @@ export interface SceneTile {
   orientation: 0 | 1 | 2 | 3;
   rotateTexture: boolean;
   plot: boolean;
+  source?: "seed" | "aurora_tile_list";
+  areaId?: string;
+  tilesetResRef?: string;
+  tileIndex?: number;
+  tileId?: number;
+  modelResRef?: string;
+  modelSource?: "are-tile-list" | "set-tile-section";
+  height?: number;
+  fallbackReason?: string;
 }
 
 export interface SceneObjectVisualTransform {
@@ -417,12 +521,23 @@ export interface SceneObjectVisualTransform {
   yaw: number;
 }
 
+export interface SceneObjectSourceMetadata {
+  type: "seed" | "aurora_git";
+  areaId?: string;
+  sourceObjectId?: string;
+  sourceKind?: "placeable" | "door" | "creature" | "item" | "sound";
+  templateId?: string;
+  appearanceType?: number;
+  genericType?: number;
+}
+
 export interface SceneObject {
   id: string;
   kind: SceneObjectKind;
   name?: string;
   resRef: string;
   tag: string;
+  previewImageUrl?: string;
   isStatic?: boolean;
   placeableProperties?: SceneObjectPlaceableProperties;
   doorProperties?: SceneObjectDoorProperties;
@@ -430,6 +545,7 @@ export interface SceneObject {
   soundPositioning?: SceneObjectSoundPositioning;
   doorTransition?: SceneObjectDoorTransitionPayload;
   vfxPayload?: SceneObjectVfxPreservePayload;
+  source?: SceneObjectSourceMetadata;
   x: number;
   y: number;
   z: number;
@@ -437,16 +553,50 @@ export interface SceneObject {
   visualTransform: SceneObjectVisualTransform;
 }
 
+export interface AreaSceneObjectCounts {
+  placeables: number;
+  doors: number;
+  creatures: number;
+  items: number;
+  sounds: number;
+  total: number;
+}
+
+export interface AreaSceneTileSource {
+  type: "seed_placeholder" | "aurora_tile_list" | "blocked_missing_tile_data";
+  tilesetResRef?: string;
+  tileCount: number;
+  fallbackReason?: string;
+}
+
+export interface AreaSceneTextureAtlas {
+  atlasId: string;
+  cacheKey: string;
+  strategy: "blob-cache";
+  objectKey?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  etag?: string;
+}
+
 export interface AreaScene {
   sceneId: string;
   areaName: string;
   width: number;
   height: number;
+  biome?: string;
+  tags?: string[];
+  benchmark?: boolean;
+  previewImageUrl?: string;
+  textureAtlas?: AreaSceneTextureAtlas;
+  composition?: AreaSceneObjectCounts;
+  backendUpdatedAt?: string;
+  tileSource?: AreaSceneTileSource;
   tiles: SceneTile[];
   objects: SceneObject[];
   walkmesh?: WalkmeshDomainModel;
   updatedAtUnixMs: number;
-  source: "seed" | "local_draft";
+  source: "seed" | "local_draft" | "aurora_area";
 }
 
 export interface SceneHistoryState {

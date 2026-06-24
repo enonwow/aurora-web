@@ -4,6 +4,7 @@ import {
   hasSoundGuideNonSerializableState,
   isSoundGuideNonSerializableKey,
   normalizeSoundGuidePositioning,
+  resolveEditorSoundGuideOverlayFlags,
   resolveSoundGuideOverlayFlags,
   resolveSoundGuideOverlayFlagsFromPositioning,
   resolveSoundGuideOverlays,
@@ -160,6 +161,58 @@ describe("soundGuideDomain overlay mode gating", () => {
       "rand-box",
       "height"
     ]);
+  });
+
+  it("keeps backend-created sound guides editor-only and gates locked or hidden layers", () => {
+    const backendCreatedPositioning = normalizeSoundGuidePositioning({
+      mode: "random",
+      elevation: 1.5,
+      maxVolumeDistance: 8,
+      cutoffDistance: 16,
+      randomRangeWestEast: 4,
+      randomRangeNorthSouth: 5,
+      preserve: {
+        flags: {
+          backendBenchmark: false
+        },
+        extra: {
+          backendSoundId: "sound_dia_hakon_add_12",
+          soundTemplateSource: "backend-catalog"
+        }
+      }
+    } as unknown as Record<string, unknown>);
+
+    expect(
+      resolveEditorSoundGuideOverlayFlags(backendCreatedPositioning, {
+        editorVisible: true
+      })
+    ).toEqual({
+      anchor: true,
+      range: true,
+      randBox: true,
+      height: true
+    });
+    expect(
+      resolveEditorSoundGuideOverlayFlags(backendCreatedPositioning, {
+        editorVisible: false
+      })
+    ).toEqual({
+      anchor: false,
+      range: false,
+      randBox: false,
+      height: false
+    });
+    expect(
+      resolveEditorSoundGuideOverlayFlags(backendCreatedPositioning, {
+        editorVisible: true,
+        locked: true
+      })
+    ).toEqual({
+      anchor: false,
+      range: false,
+      randBox: false,
+      height: false
+    });
   });
 });
 

@@ -129,6 +129,132 @@ describe("WorkspaceTopbar facades injection", () => {
     );
   });
 
+  it("keeps placeables mode topbar focused without area editor groups or options", () => {
+    const groups: ToolbarGroup[] = [
+      {
+        key: "module",
+        label: "Module",
+        actions: [{ key: "save_local_draft", label: "Save", status: "mvp", supported: true }]
+      },
+      {
+        key: "selection",
+        label: "Selection",
+        actions: [{ key: "select_object", label: "Select Object", status: "mvp", supported: true }]
+      },
+      {
+        key: "canvas",
+        label: "Canvas",
+        actions: [{ key: "debug_grid", label: "Grid", status: "mvp", supported: true }]
+      }
+    ];
+    const quickActions: ToolbarAction[] = [
+      { key: "undo", label: "Undo", status: "mvp", supported: true }
+    ];
+    const chromeFacade = createChromeFacadeMock({ groups, quickActions, shortcuts: [] });
+
+    render(
+      <WorkspaceTopbar
+        isAuthenticated={true}
+        role="builder"
+        workspaceChromeFacade={chromeFacade}
+        workspaceTopbarActionStateFacade={createTopbarActionStateFacadeMock()}
+        workspaceModeId="placeables_mode"
+        toolbarState={createToolbarState()}
+        layoutTheme={DEFAULT_LAYOUT_THEME}
+        onLayoutThemeChange={() => undefined}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        onWorkspaceOptionsChange={() => undefined}
+        onAction={() => undefined}
+        showDebugPanel={false}
+        onToggleDebug={() => undefined}
+        onSignOut={() => undefined}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^module$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^selection$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^canvas$/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+
+    expect(screen.getByRole("group", { name: /^layout$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /viewport controls/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /snap and selection/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/grid step/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces Fit Area only for areas mode and keeps reorient for other modes", () => {
+    const groups: ToolbarGroup[] = [
+      {
+        key: "camera",
+        label: "Camera",
+        actions: [
+          { key: "fit_area_view", label: "Fit Area", status: "mvp", supported: true },
+          {
+            key: "reorient_camera",
+            label: "Reorient Camera",
+            status: "mvp",
+            supported: true
+          }
+        ]
+      },
+      {
+        key: "canvas",
+        label: "Canvas",
+        actions: [
+          { key: "fit_area_view", label: "Fit Area", status: "mvp", supported: true },
+          { key: "camera_bookmark_load_1", label: "Load Bookmark #1", status: "mvp", supported: true }
+        ]
+      }
+    ];
+    const quickActions: ToolbarAction[] = [
+      { key: "fit_area_view", label: "Fit Area", status: "mvp", supported: true },
+      { key: "undo", label: "Undo", status: "mvp", supported: true }
+    ];
+    const chromeFacade = createChromeFacadeMock({ groups, quickActions, shortcuts: [] });
+    const onAction = vi.fn();
+
+    const topbarProps = {
+      isAuthenticated: true,
+      role: "builder" as const,
+      workspaceChromeFacade: chromeFacade,
+      workspaceTopbarActionStateFacade: createTopbarActionStateFacadeMock(),
+      toolbarState: createToolbarState(),
+      layoutTheme: DEFAULT_LAYOUT_THEME,
+      onLayoutThemeChange: () => undefined,
+      workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
+      onWorkspaceOptionsChange: () => undefined,
+      onAction,
+      showDebugPanel: false,
+      onToggleDebug: () => undefined,
+      onSignOut: () => undefined
+    };
+
+    const { rerender } = render(
+      <WorkspaceTopbar {...topbarProps} workspaceModeId="areas_mode" />
+    );
+
+    const fitQuickAction = screen.getByRole("button", { name: /^fit area$/i });
+    fireEvent.click(fitQuickAction);
+    expect(onAction).toHaveBeenCalledWith("fit_area_view");
+    fireEvent.keyDown(window, { key: "r", ctrlKey: true });
+    expect(onAction).toHaveBeenLastCalledWith("fit_area_view");
+
+    fireEvent.click(screen.getByRole("button", { name: /^camera$/i }));
+    expect(screen.getAllByRole("button", { name: /fit area/i })).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: /reorient camera/i })
+    ).not.toBeInTheDocument();
+
+    rerender(<WorkspaceTopbar {...topbarProps} workspaceModeId="sounds_mode" />);
+
+    expect(screen.queryByRole("button", { name: /^fit area$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reorient camera/i })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "r", ctrlKey: true });
+    expect(onAction).toHaveBeenLastCalledWith("reorient_camera");
+  });
+
   it("handles keyboard actions from injected facade model (ctrl+s, ctrl+y, ctrl+shift+z)", () => {
     const groups: ToolbarGroup[] = [
       {

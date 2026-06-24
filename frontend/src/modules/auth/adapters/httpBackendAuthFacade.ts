@@ -9,7 +9,6 @@ import type {
 } from "../contracts";
 import { createAuthBenchmarkRecorderPort } from "./authBenchmarkRecorderPort";
 import { createAuthTelemetryFacadePort } from "./authTelemetryFacadePort";
-import { resolveRolePermissions } from "../domain/rolePermissions";
 import type { TelemetryFacade } from "../../telemetry/application/telemetryFacade";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -72,7 +71,7 @@ const healthSchema = z.object({
 function resolveBaseUrl(): string {
   const candidate = import.meta.env.VITE_BACKEND_API_BASE_URL as string | undefined;
   if (!candidate || candidate.trim().length === 0) {
-    return "http://localhost:3000/api/v1";
+    return import.meta.env.DEV ? "/_aurora/v1" : "/api/v1";
   }
   return candidate.replace(/\/+$/u, "");
 }
@@ -244,20 +243,10 @@ class HttpBackendAuthFacade implements IAuthFacade {
       this.authorizationByToken.set(session.accessToken, authorization);
       this.recordAuthorizeSuccess(session.user.id, role, permissions.length, startedAt);
       return authorization;
-    } catch {
-      const fallbackPermissions = resolveRolePermissions(session.user.role);
-      const fallback: AuthorizationResponse = {
-        role: session.user.role,
-        permissions: fallbackPermissions
-      };
-      this.authorizationByToken.set(session.accessToken, fallback);
-      this.recordAuthorizeSuccess(
-        session.user.id,
-        fallback.role,
-        fallback.permissions.length,
-        startedAt
-      );
-      return fallback;
+    } catch (error) {
+      this.authorizationByToken.delete(session.accessToken);
+      this.recordAuthorizeFailure(session.user.id, session.user.role, startedAt);
+      throw error;
     }
   }
 
@@ -330,6 +319,21 @@ class HttpBackendAuthFacade implements IAuthFacade {
       userId,
       role,
       permissionCount,
+      durationMs
+    });
+  }
+
+  private recordAuthorizeFailure(userId: string, role: UserRole, startedAt: number) {
+    const durationMs = this.nowMs() - startedAt;
+    this.benchmarkPort.record({
+      operation: "authorize",
+      durationMs,
+      success: false,
+      timestamp: new Date().toISOString()
+    });
+    this.telemetryPort.track("auth.authorize.rejected", {
+      userId,
+      role,
       durationMs
     });
   }

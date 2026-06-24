@@ -27,6 +27,7 @@ export type ToolbarActionKey =
   | "undo"
   | "redo"
   | "go_to_start_location"
+  | "fit_area_view"
   | "reorient_camera"
   | "select_terrain"
   | "select_object"
@@ -231,6 +232,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
     label: "Camera",
     actions: [
       action("go_to_start_location", "Go To Start Location", "post_mvp"),
+      action("fit_area_view", "Fit Area", "mvp"),
       action("reorient_camera", "Reorient Camera", "mvp")
     ]
   },
@@ -312,6 +314,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
       action("select_radius", "Select In Radius", "mvp"),
       action("copy_selected_objects", "Copy Selected", "mvp"),
       action("delete_selected_objects", "Delete Selected", "mvp"),
+      action("fit_area_view", "Fit Area", "mvp"),
       action("camera_bookmark_save_1", "Save Bookmark #1", "mvp"),
       action("camera_bookmark_load_1", "Load Bookmark #1", "mvp"),
       action("debug_wireframe", "Wireframe", "mvp"),
@@ -356,7 +359,10 @@ const dmGroups: ToolbarGroup[] = [
   {
     key: "camera",
     label: "Camera",
-    actions: [action("reorient_camera", "Reorient Camera", "mvp")]
+    actions: [
+      action("fit_area_view", "Fit Area", "mvp"),
+      action("reorient_camera", "Reorient Camera", "mvp")
+    ]
   },
   {
     key: "selection",
@@ -395,6 +401,7 @@ const dmGroups: ToolbarGroup[] = [
       action("canvas_gizmo_vt_scale", "VT Scale (5)", "mvp"),
       action("snap_grid_toggle", "Snap Grid", "mvp"),
       action("snap_angle_toggle", "Snap Angle", "mvp"),
+      action("fit_area_view", "Fit Area", "mvp"),
       action("camera_bookmark_save_1", "Save Bookmark #1", "mvp"),
       action("camera_bookmark_load_1", "Load Bookmark #1", "mvp"),
       action("debug_wireframe", "Wireframe", "mvp"),
@@ -421,7 +428,10 @@ const viewerGroups: ToolbarGroup[] = [
   {
     key: "camera",
     label: "Camera",
-    actions: [action("reorient_camera", "Reorient Camera", "mvp")]
+    actions: [
+      action("fit_area_view", "Fit Area", "mvp"),
+      action("reorient_camera", "Reorient Camera", "mvp")
+    ]
   },
   {
     key: "selection",
@@ -453,6 +463,7 @@ const viewerGroups: ToolbarGroup[] = [
     key: "canvas",
     label: "Canvas",
     actions: [
+      action("fit_area_view", "Fit Area", "mvp"),
       action("camera_bookmark_load_1", "Load Bookmark #1", "mvp"),
       action("debug_wireframe", "Wireframe", "mvp"),
       action("debug_textures", "Textures", "mvp"),
@@ -480,10 +491,18 @@ const groupsByRole: Record<WorkspaceUserRole, ToolbarGroup[]> = {
 };
 
 const quickActionsByRole: Record<WorkspaceUserRole, ToolbarAction[]> = {
-  viewer: [],
-  builder: [action("undo", "Undo", "mvp"), action("redo", "Redo", "mvp")],
-  dm: [],
-  admin: [action("undo", "Undo", "mvp"), action("redo", "Redo", "mvp")]
+  viewer: [action("fit_area_view", "Fit Area", "mvp")],
+  builder: [
+    action("fit_area_view", "Fit Area", "mvp"),
+    action("undo", "Undo", "mvp"),
+    action("redo", "Redo", "mvp")
+  ],
+  dm: [action("fit_area_view", "Fit Area", "mvp")],
+  admin: [
+    action("fit_area_view", "Fit Area", "mvp"),
+    action("undo", "Undo", "mvp"),
+    action("redo", "Redo", "mvp")
+  ]
 };
 
 const commonShortcuts: KeyboardShortcut[] = [
@@ -492,14 +511,16 @@ const commonShortcuts: KeyboardShortcut[] = [
 ];
 
 const roleSpecificShortcuts: Record<WorkspaceUserRole, KeyboardShortcut[]> = {
-  viewer: [{ key: "Ctrl/Cmd + R", description: "Reorient camera." }],
+  viewer: [{ key: "Ctrl/Cmd + R", description: "Fit/reset view." }],
   builder: [
+    { key: "Ctrl/Cmd + R", description: "Fit/reset view." },
     { key: "Ctrl/Cmd + Z", description: "Undo." },
     { key: "Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z", description: "Redo." },
     { key: "Ctrl/Cmd + S", description: "Save local draft." }
   ],
-  dm: [{ key: "Ctrl/Cmd + R", description: "Reorient camera." }],
+  dm: [{ key: "Ctrl/Cmd + R", description: "Fit/reset view." }],
   admin: [
+    { key: "Ctrl/Cmd + R", description: "Fit/reset view." },
     { key: "Ctrl/Cmd + Z", description: "Undo." },
     { key: "Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z", description: "Redo." },
     { key: "Ctrl/Cmd + S", description: "Save local draft." }
@@ -558,7 +579,7 @@ export function createDefaultToolbarState(): WorkspaceToolbarState {
       },
       isolateKind: "none",
       chunkBounds: false,
-      objectLabels: true,
+      objectLabels: false,
       perfHud: true,
       walkmeshOverlay: false,
       collisionOverlay: false,

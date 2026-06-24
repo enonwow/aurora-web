@@ -8,7 +8,7 @@ import { MASTER_CELLS_PER_TILE } from "../../../src/modules/layout/canvasGrid";
 import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
-import { OBJECT_ADD_DRAG_MIME } from "../../../src/modules/layout/components/objectAddDragPayload";
+import { OBJECT_ADD_DRAG_MIME } from "../../../src/modules/layout/application/objectAddDragPayload";
 import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 

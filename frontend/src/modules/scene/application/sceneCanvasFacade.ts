@@ -4,6 +4,7 @@ import type {
   SceneHistoryState
 } from "../contracts";
 import {
+  createBlankAreaScene,
   createSeedAreaScene,
   DEFAULT_SEED_SCENE_HEIGHT_TILES,
   DEFAULT_SEED_SCENE_WIDTH_TILES,
@@ -35,6 +36,7 @@ export interface SceneCanvasFacade {
 }
 
 const SCENE_OBJECT_MIN_Z = 0;
+const LEGACY_SEED_SCENE_ID = "wnd_seed_builder_v1";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -57,6 +59,10 @@ function isLegacySeedDraft(draft: AreaScene, fallback: AreaScene): boolean {
     draft.width === LEGACY_SEED_SCENE_WIDTH_TILES &&
     draft.height === LEGACY_SEED_SCENE_HEIGHT_TILES
   );
+}
+
+function isLegacyStartupSeedDraft(draft: AreaScene): boolean {
+  return draft.sceneId === LEGACY_SEED_SCENE_ID && draft.source === "seed";
 }
 
 function migrateLegacySeedDraft(draft: AreaScene, now: () => number): AreaScene {
@@ -157,7 +163,15 @@ export function createSceneCanvasFacade(
 
   return {
     createInitialHistory(userId: string): SceneHistoryState {
-      const fallback = createSeedAreaScene();
+      const fallback = createBlankAreaScene(
+        DEFAULT_SEED_SCENE_WIDTH_TILES,
+        DEFAULT_SEED_SCENE_HEIGHT_TILES,
+        now()
+      );
+      const legacySeedFallback = createSeedAreaScene(
+        LEGACY_SEED_SCENE_WIDTH_TILES,
+        LEGACY_SEED_SCENE_HEIGHT_TILES
+      );
       let draft: AreaScene | null = null;
       try {
         draft = dependencies.draftPort.loadByUserId(userId);
@@ -167,7 +181,10 @@ export function createSceneCanvasFacade(
       if (!draft) {
         return createSceneHistory(fallback);
       }
-      if (isLegacySeedDraft(draft, fallback)) {
+      if (isLegacyStartupSeedDraft(draft)) {
+        return createSceneHistory(fallback);
+      }
+      if (isLegacySeedDraft(draft, legacySeedFallback)) {
         return createSceneHistory(normalizeDraftVisualTransform(migrateLegacySeedDraft(draft, now)));
       }
       return createSceneHistory(normalizeDraftVisualTransform(draft));
@@ -176,7 +193,13 @@ export function createSceneCanvasFacade(
       return createSceneHistory(scene);
     },
     saveLocalDraft(userId: string, scene: AreaScene): void {
-      dependencies.draftPort.saveByUserId(userId, normalizeDraftVisualTransform(scene));
+      dependencies.draftPort.saveByUserId(
+        userId,
+        normalizeDraftVisualTransform({
+          ...scene,
+          source: "local_draft"
+        })
+      );
     },
     getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null {
       const object = scene.objects.find((candidate) => candidate.id === objectId);

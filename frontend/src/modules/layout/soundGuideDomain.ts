@@ -12,6 +12,11 @@ export interface SoundGuideOverlayFlags {
   height: boolean;
 }
 
+export interface SoundGuideEditorOverlayOptions {
+  readonly editorVisible: boolean;
+  readonly locked?: boolean;
+}
+
 export type SoundGuideNonSerializableKey =
   | "__soundGuideOverlayState"
   | "__soundGuideGeometryCache"
@@ -163,6 +168,16 @@ export function resolveSoundGuideOverlayFlagsFromPositioning(
     return { ...EMPTY_OVERLAY_FLAGS };
   }
   return resolveSoundGuideOverlayFlags(positioning.mode);
+}
+
+export function resolveEditorSoundGuideOverlayFlags(
+  positioning: Pick<SceneObjectSoundPositioning, "mode"> | null | undefined,
+  options: SoundGuideEditorOverlayOptions
+): SoundGuideOverlayFlags {
+  if (!options.editorVisible || options.locked) {
+    return { ...EMPTY_OVERLAY_FLAGS };
+  }
+  return resolveSoundGuideOverlayFlagsFromPositioning(positioning);
 }
 
 export function isSoundGuideNonSerializableKey(

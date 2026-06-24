@@ -32,6 +32,13 @@ describe("SharedPropertyDialogChrome", () => {
     );
 
     expect(screen.getByRole("dialog", { name: /test dialog/i })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /test dialog/i })).toHaveClass(
+      "canvas-property-dialog-chrome"
+    );
+    expect(screen.getByRole("dialog", { name: /test dialog/i })).toHaveAttribute(
+      "data-collapsed",
+      "false"
+    );
     expect(screen.getByRole("heading", { name: /test properties/i })).toBeInTheDocument();
     expect(screen.getByText("TEST_OBJECT")).toBeInTheDocument();
     expect(screen.getByText(/body content/i)).toBeInTheDocument();
@@ -67,6 +74,10 @@ describe("SharedPropertyDialogChrome", () => {
     );
 
     expect(screen.queryByText(/collapsed body/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /test dialog/i })).toHaveAttribute(
+      "data-collapsed",
+      "true"
+    );
     expect(screen.getByRole("button", { name: /expand test dialog/i })).toBeInTheDocument();
   });
 

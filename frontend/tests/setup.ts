@@ -12,6 +12,7 @@ const mockCanvasContext2d: Partial<CanvasRenderingContext2D> = {
   save: vi.fn(),
   restore: vi.fn(),
   translate: vi.fn(),
+  rotate: vi.fn(),
   scale: vi.fn(),
   beginPath: vi.fn(),
   moveTo: vi.fn(),
@@ -20,6 +21,7 @@ const mockCanvasContext2d: Partial<CanvasRenderingContext2D> = {
   arc: vi.fn(),
   fill: vi.fn(),
   fillText: vi.fn(),
+  strokeText: vi.fn(),
   setLineDash: vi.fn(),
   strokeRect: vi.fn()
 };

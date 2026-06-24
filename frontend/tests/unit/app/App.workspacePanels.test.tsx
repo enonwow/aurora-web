@@ -1,9 +1,80 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { vi } from "vitest";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
-import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
+import {
+  loadLocalSceneDraft,
+  saveLocalSceneDraft
+} from "../../../src/modules/scene/adapters/localDraftStore";
+import { createSeedAreaScene } from "../../../src/modules/scene/domain/sceneFactory";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+
+vi.mock("../../../src/modules/placeables/adapters/httpPlaceableApiPort", () => ({
+  createHttpPlaceableApiPort: () => ({
+    listPlaceables: vi.fn(async () => ({
+      items: [
+        {
+          templateId: "plc_barrel_01",
+          resref: "plc_a01",
+          name: "PLC_BARREL_01",
+          category: "placeables",
+          placeableSubtype: "generic",
+          tags: ["placeables"],
+          previewImageUrl: "/preview/plc_barrel_01.png"
+        }
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0
+    })),
+    getPlaceablePreview: vi.fn(async () => ({
+      templateId: "plc_barrel_01",
+      resref: "plc_a01",
+      name: "PLC_BARREL_01",
+      category: "placeables",
+      placeableSubtype: "generic",
+      previewImageUrl: "/preview/plc_barrel_01.png"
+    })),
+    processPlaceable: vi.fn(async () => ({
+      cacheKey: "a".repeat(64),
+      cacheHit: false,
+      storedAt: "2026-01-01T00:00:00.000Z",
+      hits: 0,
+      placeable: {
+        templateId: "plc_barrel_01",
+        resref: "plc_a01",
+        name: "PLC_BARREL_01",
+        category: "placeables",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "default",
+          isDoor: false,
+          isVfx: false
+        },
+        renderPackage: {
+          status: "missing_derived",
+          diagnostics: [],
+          assetRefs: {}
+        },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-01-01T00:00:00.000Z",
+          assetCount: 0,
+          candidatesScanned: 0,
+          assets: []
+        }
+      }
+    })),
+    getPlaceableAssetContracts: vi.fn(async () => ({
+      cacheKey: "a".repeat(64),
+      assets: []
+    }))
+  })
+}));
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -19,6 +90,10 @@ async function signInAs(username: string, password: string) {
   });
   fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
   expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
+}
+
+function seedBuilderDraft() {
+  saveLocalSceneDraft("u_builder_001", createSeedAreaScene(), window.localStorage);
 }
 
 const rolePanelExpectations = [
@@ -138,6 +213,7 @@ describe("App workspace side panels", () => {
   });
 
   it("shows builder object lists grouped by type with 2d previews", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -171,6 +247,7 @@ describe("App workspace side panels", () => {
   });
 
   it("filters builder scene objects by tag or resref", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -189,6 +266,7 @@ describe("App workspace side panels", () => {
   });
 
   it("selects object on left click and opens context menu on right click from scene object list", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -224,6 +302,7 @@ describe("App workspace side panels", () => {
   });
 
   it("shows builder workspace mode switch and toggles panel behavior to placeables mode", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -250,11 +329,33 @@ describe("App workspace side panels", () => {
         name: /^areas$/i
       })
     ).not.toBeInTheDocument();
+    expect(
+      within(rightSidebar).queryByRole("heading", {
+        name: /^scene objects$/i
+      })
+    ).not.toBeInTheDocument();
     expect(within(rightSidebar).queryByText(/crt_devourer_01/i)).not.toBeInTheDocument();
-    expect(within(rightSidebar).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+    expect(within(rightSidebar).queryByText(/plc_barrel_01/i)).not.toBeInTheDocument();
+    expect(
+      await within(leftSidebar).findByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
+    expect(
+      within(leftSidebar).queryByRole("combobox", {
+        name: /add object type selector/i
+      })
+    ).not.toBeInTheDocument();
+
+    const addList = within(leftSidebar).getByRole("list", {
+      name: /placeables mode list/i
+    });
+    expect(
+      await within(addList).findByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
+    expect(within(addList).queryByText(/crt_devourer_01/i)).not.toBeInTheDocument();
   });
 
   it("renders placeable, creature, and door properties panels from context flow", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -340,6 +441,7 @@ describe("App workspace side panels", () => {
   });
 
   it("copies selected object via keyboard and deletes copied selection", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -364,6 +466,7 @@ describe("App workspace side panels", () => {
   });
 
   it("cuts selected object via keyboard and pastes it back from clipboard", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -385,6 +488,7 @@ describe("App workspace side panels", () => {
   });
 
   it("moves selected placeable with arrow keys", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -401,6 +505,9 @@ describe("App workspace side panels", () => {
       fireEvent.click(staticCheckbox);
     }
     fireEvent.click(within(propertiesDialog).getByRole("button", { name: /^ok$/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
+    });
 
     fireEvent.keyDown(window, { key: "s", ctrlKey: true });
     const beforeMove = loadLocalSceneDraft("u_builder_001", window.localStorage);
@@ -420,6 +527,7 @@ describe("App workspace side panels", () => {
   });
 
   it("blocks group move when selection contains a door", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 

@@ -1,4 +1,8 @@
-import type { SceneObjectKind } from "../contracts";
+import type {
+  SceneObject,
+  SceneObjectKind,
+  SceneObjectSoundPositioning
+} from "../../scene/contracts";
 
 export const OBJECT_ADD_DRAG_MIME = "application/x-aurora-object-template";
 
@@ -16,6 +20,7 @@ export interface ObjectAddDragPayload {
   tag: string;
   resRef: string;
   name?: string;
+  soundPositioning?: SceneObjectSoundPositioning;
 }
 
 let activeObjectAddDragPayload: ObjectAddDragPayload | null = null;
@@ -32,17 +37,43 @@ export function serializeObjectAddPayload(payload: ObjectAddDragPayload): string
   return JSON.stringify(payload);
 }
 
+function cloneSoundPositioning(
+  value: SceneObjectSoundPositioning | undefined
+): SceneObjectSoundPositioning | undefined {
+  return value ? JSON.parse(JSON.stringify(value)) as SceneObjectSoundPositioning : undefined;
+}
+
+export function createObjectAddPayloadFromSceneObject(
+  object: SceneObject
+): ObjectAddDragPayload {
+  const soundPositioning =
+    object.kind === "sounds" ? cloneSoundPositioning(object.soundPositioning) : undefined;
+  return {
+    id: object.id,
+    kind: object.kind,
+    tag: object.tag,
+    resRef: object.resRef,
+    name: object.name,
+    ...(soundPositioning ? { soundPositioning } : {})
+  };
+}
+
 export function setCurrentObjectAddDragPayload(payload: ObjectAddDragPayload | null): void {
-  activeObjectAddDragPayload = payload ? { ...payload } : null;
+  activeObjectAddDragPayload = payload
+    ? { ...payload, soundPositioning: cloneSoundPositioning(payload.soundPositioning) }
+    : null;
 }
 
 export function getCurrentObjectAddDragPayload(): ObjectAddDragPayload | null {
-  return activeObjectAddDragPayload ? { ...activeObjectAddDragPayload } : null;
+  return activeObjectAddDragPayload
+    ? {
+        ...activeObjectAddDragPayload,
+        soundPositioning: cloneSoundPositioning(activeObjectAddDragPayload.soundPositioning)
+      }
+    : null;
 }
 
-export function tryParseObjectAddPayload(
-  raw: string | null | undefined
-): ObjectAddDragPayload | null {
+export function tryParseObjectAddPayload(raw: string | null | undefined): ObjectAddDragPayload | null {
   if (typeof raw !== "string" || raw.length === 0) {
     return null;
   }
@@ -75,11 +106,20 @@ export function tryParseObjectAddPayload(
     return null;
   }
 
+  const soundPositioning =
+    candidate.kind === "sounds" &&
+    candidate.soundPositioning !== undefined &&
+    typeof candidate.soundPositioning === "object" &&
+    candidate.soundPositioning !== null
+      ? cloneSoundPositioning(candidate.soundPositioning as SceneObjectSoundPositioning)
+      : undefined;
+
   return {
     id: candidate.id,
     kind: candidate.kind,
     tag: candidate.tag,
     resRef: candidate.resRef,
-    ...(candidate.name !== undefined ? { name: candidate.name } : {})
+    ...(candidate.name !== undefined ? { name: candidate.name } : {}),
+    ...(soundPositioning ? { soundPositioning } : {})
   };
 }

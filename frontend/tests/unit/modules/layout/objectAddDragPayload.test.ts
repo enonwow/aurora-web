@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  createObjectAddPayloadFromSceneObject,
   getCurrentObjectAddDragPayload,
   OBJECT_ADD_DRAG_MIME,
   serializeObjectAddPayload,
   setCurrentObjectAddDragPayload,
   tryParseObjectAddPayload,
   type ObjectAddDragPayload
-} from "../../../../src/modules/layout/components/objectAddDragPayload";
+} from "../../../../src/modules/layout/application/objectAddDragPayload";
+import { createNewSceneObject } from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("objectAddDragPayload", () => {
   it("exports stable drag MIME and roundtrips valid payload", () => {
@@ -137,5 +139,114 @@ describe("objectAddDragPayload", () => {
 
     setCurrentObjectAddDragPayload(null);
     expect(getCurrentObjectAddDragPayload()).toBeNull();
+  });
+
+  it("roundtrips sound positioning metadata only for sound payloads", () => {
+    const soundPositioning = {
+      mode: "specific" as const,
+      elevation: 1,
+      maxVolumeDistance: 12,
+      cutoffDistance: 24,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0,
+      preserve: {
+        timeWindow: "always",
+        hourMask: "0xFFFFFF",
+        active: true,
+        whenToPlay: "always" as const,
+        dayNight: "both" as const,
+        hoursStart: 0,
+        hoursEnd: 23,
+        playStyle: "repeat" as const,
+        playOrder: "random" as const,
+        intervalMs: 4000,
+        intervalVariationMs: 500,
+        volume: 80,
+        volumeVariation: 10,
+        pitchVariation: 0,
+        priority: 5,
+        flags: { backendBenchmark: true },
+        extra: {
+          backendSoundId: "sound_dia_hakon_add_12",
+          soundTemplateSource: "backend-catalog"
+        }
+      }
+    };
+    const payload: ObjectAddDragPayload = {
+      id: "snd_template_sound_dia_hakon_add_12",
+      kind: "sounds",
+      tag: "SOUND_DIA_HAKON_ADD_12",
+      resRef: "dia_hakon_add_12",
+      name: "dia_hakon_add_12",
+      soundPositioning
+    };
+
+    expect(tryParseObjectAddPayload(serializeObjectAddPayload(payload))).toEqual(payload);
+
+    setCurrentObjectAddDragPayload(payload);
+    const snapshot = getCurrentObjectAddDragPayload();
+    expect(snapshot).toEqual(payload);
+    expect(snapshot?.soundPositioning).not.toBe(soundPositioning);
+    expect(snapshot?.soundPositioning?.preserve?.extra).not.toBe(
+      soundPositioning.preserve.extra
+    );
+    setCurrentObjectAddDragPayload(null);
+
+    expect(
+      tryParseObjectAddPayload(
+        JSON.stringify({
+          id: "plc_001",
+          kind: "placeables",
+          tag: "PLC_001",
+          resRef: "plc_001",
+          soundPositioning
+        })
+      )
+    ).toEqual({
+      id: "plc_001",
+      kind: "placeables",
+      tag: "PLC_001",
+      resRef: "plc_001"
+    });
+  });
+
+  it("creates a stable add payload from a scene object template", () => {
+    const soundTemplate = {
+      ...createNewSceneObject("sounds", 1, 2, 7),
+      id: "snd_template_sound_dia_hakon_add_12",
+      tag: "SOUND_DIA_HAKON_ADD_12",
+      resRef: "dia_hakon_add_12",
+      name: "dia_hakon_add_12",
+      soundPositioning: {
+        mode: "specific" as const,
+        elevation: 1,
+        maxVolumeDistance: 12,
+        cutoffDistance: 24,
+        randomRangeWestEast: 0,
+        randomRangeNorthSouth: 0,
+        preserve: {
+          flags: { backendBenchmark: true },
+          extra: {
+            backendSoundId: "sound_dia_hakon_add_12",
+            soundTemplateSource: "backend-catalog"
+          }
+        }
+      }
+    };
+
+    const payload = createObjectAddPayloadFromSceneObject(soundTemplate);
+
+    expect(payload).toEqual({
+      id: "snd_template_sound_dia_hakon_add_12",
+      kind: "sounds",
+      tag: "SOUND_DIA_HAKON_ADD_12",
+      resRef: "dia_hakon_add_12",
+      name: "dia_hakon_add_12",
+      soundPositioning: soundTemplate.soundPositioning
+    });
+    expect(payload.soundPositioning).not.toBe(soundTemplate.soundPositioning);
+    expect(payload.soundPositioning?.preserve?.extra).not.toBe(
+      soundTemplate.soundPositioning.preserve?.extra
+    );
   });
 });

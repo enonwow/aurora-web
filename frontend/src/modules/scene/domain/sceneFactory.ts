@@ -25,12 +25,20 @@ import type {
   SceneObjectPlaceableTrapSettings,
   SceneObjectSoundPositioningPreservePayload,
   SceneObjectSoundPositioning,
+  SceneObjectVfxCanonicalStatus,
+  SceneObjectVfxDiagnostic,
+  SceneObjectVfxPreviewMode,
   SceneObjectVfxPreservePayload,
+  SceneObjectVfxSourceKind,
   ScenePreservePrimitive,
   SceneObjectKind,
   SceneTile,
   TerrainBrushKind
 } from "../contracts";
+import {
+  collectAuroraVfxPayloadDiagnostics,
+  normalizeAuroraVfxPayload
+} from "./auroraVfxPayload";
 import { createWalkmeshDomainModel } from "./walkmesh";
 import {
   normalizeSoundPositioning,
@@ -51,6 +59,7 @@ export const LEGACY_SEED_SCENE_WIDTH_TILES = 18;
 export const LEGACY_SEED_SCENE_HEIGHT_TILES = 18;
 export const DEFAULT_SEED_SCENE_WIDTH_TILES = 2;
 export const DEFAULT_SEED_SCENE_HEIGHT_TILES = 2;
+export const DEFAULT_BLANK_SCENE_ID = "blank_builder_v1";
 
 const DEFAULT_PLACEABLE_PROPERTIES: SceneObjectPlaceableProperties = {
   plot: false,
@@ -289,12 +298,53 @@ const DEFAULT_CREATURE_SPELL_ENTRIES: SceneObjectCreatureSpellEntry[] = [];
 const DEFAULT_CREATURE_SPECIAL_ABILITY_ENTRIES: SceneObjectCreatureSpecialAbilityEntry[] = [];
 
 const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
+  version: "scene-object-vfx-preserve/v1",
   profile: "",
   emitter: "",
   script: "",
+  sourceKind: "unknown",
+  sourceProfile: "",
+  sourceTable: "",
+  sourceLabel: "",
+  sourceResRef: "",
+  previewMode: "none",
+  canonicalStatus: "unmapped",
+  diagnostics: [],
   flags: {},
   extra: {}
 };
+
+const VFX_SOURCE_KINDS = new Set<SceneObjectVfxSourceKind>([
+  "unknown",
+  "placeable_preview",
+  "visualeffects_2da",
+  "effect_instance"
+]);
+
+const VFX_PREVIEW_MODES = new Set<SceneObjectVfxPreviewMode>([
+  "none",
+  "sprite_scaffold",
+  "derived_model_preview",
+  "static_model_preview",
+  "aurora_emitter_particle_preview",
+  "aurora_light_node_preview",
+  "aurora_light_node_source_only",
+  "texture_particle_preview",
+  "chunk_model_source_only",
+  "chunk_model_particle_preview"
+]);
+
+const VFX_CANONICAL_STATUSES = new Set<SceneObjectVfxCanonicalStatus>([
+  "unmapped",
+  "preview_only",
+  "canonical"
+]);
+
+const VFX_DIAGNOSTIC_SEVERITIES = new Set<SceneObjectVfxDiagnostic["severity"]>([
+  "info",
+  "warn",
+  "error"
+]);
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
@@ -306,6 +356,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function asEnumValue<TValue extends string>(
+  value: unknown,
+  allowed: ReadonlySet<TValue>,
+  fallback: TValue
+): TValue {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  return allowed.has(value as TValue) ? (value as TValue) : fallback;
 }
 
 function asFiniteNumber(value: unknown, fallback: number): number {
@@ -366,14 +427,86 @@ function normalizePreservePrimitiveMap(
   return normalized;
 }
 
+function normalizeVfxDiagnostics(value: unknown): SceneObjectVfxDiagnostic[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+    const code = asString(entry.code, "").trim();
+    if (!code) {
+      return [];
+    }
+    return [
+      {
+        code,
+        severity: asEnumValue(entry.severity, VFX_DIAGNOSTIC_SEVERITIES, "warn"),
+        message: asString(entry.message, "")
+      }
+    ];
+  });
+}
+
 function normalizeVfxPayload(value: unknown): SceneObjectVfxPreservePayload | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
+  const sourceRowId = asFiniteNumber(value.sourceRowId, Number.NaN);
+  const auroraPayload = normalizeAuroraVfxPayload(value.auroraPayload);
+  const requestedCanonicalStatus = asEnumValue(
+    value.canonicalStatus,
+    VFX_CANONICAL_STATUSES,
+    DEFAULT_VFX_PAYLOAD.canonicalStatus
+  );
+  const legacyCanonicalDowngraded =
+    requestedCanonicalStatus === "canonical" && auroraPayload?.backendCanonical !== true;
+  const diagnostics = normalizeVfxDiagnostics(value.diagnostics);
+  const canonicalStatus = auroraPayload?.canonicalStatus ??
+    (legacyCanonicalDowngraded ? "preview_only" : requestedCanonicalStatus);
+  if (legacyCanonicalDowngraded) {
+    diagnostics.push({
+      code: "VFX_CANONICAL_STATUS_BACKEND_MARK_REQUIRED",
+      severity: "warn",
+      message:
+        "Legacy VFX payload requested canonical status without backendCanonical=true; frontend downgraded it to preview_only."
+    });
+  }
+  if (auroraPayload) {
+    diagnostics.push(...collectAuroraVfxPayloadDiagnostics(auroraPayload));
+  }
   return {
+    version: "scene-object-vfx-preserve/v1",
     profile: asString(value.profile, DEFAULT_VFX_PAYLOAD.profile),
     emitter: asString(value.emitter, DEFAULT_VFX_PAYLOAD.emitter),
     script: asString(value.script, DEFAULT_VFX_PAYLOAD.script),
+    sourceKind:
+      auroraPayload?.sourceKind ??
+      asEnumValue(value.sourceKind, VFX_SOURCE_KINDS, DEFAULT_VFX_PAYLOAD.sourceKind),
+    sourceProfile:
+      auroraPayload?.provenance.sourceProfile ??
+      asString(value.sourceProfile, DEFAULT_VFX_PAYLOAD.sourceProfile),
+    sourceTable:
+      auroraPayload?.provenance.sourceTable ??
+      asString(value.sourceTable, DEFAULT_VFX_PAYLOAD.sourceTable),
+    ...(typeof auroraPayload?.provenance.sourceRowId === "number"
+      ? { sourceRowId: auroraPayload.provenance.sourceRowId }
+      : Number.isFinite(sourceRowId)
+        ? { sourceRowId }
+        : {}),
+    sourceLabel:
+      auroraPayload?.provenance.sourceLabel ??
+      asString(value.sourceLabel, DEFAULT_VFX_PAYLOAD.sourceLabel),
+    sourceResRef:
+      auroraPayload?.provenance.sourceResRef ??
+      asString(value.sourceResRef, DEFAULT_VFX_PAYLOAD.sourceResRef),
+    previewMode:
+      auroraPayload?.previewMode ??
+      asEnumValue(value.previewMode, VFX_PREVIEW_MODES, DEFAULT_VFX_PAYLOAD.previewMode),
+    canonicalStatus,
+    diagnostics: dedupeVfxDiagnostics(diagnostics),
+    ...(auroraPayload ? { auroraPayload } : {}),
     flags: normalizePreserveBooleanMap(value.flags),
     extra: normalizePreservePrimitiveMap(value.extra)
   };
@@ -439,9 +572,63 @@ function areVfxPayloadsEqual(
     left.profile === right.profile &&
     left.emitter === right.emitter &&
     left.script === right.script &&
+    left.sourceKind === right.sourceKind &&
+    left.sourceProfile === right.sourceProfile &&
+    left.sourceTable === right.sourceTable &&
+    left.sourceRowId === right.sourceRowId &&
+    left.sourceLabel === right.sourceLabel &&
+    left.sourceResRef === right.sourceResRef &&
+    left.previewMode === right.previewMode &&
+    left.canonicalStatus === right.canonicalStatus &&
+    areVfxDiagnosticsEqual(left.diagnostics, right.diagnostics) &&
+    areAuroraVfxPayloadsEqual(left.auroraPayload, right.auroraPayload) &&
     areBooleanMapsEqual(left.flags, right.flags) &&
     arePrimitiveMapsEqual(left.extra, right.extra)
   );
+}
+
+function areAuroraVfxPayloadsEqual(
+  left: SceneObjectVfxPreservePayload["auroraPayload"],
+  right: SceneObjectVfxPreservePayload["auroraPayload"]
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function areVfxDiagnosticsEqual(
+  left: SceneObjectVfxDiagnostic[],
+  right: SceneObjectVfxDiagnostic[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((entry, index) => {
+    const candidate = right[index];
+    if (!candidate) {
+      return false;
+    }
+    return (
+      entry.code === candidate.code &&
+      entry.severity === candidate.severity &&
+      entry.message === candidate.message
+    );
+  });
+}
+
+function dedupeVfxDiagnostics(
+  diagnostics: SceneObjectVfxDiagnostic[]
+): SceneObjectVfxDiagnostic[] {
+  const seen = new Set<string>();
+  return diagnostics.filter((diagnostic) => {
+    const key = `${diagnostic.code}:${diagnostic.message}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function areDoorTransitionFlagsEqual(
@@ -907,7 +1094,8 @@ function createTile(row: number, col: number): SceneTile {
     terrain: terrainByIndex(sequenceIndex),
     orientation: ((row + col) % 4) as 0 | 1 | 2 | 3,
     rotateTexture: (row + col) % 2 === 0,
-    plot: false
+    plot: false,
+    source: "seed"
   };
 }
 
@@ -2140,6 +2328,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         | Partial<Record<keyof SceneObjectDoorTransitionPayload, unknown>>
         | undefined) ?? undefined;
     const shouldNormalizeDoorTransition = rawDoorTransition !== undefined;
+    const nextDoorTransitionExtra = normalizePreservePrimitiveMap(rawDoorTransition?.extra);
     const nextDoorTransition: SceneObjectDoorTransitionPayload | undefined = shouldNormalizeDoorTransition
       ? {
           linkedTarget: asString(rawDoorTransition?.linkedTarget, ""),
@@ -2147,7 +2336,10 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           linkedTag: asString(rawDoorTransition?.linkedTag, ""),
           linkedWaypoint: asString(rawDoorTransition?.linkedWaypoint, ""),
           loadScreen: asString(rawDoorTransition?.loadScreen, ""),
-          flags: normalizeDoorTransitionFlags(rawDoorTransition?.flags)
+          flags: normalizeDoorTransitionFlags(rawDoorTransition?.flags),
+          ...(Object.keys(nextDoorTransitionExtra).length > 0
+            ? { extra: nextDoorTransitionExtra }
+            : {})
         }
       : undefined;
     const currentDoorTransition = normalizedObject.doorTransition;
@@ -2179,7 +2371,8 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           currentDoorTransition?.linkedTag === nextDoorTransition.linkedTag &&
           currentDoorTransition?.linkedWaypoint === nextDoorTransition.linkedWaypoint &&
           currentDoorTransition?.loadScreen === nextDoorTransition.loadScreen &&
-          areDoorTransitionFlagsEqual(currentDoorTransition?.flags ?? {}, nextDoorTransition.flags);
+          areDoorTransitionFlagsEqual(currentDoorTransition?.flags ?? {}, nextDoorTransition.flags) &&
+          arePrimitiveMapsEqual(currentDoorTransition?.extra ?? {}, nextDoorTransition.extra ?? {});
 
     if (
       isDoorPropertiesUnchanged &&
@@ -2327,22 +2520,56 @@ function createSeedObjects(width: number, height: number): SceneObject[] {
   );
 }
 
-export function createSeedAreaScene(
-  width = DEFAULT_SEED_SCENE_WIDTH_TILES,
-  height = DEFAULT_SEED_SCENE_HEIGHT_TILES
-): AreaScene {
+function createSceneTiles(width: number, height: number): SceneTile[] {
   const tiles: SceneTile[] = [];
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
       tiles.push(createTile(row, col));
     }
   }
+  return tiles;
+}
+
+export function createBlankAreaScene(
+  width = DEFAULT_SEED_SCENE_WIDTH_TILES,
+  height = DEFAULT_SEED_SCENE_HEIGHT_TILES,
+  updatedAtUnixMs = Date.now()
+): AreaScene {
+  const tiles = createSceneTiles(width, height);
+  return {
+    sceneId: DEFAULT_BLANK_SCENE_ID,
+    areaName: "Untitled Area",
+    width,
+    height,
+    tileSource: {
+      type: "seed_placeholder",
+      tileCount: tiles.length,
+      fallbackReason: "blank-startup-scene"
+    },
+    tiles,
+    objects: [],
+    walkmesh: createWalkmeshDomainModel({}),
+    updatedAtUnixMs,
+    source: "seed"
+  };
+}
+
+export function createSeedAreaScene(
+  width = DEFAULT_SEED_SCENE_WIDTH_TILES,
+  height = DEFAULT_SEED_SCENE_HEIGHT_TILES
+): AreaScene {
+  const tiles = createSceneTiles(width, height);
 
   return {
     sceneId: "wnd_seed_builder_v1",
     areaName: "Seed Area (MVP Runtime)",
     width,
     height,
+    tileSource: {
+      type: "seed_placeholder",
+      tileCount: tiles.length,
+      fallbackReason: "seed-scene-placeholder"
+    },
     tiles,
     objects: createSeedObjects(width, height),
     walkmesh: createWalkmeshDomainModel({}),

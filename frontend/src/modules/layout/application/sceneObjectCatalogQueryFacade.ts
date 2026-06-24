@@ -99,9 +99,16 @@ function filterRows(rows: SceneObject[], searchQuery: string): SceneObject[] {
   }
 
   return rows.filter((object) => {
-    const tag = object.tag.toLowerCase();
-    const resRef = object.resRef.toLowerCase();
-    return tag.includes(normalizedQuery) || resRef.includes(normalizedQuery);
+    const fields = [
+      object.tag,
+      object.resRef,
+      object.source?.sourceObjectId,
+      object.source?.sourceKind,
+      object.source?.templateId
+    ]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .map((value) => value.toLowerCase());
+    return fields.some((value) => value.includes(normalizedQuery));
   });
 }
 

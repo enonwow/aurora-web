@@ -1,11 +1,12 @@
 import type { SceneObjectCatalogType } from "./application/sceneObjectCatalogQueryFacade";
 
-export type WorkspaceModeId = "areas_mode" | "placeables_mode";
+export type WorkspaceModeId = "areas_mode" | "placeables_mode" | "sounds_mode";
 
 export interface WorkspaceModeDefinition {
   id: WorkspaceModeId;
   label: string;
   description: string;
+  renderAreaGeometry: boolean;
   allowedCatalogTypes: readonly SceneObjectCatalogType[];
   defaultAddType: SceneObjectCatalogType;
   defaultListType: SceneObjectCatalogType;
@@ -32,12 +33,14 @@ const AREAS_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = [
 ];
 
 const PLACEABLES_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["placeables"];
+const SOUNDS_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["sounds"];
 
 const WORKSPACE_MODES: Record<WorkspaceModeId, WorkspaceModeDefinition> = {
   areas_mode: {
     id: "areas_mode",
     label: "Areas Mode",
     description: "Area-focused workspace mode with area loading and full object catalog access.",
+    renderAreaGeometry: true,
     allowedCatalogTypes: AREAS_MODE_ALLOWED_CATALOG_TYPES,
     defaultAddType: "placeables",
     defaultListType: "all",
@@ -49,16 +52,33 @@ const WORKSPACE_MODES: Record<WorkspaceModeId, WorkspaceModeDefinition> = {
     id: "placeables_mode",
     label: "Placeables Mode",
     description: "Focused workspace mode for placeables authoring only.",
+    renderAreaGeometry: false,
     allowedCatalogTypes: PLACEABLES_MODE_ALLOWED_CATALOG_TYPES,
     defaultAddType: "placeables",
     defaultListType: "placeables",
     showAreaSelectionPanel: false,
     showSceneObjectAddPanel: true,
-    showSceneObjectListPanel: true
+    showSceneObjectListPanel: false
+  },
+  sounds_mode: {
+    id: "sounds_mode",
+    label: "Sounds Mode",
+    description: "Focused workspace mode for backend Aurora sound templates and preview playback.",
+    renderAreaGeometry: false,
+    allowedCatalogTypes: SOUNDS_MODE_ALLOWED_CATALOG_TYPES,
+    defaultAddType: "sounds",
+    defaultListType: "sounds",
+    showAreaSelectionPanel: false,
+    showSceneObjectAddPanel: true,
+    showSceneObjectListPanel: false
   }
 };
 
-const WORKSPACE_MODE_ORDER: readonly WorkspaceModeId[] = ["areas_mode", "placeables_mode"];
+const WORKSPACE_MODE_ORDER: readonly WorkspaceModeId[] = [
+  "areas_mode",
+  "placeables_mode",
+  "sounds_mode"
+];
 
 export function listWorkspaceModes(): readonly WorkspaceModeDefinition[] {
   return WORKSPACE_MODE_ORDER.map((modeId) => WORKSPACE_MODES[modeId]);
@@ -73,7 +93,7 @@ export function getDefaultWorkspaceMode(): WorkspaceModeDefinition {
 }
 
 export function isWorkspaceModeId(value: unknown): value is WorkspaceModeId {
-  return value === "areas_mode" || value === "placeables_mode";
+  return value === "areas_mode" || value === "placeables_mode" || value === "sounds_mode";
 }
 
 export function resolveWorkspaceModeId(value: unknown): WorkspaceModeId {

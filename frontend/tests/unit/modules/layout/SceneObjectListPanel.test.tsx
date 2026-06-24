@@ -2,7 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
 import { SceneObjectListPanel } from "../../../../src/modules/layout/components/SceneObjectListPanel";
-import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
+import {
+  createNewSceneObject,
+  createSeedAreaScene
+} from "../../../../src/modules/scene/domain/sceneFactory";
 
 describe("SceneObjectListPanel", () => {
   const objects = createSeedAreaScene().objects;
@@ -30,6 +33,20 @@ describe("SceneObjectListPanel", () => {
     expect(selector).toHaveValue("all");
     expect(screen.getByText(/plc_barrel_01/i)).toBeInTheDocument();
     expect(screen.getByText(/crt_devourer_01/i)).toBeInTheDocument();
+  });
+
+  it("uses a clean empty state for the all-objects view", () => {
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
+
+    expect(screen.getByText("No objects in current area.")).toBeInTheDocument();
+    expect(screen.queryByText(/no all objects/i)).not.toBeInTheDocument();
   });
 
   it("switches type groups and shows empty state for post-mvp categories", () => {
@@ -155,6 +172,133 @@ describe("SceneObjectListPanel", () => {
         objectKind: "placeables"
       })
     );
+  });
+
+  it("opens properties from a sound row through a stable row action", () => {
+    const onObjectPropertiesOpen = vi.fn();
+    const backendSoundObject = {
+      ...createNewSceneObject("sounds", 4, 5, 77),
+      id: "snd_template_sound_dia_hakon_add_12",
+      tag: "SOUND_DIA_HAKON_ADD_12",
+      resRef: "dia_hakon_add_12",
+      soundPositioning: {
+        mode: "specific" as const,
+        x: 4,
+        y: 5,
+        z: 0,
+        preserve: {
+          flags: {},
+          extra: {
+            backendSoundId: "sound_dia_hakon_add_12",
+            category: "dialogue",
+            format: "wav",
+            spatialMode: "3d",
+            playbackMode: "single",
+            soundTemplateSource: "backend-catalog"
+          }
+        }
+      }
+    };
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[backendSoundObject]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="sounds"
+        allowedCatalogTypes={["sounds"]}
+        hideUnsupportedCatalogTypes
+        onObjectPropertiesOpen={onObjectPropertiesOpen}
+      />
+    );
+
+    const list = screen.getByRole("list", { name: /sounds list/i });
+    const row = within(list).getByRole("button", { name: /sound_dia_hakon_add_12/i });
+    const item = row.closest("li");
+    expect(item).not.toBeNull();
+    fireEvent.click(
+      within(item as HTMLElement).getByRole("button", { name: /open object properties/i })
+    );
+
+    expect(onObjectPropertiesOpen).toHaveBeenCalledTimes(1);
+    expect(onObjectPropertiesOpen.mock.calls[0][0]).toMatchObject({
+      id: "snd_template_sound_dia_hakon_add_12",
+      kind: "sounds",
+      soundPositioning: {
+        preserve: {
+          extra: {
+            backendSoundId: "sound_dia_hakon_add_12",
+            soundTemplateSource: "backend-catalog"
+          }
+        }
+      }
+    });
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.properties_opened",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectId: "snd_template_sound_dia_hakon_add_12",
+        objectKind: "sounds",
+        source: "scene_object_list"
+      })
+    );
+  });
+
+  it("does not mark backend sound rows selected when selected ids are outside current rows", () => {
+    const visibleBackendSound = {
+      ...createNewSceneObject("sounds", 4, 5, 77),
+      id: "snd_template_sound_dia_hakon_add_12",
+      tag: "SOUND_DIA_HAKON_ADD_12",
+      resRef: "dia_hakon_add_12",
+      soundPositioning: {
+        mode: "specific" as const,
+        preserve: {
+          flags: {},
+          extra: {
+            backendSoundId: "sound_dia_hakon_add_12",
+            soundTemplateSource: "backend-catalog"
+          }
+        }
+      }
+    };
+    const outOfSubsetBackendSound = {
+      ...createNewSceneObject("sounds", 6, 7, 78),
+      id: "snd_template_sound_dia_hakon_add_13",
+      tag: "SOUND_DIA_HAKON_ADD_13",
+      resRef: "dia_hakon_add_13",
+      soundPositioning: {
+        mode: "specific" as const,
+        preserve: {
+          flags: {},
+          extra: {
+            backendSoundId: "sound_dia_hakon_add_13",
+            soundTemplateSource: "backend-catalog"
+          }
+        }
+      }
+    };
+
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[visibleBackendSound]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="sounds"
+        allowedCatalogTypes={["sounds"]}
+        hideUnsupportedCatalogTypes
+        selectedObjectIds={[outOfSubsetBackendSound.id]}
+      />
+    );
+
+    const list = screen.getByRole("list", { name: /sounds list/i });
+    const row = within(list).getByRole("button", { name: /sound_dia_hakon_add_12/i });
+
+    expect(row).toHaveAttribute("aria-selected", "false");
+    expect(outOfSubsetBackendSound.soundPositioning.preserve.extra).toMatchObject({
+      backendSoundId: "sound_dia_hakon_add_13",
+      soundTemplateSource: "backend-catalog"
+    });
   });
 
   it("marks rows selected from selectedObjectIds and supports ctrl multi-select intent", () => {

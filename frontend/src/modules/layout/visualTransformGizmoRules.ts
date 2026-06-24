@@ -96,6 +96,49 @@ export function resolveGizmoColorPalette(gizmoMode: CanvasGizmoMode) {
   return isVisualTransformGizmoMode(gizmoMode) ? VT_GIZMO_COLORS : WORLD_GIZMO_COLORS;
 }
 
+export function resolveGizmoModeBadge(mode: CanvasGizmoMode): {
+  label: string;
+  variant: "world" | "vt";
+} {
+  if (mode === "translate") {
+    return { label: "World Move (1)", variant: "world" };
+  }
+  if (mode === "rotate") {
+    return { label: "World Bearing (2)", variant: "world" };
+  }
+  if (mode === "vt_rotate") {
+    return { label: "VT Rotate (3)", variant: "vt" };
+  }
+  if (mode === "vt_translate") {
+    return { label: "VT Offset (4)", variant: "vt" };
+  }
+  if (mode === "vt_scale") {
+    return { label: "VT Scale (5)", variant: "vt" };
+  }
+  return { label: `Mode: ${mode}`, variant: "world" };
+}
+
+export function resolveTransformControlsMode(
+  gizmoMode: CanvasGizmoMode
+): "translate" | "rotate" | "scale" | null {
+  if (gizmoMode === "translate") {
+    return "translate";
+  }
+  if (gizmoMode === "rotate") {
+    return "rotate";
+  }
+  if (gizmoMode === "vt_translate") {
+    return "translate";
+  }
+  if (gizmoMode === "vt_rotate") {
+    return "rotate";
+  }
+  if (gizmoMode === "vt_scale") {
+    return "scale";
+  }
+  return null;
+}
+
 export function resolveVtScaleFactorFromAnchor(
   startAnchorScale: { x: number; y: number; z: number },
   currentAnchorScale: { x: number; y: number; z: number },

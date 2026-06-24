@@ -31,6 +31,8 @@ describe("themeSettings", () => {
   });
 
   it("recognizes valid and invalid theme ids", () => {
+    expect(DEFAULT_LAYOUT_THEME).toBe("aurora-toolset-classic");
+    expect(isLayoutThemeId("aurora-toolset-classic")).toBe(true);
     expect(isLayoutThemeId("aurora-deep-blue")).toBe(true);
     expect(isLayoutThemeId("obsidian-slate")).toBe(true);
     expect(isLayoutThemeId("dawn-steel")).toBe(true);

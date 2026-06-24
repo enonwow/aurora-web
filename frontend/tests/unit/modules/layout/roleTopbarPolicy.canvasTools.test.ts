@@ -127,7 +127,10 @@ describe("roleTopbarPolicy canvas tools", () => {
     const radius = applyToolbarAction(invert, "select_radius");
     expect(radius.lastCommand).toBe("select_radius");
 
-    const saveBookmark = applyToolbarAction(radius, "camera_bookmark_save_1");
+    const fitArea = applyToolbarAction(radius, "fit_area_view");
+    expect(fitArea.lastCommand).toBe("fit_area_view");
+
+    const saveBookmark = applyToolbarAction(fitArea, "camera_bookmark_save_1");
     expect(saveBookmark.lastCommand).toBe("camera_bookmark_save_1");
 
     const loadBookmark = applyToolbarAction(saveBookmark, "camera_bookmark_load_1");

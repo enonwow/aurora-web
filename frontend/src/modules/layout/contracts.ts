@@ -5,6 +5,7 @@ export type {
   SceneHistoryState,
   SceneObject,
   SceneObjectKind,
+  SceneObjectVfxPreservePayload,
   SceneTile,
   TerrainBrushKind
 } from "../scene/contracts";

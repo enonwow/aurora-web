@@ -7,6 +7,29 @@ export interface RuntimeSoundPlaybackState {
   lastPlayStyle: RuntimeSoundPlayStyle;
 }
 
+export interface RuntimeSoundNowPlayingBadge {
+  objectId: string;
+  label: string;
+}
+
+export function areRuntimeSoundNowPlayingBadgesEqual(
+  left: readonly RuntimeSoundNowPlayingBadge[],
+  right: readonly RuntimeSoundNowPlayingBadge[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (
+      left[index]?.objectId !== right[index]?.objectId ||
+      left[index]?.label !== right[index]?.label
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function createRuntimeSoundPlaybackState(
   nowUnixMs: number,
   playStyle: RuntimeSoundPlayStyle,

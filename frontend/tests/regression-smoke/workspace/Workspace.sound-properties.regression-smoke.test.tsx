@@ -2,7 +2,14 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { vi } from "vitest";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
-import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
+import {
+  loadLocalSceneDraft,
+  saveLocalSceneDraft
+} from "../../../src/modules/scene/adapters/localDraftStore";
+import {
+  createNewSceneObject,
+  createSeedAreaScene
+} from "../../../src/modules/scene/domain/sceneFactory";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -33,12 +40,145 @@ function getSoundByTag(tag: string) {
   return draft?.objects.find((object) => object.tag === tag);
 }
 
+function expectBackendCreatedSoundMetadata(tag: string) {
+  const sound = getSoundByTag(tag);
+  expect(sound?.resRef).toBe("dia_hakon_add_12");
+  expect(sound?.soundPositioning?.preserve?.extra).toMatchObject({
+    backendSoundId: "sound_dia_hakon_add_12",
+    category: "effect",
+    format: "wav",
+    spatialMode: "3d",
+    playbackMode: "random",
+    soundTemplateSource: "backend-catalog"
+  });
+  return sound;
+}
+
+function installBackendSoundCatalogFetchFixture() {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/catalog/sounds")) {
+      return Response.json({
+        data: {
+          items: [
+            {
+              soundId: "sound_dia_hakon_add_12",
+              resref: "dia_hakon_add_12",
+              name: "Dia Hakon Add 12",
+              category: "effect",
+              format: "wav",
+              tags: ["npc_sounds"],
+              benchmark: false,
+              previewWaveformUrl: "/api/v1/catalog/sounds/sound_dia_hakon_add_12/preview",
+              spatialMode: "3d",
+              playbackMode: "random",
+              auroraUsage: {
+                bindingKey: "GI_sound_pos",
+                sourceField: "PlacedSound"
+              },
+              metrics: {
+                durationMs: 1200,
+                cues: 1,
+                emitters: 1
+              },
+              updatedAt: "2026-06-16T00:00:00.000Z"
+            }
+          ],
+          total: 1,
+          limit: 100,
+          offset: 0
+        }
+      });
+    }
+
+    return Promise.reject(new TypeError(`Unhandled fetch in sound regression: ${url}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 async function openSoundPropertiesDialog(label: RegExp) {
   const rightSidebar = screen.getByLabelText(/right sidebar/i);
   const soundRow = within(rightSidebar).getByRole("button", { name: label });
   fireEvent.contextMenu(soundRow, { clientX: 280, clientY: 210 });
   fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
   return screen.findByRole("dialog", { name: /sound properties/i });
+}
+
+async function openSoundPropertiesDialogFromRowAction(label: RegExp) {
+  const rightSidebar = screen.getByLabelText(/right sidebar/i);
+  const soundRow = within(rightSidebar).getByRole("button", { name: label });
+  const rowItem = soundRow.closest("li");
+  expect(rowItem).not.toBeNull();
+  fireEvent.click(
+    within(rowItem as HTMLElement).getByRole("button", {
+      name: /open object properties/i
+    })
+  );
+  return screen.findByRole("dialog", { name: /sound properties/i });
+}
+
+async function createSoundObjectFromAddPanel(label: RegExp) {
+  fireEvent.change(screen.getByLabelText(/add object type selector/i), {
+    target: { value: "sounds" }
+  });
+
+  const leftSidebar = screen.getByLabelText(/left sidebar/i);
+  const templateRowButton = await within(leftSidebar).findByRole("button", {
+    name: label
+  });
+  const rowItem = templateRowButton.closest("li");
+  expect(rowItem).not.toBeNull();
+
+  fireEvent.click(
+    within(rowItem as HTMLElement).getByRole("button", {
+      name: /create object on canvas/i
+    })
+  );
+}
+
+function createBackendSoundScene() {
+  const scene = createSeedAreaScene();
+  const backendSound = {
+    ...createNewSceneObject("sounds", 6, 7, 12),
+    id: "snd_template_sound_dia_hakon_add_12",
+    name: "SOUND_DIA_HAKON_ADD_12",
+    tag: "SOUND_DIA_HAKON_ADD_12",
+    resRef: "dia_hakon_add_12",
+    soundPositioning: {
+      mode: "specific" as const,
+      x: 6,
+      y: 7,
+      z: 0,
+      elevation: 0,
+      maxVolumeDistance: 1.2,
+      cutoffDistance: 12,
+      randomRangeWestEast: 0,
+      randomRangeNorthSouth: 0,
+      preserve: {
+        flags: {},
+        extra: {
+          backendSoundId: "sound_dia_hakon_add_12",
+          category: "dialogue",
+          format: "wav",
+          spatialMode: "3d",
+          playbackMode: "single",
+          auroraBindingKey: "SoundList",
+          auroraSourceField: "Sounds",
+          soundTemplateSource: "backend-catalog"
+        }
+      }
+    }
+  };
+
+  return {
+    ...scene,
+    objects: [...scene.objects, backendSound]
+  };
 }
 
 async function openAdjustLocationDialog(label: RegExp) {
@@ -407,5 +547,233 @@ describe("Regression smoke: sound properties dialog", () => {
     expect(updated?.soundPositioning?.preserve?.intervalVariationMs).toBe(2500);
     expect(updated?.soundPositioning?.preserve?.volumeVariation).toBeCloseTo(0.45, 6);
     expect(updated?.soundPositioning?.preserve?.pitchVariation).toBeCloseTo(0.2, 6);
+  });
+
+  it("opens a backend sound through the row action and preserves backend metadata after apply/save/reload", async () => {
+    saveLocalSceneDraft("u_builder_001", createBackendSoundScene(), window.localStorage);
+    const { unmount } = renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    const dialog = await openSoundPropertiesDialogFromRowAction(/sound_dia_hakon_add_12/i);
+    expect(within(dialog).getByText("Backend Sound Contract")).toBeInTheDocument();
+    expect(within(dialog).getByText("sound_dia_hakon_add_12")).toBeInTheDocument();
+    expect(within(dialog).getByText("dialogue")).toBeInTheDocument();
+    expect(within(dialog).getByText("wav")).toBeInTheDocument();
+    expect(within(dialog).getByText("3d")).toBeInTheDocument();
+    expect(within(dialog).getByText("single")).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText(/^tag$/i), {
+      target: { value: "SOUND_DIA_HAKON_ADD_12_EDITED" }
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^comments$/i), {
+      target: { value: "Edited through stable row action." }
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+    await saveDraft();
+
+    const saved = getSoundByTag("SOUND_DIA_HAKON_ADD_12_EDITED");
+    expect(saved?.soundPositioning?.preserve?.extra).toMatchObject({
+      backendSoundId: "sound_dia_hakon_add_12",
+      category: "dialogue",
+      format: "wav",
+      spatialMode: "3d",
+      playbackMode: "single",
+      soundTemplateSource: "backend-catalog"
+    });
+    expect(saved?.soundPositioning?.preserve?.extra?.auroraComments).toBe(
+      "Edited through stable row action."
+    );
+
+    unmount();
+    renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+    await waitFor(() => {
+      expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12_EDITED")).toBeDefined();
+    });
+    const reloaded = getSoundByTag("SOUND_DIA_HAKON_ADD_12_EDITED");
+    expect(reloaded?.soundPositioning?.preserve?.extra).toMatchObject({
+      backendSoundId: "sound_dia_hakon_add_12",
+      category: "dialogue",
+      format: "wav",
+      spatialMode: "3d",
+      playbackMode: "single",
+      soundTemplateSource: "backend-catalog"
+    });
+    expect(reloaded?.soundPositioning?.preserve?.extra?.auroraComments).toBe(
+      "Edited through stable row action."
+    );
+  });
+
+  it("creates a backend sound template and preserves metadata after row action edit/save/reload", async () => {
+    const restoreFetch = installBackendSoundCatalogFetchFixture();
+    try {
+      const { unmount } = renderAtPath("/login");
+      await signInAs("builder.user", "builder123");
+
+      await createSoundObjectFromAddPanel(/preview sound_dia_hakon_add_12/i);
+      expect(
+        await within(screen.getByLabelText(/right sidebar/i)).findByRole("button", {
+          name: /sound_dia_hakon_add_12/i
+        })
+      ).toBeInTheDocument();
+
+      const dialog = await openSoundPropertiesDialogFromRowAction(/sound_dia_hakon_add_12/i);
+      expect(within(dialog).getByText("Backend Sound Contract")).toBeInTheDocument();
+      expect(within(dialog).getByText("sound_dia_hakon_add_12")).toBeInTheDocument();
+      expect(within(dialog).getAllByText("dia_hakon_add_12").length).toBeGreaterThanOrEqual(1);
+      expect(within(dialog).getByText("effect")).toBeInTheDocument();
+      expect(within(dialog).getByText("wav")).toBeInTheDocument();
+      expect(within(dialog).getByText("3d")).toBeInTheDocument();
+      expect(within(dialog).getByText("random")).toBeInTheDocument();
+
+      fireEvent.change(within(dialog).getByLabelText(/^tag$/i), {
+        target: { value: "SOUND_DIA_HAKON_ADD_12_CREATED_EDITED" }
+      });
+      fireEvent.change(within(dialog).getByLabelText(/^comments$/i), {
+        target: { value: "Created through Add Objects and saved." }
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
+      await saveDraft();
+
+      const saved = getSoundByTag("SOUND_DIA_HAKON_ADD_12_CREATED_EDITED");
+      expect(saved?.resRef).toBe("dia_hakon_add_12");
+      expect(saved?.soundPositioning?.preserve?.extra).toMatchObject({
+        backendSoundId: "sound_dia_hakon_add_12",
+        category: "effect",
+        format: "wav",
+        spatialMode: "3d",
+        playbackMode: "random",
+        soundTemplateSource: "backend-catalog"
+      });
+      expect(saved?.soundPositioning?.preserve?.extra?.auroraComments).toBe(
+        "Created through Add Objects and saved."
+      );
+
+      unmount();
+      renderAtPath("/login");
+      await signInAs("builder.user", "builder123");
+      await waitFor(() => {
+        expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12_CREATED_EDITED")).toBeDefined();
+      });
+
+      const reloaded = getSoundByTag("SOUND_DIA_HAKON_ADD_12_CREATED_EDITED");
+      expect(reloaded?.resRef).toBe("dia_hakon_add_12");
+      expect(reloaded?.soundPositioning?.preserve?.extra).toMatchObject({
+        backendSoundId: "sound_dia_hakon_add_12",
+        category: "effect",
+        format: "wav",
+        spatialMode: "3d",
+        playbackMode: "random",
+        soundTemplateSource: "backend-catalog"
+      });
+      expect(reloaded?.soundPositioning?.preserve?.extra?.auroraComments).toBe(
+        "Created through Add Objects and saved."
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it("keeps backend-created sound metadata stable through undo/redo/delete history", async () => {
+    const restoreFetch = installBackendSoundCatalogFetchFixture();
+    try {
+      renderAtPath("/login");
+      await signInAs("builder.user", "builder123");
+
+      await createSoundObjectFromAddPanel(/preview sound_dia_hakon_add_12/i);
+      const rightSidebar = screen.getByLabelText(/right sidebar/i);
+      const createdRow = await within(rightSidebar).findByRole("button", {
+        name: /sound_dia_hakon_add_12/i
+      });
+      expect(createdRow).toBeInTheDocument();
+      expect(createdRow).toHaveAttribute("aria-selected", "true");
+
+      await saveDraft();
+      expectBackendCreatedSoundMetadata("SOUND_DIA_HAKON_ADD_12");
+
+      fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+      await saveDraft();
+      expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12")).toBeUndefined();
+      expect(
+        within(rightSidebar).queryByRole("button", {
+          name: /sound_dia_hakon_add_12/i
+        })
+      ).not.toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+      const redoneRow = await within(rightSidebar).findByRole("button", {
+        name: /sound_dia_hakon_add_12/i
+      });
+      expect(redoneRow).toBeInTheDocument();
+      await saveDraft();
+      const redone = expectBackendCreatedSoundMetadata("SOUND_DIA_HAKON_ADD_12");
+
+      fireEvent.click(redoneRow);
+      expect(redoneRow).toHaveAttribute("aria-selected", "true");
+      fireEvent.keyDown(window, { key: "Delete" });
+      await saveDraft();
+      expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12")).toBeUndefined();
+
+      fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+      const restoredRow = await within(rightSidebar).findByRole("button", {
+        name: /sound_dia_hakon_add_12/i
+      });
+      expect(restoredRow).toBeInTheDocument();
+      fireEvent.click(restoredRow);
+      expect(restoredRow).toHaveAttribute("aria-selected", "true");
+      await saveDraft();
+      expect(expectBackendCreatedSoundMetadata("SOUND_DIA_HAKON_ADD_12")?.soundPositioning).toEqual(
+        redone?.soundPositioning
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it("preserves backend-created sound metadata when copied and pasted", async () => {
+    const restoreFetch = installBackendSoundCatalogFetchFixture();
+    try {
+      renderAtPath("/login");
+      await signInAs("builder.user", "builder123");
+
+      await createSoundObjectFromAddPanel(/preview sound_dia_hakon_add_12/i);
+      const rightSidebar = screen.getByLabelText(/right sidebar/i);
+      const sourceRow = await within(rightSidebar).findByRole("button", {
+        name: /sound_dia_hakon_add_12/i
+      });
+      expect(sourceRow).toHaveAttribute("aria-selected", "true");
+
+      await saveDraft();
+      const original = expectBackendCreatedSoundMetadata("SOUND_DIA_HAKON_ADD_12");
+
+      fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+      fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+      expect(
+        await within(rightSidebar).findByRole("button", {
+          name: /sound_dia_hakon_add_12_copy/i
+        })
+      ).toBeInTheDocument();
+
+      await saveDraft();
+      const draft = loadLocalSceneDraft("u_builder_001", window.localStorage);
+      const copiedSound = draft?.objects.find(
+        (object) =>
+          object.kind === "sounds" && /^SOUND_DIA_HAKON_ADD_12_COPY/.test(object.tag)
+      );
+      expect(copiedSound).toBeDefined();
+      expect(copiedSound?.id).not.toBe(original?.id);
+      expect(copiedSound?.resRef).toBe("dia_hakon_add_12");
+      expect(copiedSound?.soundPositioning?.preserve?.extra).toMatchObject({
+        backendSoundId: "sound_dia_hakon_add_12",
+        category: "effect",
+        format: "wav",
+        spatialMode: "3d",
+        playbackMode: "random",
+        soundTemplateSource: "backend-catalog"
+      });
+      expect(copiedSound?.soundPositioning).toEqual(original?.soundPositioning);
+    } finally {
+      restoreFetch();
+    }
   });
 });

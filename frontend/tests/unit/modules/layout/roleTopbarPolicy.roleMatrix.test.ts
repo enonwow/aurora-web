@@ -8,13 +8,19 @@ import {
 
 describe("roleTopbarPolicy role matrix and visibility semantics", () => {
   it("returns role-specific quick actions", () => {
-    expect(getRoleQuickActions("viewer")).toEqual([]);
-    expect(getRoleQuickActions("dm")).toEqual([]);
+    expect(getRoleQuickActions("viewer").map((entry) => entry.key)).toEqual([
+      "fit_area_view"
+    ]);
+    expect(getRoleQuickActions("dm").map((entry) => entry.key)).toEqual([
+      "fit_area_view"
+    ]);
     expect(getRoleQuickActions("builder").map((entry) => entry.key)).toEqual([
+      "fit_area_view",
       "undo",
       "redo"
     ]);
     expect(getRoleQuickActions("admin").map((entry) => entry.key)).toEqual([
+      "fit_area_view",
       "undo",
       "redo"
     ]);
@@ -23,11 +29,14 @@ describe("roleTopbarPolicy role matrix and visibility semantics", () => {
   it("exposes DM command group only for dm role", () => {
     const dmKeys = getRoleToolbarGroups("dm").map((group) => group.key);
     const builderKeys = getRoleToolbarGroups("builder").map((group) => group.key);
+    const builderCamera = getRoleToolbarGroups("builder").find((group) => group.key === "camera");
 
     expect(dmKeys).toContain("dm_commands");
     expect(dmKeys).not.toContain("module");
     expect(builderKeys).toContain("module");
     expect(builderKeys).not.toContain("dm_commands");
+    expect(builderCamera?.actions.find((action) => action.key === "fit_area_view"))
+      .toMatchObject({ label: "Fit Area", status: "mvp", supported: true });
   });
 
   it("provides common and role-specific keyboard shortcuts", () => {
@@ -36,7 +45,7 @@ describe("roleTopbarPolicy role matrix and visibility semantics", () => {
 
     expect(viewerShortcuts).toEqual(expect.arrayContaining(["?", "Esc"]));
     expect(builderShortcuts).toEqual(
-      expect.arrayContaining(["Ctrl/Cmd + Z", "Ctrl/Cmd + S"])
+      expect.arrayContaining(["Ctrl/Cmd + R", "Ctrl/Cmd + Z", "Ctrl/Cmd + S"])
     );
     expect(viewerShortcuts).not.toContain("Ctrl/Cmd + S");
   });

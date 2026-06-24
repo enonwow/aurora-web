@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SceneObject, SceneObjectKind } from "../contracts";
+import type { SceneObject } from "../contracts";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
+import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
 import {
   type SceneObjectCatalogQueryFacade,
   type SceneObjectCatalogType
 } from "../application/sceneObjectCatalogQueryFacade";
+import { SceneObjectThumbnail } from "./SceneObjectThumbnail";
 
 interface SceneObjectListPanelProps {
   userId: string;
@@ -15,6 +17,9 @@ interface SceneObjectListPanelProps {
   defaultActiveType?: SceneObjectCatalogType;
   hideUnsupportedCatalogTypes?: boolean;
   selectedObjectIds?: string[];
+  placeableRenderPayloadByObjectId?: Record<string, PlaceableViewportRenderPayload> | null;
+  placeableAssetAccessToken?: string | null;
+  onObjectRenderPayloadNeeded?: (object: SceneObject) => void;
   onCatalogScopeChange?: (scope: {
     sourceType: SceneObjectCatalogType;
     allowedObjectIds: string[];
@@ -32,54 +37,87 @@ interface SceneObjectListPanelProps {
     clientX: number,
     clientY: number
   ) => void;
+  onObjectPropertiesOpen?: (object: SceneObject) => void;
 }
 
 export type { SceneObjectCatalogType };
 
-const KIND_BADGE: Record<SceneObjectKind, string> = {
-  placeables: "PLC",
-  creatures: "CRT",
-  doors: "DOR",
-  items: "ITM",
-  sounds: "SND"
-};
-
-const KIND_COLORS: Record<SceneObjectKind, string> = {
-  placeables: "#5f9cff",
-  creatures: "#ff8e78",
-  doors: "#ffc980",
-  items: "#91e8a5",
-  sounds: "#bba0ff"
-};
-
-function encodeSvg(value: string): string {
-  return value
-    .replace(/"/g, "'")
-    .replace(/%/g, "%25")
-    .replace(/#/g, "%23")
-    .replace(/{/g, "%7B")
-    .replace(/}/g, "%7D")
-    .replace(/</g, "%3C")
-    .replace(/>/g, "%3E")
-    .replace(/\s+/g, " ");
-}
-
-function createPreviewDataUrl(kind: SceneObjectKind, label: string): string {
-  const tint = KIND_COLORS[kind];
-  const badge = KIND_BADGE[kind];
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
-      <rect x="1" y="1" width="46" height="46" rx="8" fill="#0b1728" stroke="#34557d" stroke-width="2" />
-      <rect x="4" y="4" width="40" height="18" rx="5" fill="${tint}" fill-opacity="0.35" />
-      <text x="24" y="17" text-anchor="middle" font-family="Segoe UI" font-size="9" fill="#f0f6ff" font-weight="700">${badge}</text>
-      <text x="24" y="34" text-anchor="middle" font-family="Segoe UI" font-size="8" fill="#c8d9ee">${label}</text>
-    </svg>
-  `;
-  return `data:image/svg+xml,${encodeSvg(svg)}`;
-}
-
 function trimTagForPreview(tag: string): string {
   return tag.slice(0, 8).toUpperCase();
+}
+
+function resolveSourceStatus(object: SceneObject): "source-backed" | "fallback" {
+  return object.source?.type === "aurora_git" ? "source-backed" : "fallback";
+}
+
+function formatCoordinate(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0.0";
+  }
+  return value.toFixed(1);
+}
+
+function formatBearing(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return String(Math.round(value));
+}
+
+function formatOrderIndex(index: number): string {
+  return String(Math.max(0, index) + 1).padStart(3, "0");
+}
+
+function resolveObjectOrderKey(object: SceneObject, objectIndex: number | undefined): string {
+  const orderIndex = objectIndex ?? 0;
+  const prefix = object.source?.type === "aurora_git" ? "GIT" : "scene";
+  return `${prefix} #${formatOrderIndex(orderIndex)}`;
+}
+
+function resolveObjectSourceSummary(object: SceneObject): string {
+  if (object.source?.type === "aurora_git") {
+    const sourceId = object.source.sourceObjectId ?? object.id;
+    return [
+      `GIT ${sourceId}`,
+      `${formatCoordinate(object.x)}, ${formatCoordinate(object.y)}, z ${formatCoordinate(object.z)}`,
+      `${formatBearing(object.bearing)} deg`
+    ].join(" | ");
+  }
+  return [
+    "local",
+    `${formatCoordinate(object.x)}, ${formatCoordinate(object.y)}, z ${formatCoordinate(object.z)}`,
+    `${formatBearing(object.bearing)} deg`
+  ].join(" | ");
+}
+
+function buildSourceStatusSummary(objects: SceneObject[]): {
+  gitCount: number;
+  fallbackCount: number;
+  placeableCount: number;
+  doorCount: number;
+} {
+  return objects.reduce(
+    (summary, object) => {
+      if (object.source?.type === "aurora_git") {
+        summary.gitCount += 1;
+      } else {
+        summary.fallbackCount += 1;
+      }
+      if (object.kind === "placeables") {
+        summary.placeableCount += 1;
+      }
+      if (object.kind === "doors") {
+        summary.doorCount += 1;
+      }
+      return summary;
+    },
+    {
+      gitCount: 0,
+      fallbackCount: 0,
+      placeableCount: 0,
+      doorCount: 0
+    }
+  );
 }
 
 export function SceneObjectListPanel({
@@ -91,9 +129,13 @@ export function SceneObjectListPanel({
   defaultActiveType = "all",
   hideUnsupportedCatalogTypes = false,
   selectedObjectIds = [],
+  placeableRenderPayloadByObjectId,
+  placeableAssetAccessToken,
+  onObjectRenderPayloadNeeded,
   onCatalogScopeChange,
   onObjectSelect,
-  onObjectContextMenu
+  onObjectContextMenu,
+  onObjectPropertiesOpen
 }: SceneObjectListPanelProps) {
   const baselineViewModel = useMemo(
     () =>
@@ -120,7 +162,6 @@ export function SceneObjectListPanel({
     : allCatalogTypes.find((type) => allowedTypeSet.has(type)) ?? "all";
   const [activeType, setActiveType] = useState<SceneObjectCatalogType>(resolvedDefaultType);
   const [searchQuery, setSearchQuery] = useState("");
-  const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const catalogViewModel = useMemo(
     () =>
       sceneObjectCatalogQueryFacade.query({
@@ -139,6 +180,23 @@ export function SceneObjectListPanel({
     postMvpTypes,
     totalCount
   } = catalogViewModel;
+  const visibleRowIdSet = useMemo(
+    () => new Set(filteredRows.map((object) => object.id)),
+    [filteredRows]
+  );
+  const selectedSet = useMemo(
+    () => new Set(selectedObjectIds.filter((id) => visibleRowIdSet.has(id))),
+    [selectedObjectIds, visibleRowIdSet]
+  );
+  const objectOrderIndexById = useMemo(
+    () => new Map(objects.map((object, index) => [object.id, index])),
+    [objects]
+  );
+  const sourceStatusSummary = useMemo(() => buildSourceStatusSummary(objects), [objects]);
+  const emptyMessage =
+    activeDefinition.key === "all"
+      ? "No objects in current area."
+      : `No ${activeDefinition.label.toLowerCase()} objects in current area.`;
 
   useEffect(() => {
     if (!allowedTypeSet.has(activeType)) {
@@ -159,6 +217,23 @@ export function SceneObjectListPanel({
         <h2>Scene Objects</h2>
         <span className="scene-objects-total">{totalCount}</span>
       </header>
+
+      <div className="scene-objects-source-summary" aria-label="object source summary">
+        <span className="scene-objects-source-chip is-source-backed">
+          GIT {sourceStatusSummary.gitCount}
+        </span>
+        <span className="scene-objects-source-chip">
+          PLC {sourceStatusSummary.placeableCount}
+        </span>
+        <span className="scene-objects-source-chip">
+          DOR {sourceStatusSummary.doorCount}
+        </span>
+        {sourceStatusSummary.fallbackCount > 0 ? (
+          <span className="scene-objects-source-chip is-fallback">
+            fallback {sourceStatusSummary.fallbackCount}
+          </span>
+        ) : null}
+      </div>
 
       <label className="scene-objects-type-picker">
         <span>Type</span>
@@ -234,17 +309,31 @@ export function SceneObjectListPanel({
       </label>
 
       {filteredRows.length === 0 ? (
-        <p className="scene-objects-empty">
-          No {activeDefinition.label.toLowerCase()} objects in current area.
-        </p>
+        <p className="scene-objects-empty">{emptyMessage}</p>
       ) : (
         <ul className="scene-object-list" aria-label={`${activeDefinition.label} list`}>
-          {filteredRows.map((object) => (
-            <li key={object.id}>
+          {filteredRows.map((object) => {
+            const supportsProperties =
+              object.kind === "placeables" ||
+              object.kind === "sounds" ||
+              object.kind === "doors" ||
+              object.kind === "creatures";
+            const sourceSummary = resolveObjectSourceSummary(object);
+            const sourceStatus = resolveSourceStatus(object);
+            const orderKey = resolveObjectOrderKey(object, objectOrderIndexById.get(object.id));
+            return (
+            <li
+              key={object.id}
+              className="scene-object-list-item"
+              data-object-kind={object.kind}
+              data-source-status={sourceStatus}
+              data-source-order-key={orderKey}
+            >
               <button
                 type="button"
-                className={`scene-object-row ${selectedSet.has(object.id) ? "is-selected" : ""}`}
+                className={`scene-object-row scene-object-row-${sourceStatus} ${selectedSet.has(object.id) ? "is-selected" : ""}`}
                 aria-selected={selectedSet.has(object.id)}
+                title={`${orderKey} / ${object.tag} / ${object.resRef} / ${sourceSummary}`}
                 onClick={(event) => {
                   const additive = event.ctrlKey || event.metaKey;
                   onObjectSelect?.(object, {
@@ -269,20 +358,47 @@ export function SceneObjectListPanel({
                   });
                 }}
               >
-                <img
-                  src={createPreviewDataUrl(object.kind, trimTagForPreview(object.tag))}
-                  width={48}
-                  height={48}
-                  loading="lazy"
-                  alt={`${object.tag} 2D preview`}
+                <SceneObjectThumbnail
+                  object={object}
+                  fallbackLabel={trimTagForPreview(object.tag)}
+                  renderPayload={placeableRenderPayloadByObjectId?.[object.id] ?? null}
+                  placeableAssetAccessToken={placeableAssetAccessToken}
+                  onRenderPayloadNeeded={onObjectRenderPayloadNeeded}
                 />
                 <span className="scene-object-row-meta">
-                  <strong>{object.tag}</strong>
+                  <span className="scene-object-row-title">
+                    <strong>{object.tag}</strong>
+                    <span className="scene-object-order-key">{orderKey}</span>
+                    <span className={`scene-object-source-status scene-object-source-status-${sourceStatus}`}>
+                      {sourceStatus === "source-backed" ? "GIT" : "fallback"}
+                    </span>
+                  </span>
                   <small>{object.resRef}</small>
+                  <small className="scene-object-row-source">{sourceSummary}</small>
                 </span>
               </button>
+              {supportsProperties ? (
+                <button
+                  type="button"
+                  className="scene-object-row-action"
+                  aria-label="Open object properties"
+                  title={`Open properties for ${object.tag}`}
+                  onClick={() => {
+                    onObjectPropertiesOpen?.(object);
+                    trackTelemetryEvent("ui.workspace.scene_objects.properties_opened", {
+                      userId,
+                      objectId: object.id,
+                      objectKind: object.kind,
+                      source: "scene_object_list"
+                    });
+                  }}
+                >
+                  Properties
+                </button>
+              ) : null}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </article>

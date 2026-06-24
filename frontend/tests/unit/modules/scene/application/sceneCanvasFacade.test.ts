@@ -30,11 +30,32 @@ describe("sceneCanvasFacade", () => {
     expect(history.present.width).toBe(2);
     expect(history.present.height).toBe(2);
     expect(history.present.tiles).toHaveLength(4);
+    expect(history.present.objects).toHaveLength(0);
+    expect(history.present.areaName).toBe("Untitled Area");
     expect(history.present.source).toBe("seed");
   });
 
-  it("migrates legacy 18x18 seed draft into 2x2 with proportional object placement", () => {
-    const legacyDraft = createSeedAreaScene(18, 18);
+  it("drops persisted startup seed draft instead of reopening old demo objects", () => {
+    const legacyDraft = createSeedAreaScene();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => legacyDraft,
+      saveByUserId: () => undefined
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+
+    const history = facade.createInitialHistory("u_builder_001");
+
+    expect(history.present.width).toBe(2);
+    expect(history.present.height).toBe(2);
+    expect(history.present.objects).toHaveLength(0);
+    expect(history.present.sceneId).toBe("blank_builder_v1");
+  });
+
+  it("migrates legacy 18x18 local draft into 2x2 with proportional object placement", () => {
+    const legacyDraft: AreaScene = {
+      ...createSeedAreaScene(18, 18),
+      source: "local_draft"
+    };
     const draftPort: SceneDraftPort = {
       loadByUserId: () => legacyDraft,
       saveByUserId: () => undefined
@@ -51,8 +72,11 @@ describe("sceneCanvasFacade", () => {
     expect(barrel?.y).toBeCloseTo((5.7 / 18) * 2, 5);
   });
 
-  it("preserves placeable/sound baseline payloads during legacy draft migration", () => {
-    const legacyDraft = createSeedAreaScene(18, 18);
+  it("preserves placeable/sound baseline payloads during legacy local draft migration", () => {
+    const legacyDraft: AreaScene = {
+      ...createSeedAreaScene(18, 18),
+      source: "local_draft"
+    };
     const draftPort: SceneDraftPort = {
       loadByUserId: () => legacyDraft,
       saveByUserId: () => undefined
@@ -79,7 +103,10 @@ describe("sceneCanvasFacade", () => {
   });
 
   it("backfills missing sound/placeable metadata when loading legacy draft", () => {
-    const legacyDraft = createSeedAreaScene(18, 18);
+    const legacyDraft: AreaScene = {
+      ...createSeedAreaScene(18, 18),
+      source: "local_draft"
+    };
     const legacyWithoutMetadata: AreaScene = {
       ...legacyDraft,
       objects: legacyDraft.objects.map((object) => {
@@ -374,6 +401,106 @@ describe("sceneCanvasFacade", () => {
     });
   });
 
+  it("roundtrips backend sound template metadata through scene JSON serialization", () => {
+    const serializedByUserId = new Map<string, string>();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: (userId) => {
+        const serialized = serializedByUserId.get(userId);
+        if (!serialized) {
+          return null;
+        }
+        return JSON.parse(serialized) as AreaScene;
+      },
+      saveByUserId: (userId, scene) => {
+        serializedByUserId.set(userId, JSON.stringify(scene));
+      }
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const source = createSeedAreaScene();
+    const backendSoundScene: AreaScene = {
+      ...source,
+      source: "local_draft",
+      objects: source.objects.map((object) =>
+        object.id === "snd_amb_01"
+          ? {
+              ...object,
+              id: "snd_template_sound_dia_hakon_add_12",
+              name: "Dia Hakon Add 12",
+              tag: "SOUND_DIA_HAKON_ADD_12",
+              resRef: "dia_hakon_add_12",
+              soundPositioning: {
+                mode: "specific",
+                elevation: 0,
+                maxVolumeDistance: 10,
+                cutoffDistance: 20,
+                randomRangeWestEast: 0,
+                randomRangeNorthSouth: 0,
+                preserve: {
+                  active: true,
+                  whenToPlay: "always",
+                  dayNight: "both",
+                  hoursStart: 0,
+                  hoursEnd: 23,
+                  playStyle: "repeat",
+                  playOrder: "random",
+                  intervalMs: 6000,
+                  intervalVariationMs: 0,
+                  volume: 1,
+                  volumeVariation: 0,
+                  pitchVariation: 0,
+                  priority: 3,
+                  flags: {
+                    backendBenchmark: false
+                  },
+                  extra: {
+                    backendSoundId: "sound_dia_hakon_add_12",
+                    category: "effect",
+                    format: "wav",
+                    spatialMode: "3d",
+                    playbackMode: "random",
+                    auroraBindingKey: "GI_sound_pos",
+                    auroraSourceField: "PlacedSound",
+                    durationMs: 1200,
+                    previewWaveformUrl:
+                      "/api/v1/catalog/sounds/sound_dia_hakon_add_12/preview",
+                    soundTemplateSource: "backend-catalog"
+                  }
+                }
+              }
+            }
+          : object
+      )
+    };
+
+    facade.saveLocalDraft("u_builder_001", backendSoundScene);
+    const serialized = serializedByUserId.get("u_builder_001");
+    expect(serialized).toContain("sound_dia_hakon_add_12");
+    expect(serialized).toContain("backend-catalog");
+
+    const history = facade.createInitialHistory("u_builder_001");
+    const sound = history.present.objects.find(
+      (object) => object.id === "snd_template_sound_dia_hakon_add_12"
+    );
+
+    expect(sound?.tag).toBe("SOUND_DIA_HAKON_ADD_12");
+    expect(sound?.resRef).toBe("dia_hakon_add_12");
+    expect(sound?.soundPositioning?.preserve?.flags).toEqual({
+      backendBenchmark: false
+    });
+    expect(sound?.soundPositioning?.preserve?.extra).toEqual({
+      backendSoundId: "sound_dia_hakon_add_12",
+      category: "effect",
+      format: "wav",
+      spatialMode: "3d",
+      playbackMode: "random",
+      auroraBindingKey: "GI_sound_pos",
+      auroraSourceField: "PlacedSound",
+      durationMs: 1200,
+      previewWaveformUrl: "/api/v1/catalog/sounds/sound_dia_hakon_add_12/preview",
+      soundTemplateSource: "backend-catalog"
+    });
+  });
+
   it("normalizes invalid metadata from loaded draft to safe baselines", () => {
     const draft = createSeedAreaScene();
     const corruptedDraft: AreaScene = {
@@ -435,6 +562,7 @@ describe("sceneCanvasFacade", () => {
     const draft = createSeedAreaScene();
     const corruptedDraft: AreaScene = {
       ...draft,
+      source: "local_draft",
       walkmesh: {
         schemaVersion: "x",
         vertices: "bad",
@@ -545,7 +673,10 @@ describe("sceneCanvasFacade", () => {
   });
 
   it("does not migrate draft when only one legacy dimension matches", () => {
-    const nonLegacyDraft = createSeedAreaScene(18, 17);
+    const nonLegacyDraft: AreaScene = {
+      ...createSeedAreaScene(18, 17),
+      source: "local_draft"
+    };
     const draftPort: SceneDraftPort = {
       loadByUserId: () => nonLegacyDraft,
       saveByUserId: () => undefined
@@ -560,7 +691,10 @@ describe("sceneCanvasFacade", () => {
   });
 
   it("does not migrate draft when only legacy height matches", () => {
-    const nonLegacyDraft = createSeedAreaScene(17, 18);
+    const nonLegacyDraft: AreaScene = {
+      ...createSeedAreaScene(17, 18),
+      source: "local_draft"
+    };
     const draftPort: SceneDraftPort = {
       loadByUserId: () => nonLegacyDraft,
       saveByUserId: () => undefined
@@ -587,6 +721,7 @@ describe("sceneCanvasFacade", () => {
 
     expect(history.present.width).toBe(2);
     expect(history.present.height).toBe(2);
+    expect(history.present.objects).toHaveLength(0);
     expect(history.present.source).toBe("seed");
   });
 
@@ -602,7 +737,13 @@ describe("sceneCanvasFacade", () => {
     facade.saveLocalDraft("u_builder_001", scene);
 
     expect(saveByUserId).toHaveBeenCalledTimes(1);
-    expect(saveByUserId).toHaveBeenCalledWith("u_builder_001", scene);
+    expect(saveByUserId).toHaveBeenCalledWith(
+      "u_builder_001",
+      expect.objectContaining({
+        sceneId: scene.sceneId,
+        source: "local_draft"
+      })
+    );
   });
 
   it("normalizes bearing from loaded draft into 0..2pi", () => {
@@ -611,6 +752,7 @@ describe("sceneCanvasFacade", () => {
     expect(target).toBeDefined();
     const patchedDraft: AreaScene = {
       ...draft,
+      source: "local_draft",
       objects: draft.objects.map((object) =>
         object.id === target!.id
           ? {

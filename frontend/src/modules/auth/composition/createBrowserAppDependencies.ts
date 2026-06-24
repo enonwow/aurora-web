@@ -1,6 +1,7 @@
 import type { IAuthFacade } from "../contracts";
 import { browserTelemetryFacade } from "../../telemetry/composition/browserTelemetrySingleton";
 import type { TelemetryFacade } from "../../telemetry/application/telemetryFacade";
+import { isVitestRuntime } from "../application/authRuntimeEnvironment";
 import { createMockAuthFacade } from "./createMockAuthFacade";
 import { createHttpBackendAuthFacade } from "../adapters/httpBackendAuthFacade";
 
@@ -11,10 +12,10 @@ export interface AppDependencies {
 
 export function createBrowserAppDependencies(): AppDependencies {
   const telemetryFacade = browserTelemetryFacade;
-  const isTestMode = import.meta.env.MODE === "test";
+  const useMockAuth = isVitestRuntime();
   return {
     telemetryFacade,
-    authFacade: isTestMode
+    authFacade: useMockAuth
       ? createMockAuthFacade({ telemetryFacade })
       : createHttpBackendAuthFacade({ telemetryFacade })
   };

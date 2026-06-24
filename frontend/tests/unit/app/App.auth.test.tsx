@@ -1,6 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import App from "../../../src/App";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { vi } from "vitest";
+import App, {
+  AUTH_SESSION_STORAGE_KEY,
+  WORKSPACE_MODE_STORAGE_KEY
+} from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
+import type { IAuthFacade } from "../../../src/modules/auth/contracts";
 import { LAYOUT_SETTINGS_STORAGE_KEY } from "../../../src/modules/layout/layoutSettings";
 import {
   DEFAULT_WORKSPACE_OPTION_SETTINGS,
@@ -78,6 +83,65 @@ describe("App auth mock flow", () => {
       screen.getByRole("heading", { name: /^add objects$/i })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+  });
+
+  it("restores authenticated workspace and saved placeables mode after remount", async () => {
+    const view = renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+
+    fireEvent.click(screen.getByRole("button", { name: /placeables mode/i }));
+    expect(screen.getByRole("heading", { name: /^placeables$/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).not.toBeNull();
+      expect(window.localStorage.getItem(WORKSPACE_MODE_STORAGE_KEY)).toBe("placeables_mode");
+    });
+
+    view.unmount();
+    renderAtPath("/app");
+
+    expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /sign in to aurora web/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^placeables$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^placeables mode$/i })).toBeInTheDocument();
+  });
+
+  it("preserves URL-selected placeables mode through sign in for demo VFX routes", async () => {
+    renderAtPath("/login?mode=placeables_mode&placeable=plc_zlc_o45&subtype=vfx");
+    await signInAs("builder.user", "builder123");
+
+    expect(window.location.pathname).toBe("/app");
+    expect(window.location.search).toBe(
+      "?mode=placeables_mode&placeable=plc_zlc_o45&subtype=vfx"
+    );
+    expect(screen.getByRole("heading", { name: /^placeables$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^placeables mode$/i })).toBeInTheDocument();
+  });
+
+  it("drops legacy demo query through sign in instead of opening old demo", async () => {
+    renderAtPath("/login?demo=plc_zlc_o45_magic_mouth");
+    await signInAs("builder.user", "builder123");
+
+    expect(window.location.pathname).toBe("/app");
+    expect(window.location.search).toBe("");
+    expect(screen.getByRole("heading", { name: /^areas$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^placeables mode$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /magic mouth demo/i })).not.toBeInTheDocument();
+  });
+
+  it("removes legacy demo query from restored authenticated app route", async () => {
+    const view = renderAtPath("/login");
+    await signInAs("builder.user", "builder123");
+    view.unmount();
+
+    renderAtPath("/app?demo=plc_zlc_o45_magic_mouth");
+
+    expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/app");
+      expect(window.location.search).toBe("");
+    });
+    expect(screen.getByRole("heading", { name: /^areas$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /magic mouth demo/i })).not.toBeInTheDocument();
   });
 
   it("enforces Aurora toolbar matrix for builder role", async () => {
@@ -165,8 +229,8 @@ describe("App auth mock flow", () => {
     expect(await openQuickOptionsDialog()).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /layout/i })).toBeInTheDocument();
     const styleSelect = await screen.findByLabelText(/app style/i);
-    expect(styleSelect).toHaveValue("aurora-deep-blue");
-    expect(within(styleSelect).getAllByRole("option")).toHaveLength(4);
+    expect(styleSelect).toHaveValue("aurora-toolset-classic");
+    expect(within(styleSelect).getAllByRole("option")).toHaveLength(5);
     expect(screen.queryByLabelText(/control scheme/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/grid step/i)).toHaveValue(1);
     expect(screen.getByLabelText(/angle step/i)).toHaveValue(15);
@@ -333,7 +397,7 @@ describe("App auth mock flow", () => {
     await signInAs("viewer.user", "viewer123");
 
     fireEvent.click(screen.getByRole("button", { name: /^camera$/i }));
-    expect(screen.getByRole("button", { name: /reorient camera/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /fit area/i })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: /^visibility$/i }));
     expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
     expect(
@@ -383,7 +447,7 @@ describe("App auth mock flow", () => {
 
     expect(await screen.findByText(/ui\.auth\.login_success/i)).toBeInTheDocument();
     expect(screen.getByText(/auth\.authenticate\.accepted/i)).toBeInTheDocument();
-    expect(screen.getByText(/auth\.authorize\.completed/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/auth\.authorize\.completed/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/auth benchmark avg:/i)).toBeInTheDocument();
     expect(screen.getByText(/authorize benchmark avg:/i)).toBeInTheDocument();
   });
@@ -409,7 +473,7 @@ describe("App auth mock flow", () => {
     await signInAs("dm.user", "dm123");
 
     fireEvent.click(screen.getByRole("button", { name: /show debug panel/i }));
-    expect(screen.getByLabelText(/debug panel/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /debug panel/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
     expect(
@@ -418,7 +482,7 @@ describe("App auth mock flow", () => {
     expect(
       screen.queryByRole("button", { name: /show debug panel/i })
     ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/debug panel/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /debug panel/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /spawn creature/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show all/i })).not.toBeInTheDocument();
   });
@@ -436,5 +500,102 @@ describe("App auth mock flow", () => {
     expect(
       screen.queryByRole("button", { name: /save \(local draft\)/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("clears restored workspace session when backend rejects the persisted token", async () => {
+    const staleSession = {
+      accessToken: "stale_token_001",
+      issuedAt: "2026-05-27T10:00:00.000Z",
+      expiresAt: "2099-05-27T20:00:00.000Z",
+      user: {
+        id: "u_builder_001",
+        username: "builder.user",
+        displayName: "Builder User",
+        role: "builder" as const
+      }
+    };
+    window.localStorage.setItem(
+      AUTH_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        session: staleSession,
+        authorization: {
+          role: "builder",
+          permissions: ["scene.read", "scene.edit"]
+        }
+      })
+    );
+    const authFacade: IAuthFacade = {
+      authenticate: vi.fn(),
+      authorize: vi.fn(async () => {
+        throw new Error("Missing or invalid bearer token.");
+      }),
+      signOut: vi.fn()
+    };
+
+    window.history.replaceState({}, "", "/app");
+    render(<App authFacade={authFacade} />);
+
+    expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+    expect(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();
+    expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
+  });
+
+  it("clears an open workspace session when its expiry time passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-27T10:00:00.000Z"));
+
+    try {
+      const activeSession = {
+        accessToken: "active_token_expiring_soon",
+        issuedAt: "2026-05-27T09:59:00.000Z",
+        expiresAt: "2026-05-27T10:00:05.000Z",
+        user: {
+          id: "u_builder_001",
+          username: "builder.user",
+          displayName: "Builder User",
+          role: "builder" as const
+        }
+      };
+      window.localStorage.setItem(
+        AUTH_SESSION_STORAGE_KEY,
+        JSON.stringify({
+          session: activeSession,
+          authorization: {
+            role: "builder",
+            permissions: ["scene.read", "scene.edit"]
+          }
+        })
+      );
+      window.localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, "placeables_mode");
+      const authFacade: IAuthFacade = {
+        authenticate: vi.fn(),
+        authorize: vi.fn(async () => ({
+          role: "builder",
+          permissions: ["scene.read", "scene.edit"]
+        })),
+        signOut: vi.fn()
+      };
+
+      window.history.replaceState({}, "", "/app");
+      render(<App authFacade={authFacade} />);
+
+      expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /^placeables$/i })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+
+      expect(screen.getByText(/session expired/i)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/login");
+      expect(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();
+      expect(window.localStorage.getItem(WORKSPACE_MODE_STORAGE_KEY)).toBe("areas_mode");
+      expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

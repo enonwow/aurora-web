@@ -210,9 +210,12 @@ export function SharedPropertyDialogChrome({
   return (
     <article
       ref={articleRef}
-      className={`${articleClassName} ${collapsed ? "is-collapsed" : ""}`.trim()}
+      className={`canvas-property-dialog-chrome ${articleClassName} ${
+        collapsed ? "is-collapsed" : ""
+      }`.trim()}
       role="dialog"
       aria-label={ariaLabel}
+      data-collapsed={collapsed ? "true" : "false"}
       style={{
         left: `${windowX}px`,
         top: `${windowY}px`
@@ -221,7 +224,7 @@ export function SharedPropertyDialogChrome({
       onContextMenu={onArticleContextMenu}
     >
       <header
-        className={headerClassName}
+        className={`canvas-property-dialog-titlebar ${headerClassName}`.trim()}
         onPointerDown={onHeaderPointerDown}
         onPointerMove={onHeaderPointerMove}
         onPointerUp={onHeaderPointerUp}
@@ -234,6 +237,7 @@ export function SharedPropertyDialogChrome({
         <div className={headerActionsClassName}>
           <button
             type="button"
+            className="canvas-property-dialog-titlebar-button"
             onClick={onToggleCollapsed}
             onPointerDown={(event) => event.stopPropagation()}
             aria-label={collapsed ? expandLabel : collapseLabel}
@@ -242,6 +246,7 @@ export function SharedPropertyDialogChrome({
           </button>
           <button
             type="button"
+            className="canvas-property-dialog-titlebar-button"
             onClick={onClose}
             onPointerDown={(event) => event.stopPropagation()}
             aria-label={closeLabel}
