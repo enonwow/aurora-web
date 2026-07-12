@@ -2,19 +2,53 @@
 
 Status: active operator runbook
 
-This document records the verified Aurora Toolset control path used as an Areas
-oracle for `_ikea` in `the_last_city - codex.mod`. It exists so future Areas
-work can compare web output against a real Aurora view instead of relying on
-guesses, fallback previews, or screenshots without provenance.
+Current camera-control standard and the 2026-07-11 live verification:
+`backend/docs/aurora-reverse/aurora-toolset-camera-standard-2026-07-11.md`.
+
+This document records the historical Aurora Toolset control path used as an
+Areas oracle for `_ikea` in `the_last_city - codex.mod`. It exists so future
+Areas work can compare web output against a real Aurora view instead of relying
+on guesses, fallback previews, or screenshots without provenance.
 
 ## Scope
 
 - Toolset executable: `C:\Program Files (x86)\Steam\steamapps\common\Neverwinter Nights\bin\win32\nwtoolset.exe`
 - Module folder: `C:\Users\enonw\Documents\Neverwinter Nights\modules`
-- Module under test: `the_last_city - codex.mod`
+- Historical module under test for this `_ikea` evidence:
+  `the_last_city - codex.mod`
 - Area under test: `_ikea`
-- Target monitor for Codex operations: non-primary `DISPLAY6`, bounds `x=-1920 y=0 width=1920 height=1080`
+- Target monitor for current Codex operations: the non-primary monitor to the
+  left, bounds `x=-1920 y=0 width=1920 height=1080`. Display numbers are not a
+  stable identity and must not replace the negative-X check.
 - Primary safety rule: prefer targeted Win32 messages to the Toolset window or its child controls. Avoid global `SendKeys`, global mouse drags, and broad desktop input while the user is using the machine.
+
+## Module Selection Guard
+
+This `_ikea` history is not blanket permission to open full Last City modules.
+For new proof work, do not open `the_last_city - codex.mod`, Unicode-dash
+variants, dated copies, or backups unless the current task explicitly names
+that exact module as the approved oracle target. Prefer modules created by the
+current proof workflow and read-only ingest of user-provided captures. If the
+approved module/lab is unavailable or quarantined, stop with
+`approved_toolset_module_missing_or_quarantined` instead of trying another Last
+City module.
+
+## Launch Rule
+
+Always start `nwtoolset.exe` without command-line arguments. Do not pass the
+module file path as an argument to `nwtoolset.exe` and do not use
+`Start-Process ... -ArgumentList <module.mod>` for oracle capture work. On this
+machine that route is unreliable and commonly opens an empty Toolset window or
+an error state instead of a loaded module.
+
+The supported load path is:
+
+1. Start `nwtoolset.exe` with no arguments.
+2. Open the module through Toolset `File > Open` (`WM_COMMAND 44`) or the same
+   targeted dialog/control-message route.
+3. Select the explicitly approved module from `TdlgModuleSelect`; do not use
+   `the_last_city ... codex` matching as a fallback for unrelated proof work.
+4. Only then open the target Area and capture oracle screenshots.
 
 ## Verified Window Selection
 
@@ -57,6 +91,11 @@ The earlier wrong fullscreen target was the empty Toolset window:
 - Window handle observed: `5705578`
 - Title observed: `BioWare Aurora Neverwinter Nights Toolset v89.8193.37-17`
 - This is not the oracle window for `_ikea`.
+
+Current display correction: stage `[Application] Left=-1920` and `Top=0` before
+a clean start. Reject camera control whenever the validated module window has
+`left >= 0`; never move a loaded Toolset window between displays during an Area
+proof.
 
 ## Opened Area Evidence
 
@@ -143,10 +182,15 @@ The camera/object split was confirmed by Toolset binary strings:
 - `bGobRotateClockwise`
 - `bRotateRandom`
 
-## Zoom Procedure
+## Zoom Procedure (historical evidence; superseded for current runs)
 
-Reliable zoom uses `WM_MOUSEWHEEL` targeted at the `_ikea` viewport controls,
-not global mouse wheel input.
+The old `_ikea` evidence recorded a `WM_MOUSEWHEEL` route targeted at viewport
+controls. It is not a current reliability claim: on 2026-07-11, four targeted
+wheel messages to the validated `enon_bakery` `TScrollBox` changed zero of
+260984 sampled pixels. Current Toolset control must use the proof-gated held
+`bZoomIn` / `bZoomOut` transport and accept success only after a viewport
+before/after diff. See
+`backend/docs/aurora-reverse/aurora-toolset-camera-standard-2026-07-11.md`.
 
 Targets used:
 
