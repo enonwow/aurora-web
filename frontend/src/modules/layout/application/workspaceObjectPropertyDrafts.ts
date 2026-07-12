@@ -1,5 +1,31 @@
-import type { AreaScene, SceneObject } from "../contracts";
+import type {
+  AreaScene,
+  SceneObject,
+  SceneObjectEmbeddedItemSummary,
+  SceneObjectPlaceableInventoryItemReference
+} from "../contracts";
+import type {
+  SceneObjectItemArmorParts,
+  SceneObjectItemMaterialColors,
+  SceneObjectItemPropertyEntry
+} from "../../scene/contracts";
+import { CREATURE_SKILL_LABELS } from "../../creatures/application/creatureSkillLabels";
 import { normalizeSoundGuidePositioning } from "../soundGuideDomain";
+
+export { CREATURE_SKILL_LABELS };
+
+function cloneEmbeddedItemSummary(
+  embeddedItem: SceneObjectEmbeddedItemSummary | undefined
+): SceneObjectEmbeddedItemSummary | undefined {
+  return embeddedItem
+    ? {
+        ...embeddedItem,
+        itemPropertyListEntries: embeddedItem.itemPropertyListEntries
+          ? embeddedItem.itemPropertyListEntries.map((entry) => ({ ...entry }))
+          : undefined
+      }
+    : undefined;
+}
 
 export interface PropertyTabOption<TTab extends string> {
   id: TTab;
@@ -8,6 +34,7 @@ export interface PropertyTabOption<TTab extends string> {
 
 export type PlaceablePropertiesTab =
   | "basic"
+  | "inventory"
   | "lock"
   | "trap"
   | "scripts"
@@ -42,6 +69,14 @@ export type CreaturePropertiesTab =
   | "feats"
   | "spells"
   | "specialAbilities"
+  | "inventory"
+  | "comments";
+export type ItemPropertiesTab =
+  | "basic"
+  | "visual"
+  | "colors"
+  | "properties"
+  | "scripts"
   | "comments";
 export type PlaceableScriptSlotKey =
   | "onClick"
@@ -75,6 +110,7 @@ export type DoorScriptSlotKey =
 export const PLACEABLE_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<PlaceablePropertiesTab>> =
   [
     { id: "basic", label: "Basic" },
+    { id: "inventory", label: "Inventory" },
     { id: "lock", label: "Lock" },
     { id: "trap", label: "Trap" },
     { id: "scripts", label: "Scripts" },
@@ -98,6 +134,15 @@ export const SOUND_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<Sound
   { id: "basic", label: "Basic" },
   { id: "positioning", label: "Positioning" },
   { id: "advanced", label: "Advanced" }
+];
+
+export const ITEM_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<ItemPropertiesTab>> = [
+  { id: "basic", label: "Basic" },
+  { id: "visual", label: "Visual" },
+  { id: "colors", label: "Colors" },
+  { id: "properties", label: "Properties" },
+  { id: "scripts", label: "Scripts" },
+  { id: "comments", label: "Comments" }
 ];
 
 export const PLACEABLE_SCRIPT_SLOT_KEYS: PlaceableScriptSlotKey[] = [
@@ -289,7 +334,7 @@ export const CREATURE_SPECIAL_ABILITIES_FILTER_OPTIONS = [
   "Spells"
 ];
 
-export const CREATURE_DEFAULT_MOCK_FEATS: Array<{
+export const CREATURE_DEFAULT_FEATS: Array<{
   name: string;
   type: string;
   assigned: boolean;
@@ -307,11 +352,13 @@ export const CREATURE_DEFAULT_MOCK_FEATS: Array<{
   { name: "Arcane Defense (Enchantment)", type: "Other Feats", assigned: false }
 ];
 
-export const CREATURE_DEFAULT_MOCK_SPELLS: Array<{
+export const CREATURE_DEFAULT_SPELLS: Array<{
   prepared: boolean;
   name: string;
   spellLevel: number;
   castingLevel: number;
+  metaMagic?: number;
+  flags?: number;
 }> = [
   { prepared: false, name: "Acid Fog", spellLevel: 6, castingLevel: 0 },
   { prepared: false, name: "Acid Splash", spellLevel: 0, castingLevel: 0 },
@@ -320,7 +367,7 @@ export const CREATURE_DEFAULT_MOCK_SPELLS: Array<{
   { prepared: false, name: "Animate Dead", spellLevel: 3, castingLevel: 0 }
 ];
 
-export const CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES: Array<{
+export const CREATURE_DEFAULT_SPECIAL_ABILITIES: Array<{
   name: string;
   type: string;
   casterLevel: number;
@@ -331,37 +378,6 @@ export const CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES: Array<{
   { name: "Aura of Cold", type: "Monster Abilities", casterLevel: 0, uses: 0 },
   { name: "Aura of Fear", type: "Monster Abilities", casterLevel: 0, uses: 0 },
   { name: "Gaze, Fear", type: "Monster Abilities", casterLevel: 6, uses: 6 }
-];
-
-export const CREATURE_SKILL_LABELS = [
-  "Animal Empathy",
-  "Concentration",
-  "Disable Trap",
-  "Discipline",
-  "Heal",
-  "Hide",
-  "Listen",
-  "Lore",
-  "Move Silently",
-  "Open Lock",
-  "Parry",
-  "Perform",
-  "Persuade",
-  "Pick Pocket",
-  "Search",
-  "Set Trap",
-  "Spellcraft",
-  "Spot",
-  "Taunt",
-  "Use Magic Device",
-  "Appraise",
-  "Tumble",
-  "Craft Trap",
-  "Bluff",
-  "Intimidate",
-  "Craft Armor",
-  "Craft Weapon",
-  "Ride"
 ];
 
 export const CREATURE_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<CreaturePropertiesTab>> =
@@ -376,6 +392,7 @@ export const CREATURE_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<Cr
     { id: "feats", label: "Feats" },
     { id: "spells", label: "Spells" },
     { id: "specialAbilities", label: "Special Abilities" },
+    { id: "inventory", label: "Inventory" },
     { id: "comments", label: "Comments" }
   ];
 
@@ -456,6 +473,7 @@ export interface PlaceablePropertiesDraft {
     useable: boolean;
     hasInventory: boolean;
   };
+  inventoryItems: SceneObjectPlaceableInventoryItemReference[];
   hardness: number;
   hitPoints: number;
   fortitudeSave: number;
@@ -502,6 +520,65 @@ export interface PlaceablePropertiesDialogState {
   snapshotObject: SceneObject;
   draft: PlaceablePropertiesDraft;
   activeTab: PlaceablePropertiesTab;
+  windowX: number;
+  windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
+  collapsed: boolean;
+}
+
+export interface ItemPropertiesDraft {
+  name: string;
+  tag: string;
+  resRef: string;
+  localizedName: string;
+  localizedNameStrRef?: number;
+  description: string;
+  descriptionStrRef?: number;
+  identifiedDescription: string;
+  identifiedDescriptionStrRef?: number;
+  comments: string;
+  paletteId?: number;
+  baseItem?: number;
+  modelPart1?: number;
+  modelPart2?: number;
+  modelPart3?: number;
+  armorPreviewContext: {
+    modelPrefix: string;
+    label: string;
+    gender: string;
+    phenotype: string;
+    raceModel: string;
+  };
+  cloakModelRow?: number;
+  cloakModel?: number;
+  cloakTexture?: number;
+  cloakIcon?: number;
+  cloakModelResRef: string;
+  cloakTextureResRef: string;
+  cloakIconResRef: string;
+  armorParts: SceneObjectItemArmorParts;
+  materialColors: SceneObjectItemMaterialColors;
+  cost?: number;
+  addCost?: number;
+  costTable?: number;
+  costValue?: number;
+  charges?: number;
+  stackSize?: number;
+  identified: boolean;
+  stolen: boolean;
+  plot: boolean;
+  cursed: boolean;
+  propertyList: SceneObjectItemPropertyEntry[];
+  scripts: Record<string, string>;
+}
+
+export interface ItemPropertiesDialogState {
+  objectId: string;
+  snapshotObject: SceneObject;
+  draft: ItemPropertiesDraft;
+  activeTab: ItemPropertiesTab;
+  previewProcessingStatus?: "idle" | "processing" | "ready" | "error";
   windowX: number;
   windowY: number;
   anchorOffsetX: number;
@@ -655,7 +732,8 @@ export interface CreaturePropertiesDraft {
   conversation: string;
   noInterrupt: boolean;
   alignment: string;
-  classEntries: Array<{ className: string; level: number }>;
+  classEntries: Array<{ classId?: number; className: string; level: number }>;
+  templateEntries: Array<{ templateId?: number }>;
   defaultPackage: string;
   strength: number;
   dexterity: number;
@@ -681,6 +759,8 @@ export interface CreaturePropertiesDraft {
   sizeModifier: number;
   baseHitPoints: number;
   hitPointBonuses: number;
+  currentHitPoints: number;
+  maxHitPoints: number;
   movementRate: string;
   appearancePartBased: boolean;
   appearanceParts: {
@@ -703,15 +783,31 @@ export interface CreaturePropertiesDraft {
     wings: string;
     tail: string;
   };
+  appearanceColors: {
+    skin: string;
+    hair: string;
+    tattoo1: string;
+    tattoo2: string;
+  };
+  appearanceSourceOnlyParts: {
+    belt: string;
+    robe: string;
+    rightShoulder: string;
+    leftShoulder: string;
+  };
   skills: Array<{ skill: string; rank: number }>;
   scriptSlots: Record<CreatureScriptSlotKey, string>;
   advancedSettings: {
     blueprintResRef: string;
+    paletteId?: number;
     disarmable: boolean;
     plot: boolean;
+    playerCharacter: boolean;
     leavesLootableCorpse: boolean;
     noPermanentDeath: boolean;
     immortal: boolean;
+    bodyBag: boolean;
+    startingPackage: boolean;
     treasureModel: string;
     corpseDecayTimeSeconds: number;
     faction: string;
@@ -719,11 +815,73 @@ export interface CreaturePropertiesDraft {
     deity: string;
     challengeRatingAdjustment: number;
     soundSet: string;
+    soundSetFile?: number;
     perceptionRange: string;
+    walkRateSource2daRow?: number;
+    walkRateSource2daName?: string;
+    walkRateSpeed2daRow?: number;
+    walkRateAppearance2daSourceKey?: string;
+    walkRateSpeed2daSourceKey?: string;
+    animationState?: number;
+    animationName?: string;
   };
-  feats: Array<{ name: string; type: string; assigned: boolean }>;
-  spells: Array<{ prepared: boolean; name: string; spellLevel: number; castingLevel: number }>;
-  specialAbilities: Array<{ name: string; type: string; casterLevel: number; uses: number }>;
+  feats: Array<{ featId?: number; name: string; type: string; assigned: boolean }>;
+  spells: Array<{
+    spellId?: number;
+    classIndex?: number;
+    prepared: boolean;
+    name: string;
+    spellLevel: number;
+    castingLevel: number;
+    metaMagic?: number;
+    flags?: number;
+  }>;
+  specialAbilities: Array<{
+    spellId?: number;
+    flags?: number;
+    name: string;
+    type: string;
+    casterLevel: number;
+    uses: number;
+  }>;
+  variables: Array<
+    | { name: string; type: "int"; value: number }
+    | { name: string; type: "float"; value: number }
+    | { name: string; type: "string"; value: string }
+  >;
+  inventoryItems: Array<{
+    resRef?: string;
+    randomResRef?: string;
+    randomList?: string;
+    embeddedItem?: SceneObjectEmbeddedItemSummary;
+    itemTemplateId?: string;
+    itemResRef?: string;
+    itemSourceFingerprint?: string;
+    itemSourceObjectKey?: string;
+    itemBaseItem?: number;
+    itemBaseItemEquipableSlots?: string;
+    x?: number;
+    y?: number;
+    dropable?: boolean;
+    pickpocketable?: boolean;
+    infinite?: boolean;
+  }>;
+  equippedItems: Array<{
+    resRef?: string;
+    randomResRef?: string;
+    randomList?: string;
+    embeddedItem?: SceneObjectEmbeddedItemSummary;
+    itemTemplateId?: string;
+    itemResRef?: string;
+    itemSourceFingerprint?: string;
+    itemSourceObjectKey?: string;
+    itemBaseItem?: number;
+    itemBaseItemEquipableSlots?: string;
+    slotMask?: number;
+    dropable?: boolean;
+    pickpocketable?: boolean;
+    infinite?: boolean;
+  }>;
   comments: string;
 }
 
@@ -759,7 +917,7 @@ export const SOUND_PRESERVE_DEFAULTS = {
 export const SOUND_PRESERVE_EXTRA_COMMENTS_KEY = "auroraComments";
 export const SOUND_PRESERVE_EXTRA_LIST_KEY = "auroraSoundList";
 export const SOUND_HOUR_COUNT = 24;
-export const SOUND_TEST_PREVIEW_ASSET_URL = "/sounds/mock_test_tone.wav";
+export const SOUND_PREVIEW_TONE_ASSET_URL = "/sounds/preview_tone.wav";
 export const SOUND_NOW_PLAYING_BADGE_LABEL = "PLAY";
 export const SOUND_HOUR_LABELS = [
   "12",
@@ -889,6 +1047,64 @@ function resolveSceneObjectName(object: SceneObject): string {
   return object.resRef;
 }
 
+function cloneItemPropertyEntry(
+  entry: SceneObjectItemPropertyEntry
+): SceneObjectItemPropertyEntry {
+  return { ...entry };
+}
+
+export function buildItemPropertiesDraft(source: SceneObject): ItemPropertiesDraft {
+  const item = source.itemProperties;
+  const armorPreviewContext = item?.armorPreviewContext;
+  return {
+    name: resolveSceneObjectName(source),
+    tag: source.tag,
+    resRef: source.resRef,
+    localizedName: item?.localizedName ?? "",
+    localizedNameStrRef: item?.localizedNameStrRef,
+    description: item?.description ?? "",
+    descriptionStrRef: item?.descriptionStrRef,
+    identifiedDescription: item?.identifiedDescription ?? "",
+    identifiedDescriptionStrRef: item?.identifiedDescriptionStrRef,
+    comments: item?.comments ?? "",
+    paletteId: item?.paletteId,
+    baseItem: item?.baseItem,
+    modelPart1: item?.modelPart1 ?? item?.modelParts?.[0],
+    modelPart2: item?.modelPart2 ?? item?.modelParts?.[1],
+    modelPart3: item?.modelPart3 ?? item?.modelParts?.[2],
+    armorPreviewContext: {
+      modelPrefix: armorPreviewContext?.modelPrefix ?? "",
+      label: armorPreviewContext?.label ?? "",
+      gender:
+        armorPreviewContext?.gender !== undefined ? String(armorPreviewContext.gender) : "",
+      phenotype:
+        armorPreviewContext?.phenotype !== undefined ? String(armorPreviewContext.phenotype) : "",
+      raceModel: armorPreviewContext?.raceModel ?? ""
+    },
+    cloakModelRow: item?.cloakModelRow,
+    cloakModel: item?.cloakModel,
+    cloakTexture: item?.cloakTexture,
+    cloakIcon: item?.cloakIcon,
+    cloakModelResRef: item?.cloakModelResRef ?? "",
+    cloakTextureResRef: item?.cloakTextureResRef ?? "",
+    cloakIconResRef: item?.cloakIconResRef ?? "",
+    armorParts: item?.armorParts ? { ...item.armorParts } : {},
+    materialColors: item?.materialColors ? { ...item.materialColors } : {},
+    cost: item?.cost,
+    addCost: item?.addCost,
+    costTable: item?.costTable,
+    costValue: item?.costValue,
+    charges: item?.charges,
+    stackSize: item?.stackSize,
+    identified: item?.identified ?? false,
+    stolen: item?.stolen ?? false,
+    plot: item?.plot ?? false,
+    cursed: item?.cursed ?? false,
+    propertyList: item?.propertyList ? item.propertyList.map(cloneItemPropertyEntry) : [],
+    scripts: item?.scripts ? { ...item.scripts } : {}
+  };
+}
+
 export function buildEmptyPlaceableScriptSlots(): Record<PlaceableScriptSlotKey, string> {
   return {
     onClick: "",
@@ -1009,6 +1225,12 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
       useable: disabledFlags?.useable ?? false,
       hasInventory: disabledFlags?.hasInventory ?? false
     },
+    inventoryItems: placeableProperties?.inventoryItems
+      ? placeableProperties.inventoryItems.map((entry) => ({
+          ...entry,
+          embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
+        }))
+      : [],
     hardness: 5,
     hitPoints: 15,
     fortitudeSave: 16,
@@ -1072,7 +1294,7 @@ export function resolveSoundPreviewAssetUrl(previewKey: string): string | null {
   if (previewKey.trim().length === 0) {
     return null;
   }
-  return SOUND_TEST_PREVIEW_ASSET_URL;
+  return SOUND_PREVIEW_TONE_ASSET_URL;
 }
 
 export function resolveRuntimeSoundNowPlayingLabel(soundKey: string): string {
@@ -1197,6 +1419,27 @@ export function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesD
         ? stableJsonStringify(preserve.extra)
         : "none"
   };
+}
+
+function formatDoorTransitionFlagsSummary(
+  transition: SceneObject["doorTransition"]
+): string {
+  const entries = transition?.flags
+    ? Object.entries(transition.flags).map(([key, value]) => `${key}=${value ? "1" : "0"}`)
+    : [];
+  const rawLinkedToFlags = transition?.extra?.linkedToFlags;
+
+  if (typeof rawLinkedToFlags === "number" && Number.isFinite(rawLinkedToFlags)) {
+    entries.push(`linkedToFlags=${Math.trunc(rawLinkedToFlags)}`);
+  } else if (typeof rawLinkedToFlags === "string" && rawLinkedToFlags.trim().length > 0) {
+    entries.push(`linkedToFlags=${rawLinkedToFlags.trim()}`);
+  } else if (typeof rawLinkedToFlags === "boolean") {
+    entries.push(`linkedToFlags=${rawLinkedToFlags ? "1" : "0"}`);
+  }
+
+  return entries.length > 0
+    ? entries.sort((left, right) => left.localeCompare(right)).join(", ")
+    : "none";
 }
 
 export function applySoundPropertiesDraftToScene(
@@ -1366,13 +1609,7 @@ export function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDra
         ? "door"
         : "none";
   const transitionFlags = transition?.flags ? { ...transition.flags } : {};
-  const flagsSummary =
-    Object.keys(transitionFlags).length > 0
-      ? Object.entries(transitionFlags)
-          .map(([key, value]) => `${key}=${value ? "1" : "0"}`)
-          .sort((left, right) => left.localeCompare(right))
-          .join(", ")
-      : "none";
+  const flagsSummary = formatDoorTransitionFlagsSummary(transition);
 
   return {
     name: resolveSceneObjectName(source),
@@ -1479,9 +1716,10 @@ export function buildCreatureSkillsDraft(
 
 export function buildCreatureClassEntriesDraft(
   source: SceneObject["creatureProperties"]
-): Array<{ className: string; level: number }> {
+): Array<{ classId?: number; className: string; level: number }> {
   const sourceEntries = source?.classEntries ?? [{ className: source?.race ?? "Aberration", level: 1 }];
   const normalized = sourceEntries.map((entry) => ({
+    ...(entry.classId !== undefined ? { classId: entry.classId } : {}),
     className: entry.className || "Class",
     level: Number.isFinite(entry.level) ? Math.max(1, Math.trunc(entry.level)) : 1
   }));
@@ -1515,8 +1753,11 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
     portraitResRef: creature?.portraitResRef ?? "",
     conversation: creature?.conversation ?? "",
     noInterrupt: creature?.noInterrupt ?? false,
-    alignment: "Chaotic Evil",
+    alignment: creature?.alignment ?? "True Neutral",
     classEntries: buildCreatureClassEntriesDraft(creature),
+    templateEntries: creature?.templateEntries
+      ? creature.templateEntries.map((entry) => ({ ...entry }))
+      : [],
     defaultPackage: "Default",
     strength: abilityScores?.strength ?? 10,
     dexterity: abilityScores?.dexterity ?? 10,
@@ -1542,6 +1783,13 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
     sizeModifier: statistics?.sizeModifier ?? 0,
     baseHitPoints: statistics?.baseHitPoints ?? 10,
     hitPointBonuses: statistics?.hitPointBonuses ?? 0,
+    currentHitPoints:
+      statistics?.currentHitPoints ??
+      statistics?.maxHitPoints ??
+      (statistics?.baseHitPoints ?? 10) + (statistics?.hitPointBonuses ?? 0),
+    maxHitPoints:
+      statistics?.maxHitPoints ??
+      (statistics?.baseHitPoints ?? 10) + (statistics?.hitPointBonuses ?? 0),
     movementRate: statistics?.movementRate ?? CREATURE_MOVEMENT_RATE_OPTIONS[0]!,
     appearancePartBased: appearanceSettings?.partBasedAppearance ?? false,
     appearanceParts: {
@@ -1564,15 +1812,31 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       wings: appearanceSettings?.wings ?? "",
       tail: appearanceSettings?.tail ?? ""
     },
+    appearanceColors: {
+      skin: appearanceSettings?.colors?.skin ?? "",
+      hair: appearanceSettings?.colors?.hair ?? "",
+      tattoo1: appearanceSettings?.colors?.tattoo1 ?? "",
+      tattoo2: appearanceSettings?.colors?.tattoo2 ?? ""
+    },
+    appearanceSourceOnlyParts: {
+      belt: appearanceSettings?.sourceOnlyParts?.belt ?? "",
+      robe: appearanceSettings?.sourceOnlyParts?.robe ?? "",
+      rightShoulder: appearanceSettings?.sourceOnlyParts?.rightShoulder ?? "",
+      leftShoulder: appearanceSettings?.sourceOnlyParts?.leftShoulder ?? ""
+    },
     skills: buildCreatureSkillsDraft(creature),
     scriptSlots: buildCreatureScriptSlotsDraft(creature),
     advancedSettings: {
       blueprintResRef: advanced?.blueprintResRef ?? source.resRef,
+      paletteId: advanced?.paletteId,
       disarmable: advanced?.disarmable ?? false,
       plot: advanced?.plot ?? false,
+      playerCharacter: advanced?.playerCharacter ?? false,
       leavesLootableCorpse: advanced?.leavesLootableCorpse ?? false,
       noPermanentDeath: advanced?.noPermanentDeath ?? false,
       immortal: advanced?.immortal ?? false,
+      bodyBag: advanced?.bodyBag ?? false,
+      startingPackage: advanced?.startingPackage ?? false,
       treasureModel: advanced?.treasureModel ?? CREATURE_TREASURE_MODEL_OPTIONS[0]!,
       corpseDecayTimeSeconds: advanced?.corpseDecayTimeSeconds ?? 5,
       faction: advanced?.faction ?? CREATURE_FACTION_OPTIONS[0]!,
@@ -1580,10 +1844,29 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       deity: advanced?.deity ?? "",
       challengeRatingAdjustment: advanced?.challengeRatingAdjustment ?? 0,
       soundSet: advanced?.soundSet ?? "",
-      perceptionRange: advanced?.perceptionRange ?? CREATURE_PERCEPTION_RANGE_OPTIONS[0]!
+      ...(typeof advanced?.soundSetFile === "number" ? { soundSetFile: advanced.soundSetFile } : {}),
+      perceptionRange: advanced?.perceptionRange ?? CREATURE_PERCEPTION_RANGE_OPTIONS[0]!,
+      ...(typeof advanced?.walkRateSource2daRow === "number"
+        ? { walkRateSource2daRow: advanced.walkRateSource2daRow }
+        : {}),
+      ...(advanced?.walkRateSource2daName ? { walkRateSource2daName: advanced.walkRateSource2daName } : {}),
+      ...(typeof advanced?.walkRateSpeed2daRow === "number"
+        ? { walkRateSpeed2daRow: advanced.walkRateSpeed2daRow }
+        : {}),
+      ...(advanced?.walkRateAppearance2daSourceKey
+        ? { walkRateAppearance2daSourceKey: advanced.walkRateAppearance2daSourceKey }
+        : {}),
+      ...(advanced?.walkRateSpeed2daSourceKey
+        ? { walkRateSpeed2daSourceKey: advanced.walkRateSpeed2daSourceKey }
+        : {}),
+      ...(typeof advanced?.animationState === "number"
+        ? { animationState: advanced.animationState }
+        : {}),
+      ...(advanced?.animationName ? { animationName: advanced.animationName } : {})
     },
     feats: creature?.feats
       ? creature.feats.map((entry) => ({
+          ...(entry.featId !== undefined ? { featId: entry.featId } : {}),
           name: entry.name,
           type: entry.type,
           assigned: entry.assigned
@@ -1591,18 +1874,37 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       : [],
     spells: creature?.spells
       ? creature.spells.map((entry) => ({
+          ...(entry.spellId !== undefined ? { spellId: entry.spellId } : {}),
+          ...(entry.classIndex !== undefined ? { classIndex: entry.classIndex } : {}),
           prepared: entry.prepared,
           name: entry.name,
           spellLevel: entry.spellLevel,
-          castingLevel: entry.castingLevel
+          castingLevel: entry.castingLevel,
+          metaMagic: entry.metaMagic,
+          flags: entry.flags
         }))
       : [],
     specialAbilities: creature?.specialAbilities
       ? creature.specialAbilities.map((entry) => ({
+          ...(entry.spellId !== undefined ? { spellId: entry.spellId } : {}),
+          ...(entry.flags !== undefined ? { flags: entry.flags } : {}),
           name: entry.name,
           type: entry.type,
           casterLevel: entry.casterLevel,
           uses: entry.uses
+        }))
+      : [],
+    variables: creature?.variables ? creature.variables.map((entry) => ({ ...entry })) : [],
+    inventoryItems: creature?.inventoryItems
+      ? creature.inventoryItems.map((entry) => ({
+          ...entry,
+          embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
+        }))
+      : [],
+    equippedItems: creature?.equippedItems
+      ? creature.equippedItems.map((entry) => ({
+          ...entry,
+          embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
         }))
       : [],
     comments: creature?.comments ?? ""
@@ -1625,6 +1927,7 @@ export function arePlaceablePropertiesDraftsEqual(
     arePlaceableScriptSlotsEqual(left.scriptSlots, right.scriptSlots) &&
     left.disabledFlagsEnabled === right.disabledFlagsEnabled &&
     arePlaceableDisabledFlagsEqual(left.disabledFlags, right.disabledFlags) &&
+    stableJsonStringify(left.inventoryItems) === stableJsonStringify(right.inventoryItems) &&
     left.hardness === right.hardness &&
     left.hitPoints === right.hitPoints &&
     left.fortitudeSave === right.fortitudeSave &&
@@ -1636,6 +1939,13 @@ export function arePlaceablePropertiesDraftsEqual(
     left.description === right.description &&
     left.comments === right.comments
   );
+}
+
+export function areItemPropertiesDraftsEqual(
+  left: ItemPropertiesDraft,
+  right: ItemPropertiesDraft
+): boolean {
+  return stableJsonStringify(left) === stableJsonStringify(right);
 }
 
 export function areSoundPropertiesDraftsEqual(

@@ -13,6 +13,17 @@ import {
   normalizeSoundPositioningPreservePayload,
   toSceneSoundPropertiesModel
 } from "../domain/sound";
+import {
+  applyAuroraAreaCrosserBrush,
+  applyAuroraAreaEraser,
+  applyAuroraAreaHeightBrush,
+  applyAuroraAreaTerrainBrush,
+  changeAuroraAreaGroupHeightAtSceneTile,
+  removeAuroraAreaGroupAtSceneTile,
+  rotateAuroraAreaGroupAtSceneTile,
+  placeAuroraAreaGroupAtSceneTile
+} from "../domain/auroraAreaEditingSceneMapper";
+import type { AuroraAreaCandidateSelector, AuroraAreaEdge } from "../domain/auroraAreaEditing";
 
 export interface SceneObjectTranslationDelta {
   x: number;
@@ -28,6 +39,9 @@ export interface SceneObjectAbsoluteLocationInput {
 
 export interface SceneObjectVisualTransformInput {
   scale: number;
+  scaleX?: number;
+  scaleY?: number;
+  scaleZ?: number;
   offsetX: number;
   offsetY: number;
   offsetZ: number;
@@ -59,6 +73,25 @@ export interface SceneMutationsFacade {
     input: SceneSoundPropertiesModel
   ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
+  applyAuroraAreaTerrainBrush(
+    scene: AreaScene,
+    tileId: string,
+    terrain: string,
+    selector?: AuroraAreaCandidateSelector
+  ): AreaScene;
+  applyAuroraAreaCrosserBrush(scene: AreaScene, tileId: string, edge: AuroraAreaEdge, crosser: string, selector?: AuroraAreaCandidateSelector): AreaScene;
+  applyAuroraAreaHeightBrush(scene: AreaScene, tileId: string, delta: -1 | 1, selector?: AuroraAreaCandidateSelector): AreaScene;
+  applyAuroraAreaEraser(scene: AreaScene, tileId: string): AreaScene;
+  placeAuroraAreaGroup(
+    scene: AreaScene,
+    tileId: string,
+    groupId: string,
+    orientation: 0 | 1 | 2 | 3,
+    selector?: AuroraAreaCandidateSelector
+  ): AreaScene;
+  removeAuroraAreaGroup(scene: AreaScene, tileId: string): AreaScene;
+  rotateAuroraAreaGroup(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene;
+  changeAuroraAreaGroupHeight(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   setObjectsAbsoluteLocationByIds(
     scene: AreaScene,
@@ -83,19 +116,27 @@ export interface SceneMutationsFacade {
 const MOVABLE_OBJECT_KINDS = new Set<SceneObjectKind>([
   "placeables",
   "creatures",
+  "encounters",
   "items",
-  "sounds"
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
 ]);
 const VISUAL_TRANSFORM_OBJECT_KINDS = new Set<SceneObjectKind>([
-  "placeables",
   "creatures",
-  "items"
+  "doors",
+  "encounters",
+  "items",
+  "placeables",
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
 ]);
 
 const SCENE_COORDINATE_MIN = 0;
 const SCENE_COORDINATE_EPSILON = 1e-4;
-const SCENE_OBJECT_MIN_Z = 0;
-const SCENE_OBJECT_MIN_OFFSET_Z = 0;
 const SCENE_VISUAL_SCALE_MIN = 0.01;
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -105,8 +146,38 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function resolveFiniteNumber(value: number, fallback: number): number {
-  return Number.isFinite(value) ? value : fallback;
+function normalizeVisualScale(value: number | undefined, fallback = 1): number {
+  return Math.max(SCENE_VISUAL_SCALE_MIN, resolveFiniteNumber(value, fallback));
+}
+
+function resolveNextVisualScaleAxes(
+  currentTransform: SceneObject["visualTransform"],
+  input: SceneObjectVisualTransformInput,
+  nextScale: number
+): { scaleX: number; scaleY: number; scaleZ: number } {
+  const currentScale = normalizeVisualScale(currentTransform.scale);
+  const scaleFactor = currentScale > 0 ? nextScale / currentScale : nextScale;
+  const resolveAxis = (
+    inputAxis: number | undefined,
+    currentAxis: number | undefined
+  ): number => {
+    if (inputAxis !== undefined) {
+      return normalizeVisualScale(inputAxis);
+    }
+    return normalizeVisualScale(
+      normalizeVisualScale(currentAxis ?? currentTransform.scale) * scaleFactor
+    );
+  };
+
+  return {
+    scaleX: resolveAxis(input.scaleX, currentTransform.scaleX),
+    scaleY: resolveAxis(input.scaleY, currentTransform.scaleY),
+    scaleZ: resolveAxis(input.scaleZ, currentTransform.scaleZ)
+  };
+}
+
+function resolveFiniteNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function resolveSceneCoordinateMax(size: number): number {
@@ -139,16 +210,14 @@ function normalizeObjectPlacement(scene: AreaScene, object: SceneObject): SceneO
   const maxY = resolveSceneCoordinateMax(scene.height);
   const nextX = clampNumber(resolveFiniteNumber(object.x, 0), SCENE_COORDINATE_MIN, maxX);
   const nextY = clampNumber(resolveFiniteNumber(object.y, 0), SCENE_COORDINATE_MIN, maxY);
-  const nextZ = Math.max(
-    SCENE_OBJECT_MIN_Z,
-    resolveFiniteNumber(object.z, resolveFiniteNumber(object.visualTransform.offsetZ, 0))
-  );
-  const nextBearing = normalizeBearingRadians(object.bearing);
-  const nextOffsetZ = Math.max(
-    SCENE_OBJECT_MIN_OFFSET_Z,
+  const nextZ = resolveFiniteNumber(
+    object.z,
     resolveFiniteNumber(object.visualTransform.offsetZ, 0)
   );
-  const nextScale = Math.max(SCENE_VISUAL_SCALE_MIN, object.visualTransform.scale);
+  const nextBearing = normalizeBearingRadians(object.bearing);
+  const rawOffsetZ = resolveFiniteNumber(object.visualTransform.offsetZ, 0);
+  const nextOffsetZ = rawOffsetZ;
+  const nextScale = normalizeVisualScale(object.visualTransform.scale);
 
   if (
     nextX === object.x &&
@@ -267,10 +336,6 @@ function resolveVisualTransformTargets(scene: AreaScene, objectIds: string[]): S
     return [];
   }
 
-  if (targets.some((object) => object.kind === "doors")) {
-    return [];
-  }
-
   if (targets.some((object) => !VISUAL_TRANSFORM_OBJECT_KINDS.has(object.kind))) {
     return [];
   }
@@ -300,7 +365,9 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       if (objects.length === 0) {
         return scene;
       }
-      const normalizedObjects = objects.map((object) => normalizeObjectPlacement(scene, object));
+      const normalizedObjects = objects.map((object) =>
+        normalizeObjectPlacement(scene, object)
+      );
       return replaceSceneObjects(scene, [...scene.objects, ...normalizedObjects]);
     },
     deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene {
@@ -442,6 +509,49 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       }
       return replaceSceneObjects(scene, nextObjects);
     },
+    applyAuroraAreaTerrainBrush(
+      scene: AreaScene,
+      tileId: string,
+      terrain: string,
+      selector?: AuroraAreaCandidateSelector
+    ): AreaScene {
+      return selector
+        ? applyAuroraAreaTerrainBrush(scene, tileId, terrain, selector)
+        : applyAuroraAreaTerrainBrush(scene, tileId, terrain);
+    },
+    placeAuroraAreaGroup(
+      scene: AreaScene,
+      tileId: string,
+      groupId: string,
+      orientation: 0 | 1 | 2 | 3,
+      selector?: AuroraAreaCandidateSelector
+    ): AreaScene {
+      return selector
+        ? placeAuroraAreaGroupAtSceneTile(scene, tileId, groupId, orientation, selector)
+        : placeAuroraAreaGroupAtSceneTile(scene, tileId, groupId, orientation);
+    },
+    applyAuroraAreaCrosserBrush(scene, tileId, edge, crosser, selector) {
+      return applyAuroraAreaCrosserBrush(scene, tileId, edge, crosser, selector);
+    },
+    applyAuroraAreaHeightBrush(scene, tileId, delta, selector) {
+      return applyAuroraAreaHeightBrush(scene, tileId, delta, selector);
+    },
+    applyAuroraAreaEraser(scene: AreaScene, tileId: string): AreaScene {
+      return applyAuroraAreaEraser(scene, tileId);
+    },
+    removeAuroraAreaGroup(scene: AreaScene, tileId: string): AreaScene {
+      return removeAuroraAreaGroupAtSceneTile(scene, tileId);
+    },
+    rotateAuroraAreaGroup(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene {
+      return rotateAuroraAreaGroupAtSceneTile(scene, tileId, delta);
+    },
+    changeAuroraAreaGroupHeight(
+      scene: AreaScene,
+      tileId: string,
+      delta: -1 | 1
+    ): AreaScene {
+      return changeAuroraAreaGroupHeightAtSceneTile(scene, tileId, delta);
+    },
     updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene {
       let changed = false;
       const nextTiles = scene.tiles.map((tile) => {
@@ -471,6 +581,9 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         const hasTransformChange =
           object.bearing !== 0 ||
           object.visualTransform.scale !== 1 ||
+          (object.visualTransform.scaleX ?? 1) !== 1 ||
+          (object.visualTransform.scaleY ?? 1) !== 1 ||
+          (object.visualTransform.scaleZ ?? 1) !== 1 ||
           object.visualTransform.offsetX !== 0 ||
           object.visualTransform.offsetY !== 0 ||
           object.visualTransform.offsetZ !== 0 ||
@@ -486,6 +599,9 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           bearing: 0,
           visualTransform: {
             scale: 1,
+            scaleX: 1,
+            scaleY: 1,
+            scaleZ: 1,
             offsetX: 0,
             offsetY: 0,
             offsetZ: 0,
@@ -523,7 +639,10 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       const maxY = resolveSceneCoordinateMax(scene.height);
       const requestedX = clampNumber(input.x, SCENE_COORDINATE_MIN, maxX);
       const requestedY = clampNumber(input.y, SCENE_COORDINATE_MIN, maxY);
-      const requestedZ = Math.max(SCENE_OBJECT_MIN_Z, input.z);
+      const requestedZ = resolveFiniteNumber(
+        input.z,
+        resolveFiniteNumber(primaryTarget.z, primaryTarget.visualTransform.offsetZ)
+      );
       const requestedBearing = normalizeBearingRadians(input.bearing);
       const requestedDeltaX = requestedX - primaryTarget.x;
       const requestedDeltaY = requestedY - primaryTarget.y;
@@ -542,18 +661,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         translationBounds.minDeltaY,
         translationBounds.maxDeltaY
       );
-      const minDeltaZ = targets.reduce(
-        (bound, object) =>
-          Math.max(
-            bound,
-            SCENE_OBJECT_MIN_Z - resolveFiniteNumber(object.z, object.visualTransform.offsetZ)
-          ),
-        Number.NEGATIVE_INFINITY
-      );
-      const clampedDeltaZ =
-        requestedDeltaZ < 0
-          ? clampDeltaToBounds(requestedDeltaZ, minDeltaZ, Number.POSITIVE_INFINITY)
-          : requestedDeltaZ;
+      const clampedDeltaZ = requestedDeltaZ;
       if (
         clampedDeltaX === 0 &&
         clampedDeltaY === 0 &&
@@ -573,7 +681,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         const nextX = clampNumber(object.x + clampedDeltaX, SCENE_COORDINATE_MIN, maxX);
         const nextY = clampNumber(object.y + clampedDeltaY, SCENE_COORDINATE_MIN, maxY);
         const currentZ = resolveFiniteNumber(object.z, object.visualTransform.offsetZ);
-        const nextZ = Math.max(SCENE_OBJECT_MIN_Z, currentZ + clampedDeltaZ);
+        const nextZ = currentZ + clampedDeltaZ;
         const nextBearing = normalizeBearingRadians(object.bearing + requestedDeltaBearing);
         if (
           object.x === nextX &&
@@ -612,8 +720,6 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const nextScale = Math.max(SCENE_VISUAL_SCALE_MIN, input.scale);
-      const nextOffsetZ = Math.max(SCENE_OBJECT_MIN_OFFSET_Z, input.offsetZ);
       const idSet = new Set(targets.map((object) => object.id));
       let changed = false;
 
@@ -621,8 +727,18 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         if (!idSet.has(object.id)) {
           return object;
         }
+        const nextScale = normalizeVisualScale(input.scale, object.visualTransform.scale);
+        const nextScaleAxes = resolveNextVisualScaleAxes(
+          object.visualTransform,
+          input,
+          nextScale
+        );
+        const nextOffsetZ = resolveFiniteNumber(input.offsetZ, object.visualTransform.offsetZ);
         if (
           object.visualTransform.scale === nextScale &&
+          (object.visualTransform.scaleX ?? object.visualTransform.scale) === nextScaleAxes.scaleX &&
+          (object.visualTransform.scaleY ?? object.visualTransform.scale) === nextScaleAxes.scaleY &&
+          (object.visualTransform.scaleZ ?? object.visualTransform.scale) === nextScaleAxes.scaleZ &&
           object.visualTransform.offsetX === input.offsetX &&
           object.visualTransform.offsetY === input.offsetY &&
           object.visualTransform.offsetZ === nextOffsetZ &&
@@ -638,6 +754,9 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           visualTransform: {
             ...object.visualTransform,
             scale: nextScale,
+            scaleX: nextScaleAxes.scaleX,
+            scaleY: nextScaleAxes.scaleY,
+            scaleZ: nextScaleAxes.scaleZ,
             offsetX: input.offsetX,
             offsetY: input.offsetY,
             offsetZ: nextOffsetZ,
@@ -680,6 +799,12 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           object.z === snapshot.z &&
           object.bearing === snapshot.bearing &&
           object.visualTransform.scale === snapshot.visualTransform.scale &&
+          (object.visualTransform.scaleX ?? object.visualTransform.scale) ===
+            (snapshot.visualTransform.scaleX ?? snapshot.visualTransform.scale) &&
+          (object.visualTransform.scaleY ?? object.visualTransform.scale) ===
+            (snapshot.visualTransform.scaleY ?? snapshot.visualTransform.scale) &&
+          (object.visualTransform.scaleZ ?? object.visualTransform.scale) ===
+            (snapshot.visualTransform.scaleZ ?? snapshot.visualTransform.scale) &&
           object.visualTransform.offsetX === snapshot.visualTransform.offsetX &&
           object.visualTransform.offsetY === snapshot.visualTransform.offsetY &&
           object.visualTransform.offsetZ === snapshot.visualTransform.offsetZ &&
@@ -755,7 +880,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
       return replaceSceneObjects(scene, nextObjects);
     },
     adjustObjectsHeightByIds(scene: AreaScene, objectIds: string[], deltaZ: number): AreaScene {
-      if (objectIds.length === 0 || deltaZ === 0) {
+      if (objectIds.length === 0 || deltaZ === 0 || !Number.isFinite(deltaZ)) {
         return scene;
       }
 
@@ -764,18 +889,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
         return scene;
       }
 
-      const minDeltaZ = targets.reduce(
-        (bound, object) =>
-          Math.max(
-            bound,
-            SCENE_OBJECT_MIN_Z - resolveFiniteNumber(object.z, object.visualTransform.offsetZ)
-          ),
-        Number.NEGATIVE_INFINITY
-      );
-      const clampedDeltaZ =
-        deltaZ < 0
-          ? clampDeltaToBounds(deltaZ, minDeltaZ, Number.POSITIVE_INFINITY)
-          : deltaZ;
+      const clampedDeltaZ = deltaZ;
       if (clampedDeltaZ === 0) {
         return scene;
       }
@@ -787,7 +901,7 @@ export function createSceneMutationsFacade(): SceneMutationsFacade {
           return object;
         }
         const currentZ = resolveFiniteNumber(object.z, object.visualTransform.offsetZ);
-        const nextZ = Math.max(SCENE_OBJECT_MIN_Z, currentZ + clampedDeltaZ);
+        const nextZ = currentZ + clampedDeltaZ;
         if (nextZ === currentZ) {
           return object;
         }

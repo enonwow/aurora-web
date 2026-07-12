@@ -9,6 +9,7 @@ export interface WorkspaceOptionSettings {
   showTileGridOverlay: boolean;
   enableRuntimeSoundPreview: boolean;
   showRuntimeSoundNowPlaying: boolean;
+  runtimeMaxLights: number;
   cameraRotateSpeed: number;
   cameraZoomSpeed: number;
   cameraPanSpeed: number;
@@ -24,9 +25,10 @@ export const DEFAULT_WORKSPACE_OPTION_SETTINGS: WorkspaceOptionSettings = {
   snapHeightStep: 0.5,
   selectionBoxMode: "replace",
   showPerObjectGizmoHints: true,
-  showTileGridOverlay: false,
+  showTileGridOverlay: true,
   enableRuntimeSoundPreview: false,
   showRuntimeSoundNowPlaying: true,
+  runtimeMaxLights: 128,
   cameraRotateSpeed: 1,
   cameraZoomSpeed: 1,
   cameraPanSpeed: 1,
@@ -97,6 +99,13 @@ function sanitizeSettings(value: Partial<WorkspaceOptionSettings>): WorkspaceOpt
     showRuntimeSoundNowPlaying: coerceBoolean(
       value.showRuntimeSoundNowPlaying,
       DEFAULT_WORKSPACE_OPTION_SETTINGS.showRuntimeSoundNowPlaying
+    ),
+    runtimeMaxLights: Math.trunc(
+      clampNumber(
+        coerceNumber(value.runtimeMaxLights, DEFAULT_WORKSPACE_OPTION_SETTINGS.runtimeMaxLights),
+        0,
+        128
+      )
     ),
     cameraRotateSpeed: clampNumber(
       coerceNumber(value.cameraRotateSpeed, DEFAULT_WORKSPACE_OPTION_SETTINGS.cameraRotateSpeed),
@@ -178,6 +187,6 @@ export function persistWorkspaceOptionSettingsToStorage(
     storage.setItem(WORKSPACE_OPTIONS_STORAGE_KEY, serialized);
     storage.removeItem(LEGACY_WORKSPACE_OPTIONS_STORAGE_KEY);
   } catch {
-    // Ignore private mode / quota errors in mock mode.
+    // Ignore private mode / quota errors while storing local workspace preferences.
   }
 }

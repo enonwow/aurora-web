@@ -3,11 +3,29 @@ import type {
   AuroraVfxPayload,
   SceneObjectVfxDiagnostic
 } from "../../../scene/contracts";
+import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
 
 export interface AuroraVfxCanonicalRenderOptions {
   particleTexturesByReference?: ReadonlyMap<string, THREE.Texture>;
   objectRadius?: number;
 }
+
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_STATUS =
+  "source-backed-fx-light-clr-pointlight-preview-scheduler-parity-blocked";
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_SOURCE =
+  "ProgFX Type 4 light request uses fx_light_clr.mdl AuroraLight01 source color/radius from render contract; local PointLight preview is active while retail priority/proximity/vision scheduler parity remains blocked";
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_FALLOFF_FORMULA = "max(0,1-distance/radius)";
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_DECAY = 1;
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_INTENSITY_SOURCE =
+  "fx_light_clr.mdl source-MDL RGB is split into normalized Three.Color and max RGB channel in Three.PointLight.intensity so color*intensity preserves the source vector; scheduler parity remains blocked";
+const AURORA_PROGFX_TYPE4_POINT_LIGHT_INTENSITY_PROOF_STATUS =
+  "source-family-backed-fx_light_clr-mdl-rgb-vector-preserved-through-three-color-intensity";
+const AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_STATUS =
+  "blocked-runtime-oracle-multi-request-no-pointlight-until-retail-scheduler-parity";
+const AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_SOURCE =
+  "Retail ProgFX Type 4 priority capture observes a visible warm-yellow Type 4 pixel signal after simultaneous Blackout/Blue/Yellow/Darkvision requests, while exact winner, equal-priority tie policy, proximity threshold, attach-to-scene restore timing, and local-vs-retail parity remain blocked";
+const AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_BLOCKER =
+  "Aurora Web only promotes a ProgFX Type 4 request to THREE.PointLight when the render contract contains a single light request; multi-request contracts stay metadata-only until retail scheduler parity is isolated";
 
 interface AuroraVfxRuntimeRenderContractRecord {
   version: "aurora-vfx-runtime-render-contract/v1";
@@ -32,6 +50,73 @@ interface AuroraVfxRuntimeRenderContractRecord {
   };
   drawRecords: AuroraParticleDrawRecordLike[];
   diagnostics: SceneObjectVfxDiagnostic[];
+  progFxType4Light?: AuroraVfxProgFxType4LightRecord;
+  progFxType4Requests?: AuroraVfxProgFxType4LightRecord[];
+}
+
+interface AuroraVfxProgFxType4LightRecord {
+  rowId: number;
+  label: string;
+  animationRaw: string;
+  animation: string;
+  animationParameterStatus: string;
+  animationKind: string;
+  visionMode: string;
+  visionParameterStatus: string;
+  symbolicColor: string;
+  tokenRadiusMeters: number | null;
+  tokenRadiusProofStatus: string;
+  radiusMeters: number | null;
+  radiusProofStatus: string;
+  sourceMdlNodeName: string;
+  sourceMdlAnimation: string;
+  sourceMdlColor: AuroraColorLike | null;
+  sourceMdlColorSource: string;
+  sourceMdlColorProofStatus: string;
+  sourceMdlRadiusMeters: number | null;
+  sourceMdlRadiusFrames: [number, number] | null;
+  sourceMdlRadiusSource: string;
+  sourceMdlRadiusProofStatus: string;
+  animationSpeedRaw: string;
+  animationSpeed: number | null;
+  animationSpeedParameterStatus: string;
+  castShadowsRaw: string;
+  castShadows: boolean | null;
+  castShadowParameterStatus: string;
+  priorityRaw: string;
+  priority: number | null;
+  priorityParameterStatus: string;
+  proximitySuppressionRaw: string;
+  proximitySuppression: boolean | null;
+  proximitySuppressionParameterStatus: string;
+  attachToSceneRaw: string;
+  attachToScene: boolean | null;
+  sceneAttachmentParameterStatus: string;
+  modelRaw: string;
+  modelRef: string;
+  modelParameterStatus: string;
+  unusedParam8Raw: string;
+  color: AuroraColorLike;
+  proofStatus: string;
+  notPlaceableTwoDaLight: boolean;
+  notMdlLightNode: boolean;
+  parameterSource: string;
+  parameterPreservationProofSource: string;
+  parameterPreservationProofStatus: string;
+  runtimeSchedulingStatus: string;
+  runtimeSchedulingProofSource: string;
+  runtimeSchedulingBlocker: string;
+  sceneAttachmentPolicyStatus: string;
+  proximitySuppressionPolicyStatus: string;
+  visionMutationPolicyStatus: string;
+  shadowPolicyStatus: string;
+  visualPreviewStatus: string;
+  ownerVisualEffectRowId: number | null;
+  ownerVisualEffectLabel: string;
+  ownerPhase: string;
+  ownerProgFxRef: string;
+  ownerEffectConstructorKind: string;
+  ownerDurationType: string;
 }
 
 interface AuroraVfxRenderedBounds {
@@ -293,7 +378,8 @@ export function createAuroraVfxCanonicalRenderGroup(
     auroraVfxCanonicalMaterialSide: materialState.side,
     auroraVfxThreeMaterialSourceTruth: false,
     auroraVfxMaterialAdapterSource: "aurora-render-contract",
-    auroraVfxRetailParityProof: false
+    auroraVfxRetailParityProof: false,
+    ...buildProgFxType4LightUserData(resolveProgFxType4SingleUserDataLight(contract))
   };
 
   const diagnostics = mergeDiagnostics([
@@ -311,6 +397,23 @@ export function createAuroraVfxCanonicalRenderGroup(
     textureStatus: "applied",
     materialState
   });
+  for (const marker of createProgFxType4RequestMarkers(contract)) {
+    group.add(marker);
+  }
+  const progFxType4PointLight = createProgFxType4PointLightPreview(
+    resolveProgFxType4SingleUserDataLight(contract)
+  );
+  if (progFxType4PointLight) {
+    group.add(progFxType4PointLight);
+    group.userData = {
+      ...group.userData,
+      auroraVfxProgFxType4PointLightPreviewStatus:
+        AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_STATUS,
+      auroraVfxProgFxType4PointLightPreviewSource:
+        AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_SOURCE,
+      auroraVfxProgFxType4PointLightCount: 1
+    };
+  }
   group.add(mesh);
   return group;
 }
@@ -359,6 +462,8 @@ function readAuroraVfxRuntimeRenderContract(
   const drawRecords = Array.isArray(contract.drawRecords)
     ? contract.drawRecords.flatMap((entry) => readDrawRecord(entry))
     : [];
+  const progFxType4Light = readProgFxType4LightRecord(contract.progFxType4Light);
+  const progFxType4Requests = readProgFxType4LightRecords(contract.progFxType4Requests);
   return {
     version: "aurora-vfx-runtime-render-contract/v1",
     activeParticleCount: readFiniteNumber(contract.activeParticleCount, 0),
@@ -374,7 +479,100 @@ function readAuroraVfxRuntimeRenderContract(
     ...(isRecord(contract.renderState) ? { renderState: contract.renderState } : {}),
     renderOrder: readRenderOrder(contract.renderOrder),
     drawRecords,
-    diagnostics: normalizeDiagnostics(contract.diagnostics)
+    diagnostics: normalizeDiagnostics(contract.diagnostics),
+    ...(progFxType4Light ? { progFxType4Light } : {}),
+    ...(progFxType4Requests.length > 0 ? { progFxType4Requests } : {})
+  };
+}
+
+function readProgFxType4LightRecords(value: unknown): AuroraVfxProgFxType4LightRecord[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = readProgFxType4LightRecord(entry);
+        return record ? [record] : [];
+      })
+    : [];
+}
+
+function readProgFxType4LightRecord(value: unknown): AuroraVfxProgFxType4LightRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const sourceMdlRadiusFrames = Array.isArray(value.sourceMdlRadiusFrames)
+    ? value.sourceMdlRadiusFrames
+        .map((entry) => readNullableFiniteNumber(entry))
+        .filter((entry): entry is number => entry !== null)
+    : [];
+  return {
+    rowId: readFiniteNumber(value.rowId, -1),
+    label: readString(value.label),
+    animationRaw: readString(value.animationRaw),
+    animation: readString(value.animation),
+    animationParameterStatus: readString(value.animationParameterStatus),
+    animationKind: readString(value.animationKind),
+    visionMode: readString(value.visionMode),
+    visionParameterStatus: readString(value.visionParameterStatus),
+    symbolicColor: readString(value.symbolicColor),
+    tokenRadiusMeters: readNullableFiniteNumber(value.tokenRadiusMeters),
+    tokenRadiusProofStatus: readString(value.tokenRadiusProofStatus),
+    radiusMeters: readNullableFiniteNumber(value.radiusMeters),
+    radiusProofStatus: readString(value.radiusProofStatus),
+    sourceMdlNodeName: readString(value.sourceMdlNodeName),
+    sourceMdlAnimation: readString(value.sourceMdlAnimation),
+    sourceMdlColor: readColor(value.sourceMdlColor),
+    sourceMdlColorSource: readString(value.sourceMdlColorSource),
+    sourceMdlColorProofStatus: readString(value.sourceMdlColorProofStatus),
+    sourceMdlRadiusMeters: readNullableFiniteNumber(value.sourceMdlRadiusMeters),
+    sourceMdlRadiusFrames:
+      sourceMdlRadiusFrames.length === 2
+        ? [sourceMdlRadiusFrames[0]!, sourceMdlRadiusFrames[1]!]
+        : null,
+    sourceMdlRadiusSource: readString(value.sourceMdlRadiusSource),
+    sourceMdlRadiusProofStatus: readString(value.sourceMdlRadiusProofStatus),
+    animationSpeedRaw: readString(value.animationSpeedRaw),
+    animationSpeed: readNullableFiniteNumber(value.animationSpeed),
+    animationSpeedParameterStatus: readString(value.animationSpeedParameterStatus),
+    castShadowsRaw: readString(value.castShadowsRaw),
+    castShadows: readNullableBoolean(value.castShadows),
+    castShadowParameterStatus: readString(value.castShadowParameterStatus),
+    priorityRaw: readString(value.priorityRaw),
+    priority: readNullableFiniteNumber(value.priority),
+    priorityParameterStatus: readString(value.priorityParameterStatus),
+    proximitySuppressionRaw: readString(value.proximitySuppressionRaw),
+    proximitySuppression: readNullableBoolean(value.proximitySuppression),
+    proximitySuppressionParameterStatus: readString(
+      value.proximitySuppressionParameterStatus
+    ),
+    attachToSceneRaw: readString(value.attachToSceneRaw),
+    attachToScene: readNullableBoolean(value.attachToScene),
+    sceneAttachmentParameterStatus: readString(value.sceneAttachmentParameterStatus),
+    modelRaw: readString(value.modelRaw),
+    modelRef: readString(value.modelRef),
+    modelParameterStatus: readString(value.modelParameterStatus),
+    unusedParam8Raw: readString(value.unusedParam8Raw),
+    color: readColor(value.color) ?? { r: 1, g: 1, b: 1 },
+    proofStatus: readString(value.proofStatus),
+    notPlaceableTwoDaLight: readBoolean(value.notPlaceableTwoDaLight, false),
+    notMdlLightNode: readBoolean(value.notMdlLightNode, false),
+    parameterSource: readString(value.parameterSource),
+    parameterPreservationProofSource: readString(value.parameterPreservationProofSource),
+    parameterPreservationProofStatus: readString(value.parameterPreservationProofStatus),
+    runtimeSchedulingStatus: readString(value.runtimeSchedulingStatus),
+    runtimeSchedulingProofSource: readString(value.runtimeSchedulingProofSource),
+    runtimeSchedulingBlocker: readString(value.runtimeSchedulingBlocker),
+    sceneAttachmentPolicyStatus: readString(value.sceneAttachmentPolicyStatus),
+    proximitySuppressionPolicyStatus: readString(
+      value.proximitySuppressionPolicyStatus
+    ),
+    visionMutationPolicyStatus: readString(value.visionMutationPolicyStatus),
+    shadowPolicyStatus: readString(value.shadowPolicyStatus),
+    visualPreviewStatus: readString(value.visualPreviewStatus),
+    ownerVisualEffectRowId: readNullableFiniteNumber(value.ownerVisualEffectRowId),
+    ownerVisualEffectLabel: readString(value.ownerVisualEffectLabel),
+    ownerPhase: readString(value.ownerPhase),
+    ownerProgFxRef: readString(value.ownerProgFxRef),
+    ownerEffectConstructorKind: readString(value.ownerEffectConstructorKind),
+    ownerDurationType: readString(value.ownerDurationType)
   };
 }
 
@@ -827,6 +1025,7 @@ function buildCanonicalRootUserData(
   }
 ): Record<string, unknown> {
   const diagnostics = mergeDiagnostics(options.diagnostics);
+  const progFxType4Light = resolveProgFxType4SingleUserDataLight(contract);
   return {
     auroraVfxRenderer: "canonical",
     auroraVfxCanonicalRenderer: true,
@@ -903,9 +1102,278 @@ function buildCanonicalRootUserData(
     auroraVfxCanonicalRenderOrder: contract?.renderOrder.value ?? 0,
     auroraVfxCanonicalDiagnosticCodes: diagnostics.map((diagnostic) => diagnostic.code),
     auroraVfxDiagnosticCodes: diagnostics.map((diagnostic) => diagnostic.code),
+    ...buildProgFxType4LightUserData(progFxType4Light),
+    ...buildProgFxType4MultiRequestUserData(contract),
     auroraVfxThreeMaterialSourceTruth: false,
     auroraVfxRendererParityClaim: "none",
     auroraVfxRetailParityProof: false
+  };
+}
+
+function resolveProgFxType4SingleUserDataLight(
+  contract: AuroraVfxRuntimeRenderContractRecord | null
+): AuroraVfxProgFxType4LightRecord | null {
+  const requests = contract?.progFxType4Requests ?? [];
+  if (requests.length > 1) {
+    return null;
+  }
+  return contract?.progFxType4Light ?? requests[0] ?? null;
+}
+
+function createProgFxType4RequestMarkers(
+  contract: AuroraVfxRuntimeRenderContractRecord
+): THREE.Group[] {
+  const requests = contract.progFxType4Requests ?? [];
+  if (requests.length <= 1) {
+    return [];
+  }
+  return requests.map((request, requestIndex) => {
+    const marker = new THREE.Group();
+    const angle = (Math.PI * 2 * requestIndex) / requests.length;
+    const radius = 0.18;
+    marker.name = `aurora-progfx-type4-request-${request.rowId}-${requestIndex}`;
+    marker.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
+    marker.userData = {
+      ...buildProgFxType4LightUserData(request),
+      auroraVfxProgFxType4RequestIndex: requestIndex,
+      auroraVfxProgFxType4RequestCount: requests.length,
+      auroraVfxProgFxType4MultiRequestStatus:
+        AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_STATUS,
+      auroraVfxProgFxType4MultiRequestPointLightPreviewStatus:
+        AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_STATUS,
+      auroraVfxProgFxType4MultiRequestPointLightPreviewSource:
+        AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_SOURCE,
+      auroraVfxProgFxType4MultiRequestPointLightPreviewBlocker:
+        AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_BLOCKER,
+      auroraVfxProgFxType4RequestSource: "render-contract.progFxType4Requests",
+      auroraVfxProgFxType4RequestDiagnosticPositionSource:
+        "local diagnostic ring only; not retail scheduler position parity"
+    };
+    return marker;
+  });
+}
+
+function createProgFxType4PointLightPreview(
+  progFxType4Light: AuroraVfxProgFxType4LightRecord | null
+): THREE.PointLight | null {
+  if (
+    !progFxType4Light ||
+    progFxType4Light.animationKind !== "light" ||
+    progFxType4Light.sourceMdlColor === null
+  ) {
+    return null;
+  }
+  const distance =
+    typeof progFxType4Light.sourceMdlRadiusMeters === "number" &&
+    Number.isFinite(progFxType4Light.sourceMdlRadiusMeters) &&
+    progFxType4Light.sourceMdlRadiusMeters > 0
+      ? progFxType4Light.sourceMdlRadiusMeters
+      : typeof progFxType4Light.radiusMeters === "number" &&
+          Number.isFinite(progFxType4Light.radiusMeters) &&
+          progFxType4Light.radiusMeters > 0
+        ? progFxType4Light.radiusMeters
+        : 0;
+  if (distance <= 0) {
+    return null;
+  }
+  const color = new THREE.Color(
+    progFxType4Light.sourceMdlColor.r,
+    progFxType4Light.sourceMdlColor.g,
+    progFxType4Light.sourceMdlColor.b
+  );
+  const intensity = Math.max(color.r, color.g, color.b, 0.01);
+  const falloffShaderPatch = installAuroraLinearLightFalloffShaderChunk();
+  const pointLight = new THREE.PointLight(
+    color,
+    intensity,
+    distance,
+    AURORA_PROGFX_TYPE4_POINT_LIGHT_DECAY
+  );
+  pointLight.name = `progfx_type4_light_${progFxType4Light.ownerVisualEffectLabel || progFxType4Light.label}`;
+  pointLight.castShadow = progFxType4Light.castShadows === true;
+  pointLight.userData = {
+    ...buildProgFxType4LightUserData(progFxType4Light),
+    auroraVfxProgFxType4PreviewRole: "progfx-type4-point-light",
+    auroraVfxProgFxType4PointLightPreviewStatus:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_STATUS,
+    auroraVfxProgFxType4PointLightPreviewSource:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_SOURCE,
+    auroraVfxProgFxType4PointLightDecay: AURORA_PROGFX_TYPE4_POINT_LIGHT_DECAY,
+    auroraVfxProgFxType4PointLightDecaySource:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_PREVIEW_SOURCE,
+    auroraVfxProgFxType4FalloffRendererPatchStatus: falloffShaderPatch.status,
+    auroraVfxProgFxType4FalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+    auroraVfxProgFxType4FalloffRendererSource: falloffShaderPatch.source,
+    auroraVfxProgFxType4FalloffFormula:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_FALLOFF_FORMULA,
+    auroraVfxProgFxType4FalloffProofStatus:
+      "source-backed-fx-light-clr-radius-linear-preview-scheduler-blocked",
+    auroraVfxProgFxType4SourceMdlRadiusUnits: "meters",
+    auroraVfxProgFxType4SourceMdlRadiusWorldDistance: distance,
+    auroraVfxProgFxType4PointLightIntensity: intensity,
+    auroraVfxProgFxType4PointLightIntensitySource:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_INTENSITY_SOURCE,
+    auroraVfxProgFxType4PointLightIntensityProofStatus:
+      AURORA_PROGFX_TYPE4_POINT_LIGHT_INTENSITY_PROOF_STATUS,
+    auroraVfxProgFxType4PointLightColor: [color.r, color.g, color.b],
+    auroraVfxProgFxType4PointLightCastShadow: pointLight.castShadow
+  };
+  return pointLight;
+}
+
+function buildProgFxType4MultiRequestUserData(
+  contract: AuroraVfxRuntimeRenderContractRecord | null
+): Record<string, unknown> {
+  const requests = contract?.progFxType4Requests ?? [];
+  if (requests.length <= 1) {
+    return {};
+  }
+  const lightRequests = requests.filter((request) => request.animationKind === "light");
+  const visionRequests = requests.filter(
+    (request) => request.animationKind === "vision" || request.visionMode.length > 0
+  );
+  const equalPriorityLightBuckets = new Map<number, number>();
+  for (const request of lightRequests) {
+    if (request.priority === null) {
+      continue;
+    }
+    equalPriorityLightBuckets.set(
+      request.priority,
+      (equalPriorityLightBuckets.get(request.priority) ?? 0) + 1
+    );
+  }
+  const equalPriorityLightTieCount = Array.from(
+    equalPriorityLightBuckets.values()
+  ).filter((count) => count > 1).length;
+  return {
+    auroraVfxProgFxType4MultiRequestPointLightPreviewStatus:
+      AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_STATUS,
+    auroraVfxProgFxType4MultiRequestPointLightPreviewSource:
+      AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_SOURCE,
+    auroraVfxProgFxType4MultiRequestPointLightPreviewBlocker:
+      AURORA_PROGFX_TYPE4_MULTI_REQUEST_POINT_LIGHT_PREVIEW_BLOCKER,
+    auroraVfxProgFxType4MultiRequestCount: requests.length,
+    auroraVfxProgFxType4MultiRequestLightCount: lightRequests.length,
+    auroraVfxProgFxType4MultiRequestVisionCount: visionRequests.length,
+    auroraVfxProgFxType4MultiRequestEqualPriorityLightTieCount:
+      equalPriorityLightTieCount,
+    auroraVfxProgFxType4MultiRequestPointLightCount: 0,
+    auroraVfxProgFxType4MultiRequestRuntimeOracleObservedSignal: "warm-yellow",
+    auroraVfxProgFxType4MultiRequestCanonicalParityPromoted: false
+  };
+}
+
+function buildProgFxType4LightUserData(
+  progFxType4Light: AuroraVfxProgFxType4LightRecord | null
+): Record<string, unknown> {
+  return {
+    auroraVfxProgFxType4ProofStatus: progFxType4Light?.proofStatus ?? "",
+    auroraVfxProgFxType4RowId: progFxType4Light?.rowId ?? null,
+    auroraVfxProgFxType4Label: progFxType4Light?.label ?? "",
+    auroraVfxProgFxType4Param1AnimationRaw: progFxType4Light?.animationRaw ?? "",
+    auroraVfxProgFxType4Animation: progFxType4Light?.animation ?? "",
+    auroraVfxProgFxType4Param1AnimationStatus:
+      progFxType4Light?.animationParameterStatus ?? "",
+    auroraVfxProgFxType4AnimationKind: progFxType4Light?.animationKind ?? "",
+    auroraVfxProgFxType4VisionMode: progFxType4Light?.visionMode ?? "",
+    auroraVfxProgFxType4VisionParameterStatus:
+      progFxType4Light?.visionParameterStatus ?? "",
+    auroraVfxProgFxType4SymbolicColor: progFxType4Light?.symbolicColor ?? "",
+    auroraVfxProgFxType4TokenRadiusMeters: progFxType4Light?.tokenRadiusMeters ?? null,
+    auroraVfxProgFxType4TokenRadiusProofStatus:
+      progFxType4Light?.tokenRadiusProofStatus ?? "",
+    auroraVfxProgFxType4RadiusMeters: progFxType4Light?.radiusMeters ?? null,
+    auroraVfxProgFxType4RadiusProofStatus: progFxType4Light?.radiusProofStatus ?? "",
+    auroraVfxProgFxType4SourceMdlNodeName: progFxType4Light?.sourceMdlNodeName ?? "",
+    auroraVfxProgFxType4SourceMdlAnimation: progFxType4Light?.sourceMdlAnimation ?? "",
+    auroraVfxProgFxType4SourceMdlColor: progFxType4Light?.sourceMdlColor
+      ? [
+          progFxType4Light.sourceMdlColor.r,
+          progFxType4Light.sourceMdlColor.g,
+          progFxType4Light.sourceMdlColor.b
+        ]
+      : null,
+    auroraVfxProgFxType4SourceMdlColorSource:
+      progFxType4Light?.sourceMdlColorSource ?? "",
+    auroraVfxProgFxType4SourceMdlColorProofStatus:
+      progFxType4Light?.sourceMdlColorProofStatus ?? "",
+    auroraVfxProgFxType4SourceMdlRadiusMeters:
+      progFxType4Light?.sourceMdlRadiusMeters ?? null,
+    auroraVfxProgFxType4SourceMdlRadiusFrames:
+      progFxType4Light?.sourceMdlRadiusFrames ?? null,
+    auroraVfxProgFxType4SourceMdlRadiusSource:
+      progFxType4Light?.sourceMdlRadiusSource ?? "",
+    auroraVfxProgFxType4SourceMdlRadiusProofStatus:
+      progFxType4Light?.sourceMdlRadiusProofStatus ?? "",
+    auroraVfxProgFxType4Param2AnimationSpeedRaw:
+      progFxType4Light?.animationSpeedRaw ?? "",
+    auroraVfxProgFxType4AnimationSpeed: progFxType4Light?.animationSpeed ?? null,
+    auroraVfxProgFxType4Param2AnimationSpeedStatus:
+      progFxType4Light?.animationSpeedParameterStatus ?? "",
+    auroraVfxProgFxType4Param3CastShadowsRaw:
+      progFxType4Light?.castShadowsRaw ?? "",
+    auroraVfxProgFxType4CastShadows: progFxType4Light?.castShadows ?? null,
+    auroraVfxProgFxType4Param3CastShadowsStatus:
+      progFxType4Light?.castShadowParameterStatus ?? "",
+    auroraVfxProgFxType4Param4PriorityRaw:
+      progFxType4Light?.priorityRaw ?? "",
+    auroraVfxProgFxType4Priority: progFxType4Light?.priority ?? null,
+    auroraVfxProgFxType4Param4PriorityStatus:
+      progFxType4Light?.priorityParameterStatus ?? "",
+    auroraVfxProgFxType4Param5ProximitySuppressionRaw:
+      progFxType4Light?.proximitySuppressionRaw ?? "",
+    auroraVfxProgFxType4ProximitySuppression:
+      progFxType4Light?.proximitySuppression ?? null,
+    auroraVfxProgFxType4Param5ProximitySuppressionStatus:
+      progFxType4Light?.proximitySuppressionParameterStatus ?? "",
+    auroraVfxProgFxType4Param6AttachToSceneRaw:
+      progFxType4Light?.attachToSceneRaw ?? "",
+    auroraVfxProgFxType4AttachToScene: progFxType4Light?.attachToScene ?? null,
+    auroraVfxProgFxType4Param6AttachToSceneStatus:
+      progFxType4Light?.sceneAttachmentParameterStatus ?? "",
+    auroraVfxProgFxType4Param7ModelRaw: progFxType4Light?.modelRaw ?? "",
+    auroraVfxProgFxType4ModelRef: progFxType4Light?.modelRef ?? "",
+    auroraVfxProgFxType4Param7ModelStatus:
+      progFxType4Light?.modelParameterStatus ?? "",
+    auroraVfxProgFxType4Param8UnusedRaw:
+      progFxType4Light?.unusedParam8Raw ?? "",
+    auroraVfxProgFxType4ColorR: progFxType4Light?.color.r ?? null,
+    auroraVfxProgFxType4ColorG: progFxType4Light?.color.g ?? null,
+    auroraVfxProgFxType4ColorB: progFxType4Light?.color.b ?? null,
+    auroraVfxProgFxType4NotPlaceableTwoDaLight:
+      progFxType4Light?.notPlaceableTwoDaLight ?? null,
+    auroraVfxProgFxType4NotMdlLightNode: progFxType4Light?.notMdlLightNode ?? null,
+    auroraVfxProgFxType4ParameterSource: progFxType4Light?.parameterSource ?? "",
+    auroraVfxProgFxType4ParameterPreservationProofSource:
+      progFxType4Light?.parameterPreservationProofSource ?? "",
+    auroraVfxProgFxType4ParameterPreservationProofStatus:
+      progFxType4Light?.parameterPreservationProofStatus ?? "",
+    auroraVfxProgFxType4RuntimeSchedulingStatus:
+      progFxType4Light?.runtimeSchedulingStatus ?? "",
+    auroraVfxProgFxType4RuntimeSchedulingProofSource:
+      progFxType4Light?.runtimeSchedulingProofSource ?? "",
+    auroraVfxProgFxType4RuntimeSchedulingBlocker:
+      progFxType4Light?.runtimeSchedulingBlocker ?? "",
+    auroraVfxProgFxType4SceneAttachmentPolicyStatus:
+      progFxType4Light?.sceneAttachmentPolicyStatus ?? "",
+    auroraVfxProgFxType4ProximitySuppressionPolicyStatus:
+      progFxType4Light?.proximitySuppressionPolicyStatus ?? "",
+    auroraVfxProgFxType4VisionMutationPolicyStatus:
+      progFxType4Light?.visionMutationPolicyStatus ?? "",
+    auroraVfxProgFxType4ShadowPolicyStatus:
+      progFxType4Light?.shadowPolicyStatus ?? "",
+    auroraVfxProgFxType4VisualPreviewStatus:
+      progFxType4Light?.visualPreviewStatus ?? "",
+    auroraVfxProgFxType4OwnerVisualEffectRowId:
+      progFxType4Light?.ownerVisualEffectRowId ?? null,
+    auroraVfxProgFxType4OwnerVisualEffectLabel:
+      progFxType4Light?.ownerVisualEffectLabel ?? "",
+    auroraVfxProgFxType4OwnerPhase: progFxType4Light?.ownerPhase ?? "",
+    auroraVfxProgFxType4OwnerProgFxRef: progFxType4Light?.ownerProgFxRef ?? "",
+    auroraVfxProgFxType4OwnerEffectConstructorKind:
+      progFxType4Light?.ownerEffectConstructorKind ?? "",
+    auroraVfxProgFxType4OwnerDurationType:
+      progFxType4Light?.ownerDurationType ?? ""
   };
 }
 
@@ -1108,6 +1576,18 @@ function normalizeResourceReference(value: string): string | null {
 
 function readFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readNullableFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function readNullableBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 function round(value: number): number {

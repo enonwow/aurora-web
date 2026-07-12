@@ -11,6 +11,8 @@ interface WorkspaceModeSwitchProps {
 const COMPACT_MODE_LABELS: Record<WorkspaceModeId, string> = {
   areas_mode: "Areas",
   placeables_mode: "Placeables",
+  creatures_mode: "Creatures",
+  items_mode: "Items",
   sounds_mode: "Sounds"
 };
 

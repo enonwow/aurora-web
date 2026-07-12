@@ -82,6 +82,6 @@ export function persistLayoutSettingsToStorage(
     storage.removeItem(LAYOUT_THEME_STORAGE_KEY);
     storage.removeItem("aurora_web.viewport_control_preset");
   } catch {
-    // Ignore quota / privacy storage errors for mock mode.
+    // Ignore quota / privacy storage errors while storing layout settings.
   }
 }

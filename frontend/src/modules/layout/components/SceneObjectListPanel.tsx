@@ -20,6 +20,7 @@ interface SceneObjectListPanelProps {
   placeableRenderPayloadByObjectId?: Record<string, PlaceableViewportRenderPayload> | null;
   placeableAssetAccessToken?: string | null;
   onObjectRenderPayloadNeeded?: (object: SceneObject) => void;
+  thumbnailRenderEnabled?: boolean;
   onCatalogScopeChange?: (scope: {
     sourceType: SceneObjectCatalogType;
     allowedObjectIds: string[];
@@ -132,6 +133,7 @@ export function SceneObjectListPanel({
   placeableRenderPayloadByObjectId,
   placeableAssetAccessToken,
   onObjectRenderPayloadNeeded,
+  thumbnailRenderEnabled = true,
   onCatalogScopeChange,
   onObjectSelect,
   onObjectContextMenu,
@@ -317,7 +319,8 @@ export function SceneObjectListPanel({
               object.kind === "placeables" ||
               object.kind === "sounds" ||
               object.kind === "doors" ||
-              object.kind === "creatures";
+              object.kind === "creatures" ||
+              object.kind === "items";
             const sourceSummary = resolveObjectSourceSummary(object);
             const sourceStatus = resolveSourceStatus(object);
             const orderKey = resolveObjectOrderKey(object, objectOrderIndexById.get(object.id));
@@ -364,6 +367,7 @@ export function SceneObjectListPanel({
                   renderPayload={placeableRenderPayloadByObjectId?.[object.id] ?? null}
                   placeableAssetAccessToken={placeableAssetAccessToken}
                   onRenderPayloadNeeded={onObjectRenderPayloadNeeded}
+                  thumbnailRenderEnabled={thumbnailRenderEnabled}
                 />
                 <span className="scene-object-row-meta">
                   <span className="scene-object-row-title">

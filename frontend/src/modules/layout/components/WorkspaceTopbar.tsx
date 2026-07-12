@@ -31,6 +31,8 @@ interface WorkspaceTopbarProps {
   onAction: (actionKey: ToolbarActionKey) => void;
   showDebugPanel: boolean;
   onToggleDebug: () => void;
+  isViewportFullscreen?: boolean;
+  onToggleViewportFullscreen?: () => void;
   onSignOut: () => void;
 }
 
@@ -38,6 +40,7 @@ type NumericWorkspaceOptionKey =
   | "snapGridStep"
   | "snapAngleStepDeg"
   | "snapHeightStep"
+  | "runtimeMaxLights"
   | "cameraRotateSpeed"
   | "cameraZoomSpeed"
   | "cameraPanSpeed"
@@ -118,7 +121,7 @@ function filterToolbarGroupsForWorkspaceMode(
   return groups
     .map((group) => {
       const actions = group.actions.filter((action) => {
-        if (action.key === "fit_area_view") {
+        if (action.key === "fit_area_view" || action.key === "top_down_oracle_view") {
           return isAreasMode;
         }
         if (action.key === "reorient_camera") {
@@ -135,7 +138,11 @@ function filterQuickActionsForWorkspaceMode(
   actions: ToolbarAction[],
   isAreasMode: boolean
 ): ToolbarAction[] {
-  return actions.filter((action) => action.key !== "fit_area_view" || isAreasMode);
+  return actions.filter(
+    (action) =>
+      (action.key !== "fit_area_view" && action.key !== "top_down_oracle_view") ||
+      isAreasMode
+  );
 }
 
 export function WorkspaceTopbar({
@@ -152,20 +159,24 @@ export function WorkspaceTopbar({
   onAction,
   showDebugPanel,
   onToggleDebug,
+  isViewportFullscreen = false,
+  onToggleViewportFullscreen,
   onSignOut
 }: WorkspaceTopbarProps) {
   const isAreasMode = workspaceModeId === undefined || workspaceModeId === "areas_mode";
   const isPlaceablesMode = workspaceModeId === "placeables_mode";
+  const isCreaturesMode = workspaceModeId === "creatures_mode";
+  const isFocusedPreviewMode = isPlaceablesMode || isCreaturesMode;
   const roleToolbarGroups =
     isAuthenticated && role
       ? workspaceChromeFacade.getRoleToolbarGroups(role)
       : EMPTY_TOOLBAR_GROUPS;
   const sectionGroups = useMemo(
     () =>
-      isPlaceablesMode
+      isFocusedPreviewMode
         ? EMPTY_TOOLBAR_GROUPS
         : filterToolbarGroupsForWorkspaceMode(roleToolbarGroups, isAreasMode),
-    [isAreasMode, isPlaceablesMode, roleToolbarGroups]
+    [isAreasMode, isFocusedPreviewMode, roleToolbarGroups]
   );
   const roleQuickActions =
     isAuthenticated && role ? workspaceChromeFacade.getRoleQuickActions(role) : [];
@@ -190,7 +201,7 @@ export function WorkspaceTopbar({
       { key: "Ctrl + RMB", description: "Pan camera." },
       { key: "Wheel", description: "Zoom camera." }
     ];
-    if (isPlaceablesMode) {
+    if (isFocusedPreviewMode) {
       return [
         ...baseShortcuts.filter((shortcut) => shortcut.key === "?" || shortcut.key === "Esc"),
         ...viewportShortcuts
@@ -250,7 +261,7 @@ export function WorkspaceTopbar({
       ...editorViewportShortcuts,
       ...canvasWorkflowShortcuts
     ];
-  }, [baseShortcuts, isAuthenticated, isPlaceablesMode, role, sectionGroups]);
+  }, [baseShortcuts, isAuthenticated, isFocusedPreviewMode, role, sectionGroups]);
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(
     resolveInitialGroup(sectionGroups)
   );
@@ -268,7 +279,7 @@ export function WorkspaceTopbar({
     setIsShortcutsOpen(false);
     setIsQuickOptionsOpen(false);
     setIsLayoutOptionsExpanded(true);
-  }, [role, isAuthenticated, isPlaceablesMode, sectionGroups.length]);
+  }, [role, isAuthenticated, isFocusedPreviewMode, sectionGroups.length]);
 
   const activeGroup = useMemo(() => {
     if (!activeGroupKey) {
@@ -556,6 +567,7 @@ export function WorkspaceTopbar({
           {renderCanvasActionButton("debug_grid", "Grid")}
           {renderCanvasActionButton("debug_axes", "Axes")}
           {renderCanvasActionButton("debug_bounds", "Bounds")}
+          {renderCanvasActionButton("debug_ceiling_meshes", "Ceiling")}
           {renderCanvasActionButton("debug_hidden_meshes", "Hidden")}
           {renderCanvasActionButton("debug_show_non_render_meshes", "Non-render")}
           {renderCanvasActionButton("debug_show_vt_physical_anchor", "VT Physical")}
@@ -623,12 +635,33 @@ export function WorkspaceTopbar({
       </details>
     </section>
   );
+  const viewportFullscreenToggleButton =
+    isAuthenticated && onToggleViewportFullscreen ? (
+      <button
+        type="button"
+        className={`topbar-btn ${isViewportFullscreen ? "is-active" : ""}`}
+        onClick={onToggleViewportFullscreen}
+        aria-label={
+          isViewportFullscreen
+            ? "Exit viewport fullscreen"
+            : "Open viewport fullscreen"
+        }
+        aria-pressed={isViewportFullscreen}
+        title={
+          isViewportFullscreen
+            ? "Exit viewport fullscreen"
+            : "Open viewport fullscreen"
+        }
+      >
+        {isViewportFullscreen ? "Exit View" : "Full View"}
+      </button>
+    ) : null;
 
   return (
     <header className="topbar">
       <div className="topbar-left">
         <p className="topbar-brand">Aurora Web</p>
-        {quickActions.length ? (
+        {quickActions.length || viewportFullscreenToggleButton ? (
           <div className="topbar-quick-actions" aria-label="quick actions">
             {quickActions.map((action: ToolbarAction) => (
               <button
@@ -645,6 +678,7 @@ export function WorkspaceTopbar({
                 {action.label}
               </button>
             ))}
+            {viewportFullscreenToggleButton}
           </div>
         ) : null}
       </div>
@@ -826,7 +860,7 @@ export function WorkspaceTopbar({
               </div>
             </details>
 
-            {!isPlaceablesMode ? (
+            {!isFocusedPreviewMode ? (
               <>
                 <details className="topbar-options-section" open role="group" aria-label="Viewport controls">
                   <summary className="topbar-options-summary">
@@ -996,7 +1030,7 @@ export function WorkspaceTopbar({
                           })
                         }
                       />
-                      Enable runtime sound preview (Aurora mock)
+                      Enable runtime sound preview (Aurora runtime preview)
                     </label>
 
                     <label className="topbar-options-checkbox" htmlFor="show-runtime-sound-now-playing">
@@ -1013,6 +1047,29 @@ export function WorkspaceTopbar({
                       />
                       Show now-playing marker for active sounds
                     </label>
+                  </div>
+                </details>
+
+                <details className="topbar-options-section" open role="group" aria-label="Lighting">
+                  <summary className="topbar-options-summary">
+                    <span>Lighting</span>
+                  </summary>
+                  <div className="topbar-options-content">
+                    <label className="topbar-options-label" htmlFor="runtime-max-lights">
+                      Max active lights
+                    </label>
+                    <input
+                      id="runtime-max-lights"
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="128"
+                      className="topbar-options-select"
+                      value={workspaceOptions.runtimeMaxLights}
+                      onChange={(event) =>
+                        updateNumberOption("runtimeMaxLights", event.target.value)
+                      }
+                    />
                   </div>
                 </details>
               </>

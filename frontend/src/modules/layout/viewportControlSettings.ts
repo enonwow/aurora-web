@@ -49,6 +49,6 @@ export function persistViewportControlPresetToStorage(
   try {
     storage.setItem(VIEWPORT_CONTROL_STORAGE_KEY, preset);
   } catch {
-    // Ignore storage quota/privacy failures in mock mode.
+    // Ignore storage quota/privacy failures while storing viewport controls.
   }
 }

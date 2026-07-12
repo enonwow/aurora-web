@@ -3,9 +3,13 @@ import {
   PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG,
   PLACEABLE_SHARED_MODEL_MATERIAL_FLAG
 } from "../../../placeables/adapters/three/placeableThreeAssetLoader";
-import type { RuntimeState } from "./workspaceThreeRuntime";
+import {
+  clearRuntimeObjectAnimationPlaybacks,
+  type RuntimeState
+} from "./workspaceThreeRuntime";
 
 export function clearObjectLayer(runtime: RuntimeState): void {
+  clearRuntimeObjectAnimationPlaybacks(runtime);
   const disposedPreviewTextures = new Set<THREE.Texture>();
   const disposeGeneratedPreviewTextures = (material: THREE.Material): void => {
     if (material.userData?.auroraVfxGeneratedMaterial !== true) {

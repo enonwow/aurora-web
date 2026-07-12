@@ -19,11 +19,13 @@ import type {
 import {
   filterVisibleSelectableCommandObjects,
   resolveInvertSelectionObjectIds,
-  resolveMockRenderStatus,
+  resolveObjectRenderStatus,
   resolveRadiusSelectionObjectIds,
   resolveSelectSameResRefObjectIds,
-  type MockRenderStatus
+  type ObjectRenderStatus
 } from "./workspaceSceneInteraction";
+
+const AREA_ORACLE_TOP_DOWN_CAMERA_EVENT = "aurora:areas:oracle-top-down-camera";
 
 interface UseWorkspaceCommandSignalArgs<TRuntime, TCameraBookmark> {
   commandSignal: WorkspaceCommandSignal | null;
@@ -114,6 +116,29 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
           sceneId: scene.sceneId
         }
       );
+      return;
+    }
+
+    if (commandSignal.actionKey === "top_down_oracle_view") {
+      const runtime = runtimeRef.current;
+      const runtimeContainer = (runtime as { container?: EventTarget } | null)?.container;
+      if (runtimeContainer) {
+        runtimeContainer.dispatchEvent(
+          new CustomEvent(AREA_ORACLE_TOP_DOWN_CAMERA_EVENT, {
+            detail: {
+              cleanCanvas: true,
+              displayFog: false,
+              tileLightsVisible: false,
+              terrainVoidMasksVisible: false,
+              useAreaLighting: false
+            }
+          })
+        );
+      }
+      trackTelemetry("scene.camera.top_down_oracle", {
+        userId,
+        sceneId: scene.sceneId
+      });
       return;
     }
 
@@ -246,18 +271,22 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
     }
 
     if (commandSignal.actionKey === "debug_export_status_report") {
-      const statusByKind = scene.objects.reduce<Record<SceneObjectKind, Record<MockRenderStatus, number>>>(
+      const statusByKind = scene.objects.reduce<Record<SceneObjectKind, Record<ObjectRenderStatus, number>>>(
         (acc, object) => {
-          const status = resolveMockRenderStatus(object);
+          const status = resolveObjectRenderStatus(object);
           acc[object.kind][status] += 1;
           return acc;
         },
         {
           creatures: { ok: 0, warning: 0, error: 0, non_render: 0 },
           doors: { ok: 0, warning: 0, error: 0, non_render: 0 },
+          encounters: { ok: 0, warning: 0, error: 0, non_render: 0 },
           items: { ok: 0, warning: 0, error: 0, non_render: 0 },
           placeables: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          sounds: { ok: 0, warning: 0, error: 0, non_render: 0 }
+          sounds: { ok: 0, warning: 0, error: 0, non_render: 0 },
+          stores: { ok: 0, warning: 0, error: 0, non_render: 0 },
+          triggers: { ok: 0, warning: 0, error: 0, non_render: 0 },
+          waypoints: { ok: 0, warning: 0, error: 0, non_render: 0 }
         }
       );
 

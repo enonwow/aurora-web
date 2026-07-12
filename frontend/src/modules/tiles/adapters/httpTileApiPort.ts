@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type {
+  TileApiProcessBatchRequestItem,
+  TileApiProcessBatchResult,
   TileApiProcessOptions,
   TileApiProcessResult,
   TileApiTextureDeliveryMode,
@@ -127,6 +129,28 @@ const tileProcessEnvelopeSchema = z.object({
   })
 });
 
+const tileProcessBatchEnvelopeSchema = z.object({
+  data: z.object({
+    items: z.array(
+      z.discriminatedUnion("status", [
+        z.object({
+          tileId: z.string().min(1),
+          status: z.literal("ready"),
+          result: tileProcessEnvelopeSchema.shape.data
+        }),
+        z.object({
+          tileId: z.string().min(1),
+          status: z.literal("blocked"),
+          error: z.object({
+            code: z.string().nullable(),
+            message: z.string().min(1)
+          })
+        })
+      ])
+    )
+  })
+});
+
 const tileTextureDeliveryContractSchema = z.object({
   mode: z.enum(["proxy", "direct"]),
   atlasId: z.string().min(1),
@@ -215,6 +239,23 @@ export class HttpTileApiPort implements TileApiPort {
     );
     const payload = await parseResponseOrThrow(response);
     const parsed = tileProcessEnvelopeSchema.parse(payload);
+    return parsed.data;
+  }
+
+  async processTiles(
+    accessToken: string,
+    items: TileApiProcessBatchRequestItem[]
+  ): Promise<TileApiProcessBatchResult> {
+    const response = await this.fetchFn(`${this.baseUrl}/catalog/tiles/process/batch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ items })
+    });
+    const payload = await parseResponseOrThrow(response);
+    const parsed = tileProcessBatchEnvelopeSchema.parse(payload);
     return parsed.data;
   }
 

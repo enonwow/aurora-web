@@ -7,9 +7,13 @@ export type SelectionScope =
   | "all"
   | "creatures"
   | "doors"
+  | "encounters"
   | "items"
   | "placeables"
-  | "sounds";
+  | "sounds"
+  | "stores"
+  | "triggers"
+  | "waypoints";
 export type VisibilityFilterKey =
   | "creatures"
   | "doors"
@@ -18,6 +22,7 @@ export type VisibilityFilterKey =
   | "merchants"
   | "placeables"
   | "sounds"
+  | "stores"
   | "triggers"
   | "waypoints"
   | "start_location";
@@ -28,6 +33,7 @@ export type ToolbarActionKey =
   | "redo"
   | "go_to_start_location"
   | "fit_area_view"
+  | "top_down_oracle_view"
   | "reorient_camera"
   | "select_terrain"
   | "select_object"
@@ -61,6 +67,7 @@ export type ToolbarActionKey =
   | "debug_grid"
   | "debug_axes"
   | "debug_bounds"
+  | "debug_ceiling_meshes"
   | "debug_hidden_meshes"
   | "debug_show_non_render_meshes"
   | "debug_show_vt_physical_anchor"
@@ -141,6 +148,10 @@ export interface WorkspaceToolbarState {
     grid: boolean;
     axes: boolean;
     bounds: boolean;
+    displayShadows: boolean;
+    displayFog: boolean;
+    useAreaLighting: boolean;
+    ceilingMeshes: boolean;
     hiddenMeshes: boolean;
     showNonRenderMeshes: boolean;
     showVtPhysicalAnchor: boolean;
@@ -149,6 +160,7 @@ export interface WorkspaceToolbarState {
       | "placeables"
       | "doors"
       | "creatures"
+      | "encounters"
       | "items"
       | "sounds"
       | "all";
@@ -166,11 +178,25 @@ export interface WorkspaceToolbarState {
     lockedKinds: {
       creatures: boolean;
       doors: boolean;
+      encounters: boolean;
       items: boolean;
       placeables: boolean;
       sounds: boolean;
+      stores: boolean;
+      triggers: boolean;
+      waypoints: boolean;
     };
-    isolateKind: "none" | "creatures" | "doors" | "items" | "placeables" | "sounds";
+    isolateKind:
+      | "none"
+      | "creatures"
+      | "doors"
+      | "encounters"
+      | "items"
+      | "placeables"
+      | "sounds"
+      | "stores"
+      | "triggers"
+      | "waypoints";
     chunkBounds: boolean;
     objectLabels: boolean;
     perfHud: boolean;
@@ -233,6 +259,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
     actions: [
       action("go_to_start_location", "Go To Start Location", "post_mvp"),
       action("fit_area_view", "Fit Area", "mvp"),
+      action("top_down_oracle_view", "Top Down", "mvp"),
       action("reorient_camera", "Reorient Camera", "mvp")
     ]
   },
@@ -272,9 +299,9 @@ const builderAndAdminGroups: ToolbarGroup[] = [
     key: "environment",
     label: "Environment",
     actions: [
-      action("display_shadows", "Display Shadows", "pending_estimate"),
-      action("display_fog", "Display Fog", "pending_estimate"),
-      action("use_area_lighting", "Use Area Lighting", "pending_estimate"),
+      action("display_shadows", "Display Shadows", "mvp"),
+      action("display_fog", "Display Fog", "mvp"),
+      action("use_area_lighting", "Use Area Lighting", "mvp"),
       action("play_ambient_sound", "Play Ambient Sound", "pending_estimate"),
       action("play_ambient_music", "Play Ambient Music In Area", "pending_estimate"),
       action(
@@ -322,6 +349,7 @@ const builderAndAdminGroups: ToolbarGroup[] = [
       action("debug_grid", "Grid", "mvp"),
       action("debug_axes", "Axes", "mvp"),
       action("debug_bounds", "Bounds", "mvp"),
+      action("debug_ceiling_meshes", "Ceiling", "mvp"),
       action("debug_chunks", "Chunk Bounds", "mvp"),
       action("debug_object_labels", "Object Labels", "mvp"),
       action("debug_hidden_meshes", "Hidden Meshes", "mvp"),
@@ -361,6 +389,7 @@ const dmGroups: ToolbarGroup[] = [
     label: "Camera",
     actions: [
       action("fit_area_view", "Fit Area", "mvp"),
+      action("top_down_oracle_view", "Top Down", "mvp"),
       action("reorient_camera", "Reorient Camera", "mvp")
     ]
   },
@@ -430,6 +459,7 @@ const viewerGroups: ToolbarGroup[] = [
     label: "Camera",
     actions: [
       action("fit_area_view", "Fit Area", "mvp"),
+      action("top_down_oracle_view", "Top Down", "mvp"),
       action("reorient_camera", "Reorient Camera", "mvp")
     ]
   },
@@ -551,6 +581,7 @@ export function createDefaultToolbarState(): WorkspaceToolbarState {
       merchants: false,
       placeables: true,
       sounds: true,
+      stores: false,
       triggers: false,
       waypoints: false,
       start_location: false
@@ -561,6 +592,10 @@ export function createDefaultToolbarState(): WorkspaceToolbarState {
       grid: true,
       axes: true,
       bounds: false,
+      displayShadows: true,
+      displayFog: false,
+      useAreaLighting: false,
+      ceilingMeshes: false,
       hiddenMeshes: false,
       showNonRenderMeshes: false,
       showVtPhysicalAnchor: false,
@@ -573,9 +608,13 @@ export function createDefaultToolbarState(): WorkspaceToolbarState {
       lockedKinds: {
         creatures: false,
         doors: false,
+        encounters: false,
         items: false,
         placeables: false,
-        sounds: false
+        sounds: false,
+        stores: false,
+        triggers: false,
+        waypoints: false
       },
       isolateKind: "none",
       chunkBounds: false,
@@ -663,9 +702,13 @@ export function applyToolbarAction(
         ...current.visibility,
         creatures: true,
         doors: true,
+        encounters: false,
         items: true,
         placeables: true,
-        sounds: true
+        sounds: true,
+        stores: false,
+        triggers: false,
+        waypoints: false
       },
       lastCommand: actionKey
     };
@@ -682,6 +725,7 @@ export function applyToolbarAction(
         merchants: false,
         placeables: false,
         sounds: false,
+        stores: false,
         triggers: false,
         waypoints: false,
         start_location: false
@@ -795,6 +839,95 @@ export function applyToolbarAction(
       canvasDebug: {
         ...current.canvasDebug,
         bounds: !current.canvasDebug.bounds
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "show_encounters") {
+    return {
+      ...current,
+      visibility: {
+        ...current.visibility,
+        encounters: !current.visibility.encounters
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "show_merchants") {
+    return {
+      ...current,
+      visibility: {
+        ...current.visibility,
+        merchants: !current.visibility.merchants,
+        stores: !current.visibility.stores
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "show_triggers") {
+    return {
+      ...current,
+      visibility: {
+        ...current.visibility,
+        triggers: !current.visibility.triggers
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "show_waypoints") {
+    return {
+      ...current,
+      visibility: {
+        ...current.visibility,
+        waypoints: !current.visibility.waypoints
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "display_shadows") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        displayShadows: !current.canvasDebug.displayShadows
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "display_fog") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        displayFog: !current.canvasDebug.displayFog
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "use_area_lighting") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        useAreaLighting: !current.canvasDebug.useAreaLighting
+      },
+      lastCommand: actionKey
+    };
+  }
+
+  if (actionKey === "debug_ceiling_meshes") {
+    return {
+      ...current,
+      canvasDebug: {
+        ...current.canvasDebug,
+        ceilingMeshes: !current.canvasDebug.ceilingMeshes
       },
       lastCommand: actionKey
     };
@@ -1067,9 +1200,13 @@ export function applyToolbarAction(
         lockedKinds: {
           creatures: false,
           doors: false,
+          encounters: false,
           items: false,
           placeables: false,
-          sounds: false
+          sounds: false,
+          stores: false,
+          triggers: false,
+          waypoints: false
         }
       },
       lastCommand: actionKey

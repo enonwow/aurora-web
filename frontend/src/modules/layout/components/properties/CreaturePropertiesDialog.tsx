@@ -1,4 +1,4 @@
-import type { PointerEventHandler, Ref } from "react";
+import { Fragment, useState, type PointerEventHandler, type Ref } from "react";
 import {
   SharedDialogActionsFooter,
   SharedLongTextPropertySection,
@@ -13,9 +13,6 @@ import {
   CREATURE_APPEARANCE_CORE_FIELDS,
   CREATURE_APPEARANCE_EXTRA_PAIR,
   CREATURE_APPEARANCE_LIMB_PAIRS,
-  CREATURE_DEFAULT_MOCK_FEATS,
-  CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES,
-  CREATURE_DEFAULT_MOCK_SPELLS,
   CREATURE_FACTION_OPTIONS,
   CREATURE_FEAT_FILTER_OPTIONS,
   CREATURE_GENDER_OPTIONS,
@@ -34,6 +31,25 @@ import {
   type CreaturePropertiesTab,
   type CreatureScriptSlotKey
 } from "../../application/workspaceObjectPropertyDrafts";
+import {
+  AURORA_ITEM_EQUIPMENT_SLOT_OPTIONS,
+  formatItemEquipSlotMask,
+  formatItemEquipmentSlotMask,
+  parseItemEquipSlotMask
+} from "../../../items/application/itemEquipSlots";
+import type { CreatureApiResourceOption } from "../../../creatures/contracts";
+
+type CreatureInventoryItemDraft = CreaturePropertiesDraft["inventoryItems"][number];
+type CreatureEquippedItemDraft = CreaturePropertiesDraft["equippedItems"][number];
+type CreatureInventoryItemUpdateValue =
+  CreatureInventoryItemDraft[keyof CreatureInventoryItemDraft];
+type CreatureEquippedItemUpdateValue = CreatureEquippedItemDraft[keyof CreatureEquippedItemDraft];
+type CreatureVariableDraft = CreaturePropertiesDraft["variables"][number];
+type EmbeddedItemDraft = NonNullable<CreatureInventoryItemDraft["embeddedItem"]>;
+type EmbeddedItemPropertyDraft = NonNullable<EmbeddedItemDraft["itemPropertyListEntries"]>[number];
+type CreatureResourceOptions = Partial<
+  Record<"conversation" | "portrait" | "script" | "soundset", CreatureApiResourceOption[]>
+>;
 
 interface CreaturePropertiesDialogProps {
   creaturePropertiesDialog: CreaturePropertiesDialogState;
@@ -45,7 +61,11 @@ interface CreaturePropertiesDialogProps {
     field: keyof CreaturePropertiesDraft,
     value: string | number | boolean
   ) => void;
-  updateCreatureClassEntry: (index: number, field: "className" | "level", value: string | number) => void;
+  updateCreatureClassEntry: (
+    index: number,
+    field: "classId" | "className" | "level",
+    value: string | number
+  ) => void;
   updateCreatureSkillRank: (index: number, rank: number) => void;
   updateCreatureScriptSlot: (field: CreatureScriptSlotKey, value: string) => void;
   updateCreatureAppearancePart: (
@@ -56,6 +76,24 @@ interface CreaturePropertiesDialogProps {
     field: keyof CreaturePropertiesDraft["advancedSettings"],
     value: string | number | boolean
   ) => void;
+  addCreatureVariable: () => void;
+  updateCreatureVariable: (index: number, entry: CreatureVariableDraft) => void;
+  removeCreatureVariable: (index: number) => void;
+  addCreatureInventoryItem: () => void;
+  updateCreatureInventoryItem: (
+    index: number,
+    field: keyof CreaturePropertiesDraft["inventoryItems"][number],
+    value: CreatureInventoryItemUpdateValue
+  ) => void;
+  removeCreatureInventoryItem: (index: number) => void;
+  addCreatureEquippedItem: () => void;
+  updateCreatureEquippedItem: (
+    index: number,
+    field: keyof CreaturePropertiesDraft["equippedItems"][number],
+    value: CreatureEquippedItemUpdateValue
+  ) => void;
+  removeCreatureEquippedItem: (index: number) => void;
+  creatureResourceOptions?: CreatureResourceOptions;
   applyCreaturePropertiesDraft: (closeAfterApply: boolean) => void;
   creatureFeatsFilter: string;
   setCreatureFeatsFilter: (nextFilter: string) => void;
@@ -73,6 +111,340 @@ interface CreaturePropertiesDialogProps {
   cancelCreaturePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
 }
 
+function formatOptionalNumber(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "-";
+}
+
+function formatOptionalText(value: string | undefined): string {
+  return value && value.trim().length > 0 ? value : "-";
+}
+
+function formatLinkedItemText(entry: {
+  itemResRef?: string;
+  itemTemplateId?: string;
+  embeddedItem?: {
+    templateResRef?: string;
+    tag?: string;
+    localizedName?: string;
+    baseItem?: number;
+    itemPropertyListCount?: number;
+  };
+}): string {
+  const linked = formatOptionalText(entry.itemResRef ?? entry.itemTemplateId);
+  if (linked !== "-") {
+    return linked;
+  }
+  const embedded = entry.embeddedItem;
+  if (!embedded) {
+    return "-";
+  }
+  const identifier = embedded.templateResRef ?? embedded.tag ?? embedded.localizedName ?? "Item";
+  const details = [
+    embedded.localizedName && embedded.localizedName !== identifier
+      ? embedded.localizedName
+      : undefined,
+    typeof embedded.baseItem === "number" ? `Base ${embedded.baseItem}` : undefined,
+    typeof embedded.itemPropertyListCount === "number"
+      ? `${embedded.itemPropertyListCount} props`
+      : undefined
+  ].filter((value): value is string => Boolean(value));
+  return details.length > 0
+    ? `Embedded ${identifier} (${details.join(", ")})`
+    : `Embedded ${identifier}`;
+}
+
+function formatEquipmentSlotCompatibility(entry: {
+  slotMask?: number;
+  itemBaseItem?: number;
+  itemBaseItemEquipableSlots?: string;
+}): { message: string; status: "ok" | "warning" | "info" } | undefined {
+  const allowed = parseItemEquipSlotMask(entry.itemBaseItemEquipableSlots);
+  if (!allowed) {
+    return undefined;
+  }
+
+  const allowedText = formatItemEquipSlotMask(entry.itemBaseItemEquipableSlots) ?? allowed.raw;
+  const baseText =
+    typeof entry.itemBaseItem === "number" ? `Base ${entry.itemBaseItem}` : "Linked item";
+  if (typeof entry.slotMask !== "number" || !Number.isFinite(entry.slotMask) || entry.slotMask <= 0) {
+    return {
+      status: "info",
+      message: `${baseText} allowed slots: ${allowedText}`
+    };
+  }
+
+  const slotMask = Math.trunc(entry.slotMask);
+  const slotText = formatItemEquipmentSlotMask(slotMask) ?? `0x${slotMask.toString(16).toUpperCase()}`;
+  if ((allowed.value & slotMask) === 0) {
+    return {
+      status: "warning",
+      message: `Slot mismatch: ${slotText} is not in ${allowedText}`
+    };
+  }
+
+  return {
+    status: "ok",
+    message: `Slot OK: ${slotText} matches ${allowedText}`
+  };
+}
+
+function parseOptionalIntegerInput(value: string): number | undefined {
+  if (value.trim().length === 0) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseIntegerInput(value: string, fallback: number): number {
+  return parseOptionalIntegerInput(value) ?? fallback;
+}
+
+function normalizeOptionalTextInput(value: string): string | undefined {
+  return value.length > 0 ? value : undefined;
+}
+
+function cloneEmbeddedItemProperty(
+  entry: EmbeddedItemPropertyDraft
+): EmbeddedItemPropertyDraft {
+  return { ...entry };
+}
+
+function cloneEmbeddedItemProperties(
+  entries: EmbeddedItemDraft["itemPropertyListEntries"]
+): EmbeddedItemPropertyDraft[] {
+  return entries ? entries.map(cloneEmbeddedItemProperty) : [];
+}
+
+const EMBEDDED_ITEM_PROPERTY_FIELDS = [
+  { key: "propertyName", label: "Property" },
+  { key: "subtype", label: "Subtype" },
+  { key: "costTable", label: "Cost Table" },
+  { key: "costValue", label: "Cost Value" },
+  { key: "param1", label: "Param 1" },
+  { key: "param1Value", label: "Param 1 Value" },
+  { key: "chanceAppear", label: "Chance" }
+] satisfies Array<{ key: keyof EmbeddedItemPropertyDraft; label: string }>;
+
+function createEmptyEmbeddedItemProperty(): EmbeddedItemPropertyDraft {
+  return {};
+}
+
+function EmbeddedItemEditor({
+  itemIndex,
+  contextLabel,
+  embeddedItem,
+  onChange
+}: {
+  itemIndex: number;
+  contextLabel: "Inventory item" | "Equipped item";
+  embeddedItem: EmbeddedItemDraft | undefined;
+  onChange: (nextEmbeddedItem: EmbeddedItemDraft) => void;
+}) {
+  if (!embeddedItem) {
+    return null;
+  }
+
+  const propertyEntries = embeddedItem.itemPropertyListEntries ?? [];
+  const ariaPrefix = `${contextLabel} ${itemIndex + 1} embedded`;
+  const updateEmbeddedItem = (patch: Partial<EmbeddedItemDraft>) => {
+    onChange({
+      ...embeddedItem,
+      itemPropertyListEntries: cloneEmbeddedItemProperties(embeddedItem.itemPropertyListEntries),
+      ...patch
+    });
+  };
+  const updatePropertyEntries = (nextEntries: EmbeddedItemPropertyDraft[]) => {
+    updateEmbeddedItem({
+      itemPropertyListEntries: nextEntries,
+      itemPropertyListCount: nextEntries.length
+    });
+  };
+  const updatePropertyEntry = (
+    propertyIndex: number,
+    field: keyof EmbeddedItemPropertyDraft,
+    value: number | undefined
+  ) => {
+    updatePropertyEntries(
+      propertyEntries.map((entry, entryIndex) =>
+        entryIndex === propertyIndex ? { ...entry, [field]: value } : { ...entry }
+      )
+    );
+  };
+
+  return (
+    <fieldset className="canvas-creature-properties-embedded-item">
+      <legend>{contextLabel} {itemIndex + 1} Embedded Item</legend>
+      <div className="canvas-creature-properties-embedded-grid">
+        <label>
+          <span>TemplateResRef</span>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} template resref`}
+            value={embeddedItem.templateResRef ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                templateResRef: normalizeOptionalTextInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Tag</span>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} tag`}
+            value={embeddedItem.tag ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                tag: normalizeOptionalTextInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Name</span>
+          <input
+            type="text"
+            aria-label={`${ariaPrefix} localized name`}
+            value={embeddedItem.localizedName ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                localizedName: normalizeOptionalTextInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Name StrRef</span>
+          <input
+            type="number"
+            step="1"
+            min={0}
+            aria-label={`${ariaPrefix} localized name strref`}
+            value={embeddedItem.localizedNameStrRef ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                localizedNameStrRef: parseOptionalIntegerInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Base Item</span>
+          <input
+            type="number"
+            step="1"
+            min={0}
+            aria-label={`${ariaPrefix} base item`}
+            value={embeddedItem.baseItem ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                baseItem: parseOptionalIntegerInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Struct Type</span>
+          <input
+            type="number"
+            step="1"
+            min={0}
+            aria-label={`${ariaPrefix} struct type`}
+            value={embeddedItem.sourceStructTypeId ?? ""}
+            onChange={(event) =>
+              updateEmbeddedItem({
+                sourceStructTypeId: parseOptionalIntegerInput(event.target.value)
+              })
+            }
+          />
+        </label>
+        <div className="canvas-creature-properties-embedded-meta">
+          <span>Fields</span>
+          <strong>{formatOptionalNumber(embeddedItem.fieldCount)}</strong>
+        </div>
+        <div className="canvas-creature-properties-embedded-meta">
+          <span>Properties</span>
+          <strong>{propertyEntries.length}</strong>
+        </div>
+      </div>
+
+      <div className="canvas-creature-properties-section-actions canvas-creature-properties-embedded-actions">
+        <button
+          type="button"
+          onClick={() =>
+            updatePropertyEntries([
+              ...propertyEntries.map(cloneEmbeddedItemProperty),
+              createEmptyEmbeddedItemProperty()
+            ])
+          }
+        >
+          Add Property
+        </button>
+      </div>
+      <table className="canvas-creature-properties-table canvas-creature-properties-embedded-property-table">
+        <thead>
+          <tr>
+            {EMBEDDED_ITEM_PROPERTY_FIELDS.map((field) => (
+              <th key={field.key} scope="col">
+                {field.label}
+              </th>
+            ))}
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {propertyEntries.length > 0 ? (
+            propertyEntries.map((propertyEntry, propertyIndex) => (
+              <tr key={`${ariaPrefix}_property_${propertyIndex + 1}`}>
+                {EMBEDDED_ITEM_PROPERTY_FIELDS.map((field) => (
+                  <td key={field.key}>
+                    <input
+                      type="number"
+                      step="1"
+                      min={0}
+                      aria-label={`${ariaPrefix} property ${propertyIndex + 1} ${field.label.toLowerCase()}`}
+                      value={propertyEntry[field.key] ?? ""}
+                      onChange={(event) =>
+                        updatePropertyEntry(
+                          propertyIndex,
+                          field.key,
+                          parseOptionalIntegerInput(event.target.value)
+                        )
+                      }
+                    />
+                  </td>
+                ))}
+                <td>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updatePropertyEntries(
+                        propertyEntries
+                          .filter((_entry, entryIndex) => entryIndex !== propertyIndex)
+                          .map(cloneEmbeddedItemProperty)
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={EMBEDDED_ITEM_PROPERTY_FIELDS.length + 1}>
+                No embedded item properties
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </fieldset>
+  );
+}
+
 export function CreaturePropertiesDialog({
   creaturePropertiesDialog,
   creaturePropertiesDialogRef,
@@ -85,6 +457,16 @@ export function CreaturePropertiesDialog({
   updateCreatureScriptSlot,
   updateCreatureAppearancePart,
   updateCreatureAdvancedField,
+  addCreatureVariable,
+  updateCreatureVariable,
+  removeCreatureVariable,
+  addCreatureInventoryItem,
+  updateCreatureInventoryItem,
+  removeCreatureInventoryItem,
+  addCreatureEquippedItem,
+  updateCreatureEquippedItem,
+  removeCreatureEquippedItem,
+  creatureResourceOptions = {},
   applyCreaturePropertiesDraft,
   creatureFeatsFilter,
   setCreatureFeatsFilter,
@@ -101,6 +483,10 @@ export function CreaturePropertiesDialog({
   endCreaturePropertiesDialogDrag,
   cancelCreaturePropertiesDialogDrag
 }: CreaturePropertiesDialogProps) {
+  const [showVariables, setShowVariables] = useState(false);
+  const [activeResourcePicker, setActiveResourcePicker] = useState<
+    "conversation" | "portrait" | "soundset" | null
+  >(null);
   const creatureAbilityTotals = {
     strength: creaturePropertiesDialog.draft.strength + creaturePropertiesDialog.draft.strRacial,
     dexterity: creaturePropertiesDialog.draft.dexterity + creaturePropertiesDialog.draft.dexRacial,
@@ -131,10 +517,7 @@ export function CreaturePropertiesDialog({
     creaturePropertiesDialog.draft.challengeRating +
       creaturePropertiesDialog.draft.advancedSettings.challengeRatingAdjustment
   );
-  const creatureFeatsSource =
-    creaturePropertiesDialog.draft.feats.length > 0
-      ? creaturePropertiesDialog.draft.feats
-      : CREATURE_DEFAULT_MOCK_FEATS;
+  const creatureFeatsSource = creaturePropertiesDialog.draft.feats;
   const creatureFeatsRows =
     creatureFeatsFilter === "All Feats"
       ? creatureFeatsSource
@@ -152,10 +535,7 @@ export function CreaturePropertiesDialog({
     Object.entries(creatureFeatsSummary)
       .map(([type, names]) => `${type}\n${names.map((name) => `  ${name}`).join("\n")}`)
       .join("\n") || "No assigned feats";
-  const creatureSpellSource =
-    creaturePropertiesDialog.draft.spells.length > 0
-      ? creaturePropertiesDialog.draft.spells
-      : CREATURE_DEFAULT_MOCK_SPELLS;
+  const creatureSpellSource = creaturePropertiesDialog.draft.spells;
   const creatureSpellsRows =
     creatureSpellsLevelFilter === "All Levels"
       ? creatureSpellSource
@@ -169,10 +549,7 @@ export function CreaturePropertiesDialog({
   const creatureSpellsSummaryText =
     creatureSpellsRows.map((entry) => `${entry.name} (L${entry.spellLevel})`).join("\n") ||
     "No spells in current filter";
-  const creatureSpecialAbilitiesSource =
-    creaturePropertiesDialog.draft.specialAbilities.length > 0
-      ? creaturePropertiesDialog.draft.specialAbilities
-      : CREATURE_DEFAULT_MOCK_SPECIAL_ABILITIES;
+  const creatureSpecialAbilitiesSource = creaturePropertiesDialog.draft.specialAbilities;
   const creatureSpecialAbilitiesRows =
     creatureSpecialAbilitiesFilter === "All Spells and Abilities"
       ? creatureSpecialAbilitiesSource
@@ -367,11 +744,37 @@ export function CreaturePropertiesDialog({
                               )
                             }
                           />
-                          <button type="button" disabled aria-label="Browse portrait">
+                          <button
+                            type="button"
+                            aria-label="Browse portrait"
+                            title="Browse portrait"
+                            onClick={() =>
+                              setActiveResourcePicker((current) =>
+                                current === "portrait" ? null : "portrait"
+                              )
+                            }
+                          >
                             ...
                           </button>
                         </div>
                       </div>
+                      {activeResourcePicker === "portrait" ? (
+                        <select
+                          aria-label="Select portrait"
+                          value={creaturePropertiesDialog.draft.portraitResRef}
+                          onChange={(event) => {
+                            updateCreaturePropertiesDraftField("portraitResRef", event.target.value);
+                            setActiveResourcePicker(null);
+                          }}
+                        >
+                          <option value="">Select portrait</option>
+                          {(creatureResourceOptions.portrait ?? []).map((entry) => (
+                            <option key={entry.resRef} value={entry.resRef}>
+                              {entry.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
                     </fieldset>
 
                     <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
@@ -389,7 +792,16 @@ export function CreaturePropertiesDialog({
                               )
                             }
                           />
-                          <button type="button" disabled aria-label="Browse conversation">
+                          <button
+                            type="button"
+                            aria-label="Browse conversation"
+                            title="Browse conversation"
+                            onClick={() =>
+                              setActiveResourcePicker((current) =>
+                                current === "conversation" ? null : "conversation"
+                              )
+                            }
+                          >
                             ...
                           </button>
                           <button type="button" disabled aria-label="Edit conversation">
@@ -397,6 +809,23 @@ export function CreaturePropertiesDialog({
                           </button>
                         </div>
                       </label>
+                      {activeResourcePicker === "conversation" ? (
+                        <select
+                          aria-label="Select conversation"
+                          value={creaturePropertiesDialog.draft.conversation}
+                          onChange={(event) => {
+                            updateCreaturePropertiesDraftField("conversation", event.target.value);
+                            setActiveResourcePicker(null);
+                          }}
+                        >
+                          <option value="">Select conversation</option>
+                          {(creatureResourceOptions.conversation ?? []).map((entry) => (
+                            <option key={entry.resRef} value={entry.resRef}>
+                              {entry.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
                       <label className="canvas-placeable-properties-toggle">
                         <input
                           type="checkbox"
@@ -642,6 +1071,28 @@ export function CreaturePropertiesDialog({
                         </div>
                       </label>
                       <label className="canvas-placeable-properties-field-row">
+                        <span>Current Hit Points</span>
+                        <div className="canvas-placeable-properties-field-control is-narrow">
+                          <input
+                            type="number"
+                            step="1"
+                            value={creaturePropertiesDialog.draft.currentHitPoints}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Max Hit Points</span>
+                        <div className="canvas-placeable-properties-field-control is-narrow">
+                          <input
+                            type="number"
+                            step="1"
+                            value={creaturePropertiesDialog.draft.maxHitPoints}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
                         <span>Total Armor Class</span>
                         <div className="canvas-placeable-properties-field-control is-narrow">
                           <input type="number" step="1" value={creatureTotalArmorClass} readOnly />
@@ -795,6 +1246,106 @@ export function CreaturePropertiesDialog({
                       </label>
                     </div>
                   </div>
+                  <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                    <legend>Colors</legend>
+                    <div className="canvas-placeable-properties-dual-fields">
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Skin</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceColors.skin}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Hair</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceColors.hair}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                    </div>
+                    <div className="canvas-placeable-properties-dual-fields">
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Tattoo 1</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceColors.tattoo1}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Tattoo 2</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceColors.tattoo2}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                    <legend>Source-only Parts</legend>
+                    <div className="canvas-placeable-properties-dual-fields">
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Belt</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceSourceOnlyParts.belt}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Robe</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={creaturePropertiesDialog.draft.appearanceSourceOnlyParts.robe}
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                    </div>
+                    <div className="canvas-placeable-properties-dual-fields">
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Right Shoulder</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={
+                              creaturePropertiesDialog.draft.appearanceSourceOnlyParts
+                                .rightShoulder
+                            }
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                      <label className="canvas-placeable-properties-field-row">
+                        <span>Left Shoulder</span>
+                        <div className="canvas-placeable-properties-field-control">
+                          <input
+                            type="text"
+                            value={
+                              creaturePropertiesDialog.draft.appearanceSourceOnlyParts
+                                .leftShoulder
+                            }
+                            readOnly
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  </fieldset>
                   <p className="canvas-placeable-properties-note">
                     Aurora-first: part fields affect only models supporting body-part overrides.
                   </p>
@@ -827,6 +1378,7 @@ export function CreaturePropertiesDialog({
                     <table className="canvas-creature-properties-table">
                       <thead>
                         <tr>
+                          <th scope="col">ID</th>
                           <th scope="col">Class</th>
                           <th scope="col">Level</th>
                         </tr>
@@ -834,6 +1386,22 @@ export function CreaturePropertiesDialog({
                       <tbody>
                         {creaturePropertiesDialog.draft.classEntries.map((entry, index) => (
                           <tr key={`class_${index + 1}`}>
+                            <td>
+                              <input
+                                type="number"
+                                min={0}
+                                max={255}
+                                aria-label={`Class ${index + 1} ID`}
+                                value={entry.classId ?? ""}
+                                onChange={(event) =>
+                                  updateCreatureClassEntry(
+                                    index,
+                                    "classId",
+                                    Number.parseInt(event.target.value, 10) || 0
+                                  )
+                                }
+                              />
+                            </td>
                             <td>
                               <input
                                 type="text"
@@ -875,6 +1443,37 @@ export function CreaturePropertiesDialog({
                       </div>
                     </label>
                   </fieldset>
+                  {creaturePropertiesDialog.draft.templateEntries.length > 0 ? (
+                    <fieldset className="canvas-placeable-properties-group">
+                      <legend>Template List</legend>
+                      <table className="canvas-creature-properties-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Entry</th>
+                            <th scope="col">Template ID</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {creaturePropertiesDialog.draft.templateEntries.map((entry, index) => (
+                            <tr key={`template_${index + 1}`}>
+                              <th scope="row">{index + 1}</th>
+                              <td>
+                                <input
+                                  type="text"
+                                  value={
+                                    typeof entry.templateId === "number"
+                                      ? String(entry.templateId)
+                                      : ""
+                                  }
+                                  readOnly
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </fieldset>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -913,8 +1512,9 @@ export function CreaturePropertiesDialog({
                 </fieldset>
               ) : null}
 
-              {creaturePropertiesDialog.activeTab === "scripts" ? (
-                <SharedScriptSlotSection
+{creaturePropertiesDialog.activeTab === "scripts" ? (
+  <>
+    <SharedScriptSlotSection
                   className="canvas-placeable-properties-group"
                   legend="Scripts"
                   slots={CREATURE_SCRIPT_SLOT_KEYS}
@@ -922,13 +1522,20 @@ export function CreaturePropertiesDialog({
                   values={creaturePropertiesDialog.draft.scriptSlots}
                   onChange={updateCreatureScriptSlot}
                   inputIdPrefix="creature-script"
+                  inputListId="creature-script-resource-options"
                   rowClassName="canvas-placeable-properties-field-row"
                   rowControlClassName="canvas-placeable-properties-field-control"
                   showInlineActionButtons
                   inlineBrowseDisabled
                   inlineEditDisabled
-                />
-              ) : null}
+    />
+    <datalist id="creature-script-resource-options">
+      {(creatureResourceOptions.script ?? []).map((entry) => (
+        <option key={entry.resRef} value={entry.resRef} label={entry.label} />
+      ))}
+    </datalist>
+  </>
+) : null}
 
               {creaturePropertiesDialog.activeTab === "advanced" ? (
                 <div className="canvas-creature-properties-advanced">
@@ -970,6 +1577,21 @@ export function CreaturePropertiesDialog({
                         <input
                           type="checkbox"
                           checked={
+                            creaturePropertiesDialog.draft.advancedSettings.playerCharacter
+                          }
+                          onChange={(event) =>
+                            updateCreatureAdvancedField(
+                              "playerCharacter",
+                              event.target.checked
+                            )
+                          }
+                        />
+                        Player Character
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={
                             creaturePropertiesDialog.draft.advancedSettings.leavesLootableCorpse
                           }
                           onChange={(event) =>
@@ -1003,6 +1625,26 @@ export function CreaturePropertiesDialog({
                           }
                         />
                         Immortal
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={creaturePropertiesDialog.draft.advancedSettings.bodyBag}
+                          onChange={(event) =>
+                            updateCreatureAdvancedField("bodyBag", event.target.checked)
+                          }
+                        />
+                        Body Bag
+                      </label>
+                      <label className="canvas-placeable-properties-toggle">
+                        <input
+                          type="checkbox"
+                          checked={creaturePropertiesDialog.draft.advancedSettings.startingPackage}
+                          onChange={(event) =>
+                            updateCreatureAdvancedField("startingPackage", event.target.checked)
+                          }
+                        />
+                        Starting Package
                       </label>
                     </div>
                   </fieldset>
@@ -1165,16 +1807,52 @@ export function CreaturePropertiesDialog({
                           <div className="canvas-placeable-properties-field-control">
                             <input
                               type="text"
+                              readOnly
                               value={creaturePropertiesDialog.draft.advancedSettings.soundSet}
-                              onChange={(event) =>
-                                updateCreatureAdvancedField("soundSet", event.target.value)
-                              }
                             />
-                            <button type="button" disabled>
+                            <button
+                              type="button"
+                              aria-label="Browse sound set"
+                              title="Browse sound set"
+                              onClick={() =>
+                                setActiveResourcePicker((current) =>
+                                  current === "soundset" ? null : "soundset"
+                                )
+                              }
+                            >
                               ...
                             </button>
                           </div>
                         </label>
+                        {activeResourcePicker === "soundset" ? (
+                          <select
+                            aria-label="Select sound set"
+                            value={String(
+                              creaturePropertiesDialog.draft.advancedSettings.soundSetFile ?? ""
+                            )}
+                            onChange={(event) => {
+                              const selected = (creatureResourceOptions.soundset ?? []).find(
+                                (entry) => String(entry.soundSetFile ?? "") === event.target.value
+                              );
+                              updateCreatureAdvancedField(
+                                "soundSetFile",
+                                selected?.soundSetFile ?? 0
+                              );
+                              updateCreatureAdvancedField("soundSet", selected?.label ?? "");
+                              setActiveResourcePicker(null);
+                            }}
+                          >
+                            <option value="">Select sound set</option>
+                            {(creatureResourceOptions.soundset ?? []).map((entry) => (
+                              <option
+                                key={`${entry.soundSetFile ?? "none"}_${entry.resRef}`}
+                                value={String(entry.soundSetFile ?? "")}
+                              >
+                                {entry.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
                         <label className="canvas-placeable-properties-field-row">
                           <span>Perception Range</span>
                           <div className="canvas-placeable-properties-field-control">
@@ -1196,8 +1874,116 @@ export function CreaturePropertiesDialog({
                     </div>
 
                     <div className="canvas-placeable-properties-variables-row">
-                      <button type="button">Variables</button>
+                      <button
+                        type="button"
+                        aria-expanded={showVariables}
+                        onClick={() => setShowVariables((current) => !current)}
+                      >
+                        Variables ({creaturePropertiesDialog.draft.variables.length})
+                      </button>
                     </div>
+                    {showVariables ? (
+                      <fieldset className="canvas-placeable-properties-group canvas-placeable-properties-nested">
+                        <legend>Variables</legend>
+                        <table className="canvas-creature-properties-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Name</th>
+                              <th scope="col">Type</th>
+                              <th scope="col">Value</th>
+                              <th scope="col" aria-label="Actions" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {creaturePropertiesDialog.draft.variables.map((entry, index) => (
+                              <tr key={`variable_${index + 1}`}>
+                                <td>
+                                  <input
+                                    type="text"
+                                    value={entry.name}
+                                    aria-label={`Variable ${index + 1} name`}
+                                    onChange={(event) =>
+                                      updateCreatureVariable(index, {
+                                        ...entry,
+                                        name: event.target.value
+                                      })
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <select
+                                    value={entry.type}
+                                    aria-label={`Variable ${index + 1} type`}
+                                    onChange={(event) => {
+                                      const type = event.target.value as CreatureVariableDraft["type"];
+                                      updateCreatureVariable(index, {
+                                        name: entry.name,
+                                        type,
+                                        value: type === "string" ? "" : 0
+                                      } as CreatureVariableDraft);
+                                    }}
+                                  >
+                                    <option value="int">Int</option>
+                                    <option value="float">Float</option>
+                                    <option value="string">String</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  {entry.type === "string" ? (
+                                    <input
+                                      type="text"
+                                      value={entry.value}
+                                      aria-label={`Variable ${index + 1} value`}
+                                      onChange={(event) =>
+                                        updateCreatureVariable(index, {
+                                          name: entry.name,
+                                          type: "string",
+                                          value: event.target.value
+                                        })
+                                      }
+                                    />
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      step={entry.type === "int" ? "1" : "any"}
+                                      value={entry.value}
+                                      aria-label={`Variable ${index + 1} value`}
+                                      onChange={(event) => {
+                                        const value = Number.parseFloat(event.target.value);
+                                        updateCreatureVariable(index, {
+                                          name: entry.name,
+                                          type: entry.type,
+                                          value:
+                                            entry.type === "int"
+                                              ? Math.trunc(Number.isFinite(value) ? value : 0)
+                                              : Number.isFinite(value)
+                                                ? value
+                                                : 0
+                                        });
+                                      }}
+                                    />
+                                  )}
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove variable ${index + 1}`}
+                                    onClick={() => removeCreatureVariable(index)}
+                                  >
+                                    x
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="canvas-creature-properties-aux-row">
+                          <button type="button" onClick={addCreatureVariable}>
+                            Add variable
+                          </button>
+                        </div>
+                      </fieldset>
+                    ) : null}
                   </fieldset>
                 </div>
               ) : null}
@@ -1208,6 +1994,7 @@ export function CreaturePropertiesDialog({
                   <table className="canvas-creature-properties-table">
                     <thead>
                       <tr>
+                        <th scope="col">Feat ID</th>
                         <th scope="col">Name</th>
                         <th scope="col">Type</th>
                         <th scope="col">Assigned</th>
@@ -1216,6 +2003,7 @@ export function CreaturePropertiesDialog({
                     <tbody>
                       {creatureFeatsRows.map((entry, index) => (
                         <tr key={`feat_${index + 1}_${entry.name}`}>
+                          <td>{formatOptionalNumber(entry.featId)}</td>
                           <td>{entry.name}</td>
                           <td>{entry.type}</td>
                           <td>
@@ -1259,9 +2047,13 @@ export function CreaturePropertiesDialog({
                     <thead>
                       <tr>
                         <th scope="col">Prepared</th>
+                        <th scope="col">Spell ID</th>
+                        <th scope="col">Class</th>
                         <th scope="col">Name</th>
                         <th scope="col">Spell Level</th>
                         <th scope="col">Casting Level</th>
+                        <th scope="col">MetaMagic</th>
+                        <th scope="col">Flags</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1270,9 +2062,19 @@ export function CreaturePropertiesDialog({
                           <td>
                             <input type="checkbox" checked={entry.prepared} readOnly />
                           </td>
+                          <td>{formatOptionalNumber(entry.spellId)}</td>
+                          <td>
+                            {entry.classIndex === undefined
+                              ? "-"
+                              : creaturePropertiesDialog.draft.classEntries[
+                                  entry.classIndex
+                                ]?.className || `Class ${entry.classIndex + 1}`}
+                          </td>
                           <td>{entry.name}</td>
                           <td>{entry.spellLevel}</td>
                           <td>{entry.castingLevel}</td>
+                          <td>{formatOptionalNumber(entry.metaMagic)}</td>
+                          <td>{formatOptionalNumber(entry.flags)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1360,8 +2162,10 @@ export function CreaturePropertiesDialog({
                   <table className="canvas-creature-properties-table">
                     <thead>
                       <tr>
+                        <th scope="col">Spell ID</th>
                         <th scope="col">Name</th>
                         <th scope="col">Type</th>
+                        <th scope="col">Flags</th>
                         <th scope="col">Caster Level</th>
                         <th scope="col">Uses</th>
                       </tr>
@@ -1369,8 +2173,10 @@ export function CreaturePropertiesDialog({
                     <tbody>
                       {creatureSpecialAbilitiesRows.map((entry, index) => (
                         <tr key={`ability_${index + 1}_${entry.name}`}>
+                          <td>{formatOptionalNumber(entry.spellId)}</td>
                           <td>{entry.name}</td>
                           <td>{entry.type}</td>
+                          <td>{formatOptionalNumber(entry.flags)}</td>
                           <td>{entry.casterLevel}</td>
                           <td>{entry.uses}</td>
                         </tr>
@@ -1404,6 +2210,416 @@ export function CreaturePropertiesDialog({
                     <textarea value={creatureSpecialAbilitiesSummaryText} readOnly rows={7} />
                   </label>
                 </fieldset>
+              ) : null}
+
+              {creaturePropertiesDialog.activeTab === "inventory" ? (
+                <div className="canvas-placeable-properties-basic canvas-creature-properties-basic">
+                  <fieldset className="canvas-placeable-properties-group">
+                    <legend>Inventory</legend>
+                    <div className="canvas-creature-properties-section-actions">
+                      <button type="button" onClick={addCreatureInventoryItem}>
+                        Add ItemList Entry
+                      </button>
+                    </div>
+                    <table className="canvas-creature-properties-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">ResRef</th>
+                          <th scope="col">Random ResRef</th>
+                          <th scope="col">Random List</th>
+                          <th scope="col">Linked UTI</th>
+                          <th scope="col">Repo X</th>
+                          <th scope="col">Repo Y</th>
+                          <th scope="col">Flags</th>
+                          <th scope="col">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {creaturePropertiesDialog.draft.inventoryItems.length > 0 ? (
+                          creaturePropertiesDialog.draft.inventoryItems.map((entry, index) => (
+                            <Fragment
+                              key={`inventory_${index + 1}_${entry.resRef ?? entry.embeddedItem?.templateResRef ?? "item"}`}
+                            >
+                              <tr>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Inventory item ${index + 1} resref`}
+                                    value={entry.resRef ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureInventoryItem(
+                                        index,
+                                        "resRef",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Inventory item ${index + 1} random resref`}
+                                    value={entry.randomResRef ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureInventoryItem(
+                                        index,
+                                        "randomResRef",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Inventory item ${index + 1} random list`}
+                                    value={entry.randomList ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureInventoryItem(
+                                        index,
+                                        "randomList",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <span className="canvas-creature-properties-cell-value">
+                                    {formatLinkedItemText(entry)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    aria-label={`Inventory item ${index + 1} repo x`}
+                                    value={entry.x ?? 0}
+                                    onChange={(event) =>
+                                      updateCreatureInventoryItem(
+                                        index,
+                                        "x",
+                                        parseIntegerInput(event.target.value, 0)
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    aria-label={`Inventory item ${index + 1} repo y`}
+                                    value={entry.y ?? 0}
+                                    onChange={(event) =>
+                                      updateCreatureInventoryItem(
+                                        index,
+                                        "y",
+                                        parseIntegerInput(event.target.value, 0)
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <div className="canvas-creature-properties-item-flags">
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Inventory item ${index + 1} dropable`}
+                                        checked={Boolean(entry.dropable)}
+                                        onChange={(event) =>
+                                          updateCreatureInventoryItem(
+                                            index,
+                                            "dropable",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Drop
+                                    </label>
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Inventory item ${index + 1} pickpocketable`}
+                                        checked={Boolean(entry.pickpocketable)}
+                                        onChange={(event) =>
+                                          updateCreatureInventoryItem(
+                                            index,
+                                            "pickpocketable",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Pick
+                                    </label>
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Inventory item ${index + 1} infinite`}
+                                        checked={Boolean(entry.infinite)}
+                                        onChange={(event) =>
+                                          updateCreatureInventoryItem(
+                                            index,
+                                            "infinite",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Infinite
+                                    </label>
+                                  </div>
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCreatureInventoryItem(index)}
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                              {entry.embeddedItem ? (
+                                <tr className="canvas-creature-properties-embedded-row">
+                                  <td colSpan={8}>
+                                    <EmbeddedItemEditor
+                                      itemIndex={index}
+                                      contextLabel="Inventory item"
+                                      embeddedItem={entry.embeddedItem}
+                                      onChange={(nextEmbeddedItem) =>
+                                        updateCreatureInventoryItem(
+                                          index,
+                                          "embeddedItem",
+                                          nextEmbeddedItem
+                                        )
+                                      }
+                                    />
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8}>No inventory entries</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </fieldset>
+
+                  <fieldset className="canvas-placeable-properties-group">
+                    <legend>Equipped Items</legend>
+                    <div className="canvas-creature-properties-section-actions">
+                      <button type="button" onClick={addCreatureEquippedItem}>
+                        Add Equip_ItemList Entry
+                      </button>
+                    </div>
+                    <table className="canvas-creature-properties-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Slot Mask</th>
+                          <th scope="col">ResRef</th>
+                          <th scope="col">Random ResRef</th>
+                          <th scope="col">Random List</th>
+                          <th scope="col">Linked UTI</th>
+                          <th scope="col">Flags</th>
+                          <th scope="col">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {creaturePropertiesDialog.draft.equippedItems.length > 0 ? (
+                          creaturePropertiesDialog.draft.equippedItems.map((entry, index) => (
+                            <Fragment
+                              key={`equipped_${index + 1}_${entry.resRef ?? entry.embeddedItem?.templateResRef ?? "item"}`}
+                            >
+                              <tr>
+                                <td>
+                                  <select
+                                    aria-label={`Equipped item ${index + 1} slot mask`}
+                                    value={
+                                      AURORA_ITEM_EQUIPMENT_SLOT_OPTIONS.some(
+                                        (option) => option.value === entry.slotMask
+                                      )
+                                        ? String(entry.slotMask)
+                                        : ""
+                                    }
+                                    onChange={(event) =>
+                                      updateCreatureEquippedItem(
+                                        index,
+                                        "slotMask",
+                                        parseOptionalIntegerInput(event.target.value)
+                                      )
+                                    }
+                                  >
+                                    <option value="">Custom / none</option>
+                                    {AURORA_ITEM_EQUIPMENT_SLOT_OPTIONS.map((option) => (
+                                      <option key={option.key} value={option.value}>
+                                        {option.selectLabel}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    aria-label={`Equipped item ${index + 1} slot mask raw`}
+                                    value={entry.slotMask ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureEquippedItem(
+                                        index,
+                                        "slotMask",
+                                        parseOptionalIntegerInput(event.target.value)
+                                      )
+                                    }
+                                  />
+                                  <span className="canvas-creature-properties-cell-value">
+                                    {formatItemEquipmentSlotMask(entry.slotMask) ?? "No slot mask"}
+                                  </span>
+                                  {(() => {
+                                    const compatibility = formatEquipmentSlotCompatibility(entry);
+                                    return compatibility ? (
+                                      <span
+                                        className={`canvas-creature-properties-cell-value canvas-creature-properties-slot-compatibility canvas-creature-properties-slot-compatibility--${compatibility.status}`}
+                                      >
+                                        {compatibility.message}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Equipped item ${index + 1} resref`}
+                                    value={entry.resRef ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureEquippedItem(
+                                        index,
+                                        "resRef",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Equipped item ${index + 1} random resref`}
+                                    value={entry.randomResRef ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureEquippedItem(
+                                        index,
+                                        "randomResRef",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    aria-label={`Equipped item ${index + 1} random list`}
+                                    value={entry.randomList ?? ""}
+                                    onChange={(event) =>
+                                      updateCreatureEquippedItem(
+                                        index,
+                                        "randomList",
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td>
+                                  <span className="canvas-creature-properties-cell-value">
+                                    {formatLinkedItemText(entry)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="canvas-creature-properties-item-flags">
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Equipped item ${index + 1} dropable`}
+                                        checked={Boolean(entry.dropable)}
+                                        onChange={(event) =>
+                                          updateCreatureEquippedItem(
+                                            index,
+                                            "dropable",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Drop
+                                    </label>
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Equipped item ${index + 1} pickpocketable`}
+                                        checked={Boolean(entry.pickpocketable)}
+                                        onChange={(event) =>
+                                          updateCreatureEquippedItem(
+                                            index,
+                                            "pickpocketable",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Pick
+                                    </label>
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Equipped item ${index + 1} infinite`}
+                                        checked={Boolean(entry.infinite)}
+                                        onChange={(event) =>
+                                          updateCreatureEquippedItem(
+                                            index,
+                                            "infinite",
+                                            event.target.checked
+                                          )
+                                        }
+                                      />
+                                      Infinite
+                                    </label>
+                                  </div>
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCreatureEquippedItem(index)}
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                              {entry.embeddedItem ? (
+                                <tr className="canvas-creature-properties-embedded-row">
+                                  <td colSpan={7}>
+                                    <EmbeddedItemEditor
+                                      itemIndex={index}
+                                      contextLabel="Equipped item"
+                                      embeddedItem={entry.embeddedItem}
+                                      onChange={(nextEmbeddedItem) =>
+                                        updateCreatureEquippedItem(
+                                          index,
+                                          "embeddedItem",
+                                          nextEmbeddedItem
+                                        )
+                                      }
+                                    />
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={7}>No equipped entries</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </fieldset>
+                </div>
               ) : null}
 
               {creaturePropertiesDialog.activeTab === "comments" ? (

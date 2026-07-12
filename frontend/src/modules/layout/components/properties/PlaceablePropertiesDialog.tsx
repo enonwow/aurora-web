@@ -78,6 +78,13 @@ interface PlaceablePropertiesDialogProps {
     field: keyof PlaceablePropertiesDraft["advancedSettings"],
     value: string | boolean
   ) => void;
+  addPlaceableInventoryItem: () => void;
+  updatePlaceableInventoryItem: (
+    index: number,
+    field: keyof PlaceablePropertiesDraft["inventoryItems"][number],
+    value: string | number | boolean | undefined
+  ) => void;
+  removePlaceableInventoryItem: (index: number) => void;
   applyPlaceablePropertiesDraft: (closeAfterApply: boolean) => void;
   startPlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
   movePlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
@@ -90,6 +97,50 @@ function formatObjectNumber(value: number, fractionDigits: number): string {
     return "0";
   }
   return value.toFixed(fractionDigits);
+}
+
+function formatOptionalText(value: string | undefined): string {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : "-";
+}
+
+function formatLinkedItemText(entry: {
+  itemResRef?: string;
+  itemTemplateId?: string;
+  embeddedItem?: {
+    templateResRef?: string;
+    tag?: string;
+    localizedName?: string;
+    baseItem?: number;
+    itemPropertyListCount?: number;
+  };
+}): string {
+  const linked = formatOptionalText(entry.itemResRef ?? entry.itemTemplateId);
+  if (linked !== "-") {
+    return linked;
+  }
+  const embedded = entry.embeddedItem;
+  if (!embedded) {
+    return "-";
+  }
+  const identifier = embedded.templateResRef ?? embedded.tag ?? embedded.localizedName ?? "Item";
+  const details = [
+    embedded.localizedName && embedded.localizedName !== identifier
+      ? embedded.localizedName
+      : undefined,
+    typeof embedded.baseItem === "number" ? `Base ${embedded.baseItem}` : undefined,
+    typeof embedded.itemPropertyListCount === "number"
+      ? `${embedded.itemPropertyListCount} props`
+      : undefined
+  ].filter((value): value is string => Boolean(value));
+  return details.length > 0
+    ? `Embedded ${identifier} (${details.join(", ")})`
+    : `Embedded ${identifier}`;
+}
+
+function parseIntegerInput(value: string, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function resolveSourceStatusLabel(object: SceneObject): string {
@@ -282,6 +333,9 @@ export function PlaceablePropertiesDialog({
   updatePlaceableLockDraftField,
   updatePlaceableTrapDraftField,
   updatePlaceableAdvancedDraftField,
+  addPlaceableInventoryItem,
+  updatePlaceableInventoryItem,
+  removePlaceableInventoryItem,
   applyPlaceablePropertiesDraft,
   startPlaceablePropertiesDialogDrag,
   movePlaceablePropertiesDialogDrag,
@@ -607,6 +661,181 @@ export function PlaceablePropertiesDialog({
                       </label>
                     </div>
                   </div>
+                </div>
+              ) : null}
+
+              {placeablePropertiesDialog.activeTab === "inventory" ? (
+                <div className="canvas-placeable-properties-basic canvas-creature-properties-basic">
+                  <fieldset className="canvas-placeable-properties-group">
+                    <legend>ItemList</legend>
+                    <div className="canvas-creature-properties-section-actions">
+                      <button type="button" onClick={addPlaceableInventoryItem}>
+                        Add ItemList Entry
+                      </button>
+                    </div>
+                    <table className="canvas-creature-properties-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">ResRef</th>
+                          <th scope="col">Random ResRef</th>
+                          <th scope="col">Random List</th>
+                          <th scope="col">Linked UTI</th>
+                          <th scope="col">Repo X</th>
+                          <th scope="col">Repo Y</th>
+                          <th scope="col">Flags</th>
+                          <th scope="col">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {placeablePropertiesDialog.draft.inventoryItems.length > 0 ? (
+                          placeablePropertiesDialog.draft.inventoryItems.map((entry, index) => (
+                            <tr key={`placeable_inventory_${index + 1}_${entry.resRef ?? "item"}`}>
+                              <td>
+                                <input
+                                  type="text"
+                                  aria-label={`Placeable inventory item ${index + 1} resref`}
+                                  value={entry.resRef ?? ""}
+                                  onChange={(event) =>
+                                    updatePlaceableInventoryItem(
+                                      index,
+                                      "resRef",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="text"
+                                  aria-label={`Placeable inventory item ${index + 1} random resref`}
+                                  value={entry.randomResRef ?? ""}
+                                  onChange={(event) =>
+                                    updatePlaceableInventoryItem(
+                                      index,
+                                      "randomResRef",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="text"
+                                  aria-label={`Placeable inventory item ${index + 1} random list`}
+                                  value={entry.randomList ?? ""}
+                                  onChange={(event) =>
+                                    updatePlaceableInventoryItem(
+                                      index,
+                                      "randomList",
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <span className="canvas-creature-properties-cell-value">
+                                  {formatLinkedItemText(entry)}
+                                </span>
+                              </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min={0}
+                                  aria-label={`Placeable inventory item ${index + 1} repo x`}
+                                  value={entry.x ?? 0}
+                                  onChange={(event) =>
+                                    updatePlaceableInventoryItem(
+                                      index,
+                                      "x",
+                                      parseIntegerInput(event.target.value, 0)
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min={0}
+                                  aria-label={`Placeable inventory item ${index + 1} repo y`}
+                                  value={entry.y ?? 0}
+                                  onChange={(event) =>
+                                    updatePlaceableInventoryItem(
+                                      index,
+                                      "y",
+                                      parseIntegerInput(event.target.value, 0)
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <div className="canvas-creature-properties-item-flags">
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Placeable inventory item ${index + 1} dropable`}
+                                      checked={Boolean(entry.dropable)}
+                                      onChange={(event) =>
+                                        updatePlaceableInventoryItem(
+                                          index,
+                                          "dropable",
+                                          event.target.checked
+                                        )
+                                      }
+                                    />
+                                    Drop
+                                  </label>
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Placeable inventory item ${index + 1} pickpocketable`}
+                                      checked={Boolean(entry.pickpocketable)}
+                                      onChange={(event) =>
+                                        updatePlaceableInventoryItem(
+                                          index,
+                                          "pickpocketable",
+                                          event.target.checked
+                                        )
+                                      }
+                                    />
+                                    Pick
+                                  </label>
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Placeable inventory item ${index + 1} infinite`}
+                                      checked={Boolean(entry.infinite)}
+                                      onChange={(event) =>
+                                        updatePlaceableInventoryItem(
+                                          index,
+                                          "infinite",
+                                          event.target.checked
+                                        )
+                                      }
+                                    />
+                                    Infinite
+                                  </label>
+                                </div>
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  onClick={() => removePlaceableInventoryItem(index)}
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8}>No inventory entries</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </fieldset>
                 </div>
               ) : null}
 

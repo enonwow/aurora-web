@@ -41,9 +41,14 @@ function isVisibilityActionActive(
   if (
     (actionKey === "show_creatures" && toolbarState.visibility.creatures) ||
     (actionKey === "show_doors" && toolbarState.visibility.doors) ||
+    (actionKey === "show_encounters" && toolbarState.visibility.encounters) ||
     (actionKey === "show_items" && toolbarState.visibility.items) ||
+    (actionKey === "show_merchants" &&
+      (toolbarState.visibility.merchants || toolbarState.visibility.stores)) ||
     (actionKey === "show_placeables" && toolbarState.visibility.placeables) ||
-    (actionKey === "show_sounds" && toolbarState.visibility.sounds)
+    (actionKey === "show_sounds" && toolbarState.visibility.sounds) ||
+    (actionKey === "show_triggers" && toolbarState.visibility.triggers) ||
+    (actionKey === "show_waypoints" && toolbarState.visibility.waypoints)
   ) {
     return true;
   }
@@ -52,9 +57,14 @@ function isVisibilityActionActive(
     actionKey === "show_none" &&
     !toolbarState.visibility.creatures &&
     !toolbarState.visibility.doors &&
+    !toolbarState.visibility.encounters &&
     !toolbarState.visibility.items &&
+    !toolbarState.visibility.merchants &&
     !toolbarState.visibility.placeables &&
-    !toolbarState.visibility.sounds
+    !toolbarState.visibility.sounds &&
+    !toolbarState.visibility.stores &&
+    !toolbarState.visibility.triggers &&
+    !toolbarState.visibility.waypoints
   );
 }
 
@@ -68,11 +78,23 @@ function isCanvasDebugToggleActionActive(
     (actionKey === "debug_grid" && toolbarState.canvasDebug.grid) ||
     (actionKey === "debug_axes" && toolbarState.canvasDebug.axes) ||
     (actionKey === "debug_bounds" && toolbarState.canvasDebug.bounds) ||
+    (actionKey === "debug_ceiling_meshes" && toolbarState.canvasDebug.ceilingMeshes) ||
     (actionKey === "debug_hidden_meshes" && toolbarState.canvasDebug.hiddenMeshes) ||
     (actionKey === "debug_show_non_render_meshes" &&
       toolbarState.canvasDebug.showNonRenderMeshes) ||
     (actionKey === "debug_show_vt_physical_anchor" &&
       toolbarState.canvasDebug.showVtPhysicalAnchor)
+  );
+}
+
+function isEnvironmentActionActive(
+  actionKey: ToolbarActionKey,
+  toolbarState: WorkspaceToolbarState
+): boolean {
+  return (
+    (actionKey === "display_shadows" && toolbarState.canvasDebug.displayShadows) ||
+    (actionKey === "display_fog" && toolbarState.canvasDebug.displayFog) ||
+    (actionKey === "use_area_lighting" && toolbarState.canvasDebug.useAreaLighting)
   );
 }
 
@@ -155,9 +177,13 @@ function isLockActionActive(
     actionKey === "unlock_all_layers" &&
     !toolbarState.canvasDebug.lockedKinds.creatures &&
     !toolbarState.canvasDebug.lockedKinds.doors &&
+    !toolbarState.canvasDebug.lockedKinds.encounters &&
     !toolbarState.canvasDebug.lockedKinds.items &&
     !toolbarState.canvasDebug.lockedKinds.placeables &&
-    !toolbarState.canvasDebug.lockedKinds.sounds
+    !toolbarState.canvasDebug.lockedKinds.sounds &&
+    !toolbarState.canvasDebug.lockedKinds.stores &&
+    !toolbarState.canvasDebug.lockedKinds.triggers &&
+    !toolbarState.canvasDebug.lockedKinds.waypoints
   );
 }
 
@@ -202,6 +228,7 @@ export function createWorkspaceTopbarActionStateFacade(): WorkspaceTopbarActionS
         isSelectionModeActionActive(actionKey, toolbarState) ||
         isSelectionScopeActionActive(actionKey, toolbarState) ||
         isVisibilityActionActive(actionKey, toolbarState) ||
+        isEnvironmentActionActive(actionKey, toolbarState) ||
         isCanvasDebugToggleActionActive(actionKey, toolbarState) ||
         isStatusMapActionActive(actionKey, toolbarState) ||
         isTextureCompressionActionActive(actionKey, toolbarState) ||

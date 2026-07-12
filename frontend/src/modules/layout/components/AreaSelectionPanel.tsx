@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import type { AreaScene } from "../../scene/contracts";
+import type { AreaScene, SceneObject } from "../../scene/contracts";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type {
   AreaApiDetail,
@@ -23,6 +23,7 @@ import {
   AreaContextMenu,
   type AreaContextMenuAction
 } from "./AreaContextMenu";
+import { ThumbnailHoverPreview } from "./ThumbnailHoverPreview";
 
 interface AreaSelectionPanelProps {
   userId: string;
@@ -30,7 +31,10 @@ interface AreaSelectionPanelProps {
   areaApiPort: AreaApiPort;
   tileApiPort?: TileApiPort;
   areaListClientCacheRef: { current: AreaListClientCacheEntry | null };
+  hidden?: boolean;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
+  creatureTemplateObjects?: readonly SceneObject[];
+  objectTemplateObjects?: readonly SceneObject[];
   onAreaSceneSelected: (scene: AreaScene, area: AreaApiListItem) => void;
   onAreaCanvasLoadingChange?: (loading: WorkspaceAreaCanvasLoadingState | null) => void;
   onTileProcessReadinessChange?: (
@@ -59,6 +63,7 @@ const AREA_TERRAIN_READINESS_SAMPLE_LIMIT = 6;
 const AREA_CONTEXT_MENU_WIDTH_PX = 236;
 const AREA_CONTEXT_MENU_HEIGHT_PX = 252;
 const AREA_CONTEXT_MENU_VIEWPORT_MARGIN_PX = 8;
+const AREA_THUMBNAIL_HOVER_PREVIEW_SIZE = 144;
 const AREA_TILE_ASSET_CONTRACT_PATH =
   "ARE TileList -> SET modelResRef -> catalog/tiles tile_<modelResRef> -> tile process/cache -> MDL source key / GLB geometry / texture-material contract";
 const AREA_TILE_RENDER_LOADER_HANDOFF_PATH =
@@ -194,6 +199,7 @@ function AreaPreviewImage({ area }: AreaPreviewImageProps) {
     [area.areaId, area.name]
   );
   const [previewImageUrl, setPreviewImageUrl] = useState(providedPreviewImageUrl);
+  const displayPreviewImageUrl = previewImageUrl || fallbackPreviewImageUrl;
 
   useEffect(() => {
     setPreviewImageUrl(providedPreviewImageUrl);
@@ -201,26 +207,38 @@ function AreaPreviewImage({ area }: AreaPreviewImageProps) {
 
   if (providedPreviewImageUrl.length < 1) {
     return (
-      <span
-        className="scene-object-row-preview-placeholder"
-        role="img"
-        aria-label={`${area.name} preview unavailable`}
+      <ThumbnailHoverPreview
+        className="scene-object-thumbnail scene-object-thumbnail-rendered area-preview-thumbnail"
+        expandedImageUrl={fallbackPreviewImageUrl}
+        previewSize={AREA_THUMBNAIL_HOVER_PREVIEW_SIZE}
       >
-        No preview
-      </span>
+        <span
+          className="scene-object-row-preview-placeholder"
+          role="img"
+          aria-label={`${area.name} preview unavailable`}
+        >
+          No preview
+        </span>
+      </ThumbnailHoverPreview>
     );
   }
 
   return (
-    <img
-      src={previewImageUrl || fallbackPreviewImageUrl}
-      alt={`${area.name} preview`}
-      onError={() => {
-        if (previewImageUrl !== fallbackPreviewImageUrl) {
-          setPreviewImageUrl(fallbackPreviewImageUrl);
-        }
-      }}
-    />
+    <ThumbnailHoverPreview
+      className="scene-object-thumbnail scene-object-thumbnail-rendered area-preview-thumbnail"
+      expandedImageUrl={displayPreviewImageUrl}
+      previewSize={AREA_THUMBNAIL_HOVER_PREVIEW_SIZE}
+    >
+      <img
+        src={displayPreviewImageUrl}
+        alt={`${area.name} preview`}
+        onError={() => {
+          if (previewImageUrl !== fallbackPreviewImageUrl) {
+            setPreviewImageUrl(fallbackPreviewImageUrl);
+          }
+        }}
+      />
+    </ThumbnailHoverPreview>
   );
 }
 
@@ -464,7 +482,10 @@ export function AreaSelectionPanel({
   areaApiPort,
   tileApiPort,
   areaListClientCacheRef,
+  hidden = false,
   trackTelemetryEvent,
+  creatureTemplateObjects,
+  objectTemplateObjects,
   onAreaSceneSelected,
   onAreaCanvasLoadingChange,
   onTileProcessReadinessChange
@@ -749,13 +770,21 @@ export function AreaSelectionPanel({
       )
     );
     try {
-      const detail = await areaApiPort.getAreaById(backendAccessToken, areaToOpen.areaId);
+      const processed = await areaApiPort.processArea(backendAccessToken, areaToOpen.areaId, {
+        bypassCache: false
+      });
+      const detail = processed.area;
       const nextTerrainReadiness = resolveAreaTerrainReadiness(detail);
       setTerrainReadiness(nextTerrainReadiness);
+      let nextTileProcessStatus = "not_checked";
       publishTileProcessReadiness(null);
-      const scene = mapBackendAreaToScene(detail);
+      const scene = mapBackendAreaToScene(detail, undefined, {
+        creatureTemplateObjects,
+        objectTemplateObjects
+      });
       onAreaSceneSelected(scene, areaToOpen);
       if (tileApiPort) {
+        nextTileProcessStatus = "background_requested";
         void runBackgroundTileReadinessCheck(areaToOpen, detail);
       }
       trackTelemetryEvent("ui.workspace.areas.opened", {
@@ -767,7 +796,7 @@ export function AreaSelectionPanel({
         tileModelResolvedCount: nextTerrainReadiness.modelResolvedCount,
         tileModelMissingCount: nextTerrainReadiness.modelMissingCount,
         tileModelSourceSummary: formatModelSourceCounts(nextTerrainReadiness.modelSourceCounts),
-        tileProcessContractStatus: "not_checked"
+        tileProcessContractStatus: nextTileProcessStatus
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to open area.";
@@ -787,6 +816,8 @@ export function AreaSelectionPanel({
   }, [
     areaApiPort,
     backendAccessToken,
+    creatureTemplateObjects,
+    objectTemplateObjects,
     onAreaSceneSelected,
     onAreaCanvasLoadingChange,
     publishTileProcessReadiness,
@@ -801,7 +832,7 @@ export function AreaSelectionPanel({
   }, [openArea, selectedArea]);
 
   const openAreaFromRow = useCallback(
-    (area: AreaApiListItem, source: "row_double_click" | "row_keyboard") => {
+    (area: AreaApiListItem, source: "row_keyboard") => {
       selectArea(area.areaId);
       trackTelemetryEvent("ui.workspace.areas.row_open_shortcut", {
         userId,
@@ -1033,7 +1064,11 @@ export function AreaSelectionPanel({
   const areaResultLabel = hasAreaSearchQuery ? `${visibleAreas.length}/${areas.length}` : String(areas.length);
 
   return (
-    <article className="sidebar-section scene-objects-section area-selection-panel" aria-label="area selection section">
+    <article
+      className="sidebar-section scene-objects-section area-selection-panel"
+      aria-label="area selection section"
+      hidden={hidden}
+    >
       <div className="area-selection-control-stack">
         <header className="scene-objects-header">
           <h2>Areas</h2>
@@ -1068,16 +1103,17 @@ export function AreaSelectionPanel({
           ) : null}
         </div>
 
-        {backendAccessToken && selectedArea ? (
+        {backendAccessToken ? (
           <div className="area-selection-quick-actions" aria-label="selected area quick actions">
-            <span className="area-selection-quick-actions-label" title={selectedArea.name}>
-              {selectedArea.name}
+            <span className="area-selection-quick-actions-label" title={selectedArea?.name ?? "Select an area"}>
+              {selectedArea?.name ?? "Select an area"}
             </span>
             <button
               type="button"
               className="area-selection-quick-action-primary"
+              aria-label="Open Selected Area"
               onClick={() => void openSelectedArea()}
-              disabled={isOpeningArea}
+              disabled={!selectedArea || isOpeningArea}
             >
               {isOpeningArea ? "Opening..." : "Open"}
             </button>
@@ -1086,9 +1122,14 @@ export function AreaSelectionPanel({
               className="area-selection-quick-action"
               aria-label="Selected area actions menu"
               aria-haspopup="menu"
-              aria-expanded={areaContextMenu?.areaId === selectedArea.areaId}
-              title={`Area actions for ${selectedArea.name}`}
-              onClick={(event) => openAreaActionMenu(selectedArea, event)}
+              aria-expanded={selectedArea ? areaContextMenu?.areaId === selectedArea.areaId : false}
+              title={selectedArea ? `Area actions for ${selectedArea.name}` : "Select an area first"}
+              disabled={!selectedArea}
+              onClick={(event) => {
+                if (selectedArea) {
+                  openAreaActionMenu(selectedArea, event);
+                }
+              }}
             >
               ...
             </button>
@@ -1125,8 +1166,15 @@ export function AreaSelectionPanel({
                   aria-pressed={isSelected}
                   aria-haspopup="menu"
                   aria-expanded={areaContextMenu?.areaId === area.areaId}
-                  aria-keyshortcuts="Enter Control+Enter Shift+Enter"
-                  title={`${area.name} / double-click to open; right-click for area actions`}
+                  aria-keyshortcuts="Control+Enter Shift+Enter"
+                  data-area-id={area.areaId}
+                  data-area-name={area.name}
+                  data-area-width={area.width}
+                  data-area-height={area.height}
+                  data-area-object-count={area.objectCounts.total}
+                  data-area-placeable-count={area.objectCounts.placeables}
+                  data-area-texture-atlas-id={area.textureAtlasId}
+                  title={`${area.name} / click to select; use Open to load; right-click for area actions`}
                   onClick={() => {
                     selectArea(area.areaId);
                     trackTelemetryEvent("ui.workspace.areas.selected", {
@@ -1134,7 +1182,6 @@ export function AreaSelectionPanel({
                       areaId: area.areaId
                     });
                   }}
-                  onDoubleClick={() => openAreaFromRow(area, "row_double_click")}
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&
@@ -1192,16 +1239,7 @@ export function AreaSelectionPanel({
         />
       ) : null}
 
-      <div className="area-selection-actions" aria-label="area actions">
-        <button
-          type="button"
-          className="primary-btn"
-          onClick={() => void openSelectedArea()}
-          disabled={!backendAccessToken || !selectedArea || isOpeningArea}
-        >
-          {isOpeningArea ? "Opening..." : "Open Selected Area"}
-        </button>
-
+      <div className="area-selection-actions area-selection-diagnostics-actions" aria-label="area diagnostics actions">
         <button
           type="button"
           className="topbar-btn"
@@ -1209,7 +1247,7 @@ export function AreaSelectionPanel({
           onClick={() => void checkTerrainReadiness()}
           disabled={!backendAccessToken || !selectedArea || isCheckingTerrainReadiness || isOpeningArea}
         >
-          {isCheckingTerrainReadiness ? "Checking Terrain..." : "Check Terrain Readiness"}
+          {isCheckingTerrainReadiness ? "Terrain..." : "Terrain"}
         </button>
 
         <button
@@ -1219,7 +1257,7 @@ export function AreaSelectionPanel({
           onClick={() => void checkTextureReadiness("proxy")}
           disabled={!backendAccessToken || !selectedArea || isCheckingTextureReadiness}
         >
-          {isCheckingTextureReadiness ? "Checking Texture..." : "Check Texture Readiness"}
+          {isCheckingTextureReadiness ? "Texture..." : "Texture"}
         </button>
 
         <button
@@ -1229,16 +1267,17 @@ export function AreaSelectionPanel({
           onClick={() => void checkTextureReadiness("direct")}
           disabled={!backendAccessToken || !selectedArea || isCheckingTextureReadiness}
         >
-          Check Direct Texture Delivery
+          Direct
         </button>
 
         <button
           type="button"
           className="topbar-btn"
+          aria-label="Refresh Areas"
           onClick={() => void loadAreas(true)}
           disabled={!backendAccessToken || status === "loading"}
         >
-          {status === "loading" ? "Refreshing Areas..." : "Refresh Areas"}
+          {status === "loading" ? "Refresh..." : "Refresh"}
         </button>
       </div>
 
@@ -1248,7 +1287,7 @@ export function AreaSelectionPanel({
 
       {terrainReadiness ? (
         <section
-          className="scene-object-detail-panel"
+          className="scene-object-detail-panel area-readiness-detail-panel"
           aria-label="area terrain readiness status"
           data-terrain-status={terrainReadiness.status}
           data-terrain-tile-count={terrainReadiness.tileCount}
@@ -1304,7 +1343,7 @@ export function AreaSelectionPanel({
                 : "blocked"}
             </span>
           </header>
-          <dl className="scene-object-property-list">
+          <dl className="scene-object-property-list area-readiness-property-list">
             <div>
               <dt>status</dt>
               <dd>{formatAreaTerrainReadinessStatus(terrainReadiness.status)}</dd>
@@ -1530,13 +1569,16 @@ export function AreaSelectionPanel({
       ) : null}
 
       {textureReadiness ? (
-        <section className="scene-object-detail-panel" aria-label="area texture readiness status">
+        <section
+          className="scene-object-detail-panel area-readiness-detail-panel"
+          aria-label="area texture readiness status"
+        >
           <h3>
             {textureReadiness.status === "ready"
               ? "Texture Readiness Ready"
               : "Texture Readiness Blocked"}
           </h3>
-          <dl className="scene-object-property-list">
+          <dl className="scene-object-property-list area-readiness-property-list">
             <div>
               <dt>area</dt>
               <dd>{textureReadiness.areaId}</dd>

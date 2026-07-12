@@ -4,23 +4,23 @@ import { createAuthBenchmarkRecorderPort } from "../adapters/authBenchmarkRecord
 import { createAuthTelemetryFacadePort } from "../adapters/authTelemetryFacadePort";
 import { createBrowserAuthClockPort } from "../adapters/browserAuthClockPort";
 import { createDefaultAuthSessionFactoryPort } from "../adapters/defaultAuthSessionFactoryPort";
-import { createStaticMockAuthIdentityPort } from "../adapters/staticMockAuthIdentityPort";
+import { createStaticTestAuthIdentityPort } from "../adapters/staticTestAuthIdentityPort";
 import { browserTelemetryFacade } from "../../telemetry/composition/browserTelemetrySingleton";
 import type { TelemetryFacade } from "../../telemetry/application/telemetryFacade";
 
-interface CreateMockAuthFacadeOptions {
+interface CreateTestAuthFacadeOptions {
   telemetryFacade?: TelemetryFacade;
 }
 
-export function createMockAuthFacade(
-  options: CreateMockAuthFacadeOptions = {}
+export function createTestAuthFacade(
+  options: CreateTestAuthFacadeOptions = {}
 ): IAuthFacade {
   const telemetryFacade = options.telemetryFacade ?? browserTelemetryFacade;
 
   return createAuthFacade({
     benchmarkPort: createAuthBenchmarkRecorderPort(),
     clockPort: createBrowserAuthClockPort(),
-    identityPort: createStaticMockAuthIdentityPort(),
+    identityPort: createStaticTestAuthIdentityPort(),
     sessionFactoryPort: createDefaultAuthSessionFactoryPort(),
     telemetryPort: createAuthTelemetryFacadePort(telemetryFacade)
   });

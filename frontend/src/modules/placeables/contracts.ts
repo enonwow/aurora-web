@@ -1,3 +1,5 @@
+import type { SceneObjectEmbeddedItemSummary } from "../scene/contracts";
+
 export type PlaceableApiSubtype =
   | "generic"
   | "door"
@@ -7,6 +9,8 @@ export type PlaceableApiSubtype =
   | "trigger_proxy";
 
 export type PlaceableApiSubtypeHint = PlaceableApiSubtype | "vvx" | "vvxy";
+
+export type PlaceableApiMetadataPrimitive = string | number | boolean;
 
 export interface PlaceableApiListQuery {
   query?: string;
@@ -26,6 +30,7 @@ export interface PlaceableApiListItem {
   placeableSubtype?: PlaceableApiSubtype;
   tags: string[];
   previewImageUrl: string;
+  metadata?: Record<string, PlaceableApiMetadataPrimitive>;
 }
 
 export interface PlaceableApiListResult {
@@ -33,6 +38,56 @@ export interface PlaceableApiListResult {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface PlaceableApiBlueprintEmbeddedItemEntry extends SceneObjectEmbeddedItemSummary {}
+
+export interface PlaceableApiBlueprintInventoryItemEntry {
+  resRef?: string;
+  embeddedItem?: PlaceableApiBlueprintEmbeddedItemEntry;
+  randomResRef?: string;
+  randomList?: string;
+  x?: number;
+  y?: number;
+  dropable?: boolean;
+  pickpocketable?: boolean;
+  infinite?: boolean;
+}
+
+export interface PlaceableApiBlueprintCreatePayload {
+  templateResRef: string;
+  name: string;
+  tag?: string;
+  comments?: string;
+  plot?: boolean;
+  useable?: boolean;
+  hasInventory?: boolean;
+  appearanceId?: number;
+  isStatic?: boolean;
+  inventoryItemListEntries?: PlaceableApiBlueprintInventoryItemEntry[];
+  overwrite?: boolean;
+}
+
+export interface PlaceableApiBlueprintDescriptor {
+  templateId: string;
+  resref: string;
+  name: string;
+  objectKey: string;
+  sizeBytes: number;
+  etag?: string;
+  sourceFileType: string;
+  sourceFileVersion: string;
+}
+
+export interface PlaceableApiBlueprintCreateResult {
+  blueprint: PlaceableApiBlueprintDescriptor;
+  placeable: PlaceableApiListItem & { kind?: "placeable" };
+}
+
+export interface PlaceableApiBlueprintDeleteResult {
+  resref: string;
+  objectKey: string;
+  deleted: boolean;
 }
 
 export interface PlaceableApiRenderContract {
@@ -51,7 +106,7 @@ export type PlaceableRenderPackageStatus =
 
 export interface PlaceableRenderPackageDiagnostic {
   code: string;
-  severity: "warn" | "error";
+  severity: "info" | "warn" | "error";
   message: string;
 }
 
@@ -63,6 +118,29 @@ export interface PlaceableRenderPackageAssetRefs {
   materialAssetIds?: string[];
   metadataAssetIds?: string[];
   otherAssetIds?: string[];
+}
+
+export interface PlaceableRenderPackageTextureTxiState {
+  decal?: boolean;
+  clamp?: 0 | 1 | 2 | 3;
+  blending?: PlaceableRenderPackageAuroraMaterialBlending;
+  mipmap?: boolean;
+  filter?: boolean;
+  bumpmaptexture?: string;
+  envmaptexture?: string;
+  proceduretype?: string;
+  numx?: number;
+  numy?: number;
+  fps?: number;
+}
+
+export interface PlaceableRenderPackageTextureBinding {
+  reference: string;
+  assetId: string;
+  fileName: string;
+  objectKey: string;
+  deliveryUrl: string;
+  txi?: PlaceableRenderPackageTextureTxiState;
 }
 
 export type PlaceableRenderPackageAuroraEmitterSource =
@@ -325,6 +403,9 @@ export interface PlaceableRenderPackageAuroraLightAnimation {
   positionTimeline?: PlaceableRenderPackageAuroraLightVector3Keyframe[];
   colorTimeline?: PlaceableRenderPackageAuroraLightColorKeyframe[];
   radiusTimeline?: PlaceableRenderPackageAuroraLightNumberKeyframe[];
+  shadowRadiusTimeline?: PlaceableRenderPackageAuroraLightNumberKeyframe[];
+  verticalDisplacementTimeline?: PlaceableRenderPackageAuroraLightNumberKeyframe[];
+  multiplierTimeline?: PlaceableRenderPackageAuroraLightNumberKeyframe[];
 }
 
 export interface PlaceableRenderPackageAuroraLightNode {
@@ -333,9 +414,12 @@ export interface PlaceableRenderPackageAuroraLightNode {
   sourceModelFileName: string;
   sourceModelObjectKey: string;
   nodeName: string;
+  sourceNodeKind?: string;
   parentNodeName?: string;
   transform?: PlaceableRenderPackageAuroraEmitterTransform;
   radius?: number;
+  shadowRadius?: number;
+  verticalDisplacement?: number;
   multiplier?: number;
   color?: [number, number, number];
   ambientOnly?: boolean;
@@ -343,6 +427,12 @@ export interface PlaceableRenderPackageAuroraLightNode {
   affectDynamic?: boolean;
   shadow?: boolean;
   lightPriority?: number;
+  generateFlare?: boolean;
+  textureNames?: string[];
+  flareSizes?: number[];
+  flarePositions?: number[];
+  flareColorShifts?: [number, number, number][];
+  flareRadius?: number;
   lensFlares?: boolean;
   fadingLight?: boolean;
   animations?: PlaceableRenderPackageAuroraLightAnimation[];
@@ -358,11 +448,35 @@ export type PlaceableRenderPackageAuroraMaterialBlending =
   | "additive"
   | "punchthrough";
 
+export type PlaceableRenderPackageAuroraTextureSlotRole =
+  | "diffuse"
+  | "normal"
+  | "specular"
+  | "roughness"
+  | "height"
+  | "emissive"
+  | "unknown";
+
+export interface PlaceableRenderPackageAuroraTextureSlot {
+  slot: number;
+  role: PlaceableRenderPackageAuroraTextureSlotRole;
+  reference: string;
+}
+
 export interface PlaceableRenderPackageAuroraMaterialState {
   blending?: PlaceableRenderPackageAuroraMaterialBlending;
   auroraBlendField48?: number;
   auroraBlendField4c?: number;
   decal?: boolean;
+  transparency?: boolean;
+  twoSided?: boolean;
+  renderHint?: string;
+  customShaderVS?: string;
+  customShaderFS?: string;
+  customShaderGS?: string;
+  roughness?: number;
+  specularity?: number;
+  textureSlots?: PlaceableRenderPackageAuroraTextureSlot[];
 }
 
 export interface PlaceableRenderPackageAuroraMaterialNode {
@@ -386,6 +500,7 @@ export interface PlaceableRenderPackage {
   modelUrl?: string;
   glbUrl?: string;
   textureUrls?: string[];
+  textureBindings?: PlaceableRenderPackageTextureBinding[];
   auroraEmitter?: PlaceableRenderPackageAuroraEmitter;
   auroraLight?: PlaceableRenderPackageAuroraLight;
   auroraMaterial?: PlaceableRenderPackageAuroraMaterial;
@@ -428,6 +543,9 @@ export interface PlaceableApiRuntimeProjection {
     currentHitPoints?: number;
     hardness?: number;
     lightState?: number;
+    lightStateSource?: string;
+    lightStateProofStatus?: string;
+    lightStateDefaulted?: boolean;
   };
 }
 
@@ -457,6 +575,9 @@ export interface PlaceableApiPreviewScene {
 export interface PlaceableApiProcessPayload {
   templateId?: string;
   resref?: string;
+  tag?: string;
+  localizedName?: string;
+  description?: string;
   subtypeHint?: PlaceableApiSubtypeHint;
   appearanceType?: number;
   genericType?: number;
@@ -499,6 +620,21 @@ export interface PlaceableApiAssetContractsBatchRequestItem {
 
 export interface PlaceableApiAssetContractsBatchResult {
   items: PlaceableApiAssetContractsResult[];
+}
+
+export interface PlaceableApiViewportRenderPayload {
+  templateId: string;
+  cacheKey: string;
+  cacheHit: boolean;
+  storedAt: string;
+  hits: number;
+  placeable: PlaceableApiProcessedPayload;
+  renderPackage?: PlaceableRenderPackage;
+  assetContracts: PlaceableApiAssetContractsResult;
+}
+
+export interface PlaceableApiViewportRenderPayloadBatchResult {
+  items: PlaceableApiViewportRenderPayload[];
 }
 
 export interface PlaceableRenderAssetDescriptor {

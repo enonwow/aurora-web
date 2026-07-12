@@ -4,7 +4,7 @@ Date: 2026-05-25
 Source: Aurora UI screenshots (Basic/Positioning/Advanced) + in-editor visual captures.
 
 ## Purpose
-Lock one shared interpretation of Aurora sound positioning visuals so mock/runtime behavior does not drift.
+Lock one shared interpretation of Aurora sound positioning visuals so editor-preview/runtime behavior does not drift.
 
 ## Current Implementation Status (aurora-web)
 Status: `PARTIAL` (Sound Properties shell + mode gating), `NOT_IMPLEMENTED` for runtime guides/extended payload.
@@ -18,8 +18,8 @@ Implemented now:
    - `Plays from random position each play`,
    - `Plays from specific position`.
 5. Existing `soundPositioning` payload fields are bound in UI without adding speculative runtime semantics.
-6. Sound `Play/Stop` buttons in `Basic` tab can preview a bundled mock test tone (`/sounds/mock_test_tone.wav`) for manual QA.
-7. Preview playback uses selected list entry/resref as trigger context, but routes to one deterministic test asset in mock mode.
+6. Sound `Play/Stop` buttons in `Basic` tab can preview a bundled preview tone (`/sounds/preview_tone.wav`) for manual QA.
+7. Preview playback uses selected list entry/resref as trigger context and routes to deterministic local preview audio when no backend-delivered clip is available.
 
 Not implemented yet:
 1. Attenuation/random-range viewport guides tied to sound properties.
@@ -81,7 +81,7 @@ Retail-hard-confirm later:
 1. Confirm runtime edge semantics for attenuation and scheduling.
 2. Confirm any Aurora-specific randomization constraints not visible in screenshot-only evidence.
 
-## Mock Test Asset
-1. Bundled asset path: `frontend/public/sounds/mock_test_tone.wav`.
-2. Purpose: deterministic local QA for `Sound Properties -> Basic -> Play/Stop` until real sound bank integration lands.
-3. Cleanup rule: keep only as long as mock playback exists; replace with real resource resolution in backend-integrated phase.
+## Preview Tone Asset
+1. Bundled asset path: `frontend/public/sounds/preview_tone.wav`.
+2. Purpose: deterministic local QA for `Sound Properties -> Basic -> Play/Stop` when backend-delivered audio is not available for a selected sound.
+3. Cleanup rule: prefer backend resource resolution whenever an audio delivery contract exists.

@@ -122,6 +122,8 @@ services:
       AURORA_DERIVED_ASSET_CONVERTER_TIMEOUT_MS: "30000"
       AURORA_DERIVED_ASSET_MAX_MODELS: "200"
       AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: glb
+      AURORA_PLACEABLE_BATCH_CONCURRENCY: "4"
+      AURORA_ITEM_GENERATOR_SOURCE_DIRS: /host/aurora-reference/item-retail-extract/utg
     depends_on:
       mysql:
         condition: service_healthy
@@ -134,6 +136,7 @@ services:
       - backend_node_modules:/app/node_modules
       - "C:/Users/enonw/Documents/Neverwinter Nights:/host/nwn-docs:ro"
       - "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights:/host/nwn-game:ro"
+      - "C:/Projects/New Folder/item-retail-extract/utg:/host/aurora-reference/item-retail-extract/utg:ro"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1 || exit 1"]
       interval: 15s

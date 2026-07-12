@@ -7,17 +7,26 @@ import type {
   PlaceableRenderPackage,
   PlaceableRenderPackageAssetRefs,
   PlaceableApiAssetRole,
+  PlaceableApiBlueprintCreatePayload,
+  PlaceableApiBlueprintCreateResult,
+  PlaceableApiBlueprintDeleteResult,
   PlaceableApiListItem,
   PlaceableApiListQuery,
   PlaceableApiListResult,
+  PlaceableApiMetadataPrimitive,
   PlaceableApiProcessBatchResult,
   PlaceableApiProcessPayload,
   PlaceableApiProcessResult,
   PlaceableApiProcessedPayload,
   PlaceableApiPreviewScene,
-  PlaceableApiSubtype
+  PlaceableApiSubtype,
+  PlaceableApiViewportRenderPayload,
+  PlaceableApiViewportRenderPayloadBatchResult
 } from "../contracts";
-import type { PlaceableApiPort } from "../ports/placeableApiPort";
+import type {
+  PlaceableApiPort,
+  PlaceableApiRequestOptions
+} from "../ports/placeableApiPort";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -42,6 +51,8 @@ const placeableSubtypeSchema = z.enum([
   "trigger_proxy"
 ]);
 
+const placeableMetadataPrimitiveSchema = z.union([z.string(), z.number(), z.boolean()]);
+
 const placeableListItemSchema = z.object({
   templateId: z.string().min(1),
   resref: z.string().min(1),
@@ -49,7 +60,8 @@ const placeableListItemSchema = z.object({
   category: z.string().min(1),
   placeableSubtype: placeableSubtypeSchema.optional(),
   tags: z.array(z.string()),
-  previewImageUrl: z.string()
+  previewImageUrl: z.string(),
+  metadata: z.record(placeableMetadataPrimitiveSchema).optional()
 });
 
 const placeableListEnvelopeSchema = z.object({
@@ -58,6 +70,34 @@ const placeableListEnvelopeSchema = z.object({
     total: z.number().int().nonnegative(),
     limit: z.number().int().positive(),
     offset: z.number().int().nonnegative()
+  })
+});
+
+const placeableBlueprintDescriptorSchema = z.object({
+  templateId: z.string().min(1),
+  resref: z.string().min(1),
+  name: z.string().min(1),
+  objectKey: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+  etag: z.string().optional(),
+  sourceFileType: z.string().min(1),
+  sourceFileVersion: z.string().min(1)
+});
+
+const placeableBlueprintCreateEnvelopeSchema = z.object({
+  data: z.object({
+    blueprint: placeableBlueprintDescriptorSchema,
+    placeable: placeableListItemSchema.extend({
+      kind: z.literal("placeable").optional()
+    })
+  })
+});
+
+const placeableBlueprintDeleteEnvelopeSchema = z.object({
+  data: z.object({
+    resref: z.string().min(1),
+    objectKey: z.string().min(1),
+    deleted: z.boolean()
   })
 });
 
@@ -83,7 +123,7 @@ const placeableRenderPackageAssetRefsSchema = z
 
 const placeableRenderPackageDiagnosticSchema = z.object({
   code: z.string().min(1),
-  severity: z.enum(["warn", "error"]),
+  severity: z.enum(["info", "warn", "error"]),
   message: z.string().min(1)
 });
 
@@ -199,7 +239,10 @@ const placeableAuroraEmitterSimulationSchema = z
     xSize: z.number().nonnegative().optional(),
     ySize: z.number().nonnegative().optional(),
     spawnType: z.number().int().nonnegative().optional(),
-    birthrate: z.number().nonnegative().optional(),
+    // Aurora uses negative controller values as no-spawn/off states (for
+    // example plc_t04 has -4 and -15 animation birthrates). Preserve them at
+    // the HTTP boundary; the renderer owns the <= 0 spawn gate.
+    birthrate: z.number().optional(),
     lifeExp: z.number().nonnegative().optional(),
     mass: z.number().optional(),
     velocity: z.number().optional(),
@@ -377,7 +420,10 @@ const placeableAuroraLightAnimationSchema = z
     transitionSeconds: z.number().nonnegative().optional(),
     positionTimeline: z.array(placeableAuroraLightVector3KeyframeSchema).optional(),
     colorTimeline: z.array(placeableAuroraLightColorKeyframeSchema).optional(),
-    radiusTimeline: z.array(placeableAuroraLightNumberKeyframeSchema).optional()
+    radiusTimeline: z.array(placeableAuroraLightNumberKeyframeSchema).optional(),
+    shadowRadiusTimeline: z.array(placeableAuroraLightNumberKeyframeSchema).optional(),
+    verticalDisplacementTimeline: z.array(placeableAuroraLightNumberKeyframeSchema).optional(),
+    multiplierTimeline: z.array(placeableAuroraLightNumberKeyframeSchema).optional()
   })
   .passthrough();
 
@@ -388,16 +434,25 @@ const placeableAuroraLightNodeSchema = z
     sourceModelFileName: z.string().min(1),
     sourceModelObjectKey: z.string().min(1),
     nodeName: z.string().min(1),
+    sourceNodeKind: z.string().min(1).optional(),
     parentNodeName: z.string().min(1).optional(),
     transform: placeableAuroraEmitterTransformSchema.optional(),
-    radius: z.number().nonnegative().optional(),
-    multiplier: z.number().nonnegative().optional(),
+    radius: z.number().finite().optional(),
+    shadowRadius: z.number().finite().optional(),
+    verticalDisplacement: z.number().finite().optional(),
+    multiplier: z.number().finite().optional(),
     color: placeableAuroraEmitterSimulationColorSchema.optional(),
     ambientOnly: z.boolean().optional(),
     dynamicType: z.number().int().optional(),
     affectDynamic: z.boolean().optional(),
     shadow: z.boolean().optional(),
     lightPriority: z.number().int().optional(),
+    generateFlare: z.boolean().optional(),
+    textureNames: z.array(z.string().min(1)).optional(),
+    flareSizes: z.array(z.number().finite()).optional(),
+    flarePositions: z.array(z.number().finite()).optional(),
+    flareColorShifts: z.array(placeableAuroraEmitterSimulationColorSchema).optional(),
+    flareRadius: z.number().finite().optional(),
     lensFlares: z.boolean().optional(),
     fadingLight: z.boolean().optional(),
     animations: z.array(placeableAuroraLightAnimationSchema).optional()
@@ -417,7 +472,34 @@ const placeableAuroraMaterialStateSchema = z
     blending: z.enum(["additive", "punchthrough"]).optional(),
     auroraBlendField48: z.number().int().optional(),
     auroraBlendField4c: z.number().int().optional(),
-    decal: z.boolean().optional()
+    decal: z.boolean().optional(),
+    transparency: z.boolean().optional(),
+    twoSided: z.boolean().optional(),
+    renderHint: z.string().min(1).optional(),
+    customShaderVS: z.string().min(1).optional(),
+    customShaderFS: z.string().min(1).optional(),
+    customShaderGS: z.string().min(1).optional(),
+    roughness: z.number().optional(),
+    specularity: z.number().optional(),
+    textureSlots: z
+      .array(
+        z
+          .object({
+            slot: z.number().int().nonnegative(),
+            role: z.enum([
+              "diffuse",
+              "normal",
+              "specular",
+              "roughness",
+              "height",
+              "emissive",
+              "unknown"
+            ]),
+            reference: z.string().min(1)
+          })
+          .passthrough()
+      )
+      .optional()
   })
   .passthrough();
 
@@ -439,6 +521,32 @@ const placeableAuroraMaterialSchema = z
   })
   .passthrough();
 
+const placeableRenderPackageTextureBindingSchema = z
+  .object({
+    reference: z.string().min(1),
+    assetId: z.string().min(1),
+    fileName: z.string().min(1),
+    objectKey: z.string().min(1),
+    deliveryUrl: z.string().min(1),
+    txi: z
+      .object({
+        decal: z.boolean().optional(),
+        clamp: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        blending: z.enum(["additive", "punchthrough"]).optional(),
+        mipmap: z.boolean().optional(),
+        filter: z.boolean().optional(),
+        bumpmaptexture: z.string().optional(),
+        envmaptexture: z.string().optional(),
+        proceduretype: z.string().optional(),
+        numx: z.number().optional(),
+        numy: z.number().optional(),
+        fps: z.number().optional()
+      })
+      .passthrough()
+      .optional()
+  })
+  .passthrough();
+
 const placeableRenderPackageSchema = z
   .object({
     status: z.enum(["ready", "unsupported", "missing_derived", "missing_assets"]),
@@ -447,6 +555,7 @@ const placeableRenderPackageSchema = z
     modelUrl: z.string().min(1).optional(),
     glbUrl: z.string().min(1).optional(),
     textureUrls: z.array(z.string().min(1)).optional(),
+    textureBindings: z.array(placeableRenderPackageTextureBindingSchema).optional(),
     auroraEmitter: placeableAuroraEmitterSchema.optional(),
     auroraLight: placeableAuroraLightSchema.optional(),
     auroraMaterial: placeableAuroraMaterialSchema.optional()
@@ -483,7 +592,10 @@ const placeableRuntimeProjectionSchema = z
         portraitId: z.number().optional(),
         currentHitPoints: z.number().optional(),
         hardness: z.number().optional(),
-        lightState: z.number().optional()
+        lightState: z.number().optional(),
+        lightStateSource: z.string().optional(),
+        lightStateProofStatus: z.string().optional(),
+        lightStateDefaulted: z.boolean().optional()
       })
       .passthrough()
       .optional()
@@ -554,6 +666,23 @@ const placeableAssetContractsEnvelopeSchema = z.object({
 const placeableAssetContractsBatchEnvelopeSchema = z.object({
   data: z.object({
     items: z.array(placeableAssetContractsEnvelopeSchema.shape.data)
+  })
+});
+
+const placeableViewportRenderPayloadSchema = z.object({
+  templateId: z.string().min(1),
+  cacheKey: z.string().min(1),
+  cacheHit: z.boolean(),
+  storedAt: z.string().min(1),
+  hits: z.number().int().nonnegative(),
+  placeable: processedPlaceablePayloadSchema,
+  renderPackage: placeableRenderPackageSchema.optional(),
+  assetContracts: placeableAssetContractsEnvelopeSchema.shape.data
+});
+
+const placeableViewportRenderPayloadEnvelopeSchema = z.object({
+  data: z.object({
+    items: z.array(placeableViewportRenderPayloadSchema)
   })
 });
 
@@ -644,7 +773,8 @@ function mapListItem(input: z.infer<typeof placeableListItemSchema>): PlaceableA
     category: input.category,
     placeableSubtype: input.placeableSubtype as PlaceableApiSubtype | undefined,
     tags: input.tags,
-    previewImageUrl: input.previewImageUrl
+    previewImageUrl: input.previewImageUrl,
+    metadata: input.metadata as Record<string, PlaceableApiMetadataPrimitive> | undefined
   };
 }
 
@@ -703,11 +833,47 @@ function mapProcessedPayload(
                 portraitId: input.placeableRuntime.state.portraitId,
                 currentHitPoints: input.placeableRuntime.state.currentHitPoints,
                 hardness: input.placeableRuntime.state.hardness,
-                lightState: input.placeableRuntime.state.lightState
+                lightState: input.placeableRuntime.state.lightState,
+                lightStateSource: input.placeableRuntime.state.lightStateSource,
+                lightStateProofStatus: input.placeableRuntime.state.lightStateProofStatus,
+                lightStateDefaulted: input.placeableRuntime.state.lightStateDefaulted
               }
             : undefined
         }
       : undefined
+  };
+}
+
+function mapAssetContracts(
+  input: z.infer<typeof placeableAssetContractsEnvelopeSchema.shape.data>
+): PlaceableApiAssetContractsResult {
+  return {
+    cacheKey: input.cacheKey,
+    moduleHash: input.moduleHash,
+    assets: input.assets.map((asset) => ({
+      assetId: asset.assetId,
+      objectKey: asset.objectKey,
+      contentType: asset.contentType,
+      sizeBytes: asset.sizeBytes,
+      deliveryPath: asset.deliveryPath,
+      deliveryUrl: asset.deliveryUrl,
+      s3Url: asset.s3Url
+    }))
+  };
+}
+
+function mapViewportRenderPayload(
+  input: z.infer<typeof placeableViewportRenderPayloadSchema>
+): PlaceableApiViewportRenderPayload {
+  return {
+    templateId: input.templateId,
+    cacheKey: input.cacheKey,
+    cacheHit: input.cacheHit,
+    storedAt: input.storedAt,
+    hits: input.hits,
+    placeable: mapProcessedPayload(input.placeable),
+    renderPackage: input.renderPackage ? mapRenderPackage(input.renderPackage) : undefined,
+    assetContracts: mapAssetContracts(input.assetContracts)
   };
 }
 
@@ -723,6 +889,34 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
     modelUrl: input.modelUrl,
     glbUrl: input.glbUrl,
     textureUrls: input.textureUrls,
+    textureBindings: input.textureBindings?.map((binding) => ({
+      reference: binding.reference,
+      assetId: binding.assetId,
+      fileName: binding.fileName,
+      objectKey: binding.objectKey,
+      deliveryUrl: binding.deliveryUrl,
+      txi: binding.txi
+        ? {
+            decal: binding.txi.decal,
+            clamp: binding.txi.clamp,
+            blending: binding.txi.blending,
+            mipmap: binding.txi.mipmap,
+            filter: binding.txi.filter,
+            ...(binding.txi.bumpmaptexture !== undefined
+              ? { bumpmaptexture: binding.txi.bumpmaptexture }
+              : {}),
+            ...(binding.txi.envmaptexture !== undefined
+              ? { envmaptexture: binding.txi.envmaptexture }
+              : {}),
+            ...(binding.txi.proceduretype !== undefined
+              ? { proceduretype: binding.txi.proceduretype }
+              : {}),
+            ...(binding.txi.numx !== undefined ? { numx: binding.txi.numx } : {}),
+            ...(binding.txi.numy !== undefined ? { numy: binding.txi.numy } : {}),
+            ...(binding.txi.fps !== undefined ? { fps: binding.txi.fps } : {})
+          }
+        : undefined
+    })),
     auroraEmitter: input.auroraEmitter
       ? {
           source: input.auroraEmitter.source,
@@ -989,6 +1183,7 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
             sourceModelFileName: light.sourceModelFileName,
             sourceModelObjectKey: light.sourceModelObjectKey,
             nodeName: light.nodeName,
+            sourceNodeKind: light.sourceNodeKind,
             parentNodeName: light.parentNodeName,
             transform: light.transform
               ? {
@@ -1012,6 +1207,8 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
                 }
               : undefined,
             radius: light.radius,
+            shadowRadius: light.shadowRadius,
+            verticalDisplacement: light.verticalDisplacement,
             multiplier: light.multiplier,
             color: light.color,
             ambientOnly: light.ambientOnly,
@@ -1019,6 +1216,12 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
             affectDynamic: light.affectDynamic,
             shadow: light.shadow,
             lightPriority: light.lightPriority,
+            generateFlare: light.generateFlare,
+            textureNames: light.textureNames,
+            flareSizes: light.flareSizes,
+            flarePositions: light.flarePositions,
+            flareColorShifts: light.flareColorShifts,
+            flareRadius: light.flareRadius,
             lensFlares: light.lensFlares,
             fadingLight: light.fadingLight,
             animations: light.animations?.map((animation) => ({
@@ -1034,6 +1237,20 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
                 value: frame.value
               })),
               radiusTimeline: animation.radiusTimeline?.map((frame) => ({
+                time: frame.time,
+                value: frame.value
+              })),
+              shadowRadiusTimeline: animation.shadowRadiusTimeline?.map((frame) => ({
+                time: frame.time,
+                value: frame.value
+              })),
+              verticalDisplacementTimeline: animation.verticalDisplacementTimeline?.map(
+                (frame) => ({
+                  time: frame.time,
+                  value: frame.value
+                })
+              ),
+              multiplierTimeline: animation.multiplierTimeline?.map((frame) => ({
                 time: frame.time,
                 value: frame.value
               }))
@@ -1058,7 +1275,20 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
               blending: material.state.blending,
               auroraBlendField48: material.state.auroraBlendField48,
               auroraBlendField4c: material.state.auroraBlendField4c,
-              decal: material.state.decal
+              decal: material.state.decal,
+              transparency: material.state.transparency,
+              twoSided: material.state.twoSided,
+              renderHint: material.state.renderHint,
+              customShaderVS: material.state.customShaderVS,
+              customShaderFS: material.state.customShaderFS,
+              customShaderGS: material.state.customShaderGS,
+              roughness: material.state.roughness,
+              specularity: material.state.specularity,
+              textureSlots: material.state.textureSlots?.map((slot) => ({
+                slot: slot.slot,
+                role: slot.role,
+                reference: slot.reference
+              }))
             }
           })),
           diagnostics: input.auroraMaterial.diagnostics.map((diagnostic) => ({
@@ -1144,9 +1374,78 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
     };
   }
 
+  async createPlaceableBlueprint(
+    accessToken: string,
+    requestPayload: PlaceableApiBlueprintCreatePayload
+  ): Promise<PlaceableApiBlueprintCreateResult> {
+    const response = await this.fetchFn(`${this.baseUrl}/catalog/placeables/blueprints`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestPayload)
+    });
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableBlueprintCreateEnvelopeSchema.parse(payload);
+    return {
+      blueprint: parsed.data.blueprint,
+      placeable: {
+        ...mapListItem(parsed.data.placeable),
+        kind: parsed.data.placeable.kind
+      }
+    };
+  }
+
+  async updatePlaceableBlueprint(
+    accessToken: string,
+    resRef: string,
+    requestPayload: PlaceableApiBlueprintCreatePayload
+  ): Promise<PlaceableApiBlueprintCreateResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/placeables/blueprints/${encodeURIComponent(resRef)}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestPayload)
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableBlueprintCreateEnvelopeSchema.parse(payload);
+    return {
+      blueprint: parsed.data.blueprint,
+      placeable: {
+        ...mapListItem(parsed.data.placeable),
+        kind: parsed.data.placeable.kind
+      }
+    };
+  }
+
+  async deletePlaceableBlueprint(
+    accessToken: string,
+    resRef: string
+  ): Promise<PlaceableApiBlueprintDeleteResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/placeables/blueprints/${encodeURIComponent(resRef)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableBlueprintDeleteEnvelopeSchema.parse(payload);
+    return parsed.data;
+  }
+
   async processPlaceable(
     accessToken: string,
-    requestPayload: PlaceableApiProcessPayload
+    requestPayload: PlaceableApiProcessPayload,
+    options?: PlaceableApiRequestOptions
   ): Promise<PlaceableApiProcessResult> {
     const response = await this.fetchFn(`${this.baseUrl}/catalog/placeables/process`, {
       method: "POST",
@@ -1154,6 +1453,7 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
+      signal: options?.signal,
       body: JSON.stringify(requestPayload)
     });
     const payload = await parseResponseOrThrow(response);
@@ -1170,7 +1470,8 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
 
   async processPlaceables(
     accessToken: string,
-    requestPayloads: PlaceableApiProcessPayload[]
+    requestPayloads: PlaceableApiProcessPayload[],
+    options?: PlaceableApiRequestOptions
   ): Promise<PlaceableApiProcessBatchResult> {
     const response = await this.fetchFn(`${this.baseUrl}/catalog/placeables/process/batch`, {
       method: "POST",
@@ -1178,6 +1479,7 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
+      signal: options?.signal,
       body: JSON.stringify({ items: requestPayloads })
     });
     const payload = await parseResponseOrThrow(response);
@@ -1194,10 +1496,33 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
     };
   }
 
+  async getPlaceableViewportRenderPayloadBatch(
+    accessToken: string,
+    requestPayloads: PlaceableApiProcessPayload[],
+    options?: PlaceableApiRequestOptions
+  ): Promise<PlaceableApiViewportRenderPayloadBatchResult> {
+    const response = await this.fetchFn(`${this.baseUrl}/catalog/placeables/render-payloads/batch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      signal: options?.signal,
+      body: JSON.stringify({ items: requestPayloads })
+    });
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableViewportRenderPayloadEnvelopeSchema.parse(payload);
+
+    return {
+      items: parsed.data.items.map(mapViewportRenderPayload)
+    };
+  }
+
   async getPlaceableAssetContracts(
     accessToken: string,
     cacheKey: string,
-    assetIds?: string[]
+    assetIds?: string[],
+    options?: PlaceableApiRequestOptions
   ): Promise<PlaceableApiAssetContractsResult> {
     const response = await this.fetchFn(
       `${this.baseUrl}/catalog/placeables/cache/${encodeURIComponent(cacheKey)}/assets/contracts${toAssetContractsQueryString(assetIds)}`,
@@ -1205,29 +1530,19 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
         method: "GET",
         headers: {
           Authorization: `Bearer ${accessToken}`
-        }
+        },
+        signal: options?.signal
       }
     );
     const payload = await parseResponseOrThrow(response);
     const parsed = placeableAssetContractsEnvelopeSchema.parse(payload);
-    return {
-      cacheKey: parsed.data.cacheKey,
-      moduleHash: parsed.data.moduleHash,
-      assets: parsed.data.assets.map((asset) => ({
-        assetId: asset.assetId,
-        objectKey: asset.objectKey,
-        contentType: asset.contentType,
-        sizeBytes: asset.sizeBytes,
-        deliveryPath: asset.deliveryPath,
-        deliveryUrl: asset.deliveryUrl,
-        s3Url: asset.s3Url
-      }))
-    };
+    return mapAssetContracts(parsed.data);
   }
 
   async getPlaceableAssetContractsBatch(
     accessToken: string,
-    items: PlaceableApiAssetContractsBatchRequestItem[]
+    items: PlaceableApiAssetContractsBatchRequestItem[],
+    options?: PlaceableApiRequestOptions
   ): Promise<PlaceableApiAssetContractsBatchResult> {
     const response = await this.fetchFn(
       `${this.baseUrl}/catalog/placeables/cache/assets/contracts/batch`,
@@ -1237,25 +1552,14 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json"
         },
+        signal: options?.signal,
         body: JSON.stringify({ items })
       }
     );
     const payload = await parseResponseOrThrow(response);
     const parsed = placeableAssetContractsBatchEnvelopeSchema.parse(payload);
     return {
-      items: parsed.data.items.map((item) => ({
-        cacheKey: item.cacheKey,
-        moduleHash: item.moduleHash,
-        assets: item.assets.map((asset) => ({
-          assetId: asset.assetId,
-          objectKey: asset.objectKey,
-          contentType: asset.contentType,
-          sizeBytes: asset.sizeBytes,
-          deliveryPath: asset.deliveryPath,
-          deliveryUrl: asset.deliveryUrl,
-          s3Url: asset.s3Url
-        }))
-      }))
+      items: parsed.data.items.map(mapAssetContracts)
     };
   }
 }

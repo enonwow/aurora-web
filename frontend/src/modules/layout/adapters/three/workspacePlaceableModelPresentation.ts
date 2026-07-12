@@ -1,12 +1,388 @@
 import * as THREE from "three";
 import type { PlaceableViewportRenderPayload } from "../../../placeables/application/placeableRenderPayloadResolver";
 import type { SceneObjectKind } from "../../contracts";
-import type { RuntimeState } from "./workspaceThreeRuntime";
+import {
+  AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPERS,
+  AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_SOURCE,
+  AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_BLOCKER,
+  AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_SOURCE,
+  AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_STATE,
+  AURORA_SHADOW_VOLUME_CASTER_THREE_GEOMETRY_HELPER_SOURCE,
+  AURORA_SHADOW_VOLUME_CASTER_THREE_GEOMETRY_HELPER_STATUS,
+  AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_BLOCKER,
+  AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_SOURCE,
+  AURORA_SHADOW_VOLUME_DRAW_WRAPPER_SOURCE,
+  AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_BLOCKER,
+  AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_SOURCE,
+  AURORA_SHADOW_VOLUME_LIGHT_PROFILE_SOURCE,
+  AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER,
+  AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_BLOCKER,
+  AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_SOURCE,
+  AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_RENDERER_MODE,
+  AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_SOURCE,
+  AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_STATUS,
+  AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_SOURCE,
+  AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASES,
+  AURORA_SHADOW_VOLUME_RENDER_BUCKETS,
+  AURORA_SHADOW_VOLUME_RENDER_PATH_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_RENDER_PATH_SOURCE,
+  AURORA_SHADOW_VOLUME_RENDER_SHADER_NAMES,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SEQUENCE,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SOURCE,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SEMANTICS,
+  AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SOURCE,
+  AURORA_SHADOW_VOLUME_SHADER_UNIFORM_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SEMANTICS,
+  AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SOURCE,
+  AURORA_SHADOW_VOLUME_STENCIL_PASS_STATUS,
+  AURORA_SHADOW_VOLUME_STENCIL_PROOF_STATUS,
+  AURORA_SHADOW_VOLUME_STENCIL_RETAIL_FACE_OP_TABLE_SUMMARY,
+  AURORA_SHADOW_VOLUME_STENCIL_RETAIL_OP_SEQUENCE_SOURCE,
+  AURORA_SHADOW_VOLUME_STENCIL_RETAIL_OP_SEQUENCE_SUMMARY,
+  AURORA_SHADOW_VOLUME_STENCIL_RENDERER_MODE,
+  AURORA_SHADOW_VOLUME_STENCIL_SOURCE,
+  createAuroraShadowVolumeCasterBufferGeometry,
+  createAuroraShadowVolumeProjectionPreviewMaterial,
+  createAuroraShadowVolumeStencilReceiverMaterial,
+  createAuroraShadowVolumeStencilVolumeMaterial
+} from "./auroraShadowVolumeGeometry";
+import {
+  AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY,
+  AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY_PROOF_STATUS,
+  AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY_SOURCE,
+  buildAuroraLightManagerPreviewScoreUserData,
+  resolveAuroraLightManagerPreviewScore,
+  selectAuroraLightManagerPreviewBudget,
+  type AuroraLightManagerPreviewScore
+} from "./auroraLightManagerPreview";
+import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
 
 export const PLACEABLE_MODEL_STATUS_EVENT = "workspace:placeable-model-status";
 const AURORA_ALPHA_COMPANION_BASE_ALPHA_COLOR_SCALE = 0.55;
 const AURORA_WHITE_ALPHA_MASK_COLOR_SCALE = 0.55;
+const SOURCE_MDL_EMITTER_MODEL_UNIT_PARTICLE_SIZE_SCALE =
+  1;
+const SOURCE_MDL_EMITTER_MODEL_UNIT_PARTICLE_SIZE_SCALE_SOURCE =
+  "source MDL emitter sizeStart/sizeEnd are kept in authored model space; the source-MDL emitter host receives PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE with the placeable model, so particle dimensions are not independently rescaled";
+const SOURCE_MDL_EMITTER_AUTHORED_MODEL_UNIT_PARTICLE_SIZE_SCALE_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:884202-884284 reads source sizeStart/sizeEnd directly into the MDL emitter record; Aurora Web keeps those values in the same model-space host as the source transform, whose area scale is applied once by the placeable renderer";
+const SOURCE_MDL_EMITTER_MODEL_UNIT_MOTION_SCALE =
+  1;
+const SOURCE_MDL_EMITTER_MODEL_UNIT_MOTION_SCALE_SOURCE =
+  "source MDL emitter velocity/randvel/mass stay in authored model space; the source-MDL emitter host receives the same area model scale as its owning placeable";
+const AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP = 128;
+const AURORA_LIGHT_PREVIEW_DROPPED_SAMPLE_LIMIT = 32;
+const AURORA_LIGHT_PREVIEW_BUDGET_CAP_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:866086-866096 FUN_00a41e30 caps light slots at 0x80 unless runtime max-lights is lower";
+const AURORA_LIGHT_PREVIEW_BUDGET_CAP_PROOF_STATUS =
+  "source-backed-mdl-light-slot-cap-max-128";
+const AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 uploads lightQuadraticAtten = 9/(max(radius,0.1)^2*2)";
+const AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS =
+  "source-backed-mdl-radius-quadratic-attenuation";
+const AURORA_MDL_LIGHT_SHADOW_VOLUME_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:913914-914017 shadowvol path loads vs_shadowvol/fs_shadowvol and renders caster geometry using light-node radius/shadowradius/verticaldisplacement runtime fields; current Three preview uses PointLight shadow maps and does not port Aurora shadow-volume extrusion/projection";
+const AURORA_MDL_LIGHT_SHADOW_VOLUME_STATUS =
+  "blocked-three-shadowmap-preview-no-retail-shadowvol-extrusion-parity";
+const AURORA_MDL_LIGHT_SHADOW_VOLUME_PROOF_STATUS =
+  "source-backed-mdl-shadowvol-renderer-blocked-no-three-parity";
+const AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:913930-913955 chooses shadowradius +0x60 when positive, otherwise radius +0x58, then applies verticaldisplacement +0x64; Aurora Web scales the selected source radius into Three shadow camera distance while retail shadow-volume geometry remains unported";
+const AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS =
+  "source-backed-shadowradius-profile-scaled-three-shadow-camera-far";
+const AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE =
+  "Three.PointLight.shadow.radius is a shadow-map blur preview value; retail projection radius is tracked separately as auroraLightShadowProjectionRadiusWorldDistance";
+const AURORA_LIGHT_LINEAR_FALLOFF_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 FUN_00a423d8 adds active light color as max(0,1-distance/radius)*color*fade";
+const AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS =
+  "source-backed-active-light-linear-radius-falloff";
+const AURORA_LIGHT_LINEAR_FALLOFF_DECAY = 1;
+const AURORA_LIGHT_LINEAR_FALLOFF_FORMULA = "max(0,1-distance/radius)";
+const AURORA_LIGHT_SOURCE_RADIUS_UNITS = "aurora-model-units";
+const AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE =
+  "Aurora Web source-unit scale for source MDL light nodes; catalog/model preview uses max(objectRadius,0.5)";
+const AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE =
+  "source MDL light-node radius multiplied by max(objectRadius,0.5); auroraLightWorldRadius may additionally apply preview floor objectRadius*0.9";
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_MODEL_FILE_NAME = "fx_placeable01.mdl";
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_NODE_NAME = "AuroraLight01";
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS = 10;
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS = 15;
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT = 3;
+const PLACEABLE_TWO_DA_LIGHT_DISTANCE_SOURCE =
+  "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units";
+const PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE =
+  "nwmain.exe CNWCArea::AddPlaceableObjectLight() string context names fx_placeable01/AuroraLight01; C:/Projects/New Folder/export/decompiled_all.c:883051-883080 maps radius/radiuskey/radiusbezierkey to controller 0x58; nwn_base.key fx_placeable01.mdl AuroraLight01 controller 0x58 = 10";
+const PLACEABLE_TWO_DA_LIGHT_RADIUS_UNITS = "aurora-model-units";
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_UNIT_SCALE_SOURCE =
+  "Aurora Web source-unit scale shared by placeables.2da LightOffset and fx_placeable01 radius; area rendering uses PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE=0.1, catalog/model preview uses max(objectRadius,0.5)";
+const PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE =
+  "fx_placeable01/AuroraLight01 source radius 10 multiplied by the current source-unit scale";
+const PLACEABLE_TWO_DA_LIGHT_SHADOW_RADIUS_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:883088-883117 maps shadowradius/shadowradiuskey/shadowradiusbezierkey to controller 0x60; nwn_base.key fx_placeable01.mdl AuroraLight01 controller 0x60 = 15";
+const PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:883126-883155 maps verticaldisplacement to controller 0x64; nwn_base.key fx_placeable01.mdl AuroraLight01 controller 0x64 = 3";
+const PLACEABLE_TWO_DA_LIGHT_RADIUS_PROOF_STATUS =
+  "source-backed-fx-placeable01-auroralight01-radius-controller";
+const PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:865390-865409 uploads active light RGB components scaled by fade; placeables.2da LightColor points at lightcolor.2da RGB";
+const PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_PROOF_STATUS =
+  "source-backed-lightcolor-rgb-vector";
+const PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE =
+  "Preview adapter only: Aurora source stores/passes the RGB vector, while Three.PointLight stores normalized RGB in color and max RGB in intensity so color*intensity reconstructs lightcolor.2da RGB";
+const PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS =
+  "preview-adapter-rgb-max-intensity-no-source-intensity-field";
+const PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE =
+  "lightcolor.2da TOOLSETRED/GREEN/BLUE used for visible Toolset emitter tint";
+const PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_EVIDENCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:40976-41071 reads TOOLSETRED/GREEN/BLUE from lightcolor.2da";
+const PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_PROOF_STATUS =
+  "source-backed-lightcolor-2da-toolset-rgb-display-tint";
+const PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_SOURCE =
+  "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read";
+const PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_PROOF_STATUS =
+  "retail-binary-backed-nwserver-lightstate-default-on-xref";
+const PLACEABLE_TWO_DA_FAST_SHADOW_RADIUS_SOURCE =
+  "nwmain.exe 0x1408708c0..0x140870b0a CNWPlaceable::LoadLight reads placeables.2da ShadowSize and selects Fx_Shadow_S/M/L; nwn_base.key Fx_Shadow_* binary MDL emitter sizeStart/sizeEnd supplies sprite size";
+const PLACEABLE_TWO_DA_FAST_SHADOW_OPACITY_SOURCE =
+  "nwn_base.key Fx_Shadow_* binary MDL emitter alphaStart/alphaEnd supplies base opacity";
+const PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_SOURCE =
+  "ARE.ShadowOpacity read/write at decompiled_all.c:255224/255904; normalized to shadowOpacity/100 at decompiled_all.c:256306";
+const PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_FACTOR_SOURCE =
+  "decompiled_all.c:256306 stores ShadowOpacity/100, then shadow plane alpha multiplies that factor at decompiled_all.c:910844";
+const PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_PROOF_STATUS =
+  "source-backed-area-shadowopacity-factor-fast-shadow-proxy-opacity";
+const PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_SOURCE =
+  "nwmain.exe 0x1408708c0..0x140870b0a CNWPlaceable::LoadLight maps ShadowSize 0->Fx_Shadow_S, 2->Fx_Shadow_L, otherwise Fx_Shadow_M, then loads that shadow MDL; extracted Fx_Shadow_* emitters are Single, Billboard_to_Local_Z, texture fxpa_Dot01";
+const PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_STATUS =
+  "source-backed-retail-shadow-mdl-single-billboard-local-z-textured-quad-shadowvol-stencil-pass-active-pixel-parity-blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_PROOF_STATUS =
+  "source-backed-retail-shadowsize-shadow-mdl-textured-quad-active-proxy-shadowvol-stencil-pass-pixel-parity-blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_TYPE =
+  "source-mdl-single-billboard-local-z-plane";
+const PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_SOURCE =
+  "Fx_Shadow_* MDL emitter type Single and render Billboard_to_Local_Z are represented as a textured local-Z quad sized by emitter sizeStart/sizeEnd; retail shadow-volume projection remains separate";
+const PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_PROOF_STATUS =
+  "source-backed-retail-shadow-mdl-single-billboard-local-z-quad";
+const PLACEABLE_TWO_DA_FAST_SHADOW_RENDERER_MODE =
+  "aurora-fast-shadow-source-mdl-textured-quad-proxy";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_NAME =
+  "placeable_2da_light_fast_shadow_volume_caster";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_STATUS =
+  "source-backed-shadowvol-caster-buffer-three-geometry-bound-to-placeable-fast-shadow-proxy-stencil-lane-active-pixel-parity-blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_SOURCE =
+  `${PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_SOURCE}; fast-shadow quad corners are converted through auroraShadowVolumeGeometry into the recovered paired-record/six-index caster buffer; ${AURORA_SHADOW_VOLUME_CASTER_THREE_GEOMETRY_HELPER_SOURCE}`;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_PROOF_STATUS =
+  AURORA_SHADOW_VOLUME_CASTER_THREE_GEOMETRY_HELPER_STATUS;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_NAME =
+  "placeable_2da_light_fast_shadow_volume_projection_preview";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_SOURCE =
+  `${PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_SOURCE}; ${AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_SOURCE}`;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_SCALE = 0.32;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_SOURCE =
+  "Aurora Web local preview calibration: source-backed Fx_Shadow_* opacity is multiplied by a non-retail overlay scale for the visible shadow-volume preview; retail pixel parity remains blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_PROOF_STATUS =
+  "preview-adapter-shadowvol-overlay-opacity-scale-retail-pixel-parity-blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_FRONT_NAME =
+  "placeable_2da_light_fast_shadow_volume_stencil_front";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_BACK_NAME =
+  "placeable_2da_light_fast_shadow_volume_stencil_back";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_FRONT_NAME =
+  "placeable_2da_light_fast_shadow_volume_stencil_zfail_front";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_BACK_NAME =
+  "placeable_2da_light_fast_shadow_volume_stencil_zfail_back";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_NAME =
+  "placeable_2da_light_fast_shadow_volume_stencil_receiver";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_SOURCE =
+  `${PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_SOURCE}; ${AURORA_SHADOW_VOLUME_STENCIL_SOURCE}`;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_SCALE = 0.26;
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_SOURCE =
+  "Aurora Web local preview calibration: source-backed Fx_Shadow_* opacity is multiplied by a non-retail receiver overlay scale for stencil visibility; retail pixel parity remains blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_PROOF_STATUS =
+  "preview-adapter-shadowvol-stencil-receiver-opacity-scale-retail-pixel-parity-blocked";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_SOURCE =
+  "nwn_base.key contains fxpa_dot01.tga and fxpa_dot01.txi; audit-retail-shadow-texture.ts reports 32x32 uncompressed 32-bit TGA, 8 alpha bits, alpha range 0..255, 208 unique alpha values, TXI downsamplemax/downsamplemin 0; Fx_Shadow_* emitter references fxpa_Dot01";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS =
+  "source-backed-retail-fxpa-dot01-rgba-texture-bound";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_PROOF_STATUS =
+  "source-backed-retail-key-bif-fxpa-dot01-texture-bound";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_STATUS =
+  "retail-key-bif-fxpa-dot01-confirmed-procedural-preview-alpha-map";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_PROOF_STATUS =
+  "source-backed-retail-fxpa-dot01-resource-confirmed-preview-procedural-fallback";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_MISSING_STATUS =
+  "not-bound-retail-fxpa-dot01-confirmed-delivery-missing";
+const PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_MISSING_PROOF_STATUS =
+  "blocked-runtime-fxpa-dot01-texture-delivery-not-wired";
+const PLACEABLE_TWO_DA_SHADOW_SIZE_PROOF_STATUS =
+  "source-backed-retail-shadowsize-selects-fx-shadow-mdl";
+const PLACEABLE_TWO_DA_SHADOW_SIZE_MISSING_PROOF_STATUS =
+  "missing-no-placeables-2da-shadowsize";
+const PLACEABLE_TWO_DA_LIGHT_RECEIVER_SOURCE =
+  "debug-preview-surface-not-aurora-light-radius";
+const PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_SOURCE =
+  "nwscript.nss SetPlaceableIllumination/GetPlaceableIllumination plus RecomputeStaticLighting";
+const PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_EVIDENCE =
+  "C:/Projects/New Folder/item-retail-extract/nss/nwscript.nss:8599-8611,8750-8765";
+const PLACEABLE_TWO_DA_STATIC_LIGHTING_RECOMPUTE_HINT =
+  "call-RecomputeStaticLighting-after-SetPlaceableIllumination-tile-light-change-or-placeable-light-add-delete";
+const AURORA_LIGHT_FLARE_PREVIEW_MODE =
+  "source-mdl-flare-sprite-preview-screen-space-formula-unverified";
+const AURORA_LIGHT_FLARE_PREVIEW_PROOF_STATUS =
+  "source-backed-mdl-flare-payload-screen-space-formula-unverified";
 let auroraLightHaloTexture: THREE.CanvasTexture | null | undefined;
+let placeableFastShadowDotPreviewTexture: THREE.DataTexture | null | undefined;
+
+interface PlaceableTwoDaLightMetadata {
+  rowId?: number;
+  raw?: string;
+  label?: string;
+  sourceKey?: string;
+  lightState: number;
+  lightStateSource: string;
+  lightStateProofStatus: string;
+  lightStateDefaulted: boolean;
+  color: [number, number, number];
+  toolsetColor?: [number, number, number];
+  offset: [number, number, number];
+  shadowSize?: number;
+  shadowSizeSource?: string;
+  shadowSizeProofStatus?: string;
+}
+
+interface PlaceableTwoDaLightPreviewOptions {
+  offsetScale?: number;
+  sourceUnitScale?: number;
+  sourceUnitScaleSource?: string;
+  displayShadows?: boolean;
+  showPreviewReceiver?: boolean;
+  showDiagnosticGizmos?: boolean;
+  areaShadowOpacity?: number | null;
+  areaShadowOpacitySource?: string;
+  areaShadowOpacityFactor?: number | null;
+  areaShadowOpacityFactorSource?: string;
+  fastShadowTexture?: THREE.Texture | null;
+  fastShadowTextureSource?: string;
+  fastShadowTextureProofStatus?: string;
+}
+
+interface PlaceableTwoDaFastShadowOptions {
+  sourceUnitScale?: number;
+  areaShadowOpacity?: number | null;
+  areaShadowOpacitySource?: string;
+  areaShadowOpacityFactor?: number | null;
+  areaShadowOpacityFactorSource?: string;
+  fastShadowTexture?: THREE.Texture | null;
+  fastShadowTextureSource?: string;
+  fastShadowTextureProofStatus?: string;
+  showDiagnosticGizmos?: boolean;
+}
+
+interface PlaceableTwoDaFastShadowDescriptor {
+  readonly shadowSizeLane: "small" | "medium" | "large";
+  readonly modelResRef: "fx_shadow_s" | "fx_shadow_m" | "fx_shadow_l";
+  readonly modelFileName: "fx_shadow_s.mdl" | "fx_shadow_m.mdl" | "fx_shadow_l.mdl";
+  readonly emitterNodeName: "Small" | "Med" | "Large";
+  readonly sourceModelHash: string;
+  readonly sourceNodeOffset: number;
+  readonly emitterSize: number;
+  readonly baseOpacity: number;
+  readonly texture: "fxpa_Dot01";
+  readonly emitterType: "Single";
+  readonly renderMode: "Billboard_to_Local_Z";
+  readonly blendMode: "Normal";
+  readonly position: readonly [number, number, number];
+}
+
+interface PlaceableTwoDaFastShadowVolumeStencilProxies {
+  readonly front: THREE.Mesh;
+  readonly back: THREE.Mesh;
+  readonly zFailFront: THREE.Mesh;
+  readonly zFailBack: THREE.Mesh;
+  readonly receiver: THREE.Mesh;
+}
+
+type PlaceableTwoDaFastShadowStencilMeshMaterial =
+  | THREE.Material
+  | readonly THREE.Material[]
+  | null
+  | undefined;
+
+const PLACEABLE_TWO_DA_FAST_SHADOW_SMALL_DESCRIPTOR: PlaceableTwoDaFastShadowDescriptor = {
+  shadowSizeLane: "small",
+  modelResRef: "fx_shadow_s",
+  modelFileName: "fx_shadow_s.mdl",
+  emitterNodeName: "Small",
+  sourceModelHash: "9eed0521a3a0c16c5ec29a54bd45c1036e5484e1da80a2fdcd3ad6fa4731e14e",
+  sourceNodeOffset: 1764,
+  emitterSize: 1,
+  baseOpacity: 0.6000000238418579,
+  texture: "fxpa_Dot01",
+  emitterType: "Single",
+  renderMode: "Billboard_to_Local_Z",
+  blendMode: "Normal",
+  position: [0, 0, 0.029999999329447746]
+};
+
+const PLACEABLE_TWO_DA_FAST_SHADOW_MEDIUM_DESCRIPTOR: PlaceableTwoDaFastShadowDescriptor = {
+  shadowSizeLane: "medium",
+  modelResRef: "fx_shadow_m",
+  modelFileName: "fx_shadow_m.mdl",
+  emitterNodeName: "Med",
+  sourceModelHash: "9dd315aab5fb5a5483b0c74fb696dbea7702227b0e662e1d0d6027d84eb99f7d",
+  sourceNodeOffset: 1764,
+  emitterSize: 1.600000023841858,
+  baseOpacity: 0.6000000238418579,
+  texture: "fxpa_Dot01",
+  emitterType: "Single",
+  renderMode: "Billboard_to_Local_Z",
+  blendMode: "Normal",
+  position: [0, 0, 0.029999999329447746]
+};
+
+const PLACEABLE_TWO_DA_FAST_SHADOW_LARGE_DESCRIPTOR: PlaceableTwoDaFastShadowDescriptor = {
+  shadowSizeLane: "large",
+  modelResRef: "fx_shadow_l",
+  modelFileName: "fx_shadow_l.mdl",
+  emitterNodeName: "Large",
+  sourceModelHash: "7bef849b6b31160bc98146f815e75e3492731139e232bb4302ee20f4341a5be1",
+  sourceNodeOffset: 1764,
+  emitterSize: 3,
+  baseOpacity: 0.699999988079071,
+  texture: "fxpa_Dot01",
+  emitterType: "Single",
+  renderMode: "Billboard_to_Local_Z",
+  blendMode: "Normal",
+  position: [0, 0, 0.029999999329447746]
+};
+
+interface AuroraLightFlarePreviewSpriteEntry {
+  readonly sprite: THREE.Sprite;
+  readonly material: THREE.SpriteMaterial;
+  readonly sourceIndex: number;
+  readonly sourceTextureName?: string;
+  readonly sourceSize?: number;
+  readonly sourcePosition?: number;
+  readonly sourceColorShift?: [number, number, number];
+}
+
+interface AuroraLightPreviewBudgetOptions {
+  activeSlotCap?: number;
+  configuredMaxLights?: number;
+}
+
+interface AuroraLightPreviewBudgetSelection {
+  activeSlotCap: number;
+  configuredMaxLights?: number;
+}
 
 export interface PlaceableModelStatusEventDetail {
   status: string;
@@ -560,6 +936,7 @@ interface ResolveVfxMaterialTextureOptions {
 type PlaceableVfxPreviewMaterial = THREE.SpriteMaterial | THREE.MeshBasicMaterial;
 
 const PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER = 12;
+const AURORA_FLAME_LIGHTEN_THREE_RENDER_ORDER = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER + 48;
 const AURORA_UNTINTED_TEXTURE_COLOR = new THREE.Color(0xffffff);
 const AURORA_SOFT_ALPHA_LIGHTEN_OPACITY_SCALE = 0.28;
 const AURORA_EMITTER_SPAWN_RECTANGLE_AXIS_GATE_CM = 4;
@@ -963,8 +1340,8 @@ function resolveAuroraEmitterBlendMode(
     shaderVariant: "non-punch",
     ...(normalized.includes("lighten") ? { authoringCandidate: "Lighten" as const } : {}),
     diagnostic: normalized.includes("lighten")
-      ? "VFX_LIGHTEN_MODE2_EQUATION_CAPTURE_REQUIRED"
-      : "VFX_UNKNOWN_BLEND_MODE2_RAW_TOKEN_PRESERVED"
+      ? "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED"
+      : "VFX_MODE2_SRC_ALPHA_ONE_CONFIRMED_RAW_TOKEN_PRESERVED"
   };
 }
 
@@ -981,9 +1358,8 @@ interface AuroraEmitterMaterialBlendState {
   blendDstAlpha?: THREE.BlendingDstFactor | null;
   previewMode?:
     | "aurora-blend-fallback-mode-2-non-punch-adapter"
-    | "aurora-blend-lighten-additive-adapter"
-    | "aurora-blend-lighten-alpha-additive-adapter"
-    | "aurora-blend-lighten-soft-alpha-adapter"
+    | "aurora-blend-lighten-mode-2-src-alpha-one"
+    | "aurora-blend-fallback-mode-2-src-alpha-one"
     | "aurora-blend-punch-through-alpha-test"
     | "aurora-blend-normal-non-punch-adapter";
   auroraBlendMode: ResolvedAuroraEmitterBlendMode;
@@ -1002,7 +1378,11 @@ interface AuroraParticleRenderStateRecord {
   particleShaderVariantFlag: "non-punch" | "punch-through";
   particleNonPunchVariantFlag: boolean;
   blendFuncWrapperInvoked: boolean;
-  blendFuncFactorsCaptured: false;
+  blendFuncFactorsCaptured: boolean;
+  blendFuncSourceFactor?: "GL_SRC_ALPHA";
+  blendFuncDestinationFactor?: "GL_ONE_MINUS_SRC_ALPHA" | "GL_ONE";
+  blendFuncSourceFactorEnum?: 0x0302;
+  blendFuncDestinationFactorEnum?: 0x0303 | 0x0001;
   renderStateCacheWrapperRequired: true;
   previewMode:
     | "aurora-non-punch-transparent-depthwrite-off-record"
@@ -1035,6 +1415,8 @@ function resolveAuroraParticleRenderStateRecord(
   const isPunchThrough = state.auroraBlendMode.bucket === "punch_through";
   const twoSidedTexture = auroraEmitter?.sourceState?.twoSidedTexture;
   const sourceOpaque = auroraEmitter?.sourceState?.transparency === false && !isPunchThrough;
+  const blendFuncWrapperInvoked = !isPunchThrough && !sourceOpaque;
+  const mode2Blend = state.auroraBlendMode.bucket === "fallback_mode_2";
   return {
     ...(state.auroraBlendMode.raw ? { rawBlendLiteral: state.auroraBlendMode.raw } : {}),
     runtimeBlendBucket: state.auroraBlendMode.bucket,
@@ -1047,8 +1429,20 @@ function resolveAuroraParticleRenderStateRecord(
     requestedDepthWrite: isPunchThrough || sourceOpaque,
     particleShaderVariantFlag: state.auroraBlendMode.shaderVariant,
     particleNonPunchVariantFlag: !isPunchThrough,
-    blendFuncWrapperInvoked: !isPunchThrough && !sourceOpaque,
-    blendFuncFactorsCaptured: false,
+    blendFuncWrapperInvoked,
+    blendFuncFactorsCaptured: blendFuncWrapperInvoked,
+    ...(blendFuncWrapperInvoked
+      ? {
+          blendFuncSourceFactor: "GL_SRC_ALPHA" as const,
+          blendFuncDestinationFactor: mode2Blend
+            ? ("GL_ONE" as const)
+            : ("GL_ONE_MINUS_SRC_ALPHA" as const),
+          blendFuncSourceFactorEnum: 0x0302 as const,
+          blendFuncDestinationFactorEnum: mode2Blend
+            ? (0x0001 as const)
+            : (0x0303 as const)
+        }
+      : {}),
     renderStateCacheWrapperRequired: true,
     previewMode: isPunchThrough
       ? "aurora-punch-through-depthwrite-on-record"
@@ -1058,7 +1452,13 @@ function resolveAuroraParticleRenderStateRecord(
     diagnostics: [
       "VFX_PARTICLE_RENDER_STATE_RECORD_REQUIRED",
       "VFX_RENDER_STATE_CACHE_WRAPPER_REQUIRED",
-      "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED",
+      ...(blendFuncWrapperInvoked
+        ? [
+            mode2Blend
+              ? "VFX_BLEND_FUNC_SRC_ALPHA_ONE_CONFIRMED"
+              : "VFX_BLEND_FUNC_SRC_ALPHA_ONE_MINUS_SRC_ALPHA_CONFIRMED"
+          ]
+        : []),
       isPunchThrough
         ? "VFX_PUNCH_THROUGH_DEPTHWRITE_LANE_REQUIRED"
         : sourceOpaque
@@ -1139,19 +1539,22 @@ function resolveAuroraEmitterMaterialBlendState(
       auroraBlendMode
     };
   }
-  if (auroraBlendMode.authoringCandidate === "Lighten") {
+  if (auroraBlendMode.bucket === "fallback_mode_2") {
     return {
       blending: THREE.CustomBlending,
       depthWrite: false,
       transparent: true,
       alphaTest: 0,
       blendEquation: THREE.AddEquation,
-      blendSrc: THREE.OneFactor,
+      blendSrc: THREE.SrcAlphaFactor,
       blendDst: THREE.OneFactor,
       blendEquationAlpha: THREE.AddEquation,
-      blendSrcAlpha: THREE.OneFactor,
+      blendSrcAlpha: THREE.SrcAlphaFactor,
       blendDstAlpha: THREE.OneFactor,
-      previewMode: "aurora-blend-lighten-additive-adapter",
+      previewMode:
+        auroraBlendMode.authoringCandidate === "Lighten"
+          ? "aurora-blend-lighten-mode-2-src-alpha-one"
+          : "aurora-blend-fallback-mode-2-src-alpha-one",
       auroraBlendMode
     };
   }
@@ -1161,9 +1564,7 @@ function resolveAuroraEmitterMaterialBlendState(
     transparent: true,
     alphaTest: 0,
     previewMode:
-      auroraBlendMode.bucket === "fallback_mode_2"
-        ? "aurora-blend-fallback-mode-2-non-punch-adapter"
-        : "aurora-blend-normal-non-punch-adapter",
+      "aurora-blend-normal-non-punch-adapter",
     auroraBlendMode
   };
 }
@@ -1195,6 +1596,8 @@ function applyAuroraEmitterMaterialBlendState(
     auroraEmitterBlendShaderVariant: state.auroraBlendMode.shaderVariant,
     auroraEmitterBlendAuthoringCandidate: state.auroraBlendMode.authoringCandidate,
     auroraEmitterBlendDiagnostic: state.auroraBlendMode.diagnostic,
+    auroraEmitterSourceMdlRuntimeBlendStrict:
+      auroraEmitter && hasSourceMdlEmitterPayloadSignal(auroraEmitter) ? true : undefined,
     auroraEmitterTransparencyMaterialPreviewMode: sourceOpaque
       ? "source-transparency-false-opaque-material"
       : undefined,
@@ -1214,6 +1617,11 @@ function applyAuroraEmitterMaterialBlendState(
     auroraParticleNonPunchVariantFlag: renderState.particleNonPunchVariantFlag,
     auroraParticleBlendFuncWrapperInvoked: renderState.blendFuncWrapperInvoked,
     auroraParticleBlendFuncFactorsCaptured: renderState.blendFuncFactorsCaptured,
+    auroraParticleBlendFuncSourceFactor: renderState.blendFuncSourceFactor,
+    auroraParticleBlendFuncDestinationFactor: renderState.blendFuncDestinationFactor,
+    auroraParticleBlendFuncSourceFactorEnum: renderState.blendFuncSourceFactorEnum,
+    auroraParticleBlendFuncDestinationFactorEnum:
+      renderState.blendFuncDestinationFactorEnum,
     auroraParticleRenderStateCacheWrapperRequired: renderState.renderStateCacheWrapperRequired,
     auroraEmitterThreeBlendEquation: state.blendEquation,
     auroraEmitterThreeBlendSrc: state.blendSrc,
@@ -1864,8 +2272,8 @@ function resolveAuroraAtlasFrameRangeState(
   );
   const frameStartSource = timelineFrameStart ?? atlas.frameStart ?? 0;
   const frameEndSource = timelineFrameEnd ?? atlas.frameEnd ?? Math.max(0, atlas.frameCapacity - 1);
-  const frameStart = clampNumber(Math.trunc(frameStartSource), 0, atlas.frameCapacity - 1);
-  const frameEnd = clampNumber(Math.trunc(frameEndSource), 0, atlas.frameCapacity - 1);
+  const frameStart = Math.max(0, Math.trunc(frameStartSource));
+  const frameEnd = Math.max(0, Math.trunc(frameEndSource));
   return {
     frameStart,
     frameEnd,
@@ -2148,6 +2556,8 @@ function applyAuroraParticleVertexColorToGeometry(
   mode:
     | "aurora-particle-vertex-color"
     | "aurora-particle-color-ambient-tint-disabled"
+    | "aurora-particle-flame-texture-rgb-emissive-boost"
+    | "aurora-particle-flame-texture-rgb-preserved"
     | "aurora-particle-soft-alpha-lighten-color-floor"
     | "semantic-scene-tint-vertex-color"
     | "semantic-fallback-vertex-color"
@@ -2192,8 +2602,20 @@ function applyAuroraParticleVertexColorToGeometry(
 }
 
 function shouldApplyAuroraLightenAlphaRgbScale(material: PlaceableVfxPreviewMaterial): boolean {
+  if (material.userData?.auroraEmitterSourceMdlRuntimeBlendStrict === true) {
+    return false;
+  }
+  if (material.userData?.auroraEmitterFlameLike === true) {
+    return false;
+  }
   const blendMode = material.userData?.auroraEmitterBlendMode;
   return typeof blendMode === "string" && /lighten/iu.test(blendMode);
+}
+
+function shouldKeepAuroraNonPunchLightenAlphaTestDisabled(
+  material: PlaceableVfxPreviewMaterial
+): boolean {
+  return shouldForceVfxBlackKeyFromBlendMode(material.userData?.auroraEmitterBlendMode);
 }
 
 function shouldUseAuroraAlphaCompanionMaterialColor(
@@ -2492,7 +2914,12 @@ function applyVfxParticleOpacity(
     typeof material.userData?.auroraVfxSoftAlphaOpacityScale === "number"
       ? clampNumber(material.userData.auroraVfxSoftAlphaOpacityScale, 0.05, 1)
       : 1;
-  const alpha = clampNumber(sourceAlpha * alphaScale, 0, 1);
+  const opacityFloor =
+    sourceAlpha > 0 &&
+    typeof material.userData?.auroraVfxParticleOpacityFloor === "number"
+      ? clampNumber(material.userData.auroraVfxParticleOpacityFloor, 0, 1)
+      : 0;
+  const alpha = clampNumber(Math.max(sourceAlpha * alphaScale, opacityFloor), 0, 1);
   material.opacity = alpha;
   material.userData = {
     ...material.userData,
@@ -2502,6 +2929,13 @@ function applyVfxParticleOpacity(
       ? {
           auroraVfxParticleAlphaScale: alphaScale,
           auroraVfxParticleAlphaScalePreviewMode: "soft-alpha-lighten-opacity-normalization"
+        }
+      : {}),
+    ...(opacityFloor > 0
+      ? {
+          auroraVfxParticleOpacityFloor: opacityFloor,
+          auroraVfxParticleOpacityFloorPreviewMode:
+            "source-mdl-emitter-visibility-floor-preview"
         }
       : {}),
     auroraVfxParticleAlpha: alpha
@@ -2523,43 +2957,88 @@ function setVfxMaterialTexture(
   vfxColor: THREE.Color,
   atlasPlayback: AuroraAtlasPlaybackBinding | null = null
 ): void {
+  const sourceTextureReference =
+    typeof material.userData?.auroraEmitterTexture === "string" &&
+    material.userData.auroraEmitterTexture.trim().length > 0
+      ? material.userData.auroraEmitterTexture.trim()
+      : typeof material.userData?.auroraPrimaryTextureReference === "string" &&
+          material.userData.auroraPrimaryTextureReference.trim().length > 0
+        ? material.userData.auroraPrimaryTextureReference.trim()
+        : null;
   material.map = particleTexture.texture;
   material.alphaMap = particleTexture.alphaMap ?? null;
-  material.alphaTest = Math.max(
-    material.alphaTest,
+  if (sourceTextureReference) {
+    material.map.userData = {
+      ...material.map.userData,
+      auroraTextureReference:
+        typeof material.map.userData?.auroraTextureReference === "string" &&
+        material.map.userData.auroraTextureReference.trim().length > 0
+          ? material.map.userData.auroraTextureReference
+          : sourceTextureReference
+    };
+    if (material.alphaMap) {
+      material.alphaMap.userData = {
+        ...material.alphaMap.userData,
+        auroraTextureReference:
+          typeof material.alphaMap.userData?.auroraTextureReference === "string" &&
+          material.alphaMap.userData.auroraTextureReference.trim().length > 0
+            ? material.alphaMap.userData.auroraTextureReference
+            : sourceTextureReference
+      };
+    }
+  }
+  const keepNonPunchLightenAlphaTestDisabled =
+    shouldKeepAuroraNonPunchLightenAlphaTestDisabled(material);
+  const textureAlphaTest =
     particleTexture.alphaOnlyConverted ||
-      particleTexture.blackKeyConverted ||
-      particleTexture.softAlphaConverted
-      ? 0.02
+    particleTexture.blackKeyConverted ||
+    particleTexture.softAlphaConverted
+      ? particleTexture.softAlphaConverted
+        ? 0.08
+        : 0.02
       : particleTexture.alphaCompanionApplied
         ? 0.01
-        : 0
-  );
+        : 0;
+  material.alphaTest = keepNonPunchLightenAlphaTestDisabled
+    ? 0
+    : Math.max(material.alphaTest, textureAlphaTest);
   material.color.copy(resolveVfxMaterialTintColor(vfxColor));
-  if (shouldForceVfxBlackKeyFromBlendMode(material.userData?.auroraEmitterBlendMode)) {
+  const shouldUseLightenTextureBlendAdapter =
+    shouldForceVfxBlackKeyFromBlendMode(material.userData?.auroraEmitterBlendMode) &&
+    material.userData?.auroraEmitterSourceMdlRuntimeBlendStrict !== true;
+  if (shouldUseLightenTextureBlendAdapter) {
     const useSoftAlphaLighten =
       particleTexture.alphaCompanionApplied || particleTexture.softAlphaConverted;
-    const useAlphaWeightedLighten =
-      useSoftAlphaLighten ||
-      particleTexture.alphaOnlyConverted ||
-      particleTexture.blackKeyConverted;
+    material.toneMapped = false;
     material.blending = THREE.CustomBlending;
     material.blendEquation = THREE.AddEquation;
-    material.blendSrc = useAlphaWeightedLighten ? THREE.SrcAlphaFactor : THREE.OneFactor;
-    material.blendDst = useSoftAlphaLighten ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor;
+    material.blendSrc = THREE.SrcAlphaFactor;
+    material.blendDst = THREE.OneFactor;
     material.blendEquationAlpha = THREE.AddEquation;
-    material.blendSrcAlpha = THREE.OneFactor;
-    material.blendDstAlpha = useSoftAlphaLighten ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor;
+    material.blendSrcAlpha = THREE.SrcAlphaFactor;
+    material.blendDstAlpha = THREE.OneFactor;
     material.userData = {
       ...material.userData,
       ...(useSoftAlphaLighten
         ? { auroraVfxSoftAlphaOpacityScale: AURORA_SOFT_ALPHA_LIGHTEN_OPACITY_SCALE }
         : {}),
-      auroraEmitterBlendStatePreviewMode: useSoftAlphaLighten
-        ? "aurora-blend-lighten-soft-alpha-adapter"
-        : useAlphaWeightedLighten
-          ? "aurora-blend-lighten-alpha-additive-adapter"
-          : "aurora-blend-lighten-additive-adapter"
+      auroraEmitterBlendStatePreviewMode: "aurora-blend-lighten-mode-2-src-alpha-one",
+      auroraEmitterLightenToneMappedPreviewMode:
+        "lighten-particle-unlit-tone-mapping-disabled",
+      auroraEmitterLightenAlphaTestPreviewMode: keepNonPunchLightenAlphaTestDisabled
+        ? "non-punch-lighten-alpha-test-disabled-source-state1-off"
+        : "texture-alpha-test-enabled"
+    };
+  } else if (
+    shouldForceVfxBlackKeyFromBlendMode(material.userData?.auroraEmitterBlendMode) &&
+    material.userData?.auroraEmitterSourceMdlRuntimeBlendStrict === true
+  ) {
+    material.userData = {
+      ...material.userData,
+      auroraEmitterLightenTextureBlendPreviewMode:
+        "source-mdl-mode-2-src-alpha-one-confirmed",
+      auroraEmitterLightenTextureBlendDiagnostic:
+        "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED_FROM_NWTOOLSET_DISASSEMBLY"
     };
   }
   const atlasFrameState = atlasPlayback
@@ -2585,11 +3064,18 @@ function setVfxMaterialTexture(
   }
   material.userData = {
     ...material.userData,
+    ...(sourceTextureReference ? { auroraPrimaryTextureReference: sourceTextureReference } : {}),
     auroraSharedTexture: particleTexture.sharedTexture,
     auroraAlphaOnlyTexture: particleTexture.alphaOnlyConverted,
     auroraBlackKeyTexture: particleTexture.blackKeyConverted,
     auroraAlphaCompanionTexture: particleTexture.alphaCompanionApplied,
     auroraSoftAlphaMaskTexture: particleTexture.softAlphaConverted,
+    auroraTextureAlphaMode:
+      particleTexture.alphaCompanionApplied || particleTexture.softAlphaConverted
+        ? "blend"
+        : particleTexture.alphaOnlyConverted || particleTexture.blackKeyConverted
+          ? "cutout"
+          : material.userData.auroraTextureAlphaMode,
     ...(atlasPlayback
       ? {
           auroraAtlas: atlasPlayback.atlas,
@@ -2619,32 +3105,34 @@ function resolveVfxMaterialTintColor(fallbackColor: THREE.Color): THREE.Color {
 
 function createAuroraTexturedParticleQuadGeometry(
   width: number,
-  height: number
+  height: number,
+  verticalAnchor: "center" | "bottom" = "center"
 ): THREE.BufferGeometry {
   const halfWidth = width * 0.5;
-  const halfHeight = height * 0.5;
+  const minY = verticalAnchor === "bottom" ? 0 : height * -0.5;
+  const maxY = verticalAnchor === "bottom" ? height : height * 0.5;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(
       [
         -halfWidth,
-        -halfHeight,
+        minY,
         0,
         halfWidth,
-        -halfHeight,
+        minY,
         0,
         -halfWidth,
-        halfHeight,
+        maxY,
         0,
         -halfWidth,
-        halfHeight,
+        maxY,
         0,
         halfWidth,
-        -halfHeight,
+        minY,
         0,
         halfWidth,
-        halfHeight,
+        maxY,
         0
       ],
       3
@@ -2681,6 +3169,7 @@ function createAuroraTexturedParticleQuadGeometry(
   geometry.userData = {
     ...geometry.userData,
     auroraVfxTexturedParticleQuad: true,
+    auroraVfxTexturedParticleVerticalAnchor: verticalAnchor,
     auroraVfxDrawPrimitivePreview: "non-indexed-six-vertex-triangle-list",
     auroraVfxParticleVertexCount: 6,
     auroraParticleDrawIndexedBuffer: false,
@@ -3532,9 +4021,14 @@ function resolveVfxParticleOpacity(
     0,
     1
   );
-  return typeof profile.particleAlphaPreviewClamp === "number"
-    ? Math.min(sourceAlpha, profile.particleAlphaPreviewClamp)
-    : sourceAlpha;
+  const clampedAlpha =
+    typeof profile.particleAlphaPreviewClamp === "number"
+      ? Math.min(sourceAlpha, profile.particleAlphaPreviewClamp)
+      : sourceAlpha;
+  if (profile.flameAlphaPreviewMode === "source-flame-additive-alpha-visibility-floor") {
+    return Math.max(clampedAlpha, 0.34);
+  }
+  return clampedAlpha;
 }
 
 function resolveInitialVfxParticleOpacity(
@@ -3800,6 +4294,10 @@ function hasAuroraKinematicMotion(profile: PlaceableVfxPreviewProfile): boolean 
   );
 }
 
+function resolveAuroraKinematicAxis(): THREE.Vector3 {
+  return new THREE.Vector3(0, 1, 0);
+}
+
 function resolveAuroraKinematicDirection(
   profile: PlaceableVfxPreviewProfile,
   index: number,
@@ -3815,20 +4313,26 @@ function resolveAuroraKinematicDirection(
     Math.PI * 2
   );
   if (spread <= 1e-6) {
-    return new THREE.Vector3(0, 1, 0);
+    return resolveAuroraKinematicAxis();
   }
 
   const maxPolarAngle = clampNumber(spread * 0.5, 0, Math.PI);
   const polarAngle = resolveVfxParticleSeed(index, 733) * maxPolarAngle;
   const azimuth = phase + resolveVfxParticleSeed(index, 421) * Math.PI * 2;
   const sinPolar = Math.sin(polarAngle);
-  const direction = new THREE.Vector3(
-    Math.cos(azimuth) * sinPolar,
-    Math.cos(polarAngle),
-    Math.sin(azimuth) * sinPolar
-  );
+  const axis = resolveAuroraKinematicAxis();
+  const referenceAxis = Math.abs(axis.y) < 0.9
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(1, 0, 0);
+  const tangentA = referenceAxis.addScaledVector(axis, -referenceAxis.dot(axis)).normalize();
+  const tangentB = new THREE.Vector3().crossVectors(axis, tangentA).normalize();
+  const direction = axis
+    .clone()
+    .multiplyScalar(Math.cos(polarAngle))
+    .addScaledVector(tangentA, Math.cos(azimuth) * sinPolar)
+    .addScaledVector(tangentB, Math.sin(azimuth) * sinPolar);
   if (direction.lengthSq() <= 1e-10) {
-    direction.set(0, 1, 0);
+    direction.copy(axis);
   }
   return direction.normalize();
 }
@@ -4169,6 +4673,8 @@ interface AuroraParticleColorSample {
   mode:
     | "aurora-particle-vertex-color"
     | "aurora-particle-color-ambient-tint-disabled"
+    | "aurora-particle-flame-texture-rgb-emissive-boost"
+    | "aurora-particle-flame-texture-rgb-preserved"
     | "aurora-particle-soft-alpha-lighten-color-floor"
     | "semantic-scene-tint-vertex-color"
     | "semantic-fallback-vertex-color";
@@ -4185,6 +4691,8 @@ function resolveAuroraParticleColorSampleAtAge(
   let vertexColorMode:
     | "aurora-particle-vertex-color"
     | "aurora-particle-color-ambient-tint-disabled"
+    | "aurora-particle-flame-texture-rgb-emissive-boost"
+    | "aurora-particle-flame-texture-rgb-preserved"
     | "aurora-particle-soft-alpha-lighten-color-floor"
     | "semantic-scene-tint-vertex-color"
     | "semantic-fallback-vertex-color";
@@ -4231,6 +4739,23 @@ function resolveAuroraParticleColorSampleAtAge(
   if (softAlphaColorFloor) {
     resolvedColor = softAlphaColorFloor;
     vertexColorMode = "aurora-particle-soft-alpha-lighten-color-floor";
+  }
+  if (
+    profile.sourceMdlEmitterPreviewMode === undefined &&
+    profile.flameColorPreviewMode === "source-flame-texture-rgb-preserved" &&
+    material.userData?.auroraEmitterFlameLike === true
+  ) {
+    if (profile.flameIntensityPreviewMode === "source-flame-additive-emissive-boost") {
+      const flameBoost = 1.38;
+      resolvedColor = new THREE.Color(
+        Math.max(resolvedColor.r, 1) * flameBoost,
+        Math.max(resolvedColor.g, 1) * flameBoost,
+        Math.max(resolvedColor.b, 1) * flameBoost
+      );
+      vertexColorMode = "aurora-particle-flame-texture-rgb-emissive-boost";
+    } else {
+      vertexColorMode = "aurora-particle-flame-texture-rgb-preserved";
+    }
   }
   return {
     color: resolvedColor,
@@ -5281,7 +5806,46 @@ function resolveAuroraLightWorldPosition(
       elapsedSeconds,
       true
     ) ?? light.transform?.position ?? [0, 0, 0];
-  return mapAuroraVectorToThree(sourcePosition).multiplyScalar(Math.max(objectRadius, 0.5));
+  const worldPosition = mapAuroraVectorToThree(sourcePosition).multiplyScalar(
+    Math.max(objectRadius, 0.5)
+  );
+  const verticalDisplacement = resolveAuroraLightVerticalDisplacement(
+    light,
+    animation,
+    elapsedSeconds
+  );
+  if (verticalDisplacement !== 0) {
+    worldPosition.y += verticalDisplacement * Math.max(objectRadius, 0.5);
+  }
+  return worldPosition;
+}
+
+function resolveAuroraLightSourceRadius(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined
+): number {
+  const sourceRadius =
+    sampleAuroraLightNumberKeyframesAtElapsed(
+      animation?.radiusTimeline,
+      elapsedSeconds,
+      true
+    ) ?? light.radius ?? 1;
+  return Number.isFinite(sourceRadius) ? sourceRadius : 1;
+}
+
+function resolveAuroraLightSourceUnitScale(objectRadius: number): number {
+  return Math.max(objectRadius, 0.5);
+}
+
+function resolveAuroraLightSourceRadiusWorldDistance(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined,
+  objectRadius: number
+): number {
+  return resolveAuroraLightSourceRadius(light, animation, elapsedSeconds) *
+    resolveAuroraLightSourceUnitScale(objectRadius);
 }
 
 function resolveAuroraLightWorldRadius(
@@ -5290,13 +5854,223 @@ function resolveAuroraLightWorldRadius(
   elapsedSeconds: number | undefined,
   objectRadius: number
 ): number {
-  const sourceRadius =
+  const sourceRadius = resolveAuroraLightSourceRadius(light, animation, elapsedSeconds);
+  return Math.max(
+    objectRadius * 0.9,
+    sourceRadius * resolveAuroraLightSourceUnitScale(objectRadius)
+  );
+}
+
+function resolveAuroraLightQuadraticAttenuation(sourceRadius: number): number {
+  const clampedRadius = Math.max(Number.isFinite(sourceRadius) ? sourceRadius : 1, 0.1);
+  return 9 / (clampedRadius * clampedRadius * 2);
+}
+
+function resolveAuroraLightMultiplier(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined
+): number {
+  const sourceMultiplier =
     sampleAuroraLightNumberKeyframesAtElapsed(
-      animation?.radiusTimeline,
+      animation?.multiplierTimeline,
       elapsedSeconds,
       true
-    ) ?? light.radius ?? 1;
-  return Math.max(objectRadius * 0.9, sourceRadius * Math.max(objectRadius, 0.5));
+    ) ?? light.multiplier ?? 1;
+  return Number.isFinite(sourceMultiplier) ? Math.max(0, sourceMultiplier) : 1;
+}
+
+function resolveAuroraLightShadowRadius(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined
+): number | undefined {
+  return (
+    sampleAuroraLightNumberKeyframesAtElapsed(
+      animation?.shadowRadiusTimeline,
+      elapsedSeconds,
+      true
+    ) ?? light.shadowRadius
+  );
+}
+
+function resolveAuroraLightShadowProjectionSourceRadius(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined
+): number {
+  const shadowRadius = resolveAuroraLightShadowRadius(light, animation, elapsedSeconds);
+  if (typeof shadowRadius === "number" && Number.isFinite(shadowRadius) && shadowRadius > 0) {
+    return shadowRadius;
+  }
+  const sourceRadius = resolveAuroraLightSourceRadius(light, animation, elapsedSeconds);
+  return Number.isFinite(sourceRadius) ? sourceRadius : 0;
+}
+
+function resolveAuroraLightShadowProjectionWorldDistance(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined,
+  objectRadius: number
+): number {
+  return Math.max(
+    0,
+    resolveAuroraLightShadowProjectionSourceRadius(light, animation, elapsedSeconds) *
+      resolveAuroraLightSourceUnitScale(objectRadius)
+  );
+}
+
+function resolveAuroraLightVerticalDisplacement(
+  light: PlaceableAuroraLightNode,
+  animation: PlaceableAuroraLightAnimation | null,
+  elapsedSeconds: number | undefined
+): number {
+  const sourceVerticalDisplacement =
+    sampleAuroraLightNumberKeyframesAtElapsed(
+      animation?.verticalDisplacementTimeline,
+      elapsedSeconds,
+      true
+    ) ?? light.verticalDisplacement ?? 0;
+  return Number.isFinite(sourceVerticalDisplacement) ? sourceVerticalDisplacement : 0;
+}
+
+function hasAuroraLightFlarePayload(light: PlaceableAuroraLightNode): boolean {
+  return (
+    light.generateFlare !== undefined ||
+    (light.textureNames?.length ?? 0) > 0 ||
+    (light.flareSizes?.length ?? 0) > 0 ||
+    (light.flarePositions?.length ?? 0) > 0 ||
+    (light.flareColorShifts?.length ?? 0) > 0 ||
+    light.flareRadius !== undefined
+  );
+}
+
+function resolveAuroraLightFlarePreviewCount(light: PlaceableAuroraLightNode): number {
+  if (light.generateFlare === false) {
+    return 0;
+  }
+  const sourceCount = Math.max(
+    light.textureNames?.length ?? 0,
+    light.flareSizes?.length ?? 0,
+    light.flarePositions?.length ?? 0,
+    light.flareColorShifts?.length ?? 0
+  );
+  if (sourceCount > 0) {
+    return sourceCount;
+  }
+  return light.generateFlare === true ? 1 : 0;
+}
+
+function createAuroraLightFlarePreviewColor(
+  baseColor: THREE.Color,
+  colorShift: [number, number, number] | undefined
+): THREE.Color {
+  if (!colorShift) {
+    return baseColor.clone();
+  }
+  return new THREE.Color(
+    clampNumber(baseColor.r * colorShift[0], 0, 1),
+    clampNumber(baseColor.g * colorShift[1], 0, 1),
+    clampNumber(baseColor.b * colorShift[2], 0, 1)
+  );
+}
+
+function updateAuroraLightFlarePreviewSprite(
+  entry: AuroraLightFlarePreviewSpriteEntry,
+  index: number,
+  count: number,
+  light: PlaceableAuroraLightNode,
+  color: THREE.Color,
+  radius: number,
+  objectRadius: number
+): void {
+  const normalizedPosition =
+    typeof entry.sourcePosition === "number" && Number.isFinite(entry.sourcePosition)
+      ? entry.sourcePosition
+      : count <= 1
+        ? 0.5
+        : index / Math.max(count - 1, 1);
+  const sourceSize =
+    typeof entry.sourceSize === "number" && Number.isFinite(entry.sourceSize)
+      ? Math.max(entry.sourceSize, 0.02)
+      : 0.24;
+  const sourceFlareRadius =
+    typeof light.flareRadius === "number" && Number.isFinite(light.flareRadius)
+      ? Math.max(light.flareRadius, 0)
+      : radius;
+  const worldScale = Math.max(objectRadius, 0.5);
+  const axisRadius = Math.max(objectRadius * 0.24, sourceFlareRadius * worldScale * 0.035);
+  const axisOffset = (normalizedPosition - 0.5) * axisRadius;
+  const spriteSize = Math.max(
+    objectRadius * 0.08,
+    sourceSize * worldScale * (0.38 + Math.sqrt(Math.max(radius, 0.01)) * 0.08)
+  );
+
+  entry.sprite.position.set(axisOffset, 0, -axisOffset * 0.18);
+  entry.sprite.scale.setScalar(spriteSize);
+  entry.material.color.copy(createAuroraLightFlarePreviewColor(color, entry.sourceColorShift));
+  entry.material.opacity = clampNumber(0.16 + sourceSize * 0.35, 0.18, 0.52);
+  entry.sprite.userData = {
+    ...entry.sprite.userData,
+    auroraLightFlarePreviewOffset: [entry.sprite.position.x, entry.sprite.position.y, entry.sprite.position.z],
+    auroraLightFlarePreviewScale: spriteSize,
+    auroraLightFlarePreviewColor: [
+      entry.material.color.r,
+      entry.material.color.g,
+      entry.material.color.b
+    ],
+    auroraLightFlarePreviewOpacity: entry.material.opacity
+  };
+}
+
+function createAuroraLightFlarePreviewSprites(
+  light: PlaceableAuroraLightNode,
+  color: THREE.Color,
+  radius: number,
+  objectRadius: number
+): AuroraLightFlarePreviewSpriteEntry[] {
+  const texture = getAuroraLightHaloTexture();
+  const count = resolveAuroraLightFlarePreviewCount(light);
+  if (count <= 0) {
+    return [];
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const material = new THREE.SpriteMaterial({
+      ...(texture ? { map: texture } : {}),
+      color,
+      transparent: true,
+      opacity: 0.25,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 26 - index;
+    const entry: AuroraLightFlarePreviewSpriteEntry = {
+      sprite,
+      material,
+      sourceIndex: index,
+      sourceTextureName: light.textureNames?.[index],
+      sourceSize: light.flareSizes?.[index],
+      sourcePosition: light.flarePositions?.[index],
+      sourceColorShift: light.flareColorShifts?.[index]
+    };
+    sprite.userData = {
+      auroraLightPreviewRole: "source-mdl-light-flare-sprite",
+      auroraLightNodeName: light.nodeName,
+      auroraLightSourceNodeKind: light.sourceNodeKind,
+      auroraLightFlarePreviewMode: AURORA_LIGHT_FLARE_PREVIEW_MODE,
+      auroraLightFlareProofStatus: AURORA_LIGHT_FLARE_PREVIEW_PROOF_STATUS,
+      auroraLightFlareSourceIndex: index,
+      auroraLightFlareSourceTextureName: entry.sourceTextureName,
+      auroraLightFlareSourceSize: entry.sourceSize,
+      auroraLightFlareSourcePosition: entry.sourcePosition,
+      auroraLightFlareSourceColorShift: entry.sourceColorShift,
+      auroraLightFlareRadius: light.flareRadius
+    };
+    updateAuroraLightFlarePreviewSprite(entry, index, count, light, color, radius, objectRadius);
+    return entry;
+  });
 }
 
 function getAuroraLightHaloTexture(): THREE.CanvasTexture | null {
@@ -5331,32 +6105,2149 @@ function getAuroraLightHaloTexture(): THREE.CanvasTexture | null {
   return auroraLightHaloTexture;
 }
 
+export function createPlaceableTwoDaLightPreviewGroup(
+  payload: PlaceableViewportRenderPayload,
+  objectRadius: number,
+  options: PlaceableTwoDaLightPreviewOptions = {}
+): THREE.Group | null {
+  const falloffShaderPatch = installAuroraLinearLightFalloffShaderChunk();
+  const metadata = resolvePlaceableTwoDaLightMetadata(payload);
+  if (!metadata) {
+    return null;
+  }
+
+  const colorEnergy = resolvePlaceableTwoDaLightColorEnergy(metadata.color);
+  const color = new THREE.Color(
+    clampNumber(metadata.color[0] / colorEnergy, 0, 1),
+    clampNumber(metadata.color[1] / colorEnergy, 0, 1),
+    clampNumber(metadata.color[2] / colorEnergy, 0, 1)
+  );
+  const displayColor = resolvePlaceableTwoDaLightDisplayColor(
+    color,
+    metadata.color,
+    metadata.toolsetColor
+  );
+  const offsetScale = options.offsetScale ?? Math.max(objectRadius, 0.5);
+  const sourceUnitScale = resolvePlaceableTwoDaLightSourceUnitScale(objectRadius, options);
+  const sourceUnitScaleSource =
+    options.sourceUnitScaleSource ?? PLACEABLE_TWO_DA_LIGHT_SOURCE_UNIT_SCALE_SOURCE;
+  const worldOffset = mapAuroraVectorToThree(metadata.offset).multiplyScalar(offsetScale);
+  const energyScale = Math.sqrt(colorEnergy);
+  const distance = resolvePlaceableTwoDaLightDistance(
+    objectRadius,
+    metadata.shadowSize,
+    sourceUnitScale
+  );
+  const retailScore = resolveAuroraLightManagerPreviewScore({
+    position: worldOffset,
+    sourceRadius: distance,
+    activeSelectionRadiusOverride:
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS * sourceUnitScale,
+    multiplier: colorEnergy,
+    priority: 0,
+    enforceActiveSelectionRadius: true
+  });
+  const hasShadowSize =
+    typeof metadata.shadowSize === "number" && Number.isFinite(metadata.shadowSize);
+  const shadowSizeProofStatus = hasShadowSize
+    ? metadata.shadowSizeProofStatus ?? PLACEABLE_TWO_DA_SHADOW_SIZE_PROOF_STATUS
+    : PLACEABLE_TWO_DA_SHADOW_SIZE_MISSING_PROOF_STATUS;
+  const shadowSizeSource = metadata.shadowSizeSource ?? "placeables.2da.ShadowSize";
+  const showDiagnosticGizmos = options.showDiagnosticGizmos === true;
+  const group = new THREE.Group();
+  group.name = "placeable_2da_light_source";
+  group.position.copy(worldOffset);
+
+  const pointLight = new THREE.PointLight(
+    color,
+    colorEnergy,
+    distance,
+    AURORA_LIGHT_LINEAR_FALLOFF_DECAY
+  );
+  pointLight.userData = {
+    placeableTwoDaLightPreviewStatus: "active",
+    placeableTwoDaLightPreviewRole: "placeables-2da-point-light",
+    placeableTwoDaLightSourceModelFileName: PLACEABLE_TWO_DA_LIGHT_SOURCE_MODEL_FILE_NAME,
+    placeableTwoDaLightSourceNodeName: PLACEABLE_TWO_DA_LIGHT_SOURCE_NODE_NAME,
+    placeableTwoDaLightColorRow: metadata.rowId,
+    placeableTwoDaLightColorRaw: metadata.raw,
+    placeableTwoDaLightColorLabel: metadata.label,
+    placeableTwoDaLightColorSourceKey: metadata.sourceKey,
+    ...buildAuroraLightManagerPreviewScoreUserData(
+      "placeableTwoDaLight",
+      retailScore
+    ),
+    placeableTwoDaLightState: metadata.lightState,
+    placeableTwoDaLightStateSource: metadata.lightStateSource,
+    placeableTwoDaLightStateProofStatus: metadata.lightStateProofStatus,
+    placeableTwoDaLightStateDefaulted: metadata.lightStateDefaulted,
+    placeableTwoDaLightColor: metadata.color,
+    placeableTwoDaLightColorSource: "lightcolor.2da.RGB",
+    placeableTwoDaLightColorProofStatus: "source-backed-lightcolor-2da",
+    placeableTwoDaLightRgbVectorSource: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_SOURCE,
+    placeableTwoDaLightRgbVectorProofStatus: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_PROOF_STATUS,
+    placeableTwoDaLightPreviewColor: [color.r, color.g, color.b],
+    placeableTwoDaLightDisplayColor: [displayColor.r, displayColor.g, displayColor.b],
+    placeableTwoDaLightDisplayColorSource: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE
+      : "lightcolor.2da RGB normalized display fallback",
+    placeableTwoDaLightToolsetColor: metadata.toolsetColor,
+    placeableTwoDaLightToolsetColorSource: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE
+      : undefined,
+    placeableTwoDaLightToolsetColorEvidence: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_EVIDENCE
+      : undefined,
+    placeableTwoDaLightToolsetColorProofStatus: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_PROOF_STATUS
+      : undefined,
+    placeableTwoDaLightIntensity: colorEnergy,
+    placeableTwoDaLightIntensitySource: PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE,
+    placeableTwoDaLightIntensityProofStatus: PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS,
+    placeableTwoDaLightDistance: distance,
+    placeableTwoDaLightDistanceSource: PLACEABLE_TWO_DA_LIGHT_DISTANCE_SOURCE,
+    placeableTwoDaLightDistanceUsesShadowSize: false,
+    placeableTwoDaLightSourceRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS,
+    placeableTwoDaLightSourceRadiusUnits: PLACEABLE_TWO_DA_LIGHT_RADIUS_UNITS,
+    placeableTwoDaLightSourceRadiusController: "0x58",
+    placeableTwoDaLightSourceRadiusSource: PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE,
+    placeableTwoDaLightSourceUnitScale: sourceUnitScale,
+    placeableTwoDaLightSourceUnitScaleSource: sourceUnitScaleSource,
+    placeableTwoDaLightSourceRadiusWorldDistance: distance,
+    placeableTwoDaLightSourceRadiusWorldDistanceSource:
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+    placeableTwoDaLightSourceShadowRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS,
+    placeableTwoDaLightSourceShadowRadiusController: "0x60",
+    placeableTwoDaLightSourceShadowRadiusSource: PLACEABLE_TWO_DA_LIGHT_SHADOW_RADIUS_SOURCE,
+    placeableTwoDaLightSourceVerticalDisplacement:
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT,
+    placeableTwoDaLightSourceVerticalDisplacementController: "0x64",
+    placeableTwoDaLightSourceVerticalDisplacementSource:
+      PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE,
+    placeableTwoDaLightRadiusProofStatus: PLACEABLE_TWO_DA_LIGHT_RADIUS_PROOF_STATUS,
+    placeableTwoDaLightFalloffMode: "linear-radius-clamped",
+    placeableTwoDaLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+    placeableTwoDaLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+    placeableTwoDaLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+    placeableTwoDaLightFalloffRendererSource: falloffShaderPatch.source,
+    placeableTwoDaLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+    placeableTwoDaLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightQuadraticAtten: resolveAuroraLightQuadraticAttenuation(
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS
+    ),
+    placeableTwoDaLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+    placeableTwoDaLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+    placeableTwoDaLightOffset: metadata.offset,
+    placeableTwoDaLightOffsetSource: "placeables.2da.LightOffset",
+    placeableTwoDaLightOffsetProofStatus: "source-backed-placeables-2da",
+    placeableTwoDaLightMappedOffset: [worldOffset.x, worldOffset.y, worldOffset.z],
+    placeableTwoDaLightOffsetScale: offsetScale,
+    placeableTwoDaShadowSize: metadata.shadowSize,
+    placeableTwoDaShadowSizeSource: shadowSizeSource,
+    placeableTwoDaShadowSizeProofStatus: shadowSizeProofStatus
+  };
+  group.add(pointLight);
+
+  const haloTexture = getAuroraLightHaloTexture();
+  const haloMaterial = haloTexture
+    ? new THREE.SpriteMaterial({
+        map: haloTexture,
+        color: displayColor,
+        transparent: true,
+        opacity: clampNumber(0.12 + colorEnergy * 0.025, 0.14, 0.3),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false
+      })
+    : null;
+  const halo = haloMaterial ? new THREE.Sprite(haloMaterial) : null;
+  if (halo) {
+    halo.scale.setScalar(
+      Math.max(objectRadius * 0.46, Math.sqrt(distance) * (0.18 + energyScale * 0.05))
+    );
+    halo.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 22;
+    halo.userData = {
+      placeableTwoDaLightPreviewRole: "placeables-2da-light-halo"
+    };
+    group.add(halo);
+  }
+
+  if (showDiagnosticGizmos) {
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: displayColor,
+      transparent: true,
+      opacity: 0.94,
+      blending: THREE.NormalBlending,
+      depthWrite: false,
+      depthTest: false
+    });
+    const core = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), coreMaterial);
+    core.scale.setScalar(Math.max(objectRadius * (0.1 + energyScale * 0.035), 0.05));
+    core.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 24;
+    core.userData = {
+      placeableTwoDaLightPreviewRole: "placeables-2da-light-core"
+    };
+    group.add(core);
+  }
+
+  const hasAreaShadowOpacityFactor =
+    typeof options.areaShadowOpacityFactor === "number" &&
+    Number.isFinite(options.areaShadowOpacityFactor);
+  const areaShadowOpacityFactor = hasAreaShadowOpacityFactor
+    ? clampNumber(options.areaShadowOpacityFactor ?? 1, 0, 1)
+    : undefined;
+  const fastShadow = createPlaceableTwoDaFastShadowProxy(
+    options.displayShadows === false ? undefined : metadata.shadowSize,
+    worldOffset.y,
+    {
+      areaShadowOpacity:
+        typeof options.areaShadowOpacity === "number" && Number.isFinite(options.areaShadowOpacity)
+          ? options.areaShadowOpacity
+          : undefined,
+      areaShadowOpacitySource: options.areaShadowOpacitySource,
+      areaShadowOpacityFactor,
+      areaShadowOpacityFactorSource: options.areaShadowOpacityFactorSource,
+      sourceUnitScale,
+      fastShadowTexture: options.fastShadowTexture,
+      fastShadowTextureSource: options.fastShadowTextureSource,
+      fastShadowTextureProofStatus: options.fastShadowTextureProofStatus,
+      showDiagnosticGizmos
+    }
+  );
+  if (fastShadow) {
+    group.add(fastShadow);
+  }
+
+  const receiver = options.showPreviewReceiver
+    ? createPlaceableTwoDaLightReceiverProxy(
+        objectRadius,
+        distance,
+        worldOffset.y,
+        displayColor
+      )
+    : null;
+  if (receiver) {
+    group.add(receiver);
+  }
+
+  if (showDiagnosticGizmos) {
+    const radiusGizmo = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 24, 12),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.1,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        wireframe: true
+      })
+    );
+    radiusGizmo.scale.setScalar(Math.max(objectRadius * 0.5, distance * 0.18));
+    radiusGizmo.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 16;
+    radiusGizmo.userData = {
+      placeableTwoDaLightPreviewRole: "placeables-2da-light-radius-gizmo"
+    };
+    group.add(radiusGizmo);
+  }
+
+  group.userData = {
+    placeableTwoDaLightPreviewStatus: "active",
+    placeableTwoDaLightPreviewMode: "placeables-2da-lightcolor",
+    placeableTwoDaLightSourceModelFileName: PLACEABLE_TWO_DA_LIGHT_SOURCE_MODEL_FILE_NAME,
+    placeableTwoDaLightSourceNodeName: PLACEABLE_TWO_DA_LIGHT_SOURCE_NODE_NAME,
+    placeableTwoDaLightColorRow: metadata.rowId,
+    placeableTwoDaLightColorRaw: metadata.raw,
+    placeableTwoDaLightColorLabel: metadata.label,
+    placeableTwoDaLightColorSourceKey: metadata.sourceKey,
+    ...buildAuroraLightManagerPreviewScoreUserData(
+      "placeableTwoDaLight",
+      retailScore
+    ),
+    placeableTwoDaLightState: metadata.lightState,
+    placeableTwoDaLightStateSource: metadata.lightStateSource,
+    placeableTwoDaLightStateProofStatus: metadata.lightStateProofStatus,
+    placeableTwoDaLightStateDefaulted: metadata.lightStateDefaulted,
+    placeableTwoDaLightColor: metadata.color,
+    placeableTwoDaLightToolsetColor: metadata.toolsetColor,
+    placeableTwoDaLightToolsetColorSource: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE
+      : undefined,
+    placeableTwoDaLightToolsetColorEvidence: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_EVIDENCE
+      : undefined,
+    placeableTwoDaLightToolsetColorProofStatus: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_PROOF_STATUS
+      : undefined,
+    placeableTwoDaLightPreviewColor: [color.r, color.g, color.b],
+    placeableTwoDaLightDisplayColor: [displayColor.r, displayColor.g, displayColor.b],
+    placeableTwoDaLightDisplayColorSource: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE
+      : "lightcolor.2da RGB normalized display fallback",
+    placeableTwoDaLightColorSource: "lightcolor.2da.RGB",
+    placeableTwoDaLightColorProofStatus: "source-backed-lightcolor-2da",
+    placeableTwoDaLightRgbVectorSource: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_SOURCE,
+    placeableTwoDaLightRgbVectorProofStatus: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_PROOF_STATUS,
+    placeableTwoDaLightIntensity: colorEnergy,
+    placeableTwoDaLightIntensitySource: PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE,
+    placeableTwoDaLightIntensityProofStatus: PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS,
+    placeableTwoDaLightDistance: distance,
+    placeableTwoDaLightDistanceSource: PLACEABLE_TWO_DA_LIGHT_DISTANCE_SOURCE,
+    placeableTwoDaLightSourceRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS,
+    placeableTwoDaLightSourceRadiusUnits: PLACEABLE_TWO_DA_LIGHT_RADIUS_UNITS,
+    placeableTwoDaLightSourceRadiusController: "0x58",
+    placeableTwoDaLightSourceRadiusSource: PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE,
+    placeableTwoDaLightSourceUnitScale: sourceUnitScale,
+    placeableTwoDaLightSourceUnitScaleSource: sourceUnitScaleSource,
+    placeableTwoDaLightSourceRadiusWorldDistance: distance,
+    placeableTwoDaLightSourceRadiusWorldDistanceSource:
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+    placeableTwoDaLightSourceShadowRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS,
+    placeableTwoDaLightSourceShadowRadiusController: "0x60",
+    placeableTwoDaLightSourceShadowRadiusSource: PLACEABLE_TWO_DA_LIGHT_SHADOW_RADIUS_SOURCE,
+    placeableTwoDaLightSourceVerticalDisplacement:
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT,
+    placeableTwoDaLightSourceVerticalDisplacementController: "0x64",
+    placeableTwoDaLightSourceVerticalDisplacementSource:
+      PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE,
+    placeableTwoDaLightRadiusProofStatus: PLACEABLE_TWO_DA_LIGHT_RADIUS_PROOF_STATUS,
+    placeableTwoDaLightFalloffMode: "linear-radius-clamped",
+    placeableTwoDaLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+    placeableTwoDaLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+    placeableTwoDaLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+    placeableTwoDaLightFalloffRendererSource: falloffShaderPatch.source,
+    placeableTwoDaLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+    placeableTwoDaLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightQuadraticAtten: resolveAuroraLightQuadraticAttenuation(
+      PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS
+    ),
+    placeableTwoDaLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+    placeableTwoDaLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+    placeableTwoDaLightOffset: metadata.offset,
+    placeableTwoDaLightOffsetSource: "placeables.2da.LightOffset",
+    placeableTwoDaLightOffsetProofStatus: "source-backed-placeables-2da",
+    placeableTwoDaLightMappedOffset: [worldOffset.x, worldOffset.y, worldOffset.z],
+    placeableTwoDaLightOffsetScale: offsetScale,
+    placeableTwoDaShadowSize: metadata.shadowSize,
+    placeableTwoDaShadowSizeSource: shadowSizeSource,
+    placeableTwoDaShadowSizeProofStatus: shadowSizeProofStatus,
+    placeableTwoDaLightReceiverStatus: receiver ? "active" : "hidden",
+    placeableTwoDaLightReceiverRadius:
+      typeof receiver?.userData.placeableTwoDaLightReceiverRadius === "number"
+        ? receiver.userData.placeableTwoDaLightReceiverRadius
+        : undefined,
+    placeableTwoDaLightReceiverSource: receiver
+      ? PLACEABLE_TWO_DA_LIGHT_RECEIVER_SOURCE
+      : undefined,
+    placeableTwoDaFastShadowStatus: fastShadow
+      ? "active"
+      : options.displayShadows === false
+        ? "hidden-by-display-shadows-toggle"
+        : "missing",
+    placeableTwoDaFastShadowRendererMode: fastShadow
+      ? PLACEABLE_TWO_DA_FAST_SHADOW_RENDERER_MODE
+      : undefined,
+    placeableTwoDaShadowSizeLane: fastShadow
+      ? fastShadow.userData.placeableTwoDaShadowSizeLane
+      : undefined,
+    placeableTwoDaShadowSizeSelectionRule: fastShadow
+      ? fastShadow.userData.placeableTwoDaShadowSizeSelectionRule
+      : undefined,
+    placeableTwoDaShadowSizeSelectionSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaShadowSizeSelectionSource
+      : undefined,
+    placeableTwoDaShadowSizeSelectionProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaShadowSizeSelectionProofStatus
+      : undefined,
+    placeableTwoDaFastShadowModelResRef: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowModelResRef
+      : undefined,
+    placeableTwoDaFastShadowModelFileName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowModelFileName
+      : undefined,
+    placeableTwoDaFastShadowEmitterNodeName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterNodeName
+      : undefined,
+    placeableTwoDaFastShadowSourceModelHash: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowSourceModelHash
+      : undefined,
+    placeableTwoDaFastShadowSourceNodeOffset: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowSourceNodeOffset
+      : undefined,
+    placeableTwoDaFastShadowEmitterSize: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterSize
+      : undefined,
+    placeableTwoDaFastShadowGeometryType: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowGeometryType
+      : undefined,
+    placeableTwoDaFastShadowQuadSize: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowQuadSize
+      : undefined,
+    placeableTwoDaFastShadowGeometrySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowGeometrySource
+      : undefined,
+    placeableTwoDaFastShadowGeometryProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowGeometryProofStatus
+      : undefined,
+    placeableTwoDaFastShadowEmitterSizeSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterSizeSource
+      : undefined,
+    placeableTwoDaFastShadowTexture: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTexture
+      : undefined,
+    placeableTwoDaFastShadowTextureBindingStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTextureBindingStatus
+      : undefined,
+    placeableTwoDaFastShadowTextureBindingSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTextureBindingSource
+      : undefined,
+    placeableTwoDaFastShadowTextureBindingProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTextureBindingProofStatus
+      : undefined,
+    placeableTwoDaFastShadowTextureMapBound: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTextureMapBound
+      : undefined,
+    placeableTwoDaFastShadowTextureBindingMapKind: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowTextureBindingMapKind
+      : undefined,
+    placeableTwoDaFastShadowEmitterType: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterType
+      : undefined,
+    placeableTwoDaFastShadowRenderMode: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowRenderMode
+      : undefined,
+    placeableTwoDaFastShadowBlendMode: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowBlendMode
+      : undefined,
+    placeableTwoDaFastShadowEmitterPosition: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterPosition
+      : undefined,
+    placeableTwoDaFastShadowEmitterAlphaStart: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterAlphaStart
+      : undefined,
+    placeableTwoDaFastShadowEmitterAlphaEnd: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowEmitterAlphaEnd
+      : undefined,
+    placeableTwoDaFastShadowRadius: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowRadius
+      : undefined,
+    placeableTwoDaFastShadowRadiusSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowRadiusSource
+      : undefined,
+    placeableTwoDaFastShadowOpacitySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowOpacitySource
+      : undefined,
+    placeableTwoDaFastShadowOpacity: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowOpacity
+      : undefined,
+    placeableTwoDaFastShadowBaseOpacity: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowBaseOpacity
+      : undefined,
+    placeableTwoDaFastShadowBaseOpacitySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowBaseOpacitySource
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacity: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowAreaOpacity
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacitySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowAreaOpacitySource
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityFactor: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowAreaOpacityFactor
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityFactorSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowAreaOpacityFactorSource
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowAreaOpacityProofStatus
+      : undefined,
+    placeableTwoDaFastShadowOpacityProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowOpacityProofStatus
+      : undefined,
+    placeableTwoDaFastShadowProjectionStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowProjectionStatus
+      : undefined,
+    placeableTwoDaFastShadowProjectionSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowProjectionSource
+      : undefined,
+    placeableTwoDaFastShadowProjectionProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowProjectionProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterName
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterGeometryStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterGeometryStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterGeometrySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterGeometrySource
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterSourceVertexCount: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterSourceVertexCount
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSize: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSize
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterEdgeCount: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterEdgeCount
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterVertexRecordCount: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterVertexRecordCount
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterIndexCount: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterIndexCount
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterRecordsPerSourceVertex: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterRecordsPerSourceVertex
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterIndicesPerEdge: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterIndicesPerEdge
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterWAttribute: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterWAttribute
+      : undefined,
+    placeableTwoDaFastShadowVolumeCasterDiagnosticVisible: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeCasterDiagnosticVisible
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewName
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewVisible: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewVisible
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPositionSource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewLightPositionSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistanceSource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistanceSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacity: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeProjectionPreviewOpacity
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource
+      : undefined,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilRendererMode: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilRendererMode
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilFrontName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilFrontName
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilBackName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilBackName
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilZFailFrontName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilZFailFrontName
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilZFailBackName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilZFailBackName
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverName: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverName
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilVisible: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilVisible
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilWAttribute: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilWAttribute
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilLightPosition: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilLightPosition
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilLightPositionSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilLightPositionSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistance: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilExtrusionDistance
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistanceSource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeStencilExtrusionDistanceSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverSize: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverSize
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacity: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacity
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverFunc: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverFunc
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilVolumePasses: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilVolumePasses
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilPassStateSamples: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilPassStateSamples
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilReceiverState: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilReceiverState
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilStateProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilStateProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequence: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeStencilRetailOpSequence
+      : undefined,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderShaderNames: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderShaderNames
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderBuckets: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderBuckets
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderBucketPhases: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderBucketPhases
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderBucketPhaseSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeRenderBucketPhaseProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateCallSequence: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderStateCallSequence
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateCallSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderStateCallSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateCallProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeRenderStateCallProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSource: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeRenderStateWrapperSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrder: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeLocalDrawStateOrder
+      : undefined,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeLocalDrawStateOrderSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderBlocker: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeLocalDrawStateOrderBlocker
+      : undefined,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderProofStatus: fastShadow
+      ? fastShadow.userData
+          .placeableTwoDaFastShadowVolumeLocalDrawStateOrderProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeShaderUniformSemantics: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeShaderUniformSemantics
+      : undefined,
+    placeableTwoDaFastShadowVolumeShaderUniformSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeShaderUniformSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeShaderUniformProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeShaderUniformProofStatus
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderPathSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderPathSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeDrawWrapperSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeDrawWrapperSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeLightProfileSource: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeLightProfileSource
+      : undefined,
+    placeableTwoDaFastShadowVolumeRenderPathProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowVolumeRenderPathProofStatus
+      : undefined,
+    placeableTwoDaFastShadowProofStatus: fastShadow
+      ? fastShadow.userData.placeableTwoDaFastShadowProofStatus
+      : options.displayShadows === false
+        ? "hidden-by-display-shadows-toggle"
+        : "missing-no-positive-placeables-2da-shadowsize",
+    placeableTwoDaFastShadowDisabledReason:
+      !fastShadow && options.displayShadows === false ? "Display Shadows=false" : undefined,
+    placeableTwoDaFastShadowDisabledSource:
+      !fastShadow && options.displayShadows === false
+        ? "Workspace canvas Display Shadows toggle"
+        : undefined,
+    placeableTwoDaFastShadowDisabledProofStatus:
+      !fastShadow && options.displayShadows === false
+        ? "workspace-display-shadows-toggle"
+        : undefined,
+    placeableTwoDaStaticLightingToggleSource: PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_SOURCE,
+    placeableTwoDaStaticLightingToggleEvidence:
+      PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_EVIDENCE,
+    placeableTwoDaStaticLightingToggleProofStatus:
+      "source-backed-nwscript-static-lighting-recompute",
+    placeableTwoDaStaticLightingRecomputeHint:
+      PLACEABLE_TWO_DA_STATIC_LIGHTING_RECOMPUTE_HINT,
+    placeableTwoDaStaticLightingRecomputeToken:
+      createPlaceableTwoDaStaticLightingRecomputeToken(metadata),
+    placeableTwoDaLightDiagnosticGizmosVisible: showDiagnosticGizmos
+  };
+  return group;
+}
+
+function resolvePlaceableTwoDaLightDisplayColor(
+  previewColor: THREE.Color,
+  sourceColor: [number, number, number],
+  toolsetColor?: [number, number, number]
+): THREE.Color {
+  if (toolsetColor) {
+    const maxToolsetChannel = Math.max(...toolsetColor, 1);
+    return new THREE.Color(
+      clampNumber(toolsetColor[0] / maxToolsetChannel, 0, 1),
+      clampNumber(toolsetColor[1] / maxToolsetChannel, 0, 1),
+      clampNumber(toolsetColor[2] / maxToolsetChannel, 0, 1)
+    );
+  }
+
+  const maxChannel = Math.max(...sourceColor);
+  const minChannel = Math.min(...sourceColor);
+  const displayColor = previewColor.clone();
+  if (maxChannel - minChannel <= 0.02) {
+    return displayColor;
+  }
+
+  const hsl = { h: 0, s: 0, l: 0 };
+  displayColor.getHSL(hsl);
+  displayColor.setHSL(
+    hsl.h,
+    clampNumber(Math.max(hsl.s, 0.52), 0, 0.95),
+    clampNumber(Math.min(hsl.l, 0.62), 0.34, 0.68)
+  );
+  return displayColor;
+}
+
+function createPlaceableTwoDaStaticLightingRecomputeToken(
+  metadata: PlaceableTwoDaLightMetadata
+): string {
+  return [
+    metadata.lightState,
+    metadata.rowId ?? metadata.raw ?? "unknown",
+    ...metadata.color,
+    ...metadata.offset,
+    metadata.shadowSize ?? "none"
+  ].join(":");
+}
+
+export function resolvePlaceableTwoDaLightPreviewStatusUserData(
+  payload: PlaceableViewportRenderPayload
+): Record<string, string | number | boolean | readonly number[] | undefined> | null {
+  const sourceUserData = resolvePlaceableTwoDaLightPreviewSourceUserData(payload);
+  if (!sourceUserData || sourceUserData.placeableTwoDaLightState !== 0) {
+    return null;
+  }
+
+  return {
+    ...sourceUserData,
+    placeableTwoDaLightPreviewStatus: "off-by-lightstate",
+    placeableTwoDaLightPreviewMode: "placeables-2da-lightcolor",
+    placeableTwoDaLightDisabledReason: "LightState=0"
+  };
+}
+
+export function resolvePlaceableTwoDaLightPreviewSourceUserData(
+  payload: PlaceableViewportRenderPayload
+): Record<string, string | number | boolean | readonly number[] | undefined> | null {
+  const metadata = resolvePlaceableTwoDaLightRawMetadata(payload);
+  if (!metadata) {
+    return null;
+  }
+  const hasShadowSize =
+    typeof metadata.shadowSize === "number" && Number.isFinite(metadata.shadowSize);
+
+  return {
+    placeableTwoDaLightPreviewMode: "placeables-2da-lightcolor",
+    placeableTwoDaLightColorRow: metadata.rowId,
+    placeableTwoDaLightColorRaw: metadata.raw,
+    placeableTwoDaLightColorLabel: metadata.label,
+    placeableTwoDaLightColorSourceKey: metadata.sourceKey,
+    placeableTwoDaLightState: metadata.lightState,
+    placeableTwoDaLightStateSource: metadata.lightStateSource,
+    placeableTwoDaLightStateProofStatus: metadata.lightStateProofStatus,
+    placeableTwoDaLightStateDefaulted: metadata.lightStateDefaulted,
+    placeableTwoDaLightColor: metadata.color,
+    placeableTwoDaLightToolsetColor: metadata.toolsetColor,
+    placeableTwoDaLightToolsetColorSource: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE
+      : undefined,
+    placeableTwoDaLightToolsetColorEvidence: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_EVIDENCE
+      : undefined,
+    placeableTwoDaLightToolsetColorProofStatus: metadata.toolsetColor
+      ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_PROOF_STATUS
+      : undefined,
+    placeableTwoDaLightColorSource: "lightcolor.2da.RGB",
+    placeableTwoDaLightColorProofStatus: "source-backed-lightcolor-2da",
+    placeableTwoDaLightOffset: metadata.offset,
+    placeableTwoDaLightOffsetSource: "placeables.2da.LightOffset",
+    placeableTwoDaLightOffsetProofStatus: "source-backed-placeables-2da",
+    placeableTwoDaShadowSize: metadata.shadowSize,
+    placeableTwoDaShadowSizeSource: metadata.shadowSizeSource ?? "placeables.2da.ShadowSize",
+    placeableTwoDaShadowSizeProofStatus: hasShadowSize
+      ? metadata.shadowSizeProofStatus ?? PLACEABLE_TWO_DA_SHADOW_SIZE_PROOF_STATUS
+      : PLACEABLE_TWO_DA_SHADOW_SIZE_MISSING_PROOF_STATUS,
+    placeableTwoDaStaticLightingToggleSource: PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_SOURCE,
+    placeableTwoDaStaticLightingToggleEvidence:
+      PLACEABLE_TWO_DA_STATIC_LIGHTING_TOGGLE_EVIDENCE,
+    placeableTwoDaStaticLightingToggleProofStatus:
+      "source-backed-nwscript-static-lighting-recompute",
+    placeableTwoDaStaticLightingRecomputeHint:
+      PLACEABLE_TWO_DA_STATIC_LIGHTING_RECOMPUTE_HINT,
+    placeableTwoDaStaticLightingRecomputeToken:
+      createPlaceableTwoDaStaticLightingRecomputeToken(metadata)
+  };
+}
+
+function createPlaceableTwoDaLightReceiverProxy(
+  objectRadius: number,
+  lightDistance: number,
+  lightMappedOffsetY: number,
+  displayColor: THREE.Color
+): THREE.Mesh {
+  const radius = Math.max(objectRadius * 0.68, lightDistance * 0.24);
+  const receiverMaterial = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0x4f5448).lerp(displayColor, 0.58),
+    roughness: 0.92,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.58,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const receiver = new THREE.Mesh(new THREE.CircleGeometry(radius, 48), receiverMaterial);
+  receiver.name = "placeable_2da_light_receiver";
+  receiver.rotation.x = -Math.PI / 2;
+  receiver.position.y = -lightMappedOffsetY + 0.006;
+  receiver.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 42;
+  receiver.userData = {
+    placeableTwoDaLightPreviewRole: "placeables-2da-light-receiver",
+    placeableTwoDaLightReceiverStatus: "active",
+    placeableTwoDaLightReceiverRadius: radius,
+    placeableTwoDaLightReceiverSource: PLACEABLE_TWO_DA_LIGHT_RECEIVER_SOURCE
+  };
+  return receiver;
+}
+
+function getPlaceableFastShadowDotPreviewTexture(): THREE.DataTexture | null {
+  if (placeableFastShadowDotPreviewTexture !== undefined) {
+    return placeableFastShadowDotPreviewTexture;
+  }
+  const size = 128;
+  const center = (size - 1) / 2;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = (x - center) / center;
+      const dy = (y - center) / center;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const inner = clampNumber((0.72 - distance) / 0.72, 0, 1);
+      const alpha = Math.round(255 * inner * inner * (3 - 2 * inner));
+      const offset = (y * size + x) * 4;
+      data[offset] = 255;
+      data[offset + 1] = 255;
+      data[offset + 2] = 255;
+      data[offset + 3] = alpha;
+    }
+  }
+
+  placeableFastShadowDotPreviewTexture = new THREE.DataTexture(
+    data,
+    size,
+    size,
+    THREE.RGBAFormat
+  );
+  placeableFastShadowDotPreviewTexture.colorSpace = THREE.NoColorSpace;
+  placeableFastShadowDotPreviewTexture.userData = {
+    auroraTextureReference: "fxpa_Dot01",
+    auroraTextureBindingStatus: PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_STATUS,
+    auroraTextureBindingProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_PROOF_STATUS,
+    auroraTextureBindingSource: PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_SOURCE
+  };
+  placeableFastShadowDotPreviewTexture.needsUpdate = true;
+  return placeableFastShadowDotPreviewTexture;
+}
+
+function createPlaceableTwoDaFastShadowProxy(
+  shadowSize: number | undefined,
+  lightMappedOffsetY: number,
+  options: PlaceableTwoDaFastShadowOptions = {}
+): THREE.Mesh | null {
+  const descriptor = resolvePlaceableTwoDaFastShadowDescriptor(shadowSize);
+  if (!descriptor) {
+    return null;
+  }
+  const radius = descriptor.emitterSize / 2;
+  const sourceUnitScale =
+    typeof options.sourceUnitScale === "number" && Number.isFinite(options.sourceUnitScale)
+      ? Math.max(0, options.sourceUnitScale)
+      : 1;
+  const emitterVerticalOffset = Math.max(0, descriptor.position[2] * sourceUnitScale);
+  const baseOpacity = descriptor.baseOpacity;
+  const hasAreaShadowOpacityFactor =
+    typeof options.areaShadowOpacityFactor === "number" &&
+    Number.isFinite(options.areaShadowOpacityFactor);
+  const areaShadowOpacityFactor = hasAreaShadowOpacityFactor
+    ? clampNumber(options.areaShadowOpacityFactor ?? 1, 0, 1)
+    : 1;
+  const opacity = hasAreaShadowOpacityFactor
+    ? clampNumber(baseOpacity * areaShadowOpacityFactor, 0, baseOpacity)
+    : baseOpacity;
+  const opacitySource = hasAreaShadowOpacityFactor
+    ? `${PLACEABLE_TWO_DA_FAST_SHADOW_OPACITY_SOURCE} multiplied by ARE.ShadowOpacity/100`
+    : PLACEABLE_TWO_DA_FAST_SHADOW_OPACITY_SOURCE;
+  const retailTextureMap = options.fastShadowTexture ?? null;
+  if (retailTextureMap) {
+    retailTextureMap.userData = {
+      ...retailTextureMap.userData,
+      auroraTextureReference: descriptor.texture,
+      auroraTextureBindingStatus: PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS,
+      auroraTextureBindingProofStatus:
+        options.fastShadowTextureProofStatus ??
+        PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_PROOF_STATUS,
+      auroraTextureBindingSource:
+        options.fastShadowTextureSource ?? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_SOURCE
+    };
+    retailTextureMap.needsUpdate = true;
+  }
+  const proceduralAlphaMap = retailTextureMap ? null : getPlaceableFastShadowDotPreviewTexture();
+  const boundTexture = retailTextureMap ?? proceduralAlphaMap;
+  const textureBindingStatus = retailTextureMap
+    ? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS
+    : proceduralAlphaMap
+      ? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_STATUS
+      : PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_MISSING_STATUS;
+  const textureBindingProofStatus = retailTextureMap
+    ? options.fastShadowTextureProofStatus ??
+      PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_PROOF_STATUS
+    : proceduralAlphaMap
+      ? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_FALLBACK_PROOF_STATUS
+      : PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_MISSING_PROOF_STATUS;
+  const textureBindingSource =
+    options.fastShadowTextureSource ?? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_SOURCE;
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x050608,
+    transparent: true,
+    opacity,
+    ...(retailTextureMap ? { map: retailTextureMap } : {}),
+    ...(proceduralAlphaMap ? { alphaMap: proceduralAlphaMap } : {}),
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(descriptor.emitterSize, descriptor.emitterSize),
+    material
+  );
+  shadow.name = "placeable_2da_light_fast_shadow";
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -lightMappedOffsetY + emitterVerticalOffset;
+  shadow.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 30;
+  const shadowVolumeCaster = createPlaceableTwoDaFastShadowVolumeCasterProxy(
+    descriptor,
+    options.showDiagnosticGizmos === true
+  );
+  const shadowVolumeProjectionPreview =
+    createPlaceableTwoDaFastShadowVolumeProjectionPreviewProxy(
+      descriptor,
+      sourceUnitScale,
+      opacity
+    );
+  const shadowVolumeStencil = createPlaceableTwoDaFastShadowVolumeStencilProxies(
+    descriptor,
+    sourceUnitScale,
+    opacity
+  );
+  shadow.userData = {
+    placeableTwoDaFastShadowStatus: "active",
+    placeableTwoDaFastShadowRendererMode: PLACEABLE_TWO_DA_FAST_SHADOW_RENDERER_MODE,
+    placeableTwoDaShadowSize: shadowSize,
+    placeableTwoDaShadowSizeSource: "placeables.2da.ShadowSize",
+    placeableTwoDaShadowSizeLane: descriptor.shadowSizeLane,
+    placeableTwoDaShadowSizeSelectionRule:
+      "ShadowSize=0 -> Fx_Shadow_S; ShadowSize=2 -> Fx_Shadow_L; any other present value -> Fx_Shadow_M",
+    placeableTwoDaShadowSizeSelectionSource:
+      "nwmain.exe 0x140870993-0x140870a7e branches after ShadowSize read at 0x14087094c",
+    placeableTwoDaShadowSizeSelectionProofStatus:
+      PLACEABLE_TWO_DA_SHADOW_SIZE_PROOF_STATUS,
+    placeableTwoDaFastShadowModelResRef: descriptor.modelResRef,
+    placeableTwoDaFastShadowModelFileName: descriptor.modelFileName,
+    placeableTwoDaFastShadowEmitterNodeName: descriptor.emitterNodeName,
+    placeableTwoDaFastShadowSourceModelHash: descriptor.sourceModelHash,
+    placeableTwoDaFastShadowSourceNodeOffset: descriptor.sourceNodeOffset,
+    placeableTwoDaFastShadowEmitterSize: descriptor.emitterSize,
+    placeableTwoDaFastShadowEmitterSizeSource: PLACEABLE_TWO_DA_FAST_SHADOW_RADIUS_SOURCE,
+    placeableTwoDaFastShadowGeometryType: PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_TYPE,
+    placeableTwoDaFastShadowQuadSize: descriptor.emitterSize,
+    placeableTwoDaFastShadowGeometrySource: PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_SOURCE,
+    placeableTwoDaFastShadowGeometryProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_PROOF_STATUS,
+    placeableTwoDaFastShadowTexture: descriptor.texture,
+    placeableTwoDaFastShadowTextureBindingStatus: textureBindingStatus,
+    placeableTwoDaFastShadowTextureBindingSource: textureBindingSource,
+    placeableTwoDaFastShadowTextureBindingProofStatus: textureBindingProofStatus,
+    placeableTwoDaFastShadowTextureMapBound: boundTexture !== null,
+    placeableTwoDaFastShadowTextureBindingMapKind: retailTextureMap
+      ? "retail-rgba-map"
+      : proceduralAlphaMap
+        ? "procedural-alpha-map"
+        : "none",
+    placeableTwoDaFastShadowEmitterType: descriptor.emitterType,
+    placeableTwoDaFastShadowRenderMode: descriptor.renderMode,
+    placeableTwoDaFastShadowBlendMode: descriptor.blendMode,
+    placeableTwoDaFastShadowEmitterPosition: [...descriptor.position],
+    placeableTwoDaFastShadowEmitterVerticalOffset: emitterVerticalOffset,
+    placeableTwoDaFastShadowEmitterVerticalOffsetSource:
+      "Fx_Shadow_* emitter position z multiplied by current source-unit scale",
+    placeableTwoDaFastShadowEmitterAlphaStart: descriptor.baseOpacity,
+    placeableTwoDaFastShadowEmitterAlphaEnd: descriptor.baseOpacity,
+    placeableTwoDaFastShadowRadius: radius,
+    placeableTwoDaFastShadowRadiusSource: PLACEABLE_TWO_DA_FAST_SHADOW_RADIUS_SOURCE,
+    placeableTwoDaFastShadowBaseOpacity: baseOpacity,
+    placeableTwoDaFastShadowBaseOpacitySource: PLACEABLE_TWO_DA_FAST_SHADOW_OPACITY_SOURCE,
+    placeableTwoDaFastShadowOpacity: material.opacity,
+    placeableTwoDaFastShadowOpacitySource: opacitySource,
+    placeableTwoDaFastShadowAreaOpacity:
+      typeof options.areaShadowOpacity === "number" && Number.isFinite(options.areaShadowOpacity)
+        ? options.areaShadowOpacity
+        : undefined,
+    placeableTwoDaFastShadowAreaOpacitySource: hasAreaShadowOpacityFactor
+      ? options.areaShadowOpacitySource ?? PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_SOURCE
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityFactor: hasAreaShadowOpacityFactor
+      ? areaShadowOpacityFactor
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityFactorSource: hasAreaShadowOpacityFactor
+      ? options.areaShadowOpacityFactorSource ??
+        PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_FACTOR_SOURCE
+      : undefined,
+    placeableTwoDaFastShadowAreaOpacityProofStatus: hasAreaShadowOpacityFactor
+      ? PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_PROOF_STATUS
+      : undefined,
+    placeableTwoDaFastShadowOpacityProofStatus: hasAreaShadowOpacityFactor
+      ? PLACEABLE_TWO_DA_FAST_SHADOW_AREA_OPACITY_PROOF_STATUS
+      : "source-backed-retail-placeable-shadow-mdl-emitter-alpha",
+    placeableTwoDaFastShadowProjectionStatus: PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_STATUS,
+    placeableTwoDaFastShadowProjectionSource: PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_SOURCE,
+    placeableTwoDaFastShadowProjectionProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_PROJECTION_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeCasterStatus:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterStatus,
+    placeableTwoDaFastShadowVolumeCasterName: PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_NAME,
+    placeableTwoDaFastShadowVolumeCasterSource:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterSource,
+    placeableTwoDaFastShadowVolumeCasterProofStatus:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterProofStatus,
+    placeableTwoDaFastShadowVolumeCasterGeometryStatus:
+      shadowVolumeCaster.userData.auroraShadowVolumeGeometryStatus,
+    placeableTwoDaFastShadowVolumeCasterGeometrySource:
+      shadowVolumeCaster.userData.auroraShadowVolumeGeometrySource,
+    placeableTwoDaFastShadowVolumeCasterSourceVertexCount:
+      shadowVolumeCaster.userData.auroraShadowVolumeSourceVertexCount,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSize:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSize,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource:
+      shadowVolumeCaster.userData
+        .placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource,
+    placeableTwoDaFastShadowVolumeCasterEdgeCount:
+      shadowVolumeCaster.userData.auroraShadowVolumeCasterEdgeCount,
+    placeableTwoDaFastShadowVolumeCasterVertexRecordCount:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterVertexRecordCount,
+    placeableTwoDaFastShadowVolumeCasterIndexCount:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterIndexCount,
+    placeableTwoDaFastShadowVolumeCasterRecordsPerSourceVertex:
+      shadowVolumeCaster.userData.auroraShadowVolumeRecordsPerSourceVertex,
+    placeableTwoDaFastShadowVolumeCasterIndicesPerEdge:
+      shadowVolumeCaster.userData.auroraShadowVolumeIndicesPerCasterEdge,
+    placeableTwoDaFastShadowVolumeCasterWAttribute:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterWAttribute,
+    placeableTwoDaFastShadowVolumeCasterDiagnosticVisible:
+      shadowVolumeCaster.userData.placeableTwoDaFastShadowVolumeCasterDiagnosticVisible,
+    placeableTwoDaFastShadowVolumeProjectionPreviewStatus:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewStatus,
+    placeableTwoDaFastShadowVolumeProjectionPreviewName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_NAME,
+    placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode,
+    placeableTwoDaFastShadowVolumeProjectionPreviewSource:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewSource,
+    placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus,
+    placeableTwoDaFastShadowVolumeProjectionPreviewVisible:
+      shadowVolumeProjectionPreview.visible,
+    placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute,
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition,
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPositionSource:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewLightPositionSource,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistanceSource:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistanceSource,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacity:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewOpacity,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus:
+      shadowVolumeProjectionPreview.userData
+        .placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus,
+    placeableTwoDaFastShadowVolumeStencilStatus:
+      shadowVolumeStencil.receiver.userData.placeableTwoDaFastShadowVolumeStencilStatus,
+    placeableTwoDaFastShadowVolumeStencilRendererMode:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilRendererMode,
+    placeableTwoDaFastShadowVolumeStencilSource:
+      shadowVolumeStencil.receiver.userData.placeableTwoDaFastShadowVolumeStencilSource,
+    placeableTwoDaFastShadowVolumeStencilProofStatus:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilProofStatus,
+    placeableTwoDaFastShadowVolumeStencilFrontName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_FRONT_NAME,
+    placeableTwoDaFastShadowVolumeStencilBackName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_BACK_NAME,
+    placeableTwoDaFastShadowVolumeStencilZFailFrontName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_FRONT_NAME,
+    placeableTwoDaFastShadowVolumeStencilZFailBackName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_BACK_NAME,
+    placeableTwoDaFastShadowVolumeStencilReceiverName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_NAME,
+    placeableTwoDaFastShadowVolumeStencilVisible:
+      shadowVolumeStencil.receiver.visible,
+    placeableTwoDaFastShadowVolumeStencilWAttribute:
+      shadowVolumeStencil.receiver.userData.placeableTwoDaFastShadowVolumeStencilWAttribute,
+    placeableTwoDaFastShadowVolumeStencilLightPosition:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilLightPosition,
+    placeableTwoDaFastShadowVolumeStencilLightPositionSource:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilLightPositionSource,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistance:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilExtrusionDistance,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistanceSource:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilExtrusionDistanceSource,
+    placeableTwoDaFastShadowVolumeStencilReceiverSize:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverSize,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacity:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverOpacity,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus,
+    placeableTwoDaFastShadowVolumeStencilReceiverFunc:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverFunc,
+    placeableTwoDaFastShadowVolumeStencilVolumePasses:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilVolumePasses,
+    placeableTwoDaFastShadowVolumeStencilPassStateSamples:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilPassStateSamples,
+    placeableTwoDaFastShadowVolumeStencilReceiverState:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilReceiverState,
+    placeableTwoDaFastShadowVolumeStencilStateProofStatus:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilStateProofStatus,
+    placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequence:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilRetailOpSequence,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource:
+      shadowVolumeStencil.receiver.userData
+        .placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource,
+    placeableTwoDaFastShadowVolumeRenderShaderNames: [
+      ...AURORA_SHADOW_VOLUME_RENDER_SHADER_NAMES
+    ],
+    placeableTwoDaFastShadowVolumeRenderBuckets: [...AURORA_SHADOW_VOLUME_RENDER_BUCKETS],
+    placeableTwoDaFastShadowVolumeRenderBucketPhases: [
+      ...AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASES
+    ],
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseSource:
+      AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderStateCallSequence: [
+      ...AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SEQUENCE
+    ],
+    placeableTwoDaFastShadowVolumeRenderStateCallSource:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderStateCallProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics: [
+      ...AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SEMANTICS
+    ],
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSource:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrappers: [
+      ...AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPERS
+    ],
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrapperSource:
+      AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrapperProofStatus:
+      AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushSource:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_SOURCE,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushBlocker:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_BLOCKER,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushProofStatus:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderSource:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_SOURCE,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderBlocker:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_BLOCKER,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderProofStatus:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeState: [
+      ...AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_STATE
+    ],
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeSource:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_SOURCE,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeBlocker:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_BLOCKER,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeProofStatus:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrder: [
+      ...AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER
+    ],
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderSource:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_SOURCE,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderBlocker:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_BLOCKER,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderProofStatus:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeShaderUniformSemantics: [
+      ...AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SEMANTICS
+    ],
+    placeableTwoDaFastShadowVolumeShaderUniformSource:
+      AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SOURCE,
+    placeableTwoDaFastShadowVolumeShaderUniformProofStatus:
+      AURORA_SHADOW_VOLUME_SHADER_UNIFORM_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderPathSource: AURORA_SHADOW_VOLUME_RENDER_PATH_SOURCE,
+    placeableTwoDaFastShadowVolumeDrawWrapperSource: AURORA_SHADOW_VOLUME_DRAW_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeLightProfileSource:
+      AURORA_SHADOW_VOLUME_LIGHT_PROFILE_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderPathProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_PATH_PROOF_STATUS,
+    placeableTwoDaFastShadowProofStatus:
+      "source-backed-retail-placeable-shadow-mdl-emitter-textured-quad-proxy"
+  };
+  shadow.add(shadowVolumeStencil.back);
+  shadow.add(shadowVolumeStencil.front);
+  shadow.add(shadowVolumeStencil.zFailBack);
+  shadow.add(shadowVolumeStencil.zFailFront);
+  shadow.add(shadowVolumeStencil.receiver);
+  shadow.add(shadowVolumeProjectionPreview);
+  shadow.add(shadowVolumeCaster);
+  return shadow;
+}
+
+function createPlaceableTwoDaFastShadowVolumeCasterProxy(
+  descriptor: PlaceableTwoDaFastShadowDescriptor,
+  showDiagnosticGizmos: boolean
+): THREE.Mesh {
+  const halfSize = descriptor.emitterSize / 2;
+  const geometry = createAuroraShadowVolumeCasterBufferGeometry(
+    [
+      [-halfSize, -halfSize, 0],
+      [halfSize, -halfSize, 0],
+      [halfSize, halfSize, 0],
+      [-halfSize, halfSize, 0]
+    ],
+    [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0]
+    ]
+  );
+  const position = geometry.getAttribute("position");
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x6c8ec2,
+    transparent: true,
+    opacity: showDiagnosticGizmos ? 0.22 : 0,
+    wireframe: true,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide
+  });
+  const caster = new THREE.Mesh(geometry, material);
+  caster.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_NAME;
+  caster.visible = showDiagnosticGizmos;
+  caster.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 29;
+  caster.userData = {
+    ...geometry.userData,
+    placeableTwoDaFastShadowVolumeCasterStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_STATUS,
+    placeableTwoDaFastShadowVolumeCasterSource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_SOURCE,
+    placeableTwoDaFastShadowVolumeCasterProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_CASTER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeCasterSourceGeometry:
+      PLACEABLE_TWO_DA_FAST_SHADOW_GEOMETRY_TYPE,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSize: descriptor.emitterSize,
+    placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_RADIUS_SOURCE,
+    placeableTwoDaFastShadowVolumeCasterVertexRecordCount: position.count,
+    placeableTwoDaFastShadowVolumeCasterIndexCount: geometry.index?.count ?? 0,
+    placeableTwoDaFastShadowVolumeCasterWAttribute: "auroraShadowVolumeW",
+    placeableTwoDaFastShadowVolumeCasterDiagnosticVisible: showDiagnosticGizmos,
+    placeableTwoDaFastShadowVolumeCasterRenderStatus: showDiagnosticGizmos
+      ? "diagnostic-wireframe-visible-no-stencil"
+      : "diagnostic-buffer-bound-hidden-no-stencil",
+    placeableTwoDaFastShadowVolumeRenderShaderNames: [
+      ...AURORA_SHADOW_VOLUME_RENDER_SHADER_NAMES
+    ],
+    placeableTwoDaFastShadowVolumeRenderBuckets: [...AURORA_SHADOW_VOLUME_RENDER_BUCKETS],
+    placeableTwoDaFastShadowVolumeRenderBucketPhases: [
+      ...AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASES
+    ],
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseSource:
+      AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderBucketPhaseProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_BUCKET_PHASE_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderStateCallSequence: [
+      ...AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SEQUENCE
+    ],
+    placeableTwoDaFastShadowVolumeRenderStateCallSource:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderStateCallProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_CALL_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics: [
+      ...AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SEMANTICS
+    ],
+    placeableTwoDaFastShadowVolumeRenderStateWrapperSource:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_STATE_WRAPPER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrappers: [
+      ...AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPERS
+    ],
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrapperSource:
+      AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeBlendDepthColorMaskWrapperProofStatus:
+      AURORA_SHADOW_VOLUME_BLEND_DEPTH_COLOR_MASK_WRAPPER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushSource:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_SOURCE,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushBlocker:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_BLOCKER,
+    placeableTwoDaFastShadowVolumeImmediateCallerBufferFlushProofStatus:
+      AURORA_SHADOW_VOLUME_IMMEDIATE_CALLER_BUFFER_FLUSH_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderSource:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_SOURCE,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderBlocker:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_BLOCKER,
+    placeableTwoDaFastShadowVolumeDirectCallerBufferBuilderProofStatus:
+      AURORA_SHADOW_VOLUME_DIRECT_CALLER_BUFFER_BUILDER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeState: [
+      ...AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_STATE
+    ],
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeSource:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_SOURCE,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeBlocker:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_BLOCKER,
+    placeableTwoDaFastShadowVolumeActiveLightRenderEnvelopeProofStatus:
+      AURORA_SHADOW_VOLUME_ACTIVE_LIGHT_RENDER_ENVELOPE_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrder: [
+      ...AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER
+    ],
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderSource:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_SOURCE,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderBlocker:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_BLOCKER,
+    placeableTwoDaFastShadowVolumeLocalDrawStateOrderProofStatus:
+      AURORA_SHADOW_VOLUME_LOCAL_DRAW_STATE_ORDER_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeShaderUniformSemantics: [
+      ...AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SEMANTICS
+    ],
+    placeableTwoDaFastShadowVolumeShaderUniformSource:
+      AURORA_SHADOW_VOLUME_SHADER_UNIFORM_SOURCE,
+    placeableTwoDaFastShadowVolumeShaderUniformProofStatus:
+      AURORA_SHADOW_VOLUME_SHADER_UNIFORM_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeRenderPathSource: AURORA_SHADOW_VOLUME_RENDER_PATH_SOURCE,
+    placeableTwoDaFastShadowVolumeDrawWrapperSource: AURORA_SHADOW_VOLUME_DRAW_WRAPPER_SOURCE,
+    placeableTwoDaFastShadowVolumeLightProfileSource:
+      AURORA_SHADOW_VOLUME_LIGHT_PROFILE_SOURCE,
+    placeableTwoDaFastShadowVolumeRenderPathProofStatus:
+      AURORA_SHADOW_VOLUME_RENDER_PATH_PROOF_STATUS
+  };
+  return caster;
+}
+
+function createPlaceableTwoDaFastShadowVolumeProjectionPreviewProxy(
+  descriptor: PlaceableTwoDaFastShadowDescriptor,
+  sourceUnitScale: number,
+  fastShadowOpacity: number
+): THREE.Mesh {
+  const halfSize = descriptor.emitterSize / 2;
+  const geometry = createAuroraShadowVolumeCasterBufferGeometry(
+    [
+      [-halfSize, -halfSize, 0],
+      [halfSize, -halfSize, 0],
+      [halfSize, halfSize, 0],
+      [-halfSize, halfSize, 0]
+    ],
+    [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0]
+    ]
+  );
+  const lightVerticalDisplacement =
+    PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT * sourceUnitScale;
+  const extrusionDistance = Math.max(
+    descriptor.emitterSize,
+    PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS * sourceUnitScale
+  );
+  const opacity = clampNumber(
+    fastShadowOpacity * PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_SCALE,
+    0.035,
+    0.18
+  );
+  const material = createAuroraShadowVolumeProjectionPreviewMaterial({
+    color: 0x040506,
+    opacity,
+    lightPosition: [0, 0, lightVerticalDisplacement],
+    extrusionDistance
+  });
+  const preview = new THREE.Mesh(geometry, material);
+  preview.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_NAME;
+  preview.visible = true;
+  preview.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 28;
+  preview.userData = {
+    ...geometry.userData,
+    ...material.userData,
+    placeableTwoDaFastShadowVolumeProjectionPreviewStatus:
+      AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_STATUS,
+    placeableTwoDaFastShadowVolumeProjectionPreviewName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_NAME,
+    placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode:
+      AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_RENDERER_MODE,
+    placeableTwoDaFastShadowVolumeProjectionPreviewSource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_SOURCE,
+    placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus:
+      AURORA_SHADOW_VOLUME_PROJECTION_PREVIEW_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeProjectionPreviewVisible: true,
+    placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute: "auroraShadowVolumeW",
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition: [
+      0,
+      0,
+      lightVerticalDisplacement
+    ],
+    placeableTwoDaFastShadowVolumeProjectionPreviewLightPositionSource:
+      `${PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE} multiplied by current source-unit scale`,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance:
+      extrusionDistance,
+    placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistanceSource:
+      `${PLACEABLE_TWO_DA_LIGHT_SHADOW_RADIUS_SOURCE} multiplied by current source-unit scale and clamped to the active Fx_Shadow_* emitter size`,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacity: opacity,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_SCALE,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_SOURCE,
+    placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_PROJECTION_PREVIEW_OPACITY_PROOF_STATUS
+  };
+  return preview;
+}
+
+function createPlaceableTwoDaFastShadowVolumeStencilProxies(
+  descriptor: PlaceableTwoDaFastShadowDescriptor,
+  sourceUnitScale: number,
+  fastShadowOpacity: number
+): PlaceableTwoDaFastShadowVolumeStencilProxies {
+  const halfSize = descriptor.emitterSize / 2;
+  const sourceVertices: readonly [number, number, number][] = [
+    [-halfSize, -halfSize, 0],
+    [halfSize, -halfSize, 0],
+    [halfSize, halfSize, 0],
+    [-halfSize, halfSize, 0]
+  ];
+  const casterEdges: readonly [number, number][] = [
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0]
+  ];
+  const lightVerticalDisplacement =
+    PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT * sourceUnitScale;
+  const extrusionDistance = Math.max(
+    descriptor.emitterSize,
+    PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS * sourceUnitScale
+  );
+  const receiverSize = Math.max(
+    descriptor.emitterSize * 1.5,
+    extrusionDistance * 1.2
+  );
+  const receiverOpacity = clampNumber(
+    fastShadowOpacity * PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_SCALE,
+    0.03,
+    0.16
+  );
+  const lightPosition: readonly [number, number, number] = [
+    0,
+    0,
+    lightVerticalDisplacement
+  ];
+  const back = new THREE.Mesh(
+    createAuroraShadowVolumeCasterBufferGeometry(sourceVertices, casterEdges),
+    createAuroraShadowVolumeStencilVolumeMaterial("back", {
+      lightPosition,
+      extrusionDistance,
+      depthPass: "zpass"
+    })
+  );
+  back.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_BACK_NAME;
+  back.visible = true;
+  back.frustumCulled = false;
+  back.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 27;
+
+  const front = new THREE.Mesh(
+    createAuroraShadowVolumeCasterBufferGeometry(sourceVertices, casterEdges),
+    createAuroraShadowVolumeStencilVolumeMaterial("front", {
+      lightPosition,
+      extrusionDistance,
+      depthPass: "zpass"
+    })
+  );
+  front.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_FRONT_NAME;
+  front.visible = true;
+  front.frustumCulled = false;
+  front.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 26;
+
+  const zFailBack = new THREE.Mesh(
+    createAuroraShadowVolumeCasterBufferGeometry(sourceVertices, casterEdges),
+    createAuroraShadowVolumeStencilVolumeMaterial("back", {
+      lightPosition,
+      extrusionDistance,
+      depthPass: "zfail"
+    })
+  );
+  zFailBack.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_BACK_NAME;
+  zFailBack.visible = true;
+  zFailBack.frustumCulled = false;
+  zFailBack.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 25.8;
+
+  const zFailFront = new THREE.Mesh(
+    createAuroraShadowVolumeCasterBufferGeometry(sourceVertices, casterEdges),
+    createAuroraShadowVolumeStencilVolumeMaterial("front", {
+      lightPosition,
+      extrusionDistance,
+      depthPass: "zfail"
+    })
+  );
+  zFailFront.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_ZFAIL_FRONT_NAME;
+  zFailFront.visible = true;
+  zFailFront.frustumCulled = false;
+  zFailFront.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 25.6;
+
+  const receiver = new THREE.Mesh(
+    new THREE.PlaneGeometry(receiverSize, receiverSize),
+    createAuroraShadowVolumeStencilReceiverMaterial({
+      color: 0x020304,
+      opacity: receiverOpacity
+    })
+  );
+  receiver.name = PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_NAME;
+  receiver.visible = true;
+  receiver.frustumCulled = false;
+  receiver.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 25;
+  const stencilPassStateSamples = [
+    formatPlaceableTwoDaFastShadowStencilPassState("back:zpass", back),
+    formatPlaceableTwoDaFastShadowStencilPassState("front:zpass", front),
+    formatPlaceableTwoDaFastShadowStencilPassState("back:zfail", zFailBack),
+    formatPlaceableTwoDaFastShadowStencilPassState("front:zfail", zFailFront)
+  ];
+  const stencilReceiverState =
+    formatPlaceableTwoDaFastShadowStencilReceiverState(receiver);
+  const stencilUserData = {
+    placeableTwoDaFastShadowVolumeStencilStatus:
+      AURORA_SHADOW_VOLUME_STENCIL_PASS_STATUS,
+    placeableTwoDaFastShadowVolumeStencilRendererMode:
+      AURORA_SHADOW_VOLUME_STENCIL_RENDERER_MODE,
+    placeableTwoDaFastShadowVolumeStencilSource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_SOURCE,
+    placeableTwoDaFastShadowVolumeStencilProofStatus:
+      AURORA_SHADOW_VOLUME_STENCIL_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeStencilWAttribute: "auroraShadowVolumeW",
+    placeableTwoDaFastShadowVolumeStencilLightPosition: [...lightPosition],
+    placeableTwoDaFastShadowVolumeStencilLightPositionSource:
+      `${PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE} multiplied by current source-unit scale`,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistance: extrusionDistance,
+    placeableTwoDaFastShadowVolumeStencilExtrusionDistanceSource:
+      `${PLACEABLE_TWO_DA_LIGHT_SHADOW_RADIUS_SOURCE} multiplied by current source-unit scale and clamped to the active Fx_Shadow_* emitter size`,
+    placeableTwoDaFastShadowVolumeStencilReceiverSize: receiverSize,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacity: receiverOpacity,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_SCALE,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_SOURCE,
+    placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_OPACITY_PROOF_STATUS,
+    placeableTwoDaFastShadowVolumeStencilReceiverFunc: "NotEqual(0)",
+    placeableTwoDaFastShadowVolumeStencilVolumePasses: [
+      "back:zpass",
+      "front:zpass",
+      "back:zfail",
+      "front:zfail"
+    ],
+    placeableTwoDaFastShadowVolumeStencilPassStateSamples: stencilPassStateSamples,
+    placeableTwoDaFastShadowVolumeStencilReceiverState: stencilReceiverState,
+    placeableTwoDaFastShadowVolumeStencilStateProofStatus:
+      "source-backed-shadowvol-local-material-state-captured-retail-op-sequence-pixel-parity-blocked",
+    placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable:
+      AURORA_SHADOW_VOLUME_STENCIL_RETAIL_FACE_OP_TABLE_SUMMARY,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequence:
+      AURORA_SHADOW_VOLUME_STENCIL_RETAIL_OP_SEQUENCE_SUMMARY,
+    placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource:
+      AURORA_SHADOW_VOLUME_STENCIL_RETAIL_OP_SEQUENCE_SOURCE,
+    placeableTwoDaFastShadowVolumeStencilReceiverName:
+      PLACEABLE_TWO_DA_FAST_SHADOW_VOLUME_STENCIL_RECEIVER_NAME
+  };
+  back.userData = {
+    ...back.geometry.userData,
+    ...(back.material instanceof THREE.Material ? back.material.userData : {}),
+    ...stencilUserData,
+    placeableTwoDaFastShadowVolumeStencilFacePass: "back"
+  };
+  front.userData = {
+    ...front.geometry.userData,
+    ...(front.material instanceof THREE.Material ? front.material.userData : {}),
+    ...stencilUserData,
+    placeableTwoDaFastShadowVolumeStencilFacePass: "front"
+  };
+  zFailBack.userData = {
+    ...zFailBack.geometry.userData,
+    ...(zFailBack.material instanceof THREE.Material ? zFailBack.material.userData : {}),
+    ...stencilUserData,
+    placeableTwoDaFastShadowVolumeStencilFacePass: "back",
+    placeableTwoDaFastShadowVolumeStencilDepthPass: "zfail"
+  };
+  zFailFront.userData = {
+    ...zFailFront.geometry.userData,
+    ...(zFailFront.material instanceof THREE.Material ? zFailFront.material.userData : {}),
+    ...stencilUserData,
+    placeableTwoDaFastShadowVolumeStencilFacePass: "front",
+    placeableTwoDaFastShadowVolumeStencilDepthPass: "zfail"
+  };
+  receiver.userData = {
+    ...(receiver.material instanceof THREE.Material ? receiver.material.userData : {}),
+    ...stencilUserData
+  };
+  return { front, back, zFailFront, zFailBack, receiver };
+}
+
+function resolvePlaceableTwoDaFastShadowMaterial(
+  material: PlaceableTwoDaFastShadowStencilMeshMaterial
+): THREE.Material | null {
+  if (material instanceof THREE.Material) {
+    return material;
+  }
+  if (material) {
+    const [firstMaterial] = material;
+    return firstMaterial ?? null;
+  }
+  return null;
+}
+
+function formatPlaceableTwoDaFastShadowStencilSide(side: THREE.Side): string {
+  if (side === THREE.FrontSide) {
+    return "FrontSide";
+  }
+  if (side === THREE.BackSide) {
+    return "BackSide";
+  }
+  if (side === THREE.DoubleSide) {
+    return "DoubleSide";
+  }
+  return `side-${side}`;
+}
+
+function formatPlaceableTwoDaFastShadowStencilPassState(
+  pass: string,
+  mesh: THREE.Mesh
+): string {
+  const material = resolvePlaceableTwoDaFastShadowMaterial(mesh.material);
+  const userData = material?.userData ?? mesh.userData;
+  return [
+    `pass=${pass}`,
+    `side=${formatPlaceableTwoDaFastShadowStencilSide(
+      material?.side ?? THREE.FrontSide
+    )}`,
+    `colorWrite=${String(material?.colorWrite ?? true)}`,
+    `depthWrite=${String(material?.depthWrite ?? true)}`,
+    `depthTest=${String(material?.depthTest ?? true)}`,
+    `stencilWrite=${String(material?.stencilWrite ?? false)}`,
+    `stencilFunc=${String(userData.auroraShadowVolumeStencilFunc ?? "unknown")}`,
+    `stencilFail=${String(userData.auroraShadowVolumeStencilFail ?? "unknown")}`,
+    `stencilZFail=${String(userData.auroraShadowVolumeStencilZFail ?? "unknown")}`,
+    `stencilZPass=${String(userData.auroraShadowVolumeStencilZPass ?? "unknown")}`,
+    `renderOrder=${mesh.renderOrder}`
+  ].join(",");
+}
+
+function formatPlaceableTwoDaFastShadowStencilReceiverState(
+  receiver: THREE.Mesh
+): string {
+  const material = resolvePlaceableTwoDaFastShadowMaterial(receiver.material);
+  const userData = material?.userData ?? receiver.userData;
+  return [
+    "receiver=stencil-nonzero-overlay",
+    `colorWrite=${String(material?.colorWrite ?? true)}`,
+    `depthWrite=${String(material?.depthWrite ?? true)}`,
+    `depthTest=${String(material?.depthTest ?? true)}`,
+    `stencilWrite=${String(material?.stencilWrite ?? false)}`,
+    `stencilFunc=${String(
+      userData.auroraShadowVolumeStencilReceiverStencilFunc ?? "unknown"
+    )}(0)`,
+    `stencilRef=${String(
+      userData.auroraShadowVolumeStencilReceiverStencilRef ?? "unknown"
+    )}`,
+    `opacity=${String(userData.auroraShadowVolumeStencilReceiverOpacity ?? "unknown")}`,
+    `renderOrder=${receiver.renderOrder}`
+  ].join(",");
+}
+
+export function bindPlaceableTwoDaFastShadowTexture(
+  target: THREE.Object3D,
+  texture: THREE.Texture,
+  options: {
+    source?: string;
+    proofStatus?: string;
+  } = {}
+): boolean {
+  const source = options.source ?? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_SOURCE;
+  const proofStatus =
+    options.proofStatus ?? PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_PROOF_STATUS;
+  texture.userData = {
+    ...texture.userData,
+    auroraTextureReference: "fxpa_Dot01",
+    auroraTextureBindingStatus: PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS,
+    auroraTextureBindingProofStatus: proofStatus,
+    auroraTextureBindingSource: source
+  };
+  texture.needsUpdate = true;
+
+  let bound = false;
+  target.traverse((node) => {
+    if (!(node instanceof THREE.Mesh) || node.name !== "placeable_2da_light_fast_shadow") {
+      return;
+    }
+    const material = Array.isArray(node.material) ? node.material[0] : node.material;
+    if (!(material instanceof THREE.MeshBasicMaterial)) {
+      return;
+    }
+    material.map = texture;
+    material.alphaMap = null;
+    material.needsUpdate = true;
+    node.userData = {
+      ...node.userData,
+      placeableTwoDaFastShadowTextureBindingStatus:
+        PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS,
+      placeableTwoDaFastShadowTextureBindingSource: source,
+      placeableTwoDaFastShadowTextureBindingProofStatus: proofStatus,
+      placeableTwoDaFastShadowTextureMapBound: true,
+      placeableTwoDaFastShadowTextureBindingMapKind: "retail-rgba-map"
+    };
+    bound = true;
+  });
+
+  if (bound) {
+    target.userData = {
+      ...target.userData,
+      placeableTwoDaFastShadowTextureBindingStatus:
+        PLACEABLE_TWO_DA_FAST_SHADOW_TEXTURE_BOUND_STATUS,
+      placeableTwoDaFastShadowTextureBindingSource: source,
+      placeableTwoDaFastShadowTextureBindingProofStatus: proofStatus,
+      placeableTwoDaFastShadowTextureMapBound: true,
+      placeableTwoDaFastShadowTextureBindingMapKind: "retail-rgba-map"
+    };
+  }
+
+  return bound;
+}
+
+function resolvePlaceableTwoDaFastShadowDescriptor(
+  shadowSize: number | undefined
+): PlaceableTwoDaFastShadowDescriptor | null {
+  if (typeof shadowSize !== "number" || !Number.isFinite(shadowSize)) {
+    return null;
+  }
+  const shadowSizeLane = Math.trunc(shadowSize);
+  if (shadowSizeLane === 0) {
+    return PLACEABLE_TWO_DA_FAST_SHADOW_SMALL_DESCRIPTOR;
+  }
+  if (shadowSizeLane === 2) {
+    return PLACEABLE_TWO_DA_FAST_SHADOW_LARGE_DESCRIPTOR;
+  }
+  return PLACEABLE_TWO_DA_FAST_SHADOW_MEDIUM_DESCRIPTOR;
+}
+
+function resolvePlaceableTwoDaLightMetadata(
+  payload: PlaceableViewportRenderPayload
+): PlaceableTwoDaLightMetadata | null {
+  const metadata = resolvePlaceableTwoDaLightRawMetadata(payload);
+  if (!metadata || metadata.lightState === 0) {
+    return null;
+  }
+  return metadata;
+}
+
+function resolvePlaceableTwoDaLightRawMetadata(
+  payload: PlaceableViewportRenderPayload
+): PlaceableTwoDaLightMetadata | null {
+  const runtimeLightState = payload.placeable.placeableRuntime?.state?.lightState;
+  const runtimeLightStateSource = payload.placeable.placeableRuntime?.state?.lightStateSource;
+  const runtimeLightStateProofStatus =
+    payload.placeable.placeableRuntime?.state?.lightStateProofStatus;
+  const runtimeLightStateDefaulted =
+    payload.placeable.placeableRuntime?.state?.lightStateDefaulted;
+  const metadataLightState = readPlaceableMetadataNumber(payload, ["lightState"]);
+  const lightState = runtimeLightState ?? metadataLightState;
+  const lightStateSource =
+    typeof runtimeLightState === "number" && Number.isFinite(runtimeLightState)
+      ? runtimeLightStateSource ?? "placeableRuntime.state.lightState parsed from placed instance"
+      : typeof metadataLightState === "number" && Number.isFinite(metadataLightState)
+        ? "utp.LightState blueprint metadata"
+        : PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_SOURCE;
+  const lightStateProofStatus =
+    typeof runtimeLightState === "number" &&
+    Number.isFinite(runtimeLightState) &&
+    typeof runtimeLightStateProofStatus === "string" &&
+    runtimeLightStateProofStatus.trim().length > 0
+      ? runtimeLightStateProofStatus
+      : lightStateSource === PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_SOURCE
+        ? PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_PROOF_STATUS
+        : "source-backed-lightstate";
+  const lightStateDefaulted =
+    typeof runtimeLightState === "number" &&
+    Number.isFinite(runtimeLightState) &&
+    typeof runtimeLightStateDefaulted === "boolean"
+      ? runtimeLightStateDefaulted
+      : lightStateSource === PLACEABLE_TWO_DA_LIGHTSTATE_DEFAULT_SOURCE;
+
+  const raw = readPlaceableMetadataString(payload, ["source2daLightColorRaw"]);
+  const rowId =
+    readPlaceableMetadataNumber(payload, ["source2daLightColorRow"]) ??
+    parseFiniteNumber(raw);
+  const hasLightColor =
+    (typeof rowId === "number" && Number.isFinite(rowId)) ||
+    Boolean(raw && raw !== "****");
+  if (!hasLightColor) {
+    return null;
+  }
+  const toolsetRed = readPlaceableMetadataNumber(payload, ["source2daToolsetRed"]);
+  const toolsetGreen = readPlaceableMetadataNumber(payload, ["source2daToolsetGreen"]);
+  const toolsetBlue = readPlaceableMetadataNumber(payload, ["source2daToolsetBlue"]);
+  const toolsetColor =
+    typeof toolsetRed === "number" &&
+    Number.isFinite(toolsetRed) &&
+    typeof toolsetGreen === "number" &&
+    Number.isFinite(toolsetGreen) &&
+    typeof toolsetBlue === "number" &&
+    Number.isFinite(toolsetBlue)
+      ? ([toolsetRed, toolsetGreen, toolsetBlue] as [number, number, number])
+      : undefined;
+
+  return {
+    rowId: rowId ?? undefined,
+    raw: raw ?? undefined,
+    label: readPlaceableMetadataString(payload, ["source2daLightColorLabel"]) ?? undefined,
+    sourceKey:
+      readPlaceableMetadataString(payload, ["source2daLightColorSourceKey"]) ?? undefined,
+    lightState: lightState ?? 1,
+    lightStateSource,
+    lightStateProofStatus,
+    lightStateDefaulted,
+    color: [
+      readPlaceableMetadataNumber(payload, ["source2daLightRed"]) ?? 1,
+      readPlaceableMetadataNumber(payload, ["source2daLightGreen"]) ?? 1,
+      readPlaceableMetadataNumber(payload, ["source2daLightBlue"]) ?? 1
+    ],
+    ...(toolsetColor ? { toolsetColor } : {}),
+    offset: [
+      readPlaceableMetadataNumber(payload, ["source2daLightOffsetX"]) ?? 0,
+      readPlaceableMetadataNumber(payload, ["source2daLightOffsetY"]) ?? 0,
+      readPlaceableMetadataNumber(payload, ["source2daLightOffsetZ"]) ?? 0
+    ],
+    shadowSize: readPlaceableMetadataNumber(payload, ["source2daShadowSize"]) ?? undefined,
+    shadowSizeSource:
+      readPlaceableMetadataString(payload, ["source2daShadowSizeOverrideSource"]) ??
+      "placeables.2da.ShadowSize",
+    shadowSizeProofStatus:
+      readPlaceableMetadataString(payload, ["source2daShadowSizeOverrideProofStatus"]) ??
+      PLACEABLE_TWO_DA_SHADOW_SIZE_PROOF_STATUS
+  };
+}
+
+function resolvePlaceableTwoDaLightColorEnergy(color: [number, number, number]): number {
+  return Math.max(0.15, color[0], color[1], color[2], 1);
+}
+
+function resolvePlaceableTwoDaLightSourceUnitScale(
+  objectRadius: number,
+  options: PlaceableTwoDaLightPreviewOptions
+): number {
+  const sourceUnitScale = options.sourceUnitScale ?? options.offsetScale;
+  if (typeof sourceUnitScale === "number" && Number.isFinite(sourceUnitScale) && sourceUnitScale > 0) {
+    return sourceUnitScale;
+  }
+  return Math.max(objectRadius, 0.5);
+}
+
+function resolvePlaceableTwoDaLightDistance(
+  objectRadius: number,
+  shadowSize: number | undefined,
+  sourceUnitScale: number
+): number {
+  void shadowSize;
+  return Math.max(
+    objectRadius * 0.9,
+    PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS * sourceUnitScale
+  );
+}
+
+function parseFiniteNumber(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function createPlaceableVfxLightPreviewGroup(
   payload: PlaceableViewportRenderPayload,
   objectRadius: number,
-  showDiagnosticGizmos = false
+  showDiagnosticGizmos = false,
+  budgetOptions: AuroraLightPreviewBudgetOptions = {}
 ): THREE.Group {
+  const falloffShaderPatch = installAuroraLinearLightFalloffShaderChunk();
   const lights = resolveAuroraLightsForPreview(payload);
+  const budgetSelection = resolveAuroraLightPreviewBudgetSelection(budgetOptions);
+  const budgetEntries = buildAuroraLightPreviewBudget(
+    payload,
+    lights,
+    budgetSelection.activeSlotCap,
+    objectRadius
+  );
+  const acceptedEntries = budgetEntries.filter((entry) => entry.accepted);
+  const droppedEntries = budgetEntries.filter((entry) => !entry.accepted);
   const group = new THREE.Group();
   const nowBaseMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+  let flareSpriteCount = 0;
 
-  lights.forEach((light, index) => {
+  acceptedEntries.forEach((budgetEntry, index) => {
+    const light = budgetEntry.light;
     const animation = resolveAuroraLightAnimationSelection(payload, light);
     const initialColor = toAuroraLightThreeColor(
       sampleAuroraLightColorKeyframesAtElapsed(animation?.colorTimeline, 0, true) ?? light.color
     );
+    const initialSourceRadius = resolveAuroraLightSourceRadius(light, animation, 0);
     const initialRadius = resolveAuroraLightWorldRadius(light, animation, 0, objectRadius);
-    const multiplier =
-      typeof light.multiplier === "number" && Number.isFinite(light.multiplier)
-        ? Math.max(0, light.multiplier)
-        : 1;
+    const initialQuadraticAtten = resolveAuroraLightQuadraticAttenuation(initialSourceRadius);
+    const initialMultiplier = resolveAuroraLightMultiplier(light, animation, 0);
+    const initialShadowRadius = resolveAuroraLightShadowRadius(light, animation, 0) ?? 0;
+    const initialShadowProjectionSourceRadius =
+      resolveAuroraLightShadowProjectionSourceRadius(light, animation, 0);
+    const initialShadowProjectionWorldDistance =
+      resolveAuroraLightShadowProjectionWorldDistance(light, animation, 0, objectRadius);
+    const initialVerticalDisplacement = resolveAuroraLightVerticalDisplacement(
+      light,
+      animation,
+      0
+    );
+    const hasFlarePayload = hasAuroraLightFlarePayload(light);
     const lightNode = new THREE.Group();
     lightNode.position.copy(resolveAuroraLightWorldPosition(light, animation, 0, objectRadius));
+    const sourceUnitScale = resolveAuroraLightSourceUnitScale(objectRadius);
+    const initialSourceRadiusWorldDistance =
+      resolveAuroraLightSourceRadiusWorldDistance(light, animation, 0, objectRadius);
 
-    const pointLight = new THREE.PointLight(initialColor, multiplier, initialRadius, 2);
+    const pointLight = new THREE.PointLight(
+      initialColor,
+      initialMultiplier,
+      initialRadius,
+      AURORA_LIGHT_LINEAR_FALLOFF_DECAY
+    );
+    const sourceShadowEnabled = light.shadow === true;
+    pointLight.castShadow = sourceShadowEnabled;
+    pointLight.shadow.radius = Math.max(initialShadowRadius, 0);
+    pointLight.shadow.camera.near = 0.05;
+    pointLight.shadow.camera.far = Math.max(
+      initialRadius,
+      initialShadowProjectionWorldDistance,
+      0.5
+    );
+    pointLight.shadow.mapSize.set(512, 512);
     pointLight.userData = {
       auroraLightPreviewRole: "source-mdl-point-light",
-      auroraLightNodeName: light.nodeName
+      auroraLightNodeName: light.nodeName,
+      auroraLightSourceNodeKind: light.sourceNodeKind,
+      auroraLightBudgetRank: budgetEntry.rank,
+      auroraLightBudgetAccepted: true,
+      auroraLightSourceIndex: budgetEntry.sourceIndex,
+      ...buildAuroraLightManagerPreviewScoreUserData(
+        "auroraLight",
+        budgetEntry.retailScore
+      ),
+      auroraLightRadius: light.radius,
+      auroraLightSourceRadius: light.radius,
+      auroraLightSourceRadiusUnits: AURORA_LIGHT_SOURCE_RADIUS_UNITS,
+      auroraLightSourceUnitScale: sourceUnitScale,
+      auroraLightSourceUnitScaleSource: AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE,
+      auroraLightSourceRadiusWorldDistance: initialSourceRadiusWorldDistance,
+      auroraLightSourceRadiusWorldDistanceSource:
+        AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+      auroraLightAnimatedSourceRadius: initialSourceRadius,
+      auroraLightWorldRadius: initialRadius,
+      auroraLightQuadraticAtten: initialQuadraticAtten,
+      auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+      auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+      auroraLightFalloffMode: "linear-radius-clamped",
+      auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+      auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+      auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+      auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+      auroraLightFalloffRendererSource: falloffShaderPatch.source,
+      auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+      auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      auroraLightMultiplier: light.multiplier,
+      auroraLightAnimatedMultiplier: initialMultiplier,
+      auroraLightShadowRadius: light.shadowRadius,
+      auroraLightSourceShadowRadius: light.shadowRadius,
+      auroraLightSourceVerticalDisplacement: light.verticalDisplacement,
+      auroraLightAnimatedShadowRadius: initialShadowRadius,
+      auroraLightShadowMapBlurRadius: pointLight.shadow.radius,
+      auroraLightShadowMapBlurSource: AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE,
+      auroraLightShadowProjectionSourceRadius: initialShadowProjectionSourceRadius,
+      auroraLightShadowProjectionRadiusWorldDistance:
+        initialShadowProjectionWorldDistance,
+      auroraLightShadowProjectionRadiusSource:
+        AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_SOURCE,
+      auroraLightShadowProjectionRadiusProofStatus:
+        AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS,
+      auroraLightAnimatedVerticalDisplacement: initialVerticalDisplacement,
+      auroraLightShadowEnabled: sourceShadowEnabled,
+      auroraLightShadowProofStatus: sourceShadowEnabled
+        ? "source-backed-mdl-shadow-pointlight-castShadow"
+        : "source-backed-mdl-shadow-disabled",
+      auroraLightShadowRendererMode: sourceShadowEnabled
+        ? "three-pointlight-shadowmap-preview"
+        : "disabled",
+      auroraLightShadowProjectionStatus: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_STATUS
+        : "source-shadow-disabled",
+      auroraLightShadowProjectionSource: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_SOURCE
+        : undefined,
+      auroraLightShadowProjectionProofStatus: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_PROOF_STATUS
+        : undefined
     };
     lightNode.add(pointLight);
 
@@ -5366,7 +8257,7 @@ function createPlaceableVfxLightPreviewGroup(
           map: haloTexture,
           color: initialColor,
           transparent: true,
-          opacity: clampNumber(0.2 + multiplier * 0.035, 0.22, 0.42),
+          opacity: clampNumber(0.2 + initialMultiplier * 0.035, 0.22, 0.42),
           blending: THREE.AdditiveBlending,
           depthWrite: false
         })
@@ -5377,7 +8268,9 @@ function createPlaceableVfxLightPreviewGroup(
       halo.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 18 - index;
       halo.userData = {
         auroraLightPreviewRole: "source-mdl-light-halo",
-        auroraLightNodeName: light.nodeName
+        auroraLightNodeName: light.nodeName,
+        auroraLightBudgetRank: budgetEntry.rank,
+        auroraLightBudgetAccepted: true
       };
       lightNode.add(halo);
     }
@@ -5386,7 +8279,7 @@ function createPlaceableVfxLightPreviewGroup(
       ? new THREE.MeshBasicMaterial({
           color: initialColor,
           transparent: true,
-          opacity: clampNumber(0.08 + multiplier * 0.02, 0.08, 0.18),
+          opacity: clampNumber(0.08 + initialMultiplier * 0.02, 0.08, 0.18),
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           wireframe: true
@@ -5400,28 +8293,43 @@ function createPlaceableVfxLightPreviewGroup(
       radiusGizmo.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 12 - index;
       radiusGizmo.userData = {
         auroraLightPreviewRole: "source-mdl-light-radius-gizmo",
-        auroraLightNodeName: light.nodeName
+        auroraLightNodeName: light.nodeName,
+        auroraLightBudgetRank: budgetEntry.rank,
+        auroraLightBudgetAccepted: true
       };
       lightNode.add(radiusGizmo);
     }
 
-    const coreMaterial = new THREE.MeshBasicMaterial({
-      color: initialColor,
-      transparent: true,
-      opacity: showDiagnosticGizmos ? 0.78 : 0.72,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-    const core = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), coreMaterial);
-    if (core) {
+    let coreMaterial: THREE.MeshBasicMaterial | null = null;
+    let core: THREE.Mesh | null = null;
+    if (showDiagnosticGizmos) {
+      coreMaterial = new THREE.MeshBasicMaterial({
+        color: initialColor,
+        transparent: true,
+        opacity: 0.78,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      core = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), coreMaterial);
       core.scale.setScalar(Math.max(objectRadius * 0.16, 0.055));
       core.renderOrder = PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - 20 - index;
       core.userData = {
         auroraLightPreviewRole: "source-mdl-light-core",
-        auroraLightNodeName: light.nodeName
+        auroraLightNodeName: light.nodeName,
+        auroraLightBudgetRank: budgetEntry.rank,
+        auroraLightBudgetAccepted: true
       };
       lightNode.add(core);
     }
+
+    const flareSpriteEntries = createAuroraLightFlarePreviewSprites(
+      light,
+      initialColor,
+      initialRadius,
+      objectRadius
+    );
+    flareSpriteEntries.forEach((entry) => lightNode.add(entry.sprite));
+    flareSpriteCount += flareSpriteEntries.length;
 
     const updateLightPreview = (elapsedOverride?: number): void => {
       const elapsed =
@@ -5433,12 +8341,47 @@ function createPlaceableVfxLightPreviewGroup(
           light.color
       );
       const radius = resolveAuroraLightWorldRadius(light, animation, elapsed, objectRadius);
+      const sourceRadius = resolveAuroraLightSourceRadius(light, animation, elapsed);
+      const sourceRadiusWorldDistance = resolveAuroraLightSourceRadiusWorldDistance(
+        light,
+        animation,
+        elapsed,
+        objectRadius
+      );
+      const quadraticAtten = resolveAuroraLightQuadraticAttenuation(sourceRadius);
+      const multiplier = resolveAuroraLightMultiplier(light, animation, elapsed);
       lightNode.position.copy(
         resolveAuroraLightWorldPosition(light, animation, elapsed, objectRadius)
       );
       pointLight.color.copy(color);
       pointLight.distance = radius;
+      pointLight.decay = AURORA_LIGHT_LINEAR_FALLOFF_DECAY;
       pointLight.intensity = multiplier;
+      const shadowRadius = resolveAuroraLightShadowRadius(light, animation, elapsed) ?? 0;
+      const shadowProjectionSourceRadius =
+        resolveAuroraLightShadowProjectionSourceRadius(light, animation, elapsed);
+      const shadowProjectionWorldDistance =
+        resolveAuroraLightShadowProjectionWorldDistance(
+        light,
+        animation,
+        elapsed,
+        objectRadius
+      );
+      const retailScore = resolveAuroraLightManagerPreviewScore({
+        position: lightNode.position,
+        sourceRadius: sourceRadiusWorldDistance,
+        activeSelectionRadiusOverride: shadowProjectionWorldDistance,
+        multiplier,
+        priority: resolveAuroraLightPriority(light),
+        enforceActiveSelectionRadius: false
+      });
+      pointLight.shadow.radius = Math.max(shadowRadius, 0);
+      pointLight.shadow.camera.far = Math.max(
+        radius,
+        shadowProjectionWorldDistance,
+        0.5
+      );
+      pointLight.shadow.camera.updateProjectionMatrix();
       if (haloMaterial && halo) {
         haloMaterial.color.copy(color);
         haloMaterial.opacity = clampNumber(0.2 + multiplier * 0.035, 0.22, 0.42);
@@ -5452,10 +8395,98 @@ function createPlaceableVfxLightPreviewGroup(
       if (coreMaterial) {
         coreMaterial.color.copy(color);
       }
+      flareSpriteEntries.forEach((entry, flareIndex) =>
+        updateAuroraLightFlarePreviewSprite(
+          entry,
+          flareIndex,
+          flareSpriteEntries.length,
+          light,
+          color,
+          radius,
+          objectRadius
+        )
+      );
+      pointLight.userData = {
+        ...pointLight.userData,
+        auroraLightColor: [color.r, color.g, color.b],
+        ...buildAuroraLightManagerPreviewScoreUserData("auroraLight", retailScore),
+        auroraLightAnimatedSourceRadius: sourceRadius,
+        auroraLightSourceRadiusUnits: AURORA_LIGHT_SOURCE_RADIUS_UNITS,
+        auroraLightSourceUnitScale: sourceUnitScale,
+        auroraLightSourceUnitScaleSource: AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE,
+        auroraLightSourceRadiusWorldDistance: sourceRadiusWorldDistance,
+        auroraLightSourceRadiusWorldDistanceSource:
+          AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+        auroraLightWorldRadius: radius,
+        auroraLightQuadraticAtten: quadraticAtten,
+        auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+        auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+        auroraLightFalloffMode: "linear-radius-clamped",
+        auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+        auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+        auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+        auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+        auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+        auroraLightFalloffRendererSource: falloffShaderPatch.source,
+        auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+        auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+        auroraLightAnimatedMultiplier: multiplier,
+        auroraLightAnimatedShadowRadius: shadowRadius,
+        auroraLightShadowMapBlurRadius: pointLight.shadow.radius,
+        auroraLightShadowMapBlurSource: AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE,
+        auroraLightShadowProjectionSourceRadius: shadowProjectionSourceRadius,
+        auroraLightShadowProjectionRadiusWorldDistance:
+          shadowProjectionWorldDistance,
+        auroraLightShadowProjectionRadiusSource:
+          AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_SOURCE,
+        auroraLightShadowProjectionRadiusProofStatus:
+          AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS,
+        auroraLightAnimatedVerticalDisplacement: resolveAuroraLightVerticalDisplacement(
+          light,
+          animation,
+          elapsed
+        )
+      };
       lightNode.userData = {
         ...lightNode.userData,
         auroraLightColor: [color.r, color.g, color.b],
-        auroraLightWorldRadius: radius
+        ...buildAuroraLightManagerPreviewScoreUserData("auroraLight", retailScore),
+        auroraLightAnimatedSourceRadius: sourceRadius,
+        auroraLightSourceRadiusUnits: AURORA_LIGHT_SOURCE_RADIUS_UNITS,
+        auroraLightSourceUnitScale: sourceUnitScale,
+        auroraLightSourceUnitScaleSource: AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE,
+        auroraLightSourceRadiusWorldDistance: sourceRadiusWorldDistance,
+        auroraLightSourceRadiusWorldDistanceSource:
+          AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+        auroraLightWorldRadius: radius,
+        auroraLightQuadraticAtten: quadraticAtten,
+        auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+        auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+        auroraLightFalloffMode: "linear-radius-clamped",
+        auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+        auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+        auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+        auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+        auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+        auroraLightFalloffRendererSource: falloffShaderPatch.source,
+        auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+        auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+        auroraLightAnimatedMultiplier: multiplier,
+        auroraLightAnimatedShadowRadius: shadowRadius,
+        auroraLightShadowMapBlurRadius: pointLight.shadow.radius,
+        auroraLightShadowMapBlurSource: AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE,
+        auroraLightShadowProjectionSourceRadius: shadowProjectionSourceRadius,
+        auroraLightShadowProjectionRadiusWorldDistance:
+          shadowProjectionWorldDistance,
+        auroraLightShadowProjectionRadiusSource:
+          AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_SOURCE,
+        auroraLightShadowProjectionRadiusProofStatus:
+          AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS,
+        auroraLightAnimatedVerticalDisplacement: resolveAuroraLightVerticalDisplacement(
+          light,
+          animation,
+          elapsed
+        )
       };
     };
     updateLightPreview(0);
@@ -5467,15 +8498,102 @@ function createPlaceableVfxLightPreviewGroup(
       vfxPreviewRole: "aurora-light-node",
       vfxPreviewLayout: "source_mdl_light",
       auroraLightNodeName: light.nodeName,
+      auroraLightSourceNodeKind: light.sourceNodeKind,
+      auroraLightSourceIndex: budgetEntry.sourceIndex,
+      auroraLightBudgetRank: budgetEntry.rank,
+      auroraLightBudgetAccepted: true,
+      auroraLightBudgetCap: budgetSelection.activeSlotCap,
+      auroraLightBudgetHardCap: AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP,
+      auroraLightConfiguredMaxLights: budgetSelection.configuredMaxLights,
+      auroraLightBudgetCapSource: AURORA_LIGHT_PREVIEW_BUDGET_CAP_SOURCE,
+      auroraLightBudgetCapProofStatus: AURORA_LIGHT_PREVIEW_BUDGET_CAP_PROOF_STATUS,
+      ...buildAuroraLightManagerPreviewScoreUserData(
+        "auroraLight",
+        budgetEntry.retailScore
+      ),
       auroraLightSourceModelFileName: light.sourceModelFileName,
       auroraLightRadius: light.radius,
+      auroraLightSourceRadius: light.radius,
+      auroraLightSourceRadiusUnits: AURORA_LIGHT_SOURCE_RADIUS_UNITS,
+      auroraLightSourceUnitScale: sourceUnitScale,
+      auroraLightSourceUnitScaleSource: AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE,
+      auroraLightSourceRadiusWorldDistance: initialSourceRadiusWorldDistance,
+      auroraLightSourceRadiusWorldDistanceSource:
+        AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
+      auroraLightAnimatedSourceRadius: initialSourceRadius,
+      auroraLightWorldRadius: initialRadius,
+      auroraLightQuadraticAtten: initialQuadraticAtten,
+      auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
+      auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
+      auroraLightFalloffMode: "linear-radius-clamped",
+      auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
+      auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+      auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+      auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+      auroraLightFalloffRendererSource: falloffShaderPatch.source,
+      auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+      auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      auroraLightShadowRadius: light.shadowRadius,
+      auroraLightVerticalDisplacement: light.verticalDisplacement,
       auroraLightMultiplier: light.multiplier,
+      auroraLightAnimatedMultiplier: initialMultiplier,
+      auroraLightAnimatedShadowRadius: initialShadowRadius,
+      auroraLightShadowMapBlurRadius: Math.max(initialShadowRadius, 0),
+      auroraLightShadowMapBlurSource: AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE,
+      auroraLightShadowProjectionSourceRadius: initialShadowProjectionSourceRadius,
+      auroraLightShadowProjectionRadiusWorldDistance:
+        initialShadowProjectionWorldDistance,
+      auroraLightShadowProjectionRadiusSource:
+        AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_SOURCE,
+      auroraLightShadowProjectionRadiusProofStatus:
+        AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS,
+      auroraLightAnimatedVerticalDisplacement: initialVerticalDisplacement,
       auroraLightColor: light.color,
       auroraLightAmbientOnly: light.ambientOnly,
       auroraLightDynamicType: light.dynamicType,
       auroraLightAffectDynamic: light.affectDynamic,
       auroraLightShadow: light.shadow,
+      auroraLightShadowEnabled: sourceShadowEnabled,
+      auroraLightShadowProofStatus: sourceShadowEnabled
+        ? "source-backed-mdl-shadow-pointlight-castShadow"
+        : "source-backed-mdl-shadow-disabled",
+      auroraLightShadowRendererMode: sourceShadowEnabled
+        ? "three-pointlight-shadowmap-preview"
+        : "disabled",
+      auroraLightShadowProjectionStatus: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_STATUS
+        : "source-shadow-disabled",
+      auroraLightShadowProjectionSource: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_SOURCE
+        : undefined,
+      auroraLightShadowProjectionProofStatus: sourceShadowEnabled
+        ? AURORA_MDL_LIGHT_SHADOW_VOLUME_PROOF_STATUS
+        : undefined,
       auroraLightPriority: light.lightPriority,
+      auroraLightGenerateFlare: light.generateFlare,
+      auroraLightTextureNames: light.textureNames ?? [],
+      auroraLightTextureNameCount: light.textureNames?.length ?? 0,
+      auroraLightFlareSizeCount: light.flareSizes?.length ?? 0,
+      auroraLightFlarePositionCount: light.flarePositions?.length ?? 0,
+      auroraLightFlareColorShiftCount: light.flareColorShifts?.length ?? 0,
+      auroraLightFlareRadius: light.flareRadius,
+      auroraLightFlarePayloadPreserved: hasFlarePayload,
+      auroraLightFlareSpriteCount: flareSpriteEntries.length,
+      auroraLightFlarePreviewMode: hasFlarePayload
+        ? flareSpriteEntries.length > 0
+          ? AURORA_LIGHT_FLARE_PREVIEW_MODE
+          : "source-mdl-flare-payload-preserved-no-sprite-preview"
+        : undefined,
+      auroraLightFlareProofStatus: hasFlarePayload
+        ? flareSpriteEntries.length > 0
+          ? AURORA_LIGHT_FLARE_PREVIEW_PROOF_STATUS
+          : "source-backed-mdl-flare-payload-preserved-no-sprite-preview"
+        : undefined,
+      auroraLightFlareRadiusProofStatus:
+        light.flareRadius !== undefined
+          ? "source-token-preserved-write-target-unverified"
+          : undefined,
       auroraLightSelectedAnimationName: animation?.animationName,
       auroraLightSelectedAnimationLengthSeconds: animation?.lengthSeconds,
       auroraLightAnimationNames: light.animations?.map((entry) => entry.animationName) ?? [],
@@ -5497,9 +8615,39 @@ function createPlaceableVfxLightPreviewGroup(
     vfxPreviewRole: "aurora-light-node-group",
     vfxPreviewLayout: "source_mdl_light",
     vfxEmitterCount: 0,
-    vfxLightCount: lights.length,
+    vfxLightCount: acceptedEntries.length,
     vfxTextureStatus: "not-requested",
-    auroraLightNodes: lights.map((light) => light.nodeName),
+    auroraLightNodes: acceptedEntries.map((entry) => entry.light.nodeName),
+    auroraLightSourceNodeCount: lights.length,
+    auroraLightAcceptedNodeCount: acceptedEntries.length,
+    auroraLightDroppedNodeCount: droppedEntries.length,
+    auroraLightFlarePayloadNodeCount: acceptedEntries.filter((entry) =>
+      hasAuroraLightFlarePayload(entry.light)
+    ).length,
+    auroraLightFlareSpriteCount: flareSpriteCount,
+    auroraLightFlarePreviewMode:
+      flareSpriteCount > 0 ? AURORA_LIGHT_FLARE_PREVIEW_MODE : undefined,
+    auroraLightFlareProofStatus:
+      flareSpriteCount > 0 ? AURORA_LIGHT_FLARE_PREVIEW_PROOF_STATUS : undefined,
+    auroraLightFlareRadiusWriteUnverified: acceptedEntries.some(
+      (entry) => entry.light.flareRadius !== undefined
+    ),
+    auroraLightBudgetCap: budgetSelection.activeSlotCap,
+    auroraLightBudgetHardCap: AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP,
+    auroraLightConfiguredMaxLights: budgetSelection.configuredMaxLights,
+    auroraLightBudgetCapSource: AURORA_LIGHT_PREVIEW_BUDGET_CAP_SOURCE,
+    auroraLightBudgetCapProofStatus: AURORA_LIGHT_PREVIEW_BUDGET_CAP_PROOF_STATUS,
+    auroraLightBudgetStrategy: AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY,
+    auroraLightBudgetStrategySource: AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY_SOURCE,
+    auroraLightBudgetStrategyProofStatus:
+      AURORA_LIGHT_MANAGER_PREVIEW_BUDGET_STRATEGY_PROOF_STATUS,
+    auroraLightDroppedNodes: droppedEntries
+      .slice(0, AURORA_LIGHT_PREVIEW_DROPPED_SAMPLE_LIMIT)
+      .map((entry) => entry.light.nodeName),
+    auroraLightDroppedNodeSampleCount: Math.min(
+      droppedEntries.length,
+      AURORA_LIGHT_PREVIEW_DROPPED_SAMPLE_LIMIT
+    ),
     auroraLightPreviewMode: "source-mdl-light-node-preview",
     auroraLightVisualPreviewMode: showDiagnosticGizmos
       ? "source-mdl-light-diagnostic-gizmos"
@@ -5520,6 +8668,32 @@ interface PlaceableVfxPreviewGroupOptions {
   chunkModelsByAssetId?: Map<string, THREE.Object3D>;
   chunkModelUrlsByAssetId?: Map<string, string>;
   showLightDiagnosticGizmos?: boolean;
+  lightPreviewActiveSlotCap?: number;
+  lightPreviewConfiguredMaxLights?: number;
+  emitterPreviewBudget?: PlaceableVfxEmitterPreviewBudgetOptions;
+}
+
+interface PlaceableVfxEmitterPreviewBudgetOptions {
+  minEmitterCount?: number;
+  maxEmitterCount?: number;
+  maxEmittersPerSignature?: number;
+  maxParticlesPerEmitter?: number;
+  opacityScale?: number;
+  opacityFloor?: number;
+  sizeScale?: number;
+}
+
+function buildAuroraEmitterLightStatePolicyUserData(
+  payload: PlaceableViewportRenderPayload
+): Record<string, unknown> {
+  const lightState = payload.placeable.placeableRuntime?.state?.lightState;
+  return {
+    auroraEmitterLightStateCouplingPolicy: "independent-animationstate-only",
+    auroraEmitterLightStateDiagnostic: "VFX_EMITTER_ANIMATION_NOT_DRIVEN_BY_LIGHTSTATE",
+    ...(typeof lightState === "number" && Number.isFinite(lightState)
+      ? { auroraEmitterObservedLightState: Math.trunc(lightState) }
+      : {})
+  };
 }
 
 export function createPlaceableVfxPreviewGroup(
@@ -5535,7 +8709,11 @@ export function createPlaceableVfxPreviewGroup(
       return createPlaceableVfxLightPreviewGroup(
         payload,
         objectRadius,
-        options.showLightDiagnosticGizmos === true
+        options.showLightDiagnosticGizmos === true,
+        {
+          activeSlotCap: options.lightPreviewActiveSlotCap,
+          configuredMaxLights: options.lightPreviewConfiguredMaxLights
+        }
       );
     }
     const group = new THREE.Group();
@@ -5549,17 +8727,22 @@ export function createPlaceableVfxPreviewGroup(
       auroraEmitterPreviewMode: "source-emitter-payload-required",
       auroraEmitterMissingDiagnostic: "VFX_AURORA_MDL_EMITTER_PAYLOAD_REQUIRED",
       auroraEmitterTextureFallbackForbiddenDiagnostic:
-        "VFX_TEXTURE_ONLY_MOCK_FALLBACK_FORBIDDEN"
+        "VFX_TEXTURE_ONLY_PLACEHOLDER_FALLBACK_FORBIDDEN"
     };
     return group;
   }
-  if (auroraEmitters.length <= 1) {
+  const emitterBudgetSelection = resolvePlaceableVfxEmitterPreviewBudgetSelection(
+    auroraEmitters,
+    options.emitterPreviewBudget
+  );
+  const previewEmitters = emitterBudgetSelection.emitters;
+  if (previewEmitters.length <= 1) {
     const childGroup = createPlaceableVfxEmitterPreviewGroup(
       payload,
       objectRadius,
       colorHex,
       options,
-      auroraEmitters[0] ?? null,
+      previewEmitters[0] ?? null,
       0,
       Math.max(1, auroraEmitters.length)
     );
@@ -5567,13 +8750,15 @@ export function createPlaceableVfxPreviewGroup(
     group.add(childGroup);
     group.userData = {
       ...group.userData,
-      ...childGroup.userData
+      ...childGroup.userData,
+      ...buildAuroraEmitterLightStatePolicyUserData(payload),
+      ...buildPlaceableVfxEmitterPreviewBudgetUserData(emitterBudgetSelection)
     };
     return group;
   }
 
   const group = new THREE.Group();
-  const childGroups = auroraEmitters.map((emitter, index) =>
+  const childGroups = previewEmitters.map((emitter, index) =>
     createPlaceableVfxEmitterPreviewGroup(
       payload,
       objectRadius,
@@ -5586,7 +8771,7 @@ export function createPlaceableVfxPreviewGroup(
   );
   childGroups.forEach((childGroup) => group.add(childGroup));
   const textureStatuses = childGroups.map((childGroup) => childGroup.userData.vfxTextureStatus);
-  const chunkNames = auroraEmitters
+  const chunkNames = previewEmitters
     .map((emitter) => resolveAuroraEmitterChunkName(emitter))
     .filter((chunkName): chunkName is string => Boolean(chunkName));
   const schedulePreviewModes = childGroups
@@ -5606,7 +8791,9 @@ export function createPlaceableVfxPreviewGroup(
     vfxPreviewKind: "multi_emitter",
     vfxPreviewRole: "aurora-multi-emitter",
     vfxPreviewLayout: "multi_emitter",
-    vfxEmitterCount: auroraEmitters.length,
+    vfxEmitterCount: previewEmitters.length,
+    auroraEmitterSourceCount: auroraEmitters.length,
+    auroraEmitterPackageSource: payload.renderPackage?.auroraEmitter?.source,
     vfxTextureStatus: textureStatuses.every((status) => status === "applied")
       ? "applied"
       : textureStatuses.every(
@@ -5624,17 +8811,17 @@ export function createPlaceableVfxPreviewGroup(
         : textureStatuses.some((status) => status === "loading")
           ? "loading"
           : "missing",
-    auroraEmitterNodes: auroraEmitters.map((emitter) => emitter.nodeName),
-    auroraEmitterSourceModelFileNames: auroraEmitters.map(
+    auroraEmitterNodes: previewEmitters.map((emitter) => emitter.nodeName),
+    auroraEmitterSourceModelFileNames: previewEmitters.map(
       (emitter) => emitter.sourceModelFileName
     ),
-    auroraEmitterSourceModelObjectKeys: auroraEmitters.map(
+    auroraEmitterSourceModelObjectKeys: previewEmitters.map(
       (emitter) => emitter.sourceModelObjectKey
     ),
-    auroraEmitterTextures: auroraEmitters.map((emitter) => emitter.texture ?? ""),
+    auroraEmitterTextures: previewEmitters.map((emitter) => emitter.texture ?? ""),
     auroraEmitterChunkNames: chunkNames,
-    auroraEmitterRenderModes: auroraEmitters.map((emitter) => emitter.renderMode ?? ""),
-    auroraEmitterBlendModes: auroraEmitters.map((emitter) => emitter.blendMode ?? ""),
+    auroraEmitterRenderModes: previewEmitters.map((emitter) => emitter.renderMode ?? ""),
+    auroraEmitterBlendModes: previewEmitters.map((emitter) => emitter.blendMode ?? ""),
     auroraEmitterStartDelaySeconds: childGroups.map(
       (childGroup) => childGroup.userData.auroraEmitterStartDelaySeconds ?? 0
     ),
@@ -5643,9 +8830,229 @@ export function createPlaceableVfxPreviewGroup(
       uniqueSchedulePreviewModes.length === 1
         ? uniqueSchedulePreviewModes[0]
         : "multi-emitter-mixed-local-clock-preview",
-    auroraEmitterScheduleDiagnostics: scheduleDiagnostics
+    auroraEmitterScheduleDiagnostics: scheduleDiagnostics,
+    ...buildAuroraEmitterLightStatePolicyUserData(payload),
+    ...buildPlaceableVfxEmitterPreviewBudgetUserData(emitterBudgetSelection)
   };
   return group;
+}
+
+function resolvePlaceableVfxEmitterPreviewBudgetSelection(
+  emitters: PlaceableAuroraEmitterNode[],
+  budget: PlaceableVfxEmitterPreviewBudgetOptions | undefined
+): {
+  emitters: PlaceableAuroraEmitterNode[];
+  applied: boolean;
+  sourceEmitterCount: number;
+  selectedEmitterCount: number;
+  droppedEmitterCount: number;
+  maxEmitterCount?: number;
+  maxEmittersPerSignature?: number;
+} {
+  const sourceEmitterCount = emitters.length;
+  const minEmitterCount = Math.max(0, Math.trunc(budget?.minEmitterCount ?? Number.POSITIVE_INFINITY));
+  const maxEmitterCount =
+    typeof budget?.maxEmitterCount === "number" && Number.isFinite(budget.maxEmitterCount)
+      ? Math.max(1, Math.trunc(budget.maxEmitterCount))
+      : sourceEmitterCount;
+  if (!budget || sourceEmitterCount <= minEmitterCount || sourceEmitterCount <= maxEmitterCount) {
+    return {
+      emitters,
+      applied: false,
+      sourceEmitterCount,
+      selectedEmitterCount: sourceEmitterCount,
+      droppedEmitterCount: 0
+    };
+  }
+
+  const maxEmittersPerSignature =
+    typeof budget.maxEmittersPerSignature === "number" &&
+    Number.isFinite(budget.maxEmittersPerSignature)
+      ? Math.max(1, Math.trunc(budget.maxEmittersPerSignature))
+      : maxEmitterCount;
+  const selected: PlaceableAuroraEmitterNode[] = [];
+  const selectedSet = new Set<PlaceableAuroraEmitterNode>();
+  const countBySignature = new Map<string, number>();
+  emitters.forEach((emitter) => {
+    if (selected.length >= maxEmitterCount) {
+      return;
+    }
+    const signature = buildPlaceableVfxEmitterPreviewBudgetSignature(emitter);
+    const signatureCount = countBySignature.get(signature) ?? 0;
+    if (signatureCount >= maxEmittersPerSignature) {
+      return;
+    }
+    selected.push(emitter);
+    selectedSet.add(emitter);
+    countBySignature.set(signature, signatureCount + 1);
+  });
+  emitters.forEach((emitter) => {
+    if (selected.length >= maxEmitterCount || selectedSet.has(emitter)) {
+      return;
+    }
+    selected.push(emitter);
+    selectedSet.add(emitter);
+  });
+  return {
+    emitters: selected,
+    applied: true,
+    sourceEmitterCount,
+    selectedEmitterCount: selected.length,
+    droppedEmitterCount: Math.max(0, sourceEmitterCount - selected.length),
+    maxEmitterCount,
+    maxEmittersPerSignature
+  };
+}
+
+function buildPlaceableVfxEmitterPreviewBudgetSignature(
+  emitter: PlaceableAuroraEmitterNode
+): string {
+  return [
+    normalizeAuroraEmitterToken(emitter.texture),
+    normalizeAuroraEmitterToken(emitter.renderMode),
+    normalizeAuroraEmitterToken(emitter.blendMode),
+    normalizeAuroraEmitterToken(emitter.emitterType)
+  ].join("|");
+}
+
+function buildPlaceableVfxEmitterPreviewBudgetUserData(selection: {
+  applied: boolean;
+  sourceEmitterCount: number;
+  selectedEmitterCount: number;
+  droppedEmitterCount: number;
+  maxEmitterCount?: number;
+  maxEmittersPerSignature?: number;
+}): Record<string, unknown> {
+  if (!selection.applied) {
+    return {};
+  }
+  return {
+    auroraEmitterPreviewBudgetStatus: "applied",
+    auroraEmitterPreviewBudgetMode: "multi-emitter-source-preview-budget",
+    auroraEmitterPreviewBudgetSourceEmitterCount: selection.sourceEmitterCount,
+    auroraEmitterPreviewBudgetSelectedEmitterCount: selection.selectedEmitterCount,
+    auroraEmitterPreviewBudgetDroppedEmitterCount: selection.droppedEmitterCount,
+    auroraEmitterPreviewBudgetMaxEmitterCount: selection.maxEmitterCount,
+    auroraEmitterPreviewBudgetMaxEmittersPerSignature:
+      selection.maxEmittersPerSignature
+  };
+}
+
+function applyPlaceableVfxEmitterPreviewBudgetToProfile(
+  profile: PlaceableVfxPreviewProfile,
+  budget: PlaceableVfxEmitterPreviewBudgetOptions | undefined,
+  emitterCount: number
+): PlaceableVfxPreviewProfile {
+  if (!budget) {
+    return profile;
+  }
+  const minEmitterCount = Math.max(0, Math.trunc(budget.minEmitterCount ?? Number.POSITIVE_INFINITY));
+  if (emitterCount <= minEmitterCount) {
+    return profile;
+  }
+  const next: PlaceableVfxPreviewProfile = { ...profile };
+  const maxParticlesPerEmitter =
+    typeof budget.maxParticlesPerEmitter === "number" &&
+    Number.isFinite(budget.maxParticlesPerEmitter)
+      ? Math.max(1, Math.trunc(budget.maxParticlesPerEmitter))
+      : undefined;
+  if (
+    maxParticlesPerEmitter !== undefined &&
+    next.count > maxParticlesPerEmitter
+  ) {
+    next.emitterPreviewBudgetSourceParticleCount = next.count;
+    next.count = maxParticlesPerEmitter;
+    next.particleCountLimit =
+      next.particleCountLimit !== undefined
+        ? Math.min(next.particleCountLimit, maxParticlesPerEmitter)
+        : maxParticlesPerEmitter;
+    next.particleCountPreviewMode = "emitter-preview-budget-capped";
+  }
+
+  const opacityScale =
+    typeof budget.opacityScale === "number" && Number.isFinite(budget.opacityScale)
+      ? clampNumber(budget.opacityScale, 0.02, 1)
+      : undefined;
+  if (opacityScale !== undefined) {
+    next.baseOpacity = clampNumber(next.baseOpacity * opacityScale, 0, 1);
+    next.particleAlphaStart =
+      typeof next.particleAlphaStart === "number"
+        ? clampNumber(next.particleAlphaStart * opacityScale, 0, 1)
+        : next.particleAlphaStart;
+    next.particleAlphaMid =
+      typeof next.particleAlphaMid === "number"
+        ? clampNumber(next.particleAlphaMid * opacityScale, 0, 1)
+        : next.particleAlphaMid;
+    next.particleAlphaEnd =
+      typeof next.particleAlphaEnd === "number"
+        ? clampNumber(next.particleAlphaEnd * opacityScale, 0, 1)
+        : next.particleAlphaEnd;
+    next.particleAlphaPreviewClamp =
+      typeof next.particleAlphaPreviewClamp === "number"
+        ? clampNumber(next.particleAlphaPreviewClamp * opacityScale, 0, 1)
+        : next.particleAlphaPreviewClamp;
+    next.emitterPreviewBudgetOpacityScale = opacityScale;
+  }
+  const opacityFloor =
+    typeof budget.opacityFloor === "number" && Number.isFinite(budget.opacityFloor)
+      ? clampNumber(budget.opacityFloor, 0, 1)
+      : undefined;
+  if (opacityFloor !== undefined) {
+    next.baseOpacity = Math.max(next.baseOpacity, opacityFloor);
+    next.particleAlphaStart =
+      typeof next.particleAlphaStart === "number"
+        ? Math.max(next.particleAlphaStart, opacityFloor)
+        : next.particleAlphaStart;
+    next.particleAlphaMid =
+      typeof next.particleAlphaMid === "number"
+        ? Math.max(next.particleAlphaMid, opacityFloor)
+        : next.particleAlphaMid;
+    next.particleAlphaEnd =
+      typeof next.particleAlphaEnd === "number"
+        ? Math.max(next.particleAlphaEnd, opacityFloor)
+        : next.particleAlphaEnd;
+    next.particleAlphaPreviewClamp =
+      typeof next.particleAlphaPreviewClamp === "number"
+        ? Math.max(next.particleAlphaPreviewClamp, opacityFloor)
+        : next.particleAlphaPreviewClamp;
+    next.emitterPreviewBudgetOpacityFloor = opacityFloor;
+  }
+
+  const sizeScale =
+    typeof budget.sizeScale === "number" && Number.isFinite(budget.sizeScale)
+      ? clampNumber(budget.sizeScale, 0.05, 4)
+      : undefined;
+  if (sizeScale !== undefined) {
+    next.sizeMin *= sizeScale;
+    next.sizeMax *= sizeScale;
+    next.particleSizeStart =
+      typeof next.particleSizeStart === "number"
+        ? next.particleSizeStart * sizeScale
+        : next.particleSizeStart;
+    next.particleSizeMid =
+      typeof next.particleSizeMid === "number"
+        ? next.particleSizeMid * sizeScale
+        : next.particleSizeMid;
+    next.particleSizeEnd =
+      typeof next.particleSizeEnd === "number"
+        ? next.particleSizeEnd * sizeScale
+        : next.particleSizeEnd;
+    next.particleSizeYStart =
+      typeof next.particleSizeYStart === "number"
+        ? next.particleSizeYStart * sizeScale
+        : next.particleSizeYStart;
+    next.particleSizeYMid =
+      typeof next.particleSizeYMid === "number"
+        ? next.particleSizeYMid * sizeScale
+        : next.particleSizeYMid;
+    next.particleSizeYEnd =
+      typeof next.particleSizeYEnd === "number"
+        ? next.particleSizeYEnd * sizeScale
+        : next.particleSizeYEnd;
+    next.emitterPreviewBudgetSizeScale = sizeScale;
+  }
+  next.emitterPreviewBudgetMode = "multi-emitter-source-preview-budget";
+  return next;
 }
 
 function createPlaceableVfxEmitterPreviewGroup(
@@ -5760,6 +9167,15 @@ function createPlaceableVfxEmitterPreviewGroup(
     Boolean(alphaCompanionTexture) ||
     (particleTexture ? isWhiteAlphaMaskTexture(particleTexture) : false);
   const softAlphaParticleCountSource = profile.count;
+  const flameLikeEmitter = isAuroraEmitterFlameLikeToken(
+    [
+      auroraEmitter?.texture,
+      auroraEmitter?.chunkName,
+      auroraEmitter?.nodeName
+    ]
+      .map((entry) => normalizeAuroraEmitterToken(entry))
+      .join("|")
+  );
   if (hasTextureNullNoChunk) {
     profile = {
       ...profile,
@@ -5773,6 +9189,8 @@ function createPlaceableVfxEmitterPreviewGroup(
   const shouldCapSoftAlphaParticlePreview =
     hasSoftAlphaParticleTexture &&
     auroraBlendMode.authoringCandidate === "Lighten" &&
+    profile.sourceMdlEmitterPreviewMode === undefined &&
+    !flameLikeEmitter &&
     profile.kind !== "beam" &&
     profile.layout === "camera_billboard" &&
     profile.count > 6;
@@ -5786,6 +9204,11 @@ function createPlaceableVfxEmitterPreviewGroup(
       particleCountPreviewMode: "soft-alpha-preview-capped"
     };
   }
+  profile = applyPlaceableVfxEmitterPreviewBudgetToProfile(
+    profile,
+    options.emitterPreviewBudget,
+    emitterCount
+  );
   const auroraMaterialBlendState = resolveAuroraEmitterMaterialBlendState(auroraEmitter);
   const auroraParticleRenderState = resolveAuroraParticleRenderStateRecord(
     auroraMaterialBlendState,
@@ -5855,6 +9278,13 @@ function createPlaceableVfxEmitterPreviewGroup(
     auroraParticleNonPunchVariantFlag: auroraParticleRenderState.particleNonPunchVariantFlag,
     auroraParticleBlendFuncWrapperInvoked: auroraParticleRenderState.blendFuncWrapperInvoked,
     auroraParticleBlendFuncFactorsCaptured: auroraParticleRenderState.blendFuncFactorsCaptured,
+    auroraParticleBlendFuncSourceFactor: auroraParticleRenderState.blendFuncSourceFactor,
+    auroraParticleBlendFuncDestinationFactor:
+      auroraParticleRenderState.blendFuncDestinationFactor,
+    auroraParticleBlendFuncSourceFactorEnum:
+      auroraParticleRenderState.blendFuncSourceFactorEnum,
+    auroraParticleBlendFuncDestinationFactorEnum:
+      auroraParticleRenderState.blendFuncDestinationFactorEnum,
     auroraParticleRenderStateCacheWrapperRequired:
       auroraParticleRenderState.renderStateCacheWrapperRequired,
     auroraEmitterTexture: auroraEmitter?.texture,
@@ -5986,7 +9416,20 @@ function createPlaceableVfxEmitterPreviewGroup(
     auroraEmitterSimulation: auroraSimulation,
     auroraEmitterSimulationPreviewMode: auroraSimulation ? "profile-parameter-preview" : undefined,
     auroraEmitterBaseLift: profile.baseLift,
+    auroraEmitterSourceMdlPreviewKind: profile.sourceMdlEmitterPreviewKind,
+    auroraEmitterSourceMdlPreviewMode: profile.sourceMdlEmitterPreviewMode,
+    auroraEmitterSourceMdlTransformPositionPolicy:
+      profile.sourceMdlEmitterTransformPositionPolicy,
+    auroraEmitterSourceMdlParticleSizePolicy:
+      profile.sourceMdlEmitterParticleSizePolicy,
+    auroraEmitterSourceMdlMotionPolicy: profile.sourceMdlEmitterMotionPolicy,
+    auroraEmitterSourceMdlParticleSizeScaleSource:
+      profile.sourceMdlEmitterParticleSizeScaleSource,
+    auroraEmitterSourceMdlMotionScaleSource:
+      profile.sourceMdlEmitterMotionScaleSource,
     auroraEmitterSourceTransformAnchorPreviewMode: profile.sourceTransformAnchorPreviewMode,
+    auroraEmitterSourceModelUnitScale: profile.sourceModelUnitScale,
+    auroraEmitterSourceModelUnitScalePreviewMode: profile.sourceModelUnitScalePreviewMode,
     auroraEmitterSimulationTimelinePreviewMode: profile.simulationTimeline
       ? "runtime-keyframe-sampled-preview"
       : undefined,
@@ -6042,6 +9485,12 @@ function createPlaceableVfxEmitterPreviewGroup(
     auroraEmitterParticleCountSource: profile.particleCountSource,
     auroraEmitterParticleCountLimit: profile.particleCountLimit,
     auroraEmitterParticleCountPreviewMode: profile.particleCountPreviewMode,
+    auroraEmitterPreviewBudgetProfileMode: profile.emitterPreviewBudgetMode,
+    auroraEmitterPreviewBudgetSourceParticleCount:
+      profile.emitterPreviewBudgetSourceParticleCount,
+    auroraEmitterPreviewBudgetOpacityScale: profile.emitterPreviewBudgetOpacityScale,
+    auroraEmitterPreviewBudgetOpacityFloor: profile.emitterPreviewBudgetOpacityFloor,
+    auroraEmitterPreviewBudgetSizeScale: profile.emitterPreviewBudgetSizeScale,
     auroraEmitterBirthratePositiveGateBlocked: profile.sourceBirthrateGateBlocked,
     auroraEmitterLifeExpPositiveGateBlocked: profile.sourceLifeExpGateBlocked,
     auroraEmitterEmissionGatePreviewMode: profile.emissionGatePreviewMode,
@@ -6064,6 +9513,7 @@ function createPlaceableVfxEmitterPreviewGroup(
     auroraEmitterParticleSizeYEnd: profile.particleSizeYEnd,
     auroraEmitterParticleSizeYFallbackPreviewMode: profile.particleSizeYFallbackPreviewMode,
     auroraEmitterParticleSizeSourcePreviewMode: profile.particleSizeSourcePreviewMode,
+    auroraEmitterParticleSizeTimelineScale: profile.particleSizeTimelineScale,
     auroraEmitterParticleSizeVisibilityFloorPreviewMode:
       profile.particleSizeVisibilityFloorPreviewMode,
     auroraEmitterBubblePreviewMode: profile.bubblePreviewMode,
@@ -6075,6 +9525,9 @@ function createPlaceableVfxEmitterPreviewGroup(
     auroraEmitterParticleAlphaSourcePreviewMode: profile.particleAlphaSourcePreviewMode,
     auroraEmitterParticleAlphaPreviewClamp: profile.particleAlphaPreviewClamp,
     auroraEmitterParticleAlphaPreviewClampMode: profile.particleAlphaPreviewClampMode,
+    auroraEmitterParticleAlphaPreviewClampSource: profile.particleAlphaPreviewClampSource,
+    auroraEmitterParticleAlphaPreviewClampProofStatus:
+      profile.particleAlphaPreviewClampProofStatus,
     auroraEmitterParticleColorStart: profile.particleColorStart,
     auroraEmitterParticleColorMid: profile.particleColorMid,
     auroraEmitterParticleColorEnd: profile.particleColorEnd,
@@ -6150,6 +9603,10 @@ function createPlaceableVfxEmitterPreviewGroup(
       profile.particleKinematicCoordinateSpacePreviewMode,
     auroraEmitterKinematicTravelClampDistance: profile.kinematicTravelClampDistance,
     auroraEmitterKinematicTravelClampPreviewMode: profile.kinematicTravelClampPreviewMode,
+    auroraEmitterFlameLike: profile.flameLike,
+    auroraEmitterFlameColorPreviewMode: profile.flameColorPreviewMode,
+    auroraEmitterFlameIntensityPreviewMode: profile.flameIntensityPreviewMode,
+    auroraEmitterFlameAlphaPreviewMode: profile.flameAlphaPreviewMode,
     auroraEmitterAffectedByWind: profile.affectedByWind,
     auroraEmitterWindDrift: profile.windDrift,
     auroraEmitterAffectedByWindPreviewMode: profile.affectedByWind
@@ -8144,7 +11601,6 @@ function createPlaceableVfxEmitterPreviewGroup(
   const cameraBillboardBatchSlots: Array<
     THREE.Mesh<THREE.BufferGeometry, PlaceableVfxPreviewMaterial>
   > = [];
-
   for (let index = 0; index < profile.count; index += 1) {
     const phase = (index / profile.count) * Math.PI * 2;
     const radial = 0.2 + ((index * 977) % 1000) / 1000;
@@ -8175,6 +11631,8 @@ function createPlaceableVfxEmitterPreviewGroup(
       auroraSharedTexture: particleTexture ? true : false,
       auroraBaseOpacity: profile.baseOpacity,
       auroraEmitterAtlas: auroraAtlas,
+      auroraEmitterNode: auroraEmitter?.nodeName,
+      auroraEmitterTexture: auroraEmitter?.texture,
       auroraEmitterBlendMode: auroraEmitter?.blendMode,
       auroraEmitterAdditivePreview: profile.additive,
       auroraVfxGeneratedMaterial: true,
@@ -8183,7 +11641,9 @@ function createPlaceableVfxEmitterPreviewGroup(
     applyAuroraEmitterTextureSideAdapter(material, auroraEmitter);
     applyAuroraEmitterMaterialBlendState(material, auroraMaterialBlendState, auroraEmitter);
     applyAuroraEmitterTextureTintAdapter(material, auroraEmitter);
-    applyPlaceableVfxPreviewColorAdapter(material, payload, emitterColorHex, auroraEmitter);
+    applyPlaceableVfxPreviewColorAdapter(material, payload, emitterColorHex, auroraEmitter, {
+      depthTestFlameLighten: shouldUseSourceMdlDepthTestedFlameLighten(profile)
+    });
     if (resolvedParticleTexture) {
       setVfxMaterialTexture(
         material,
@@ -8265,10 +11725,11 @@ function createPlaceableVfxEmitterPreviewGroup(
         mesh.position.x = baseX;
         mesh.position.z = baseZ;
       } else {
+        const particleDriftScale = isBeam ? 0.58 : 1;
         mesh.position.x =
-          baseX + Math.cos(driftWave) * profile.drift * (isBeam ? 0.58 : 1) * driftScale;
+          baseX + Math.cos(driftWave) * profile.drift * particleDriftScale * driftScale;
         mesh.position.z =
-          baseZ + Math.sin(driftWave) * profile.drift * (isBeam ? 0.58 : 1) * driftScale;
+          baseZ + Math.sin(driftWave) * profile.drift * particleDriftScale * driftScale;
       }
       const kinematicOffset = resolveAuroraKinematicOffset(
         profile,
@@ -8469,7 +11930,9 @@ function createPlaceableVfxEmitterPreviewGroup(
     applyAuroraEmitterTextureSideAdapter(batchMaterial, auroraEmitter);
     applyAuroraEmitterMaterialBlendState(batchMaterial, auroraMaterialBlendState, auroraEmitter);
     applyAuroraEmitterTextureTintAdapter(batchMaterial, auroraEmitter);
-    applyPlaceableVfxPreviewColorAdapter(batchMaterial, payload, emitterColorHex, auroraEmitter);
+    applyPlaceableVfxPreviewColorAdapter(batchMaterial, payload, emitterColorHex, auroraEmitter, {
+      depthTestFlameLighten: shouldUseSourceMdlDepthTestedFlameLighten(profile)
+    });
     if (resolvedParticleTexture) {
       setVfxMaterialTexture(
         batchMaterial,
@@ -8648,7 +12111,7 @@ export function applyPlaceableVfxParticleTexture(
   };
   group.traverse((node) => {
     const materials: THREE.Material[] = [];
-    if (node instanceof THREE.Sprite) {
+    if (node instanceof THREE.Sprite && node.userData?.auroraParticleTextureOptOut !== true) {
       materials.push(node.material);
     }
     if (
@@ -8818,15 +12281,65 @@ function applyPlaceableVfxPreviewColorAdapter(
   material: PlaceableVfxPreviewMaterial,
   payload: PlaceableViewportRenderPayload,
   colorHex: string,
-  auroraEmitterOverride: PlaceableAuroraEmitterNode | null = null
+  auroraEmitterOverride: PlaceableAuroraEmitterNode | null = null,
+  options: { depthTestFlameLighten?: boolean } = {}
 ): void {
+  const flameLikeEmitter = isAuroraEmitterFlameLikeToken(
+    [
+      auroraEmitterOverride?.texture,
+      auroraEmitterOverride?.chunkName,
+      auroraEmitterOverride?.nodeName
+    ]
+      .map((entry) => normalizeAuroraEmitterToken(entry))
+      .join("|")
+  );
+  const flameLightenEmitter = isAuroraEmitterFlameLightenOverlayCandidate(
+    auroraEmitterOverride
+  );
+  const sourceMdlRuntimeBlendStrict =
+    material.userData?.auroraEmitterSourceMdlRuntimeBlendStrict === true;
   material.userData = {
     ...material.userData,
-    ...buildPlaceableVfxPreviewColorUserData(payload, colorHex, auroraEmitterOverride)
+    ...buildPlaceableVfxPreviewColorUserData(payload, colorHex, auroraEmitterOverride),
+    ...(flameLikeEmitter
+      ? {
+          auroraEmitterFlameLike: true,
+          auroraEmitterLightenAlphaRgbScalePreviewMode:
+            "flame-lighten-rgb-preserved-alpha-only"
+        }
+      : {}),
+    ...(flameLightenEmitter && !sourceMdlRuntimeBlendStrict
+      ? {
+          auroraEmitterFlameLightenDepthPreviewMode:
+            options.depthTestFlameLighten === true
+              ? "additive-flame-depth-tested-source-mdl-fountain"
+              : "additive-flame-overlay-depth-test-disabled"
+        }
+      : {}),
+    ...(flameLightenEmitter && sourceMdlRuntimeBlendStrict
+      ? {
+          auroraEmitterFlameLightenDepthPreviewMode:
+            "source-mdl-mode-2-depth-state-from-renderer-record",
+          auroraEmitterFlameLightenDepthDiagnostic:
+            "VFX_LIGHTEN_MODE2_FLAME_DEPTH_OVERRIDE_NOT_SUBSTITUTED"
+        }
+      : {})
   };
+  if (flameLightenEmitter && !sourceMdlRuntimeBlendStrict) {
+    material.depthTest = options.depthTestFlameLighten === true;
+    material.depthWrite = false;
+    material.transparent = true;
+    material.needsUpdate = true;
+  }
   if (material.userData.auroraEmitterPreviewColorMode === "semantic-scene-tint-preview") {
     material.color.set(colorHex);
   }
+}
+
+function shouldUseSourceMdlDepthTestedFlameLighten(
+  profile: PlaceableVfxPreviewProfile
+): boolean {
+  return profile.sourceMdlEmitterPreviewKind === "flame";
 }
 
 function resolveAuroraEmitterActiveSimulationForPayload(
@@ -9034,6 +12547,31 @@ function buildPlaceableVfxFingerprint(payload: PlaceableViewportRenderPayload): 
     .join("|");
 }
 
+type SourceMdlEmitterPreviewKind = "flame" | "smoke" | "generic";
+
+type SourceMdlEmitterPositionPolicy = "source-mdl-model-space-position";
+
+type SourceMdlEmitterParticleSizePolicy =
+  | "source-mdl-authored-model-unit-size-curve"
+  | "source-mdl-model-unit-size-curve"
+  | "model-radius-source-size-curve"
+  | "model-radius-smoke-size-curve";
+
+type SourceMdlEmitterMotionPolicy =
+  "source-mdl-model-unit-motion";
+
+interface SourceMdlEmitterPreviewClassification {
+  kind: SourceMdlEmitterPreviewKind;
+  mode:
+    | "source-mdl-flame-fountain"
+    | "source-mdl-smoke-fountain"
+    | "source-mdl-generic-fountain"
+    | "source-mdl-generic-emitter";
+  transformPositionPolicy: SourceMdlEmitterPositionPolicy;
+  particleSizePolicy: SourceMdlEmitterParticleSizePolicy;
+  motionPolicy: SourceMdlEmitterMotionPolicy;
+}
+
 interface PlaceableVfxPreviewProfile {
   kind: "smoke" | "beam" | "liquid" | "spark" | "generic";
   layout:
@@ -9054,7 +12592,22 @@ interface PlaceableVfxPreviewProfile {
   sizeMin: number;
   sizeMax: number;
   additive: boolean;
-  sourceTransformAnchorPreviewMode?: "node-transform-origin-no-procedural-lift";
+  sourceMdlEmitterPreviewKind?: SourceMdlEmitterPreviewKind;
+  sourceMdlEmitterPreviewMode?: SourceMdlEmitterPreviewClassification["mode"];
+  sourceMdlEmitterTransformPositionPolicy?: SourceMdlEmitterPositionPolicy;
+  sourceMdlEmitterParticleSizePolicy?: SourceMdlEmitterParticleSizePolicy;
+  sourceMdlEmitterMotionPolicy?: SourceMdlEmitterMotionPolicy;
+  flameLike?: boolean;
+  flameColorPreviewMode?: "source-flame-texture-rgb-preserved";
+  flameIntensityPreviewMode?: "source-flame-additive-emissive-boost";
+  flameAlphaPreviewMode?: "source-flame-additive-alpha-visibility-floor";
+  sourceTransformAnchorPreviewMode?:
+    | "node-transform-origin-no-procedural-lift"
+    | "node-transform-origin-source-mdl-fountain";
+  sourceModelUnitScale?: number;
+  sourceModelUnitScalePreviewMode?: "source-mdl-gltf-position-unit-scale";
+  sourceMdlEmitterParticleSizeScaleSource?: string;
+  sourceMdlEmitterMotionScaleSource?: string;
   particleRotationRate?: number;
   particleRotationRateSource?: number;
   particleRotationRatePreviewMode?:
@@ -9090,6 +12643,7 @@ interface PlaceableVfxPreviewProfile {
     | "birthrate-lifetime-preview-capped"
     | "zero-motion-world-z-symbol-single-draw"
     | "soft-alpha-preview-capped"
+    | "emitter-preview-budget-capped"
     | "trail-distance-stationary-source-count"
     | "texture-null-no-textured-draw";
   sourceBirthrateGateBlocked?: boolean;
@@ -9146,7 +12700,10 @@ interface PlaceableVfxPreviewProfile {
   particleAlphaEnd?: number;
   particleAlphaSourcePreviewMode?: "aurora-source-alpha-linear";
   particleAlphaPreviewClamp?: number;
-  particleAlphaPreviewClampMode?: "lighten-bubble-overdraw-alpha-clamp";
+  particleAlphaPreviewClampSource?: string;
+  particleAlphaPreviewClampProofStatus?: string;
+  particleAlphaPreviewClampMode?:
+    | "lighten-bubble-overdraw-alpha-clamp";
   particleColorStart?: [number, number, number];
   particleColorMid?: [number, number, number];
   particleColorEnd?: [number, number, number];
@@ -9163,6 +12720,7 @@ interface PlaceableVfxPreviewProfile {
   particleKinematicOrientationInverse?: THREE.Quaternion;
   particleKinematicCoordinateSpacePreviewMode?:
     | "source-inherit-local-emitter-space"
+    | "source-node-local-emitter-axis"
     | "source-no-inherit-world-space";
   kinematicTravelClampDistance?: number;
   kinematicTravelClampPreviewMode?: "velocity-preview-clamped-to-profile-height";
@@ -9170,6 +12728,11 @@ interface PlaceableVfxPreviewProfile {
     | "explicit-zero-kinematics-static-preview"
     | "explicit-zero-kinematics-static-sheet-preview"
     | "explicit-zero-kinematics-temporal-particles-preview";
+  emitterPreviewBudgetMode?: "multi-emitter-source-preview-budget";
+  emitterPreviewBudgetSourceParticleCount?: number;
+  emitterPreviewBudgetOpacityScale?: number;
+  emitterPreviewBudgetOpacityFloor?: number;
+  emitterPreviewBudgetSizeScale?: number;
   gravityBias?: number;
   bounceCoefficient?: number;
   bouncePreviewMode?: "source-bounce-floor-plane-preview";
@@ -9398,6 +12961,14 @@ type PlaceableAuroraLightAnimation = NonNullable<
   PlaceableAuroraLightNode["animations"]
 >[number];
 
+interface PlaceableAuroraLightPreviewBudgetEntry {
+  light: PlaceableAuroraLightNode;
+  sourceIndex: number;
+  retailScore: AuroraLightManagerPreviewScore;
+  rank: number;
+  accepted: boolean;
+}
+
 type PlaceableAssetDeliveryContract =
   PlaceableViewportRenderPayload["assetContracts"]["assets"][number];
 
@@ -9515,19 +13086,48 @@ function resolveAuroraEmitterThreeRenderOrder(
   emitter: PlaceableAuroraEmitterNode | null | undefined
 ): number {
   const renderOrderShort = resolveAuroraEmitterRenderOrderShort(emitter);
-  return renderOrderShort === null
+  const sourceOrder = renderOrderShort === null
     ? PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER
     : PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - renderOrderShort;
+  return isAuroraEmitterFlameLightenOverlayCandidate(emitter) &&
+    !hasSourceMdlEmitterPayloadSignal(emitter)
+    ? Math.max(sourceOrder, AURORA_FLAME_LIGHTEN_THREE_RENDER_ORDER)
+    : sourceOrder;
+}
+
+function isAuroraEmitterFlameLightenOverlayCandidate(
+  emitter: PlaceableAuroraEmitterNode | null | undefined
+): boolean {
+  if (!emitter) {
+    return false;
+  }
+  const flameLike = isAuroraEmitterFlameLikeToken(
+    [emitter.texture, emitter.chunkName, emitter.nodeName]
+      .map((entry) => normalizeAuroraEmitterToken(entry))
+      .join("|")
+  );
+  return flameLike && /lighten/iu.test(String(emitter.blendMode ?? ""));
 }
 
 function buildAuroraEmitterRenderOrderAdapterUserData(
   emitter: PlaceableAuroraEmitterNode | null | undefined
 ): Record<string, string | number | undefined> {
   const renderOrderShort = resolveAuroraEmitterRenderOrderShort(emitter);
+  const flameLightenOverlay =
+    isAuroraEmitterFlameLightenOverlayCandidate(emitter) &&
+    !hasSourceMdlEmitterPayloadSignal(emitter);
   if (renderOrderShort === null) {
     return {
-      auroraEmitterThreeRenderOrder: PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER,
-      auroraEmitterRenderOrderAdapterPreviewMode: "default-vfx-render-order"
+      auroraEmitterThreeRenderOrder: resolveAuroraEmitterThreeRenderOrder(emitter),
+      auroraEmitterRenderOrderAdapterPreviewMode: "default-vfx-render-order",
+      ...(flameLightenOverlay
+        ? {
+            auroraEmitterFlameLightenRenderLayer:
+              "additive-flame-overlay-after-placeable-model",
+            auroraEmitterFlameLightenThreeRenderOrder:
+              AURORA_FLAME_LIGHTEN_THREE_RENDER_ORDER
+          }
+        : {})
     };
   }
   return {
@@ -9537,7 +13137,15 @@ function buildAuroraEmitterRenderOrderAdapterUserData(
     auroraEmitterRenderOrderAdapterDirection:
       "lower-aurora-renderorder-renders-later-preview",
     auroraEmitterRenderOrderAdapterDiagnostic:
-      "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED"
+      "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED",
+    ...(flameLightenOverlay
+      ? {
+          auroraEmitterFlameLightenRenderLayer:
+            "additive-flame-overlay-after-placeable-model",
+          auroraEmitterFlameLightenThreeRenderOrder:
+            AURORA_FLAME_LIGHTEN_THREE_RENDER_ORDER
+        }
+      : {})
   };
 }
 
@@ -10317,12 +13925,19 @@ function applyAuroraEmitterTransformToGroup(
   );
   const transformPosition = timelinePosition ?? transform.position;
   if (transformPosition) {
-    const scale = Math.max(objectRadius, 0.5) / 100;
+    const modelUnitScale = Math.max(objectRadius, 0.5);
+    const useSourceMdlModelSpacePosition =
+      group.userData?.auroraEmitterSourceMdlTransformPositionPolicy ===
+      "source-mdl-model-space-position";
+    const scale = useSourceMdlModelSpacePosition ? 1 : modelUnitScale / 100;
     const mappedPosition = mapAuroraVectorToThree(transformPosition).multiplyScalar(scale);
     group.position.copy(mappedPosition);
     group.userData = {
       ...group.userData,
       auroraEmitterTransformUnitScale: scale,
+      auroraEmitterTransformUnitScalePreviewMode: useSourceMdlModelSpacePosition
+        ? "source-mdl-model-space-position"
+        : "source-node-position-centimeter-scale",
       ...(transform.positionTimeline
         ? {
             auroraEmitterTransformPositionTimeline: transform.positionTimeline,
@@ -10606,7 +14221,29 @@ function resolveAuroraEmitterParticleSizeScale(
   objectRadius: number,
   modelUnitScale: number
 ): number {
+  switch (profile.sourceMdlEmitterParticleSizePolicy) {
+    case "source-mdl-authored-model-unit-size-curve":
+    case "source-mdl-model-unit-size-curve":
+      return SOURCE_MDL_EMITTER_MODEL_UNIT_PARTICLE_SIZE_SCALE;
+    case "model-radius-source-size-curve":
+    case "model-radius-smoke-size-curve":
+      return objectRadius;
+    default:
+      break;
+  }
   return profile.layout === "camera_billboard" ? objectRadius : modelUnitScale;
+}
+
+function resolveAuroraEmitterMotionUnitScale(
+  profile: PlaceableVfxPreviewProfile,
+  centimeterScale: number
+): number {
+  switch (profile.sourceMdlEmitterMotionPolicy) {
+    case "source-mdl-model-unit-motion":
+      return SOURCE_MDL_EMITTER_MODEL_UNIT_MOTION_SCALE;
+    default:
+      return centimeterScale;
+  }
 }
 
 function resolveAuroraEmitterTimelinePeakValue(
@@ -11082,8 +14719,22 @@ function applyAuroraEmitterSimulationToPreviewProfile(
 
   const next: PlaceableVfxPreviewProfile = { ...profile };
   const modelUnitScale = Math.max(objectRadius, 0.5);
-  const centimeterScale = modelUnitScale / 100;
-  const motionUnitScale = centimeterScale;
+  const sourceMdlModelSpacePolicy =
+    profile.sourceMdlEmitterTransformPositionPolicy === "source-mdl-model-space-position";
+  const sourceModelUnitScale = sourceMdlModelSpacePolicy ? 1 : modelUnitScale;
+  const centimeterScale = sourceModelUnitScale / 100;
+  const motionUnitScale = resolveAuroraEmitterMotionUnitScale(
+    profile,
+    centimeterScale
+  );
+  if (sourceMdlModelSpacePolicy) {
+    next.sourceModelUnitScale = sourceModelUnitScale;
+    next.sourceModelUnitScalePreviewMode = "source-mdl-gltf-position-unit-scale";
+  }
+  if (profile.sourceMdlEmitterMotionPolicy === "source-mdl-model-unit-motion") {
+    next.sourceMdlEmitterMotionScaleSource =
+      SOURCE_MDL_EMITTER_MODEL_UNIT_MOTION_SCALE_SOURCE;
+  }
   const xSizeValue = resolveAuroraEmitterNonNegativeNumberWithTimeline(
     simulation,
     "xSize",
@@ -11648,17 +15299,26 @@ function applyAuroraEmitterSimulationToPreviewProfile(
         maxParticleSize
       );
     }
-  if (typeof sizeEndValue === "number" && sizeEndValue > 0) {
-    next.particleSizeEnd = clampNumber(
-      sizeEndValue * particleSizeScale,
-      objectRadius * 0.06,
-      maxParticleSize
+    if (typeof sizeEndValue === "number" && sizeEndValue > 0) {
+      next.particleSizeEnd = clampNumber(
+        sizeEndValue * particleSizeScale,
+        objectRadius * 0.06,
+        maxParticleSize
       );
     }
   }
   if (hasSourceSizeCurve) {
     next.particleSizeSourcePreviewMode = "aurora-source-size-linear";
     next.particleSizeTimelineScale = particleSizeScale;
+    if (
+      next.sourceMdlEmitterParticleSizePolicy === "source-mdl-authored-model-unit-size-curve"
+    ) {
+      next.sourceMdlEmitterParticleSizeScaleSource =
+        SOURCE_MDL_EMITTER_AUTHORED_MODEL_UNIT_PARTICLE_SIZE_SCALE_SOURCE;
+    } else if (next.sourceMdlEmitterParticleSizePolicy === "source-mdl-model-unit-size-curve") {
+      next.sourceMdlEmitterParticleSizeScaleSource =
+        SOURCE_MDL_EMITTER_MODEL_UNIT_PARTICLE_SIZE_SCALE_SOURCE;
+    }
   }
   const hasExplicitZeroYSize =
     (sizeStartYValue === 0 || sizeMidYValue === 0 || sizeEndYValue === 0);
@@ -11705,7 +15365,8 @@ function applyAuroraEmitterSimulationToPreviewProfile(
     next.layout === "camera_billboard" &&
     hasPositiveSurfaceSource &&
     hasSourceSizeCurve &&
-    next.count > 0
+    next.count > 0 &&
+    next.sourceMdlEmitterParticleSizePolicy !== "source-mdl-authored-model-unit-size-curve"
   ) {
     const surfaceExtent = Math.max(effectiveSurfaceWidth ?? 0, effectiveSurfaceDepth ?? 0);
     const surfaceVisibilityFloor = clampNumber(
@@ -11764,7 +15425,6 @@ function applyAuroraEmitterSimulationToPreviewProfile(
       next.particleSizeVisibilityFloorPreviewMode = "camera-beam-visibility-floor";
     }
   }
-
   const alphaStartValue = resolveAuroraEmitterNonNegativeNumberWithTimeline(
     simulation,
     "alphaStart",
@@ -12092,6 +15752,9 @@ function resolveAuroraEmittersForPreview(
   if (!Array.isArray(emitters) || emitters.length === 0) {
     return [];
   }
+  const emittersWithExplicitParticleAssets = emitters.filter((emitter) =>
+    hasAuroraEmitterExplicitParticleAssetReference(emitter)
+  );
   const usefulEmitters = emitters.filter((emitter) =>
     Boolean(
       emitter.renderMode ||
@@ -12102,7 +15765,12 @@ function resolveAuroraEmittersForPreview(
         emitter.animations?.length
     )
   );
-  const renderableEmitters = usefulEmitters.length > 0 ? usefulEmitters : emitters;
+  const renderableEmitters =
+    emittersWithExplicitParticleAssets.length > 0
+      ? emittersWithExplicitParticleAssets
+      : usefulEmitters.length > 0
+        ? usefulEmitters
+        : emitters;
   const sourceModelCandidates = resolveAuroraEmitterSourceModelCandidates(payload);
   if (sourceModelCandidates.size === 0) {
     return renderableEmitters;
@@ -12112,6 +15780,17 @@ function resolveAuroraEmittersForPreview(
     return sourceModelName ? sourceModelCandidates.has(sourceModelName) : false;
   });
   return emittersFromSelectedModel.length > 0 ? emittersFromSelectedModel : renderableEmitters;
+}
+
+function hasAuroraEmitterExplicitParticleAssetReference(
+  emitter: PlaceableAuroraEmitterNode
+): boolean {
+  const chunkName = normalizeAuroraEmitterToken(emitter.chunkName);
+  if (chunkName.length > 0) {
+    return true;
+  }
+  const texture = normalizeAuroraEmitterToken(emitter.texture);
+  return texture.length > 0 && !isPlaceableVfxNullTextureReference(texture);
 }
 
 function resolveAuroraLightsForPreview(
@@ -12132,6 +15811,76 @@ function resolveAuroraLightsForPreview(
   return lightsFromSelectedModel.length > 0 ? lightsFromSelectedModel : lights;
 }
 
+function resolveAuroraLightPreviewBudgetSelection(
+  options: AuroraLightPreviewBudgetOptions
+): AuroraLightPreviewBudgetSelection {
+  const activeSlotCap =
+    typeof options.activeSlotCap === "number" && Number.isFinite(options.activeSlotCap)
+      ? Math.min(
+          Math.max(0, Math.trunc(options.activeSlotCap)),
+          AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP
+        )
+      : AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP;
+  const configuredMaxLights =
+    typeof options.configuredMaxLights === "number" &&
+    Number.isFinite(options.configuredMaxLights)
+      ? Math.max(0, Math.trunc(options.configuredMaxLights))
+      : undefined;
+  return {
+    activeSlotCap,
+    configuredMaxLights
+  };
+}
+
+function buildAuroraLightPreviewBudget(
+  payload: PlaceableViewportRenderPayload,
+  lights: readonly PlaceableAuroraLightNode[],
+  activeSlotCap = AURORA_LIGHT_PREVIEW_ACTIVE_SLOT_CAP,
+  objectRadius = 1
+): PlaceableAuroraLightPreviewBudgetEntry[] {
+  return selectAuroraLightManagerPreviewBudget(
+    lights.map((light, sourceIndex) => {
+      const animation = resolveAuroraLightAnimationSelection(payload, light);
+      return {
+        key: light.nodeName || `placeable-aurora-light-${sourceIndex}`,
+        sourceIndex,
+        payload: light,
+        scoreInput: {
+          position: resolveAuroraLightWorldPosition(light, animation, 0, objectRadius),
+          sourceRadius: resolveAuroraLightSourceRadiusWorldDistance(
+            light,
+            animation,
+            0,
+            objectRadius
+          ),
+          activeSelectionRadiusOverride: resolveAuroraLightShadowProjectionWorldDistance(
+            light,
+            animation,
+            0,
+            objectRadius
+          ),
+          multiplier: resolveAuroraLightMultiplier(light, animation, 0),
+          priority: resolveAuroraLightPriority(light),
+          enforceActiveSelectionRadius: false
+        }
+      };
+    }),
+    activeSlotCap
+  ).map((entry) => ({
+    light: entry.payload,
+    sourceIndex: entry.sourceIndex,
+    retailScore: entry.retailScore,
+    rank: entry.rank,
+    accepted: entry.accepted
+  }));
+}
+
+function resolveAuroraLightPriority(light: PlaceableAuroraLightNode): number {
+  return typeof light.lightPriority === "number" && Number.isFinite(light.lightPriority)
+    ? light.lightPriority
+    : 0;
+}
+
 function resolveAuroraEmitterSourceModelCandidates(
   payload: PlaceableViewportRenderPayload
 ): Set<string> {
@@ -12141,6 +15890,21 @@ function resolveAuroraEmitterSourceModelCandidates(
       payload.placeable.resref,
       payload.placeable.templateId,
       payload.templateId,
+      typeof metadata.lookupModelResRef === "string" ? metadata.lookupModelResRef : undefined,
+      typeof metadata.modelResRef === "string" ? metadata.modelResRef : undefined,
+      typeof metadata.model === "string" ? metadata.model : undefined
+    ]
+      .map((value) => normalizeAuroraEmitterSourceModelName(value))
+      .filter((value): value is string => Boolean(value))
+  );
+}
+
+function resolveAuroraEmitterExplicitModelCandidates(
+  payload: PlaceableViewportRenderPayload
+): Set<string> {
+  const metadata = payload.placeable.metadata ?? {};
+  return new Set(
+    [
       typeof metadata.lookupModelResRef === "string" ? metadata.lookupModelResRef : undefined,
       typeof metadata.modelResRef === "string" ? metadata.modelResRef : undefined,
       typeof metadata.model === "string" ? metadata.model : undefined
@@ -12162,6 +15926,230 @@ function normalizeAuroraEmitterSourceModelName(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function hasSourceMdlEmitterPayloadSignal(
+  emitter: PlaceableAuroraEmitterNode | null | undefined
+): boolean {
+  if (!emitter) {
+    return false;
+  }
+  return Boolean(
+    emitter.sourceModelFileName ||
+      emitter.sourceModelAssetId ||
+      emitter.sourceModelObjectKey ||
+      emitter.simulation ||
+      emitter.transform ||
+      emitter.sourceState
+  );
+}
+
+function hasAuroraEmitterSimulationSignal(
+  simulation: PlaceableAuroraEmitterNode["simulation"] | undefined
+): boolean {
+  if (!simulation) {
+    return false;
+  }
+  return [
+    simulation.birthrate,
+    simulation.lifeExp,
+    simulation.velocity,
+    simulation.randvel,
+    simulation.spread,
+    simulation.sizeStart,
+    simulation.sizeEnd,
+    simulation.sizeStartY,
+    simulation.sizeEndY,
+    simulation.alphaStart,
+    simulation.alphaEnd
+  ].some((value) => typeof value === "number" && Number.isFinite(value));
+}
+
+function resolveFiniteEmitterSimulationNumber(
+  simulation: PlaceableAuroraEmitterNode["simulation"] | undefined,
+  key: keyof NonNullable<PlaceableAuroraEmitterNode["simulation"]>
+): number | null {
+  const value = simulation?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function usesSourceMdlAuthoredModelUnitParticleSizeCurve(
+  emitter: PlaceableAuroraEmitterNode
+): boolean {
+  const sizeStart = resolveFiniteEmitterSimulationNumber(emitter.simulation, "sizeStart");
+  const sizeEnd = resolveFiniteEmitterSimulationNumber(emitter.simulation, "sizeEnd");
+  const sourceSizes = [sizeStart, sizeEnd].filter(
+    (value): value is number => value !== null && value > 0
+  );
+  return sourceSizes.length > 0;
+}
+
+function resolveSourceMdlEmitterPreviewKind(
+  texture: string,
+  chunkName: string,
+  emitterType: string
+): SourceMdlEmitterPreviewKind {
+  const sourceFingerprint = [texture, chunkName, emitterType].join("|");
+  if (isAuroraEmitterFlameLikeToken(sourceFingerprint)) {
+    return "flame";
+  }
+  if (isAuroraEmitterSmokeLikeToken(sourceFingerprint)) {
+    return "smoke";
+  }
+  return "generic";
+}
+
+function resolveSourceMdlEmitterPreviewMode(
+  kind: SourceMdlEmitterPreviewKind,
+  fountainLike: boolean
+): SourceMdlEmitterPreviewClassification["mode"] {
+  if (!fountainLike) {
+    return "source-mdl-generic-emitter";
+  }
+  if (kind === "flame") {
+    return "source-mdl-flame-fountain";
+  }
+  if (kind === "smoke") {
+    return "source-mdl-smoke-fountain";
+  }
+  return "source-mdl-generic-fountain";
+}
+
+function classifySourceMdlEmitterPreview(
+  payload: PlaceableViewportRenderPayload,
+  emitter: PlaceableAuroraEmitterNode,
+  renderMode: ResolvedAuroraEmitterRenderMode
+): SourceMdlEmitterPreviewClassification | null {
+  if (!hasSourceMdlEmitterPayloadSignal(emitter)) {
+    return null;
+  }
+  const sourceModelName = normalizeAuroraEmitterSourceModelName(emitter.sourceModelFileName);
+  const sourceModelCandidates = resolveAuroraEmitterExplicitModelCandidates(payload);
+  if (
+    sourceModelCandidates.size === 0 ||
+    !sourceModelName ||
+    !sourceModelCandidates.has(sourceModelName)
+  ) {
+    return null;
+  }
+
+  const texture = normalizeAuroraEmitterToken(emitter.texture);
+  const chunkName = normalizeAuroraEmitterToken(emitter.chunkName);
+  const emitterType = normalizeAuroraEmitterToken(emitter.emitterType);
+  const hasFountainData =
+    emitterType.includes("fountain") ||
+    (renderMode.bucket === "normal" && hasAuroraEmitterSimulationSignal(emitter.simulation));
+  const hasRenderableSourceMdlParticleData =
+    hasFountainData ||
+    emitterType.length > 0 ||
+    renderMode.bucket !== "unknown" ||
+    hasAuroraEmitterSimulationSignal(emitter.simulation);
+  if (!hasRenderableSourceMdlParticleData) {
+    return null;
+  }
+
+  const kind = resolveSourceMdlEmitterPreviewKind(texture, chunkName, emitterType);
+  return {
+    kind,
+    mode: resolveSourceMdlEmitterPreviewMode(kind, hasFountainData),
+    transformPositionPolicy: "source-mdl-model-space-position",
+    particleSizePolicy: usesSourceMdlAuthoredModelUnitParticleSizeCurve(emitter)
+      ? "source-mdl-authored-model-unit-size-curve"
+      : "source-mdl-model-unit-size-curve",
+    motionPolicy: "source-mdl-model-unit-motion"
+  };
+}
+
+function applySourceMdlEmitterClassificationToProfile(
+  profile: PlaceableVfxPreviewProfile,
+  classification: SourceMdlEmitterPreviewClassification | null
+): PlaceableVfxPreviewProfile {
+  if (!classification) {
+    return profile;
+  }
+  return {
+    ...profile,
+    sourceMdlEmitterPreviewKind: classification.kind,
+    sourceMdlEmitterPreviewMode: classification.mode,
+    sourceMdlEmitterTransformPositionPolicy: classification.transformPositionPolicy,
+    sourceMdlEmitterParticleSizePolicy: classification.particleSizePolicy,
+    sourceMdlEmitterMotionPolicy: classification.motionPolicy,
+    sourceTransformAnchorPreviewMode: "node-transform-origin-no-procedural-lift"
+  };
+}
+
+function resolveSourceMdlEmitterLayout(
+  renderMode: ResolvedAuroraEmitterRenderMode
+): PlaceableVfxPreviewProfile["layout"] {
+  switch (renderMode.bucket) {
+    case "billboard_to_world_z":
+      return "world_z_billboard";
+    case "billboard_to_local_z":
+      return "local_z_billboard";
+    case "linked":
+      return "linked_billboard";
+    case "aligned_to_world_z":
+      return "world_z_aligned";
+    case "aligned_to_particle_dir":
+      return "particle_aligned";
+    case "motion_blur":
+      return "motion_blur";
+    case "normal":
+    case "unknown":
+    default:
+      return "camera_billboard";
+  }
+}
+
+function resolveSourceMdlEmitterProfileKind(
+  kind: SourceMdlEmitterPreviewKind
+): PlaceableVfxPreviewProfile["kind"] {
+  if (kind === "smoke") {
+    return "smoke";
+  }
+  if (kind === "flame") {
+    return "spark";
+  }
+  return "generic";
+}
+
+function createSourceMdlEmitterBaseProfile(
+  classification: SourceMdlEmitterPreviewClassification,
+  renderMode: ResolvedAuroraEmitterRenderMode,
+  blendMode: ResolvedAuroraEmitterBlendMode
+): PlaceableVfxPreviewProfile {
+  const layout = resolveSourceMdlEmitterLayout(renderMode);
+  const singleLike = classification.mode === "source-mdl-generic-emitter";
+  return applySourceMdlEmitterClassificationToProfile(
+    {
+      kind: resolveSourceMdlEmitterProfileKind(classification.kind),
+      layout,
+      count: singleLike ? 1 : 4,
+      radius: 0,
+      height: 0,
+      drift: 0,
+      baseLift: 0,
+      baseOpacity: 1,
+      sizeMin: 0.001,
+      sizeMax: 0.001,
+      additive: blendMode.bucket === "fallback_mode_2",
+      ...(classification.kind === "flame" ? { flameLike: true } : {}),
+      ...(layout === "particle_aligned" || layout === "motion_blur"
+        ? { alignToParticleDirection: true }
+        : {}),
+      ...(singleLike
+        ? {
+            motionMode: "single" as const,
+            loopEmission: false
+          }
+        : {
+            motionMode: "fountain" as const,
+            emissionMode: "continuous" as const,
+            loopEmission: true
+          })
+    },
+    classification
+  );
+}
+
 function resolveAuroraEmitterPreviewProfile(
   payload: PlaceableViewportRenderPayload,
   objectRadius: number,
@@ -12176,12 +16164,23 @@ function resolveAuroraEmitterPreviewProfile(
   const simulation = resolveAuroraEmitterActiveSimulation(emitter, animationSelection);
   const activeTransform = resolveAuroraEmitterActiveTransform(emitter, animationSelection);
   const p2pReferenceTarget = resolveAuroraEmitterP2PReferenceTarget(emitter, objectRadius);
+  const auroraRenderMode = resolveAuroraEmitterRenderMode(emitter.renderMode);
+  const auroraBlendMode = resolveAuroraEmitterBlendMode(emitter.blendMode);
+  const sourceMdlEmitterClassification = classifySourceMdlEmitterPreview(
+    payload,
+    emitter,
+    auroraRenderMode
+  );
   const withSimulation = (profile: PlaceableVfxPreviewProfile): PlaceableVfxPreviewProfile => {
+    const sourceClassifiedProfile = applySourceMdlEmitterClassificationToProfile(
+      profile,
+      sourceMdlEmitterClassification
+    );
     let resolvedProfile = applyAuroraEmitterAnimationSelectionToPreviewProfile(
       applyAuroraEmitterSourceStateToPreviewProfile(
           applyAuroraEmitterUpdateModeToPreviewProfile(
             applyAuroraEmitterSimulationToPreviewProfile(
-              profile,
+              sourceClassifiedProfile,
               simulation,
               objectRadius,
               p2pReferenceTarget
@@ -12197,17 +16196,14 @@ function resolveAuroraEmitterPreviewProfile(
     );
     const orientationQuaternion = resolveAuroraEmitterTransformQuaternion(activeTransform);
     if (orientationQuaternion && !resolvedProfile.p2pTargetOffset) {
-      const usesEmitterLocalKinematics =
+      const inheritsEmitterLocalKinematics =
         resolvedProfile.inherit === true || resolvedProfile.inheritLocal === true;
       resolvedProfile = {
         ...resolvedProfile,
-        particleKinematicCoordinateSpace: usesEmitterLocalKinematics ? "emitter-local" : "world",
-        ...(usesEmitterLocalKinematics
-          ? {}
-          : { particleKinematicOrientationInverse: orientationQuaternion.clone().invert() }),
-        particleKinematicCoordinateSpacePreviewMode: usesEmitterLocalKinematics
+        particleKinematicCoordinateSpace: "emitter-local",
+        particleKinematicCoordinateSpacePreviewMode: inheritsEmitterLocalKinematics
           ? "source-inherit-local-emitter-space"
-          : "source-no-inherit-world-space"
+          : "source-node-local-emitter-axis"
       };
     }
     if (!activeTransform?.position) {
@@ -12220,13 +16216,16 @@ function resolveAuroraEmitterPreviewProfile(
     };
   };
   const fingerprint = buildPlaceableVfxFingerprint(payload);
-  const auroraRenderMode = resolveAuroraEmitterRenderMode(emitter.renderMode);
   const renderMode = auroraRenderMode.normalized;
   const blendMode = normalizeAuroraEmitterToken(emitter.blendMode);
   const emitterType = normalizeAuroraEmitterToken(emitter.emitterType);
   const texture = normalizeAuroraEmitterToken(emitter.texture);
   const chunkName = normalizeAuroraEmitterToken(emitter.chunkName);
+  const nodeName = normalizeAuroraEmitterToken(emitter.nodeName);
   const combined = [fingerprint, renderMode, blendMode, emitterType, texture, chunkName].join("|");
+  const flameLike =
+    sourceMdlEmitterClassification?.kind === "flame" ||
+    isAuroraEmitterFlameLikeToken([texture, chunkName, nodeName].join("|"));
   const alignedToWorldZ = auroraRenderMode.bucket === "aligned_to_world_z";
   const billboardToWorldZ = auroraRenderMode.bucket === "billboard_to_world_z";
   const billboardToLocalZ = auroraRenderMode.bucket === "billboard_to_local_z";
@@ -12238,6 +16237,16 @@ function resolveAuroraEmitterPreviewProfile(
     /add|additive|light|lighten/iu.test(blendMode) ||
     (!/normal|blend/iu.test(blendMode) && /(glow|pulse|spark|magic|fire)/iu.test(combined));
   const bubbleLike = isAuroraEmitterBubbleLikeToken(combined);
+
+  if (sourceMdlEmitterClassification) {
+    return withSimulation(
+      createSourceMdlEmitterBaseProfile(
+        sourceMdlEmitterClassification,
+        auroraRenderMode,
+        auroraBlendMode
+      )
+    );
+  }
 
   if (linked) {
     const smokeLike = /(smoke|fog|plume|cloud|mist|steam)/iu.test(combined);
@@ -12368,6 +16377,26 @@ function resolveAuroraEmitterPreviewProfile(
     });
   }
 
+  if (flameLike) {
+    return withSimulation({
+      kind: "spark",
+      layout: "camera_billboard",
+      count: 18,
+      radius: objectRadius * 0.28,
+      height: objectRadius * 1.25,
+      drift: objectRadius * 0.16,
+      baseLift: objectRadius * 0.05,
+      baseOpacity: additive ? 0.72 : 0.6,
+      sizeMin: objectRadius * 0.26,
+      sizeMax: objectRadius * 0.72,
+      additive: true,
+      flameLike: true,
+      flameColorPreviewMode: "source-flame-texture-rgb-preserved",
+      flameIntensityPreviewMode: "source-flame-additive-emissive-boost",
+      flameAlphaPreviewMode: "source-flame-additive-alpha-visibility-floor"
+    });
+  }
+
   if (/(fountain|smoke|fog|plume|cloud)/iu.test(emitterType) || /smoke|fog|plume|cloud/iu.test(combined)) {
     if (bubbleLike) {
       return withSimulation({
@@ -12437,6 +16466,14 @@ function isAuroraEmitterBubbleLikeToken(value: string): boolean {
   );
 }
 
+function isAuroraEmitterSmokeLikeToken(value: string): boolean {
+  return /(?:smoke|fog|plume|cloud|mist|steam|fxpa_smoke)/iu.test(value);
+}
+
+function isAuroraEmitterFlameLikeToken(value: string): boolean {
+  return /(?:flame|ember|fxpa_flame|fx_flame)/iu.test(value);
+}
+
 export function countRenderableMeshes(model: THREE.Object3D): number {
   let meshCount = 0;
   model.traverse((node) => {
@@ -12461,22 +16498,31 @@ export function summarizePlaceableTextureSourceFormats(
 }
 
 export function writePlaceableModelDebugStatus(
-  runtime: RuntimeState,
+  runtime: {
+    container?: {
+      dataset?: DOMStringMap | Record<string, string | undefined>;
+      dispatchEvent?: (event: Event) => boolean;
+    };
+  },
   status: string,
   details: Record<string, string | number | null> = {}
 ): void {
   const eventDetail: PlaceableModelStatusEventDetail = { status };
-  runtime.container.dataset.placeableModelStatus = status;
+  const dataset = runtime.container?.dataset;
+  if (!dataset) {
+    return;
+  }
+  dataset.placeableModelStatus = status;
   Object.entries(details).forEach(([key, value]) => {
     const dataKey = `placeableModel${key.charAt(0).toUpperCase()}${key.slice(1)}`;
     if (value === null) {
-      delete runtime.container.dataset[dataKey];
+      delete dataset[dataKey];
       return;
     }
-    runtime.container.dataset[dataKey] = String(value);
+    dataset[dataKey] = String(value);
     eventDetail[key] = value;
   });
-  if (typeof runtime.container.dispatchEvent === "function") {
+  if (typeof runtime.container?.dispatchEvent === "function") {
     runtime.container.dispatchEvent(
       new CustomEvent<PlaceableModelStatusEventDetail>(PLACEABLE_MODEL_STATUS_EVENT, {
         detail: eventDetail

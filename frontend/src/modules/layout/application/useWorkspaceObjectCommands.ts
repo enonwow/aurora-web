@@ -6,7 +6,10 @@ import { cloneSceneObjectVfxPayload } from "../../scene/domain/auroraVfxPayload"
 import type { AreaScene, SceneHistoryState, SceneObject } from "../contracts";
 import type { WorkspaceOptionSettings } from "./layoutPreferencesFacade";
 import type { WorkspaceToolbarState } from "./workspaceChromeFacade";
-import { cloneSceneObject } from "./workspaceSceneObjectClone";
+import {
+  cloneSceneObject,
+  cloneSceneObjectCreatureProperties
+} from "./workspaceSceneObjectClone";
 import {
   clampTranslationDeltaToSceneBounds,
   filterUnlockedVisibleSelectedObjects,
@@ -147,45 +150,9 @@ export function useWorkspaceObjectCommands({
                 : undefined
             }
           : undefined;
-        copy.creatureProperties = sourceSnapshot.creatureProperties
-          ? {
-              ...sourceSnapshot.creatureProperties,
-              statistics: sourceSnapshot.creatureProperties.statistics
-                ? {
-                    ...sourceSnapshot.creatureProperties.statistics,
-                    abilityScores: { ...sourceSnapshot.creatureProperties.statistics.abilityScores },
-                    racialModifiers: {
-                      ...sourceSnapshot.creatureProperties.statistics.racialModifiers
-                    },
-                    saves: { ...sourceSnapshot.creatureProperties.statistics.saves }
-                  }
-                : undefined,
-              appearanceSettings: sourceSnapshot.creatureProperties.appearanceSettings
-                ? { ...sourceSnapshot.creatureProperties.appearanceSettings }
-                : undefined,
-              classEntries: sourceSnapshot.creatureProperties.classEntries
-                ? sourceSnapshot.creatureProperties.classEntries.map((entry) => ({ ...entry }))
-                : undefined,
-              skills: sourceSnapshot.creatureProperties.skills
-                ? sourceSnapshot.creatureProperties.skills.map((entry) => ({ ...entry }))
-                : undefined,
-              scriptSlots: sourceSnapshot.creatureProperties.scriptSlots
-                ? { ...sourceSnapshot.creatureProperties.scriptSlots }
-                : undefined,
-              advancedSettings: sourceSnapshot.creatureProperties.advancedSettings
-                ? { ...sourceSnapshot.creatureProperties.advancedSettings }
-                : undefined,
-              feats: sourceSnapshot.creatureProperties.feats
-                ? sourceSnapshot.creatureProperties.feats.map((entry) => ({ ...entry }))
-                : undefined,
-              spells: sourceSnapshot.creatureProperties.spells
-                ? sourceSnapshot.creatureProperties.spells.map((entry) => ({ ...entry }))
-                : undefined,
-              specialAbilities: sourceSnapshot.creatureProperties.specialAbilities
-                ? sourceSnapshot.creatureProperties.specialAbilities.map((entry) => ({ ...entry }))
-                : undefined
-            }
-          : undefined;
+        copy.creatureProperties = cloneSceneObjectCreatureProperties(
+          sourceSnapshot.creatureProperties
+        );
         copy.soundPositioning = sourceSnapshot.soundPositioning
           ? {
               ...sourceSnapshot.soundPositioning,

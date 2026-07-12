@@ -221,6 +221,34 @@ This section maps decomp evidence to actual implementation state in `frontend/`.
 2. VFX runtime contract and parser policy lanes in the frontend scene model.
 3. Walkmesh query/pathing runtime integration.
 
+## Creature Implementation Addendum (2026-06-26)
+
+Implemented from the UTC/GIT creature decompilation loop:
+
+1. Area/GIT creature `CExoLocString` fields now preserve valid TLK `StringRef`
+   provenance for `firstName`, `lastName`, `description`, `subrace`, and
+   `deity` as `*StrRef` metadata.
+2. UTC-template to GIT-instance creature overlay now carries structured
+   provenance maps, not only visible fields: `lookupProfile`, `listCounts`,
+   `localizedStringRefs`, and `localizedStrings`.
+3. `listCounts` now includes `inventoryItemListCount` end to end through UTC
+   template parsing, catalog metadata/runtime projection, creature mapping,
+   area/GIT metadata, and scene normalization, matching Aurora `ItemList`.
+4. Area/GIT creature `DecayTime` now reaches frontend advanced settings as
+   `corpseDecayTimeSeconds` through the UTC-template to GIT-instance overlay.
+5. Scene-object cloning now centralizes deep cloning for creature properties,
+   including `appearanceProfile`, `lookupProfile`, `listCounts`,
+   `localizedStringRefs`, and `localizedStrings`, so drag/drop and clipboard
+   paths do not share or lose Aurora provenance maps.
+6. Creature Properties apply keeps the same provenance maps when committing
+   editable UI fields back into a scene object.
+7. Scene normalization equality now compares `inventoryItemListCount`, so a
+   changed or sanitized Aurora `ItemList` count cannot be skipped as unchanged.
+8. Verification for this slice: backend area/template parser, catalog runtime
+   projection, and repository tests; frontend area mapper/creature mapper/scene
+   factory/clone/drag-drop/property draft tests; and backend/frontend
+   `tsc --noEmit`.
+
 ## Aurora First Execution Split
 Use with `frontend/AURORA_FIRST_IMPLEMENTATION_MATRIX.md`.
 

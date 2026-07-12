@@ -1,0 +1,37 @@
+{
+  "id": "cave-interior",
+  "title": "Cave Interior Skybox",
+  "createdAt": "2026-06-30",
+  "generator": "built-in image_gen",
+  "source": "C:\\Users\\enonw\\.codex\\generated_images\\019f18ba-7ba3-7510-a228-492a24e33855\\ig_0a83cc6b23174107016a43c5bd44e08191a4fa4d444ba2bf8b.png",
+  "workspacePath": "frontend/public/assets/skyboxes/cave-interior",
+  "description": "Moody fantasy cave interior skybox with wet charcoal rock, teal bounced light, amber cracks, stalactites, and low mist.",
+  "equirectangular": {
+    "path": "cave-interior-equirectangular-2048x1024.png",
+    "width": 2048,
+    "height": 1024,
+    "projection": "equirectangular"
+  },
+  "cubemap": {
+    "faceSize": 1024,
+    "order": ["px", "nx", "py", "ny", "pz", "nz"],
+    "paths": {
+      "px": "cave-interior-px-1024.png",
+      "nx": "cave-interior-nx-1024.png",
+      "py": "cave-interior-py-1024.png",
+      "ny": "cave-interior-ny-1024.png",
+      "pz": "cave-interior-pz-1024.png",
+      "nz": "cave-interior-nz-1024.png"
+    }
+  },
+  "preview": {
+    "html": "preview.html",
+    "cross": "cave-interior-cubemap-cross-preview.png",
+    "camera": "cave-interior-camera-preview-1280x720.png"
+  },
+  "threeJsUsage": {
+    "equirectangular": "new THREE.TextureLoader().load('/assets/skyboxes/cave-interior/cave-interior-equirectangular-2048x1024.png', (texture) => { texture.mapping = THREE.EquirectangularReflectionMapping; texture.colorSpace = THREE.SRGBColorSpace; scene.background = texture; });",
+    "cubemap": "new THREE.CubeTextureLoader().setPath('/assets/skyboxes/cave-interior/').load(['cave-interior-px-1024.png','cave-interior-nx-1024.png','cave-interior-py-1024.png','cave-interior-ny-1024.png','cave-interior-pz-1024.png','cave-interior-nz-1024.png']);"
+  },
+  "prompt": "Create a seamless 2:1 equirectangular panoramic skybox that surrounds the viewer inside an enclosed fantasy cave chamber, with rugged wet stone walls, rocky ceiling, stalactites, muted teal bounced light, small amber cracks, low mist near the bottom edge, no people, no creatures, no props, no text, no watermark."
+}

@@ -4,16 +4,19 @@ import type { AreaScene, SceneObject } from "../contracts";
 import type {
   CreaturePropertiesDialogState,
   DoorPropertiesDialogState,
+  ItemPropertiesDialogState,
   PlaceablePropertiesDialogState,
   SoundPropertiesDialogState
 } from "./workspaceObjectPropertyDrafts";
 import {
   areCreaturePropertiesDraftsEqual,
   areDoorPropertiesDraftsEqual,
+  areItemPropertiesDraftsEqual,
   arePlaceablePropertiesDraftsEqual,
   areSoundPropertiesDraftsEqual,
   buildCreaturePropertiesDraft,
   buildDoorPropertiesDraft,
+  buildItemPropertiesDraft,
   buildPlaceablePropertiesDraft,
   buildSoundPropertiesDraft
 } from "./workspaceObjectPropertyDrafts";
@@ -69,6 +72,10 @@ interface UseWorkspaceObjectDialogEffectsArgs {
   setCreaturePropertiesDialog: Dispatch<SetStateAction<CreaturePropertiesDialogState | null>>;
   cancelCreaturePropertiesDialog: () => void;
   clampCreaturePropertiesDialogPosition: ClampDialogPosition;
+  itemPropertiesDialog: ItemPropertiesDialogState | null;
+  setItemPropertiesDialog: Dispatch<SetStateAction<ItemPropertiesDialogState | null>>;
+  cancelItemPropertiesDialog: () => void;
+  clampItemPropertiesDialogPosition: ClampDialogPosition;
 }
 
 export function reconcileSoundPropertiesDialogWithScene(input: {
@@ -92,6 +99,36 @@ export function reconcileSoundPropertiesDialogWithScene(input: {
 
   const nextDraft = buildSoundPropertiesDraft(liveObject);
   if (areSoundPropertiesDraftsEqual(current.draft, nextDraft)) {
+    return current;
+  }
+
+  return {
+    ...current,
+    draft: nextDraft
+  };
+}
+
+export function reconcileItemPropertiesDialogWithScene(input: {
+  current: ItemPropertiesDialogState | null;
+  sceneObjects: readonly SceneObject[];
+  visibleObjectIdsSet: ReadonlySet<string>;
+}): ItemPropertiesDialogState | null {
+  const { current, sceneObjects, visibleObjectIdsSet } = input;
+  if (!current) {
+    return current;
+  }
+
+  if (!visibleObjectIdsSet.has(current.objectId)) {
+    return null;
+  }
+
+  const liveObject = sceneObjects.find((object) => object.id === current.objectId);
+  if (!liveObject || liveObject.kind !== "items") {
+    return null;
+  }
+
+  const nextDraft = buildItemPropertiesDraft(liveObject);
+  if (areItemPropertiesDraftsEqual(current.draft, nextDraft)) {
     return current;
   }
 
@@ -170,7 +207,11 @@ export function useWorkspaceObjectDialogEffects({
   creaturePropertiesDialog,
   setCreaturePropertiesDialog,
   cancelCreaturePropertiesDialog,
-  clampCreaturePropertiesDialogPosition
+  clampCreaturePropertiesDialogPosition,
+  itemPropertiesDialog,
+  setItemPropertiesDialog,
+  cancelItemPropertiesDialog,
+  clampItemPropertiesDialogPosition
 }: UseWorkspaceObjectDialogEffectsArgs) {
   useDialogEscape({
     enabled: adjustLocationDialog !== null,
@@ -195,6 +236,11 @@ export function useWorkspaceObjectDialogEffects({
   useDialogEscape({
     enabled: creaturePropertiesDialog !== null,
     onEscape: cancelCreaturePropertiesDialog
+  });
+
+  useDialogEscape({
+    enabled: itemPropertiesDialog !== null,
+    onEscape: cancelItemPropertiesDialog
   });
 
   useEffect(() => {
@@ -292,6 +338,16 @@ export function useWorkspaceObjectDialogEffects({
     });
   }, [scene.objects, setCreaturePropertiesDialog]);
 
+  useEffect(() => {
+    setItemPropertiesDialog((current) => {
+      return reconcileItemPropertiesDialogWithScene({
+        current,
+        sceneObjects: scene.objects,
+        visibleObjectIdsSet
+      });
+    });
+  }, [scene.objects, setItemPropertiesDialog, visibleObjectIdsSet]);
+
   useClampedDialogBounds({
     dialog: adjustLocationDialog,
     setDialog: setAdjustLocationDialog,
@@ -325,5 +381,12 @@ export function useWorkspaceObjectDialogEffects({
     setDialog: setCreaturePropertiesDialog,
     clampPosition: clampCreaturePropertiesDialogPosition,
     layoutKey: creaturePropertiesDialog?.collapsed
+  });
+
+  useClampedDialogBounds({
+    dialog: itemPropertiesDialog,
+    setDialog: setItemPropertiesDialog,
+    clampPosition: clampItemPropertiesDialogPosition,
+    layoutKey: itemPropertiesDialog?.collapsed
   });
 }

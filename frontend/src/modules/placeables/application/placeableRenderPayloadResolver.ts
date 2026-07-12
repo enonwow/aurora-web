@@ -20,6 +20,7 @@ const CONTRACT_ROLE_PRIORITY: ReadonlyArray<PlaceableApiAssetRole> = [
 
 const CRITICAL_ASSET_ROLES = new Set<PlaceableApiAssetRole>(["model", "texture"]);
 const PLACEABLE_VIEWPORT_RENDER_PAYLOAD_BATCH_SPLIT_THRESHOLD = 8;
+const PLACEABLE_VIEWPORT_RENDER_PAYLOAD_SINGLE_RECOVERY_CONCURRENCY = 8;
 const PLACEABLE_ASSET_CONTRACT_SINGLE_RECOVERY_CONCURRENCY = 12;
 
 const RENDER_PACKAGE_ASSET_REF_PRIORITY: ReadonlyArray<keyof PlaceableRenderPackageAssetRefs> = [
@@ -318,6 +319,14 @@ export interface PlaceableViewportRenderPayload {
 }
 
 export interface FetchPlaceableViewportRenderPayloadOptions {
+  preferBackendViewportBatch?: boolean;
+  allowPartialProcessBatchResults?: boolean;
+  assetContractBatchTimeoutMs?: number;
+  assetContractSingleTimeoutMs?: number;
+  backendViewportBatchTimeoutMs?: number;
+  processBatchTimeoutMs?: number;
+  resolveProcessPreviewOnly?: boolean;
+  processSingleTimeoutMs?: number;
   onProcessPayload?: (
     payload: PlaceableViewportRenderPayload,
     context?: FetchPlaceableViewportRenderPayloadContext
@@ -344,6 +353,137 @@ interface FetchPlaceableViewportRenderPayloadProcessBatchResult {
   processResult: PlaceableApiProcessResult;
 }
 
+type SettledMapResult<TResult> =
+  | { status: "fulfilled"; value: TResult }
+  | { status: "rejected"; reason: unknown };
+
+class PlaceableViewportRenderPayloadTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlaceableViewportRenderPayloadTimeoutError";
+  }
+}
+
+function withOptionalAbortableTimeout<T>(
+  requestFactory: (signal?: AbortSignal) => Promise<T>,
+  timeoutMs: number | undefined,
+  label: string
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || (timeoutMs ?? 0) <= 0) {
+    return requestFactory();
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const abortController = new AbortController();
+    const resolvedTimeoutMs = Math.max(1, Math.floor(timeoutMs ?? 0));
+    const timeoutError = new PlaceableViewportRenderPayloadTimeoutError(
+      `${label} timed out after ${resolvedTimeoutMs}ms`
+    );
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      abortController.abort();
+      reject(timeoutError);
+    }, resolvedTimeoutMs);
+
+    requestFactory(abortController.signal).then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (reason) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(abortController.signal.aborted ? timeoutError : reason);
+      }
+    );
+  });
+}
+
+function toPlaceableRequestOptions(signal?: AbortSignal) {
+  return signal ? { signal } : undefined;
+}
+
+function processPlaceableWithOptionalSignal(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  payload: PlaceableApiProcessPayload,
+  signal?: AbortSignal
+) {
+  const requestOptions = toPlaceableRequestOptions(signal);
+  return requestOptions
+    ? placeableApiPort.processPlaceable(accessToken, payload, requestOptions)
+    : placeableApiPort.processPlaceable(accessToken, payload);
+}
+
+function processPlaceablesWithOptionalSignal(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  payloads: PlaceableApiProcessPayload[],
+  signal?: AbortSignal
+) {
+  const requestOptions = toPlaceableRequestOptions(signal);
+  return requestOptions
+    ? placeableApiPort.processPlaceables?.(accessToken, payloads, requestOptions)
+    : placeableApiPort.processPlaceables?.(accessToken, payloads);
+}
+
+function getPlaceableViewportRenderPayloadBatchWithOptionalSignal(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  payloads: PlaceableApiProcessPayload[],
+  signal?: AbortSignal
+) {
+  const requestOptions = toPlaceableRequestOptions(signal);
+  return requestOptions
+    ? placeableApiPort.getPlaceableViewportRenderPayloadBatch?.(
+        accessToken,
+        payloads,
+        requestOptions
+      )
+    : placeableApiPort.getPlaceableViewportRenderPayloadBatch?.(accessToken, payloads);
+}
+
+function getPlaceableAssetContractsWithOptionalSignal(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  cacheKey: string,
+  assetIds: string[] | undefined,
+  signal?: AbortSignal
+) {
+  const requestOptions = toPlaceableRequestOptions(signal);
+  return requestOptions
+    ? placeableApiPort.getPlaceableAssetContracts(
+        accessToken,
+        cacheKey,
+        assetIds,
+        requestOptions
+      )
+    : placeableApiPort.getPlaceableAssetContracts(accessToken, cacheKey, assetIds);
+}
+
+function getPlaceableAssetContractsBatchWithOptionalSignal(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  items: PlaceableApiAssetContractsBatchRequestItem[],
+  signal?: AbortSignal
+) {
+  const requestOptions = toPlaceableRequestOptions(signal);
+  return requestOptions
+    ? placeableApiPort.getPlaceableAssetContractsBatch?.(accessToken, items, requestOptions)
+    : placeableApiPort.getPlaceableAssetContractsBatch?.(accessToken, items);
+}
+
 async function mapWithConcurrency<TItem, TResult>(
   items: TItem[],
   concurrency: number,
@@ -368,7 +508,41 @@ async function mapWithConcurrency<TItem, TResult>(
   return results;
 }
 
-function buildPlaceableViewportRenderPayload(
+async function mapSettledWithConcurrency<TItem, TResult>(
+  items: TItem[],
+  concurrency: number,
+  mapper: (item: TItem) => Promise<TResult>
+): Promise<Array<SettledMapResult<TResult>>> {
+  const results = new Array<SettledMapResult<TResult>>(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  const runWorker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (item === undefined) {
+        continue;
+      }
+      try {
+        results[index] = {
+          status: "fulfilled",
+          value: await mapper(item)
+        };
+      } catch (reason) {
+        results[index] = {
+          status: "rejected",
+          reason
+        };
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
+export function buildPlaceableViewportRenderPayload(
   processResult: PlaceableApiProcessResult,
   assetContracts: PlaceableApiAssetContractsResult
 ): PlaceableViewportRenderPayload {
@@ -384,6 +558,38 @@ function buildPlaceableViewportRenderPayload(
   };
 }
 
+export function buildPlaceableViewportProcessPreviewPayload(
+  processResult: PlaceableApiProcessResult
+): PlaceableViewportRenderPayload {
+  return buildPlaceableViewportRenderPayload(
+    processResult,
+    normalizeContractsResult(processResult, {
+      cacheKey: processResult.cacheKey,
+      assets: []
+    })
+  );
+}
+
+function publishProcessResultPreviewPayload(
+  processResult: PlaceableApiProcessResult,
+  options: FetchPlaceableViewportRenderPayloadOptions,
+  context?: FetchPlaceableViewportRenderPayloadContext
+): void {
+  options.onProcessPayload?.(buildPlaceableViewportProcessPreviewPayload(processResult), context);
+}
+
+function publishProcessBatchPreviewPayloads(
+  results: FetchPlaceableViewportRenderPayloadProcessBatchResult[],
+  options: FetchPlaceableViewportRenderPayloadOptions
+): void {
+  results.forEach(({ entry, processResult }) => {
+    publishProcessResultPreviewPayload(processResult, options, {
+      key: entry.key,
+      lookup: entry.lookup
+    });
+  });
+}
+
 async function resolveViewportRenderPayloadFromProcessResult(
   placeableApiPort: PlaceableApiPort,
   accessToken: string,
@@ -391,16 +597,7 @@ async function resolveViewportRenderPayloadFromProcessResult(
   options: FetchPlaceableViewportRenderPayloadOptions = {},
   context?: FetchPlaceableViewportRenderPayloadContext
 ): Promise<PlaceableViewportRenderPayload> {
-  options.onProcessPayload?.(
-    buildPlaceableViewportRenderPayload(
-      processResult,
-      normalizeContractsResult(processResult, {
-        cacheKey: processResult.cacheKey,
-        assets: []
-      })
-    ),
-    context
-  );
+  publishProcessResultPreviewPayload(processResult, options, context);
   const preferredAssetIds = resolveAssetIdsForContracts(processResult);
   let assetContracts =
     isVfxProcessResult(processResult) && preferredAssetIds.length === 0
@@ -410,19 +607,33 @@ async function resolveViewportRenderPayloadFromProcessResult(
         })
       : normalizeContractsResult(
           processResult,
-          await placeableApiPort.getPlaceableAssetContracts(
-            accessToken,
-            processResult.cacheKey,
-            preferredAssetIds.length > 0 ? preferredAssetIds : undefined
+          await withOptionalAbortableTimeout(
+            (signal) =>
+              getPlaceableAssetContractsWithOptionalSignal(
+                placeableApiPort,
+                accessToken,
+                processResult.cacheKey,
+                preferredAssetIds.length > 0 ? preferredAssetIds : undefined,
+                signal
+              ),
+            options.assetContractSingleTimeoutMs,
+            `Placeable asset contracts ${processResult.cacheKey}`
           )
         );
 
   const missingCriticalAssetIds = resolveMissingCriticalAssetIds(processResult, assetContracts);
   if (missingCriticalAssetIds.length > 0) {
-    const retryContracts = await placeableApiPort.getPlaceableAssetContracts(
-      accessToken,
-      processResult.cacheKey,
-      missingCriticalAssetIds
+    const retryContracts = await withOptionalAbortableTimeout(
+      (signal) =>
+        getPlaceableAssetContractsWithOptionalSignal(
+          placeableApiPort,
+          accessToken,
+          processResult.cacheKey,
+          missingCriticalAssetIds,
+          signal
+        ),
+      options.assetContractSingleTimeoutMs,
+      `Placeable asset contracts retry ${processResult.cacheKey}`
     );
     assetContracts = mergeContractsResults(
       processResult,
@@ -497,7 +708,8 @@ async function resolveViewportRenderPayloadsFromProcessResultsBatch(
       placeableApiPort,
       accessToken,
       initialContractRequests,
-      processResultByCacheKey
+      processResultByCacheKey,
+      options
     );
     batchContracts.forEach((contracts) => {
       const processResult = processResultByCacheKey.get(contracts.cacheKey);
@@ -536,7 +748,8 @@ async function resolveViewportRenderPayloadsFromProcessResultsBatch(
       placeableApiPort,
       accessToken,
       retryRequests,
-      processResultByCacheKey
+      processResultByCacheKey,
+      options
     );
     retryContracts.forEach((contracts) => {
       const processResult = processResultByCacheKey.get(contracts.cacheKey);
@@ -576,15 +789,24 @@ async function fetchPlaceableAssetContractsBatchWithSingleRecovery(
   placeableApiPort: PlaceableApiPort,
   accessToken: string,
   items: PlaceableApiAssetContractsBatchRequestItem[],
-  processResultByCacheKey: Map<string, PlaceableApiProcessResult>
+  processResultByCacheKey: Map<string, PlaceableApiProcessResult>,
+  options: FetchPlaceableViewportRenderPayloadOptions = {}
 ): Promise<PlaceableApiAssetContractsResult[]> {
   if (items.length === 0 || !placeableApiPort.getPlaceableAssetContractsBatch) {
     return [];
   }
   try {
-    const batchContracts = await placeableApiPort.getPlaceableAssetContractsBatch(
-      accessToken,
-      items
+    const batchContracts = await withOptionalAbortableTimeout(
+      (signal) =>
+        getPlaceableAssetContractsBatchWithOptionalSignal(
+          placeableApiPort,
+          accessToken,
+          items,
+          signal
+        ) ??
+        Promise.resolve({ items: [] }),
+      options.assetContractBatchTimeoutMs,
+      `Placeable asset contracts batch (${items.length} items)`
     );
     return batchContracts.items;
   } catch {
@@ -597,10 +819,17 @@ async function fetchPlaceableAssetContractsBatchWithSingleRecovery(
           return null;
         }
         try {
-          return await placeableApiPort.getPlaceableAssetContracts(
-            accessToken,
-            item.cacheKey,
-            item.assetIds
+          return await withOptionalAbortableTimeout(
+            (signal) =>
+              getPlaceableAssetContractsWithOptionalSignal(
+                placeableApiPort,
+                accessToken,
+                item.cacheKey,
+                item.assetIds,
+                signal
+              ),
+            options.assetContractSingleTimeoutMs,
+            `Placeable asset contracts recovery ${item.cacheKey}`
           );
         } catch {
           return normalizeContractsResult(processResult, {
@@ -619,60 +848,125 @@ async function fetchPlaceableAssetContractsBatchWithSingleRecovery(
 async function fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
   placeableApiPort: PlaceableApiPort,
   accessToken: string,
-  entries: FetchPlaceableViewportRenderPayloadBatchEntry[]
+  entries: FetchPlaceableViewportRenderPayloadBatchEntry[],
+  options: FetchPlaceableViewportRenderPayloadOptions = {}
 ): Promise<FetchPlaceableViewportRenderPayloadProcessBatchResult[]> {
   if (entries.length === 0) {
     return [];
   }
 
   if (!placeableApiPort.processPlaceables) {
-    return mapWithConcurrency(entries, entries.length, async (entry) => ({
-      entry,
-      processResult: await placeableApiPort.processPlaceable(accessToken, {
-        ...entry.lookup,
-        includeBenchmarkMetadata: false
-      })
-    }));
+    return mapWithConcurrency(entries, entries.length, async (entry) => {
+      const processResult = await withOptionalAbortableTimeout(
+        (signal) =>
+          processPlaceableWithOptionalSignal(
+            placeableApiPort,
+            accessToken,
+            {
+              ...entry.lookup,
+              includeBenchmarkMetadata: false
+            },
+            signal
+          ),
+        options.processSingleTimeoutMs,
+        `Placeable process request ${entry.key}`
+      );
+      publishProcessResultPreviewPayload(processResult, options, {
+        key: entry.key,
+        lookup: entry.lookup
+      });
+      return {
+        entry,
+        processResult
+      };
+    });
   }
 
   try {
-    const processResults = await placeableApiPort.processPlaceables(
-      accessToken,
-      entries.map((entry) => ({
-        ...entry.lookup,
-        includeBenchmarkMetadata: false
-      }))
+    const processResults = await withOptionalAbortableTimeout(
+      (signal) =>
+        processPlaceablesWithOptionalSignal(
+          placeableApiPort,
+          accessToken,
+          entries.map((entry) => ({
+            ...entry.lookup,
+            includeBenchmarkMetadata: false
+          })),
+          signal
+        ) ?? Promise.resolve({ items: [] }),
+      options.processBatchTimeoutMs,
+      `Placeable process batch (${entries.length} items)`
     );
-    return entries.map((entry, index) => {
+    const results = entries.map((entry, index) => {
       const processResult = processResults.items[index];
       if (!processResult) {
         throw new Error(`Missing process result for placeable batch entry ${entry.key}`);
       }
       return { entry, processResult };
     });
-  } catch {
+    publishProcessBatchPreviewPayloads(results, options);
+    return results;
+  } catch (error) {
     if (entries.length <= PLACEABLE_VIEWPORT_RENDER_PAYLOAD_BATCH_SPLIT_THRESHOLD) {
-      return mapWithConcurrency(entries, entries.length, async (entry) => ({
-        entry,
-        processResult: await placeableApiPort.processPlaceable(accessToken, {
-          ...entry.lookup,
-          includeBenchmarkMetadata: false
-        })
-      }));
+      const settledResults = await mapSettledWithConcurrency(
+        entries,
+        PLACEABLE_VIEWPORT_RENDER_PAYLOAD_SINGLE_RECOVERY_CONCURRENCY,
+        async (entry) => {
+          const processResult = await withOptionalAbortableTimeout(
+            (signal) =>
+              processPlaceableWithOptionalSignal(
+                placeableApiPort,
+                accessToken,
+                {
+                  ...entry.lookup,
+                  includeBenchmarkMetadata: false
+                },
+                signal
+              ),
+            options.processSingleTimeoutMs,
+            `Placeable process request ${entry.key}`
+          );
+          publishProcessResultPreviewPayload(processResult, options, {
+            key: entry.key,
+            lookup: entry.lookup
+          });
+          return {
+            entry,
+            processResult
+          };
+        }
+      );
+      const recoveredResults = settledResults.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
+      if (options.allowPartialProcessBatchResults || recoveredResults.length > 0) {
+        return recoveredResults;
+      }
+      throw settledResults.find((result) => result.status === "rejected")?.reason ?? error;
     }
 
     const midpoint = Math.ceil(entries.length / 2);
-    const leftResults = await fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
-      placeableApiPort,
-      accessToken,
-      entries.slice(0, midpoint)
+    const recoveredHalves = await Promise.allSettled([
+      fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
+        placeableApiPort,
+        accessToken,
+        entries.slice(0, midpoint),
+        options
+      ),
+      fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
+        placeableApiPort,
+        accessToken,
+        entries.slice(midpoint),
+        options
+      )
+    ]);
+    const recoveredResults = recoveredHalves.flatMap((result) =>
+      result.status === "fulfilled" ? result.value : []
     );
-    const rightResults = await fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
-      placeableApiPort,
-      accessToken,
-      entries.slice(midpoint)
-    );
-    return [...leftResults, ...rightResults];
+    if (options.allowPartialProcessBatchResults || recoveredResults.length > 0) {
+      return recoveredResults;
+    }
+    throw recoveredHalves.find((result) => result.status === "rejected")?.reason ?? error;
   }
 }
 
@@ -683,10 +977,20 @@ export async function fetchPlaceableViewportRenderPayload(
   options: FetchPlaceableViewportRenderPayloadOptions = {}
 ): Promise<PlaceableViewportRenderPayload> {
   const processPayload = typeof lookup === "string" ? { templateId: lookup } : lookup;
-  const processResult = await placeableApiPort.processPlaceable(accessToken, {
-    ...processPayload,
-    includeBenchmarkMetadata: false
-  });
+  const processResult = await withOptionalAbortableTimeout(
+    (signal) =>
+      processPlaceableWithOptionalSignal(
+        placeableApiPort,
+        accessToken,
+        {
+          ...processPayload,
+          includeBenchmarkMetadata: false
+        },
+        signal
+      ),
+    options.processSingleTimeoutMs,
+    `Placeable process request ${processPayload.templateId ?? processPayload.resref ?? "lookup"}`
+  );
   return resolveViewportRenderPayloadFromProcessResult(
     placeableApiPort,
     accessToken,
@@ -706,6 +1010,53 @@ export async function fetchPlaceableViewportRenderPayloadBatch(
     return [];
   }
 
+  if (
+    options.preferBackendViewportBatch !== false &&
+    placeableApiPort.getPlaceableViewportRenderPayloadBatch
+  ) {
+    try {
+      const requestPayloads = entries.map((entry) => ({
+        ...entry.lookup,
+        includeBenchmarkMetadata: false
+      }));
+      const renderPayloadBatch = await withOptionalAbortableTimeout(
+        (signal) =>
+          getPlaceableViewportRenderPayloadBatchWithOptionalSignal(
+            placeableApiPort,
+            accessToken,
+            requestPayloads,
+            signal
+          ) ?? Promise.resolve({ items: [] }),
+        options.backendViewportBatchTimeoutMs ?? options.processBatchTimeoutMs,
+        `Placeable viewport render payload batch (${entries.length} items)`
+      );
+      if (renderPayloadBatch.items.length !== entries.length) {
+        throw new Error(
+          `Placeable viewport render payload batch returned ${renderPayloadBatch.items.length}/${entries.length} items`
+        );
+      }
+      return renderPayloadBatch.items.map((payload, index) => {
+        const entry = entries[index];
+        options.onProcessPayload?.(
+          payload,
+          entry
+            ? {
+                key: entry.key,
+                lookup: entry.lookup
+              }
+            : undefined
+        );
+        return {
+          key: entry?.key ?? payload.cacheKey,
+          payload
+        };
+      });
+    } catch {
+      // Fall through to process-batch split/single recovery; large Areas should not
+      // leave every unresolved object as a placeholder just because the fast path failed.
+    }
+  }
+
   if (!placeableApiPort.processPlaceables) {
     return Promise.all(
       entries.map(async (entry) => ({
@@ -723,8 +1074,16 @@ export async function fetchPlaceableViewportRenderPayloadBatch(
   const processBatchResults = await fetchPlaceableViewportRenderPayloadProcessBatchWithRecovery(
     placeableApiPort,
     accessToken,
-    entries
+    entries,
+    options
   );
+
+  if (options.resolveProcessPreviewOnly) {
+    return processBatchResults.map((result) => ({
+      key: result.entry.key,
+      payload: buildPlaceableViewportProcessPreviewPayload(result.processResult)
+    }));
+  }
 
   const payloads = await resolveViewportRenderPayloadsFromProcessResultsBatch(
     placeableApiPort,

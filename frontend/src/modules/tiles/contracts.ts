@@ -108,6 +108,34 @@ export interface TileApiProcessResult {
   tile: TileApiProcessedTile;
 }
 
+export interface TileApiProcessBatchRequestItem {
+  tileId: string;
+  bypassCache?: boolean;
+}
+
+export interface TileApiProcessBatchReadyItem {
+  tileId: string;
+  status: "ready";
+  result: TileApiProcessResult;
+}
+
+export interface TileApiProcessBatchBlockedItem {
+  tileId: string;
+  status: "blocked";
+  error: {
+    code: string | null;
+    message: string;
+  };
+}
+
+export type TileApiProcessBatchItem =
+  | TileApiProcessBatchReadyItem
+  | TileApiProcessBatchBlockedItem;
+
+export interface TileApiProcessBatchResult {
+  items: TileApiProcessBatchItem[];
+}
+
 export interface TileApiTextureDeliveryContract {
   mode: TileApiTextureDeliveryMode;
   atlasId: string;

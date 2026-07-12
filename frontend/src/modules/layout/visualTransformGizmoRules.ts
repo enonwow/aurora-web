@@ -1,13 +1,19 @@
 import type { WorkspaceToolbarState } from "./application/workspaceChromeFacade";
-import type { SceneObject, SceneObjectKind } from "./contracts";
+import type { SceneObject, SceneObjectKind, SceneObjectVisualTransform } from "./contracts";
 
 export type CanvasGizmoMode = WorkspaceToolbarState["canvasDebug"]["gizmoMode"];
 export type CanvasDebugState = WorkspaceToolbarState["canvasDebug"];
 
 const VISUAL_TRANSFORM_EDITABLE_KINDS = new Set<SceneObjectKind>([
-  "placeables",
   "creatures",
-  "items"
+  "doors",
+  "encounters",
+  "items",
+  "placeables",
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
 ]);
 
 const VISUAL_TRANSFORM_GIZMO_MODES = new Set<CanvasGizmoMode>([
@@ -38,14 +44,28 @@ export function canUseVisualTransformGizmoForObject(object: SceneObject): boolea
   if (!isVisualTransformEditableForObject(object)) {
     return false;
   }
-  if (object.kind === "placeables" && (object.isStatic ?? true)) {
-    return false;
-  }
   return true;
 }
 
 export function isVisualTransformAppliedToObject(object: SceneObject): boolean {
-  return canUseVisualTransformGizmoForObject(object);
+  return hasNonDefaultVisualTransform(object.visualTransform);
+}
+
+function hasNonDefaultVisualTransform(transform: SceneObjectVisualTransform): boolean {
+  const scaleX = transform.scaleX ?? transform.scale;
+  const scaleY = transform.scaleY ?? transform.scale;
+  const scaleZ = transform.scaleZ ?? transform.scale;
+  return (
+    Math.abs(scaleX - 1) > 1e-6 ||
+    Math.abs(scaleY - 1) > 1e-6 ||
+    Math.abs(scaleZ - 1) > 1e-6 ||
+    Math.abs(transform.offsetX) > 1e-6 ||
+    Math.abs(transform.offsetY) > 1e-6 ||
+    Math.abs(transform.offsetZ) > 1e-6 ||
+    Math.abs(transform.pitch) > 1e-6 ||
+    Math.abs(transform.roll) > 1e-6 ||
+    Math.abs(transform.yaw) > 1e-6
+  );
 }
 
 export function isVisualTransformGizmoMode(mode: CanvasGizmoMode): boolean {
@@ -69,13 +89,6 @@ export function resolveVisualTransformSelectionBlockedReason(
   );
   if (blockedKinds.length > 0) {
     return `Visual Transform is unavailable for selected kind(s): ${blockedKinds.join(", ")}.`;
-  }
-
-  const hasStaticPlaceable = targets.some(
-    (object) => object.kind === "placeables" && (object.isStatic ?? true)
-  );
-  if (hasStaticPlaceable) {
-    return "Visual Transform gizmo is disabled for static placeables. Uncheck Static in Properties first.";
   }
 
   const lockedKinds = Array.from(

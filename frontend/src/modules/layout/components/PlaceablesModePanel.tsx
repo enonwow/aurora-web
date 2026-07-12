@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { SceneObject } from "../contracts";
 import type { PlaceableApiSubtype } from "../../placeables/contracts";
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
@@ -17,6 +18,7 @@ const PLACEABLES_SUBTYPE_FILTER_OPTIONS: Array<{
   { value: "light_source", label: "Lights" },
   { value: "trigger_proxy", label: "Triggers" }
 ];
+const PLACEABLES_MODE_VISIBLE_BATCH_SIZE = 250;
 
 interface PlaceablesModePanelProps {
   objects: SceneObject[];
@@ -34,6 +36,7 @@ interface PlaceablesModePanelProps {
   placeableRenderPayloadByTemplateId?: Record<string, PlaceableViewportRenderPayload> | null;
   placeableAssetAccessToken?: string | null;
   onObjectRenderPayloadNeeded?: (object: SceneObject) => void;
+  thumbnailRenderEnabled?: boolean;
 }
 
 function trimWorkspacePreviewLabel(label: string): string {
@@ -55,11 +58,23 @@ export function PlaceablesModePanel({
   previewErrorMessage,
   placeableRenderPayloadByTemplateId,
   placeableAssetAccessToken,
-  onObjectRenderPayloadNeeded
+  onObjectRenderPayloadNeeded,
+  thumbnailRenderEnabled = true
 }: PlaceablesModePanelProps) {
+  const [visibleLimit, setVisibleLimit] = useState(PLACEABLES_MODE_VISIBLE_BATCH_SIZE);
   const shouldShowEmpty = !isLoading && !loadErrorMessage && objects.length === 0;
   const hasActiveFilters = searchQuery.trim().length > 0 || subtypeFilter !== "all";
   const resultLabel = hasActiveFilters ? `${objects.length}/${total}` : String(objects.length);
+  const visibleObjects = useMemo(
+    () => objects.slice(0, visibleLimit),
+    [objects, visibleLimit]
+  );
+  const hasMoreVisibleObjects = visibleObjects.length < objects.length;
+
+  useEffect(() => {
+    setVisibleLimit(PLACEABLES_MODE_VISIBLE_BATCH_SIZE);
+  }, [searchQuery, subtypeFilter]);
+
   return (
     <article
       className="sidebar-section workspace-mode-panel placeables-mode-panel scene-objects-section scene-object-add-panel"
@@ -146,37 +161,52 @@ export function PlaceablesModePanel({
       {shouldShowEmpty ? (
         <p className="scene-objects-empty">No placeables available.</p>
       ) : (
-        <ul className="scene-object-list scene-object-add-list" aria-label="placeables mode list">
-          {objects.map((object) => {
-            const isSelected = object.id === activeObjectId;
-            const resourceLabel =
-              object.id.trim().toLowerCase() === object.resRef.trim().toLowerCase()
-                ? object.resRef
-                : `${object.id} / ${object.resRef}`;
-            return (
-              <li key={object.id}>
-                <button
-                  type="button"
-                  className={`scene-object-row scene-object-add-row ${isSelected ? "is-selected" : ""}`}
-                  aria-selected={isSelected}
-                  onClick={() => onObjectClick(object)}
-                >
-                  <SceneObjectThumbnail
-                    object={object}
-                    fallbackLabel={trimWorkspacePreviewLabel(object.tag)}
-                    renderPayload={placeableRenderPayloadByTemplateId?.[object.id] ?? null}
-                    placeableAssetAccessToken={placeableAssetAccessToken}
-                    onRenderPayloadNeeded={onObjectRenderPayloadNeeded}
-                  />
-                  <span className="scene-object-row-meta scene-object-add-row-meta">
-                    <strong title={object.tag}>{object.tag}</strong>
-                    <small title={resourceLabel}>{resourceLabel}</small>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <ul className="scene-object-list scene-object-add-list" aria-label="placeables mode list">
+            {visibleObjects.map((object) => {
+              const isSelected = object.id === activeObjectId;
+              const resourceLabel =
+                object.id.trim().toLowerCase() === object.resRef.trim().toLowerCase()
+                  ? object.resRef
+                  : `${object.id} / ${object.resRef}`;
+              return (
+                <li key={object.id}>
+                  <button
+                    type="button"
+                    className={`scene-object-row scene-object-add-row ${isSelected ? "is-selected" : ""}`}
+                    aria-selected={isSelected}
+                    onClick={() => onObjectClick(object)}
+                  >
+                    <SceneObjectThumbnail
+                      object={object}
+                      fallbackLabel={trimWorkspacePreviewLabel(object.tag)}
+                      renderPayload={placeableRenderPayloadByTemplateId?.[object.id] ?? null}
+                      placeableAssetAccessToken={placeableAssetAccessToken}
+                      onRenderPayloadNeeded={onObjectRenderPayloadNeeded}
+                      thumbnailRenderEnabled={thumbnailRenderEnabled}
+                    />
+                    <span className="scene-object-row-meta scene-object-add-row-meta">
+                      <strong title={object.tag}>{object.tag}</strong>
+                      <small title={resourceLabel}>{resourceLabel}</small>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {hasMoreVisibleObjects ? (
+            <button
+              type="button"
+              className="scene-objects-filter-reset"
+              aria-label="Show more placeables"
+              onClick={() =>
+                setVisibleLimit((current) => current + PLACEABLES_MODE_VISIBLE_BATCH_SIZE)
+              }
+            >
+              More
+            </button>
+          ) : null}
+        </>
       )}
     </article>
   );

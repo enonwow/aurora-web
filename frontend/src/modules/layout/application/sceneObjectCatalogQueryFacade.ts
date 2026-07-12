@@ -60,8 +60,12 @@ const SUPPORTED_KIND_SET = new Set<SceneObjectKind>([
   "placeables",
   "creatures",
   "doors",
+  "encounters",
   "items",
-  "sounds"
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
 ]);
 
 function createEmptyRows(): Record<SceneObjectCatalogType, SceneObject[]> {
@@ -100,11 +104,31 @@ function filterRows(rows: SceneObject[], searchQuery: string): SceneObject[] {
 
   return rows.filter((object) => {
     const fields = [
+      object.name,
       object.tag,
       object.resRef,
       object.source?.sourceObjectId,
       object.source?.sourceKind,
-      object.source?.templateId
+      object.source?.templateId,
+      object.source?.sourceModelResRef,
+      object.source?.localizedName,
+      object.source?.description,
+      object.creatureProperties?.firstName,
+      object.creatureProperties?.lastName,
+      object.creatureProperties?.race,
+      object.creatureProperties?.appearance,
+      object.creatureProperties?.appearanceProfile?.raceModel,
+      object.creatureProperties?.lookupProfile?.soundSetResRef,
+      object.itemProperties?.localizedName,
+      object.itemProperties?.baseItemLabel,
+      object.itemProperties?.baseItemItemClass,
+      object.itemProperties?.baseItemModelType,
+      object.itemProperties?.baseItemDefaultModel,
+      object.itemProperties?.baseItemDefaultIcon,
+      object.itemProperties?.modelPartResRefs?.join(" "),
+      object.itemProperties?.cloakModelResRef,
+      object.itemProperties?.cloakTextureResRef,
+      object.itemProperties?.cloakIconResRef
     ]
       .filter((value): value is string => typeof value === "string" && value.length > 0)
       .map((value) => value.toLowerCase());

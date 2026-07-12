@@ -1,6 +1,6 @@
 import type { UserRole } from "../contracts";
 
-export interface MockUserRecord {
+export interface TestUserRecord {
   id: string;
   username: string;
   password: string;
@@ -8,7 +8,7 @@ export interface MockUserRecord {
   role: UserRole;
 }
 
-export const mockUsers: MockUserRecord[] = [
+export const testUsers: TestUserRecord[] = [
   {
     id: "u_viewer_001",
     username: "viewer.user",

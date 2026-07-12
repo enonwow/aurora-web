@@ -49,11 +49,13 @@ interface UseWorkspaceContextMenuActionsArgs {
   openSoundPropertiesDialog: (target: SceneObject) => void;
   openDoorPropertiesDialog: (target: SceneObject) => void;
   openCreaturePropertiesDialog: (target: SceneObject) => void;
+  openItemPropertiesDialog: (target: SceneObject) => void;
   clearAdjustLocationDialog: () => void;
   clearPlaceablePropertiesDialog: () => void;
   clearSoundPropertiesDialog: () => void;
   clearDoorPropertiesDialog: () => void;
   clearCreaturePropertiesDialog: () => void;
+  clearItemPropertiesDialog: () => void;
 }
 
 export function resolveContextMenuActionObject(input: {
@@ -136,11 +138,13 @@ export function useWorkspaceContextMenuActions({
   openSoundPropertiesDialog,
   openDoorPropertiesDialog,
   openCreaturePropertiesDialog,
+  openItemPropertiesDialog,
   clearAdjustLocationDialog,
   clearPlaceablePropertiesDialog,
   clearSoundPropertiesDialog,
   clearDoorPropertiesDialog,
-  clearCreaturePropertiesDialog
+  clearCreaturePropertiesDialog,
+  clearItemPropertiesDialog
 }: UseWorkspaceContextMenuActionsArgs) {
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -201,6 +205,7 @@ export function useWorkspaceContextMenuActions({
         clearSoundPropertiesDialog();
         clearDoorPropertiesDialog();
         clearCreaturePropertiesDialog();
+        clearItemPropertiesDialog();
         openAdjustLocationDialog(editableTargets);
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -217,7 +222,8 @@ export function useWorkspaceContextMenuActions({
           contextObj.kind !== "placeables" &&
           contextObj.kind !== "sounds" &&
           contextObj.kind !== "doors" &&
-          contextObj.kind !== "creatures"
+          contextObj.kind !== "creatures" &&
+          contextObj.kind !== "items"
         ) {
           trackTelemetry("scene.object_properties.blocked_kind", {
             userId,
@@ -235,21 +241,31 @@ export function useWorkspaceContextMenuActions({
           clearSoundPropertiesDialog();
           clearDoorPropertiesDialog();
           clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
           openPlaceablePropertiesDialog(contextObj);
         } else if (contextObj.kind === "sounds") {
           clearPlaceablePropertiesDialog();
           clearDoorPropertiesDialog();
           clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
           openSoundPropertiesDialog(contextObj);
         } else if (contextObj.kind === "creatures") {
           clearPlaceablePropertiesDialog();
           clearSoundPropertiesDialog();
           clearDoorPropertiesDialog();
+          clearItemPropertiesDialog();
           openCreaturePropertiesDialog(contextObj);
+        } else if (contextObj.kind === "items") {
+          clearPlaceablePropertiesDialog();
+          clearSoundPropertiesDialog();
+          clearDoorPropertiesDialog();
+          clearCreaturePropertiesDialog();
+          openItemPropertiesDialog(contextObj);
         } else {
           clearPlaceablePropertiesDialog();
           clearSoundPropertiesDialog();
           clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
           openDoorPropertiesDialog(contextObj);
         }
         trackTelemetry("scene.context_menu.action", {
@@ -402,6 +418,7 @@ export function useWorkspaceContextMenuActions({
       clearAdjustLocationDialog,
       clearCreaturePropertiesDialog,
       clearDoorPropertiesDialog,
+      clearItemPropertiesDialog,
       clearPlaceablePropertiesDialog,
       clearSoundPropertiesDialog,
       closeContextMenu,
@@ -411,6 +428,7 @@ export function useWorkspaceContextMenuActions({
       openAdjustLocationDialog,
       openCreaturePropertiesDialog,
       openDoorPropertiesDialog,
+      openItemPropertiesDialog,
       openPlaceablePropertiesDialog,
       openSoundPropertiesDialog,
       sceneObjects,

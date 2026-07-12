@@ -8,6 +8,7 @@ import {
   type PlaceableRenderModelResolution
 } from "../../placeables/application/placeableRenderAssetResolver";
 import type { PlaceableApiProcessPayload } from "../../placeables/contracts";
+import { resolveWorkspaceBackendApiBaseUrl } from "../../shared/workspaceBackendApiBaseUrl";
 import type { SceneObject, SceneObjectKind } from "../contracts";
 
 export const SHARED_PLACEABLES_RENDERER_PATH = "shared-placeables-renderer";
@@ -25,6 +26,7 @@ export interface PlaceableRenderContractState {
   hasModelContract: boolean;
   hasTextureContract: boolean;
   hasMetadataContract: boolean;
+  renderableWithoutModel: boolean;
   modelUrl: string | null;
   modelCacheKey: string | null;
   modelStatus: string | null;
@@ -45,9 +47,13 @@ export const AREA_PLACEABLE_PLACEHOLDER_REASONS = [
 export type AreaPlaceablePlaceholderReason =
   (typeof AREA_PLACEABLE_PLACEHOLDER_REASONS)[number];
 
+const AREA_PREVIEW_ONLY_VFX_DIAGNOSTICS = new Set([
+  "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL",
+  "VFX_PROJECT_RENDER_PACKAGE_NOT_RUNTIME_PARITY"
+]);
+
 function resolveBackendDeliveryOrigin(): string {
-  const configuredBaseUrl = import.meta.env.VITE_BACKEND_API_BASE_URL as string | undefined;
-  return resolveBackendDeliveryOriginFromConfig(configuredBaseUrl);
+  return resolveBackendDeliveryOriginFromConfig(resolveWorkspaceBackendApiBaseUrl());
 }
 
 function dedupeNonEmptyText(values: Array<string | null | undefined>): string[] {
@@ -81,6 +87,9 @@ function buildAreaInstanceRenderPayloadCacheKey(input: {
   objectKind: SceneObjectKind;
   appearanceType: number | undefined;
   genericType: number | undefined;
+  tag: string | undefined;
+  localizedName: string | undefined;
+  description: string | undefined;
 }): string {
   const normalizedKind = normalizeRenderPayloadCacheKeyPart(input.objectKind);
   const appearance =
@@ -91,11 +100,30 @@ function buildAreaInstanceRenderPayloadCacheKey(input: {
     typeof input.genericType === "number" && Number.isFinite(input.genericType)
       ? String(input.genericType)
       : "none";
-  return `${AREA_INSTANCE_RENDER_ROW_CACHE_KEY_PREFIX}:${normalizedKind}:appearance:${appearance}:generic:${generic}`;
+  const tag = input.tag ? normalizeRenderPayloadCacheKeyPart(input.tag) : "none";
+  const label = normalizeRenderPayloadCacheKeyPart(
+    [input.localizedName, input.description].filter(Boolean).join(" ")
+  ) || "none";
+  return `${AREA_INSTANCE_RENDER_ROW_CACHE_KEY_PREFIX}:${normalizedKind}:appearance:${appearance}:generic:${generic}:tag:${tag}:label:${label}`;
 }
 
 function isInstanceScopedObjectId(objectId: string): boolean {
   return objectId.includes(":");
+}
+
+function isAuroraGitVfxLikePlaceable(object: SceneObject): boolean {
+  if (object.source?.type !== "aurora_git" || object.kind !== "placeables") {
+    return false;
+  }
+  const combinedIdentity = [
+    object.resRef,
+    object.tag,
+    object.source.templateId
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return /\bvfx|tm_pl_/u.test(combinedIdentity);
 }
 
 export function isSharedPlaceablesRendererObjectKind(kind: SceneObjectKind): boolean {
@@ -120,11 +148,23 @@ export function resolvePlaceableRenderPayloadLookup(
   const subtypeHint =
     object.kind === "doors"
       ? "door"
-      : object.source?.type === "aurora_git" && object.kind === "placeables"
+      : object.source?.type === "aurora_git" && object.kind === "placeables" && !isAuroraGitVfxLikePlaceable(object)
         ? "generic"
         : undefined;
   const sourceAppearanceType = object.source?.appearanceType;
   const sourceGenericType = object.source?.genericType;
+  const sourceTag =
+    object.source?.type === "aurora_git" && object.tag.trim().length > 0
+      ? object.tag.trim()
+      : undefined;
+  const sourceLocalizedName =
+    object.source?.type === "aurora_git" && object.source.localizedName?.trim()
+      ? object.source.localizedName.trim()
+      : undefined;
+  const sourceDescription =
+    object.source?.type === "aurora_git" && object.source.description?.trim()
+      ? object.source.description.trim()
+      : undefined;
   const hasAreaInstanceRenderOverride =
     object.source?.type === "aurora_git" &&
     (typeof sourceAppearanceType === "number" || typeof sourceGenericType === "number");
@@ -147,10 +187,19 @@ export function resolvePlaceableRenderPayloadLookup(
     ? buildAreaInstanceRenderPayloadCacheKey({
         objectKind: object.kind,
         appearanceType: sourceAppearanceType,
-        genericType: sourceGenericType
+        genericType: sourceGenericType,
+        tag: sourceTag,
+        localizedName: sourceLocalizedName,
+        description: sourceDescription
       })
     : null;
-  const instanceFields: Pick<PlaceableApiProcessPayload, "appearanceType" | "genericType"> = {
+  const instanceFields: Pick<
+    PlaceableApiProcessPayload,
+    "appearanceType" | "genericType" | "tag" | "localizedName" | "description"
+  > = {
+    ...(sourceTag ? { tag: sourceTag } : {}),
+    ...(sourceLocalizedName ? { localizedName: sourceLocalizedName } : {}),
+    ...(sourceDescription ? { description: sourceDescription } : {}),
     ...(typeof sourceAppearanceType === "number" && Number.isFinite(sourceAppearanceType)
       ? { appearanceType: sourceAppearanceType }
       : {}),
@@ -265,10 +314,60 @@ export function resolvePlaceableModelResolution(
   return resolvePlaceableModelResolutionForOrigin(payload, resolveBackendDeliveryOrigin());
 }
 
+function hasRenderableAuroraVfxPayload(payload: PlaceableViewportRenderPayload): boolean {
+  const emitters = payload.renderPackage?.auroraEmitter?.emitters;
+  const hasEmitter =
+    Array.isArray(emitters) &&
+    emitters.some((emitter) =>
+      Boolean(
+        emitter.renderMode ||
+          emitter.emitterType ||
+          emitter.texture ||
+          emitter.chunkName ||
+          emitter.simulation ||
+          emitter.animations?.length
+      )
+    );
+  if (hasEmitter) {
+    return true;
+  }
+
+  const lights = payload.renderPackage?.auroraLight?.lights;
+  return (
+    Array.isArray(lights) &&
+    lights.some((light) =>
+      Boolean(
+        light.nodeName ||
+          light.radius ||
+          light.multiplier ||
+          light.color ||
+          light.animations?.length
+      )
+    )
+  );
+}
+
+export function isAreaPreviewOnlyAuroraVfxPayload(
+  payload: PlaceableViewportRenderPayload | null | undefined
+): boolean {
+  if (!payload) {
+    return false;
+  }
+  if (!payload.placeable.render.isVfx && payload.placeable.render.frontendType !== "vfx") {
+    return false;
+  }
+  return (
+    payload.renderPackage?.diagnostics?.some((diagnostic) =>
+      AREA_PREVIEW_ONLY_VFX_DIAGNOSTICS.has(diagnostic.code)
+    ) ?? false
+  );
+}
+
 export function resolvePlaceableRenderContractState(
   payload: PlaceableViewportRenderPayload
 ): PlaceableRenderContractState {
   const placeableModelResolution = resolvePlaceableModelResolution(payload);
+  const renderableWithoutModel = hasRenderableAuroraVfxPayload(payload);
 
   const roleByAssetId = new Map<string, string>(
     payload.placeable.assetManifest.assets.map((asset) => [asset.assetId, asset.role])
@@ -301,12 +400,14 @@ export function resolvePlaceableRenderContractState(
     hasModelContract,
     hasTextureContract,
     hasMetadataContract,
+    renderableWithoutModel,
     modelUrl: placeableModelResolution.modelUrl,
     modelCacheKey: placeableModelResolution.modelCacheKey,
     modelStatus: placeableModelResolution.status,
     modelFallbackReason: placeableModelResolution.fallbackReason,
-    // Load real model only when renderPackage provides a ready web-renderable URL.
-    fallbackToPrimitive: placeableModelResolution.modelUrl === null
+    // Static models need a model URL; Aurora VFX can render from emitter/light payloads.
+    fallbackToPrimitive:
+      placeableModelResolution.modelUrl === null && !renderableWithoutModel
   };
 }
 
@@ -329,8 +430,16 @@ export function resolveAreaPlaceablePlaceholderReason(input: {
   if (!input.payload) {
     return "missing-payload";
   }
-
   const renderState = input.renderState ?? resolvePlaceableRenderContractState(input.payload);
+  if (renderState.renderableWithoutModel && !renderState.fallbackToPrimitive) {
+    return "none";
+  }
+  if (isSourceModelNoGeometryPayload(input.payload)) {
+    return "not-applicable";
+  }
+  if (isAreaPreviewOnlyAuroraVfxPayload(input.payload)) {
+    return "not-applicable";
+  }
   if (renderState.modelUrl && !renderState.fallbackToPrimitive) {
     return "none";
   }
@@ -338,4 +447,12 @@ export function resolveAreaPlaceablePlaceholderReason(input: {
     return "asset-contract-blocked";
   }
   return "payload-missing-model-url";
+}
+
+function isSourceModelNoGeometryPayload(payload: PlaceableViewportRenderPayload): boolean {
+  return payload.renderPackage?.diagnostics?.some(
+    (diagnostic) =>
+      diagnostic.code === "PLACEABLE_RENDER_SOURCE_MODEL_NO_GEOMETRY" ||
+      diagnostic.code === "PLACEABLE_RENDER_AREA_INSTANCE_HELPER_NO_GEOMETRY"
+  ) === true;
 }

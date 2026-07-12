@@ -54,7 +54,7 @@ export function persistLayoutThemeToStorage(
   try {
     storage.setItem(LAYOUT_THEME_STORAGE_KEY, theme);
   } catch {
-    // Ignore quota / privacy storage errors for mock mode.
+    // Ignore quota / privacy storage errors while storing theme settings.
   }
 }
 

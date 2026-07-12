@@ -7,6 +7,68 @@ export const DEV_VFX_ORACLE = "render-contract-local-diagnostic";
 
 type DevVfxDrawLane = "textured_quad" | "linked_textured_quad" | "chunk_model";
 
+interface DevProgFxType4LightFixture {
+  rowId: number;
+  label: string;
+  animationRaw?: string;
+  animation: string;
+  animationParameterStatus?: string;
+  animationKind: "light" | "vision";
+  visionMode?: string;
+  visionParameterStatus?: string;
+  symbolicColor?: string;
+  tokenRadiusMeters?: number;
+  tokenRadiusProofStatus?: string;
+  radiusMeters?: number;
+  radiusProofStatus?: string;
+  sourceMdlNodeName?: string;
+  sourceMdlAnimation?: string;
+  sourceMdlColor?: { r: number; g: number; b: number };
+  sourceMdlColorSource?: string;
+  sourceMdlColorProofStatus?: string;
+  sourceMdlRadiusMeters?: number;
+  sourceMdlRadiusFrames?: [number, number];
+  sourceMdlRadiusSource?: string;
+  sourceMdlRadiusProofStatus?: string;
+  animationSpeedRaw?: string;
+  animationSpeed: number;
+  animationSpeedParameterStatus?: string;
+  castShadowsRaw?: string;
+  castShadows: boolean;
+  castShadowParameterStatus?: string;
+  priorityRaw?: string;
+  priority: number;
+  priorityParameterStatus?: string;
+  proximitySuppressionRaw?: string;
+  proximitySuppression: boolean;
+  proximitySuppressionParameterStatus?: string;
+  attachToSceneRaw?: string;
+  attachToScene: boolean;
+  sceneAttachmentParameterStatus?: string;
+  modelRaw?: string;
+  modelRef: string;
+  modelParameterStatus?: string;
+  unusedParam8Raw?: string;
+  color: { r: number; g: number; b: number };
+  proofStatus: string;
+  parameterPreservationProofSource?: string;
+  parameterPreservationProofStatus?: string;
+  runtimeSchedulingStatus?: string;
+  runtimeSchedulingProofSource?: string;
+  runtimeSchedulingBlocker?: string;
+  sceneAttachmentPolicyStatus?: string;
+  proximitySuppressionPolicyStatus?: string;
+  visionMutationPolicyStatus?: string;
+  shadowPolicyStatus?: string;
+  visualPreviewStatus?: string;
+  ownerVisualEffectRowId?: number;
+  ownerVisualEffectLabel?: string;
+  ownerPhase?: string;
+  ownerProgFxRef?: string;
+  ownerEffectConstructorKind?: string;
+  ownerDurationType?: string;
+}
+
 interface DevVfxFixtureDefinition {
   fixtureId: string;
   title: string;
@@ -25,6 +87,8 @@ interface DevVfxFixtureDefinition {
   linkedChain?: boolean;
   p2pGravity?: boolean;
   beamEffect?: boolean;
+  progFxType4Light?: DevProgFxType4LightFixture;
+  progFxType4Requests?: readonly DevProgFxType4LightFixture[];
   fountainAtlas?: {
     textureRef: string;
     xgrid: number;
@@ -78,6 +142,114 @@ export interface DevVfxFixturePayloadResult {
   textureReference: typeof DEV_VFX_TEXTURE_REFERENCE;
   payload: AuroraVfxPayload;
 }
+
+const PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS = {
+  tokenRadiusMeters: 5,
+  tokenRadiusProofStatus: "source-backed-progfx-param1-animation-token-radius",
+  radiusMeters: 13.3,
+  radiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+  sourceMdlNodeName: "AuroraLight01",
+  sourceMdlAnimation: "Blue_5m",
+  sourceMdlColor: { r: 0.5, g: 0.5, b: 1 },
+  sourceMdlColorSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight01 animation light-color controller type 76",
+  sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+  sourceMdlRadiusMeters: 13.3,
+  sourceMdlRadiusFrames: [0, 13.3] as [number, number],
+  sourceMdlRadiusSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight01 animation radius controller type 88 frames 0 -> 13.3",
+  sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius"
+} as const;
+
+const PROGFX_TYPE4_YELLOW_5M_SOURCE_MDL_FACTS = {
+  tokenRadiusMeters: 5,
+  tokenRadiusProofStatus: "source-backed-progfx-param1-animation-token-radius",
+  radiusMeters: 13.3,
+  radiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+  sourceMdlNodeName: "AuroraLight01",
+  sourceMdlAnimation: "Yello_5m",
+  sourceMdlColor: { r: 1, g: 1, b: 0.5 },
+  sourceMdlColorSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight01 animation light-color controller type 76",
+  sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+  sourceMdlRadiusMeters: 13.3,
+  sourceMdlRadiusFrames: [0, 13.3] as [number, number],
+  sourceMdlRadiusSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight01 animation radius controller type 88 frames 0 -> 13.3",
+  sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius"
+} as const;
+
+const PROGFX_TYPE4_BLIND_VISION_SOURCE_MDL_FACTS = {
+  sourceMdlNodeName: "AuroraLight02",
+  sourceMdlAnimation: "Blind_Vision",
+  sourceMdlColor: { r: 0.3, g: 0.3, b: 0.3 },
+  sourceMdlColorSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight02 vision animation light-color controller type 76",
+  sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+  sourceMdlRadiusMeters: 7,
+  sourceMdlRadiusFrames: [0, 7] as [number, number],
+  sourceMdlRadiusSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight02 vision animation radius controller type 88",
+  sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius"
+} as const;
+
+const PROGFX_TYPE4_DARK_VISION_SOURCE_MDL_FACTS = {
+  sourceMdlNodeName: "AuroraLight02",
+  sourceMdlAnimation: "Dark_Vision",
+  sourceMdlColor: { r: 0.3, g: 0.3, b: 0.4 },
+  sourceMdlColorSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight02 vision animation light-color controller type 76",
+  sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+  sourceMdlRadiusMeters: 15,
+  sourceMdlRadiusFrames: [0, 15] as [number, number],
+  sourceMdlRadiusSource:
+    "nwn_base.key fx_light_clr.mdl AuroraLight02 Dark_Vision radius controller type 88",
+  sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius"
+} as const;
+
+const PROGFX_TYPE4_RUNTIME_SCHEDULING_PROOF_SOURCE =
+  "nwn_base.key progfx.2da Type 4 Param1..Param7 rows are table-backed and raw-preserved; " +
+  "backend/scripts/audit-retail-progfx-type4-table.ts over retail nwn_base.key reports progfx rowCount=1301, type4RowCount=68, itemLightNormalRowCount=28, itemLightFadeRowCount=28, nonItemType4RowCount=12, animationKindCounts light=56 vision=10 unknown=2, Param3 castShadows true=42 false=26, Param4 priorityRawCounts 13=2/20=56/49..53=2 each, Param5 proximity true=8 false=60, Param6 attachToScene true=2 false=66, modelCounts fx_light_clr=68, nonItemRows=[328,329,330,331,332,333,378,379,380,381,382,383], nonItemCastShadowRows=[], proximityRows=[328,329,330,332,378,379,380,382], attachRows=[333,383], visionRows=[328,329,330,331,333,378,379,380,381,383], and proofStatus=source-backed-progfx-type4-table-parameter-distribution-runtime-scheduler-blocked; " +
+  "C:/Projects/New Folder/export/decompiled_all.c:348244 loads visualeffects.2da; source-only progfxType4SourceSchedulerEvidence proofStatus=source-backed-visualeffects-loader-progfx-type4-scheduler-not-in-source-only-decompilation reports runtimeSchedulerStringHitCount=0 and schedulerStringHits=[] for progfx.2da/fx_light_clr/Blind_Vision/Param3-6 scheduler needles; localResourceDumpEvidence proofStatus=source-backed-local-reference-root-lacks-progfx-type4-scheduler-resource-dump reports missingResourceNames=[progfx.2da,visualeffects.2da,fx_light_clr.mdl,fx_light_clr.mdb] in the available C:/Projects/New Folder dump; backend/scripts/audit-retail-light-function-disasm.py recovers OnApplyVisualEffect/OnRemoveVisualEffect object-level looping VFX owner add/remove through CNWSObject+0x160/+0x168, CNWSMessage last-update copy/diff through CLastUpdateObject+0x108/CNWSObject+0x160, CNWSMessage game-object update serialization, and nwmain.exe clientVisualEffectReceiveRenderEvidence proofStatus=source-backed-cnwcmessage-client-vfx-receive-vtable-add-newcaurobject-mdl-gob-light-path; clientObjectVisualEffectLifecycle proofStatus=source-backed-client-object-add-remove-refresh-looping-vfx-path; visualEffectSourceModelLoaders proofStatus=source-backed-client-vfx-loadvisualeffect-newcaurobject-model-loader-path with LoadVisualEffect-progfx-source-loader 0x14096cf10, fx-light-loader-region 0x14096c610, fx_light string refs, and NewCAurObject/Gob creation; current capstone-free fallback now reports clientVisualEffectReceiveRenderEvidence proofStatus=source-backed-capstone-free-cnwcmessage-client-vfx-callgraph-vtable-loader-path-scheduler-dataflow-blocked, messageDispatchChain proofStatus=source-backed-capstone-free-cnwcmessage-client-vfx-update-dispatch-chain, clientKnownFunctionCallgraph proofStatus=source-backed-capstone-free-client-vfx-message-owner-loader-callgraph, missingExpectedDirectCallTargets=[], clientVisualEffectSchedulerDataFlowProofStatus=blocked-capstone-free-callgraph-proves-vfx-loader-object-attach-not-progfx-param-scheduler-dataflow; capstoneFreeCallTargetEvidence proofStatus=capstone-free-binary-relative-call-target-scan-ran, clientVisualEffectDirectCallXrefCount=1502, clientVisualEffectObservedTargetFamilies=[message-readers,visual-transform-reader,looping-vfx-list-attach,progfx-source-loader,vfx-2da-row-loader,fx-light-loader-region,aurora-object-gob-construction,runtime-state-scene-helpers], legacyDirectCallScanSchedulerStatus=blocked-direct-call-targets-show-vfx-loader-object-attach-not-progfx-param-scheduler-dataflow, top direct target groups ReadBYTE=416, ReadFLOAT=297, object-id-read=174, ReadWORD=156, NewCAurObject=116, AddTail=57, plus string hits for ProgFX_Impact/ProgFX_Duration/ProgFX_Cessation/fx_light, but cannot recover Param3/4/5/6 scheduler data-flow; generic MDL AuroraLight PartLight creation remains source-backed through MdlNodeLight::InternalCreateInstance; Beamdog patch 8193.15 documents progfx.2da unhardcoding but not priority/proximity/shadow runtime semantics";
+const PROGFX_TYPE4_DOCS_POLICY_SOURCE =
+  "nwn.wiki progfx.2da Type 4 docs updated 2026-02-18 documents Param4 priority lower value wins and 0 always applies, Param5 proximity suppression near another light source, Param6 Beamdog Attach to scene removal of scene lights while the effect is active, and Type 4 vision/light rows using fx_light_clr Param1 animations; Beamdog patch 8193.15 documents progfx.2da unhardcoding";
+const PROGFX_TYPE4_VISUALEFFECT_OWNER_PROOF_SOURCE =
+  "backend/scripts/audit-retail-progfx-type4-table.ts also maps retail visualeffects.2da owner phases: type4OwnerPhaseCount=77, itemLightOwnerPhaseCount=56, nonItemOwnerPhaseCount=21, ownerPhaseCounts impact=0 duration=39 cessation=38, nonItemCastShadowOwnerPhaseCount=0, nonItemAttachToSceneOwnerPhaseCount=1, nonItemProximitySuppressionOwnerPhaseCount=18, nonItemOwnerLabels=[VFX_DUR_BLACKOUT,VFX_DUR_DARKVISION,VFX_FNF_SOUND_BURST,VFX_FNF_STRIKE_HOLY,VFX_DUR_BLINDVISION,VFX_DUR_LOWLIGHTVISION,VFX_DUR_ULTRAVISION,VFX_DUR_BLIND,VFX_FNF_SOUND_BURST_SILENT,VFX_FNF_TELEPORT_IN,VFX_FNF_TELEPORT_OUT], proofStatus=source-backed-visualeffects-progfx-type4-owner-phase-map-runtime-scheduler-blocked";
+const PROGFX_TYPE4_RUNTIME_SCHEDULING_FULL_PROOF_SOURCE = `${PROGFX_TYPE4_RUNTIME_SCHEDULING_PROOF_SOURCE}; ${PROGFX_TYPE4_VISUALEFFECT_OWNER_PROOF_SOURCE}; ${PROGFX_TYPE4_DOCS_POLICY_SOURCE}`;
+const PROGFX_TYPE4_RUNTIME_SCHEDULING_BLOCKER =
+  "ProgFX Type 4 Param3 values are source-table backed, Param4/Param5/Param6/vision policy semantics are docs-backed from progfx.2da, and object-level looping VFX owner add/remove, CNWSMessage last-update copy/diff, CNWSMessage game-object update serialization, client receive/render object attach, fx_light NewCAurObject/Gob model instantiation, and generic MDL PartLight creation are source-backed; retail table/owner-phase audit reports nonItemCastShadowRows=[] and nonItemCastShadowOwnerPhaseCount=0, so vanilla non-item Type 4 shadow-casting rows are source-backed absent; source-only decompiled_all.c still has no progfx.2da/fx_light_clr/Blind_Vision scheduler string hit, localResourceDumpEvidence does not expose progfx.2da/visualeffects.2da/fx_light_clr scheduler resource files in the available C:/Projects/New Folder dump, and decompiled_all.c does not expose the retail scheduler data-flow, so remaining blocked semantics are cross-lane insertion order, exact owner grouping, proximity distance threshold, scene-light restore timing, and pixel/runtime vision mutation parity";
+const PROGFX_TYPE4_SCENE_ATTACHMENT_POLICY_STATUS =
+  "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights-retail-dataflow-blocked";
+const PROGFX_TYPE4_PROXIMITY_SUPPRESSION_POLICY_STATUS =
+  "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light-retail-distance-blocked";
+const PROGFX_TYPE4_VISION_MUTATION_POLICY_STATUS =
+  "docs-backed-progfx-type4-param4-param1-vision-priority-token-retail-mutation-blocked";
+const PROGFX_TYPE4_ITEM_LIGHT_SHADOW_POLICY_STATUS =
+  "source-backed-progfx-type4-param3-item-light-shadow-toggle-retail-shadow-volume-projection-blocked";
+const PROGFX_TYPE4_NON_ITEM_SHADOW_POLICY_STATUS =
+  "source-backed-progfx-type4-non-item-cast-shadow-absent-vanilla-rows";
+const PROGFX_TYPE4_CUSTOM_NON_ITEM_SHADOW_POLICY_STATUS =
+  "blocked-custom-non-item-progfx-type4-shadow-runtime-not-recovered";
+const PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_SOURCE =
+  "nwn_base.key progfx.2da selected rows 300..333 and 350..377 preserve Type 4 Param1..Param7; backend parser keeps raw Param1..Param8 cells before runtime scheduling";
+const PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_STATUS =
+  "source-backed-progfx-type4-param1-param8-raw-preserved";
+const PROGFX_TYPE4_PARAM1_ANIMATION_STATUS =
+  "source-backed-progfx-type4-param1-animation-token-preserved";
+const PROGFX_TYPE4_PARAM2_SPEED_STATUS =
+  "source-backed-progfx-type4-param2-animation-speed-preserved-runtime-playback-blocked";
+const PROGFX_TYPE4_PARAM3_CAST_SHADOW_STATUS =
+  "source-backed-progfx-type4-param3-cast-shadows-preserved-item-toggle-known-non-item-vanilla-cast-shadow-absent";
+const PROGFX_TYPE4_PARAM4_PRIORITY_STATUS =
+  "docs-backed-progfx-type4-param4-priority-lower-value-wins";
+const PROGFX_TYPE4_PARAM5_PROXIMITY_STATUS =
+  "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light";
+const PROGFX_TYPE4_PARAM6_ATTACH_STATUS =
+  "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights";
+const PROGFX_TYPE4_PARAM7_MODEL_STATUS =
+  "source-backed-progfx-type4-param7-model-ref-preserved-client-loader-path-source-backed";
+const PROGFX_TYPE4_PARAM1_VISION_STATUS =
+  "docs-backed-progfx-type4-param1-vision-token-param4-priority";
 
 const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
   {
@@ -234,6 +406,452 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     palette: [
       { r: 1, g: 0.7, b: 0.28 },
       { r: 1, g: 0.4, b: 0.12 }
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-progfx-type4-blue-5m-light",
+    title: "ProgFX Type 4 / LightBlue5m source-lane diagnostic",
+    rowId: 304,
+    label: "LightBlue5m",
+    tableName: "progfx.2da",
+    sourceAuthority: "selectedSource2da-progfx-type4-light",
+    constructorKind: "ProgFX_Type4",
+    applicationMode: "object",
+    rawInvocation:
+      "visualeffects.2da ProgFX_Duration -> progfx.2da row 304 LightBlue5m / Blue_5m",
+    drawParticleCount: 3,
+    progFxType4Light: {
+      rowId: 304,
+      label: "LightBlue5m",
+      animation: "Blue_5m",
+      animationKind: "light",
+      symbolicColor: "Blue",
+      ...PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS,
+      animationSpeed: 1,
+      castShadows: false,
+      priority: 20,
+      proximitySuppression: false,
+      attachToScene: false,
+      modelRef: "fx_light_clr",
+      color: PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+      proofStatus:
+        "source-backed-progfx-type4-light-lane-not-placeable-not-mdl-runtime-scheduling-unverified"
+    },
+    diagnostics: [
+      {
+        bucket: "sourceRows",
+        code: "VFX_PROGFX_TYPE4_LIGHT_SOURCE_LANE_PRESERVED",
+        severity: "info",
+        message:
+          "progfx.2da Type 4 light row is preserved as a client light/vision lane distinct from placeables.2da LightColor and MDL node light payloads."
+      },
+      {
+        bucket: "dependencyGraph",
+        code: "VFX_PROGFX_TYPE4_OWNER_VISUALEFFECTS_PHASE_REQUIRED",
+        severity: "warn",
+        message:
+          "Runtime scheduling requires the owning visualeffects.2da phase and effect-instance context before canonical light behavior can be promoted."
+      },
+      {
+        bucket: "renderContract",
+        code: "VFX_DEV_PROGFX_TYPE4_LIGHT_DIAGNOSTIC_ONLY",
+        severity: "warn",
+        message:
+          "Dev fixture draws a source-colored local diagnostic for ProgFX Type 4; it is not Aurora retail light projection."
+      },
+      {
+        bucket: "payload",
+        code: "VFX_PROGFX_TYPE4_RETAIL_RUNTIME_REQUIRED",
+        severity: "warn",
+        message:
+          "Canonical ProgFX Type 4 parity requires retail/effect-instance runtime proof for priority, proximity suppression, scene attachment, vision mutation, and cross-lane ordering."
+      }
+    ],
+    palette: [
+      PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+      { r: 0.08, g: 0.18, b: 0.72 }
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-progfx-type4-blue-5m-owner-phase",
+    title: "ProgFX Type 4 / VFX_DUR_LIGHT_BLUE_5 owner-phase diagnostic",
+    rowId: 153,
+    label: "VFX_DUR_LIGHT_BLUE_5",
+    tableName: "visualeffects.2da",
+    sourceAuthority: "selectedSource2da-visualeffects-progfx-type4-owner-phase",
+    constructorKind: "EffectVisualEffect",
+    applicationMode: "object",
+    rawInvocation:
+      "visualeffects.2da row 153 VFX_DUR_LIGHT_BLUE_5 duration -> progfx.2da row 304 LightBlue5m / Blue_5m",
+    drawParticleCount: 3,
+    progFxType4Light: {
+      rowId: 304,
+      label: "LightBlue5m",
+      animation: "Blue_5m",
+      animationKind: "light",
+      symbolicColor: "Blue",
+      ...PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS,
+      animationSpeed: 1,
+      castShadows: false,
+      priority: 20,
+      proximitySuppression: false,
+      attachToScene: false,
+      modelRef: "fx_light_clr",
+      color: PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+      ownerVisualEffectRowId: 153,
+      ownerVisualEffectLabel: "VFX_DUR_LIGHT_BLUE_5",
+      ownerPhase: "duration",
+      ownerProgFxRef: "304",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "temporary"
+    },
+    diagnostics: [
+      {
+        bucket: "sourceRows",
+        code: "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY",
+        severity: "info",
+        message:
+          "visualeffects.2da owner phase points at a matching progfx.2da Type 4 light row."
+      },
+      {
+        bucket: "renderContract",
+        code: "VFX_PROGFX_TYPE4_RENDER_CONTRACT_NO_POINTLIGHT",
+        severity: "warn",
+        message:
+          "ProgFX Type 4 owner-phase evidence is preserved, but no generic PointLight is created without retail runtime validation."
+      },
+      {
+        bucket: "payload",
+        code: "VFX_PROGFX_TYPE4_RETAIL_RUNTIME_REQUIRED",
+        severity: "warn",
+        message:
+          "Canonical ProgFX Type 4 parity still requires retail proof for priority, proximity suppression, scene attachment, vision mutation, and cross-lane ordering."
+      }
+    ],
+    palette: [
+      PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+      { r: 0.08, g: 0.18, b: 0.72 }
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-progfx-type4-blind-vision-owner-phase",
+    title: "ProgFX Type 4 / VFX_DUR_BLINDVISION owner-phase diagnostic",
+    rowId: 242,
+    label: "VFX_DUR_BLINDVISION",
+    tableName: "visualeffects.2da",
+    sourceAuthority: "selectedSource2da-visualeffects-progfx-type4-owner-phase",
+    constructorKind: "EffectVisualEffect",
+    applicationMode: "object",
+    rawInvocation:
+      "visualeffects.2da row 242 VFX_DUR_BLINDVISION duration -> progfx.2da row 329 LightBlindvision / Blind_Vision",
+    drawParticleCount: 3,
+    progFxType4Light: {
+      rowId: 329,
+      label: "LightBlindvision",
+      animation: "Blind_Vision",
+      animationKind: "vision",
+      visionMode: "Blind_Vision",
+      animationSpeed: 1,
+      castShadows: false,
+      priority: 53,
+      proximitySuppression: true,
+      attachToScene: false,
+      modelRef: "fx_light_clr",
+      ...PROGFX_TYPE4_BLIND_VISION_SOURCE_MDL_FACTS,
+      color: { r: 0.1, g: 0.18, b: 0.42 },
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+      ownerVisualEffectRowId: 242,
+      ownerVisualEffectLabel: "VFX_DUR_BLINDVISION",
+      ownerPhase: "duration",
+      ownerProgFxRef: "329",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "temporary"
+    },
+    diagnostics: [
+      {
+        bucket: "sourceRows",
+        code: "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY",
+        severity: "info",
+        message:
+          "visualeffects.2da owner phase points at a matching progfx.2da Type 4 vision row."
+      },
+      {
+        bucket: "renderContract",
+        code: "VFX_PROGFX_TYPE4_RENDER_CONTRACT_NO_POINTLIGHT",
+        severity: "warn",
+        message:
+          "ProgFX Type 4 vision-mode evidence is preserved, but no generic PointLight is created without retail runtime validation."
+      },
+      {
+        bucket: "payload",
+        code: "VFX_PROGFX_TYPE4_RETAIL_RUNTIME_REQUIRED",
+        severity: "warn",
+        message:
+          "Canonical ProgFX Type 4 vision parity still requires retail proof for scheduling, vision mutation, scene attachment, proximity suppression, and cross-lane ordering."
+      }
+    ],
+    palette: [
+      { r: 0.1, g: 0.18, b: 0.42 },
+      { r: 0.22, g: 0.36, b: 0.78 }
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-progfx-type4-multi-request-policy",
+    title: "ProgFX Type 4 / multi-request scheduler policy diagnostic",
+    rowId: 5,
+    label:
+      "VFX_DUR_BLACKOUT + VFX_DUR_LIGHT_BLUE_5 + VFX_DUR_LIGHT_YELLOW_5 + VFX_DUR_DARKVISION",
+    tableName: "visualeffects.2da",
+    sourceAuthority: "retail-key-bif-visualeffects-progfx-type4-multi-request-policy",
+    constructorKind: "EffectVisualEffect",
+    applicationMode: "object",
+    rawInvocation:
+      "retail visualeffects.2da owner samples: row 5 duration -> progfx row 333, row 153 duration -> row 304, row 157 duration -> row 308, row 182 duration -> row 328",
+    drawParticleCount: 4,
+    progFxType4Light: {
+      rowId: 333,
+      label: "LightAreaBlackout",
+      animation: "Blind_Vision",
+      animationKind: "vision",
+      visionMode: "Blind_Vision",
+      animationSpeed: 1,
+      castShadows: false,
+      priority: 13,
+      proximitySuppression: false,
+      attachToScene: true,
+      modelRef: "fx_light_clr",
+      ...PROGFX_TYPE4_BLIND_VISION_SOURCE_MDL_FACTS,
+      color: { r: 0.05, g: 0.08, b: 0.16 },
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+      ownerVisualEffectRowId: 5,
+      ownerVisualEffectLabel: "VFX_DUR_BLACKOUT",
+      ownerPhase: "duration",
+      ownerProgFxRef: "333",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "temporary"
+    },
+    progFxType4Requests: [
+      {
+        rowId: 333,
+        label: "LightAreaBlackout",
+        animation: "Blind_Vision",
+        animationKind: "vision",
+        visionMode: "Blind_Vision",
+        animationSpeed: 1,
+        castShadows: false,
+        priority: 13,
+        proximitySuppression: false,
+        attachToScene: true,
+        modelRef: "fx_light_clr",
+        ...PROGFX_TYPE4_BLIND_VISION_SOURCE_MDL_FACTS,
+        color: { r: 0.05, g: 0.08, b: 0.16 },
+        proofStatus:
+          "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+        runtimeSchedulingStatus:
+          "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+        visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+        ownerVisualEffectRowId: 5,
+        ownerVisualEffectLabel: "VFX_DUR_BLACKOUT",
+        ownerPhase: "duration",
+        ownerProgFxRef: "333",
+        ownerEffectConstructorKind: "EffectVisualEffect",
+        ownerDurationType: "temporary"
+      },
+      {
+        rowId: 304,
+        label: "LightBlue5m",
+        animation: "Blue_5m",
+        animationKind: "light",
+        symbolicColor: "Blue",
+        ...PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS,
+        animationSpeed: 1,
+        castShadows: false,
+        priority: 20,
+        proximitySuppression: false,
+        attachToScene: false,
+        modelRef: "fx_light_clr",
+        color: PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+        proofStatus:
+          "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+        runtimeSchedulingStatus:
+          "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+        visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+        ownerVisualEffectRowId: 153,
+        ownerVisualEffectLabel: "VFX_DUR_LIGHT_BLUE_5",
+        ownerPhase: "duration",
+        ownerProgFxRef: "304",
+        ownerEffectConstructorKind: "EffectVisualEffect",
+        ownerDurationType: "temporary"
+      },
+      {
+        rowId: 308,
+        label: "LightYellow5m",
+        animation: "Yello_5m",
+        animationKind: "light",
+        symbolicColor: "Yellow",
+        ...PROGFX_TYPE4_YELLOW_5M_SOURCE_MDL_FACTS,
+        animationSpeed: 1,
+        castShadows: false,
+        priority: 20,
+        proximitySuppression: false,
+        attachToScene: false,
+        modelRef: "fx_light_clr",
+        color: PROGFX_TYPE4_YELLOW_5M_SOURCE_MDL_FACTS.sourceMdlColor,
+        proofStatus:
+          "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+        runtimeSchedulingStatus:
+          "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+        visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+        ownerVisualEffectRowId: 157,
+        ownerVisualEffectLabel: "VFX_DUR_LIGHT_YELLOW_5",
+        ownerPhase: "duration",
+        ownerProgFxRef: "308",
+        ownerEffectConstructorKind: "EffectVisualEffect",
+        ownerDurationType: "temporary"
+      },
+      {
+        rowId: 328,
+        label: "LightDarkvision",
+        animation: "Dark_Vision",
+        animationKind: "vision",
+        visionMode: "Dark_Vision",
+        animationSpeed: 1,
+        castShadows: false,
+        priority: 51,
+        proximitySuppression: true,
+        attachToScene: false,
+        modelRef: "fx_light_clr",
+        ...PROGFX_TYPE4_DARK_VISION_SOURCE_MDL_FACTS,
+        color: { r: 0.08, g: 0.12, b: 0.28 },
+        proofStatus:
+          "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+        runtimeSchedulingStatus:
+          "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+        visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+        ownerVisualEffectRowId: 182,
+        ownerVisualEffectLabel: "VFX_DUR_DARKVISION",
+        ownerPhase: "duration",
+        ownerProgFxRef: "328",
+        ownerEffectConstructorKind: "EffectVisualEffect",
+        ownerDurationType: "temporary"
+      }
+    ],
+    diagnostics: [
+      {
+        bucket: "sourceRows",
+        code: "VFX_PROGFX_TYPE4_MULTI_REQUEST_SOURCE_ROWS_PRESERVED",
+        severity: "info",
+        message:
+          "Retail visualeffects.2da owner rows preserve two Type 4 light requests with equal priority, one attach-to-scene vision request, and one proximity-suppression vision request."
+      },
+      {
+        bucket: "renderContract",
+        code: "VFX_PROGFX_TYPE4_MULTI_REQUEST_RENDER_CONTRACT_NO_POINTLIGHT",
+        severity: "warn",
+        message:
+          "Multiple ProgFX Type 4 requests are exposed for diagnostics, but none is promoted to a generic PointLight without retail scheduler proof."
+      },
+      {
+        bucket: "payload",
+        code: "VFX_PROGFX_TYPE4_MULTI_REQUEST_RETAIL_SCHEDULER_REQUIRED",
+        severity: "warn",
+        message:
+          "Local priority/proximity/attach-to-scene policy ordering is docs-backed only; exact retail scheduler data-flow remains required."
+      }
+    ],
+    palette: [
+      { r: 0.05, g: 0.08, b: 0.16 },
+      PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS.sourceMdlColor
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-cross-lane-all-light-lanes-policy",
+    title: "Cross-lane light runtime coverage policy",
+    rowId: 304,
+    label: "LightBlue5m cross-lane coverage",
+    tableName: "progfx.2da",
+    sourceAuthority: "retail-key-bif-progfx-type4-cross-lane-coverage",
+    constructorKind: "cross-lane-light-diagnostic",
+    applicationMode: "scene",
+    rawInvocation:
+      "Diagnostic scene with tile/placeable/source-mdl/item-property PointLight lanes plus ProgFX Type 4 request; coverage only, not retail insertion ordering.",
+    drawParticleCount: 4,
+    activeParticleCount: 4,
+    progFxType4Light: {
+      rowId: 304,
+      label: "LightBlue5m",
+      animationRaw: "Blue_5m",
+      animation: "Blue_5m",
+      animationParameterStatus: PROGFX_TYPE4_PARAM1_ANIMATION_STATUS,
+      animationKind: "light",
+      symbolicColor: "Blue",
+      ...PROGFX_TYPE4_BLUE_5M_SOURCE_MDL_FACTS,
+      animationSpeedRaw: "30",
+      animationSpeed: 30,
+      animationSpeedParameterStatus: PROGFX_TYPE4_PARAM2_SPEED_STATUS,
+      castShadowsRaw: "0",
+      castShadows: false,
+      castShadowParameterStatus: PROGFX_TYPE4_PARAM3_CAST_SHADOW_STATUS,
+      priorityRaw: "20",
+      priority: 20,
+      priorityParameterStatus: PROGFX_TYPE4_PARAM4_PRIORITY_STATUS,
+      proximitySuppressionRaw: "0",
+      proximitySuppression: false,
+      proximitySuppressionParameterStatus: PROGFX_TYPE4_PARAM5_PROXIMITY_STATUS,
+      attachToSceneRaw: "0",
+      attachToScene: false,
+      sceneAttachmentParameterStatus: PROGFX_TYPE4_PARAM6_ATTACH_STATUS,
+      modelRaw: "fx_light_clr",
+      modelRef: "fx_light_clr",
+      modelParameterStatus: PROGFX_TYPE4_PARAM7_MODEL_STATUS,
+      unusedParam8Raw: "****",
+      color: { r: 0.5, g: 0.5, b: 1 },
+      proofStatus:
+        "source-backed-progfx-type4-cross-lane-runtime-coverage-request-not-pointlight",
+      parameterPreservationProofSource: PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_SOURCE,
+      parameterPreservationProofStatus: PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_STATUS,
+      runtimeSchedulingStatus:
+        "docs-backed-progfx-type4-policy-diagnostic-cross-lane-retail-ordering-blocked",
+      runtimeSchedulingProofSource: PROGFX_TYPE4_RUNTIME_SCHEDULING_FULL_PROOF_SOURCE,
+      runtimeSchedulingBlocker: PROGFX_TYPE4_RUNTIME_SCHEDULING_BLOCKER,
+      sceneAttachmentPolicyStatus: PROGFX_TYPE4_SCENE_ATTACHMENT_POLICY_STATUS,
+      proximitySuppressionPolicyStatus: PROGFX_TYPE4_PROXIMITY_SUPPRESSION_POLICY_STATUS,
+      visionMutationPolicyStatus: PROGFX_TYPE4_VISION_MUTATION_POLICY_STATUS,
+      shadowPolicyStatus: PROGFX_TYPE4_NON_ITEM_SHADOW_POLICY_STATUS,
+      visualPreviewStatus:
+        "local-cross-lane-coverage-fixture-no-retail-lightmanager-insertion-proof",
+      ownerVisualEffectRowId: 153,
+      ownerVisualEffectLabel: "VFX_DUR_LIGHT_BLUE_5",
+      ownerPhase: "duration",
+      ownerProgFxRef: "304",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "duration"
+    },
+    diagnostics: [
+      {
+        bucket: "payload",
+        code: "VFX_CROSS_LANE_LIGHT_RUNTIME_COVERAGE_ONLY",
+        severity: "warn",
+        message:
+          "Fixture observes all required local light lanes in one runtime diagnostic scene; retail LightManager cross-lane insertion order remains blocked."
+      }
+    ],
+    palette: [
+      { r: 0.42, g: 0.78, b: 1 },
+      { r: 1, g: 0.78, b: 0.34 }
     ]
   },
   {
@@ -415,6 +1033,86 @@ export function resolveDevVfxFixtureId(requestedFixtureId: string | undefined): 
     : DEV_VFX_DEFAULT_FIXTURE_ID;
 }
 
+function resolveDevProgFxType4ShadowPolicyStatus(
+  light: DevProgFxType4LightFixture
+): string {
+  if (light.animationKind === "light") {
+    return PROGFX_TYPE4_ITEM_LIGHT_SHADOW_POLICY_STATUS;
+  }
+  if (light.castShadows === true) {
+    return PROGFX_TYPE4_CUSTOM_NON_ITEM_SHADOW_POLICY_STATUS;
+  }
+  return PROGFX_TYPE4_NON_ITEM_SHADOW_POLICY_STATUS;
+}
+
+function resolveFixturePrimaryProgFxType4Light(
+  fixture: DevVfxFixtureDefinition
+): DevProgFxType4LightFixture | undefined {
+  return fixture.progFxType4Light ?? fixture.progFxType4Requests?.[0];
+}
+
+function resolveFixtureProgFxType4Requests(
+  fixture: DevVfxFixtureDefinition
+): readonly DevProgFxType4LightFixture[] {
+  return fixture.progFxType4Requests ?? (fixture.progFxType4Light ? [fixture.progFxType4Light] : []);
+}
+
+function createDevProgFxType4RenderContractLight(light: DevProgFxType4LightFixture) {
+  return {
+    ...light,
+    animationRaw: light.animationRaw ?? light.animation,
+    animationParameterStatus:
+      light.animationParameterStatus ?? PROGFX_TYPE4_PARAM1_ANIMATION_STATUS,
+    visionParameterStatus:
+      light.visionParameterStatus ??
+      (light.animationKind === "vision" ? PROGFX_TYPE4_PARAM1_VISION_STATUS : ""),
+    animationSpeedRaw: light.animationSpeedRaw ?? String(light.animationSpeed),
+    animationSpeedParameterStatus:
+      light.animationSpeedParameterStatus ?? PROGFX_TYPE4_PARAM2_SPEED_STATUS,
+    castShadowsRaw: light.castShadowsRaw ?? (light.castShadows ? "1" : "0"),
+    castShadowParameterStatus:
+      light.castShadowParameterStatus ?? PROGFX_TYPE4_PARAM3_CAST_SHADOW_STATUS,
+    priorityRaw: light.priorityRaw ?? String(light.priority),
+    priorityParameterStatus:
+      light.priorityParameterStatus ?? PROGFX_TYPE4_PARAM4_PRIORITY_STATUS,
+    proximitySuppressionRaw:
+      light.proximitySuppressionRaw ?? (light.proximitySuppression ? "1" : "0"),
+    proximitySuppressionParameterStatus:
+      light.proximitySuppressionParameterStatus ?? PROGFX_TYPE4_PARAM5_PROXIMITY_STATUS,
+    attachToSceneRaw: light.attachToSceneRaw ?? (light.attachToScene ? "1" : "0"),
+    sceneAttachmentParameterStatus:
+      light.sceneAttachmentParameterStatus ?? PROGFX_TYPE4_PARAM6_ATTACH_STATUS,
+    modelRaw: light.modelRaw ?? light.modelRef,
+    modelParameterStatus: light.modelParameterStatus ?? PROGFX_TYPE4_PARAM7_MODEL_STATUS,
+    unusedParam8Raw: light.unusedParam8Raw ?? "****",
+    notPlaceableTwoDaLight: true,
+    notMdlLightNode: true,
+    parameterSource:
+      "retail progfx.2da Type 4 Param1 animation, Param2 speed, Param3 cast shadows, Param4 priority, Param5 proximity suppression, Param6 attach to scene, Param7 model",
+    parameterPreservationProofSource:
+      light.parameterPreservationProofSource ??
+      PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_SOURCE,
+    parameterPreservationProofStatus:
+      light.parameterPreservationProofStatus ??
+      PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_STATUS,
+    runtimeSchedulingStatus:
+      light.runtimeSchedulingStatus ?? "blocked-owner-phase-effect-instance-required",
+    runtimeSchedulingProofSource:
+      light.runtimeSchedulingProofSource ?? PROGFX_TYPE4_RUNTIME_SCHEDULING_FULL_PROOF_SOURCE,
+    runtimeSchedulingBlocker:
+      light.runtimeSchedulingBlocker ?? PROGFX_TYPE4_RUNTIME_SCHEDULING_BLOCKER,
+    sceneAttachmentPolicyStatus:
+      light.sceneAttachmentPolicyStatus ?? PROGFX_TYPE4_SCENE_ATTACHMENT_POLICY_STATUS,
+    proximitySuppressionPolicyStatus:
+      light.proximitySuppressionPolicyStatus ??
+      PROGFX_TYPE4_PROXIMITY_SUPPRESSION_POLICY_STATUS,
+    visionMutationPolicyStatus:
+      light.visionMutationPolicyStatus ?? PROGFX_TYPE4_VISION_MUTATION_POLICY_STATUS,
+    shadowPolicyStatus: light.shadowPolicyStatus ?? resolveDevProgFxType4ShadowPolicyStatus(light),
+    visualPreviewStatus: light.visualPreviewStatus ?? "dev-source-colored-diagnostic-only"
+  };
+}
+
 export function createDevAuroraVfxPayload(
   request: DevVfxFixtureRequest = {}
 ): DevVfxFixturePayloadResult {
@@ -437,6 +1135,15 @@ export function createDevAuroraVfxPayload(
   );
   const verticesPerDrawParticle = drawLane === "chunk_model" ? 0 : 6;
   const fixtureDiagnostics = createFixtureDiagnostics(fixture);
+  const progFxType4PrimaryLight = resolveFixturePrimaryProgFxType4Light(fixture);
+  const progFxType4Requests = resolveFixtureProgFxType4Requests(fixture);
+  const progFxType4RenderContractLight = progFxType4PrimaryLight
+    ? createDevProgFxType4RenderContractLight(progFxType4PrimaryLight)
+    : null;
+  const progFxType4RenderContractRequests =
+    progFxType4Requests.length > 1
+      ? progFxType4Requests.map((entry) => createDevProgFxType4RenderContractLight(entry))
+      : [];
 
   const payload: AuroraVfxPayload = {
     version: "aurora-vfx-payload/v1",
@@ -627,6 +1334,16 @@ export function createDevAuroraVfxPayload(
                 retailPlaybackResolved: false
               }
             }
+          : {}),
+        ...(progFxType4RenderContractLight
+          ? {
+              progFxType4Light: progFxType4RenderContractLight
+            }
+          : {}),
+        ...(progFxType4RenderContractRequests.length > 0
+          ? {
+              progFxType4Requests: progFxType4RenderContractRequests
+            }
           : {})
       }
     },
@@ -685,6 +1402,30 @@ function createDependencyEdges(fixture: DevVfxFixtureDefinition, drawLane: DevVf
       }
     ];
   }
+  const progFxType4Requests = resolveFixtureProgFxType4Requests(fixture);
+  if (progFxType4Requests.length > 0) {
+    const uniqueProgFxRows = [...new Map(
+      progFxType4Requests.map((entry) => [entry.rowId, entry])
+    ).values()];
+    return [
+      ...uniqueProgFxRows.map((entry) => ({
+        edgeType: "progfx_row",
+        requestedResourceClass: "progfx_row",
+        requestedRef: String(entry.rowId),
+        selectedCandidate: {
+          resourceKey: `progfx.2da#row=${entry.rowId}`
+        }
+      })),
+      {
+        edgeType: "texture",
+        requestedResourceClass: "texture",
+        requestedRef: DEV_VFX_TEXTURE_REFERENCE,
+        selectedCandidate: {
+          resourceKey: `${DEV_VFX_TEXTURE_REFERENCE}.tga`
+        }
+      }
+    ];
+  }
   return [
     {
       edgeType: "texture",
@@ -728,6 +1469,11 @@ function createDrawRecord(
   const p2pY = -0.2 + p2pArc * 0.46 - normalizedIndex * normalizedIndex * 0.18;
   const beamX = -0.62 + normalizedIndex * 1.24;
   const beamY = -0.08 + normalizedIndex * 0.24 + Math.sin(normalizedIndex * Math.PI) * 0.04;
+  const progFxType4Light = resolveFixturePrimaryProgFxType4Light(fixture);
+  const progFxLightScale = Math.max(
+    0.16,
+    (progFxType4Light?.radiusMeters ?? progFxType4Light?.sourceMdlRadiusMeters ?? 5) / 20
+  );
   const punchX = -0.3 + normalizedIndex * 0.6;
   const punchY = particleIndex % 2 === 0 ? -0.11 : 0.11;
   const pltX = -0.36 + normalizedIndex * 0.72;
@@ -769,6 +1515,8 @@ function createDrawRecord(
         ? p2pX
         : fixture.beamEffect
           ? beamX
+          : progFxType4Light
+            ? (normalizedIndex - 0.5) * progFxLightScale * 1.4
         : fixture.punchMode2Lighten
           ? punchX
           : fixture.pltLayerColors
@@ -780,6 +1528,8 @@ function createDrawRecord(
         ? p2pY
         : fixture.beamEffect
           ? beamY
+        : progFxType4Light
+          ? Math.sin(normalizedIndex * Math.PI) * progFxLightScale * 0.34
         : fixture.punchMode2Lighten
           ? punchY
           : fixture.pltLayerColors
@@ -794,7 +1544,9 @@ function createDrawRecord(
         ? 0.12
         : fixture.beamEffect
           ? 0.18
-        : fixture.punchMode2Lighten
+          : progFxType4Light
+            ? 0.02 * side
+          : fixture.punchMode2Lighten
           ? 0.03 * side
           : fixture.pltLayerColors
             ? 0.01 * side
@@ -805,6 +1557,8 @@ function createDrawRecord(
         ? 0.16 - normalizedIndex * 0.22
         : fixture.beamEffect
           ? 0.04
+        : progFxType4Light
+          ? 0.01 * Math.cos(phase)
         : fixture.punchMode2Lighten
           ? 0.02 * Math.sin(phase)
           : fixture.pltLayerColors
@@ -814,13 +1568,18 @@ function createDrawRecord(
           : 0.06 + normalizedIndex * 0.05,
       z: 0
     },
-    color: pltLayerColor?.color ?? fixture.palette[particleIndex % fixture.palette.length],
+    color:
+      progFxType4Light?.color ??
+      pltLayerColor?.color ??
+      fixture.palette[particleIndex % fixture.palette.length],
     alpha: Math.max(0.32, 0.78 - normalizedIndex * 0.28),
     size: {
       x: fixture.p2pGravity
         ? 0.18 + 0.04 * Math.sin(phase)
         : fixture.beamEffect
           ? 0.34
+          : progFxType4Light
+            ? 0.28 + progFxLightScale * 0.42
         : fixture.punchMode2Lighten
           ? 0.38 + 0.03 * Math.sin(phase)
           : fixture.pltLayerColors
@@ -832,6 +1591,8 @@ function createDrawRecord(
         ? 0.22 + 0.04 * Math.cos(phase)
         : fixture.beamEffect
           ? 0.12 + 0.02 * Math.sin(phase)
+        : progFxType4Light
+          ? 0.28 + progFxLightScale * 0.42
         : fixture.punchMode2Lighten
           ? 0.38 + 0.03 * Math.cos(phase)
           : fixture.pltLayerColors
@@ -873,6 +1634,17 @@ function createDrawRecord(
             atlasFps: fixture.fountainAtlas.fps,
             randomFrameStart: fixture.fountainAtlas.randomFrameStart,
             atlasPlaybackSource: "dev_fountain_atlas_diagnostic"
+          }
+        : {}),
+      ...(progFxType4Light
+        ? {
+            progFxType4RowId: progFxType4Light.rowId,
+            progFxType4Animation: progFxType4Light.animation,
+            progFxType4RadiusMeters:
+              progFxType4Light.radiusMeters ?? progFxType4Light.sourceMdlRadiusMeters,
+            progFxType4CastShadows: progFxType4Light.castShadows,
+            progFxType4Priority: progFxType4Light.priority,
+            progFxType4Source: "progfx.2da Type 4 diagnostic draw record"
           }
         : {})
     },

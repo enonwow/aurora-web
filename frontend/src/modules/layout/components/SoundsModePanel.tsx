@@ -157,7 +157,7 @@ export function SoundsModePanel({
   const shouldShowEmpty = !isLoading && !loadErrorMessage && sounds.length === 0;
   const hasActiveFilters =
     searchQuery.trim().length > 0 || categoryFilter !== "all" || sourceFilter !== "all";
-  const resultLabel = hasActiveFilters ? `${sounds.length}/${total}` : String(sounds.length);
+  const resultLabel = hasActiveFilters ? `${sounds.length}/${total}` : String(total);
 
   return (
     <article
@@ -168,7 +168,7 @@ export function SoundsModePanel({
         <h2>Sounds</h2>
         <span
           className="scene-objects-total"
-          title={hasActiveFilters ? "Filtered sounds / loaded sounds" : "Loaded sounds"}
+          title={hasActiveFilters ? "Filtered loaded sounds / total sounds" : "Total sounds"}
         >
           {resultLabel}
         </span>

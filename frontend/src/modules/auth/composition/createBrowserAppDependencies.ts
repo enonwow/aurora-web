@@ -2,7 +2,7 @@ import type { IAuthFacade } from "../contracts";
 import { browserTelemetryFacade } from "../../telemetry/composition/browserTelemetrySingleton";
 import type { TelemetryFacade } from "../../telemetry/application/telemetryFacade";
 import { isVitestRuntime } from "../application/authRuntimeEnvironment";
-import { createMockAuthFacade } from "./createMockAuthFacade";
+import { createTestAuthFacade } from "./createTestAuthFacade";
 import { createHttpBackendAuthFacade } from "../adapters/httpBackendAuthFacade";
 
 export interface AppDependencies {
@@ -12,11 +12,11 @@ export interface AppDependencies {
 
 export function createBrowserAppDependencies(): AppDependencies {
   const telemetryFacade = browserTelemetryFacade;
-  const useMockAuth = isVitestRuntime();
+  const useTestAuth = isVitestRuntime();
   return {
     telemetryFacade,
-    authFacade: useMockAuth
-      ? createMockAuthFacade({ telemetryFacade })
+    authFacade: useTestAuth
+      ? createTestAuthFacade({ telemetryFacade })
       : createHttpBackendAuthFacade({ telemetryFacade })
   };
 }

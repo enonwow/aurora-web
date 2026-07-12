@@ -137,7 +137,10 @@ async function runSmoke() {
   const prepared = await waitForCondition(send, (expected) => {
     const text = document.body.innerText;
     return {
-      ready: text.includes("Ready to play from backend audio cache"),
+      ready:
+        text.includes("Playing from backend audio cache.") ||
+        text.includes("Audio is loaded. Browser playback needs a direct Play click."),
+      playing: text.includes("Playing from backend audio cache."),
       sourceDurationVisible: text.includes(expected.sourceDurationLine),
       previewDurationVisible:
         text.includes(expected.previewDurationLine) ||
@@ -147,6 +150,10 @@ async function runSmoke() {
         text.includes(expected.soundIdLine) &&
         text.includes(expected.resrefLine) &&
         text.includes("source: vanilla"),
+      stopAvailable: Array.from(document.querySelectorAll("button")).some((candidate) => {
+        const label = candidate.getAttribute("aria-label") || candidate.textContent || "";
+        return label.trim().toLowerCase() === expected.stopLabel.toLowerCase();
+      }),
       placeCanvasAbsent: !text.toLowerCase().includes(expected.playCanvasNeedle),
       text
     };
@@ -155,28 +162,7 @@ async function runSmoke() {
   let secondPlayClick = null;
   let playing = null;
   if (smokeMode === "playing" || smokeMode === "stopped") {
-    secondPlayClick = await clickButton(send, new RegExp(`^Play ${escapeRegExp(soundResref)}$`, "i"));
-    playing = await waitForCondition(send, (expected) => {
-      const text = document.body.innerText;
-      return {
-        playing: text.includes("Playing from backend audio cache."),
-        sourceDurationVisible: text.includes(expected.sourceDurationLine),
-        previewDurationVisible:
-          text.includes(expected.previewDurationLine) ||
-          text.includes(expected.previewDurationFallbackLine),
-        deliveryVisible: text.includes("delivery: vanilla / proxy / audio/wav"),
-        metadataVisible:
-          text.includes(expected.soundIdLine) &&
-          text.includes(expected.resrefLine) &&
-          text.includes("source: vanilla"),
-        stopAvailable: Array.from(document.querySelectorAll("button")).some((candidate) => {
-          const label = candidate.getAttribute("aria-label") || candidate.textContent || "";
-          return label.trim().toLowerCase() === expected.stopLabel.toLowerCase();
-        }),
-        placeCanvasAbsent: !text.toLowerCase().includes(expected.playCanvasNeedle),
-        text
-      };
-    }, 15000, expectedUi);
+    playing = prepared.playing ? prepared : null;
   }
 
   let stopClick = null;

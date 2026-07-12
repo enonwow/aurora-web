@@ -40,6 +40,8 @@ interface SharedObjectPreviewPaneProps {
   previewClassName?: string;
   previewText: string;
   previewFallback?: string;
+  previewImageUrl?: string;
+  previewImageAlt?: string;
   actionClassName?: string;
   actionLabel?: string;
   actionDisabled?: boolean;
@@ -96,6 +98,7 @@ interface SharedScriptSlotSectionProps<TSlotKey extends string> {
   values: Record<TSlotKey, string>;
   onChange: (slot: TSlotKey, nextValue: string) => void;
   inputIdPrefix: string;
+  inputListId?: string;
   hiddenLabelSuffix?: ReactNode;
   showInlineActionButtons?: boolean;
   inlineBrowseDisabled?: boolean;
@@ -285,6 +288,8 @@ export function SharedObjectPreviewPane({
   previewClassName,
   previewText,
   previewFallback = "Preview",
+  previewImageUrl,
+  previewImageAlt,
   actionClassName,
   actionLabel = "Inventory ...",
   actionDisabled = true,
@@ -293,7 +298,11 @@ export function SharedObjectPreviewPane({
   return (
     <aside className={className} aria-hidden={ariaHidden}>
       <div className={previewClassName}>
-        <span>{previewText || previewFallback}</span>
+        {previewImageUrl ? (
+          <img src={previewImageUrl} alt={previewImageAlt ?? (previewText || previewFallback)} />
+        ) : (
+          <span>{previewText || previewFallback}</span>
+        )}
       </div>
       <button type="button" disabled={actionDisabled} className={actionClassName}>
         {actionLabel}
@@ -483,6 +492,7 @@ export function SharedScriptSlotSection<TSlotKey extends string>({
   values,
   onChange,
   inputIdPrefix,
+  inputListId,
   hiddenLabelSuffix,
   showInlineActionButtons = false,
   inlineBrowseDisabled = false,
@@ -513,6 +523,7 @@ export function SharedScriptSlotSection<TSlotKey extends string>({
             <input
               id={inputId}
               type="text"
+              list={inputListId}
               value={values[slot]}
               onChange={(event) => onChange(slot, event.target.value)}
             />

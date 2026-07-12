@@ -11,7 +11,7 @@ import type {
 import type { TelemetryFacade } from "./modules/telemetry/application/telemetryFacade";
 import type { TelemetryEvent, TelemetryPayload } from "./modules/telemetry/domain/telemetryEvent";
 import { WorkspaceTopbar } from "./modules/layout/components/WorkspaceTopbar";
-import { WorkspaceMockLayout } from "./modules/layout/components/WorkspaceMockLayout";
+import { WorkspaceLayout } from "./modules/layout/components/WorkspaceLayout";
 import {
   type WorkspaceChromeFacade,
   type ToolbarActionKey,
@@ -28,7 +28,12 @@ import { createBrowserSceneViewportPort } from "./modules/scene/composition/crea
 import { createHttpAreaApiPort } from "./modules/areas/adapters/httpAreaApiPort";
 import { createHttpTileApiPort } from "./modules/tiles/adapters/httpTileApiPort";
 import { createHttpPlaceableApiPort } from "./modules/placeables/adapters/httpPlaceableApiPort";
+import { createHttpCreatureApiPort } from "./modules/creatures/adapters/httpCreatureApiPort";
+import { createHttpEncounterApiPort } from "./modules/encounters/adapters/httpEncounterApiPort";
+import { createHttpItemApiPort } from "./modules/items/adapters/httpItemApiPort";
 import { createHttpSoundApiPort } from "./modules/sounds/adapters/httpSoundApiPort";
+import { createHttpStoreApiPort } from "./modules/stores/adapters/httpStoreApiPort";
+import { resolveWorkspaceBackendApiBaseUrl } from "./modules/shared/workspaceBackendApiBaseUrl";
 import { probeBackendHealth } from "./modules/auth/adapters/httpBackendAuthFacade";
 import {
   getDefaultWorkspaceModeId,
@@ -43,6 +48,26 @@ import {
   CatalogVfxPreviewRunner,
   isCatalogVfxPreviewRunnerPath
 } from "./modules/vfx/dev/CatalogVfxPreviewRunner";
+import {
+  CreatureLightPreviewRunner,
+  isCreatureLightPreviewRunnerPath
+} from "./modules/creatures/dev/CreatureLightPreviewRunner";
+import {
+  CreatureEquipmentAnimationProofRunner,
+  isCreatureEquipmentAnimationProofRunnerPath
+} from "./modules/creatures/dev/CreatureEquipmentAnimationProofRunner";
+import {
+  AreaLightShadowPreviewRunner,
+  isAreaLightShadowPreviewRunnerPath
+} from "./modules/areas/dev/AreaLightShadowPreviewRunner";
+import {
+  isItemPreviewProofRunnerPath,
+  ItemPreviewProofRunner
+} from "./modules/items/dev/ItemPreviewProofRunner";
+import {
+  isItemPropertiesDialogProofRunnerPath,
+  ItemPropertiesDialogProofRunner
+} from "./modules/items/dev/ItemPropertiesDialogProofRunner";
 
 type AppRoute = "/login" | "/app";
 type BackendHealthState = "checking" | "available" | "unavailable";
@@ -51,6 +76,7 @@ export const AUTH_SESSION_STORAGE_KEY = "aurora_web.auth_session.v1";
 export const WORKSPACE_MODE_STORAGE_KEY = "aurora_web.workspace_mode.v1";
 const SESSION_EXPIRY_SAFETY_MARGIN_MS = 1_000;
 const SESSION_EXPIRY_TIMER_MAX_DELAY_MS = 2_147_483_647;
+const WORKSPACE_BACKEND_API_BASE_URL = resolveWorkspaceBackendApiBaseUrl();
 
 interface PersistedAuthState {
   session: AuthSession;
@@ -213,6 +239,21 @@ function averageDurationMs(values: number[]): string {
 }
 
 export default function App(props: AppProps) {
+  if (isCreatureEquipmentAnimationProofRunnerPath(window.location.pathname)) {
+    return <CreatureEquipmentAnimationProofRunner />;
+  }
+  if (isCreatureLightPreviewRunnerPath(window.location.pathname)) {
+    return <CreatureLightPreviewRunner />;
+  }
+  if (isAreaLightShadowPreviewRunnerPath(window.location.pathname)) {
+    return <AreaLightShadowPreviewRunner />;
+  }
+  if (isItemPreviewProofRunnerPath(window.location.pathname)) {
+    return <ItemPreviewProofRunner />;
+  }
+  if (isItemPropertiesDialogProofRunnerPath(window.location.pathname)) {
+    return <ItemPropertiesDialogProofRunner />;
+  }
   if (isCatalogVfxPreviewRunnerPath(window.location.pathname)) {
     return <CatalogVfxPreviewRunner />;
   }
@@ -244,10 +285,23 @@ function AuthenticatedApp({
     []
   );
   const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
-  const areaApiPort = useMemo(() => createHttpAreaApiPort(), []);
-  const tileApiPort = useMemo(() => createHttpTileApiPort(), []);
-  const placeableApiPort = useMemo(() => createHttpPlaceableApiPort(), []);
+  const areaApiPort = useMemo(
+    () => createHttpAreaApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL),
+    []
+  );
+  const tileApiPort = useMemo(
+    () => createHttpTileApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL),
+    []
+  );
+  const placeableApiPort = useMemo(
+    () => createHttpPlaceableApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL),
+    []
+  );
+  const creatureApiPort = useMemo(() => createHttpCreatureApiPort(), []);
+  const encounterApiPort = useMemo(() => createHttpEncounterApiPort(), []);
+  const itemApiPort = useMemo(() => createHttpItemApiPort(), []);
   const soundApiPort = useMemo(() => createHttpSoundApiPort(), []);
+  const storeApiPort = useMemo(() => createHttpStoreApiPort(), []);
   const sceneObjectCatalogQueryFacade = useMemo(
     () => createSceneObjectCatalogQueryFacade(),
     []
@@ -266,6 +320,7 @@ function AuthenticatedApp({
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [isViewportFullscreen, setIsViewportFullscreen] = useState(false);
   const [activeWorkspaceModeId, setActiveWorkspaceModeId] = useState<WorkspaceModeId>(
     () => loadInitialWorkspaceMode(window.localStorage, window.location.search)
   );
@@ -434,6 +489,27 @@ function AuthenticatedApp({
     },
     [telemetryFacade]
   );
+  const handleToggleViewportFullscreen = useCallback(() => {
+    setIsViewportFullscreen((current) => {
+      const next = !current;
+      telemetryFacade.track("ui.workspace.viewport_fullscreen_toggled", {
+        active: next
+      });
+      return next;
+    });
+  }, [telemetryFacade]);
+  const handleExitViewportFullscreen = useCallback(() => {
+    setIsViewportFullscreen((current) => {
+      if (!current) {
+        return current;
+      }
+      telemetryFacade.track("ui.workspace.viewport_fullscreen_toggled", {
+        active: false,
+        source: "exit"
+      });
+      return false;
+    });
+  }, [telemetryFacade]);
 
   useEffect(() => {
     if (route === "/app" && !isMainView) {
@@ -445,6 +521,12 @@ function AuthenticatedApp({
       });
     }
   }, [isMainView, route, telemetryFacade]);
+
+  useEffect(() => {
+    if (!isMainView && isViewportFullscreen) {
+      setIsViewportFullscreen(false);
+    }
+  }, [isMainView, isViewportFullscreen]);
 
   useEffect(() => {
     if (!isMainView || route !== "/app") {
@@ -581,7 +663,16 @@ function AuthenticatedApp({
   }, [authFacade, navigate, route, session, telemetryFacade, workspaceChromeFacade]);
 
   const handleBackendSessionInvalidated = useCallback(
-    (source: "placeables_catalog" | "sounds_catalog", invalidatedAccessToken: string) => {
+    (
+      source:
+        | "placeables_catalog"
+        | "creatures_catalog"
+        | "encounters_catalog"
+        | "items_catalog"
+        | "stores_catalog"
+        | "sounds_catalog",
+      invalidatedAccessToken: string
+    ) => {
       if (!session) {
         return;
       }
@@ -674,12 +765,14 @@ function AuthenticatedApp({
         onAction={handleToolbarAction}
         showDebugPanel={showDebugPanel}
         onToggleDebug={() => setShowDebugPanel((current) => !current)}
+        isViewportFullscreen={isViewportFullscreen}
+        onToggleViewportFullscreen={isMainView ? handleToggleViewportFullscreen : undefined}
         onSignOut={handleSignOut}
       />
 
       <section className={pageContentClassName}>
         {isMainView ? (
-          <WorkspaceMockLayout
+          <WorkspaceLayout
             role={authorization!.role}
             userId={session!.user.id}
             workspaceChromeFacade={workspaceChromeFacade}
@@ -687,7 +780,11 @@ function AuthenticatedApp({
             areaApiPort={areaApiPort}
             tileApiPort={tileApiPort}
             placeableApiPort={placeableApiPort}
+            creatureApiPort={creatureApiPort}
+            encounterApiPort={encounterApiPort}
+            itemApiPort={itemApiPort}
             soundApiPort={soundApiPort}
+            storeApiPort={storeApiPort}
             backendAccessToken={backendAccessToken}
             sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
             trackTelemetryEvent={handleWorkspaceTelemetryEvent}
@@ -698,6 +795,8 @@ function AuthenticatedApp({
             workspaceOptions={workspaceOptions}
             leftCollapsed={layoutSettings.leftSidebarCollapsed}
             rightCollapsed={layoutSettings.rightSidebarCollapsed}
+            viewportFullscreen={isViewportFullscreen}
+            onExitViewportFullscreen={handleExitViewportFullscreen}
             onBackendSessionInvalidated={handleBackendSessionInvalidated}
             onToggleLeftCollapsed={() =>
               setLayoutSettings((current) => {

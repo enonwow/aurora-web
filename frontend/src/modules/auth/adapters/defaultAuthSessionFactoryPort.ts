@@ -7,7 +7,7 @@ export function createDefaultAuthSessionFactoryPort(): AuthSessionFactoryPort {
       const expiresAt = new Date(issuedAt.getTime() + 1000 * 60 * 60);
 
       return {
-        accessToken: `mock-token-${identity.id}-${issuedAt.getTime()}`,
+        accessToken: `test-token-${identity.id}-${issuedAt.getTime()}`,
         issuedAt: issuedAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
         user: {

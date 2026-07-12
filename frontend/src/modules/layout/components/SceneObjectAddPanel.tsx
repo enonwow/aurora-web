@@ -3,6 +3,17 @@ import type { SceneObject } from "../contracts";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
 import {
+  collectItemPaletteFilterOptions,
+  formatItemPaletteFilterLabel
+} from "../../items/application/itemPaletteTreeFilter";
+import {
+  composeItemIconPreview,
+  resolveDecodedItemIconPreview,
+  type ItemIconComposition
+} from "../../items/application/itemIconComposer";
+import { shouldPreferItemModelThumbnailOverIcon } from "../../items/application/itemThumbnailModelPreference";
+import type { ItemApiPaletteTreeResult } from "../../items/contracts";
+import {
   type SceneObjectCatalogQueryFacade,
   type SceneObjectCatalogType
 } from "../application/sceneObjectCatalogQueryFacade";
@@ -10,6 +21,7 @@ import {
   createObjectAddPayloadFromSceneObject,
   OBJECT_ADD_DRAG_MIME,
   setCurrentObjectAddDragPayload,
+  setCurrentObjectAddDragSourceTemplate,
   serializeObjectAddPayload
 } from "../application/objectAddDragPayload";
 import { SceneObjectThumbnail } from "./SceneObjectThumbnail";
@@ -26,9 +38,13 @@ interface SceneObjectAddPanelProps {
   placeableRenderPayloadByTemplateId?: Record<string, PlaceableViewportRenderPayload> | null;
   placeableAssetAccessToken?: string | null;
   onObjectRenderPayloadNeeded?: (object: SceneObject) => void;
+  thumbnailRenderEnabled?: boolean;
   onObjectPreviewSelect?: (object: SceneObject) => void;
   onObjectCreate?: (object: SceneObject) => void;
   activeCreateObjectId?: string | null;
+  itemPaletteTree?: ItemApiPaletteTreeResult | null;
+  heading?: string;
+  hidden?: boolean;
 }
 
 type ConcreteSceneObjectCatalogType = Exclude<SceneObjectCatalogType, "all">;
@@ -37,8 +53,10 @@ type ItemPaletteCategoryId =
   | "all"
   | "armor"
   | "creature_items"
+  | "magic_items"
   | "miscellaneous"
   | "plot_item"
+  | "potions_scrolls"
   | "tutorial"
   | "weapons";
 
@@ -75,12 +93,27 @@ const BLUEPRINT_SOURCE_FILTERS: Array<{ id: BlueprintSourceFilter; label: string
 const ITEM_PALETTE_CATEGORIES: ItemPaletteCategoryDefinition[] = [
   { id: "all", label: "All" },
   { id: "armor", label: "Armor" },
-  { id: "creature_items", label: "Creature Items" },
+  { id: "weapons", label: "Weapons" },
+  { id: "potions_scrolls", label: "Potions / Scrolls" },
+  { id: "magic_items", label: "Magic Items" },
   { id: "miscellaneous", label: "Miscellaneous" },
+  { id: "creature_items", label: "Creature Items" },
   { id: "plot_item", label: "Plot Item" },
-  { id: "tutorial", label: "Tutorial" },
-  { id: "weapons", label: "Weapons" }
+  { id: "tutorial", label: "Tutorial" }
 ];
+
+const ADD_OBJECT_RENDER_ROW_LIMIT = 120;
+const ITEM_ICON_DECODE_BATCH_SIZE = 16;
+const ITEM_ICON_DECODE_RETRY_LIMIT = 2;
+const ITEM_ICON_DECODE_RETRY_DELAY_MS = 900;
+
+const AURORA_STORE_PANEL_ITEM_CATEGORIES = new Map<number, ItemPaletteCategoryId>([
+  [0, "armor"],
+  [1, "weapons"],
+  [2, "potions_scrolls"],
+  [3, "magic_items"],
+  [4, "miscellaneous"]
+]);
 
 const TRANSPARENT_DRAG_IMAGE_DATA_URL =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
@@ -96,6 +129,31 @@ function setTransparentDragImage(dataTransfer: DataTransfer): void {
 
 function trimTagForPreview(tag: string): string {
   return tag.slice(0, 8).toUpperCase();
+}
+
+function resolveItemIconPreviewCacheKey(preview: ItemIconComposition): string {
+  return `${preview.iconResRef}:${preview.assetId ?? preview.rawAssetUrl ?? preview.source}`;
+}
+
+function resolvePersistedBackendAccessToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem("aurora_web.auth_session.v1");
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as {
+      session?: {
+        accessToken?: unknown;
+      };
+    };
+    const token = parsed.session?.accessToken;
+    return typeof token === "string" && token.trim().length > 0 ? token.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 function toConcreteTypes(types: SceneObjectCatalogType[]): ConcreteSceneObjectCatalogType[] {
@@ -154,27 +212,50 @@ function resolveBlueprintSourceLabel(source: BlueprintSourceFilter): string {
 }
 
 function resolveItemPaletteCategory(object: SceneObject): ItemPaletteCategoryId {
-  const text = [object.tag, object.resRef, object.name, object.source?.templateId]
+  const properties = object.itemProperties;
+  const text = [
+    object.tag,
+    object.resRef,
+    object.name,
+    object.source?.templateId,
+    properties?.baseItemLabel,
+    properties?.baseItemItemClass,
+    properties?.baseItemModelType
+  ]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toLowerCase();
 
-  if (text.includes("armor") || text.includes("armour") || text.includes("_it_ar")) {
-    return "armor";
-  }
-  if (
-    text.includes("creature") ||
-    text.includes("hide") ||
-    text.includes("claw") ||
-    text.includes("skin")
-  ) {
-    return "creature_items";
-  }
-  if (text.includes("plot") || text.includes("journal") || text.includes("quest")) {
+  if (properties?.plot === true || text.includes("plot") || text.includes("journal") || text.includes("quest")) {
     return "plot_item";
   }
   if (text.includes("tutorial")) {
     return "tutorial";
+  }
+  if (
+    text.includes("creature") ||
+    text.includes("cslashweapon") ||
+    text.includes("cpiercweapon") ||
+    text.includes("cbludgweapon") ||
+    text.includes("cslshprcweap") ||
+    text.includes("claw") ||
+    text.includes("skin") ||
+    text.includes("it_cr_") ||
+    (text.includes("hide") && !text.includes("armor") && !text.includes("armour"))
+  ) {
+    return "creature_items";
+  }
+
+  const storePanelCategory =
+    typeof properties?.baseItemStorePanel === "number"
+      ? AURORA_STORE_PANEL_ITEM_CATEGORIES.get(properties.baseItemStorePanel)
+      : undefined;
+  if (storePanelCategory) {
+    return storePanelCategory;
+  }
+
+  if (text.includes("armor") || text.includes("armour") || text.includes("_it_ar")) {
+    return "armor";
   }
   if (
     text.includes("weapon") ||
@@ -198,6 +279,7 @@ interface SceneObjectAddRowProps {
   renderPayload?: PlaceableViewportRenderPayload | null;
   placeableAssetAccessToken?: string | null;
   onObjectRenderPayloadNeeded?: (object: SceneObject) => void;
+  thumbnailRenderEnabled?: boolean;
   onObjectPreviewSelect?: (object: SceneObject) => void;
   onObjectCreate?: (object: SceneObject) => void;
   activeCreateObjectId?: string | null;
@@ -211,6 +293,7 @@ function SceneObjectAddRow({
   renderPayload,
   placeableAssetAccessToken,
   onObjectRenderPayloadNeeded,
+  thumbnailRenderEnabled,
   onObjectPreviewSelect,
   onObjectCreate,
   activeCreateObjectId
@@ -219,6 +302,7 @@ function SceneObjectAddRow({
   const blueprintSource = resolveBlueprintSource(object);
   const blueprintSourceLabel = resolveBlueprintSourceLabel(blueprintSource);
   const isActiveCreateObject = activeCreateObjectId === object.id;
+  const shouldPreferModelPreview = shouldPreferItemModelThumbnailOverIcon(object);
   const placeObjectFromRow = (source: "row_double_click" | "row_action" | "row_keyboard") => {
     onObjectCreate?.(object);
     if (onObjectCreate) {
@@ -262,6 +346,7 @@ function SceneObjectAddRow({
           suppressPreviewClickRef.current = true;
           const payload = createObjectAddPayloadFromSceneObject(object);
           setCurrentObjectAddDragPayload(payload);
+          setCurrentObjectAddDragSourceTemplate(object);
           event.dataTransfer.effectAllowed = "copy";
           setTransparentDragImage(event.dataTransfer);
           event.dataTransfer.setData(
@@ -280,6 +365,7 @@ function SceneObjectAddRow({
             suppressPreviewClickRef.current = false;
           }, 0);
           setCurrentObjectAddDragPayload(null);
+          setCurrentObjectAddDragSourceTemplate(null);
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -302,6 +388,8 @@ function SceneObjectAddRow({
           renderPayload={renderPayload}
           placeableAssetAccessToken={placeableAssetAccessToken}
           onRenderPayloadNeeded={onObjectRenderPayloadNeeded}
+          thumbnailRenderEnabled={thumbnailRenderEnabled}
+          preferModelPreview={shouldPreferModelPreview}
         />
         <span className="scene-object-row-meta scene-object-add-row-meta">
           <strong>{object.tag}</strong>
@@ -353,11 +441,19 @@ export function SceneObjectAddPanel({
   placeableRenderPayloadByTemplateId,
   placeableAssetAccessToken,
   onObjectRenderPayloadNeeded,
+  thumbnailRenderEnabled = true,
   onObjectPreviewSelect,
   onObjectCreate,
-  activeCreateObjectId
+  activeCreateObjectId,
+  itemPaletteTree,
+  heading = "Add Objects",
+  hidden = false
 }: SceneObjectAddPanelProps) {
   const templateObjects = useMemo(() => dedupeTemplatesByResRef(objects), [objects]);
+  const itemPaletteOptions = useMemo(
+    () => collectItemPaletteFilterOptions(itemPaletteTree?.roots ?? []),
+    [itemPaletteTree]
+  );
   const baseViewModel = useMemo(
     () =>
       sceneObjectCatalogQueryFacade.query({
@@ -421,6 +517,13 @@ export function SceneObjectAddPanel({
   const [activeBlueprintSource, setActiveBlueprintSource] =
     useState<BlueprintSourceFilter>("standard");
   const [activeItemCategory, setActiveItemCategory] = useState<ItemPaletteCategoryId>("all");
+  const [activeItemPaletteNodeId, setActiveItemPaletteNodeId] = useState("all");
+  const activeItemPaletteOption = useMemo(
+    () =>
+      itemPaletteOptions.find((option) => option.nodeId === activeItemPaletteNodeId) ??
+      null,
+    [activeItemPaletteNodeId, itemPaletteOptions]
+  );
 
   useEffect(() => {
     if (forcedActiveType && activeType !== forcedActiveType) {
@@ -470,14 +573,23 @@ export function SceneObjectAddPanel({
       ),
     [activeBlueprintSource, catalogFilteredRows]
   );
+  const itemPaletteFilteredRows = useMemo(() => {
+    if (activeType !== "items" || !activeItemPaletteOption) {
+      return sourceFilteredRows;
+    }
+    const allowedResRefs = new Set(activeItemPaletteOption.resRefs);
+    return sourceFilteredRows.filter(
+      (object) => object.kind !== "items" || allowedResRefs.has(object.resRef.trim().toLowerCase())
+    );
+  }, [activeItemPaletteOption, activeType, sourceFilteredRows]);
   const itemCategoryCounts = useMemo(
     () =>
       ITEM_PALETTE_CATEGORIES.reduce<Record<ItemPaletteCategoryId, number>>(
         (counts, category) => {
           counts[category.id] =
             category.id === "all"
-              ? sourceFilteredRows.length
-              : sourceFilteredRows.filter(
+              ? itemPaletteFilteredRows.length
+              : itemPaletteFilteredRows.filter(
                   (object) => object.kind === "items" && resolveItemPaletteCategory(object) === category.id
                 ).length;
           return counts;
@@ -486,27 +598,151 @@ export function SceneObjectAddPanel({
           all: 0,
           armor: 0,
           creature_items: 0,
+          magic_items: 0,
           miscellaneous: 0,
           plot_item: 0,
+          potions_scrolls: 0,
           tutorial: 0,
           weapons: 0
         }
       ),
-    [sourceFilteredRows]
+    [itemPaletteFilteredRows]
   );
   const filteredRows = useMemo(() => {
     if (activeType !== "items" || activeItemCategory === "all") {
-      return sourceFilteredRows;
+      return itemPaletteFilteredRows;
     }
-    return sourceFilteredRows.filter(
+    return itemPaletteFilteredRows.filter(
       (object) => object.kind === "items" && resolveItemPaletteCategory(object) === activeItemCategory
     );
-  }, [activeItemCategory, activeType, sourceFilteredRows]);
+  }, [activeItemCategory, activeType, itemPaletteFilteredRows]);
+  const renderedRows = useMemo(
+    () => filteredRows.slice(0, ADD_OBJECT_RENDER_ROW_LIMIT),
+    [filteredRows]
+  );
+  const renderedItemIconPreviews = useMemo(() => {
+    const previews = new Map<string, ItemIconComposition>();
+    if (activeType !== "items") {
+      return previews;
+    }
+    renderedRows.forEach((object) => {
+      const preview = composeItemIconPreview(object);
+      if (preview) {
+        previews.set(object.id, preview);
+      }
+    });
+    return previews;
+  }, [activeType, renderedRows]);
+  const authenticatedItemIconFetch = useMemo<typeof fetch | undefined>(() => {
+    if (typeof fetch === "undefined") {
+      return undefined;
+    }
+    return (input, init) => {
+      const token = resolvePersistedBackendAccessToken();
+      const headers = new Headers(init?.headers);
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      return fetch(input, { ...init, headers });
+    };
+  }, []);
+  const [decodedItemIconPreviews, setDecodedItemIconPreviews] = useState<
+    Record<string, ItemIconComposition>
+  >({});
+  const [itemIconDecodeAttempts, setItemIconDecodeAttempts] = useState<Record<string, number>>(
+    {}
+  );
+  useEffect(() => {
+    if (activeType !== "items") {
+      return;
+    }
+    const rawPreviews = [...renderedItemIconPreviews.values()]
+      .filter((preview) => preview.source === "raw-texture")
+      .filter((preview) => !decodedItemIconPreviews[resolveItemIconPreviewCacheKey(preview)])
+      .filter(
+        (preview) =>
+          (itemIconDecodeAttempts[resolveItemIconPreviewCacheKey(preview)] ?? 0) <
+          ITEM_ICON_DECODE_RETRY_LIMIT
+      )
+      .slice(0, ITEM_ICON_DECODE_BATCH_SIZE);
+    if (rawPreviews.length < 1) {
+      return;
+    }
+
+    let cancelled = false;
+    const retryTimers: number[] = [];
+    rawPreviews.forEach((preview) => {
+      const cacheKey = resolveItemIconPreviewCacheKey(preview);
+      void resolveDecodedItemIconPreview(preview, authenticatedItemIconFetch)
+        .then((decoded) => {
+          if (cancelled) {
+            return;
+          }
+          if (!decoded?.previewImageUrl) {
+            const timer = window.setTimeout(() => {
+              if (!cancelled) {
+                setItemIconDecodeAttempts((current) => ({
+                  ...current,
+                  [cacheKey]: (current[cacheKey] ?? 0) + 1
+                }));
+              }
+            }, ITEM_ICON_DECODE_RETRY_DELAY_MS);
+            retryTimers.push(timer);
+            return;
+          }
+          setDecodedItemIconPreviews((current) =>
+            current[cacheKey]?.previewImageUrl === decoded.previewImageUrl
+              ? current
+              : { ...current, [cacheKey]: decoded }
+          );
+        })
+        .catch(() => {
+          const timer = window.setTimeout(() => {
+            if (!cancelled) {
+              setItemIconDecodeAttempts((current) => ({
+                ...current,
+                [cacheKey]: (current[cacheKey] ?? 0) + 1
+              }));
+            }
+          }, ITEM_ICON_DECODE_RETRY_DELAY_MS);
+          retryTimers.push(timer);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      retryTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [
+    activeType,
+    authenticatedItemIconFetch,
+    decodedItemIconPreviews,
+    itemIconDecodeAttempts,
+    renderedItemIconPreviews
+  ]);
+  const renderedRowsWithItemPreviews = useMemo(() => {
+    if (activeType !== "items") {
+      return renderedRows;
+    }
+    return renderedRows.map((object) => {
+      const basePreview = renderedItemIconPreviews.get(object.id);
+      if (!basePreview) {
+        return object;
+      }
+      const preview =
+        decodedItemIconPreviews[resolveItemIconPreviewCacheKey(basePreview)] ?? basePreview;
+      return preview.previewImageUrl && !shouldPreferItemModelThumbnailOverIcon(object)
+        ? { ...object, previewImageUrl: preview.previewImageUrl }
+        : object;
+    });
+  }, [activeType, decodedItemIconPreviews, renderedItemIconPreviews, renderedRows]);
+  const hiddenRowCount = Math.max(0, filteredRows.length - renderedRows.length);
   const activeTypeTotal = catalogViewModel.activeRows.length;
   const hasSearchQuery = searchQuery.trim().length > 0;
   const hasUserActiveFilters =
     hasSearchQuery ||
     activeBlueprintSource !== "standard" ||
+    (activeType === "items" && activeItemPaletteOption !== null) ||
     (activeType === "items" && activeItemCategory !== "all");
   const hasNarrowedResults = hasUserActiveFilters || filteredRows.length !== activeTypeTotal;
   const addObjectResultLabel = hasNarrowedResults
@@ -518,6 +754,7 @@ export function SceneObjectAddPanel({
   const resetAddObjectFilters = () => {
     setSearchQuery("");
     setActiveBlueprintSource("standard");
+    setActiveItemPaletteNodeId("all");
     setActiveItemCategory("all");
     trackTelemetryEvent("ui.workspace.add_objects.filters_reset", {
       userId,
@@ -531,14 +768,24 @@ export function SceneObjectAddPanel({
     }
   }, [activeItemCategory, activeType]);
 
+  useEffect(() => {
+    if (
+      activeItemPaletteNodeId !== "all" &&
+      !itemPaletteOptions.some((option) => option.nodeId === activeItemPaletteNodeId)
+    ) {
+      setActiveItemPaletteNodeId("all");
+    }
+  }, [activeItemPaletteNodeId, itemPaletteOptions]);
+
   return (
     <article
       className="sidebar-section scene-objects-section scene-object-add-panel"
       aria-label="add objects section"
+      hidden={hidden}
     >
       <div className="scene-object-add-control-stack">
         <header className="scene-objects-header scene-object-add-panel-header">
-          <h2>Add Objects</h2>
+          <h2>{heading}</h2>
           <span
             className="scene-objects-total"
             title={hasNarrowedResults ? "Visible templates / active family templates" : "Visible templates"}
@@ -546,7 +793,7 @@ export function SceneObjectAddPanel({
             {addObjectResultLabel}
           </span>
         </header>
-        <p className="scene-object-add-panel-note">Place templates onto area tiles.</p>
+        <p className="scene-object-add-panel-note">Place objects onto area tiles.</p>
 
         {showTypeSelector ? (
           <div className="scene-objects-palette-controls">
@@ -581,6 +828,7 @@ export function SceneObjectAddPanel({
                     }
                     setActiveType(entry.type);
                     setActiveBlueprintSource("standard");
+                    setActiveItemPaletteNodeId("all");
                     setActiveItemCategory("all");
                     trackTelemetryEvent("ui.workspace.add_objects.type_changed", {
                       userId,
@@ -623,6 +871,7 @@ export function SceneObjectAddPanel({
                   const count = groupedRows[nextType]?.length ?? 0;
                   setActiveType(nextType);
                   setActiveBlueprintSource("standard");
+                  setActiveItemPaletteNodeId("all");
                   setActiveItemCategory("all");
                   trackTelemetryEvent("ui.workspace.add_objects.type_changed", {
                     userId,
@@ -726,6 +975,44 @@ export function SceneObjectAddPanel({
           })}
         </div>
 
+        {activeType === "items" && itemPaletteOptions.length > 0 ? (
+          <div
+            className="scene-objects-item-palette-filter"
+            aria-label="Add item palette tree"
+          >
+            <label>
+              <span>Palette</span>
+              <select
+                aria-label="Add item palette category"
+                value={activeItemPaletteNodeId}
+                onChange={(event) => {
+                  const nextNodeId = event.target.value;
+                  setActiveItemPaletteNodeId(nextNodeId);
+                  trackTelemetryEvent("ui.workspace.add_objects.item_palette_changed", {
+                    userId,
+                    nodeId: nextNodeId,
+                    objectType: activeType
+                  });
+                }}
+              >
+                <option value="all">
+                  All palette items ({itemPaletteTree?.leafCount ?? itemPaletteOptions.length})
+                </option>
+                {itemPaletteOptions.map((option) => (
+                  <option key={option.nodeId} value={option.nodeId}>
+                    {formatItemPaletteFilterLabel(option)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <small>
+              {activeItemPaletteOption
+                ? `${activeItemPaletteOption.resRefs.length} resrefs from ${itemPaletteTree?.activeSource ?? "itempal"}`
+                : `${itemPaletteTree?.rootCount ?? 0} roots / ${itemPaletteTree?.leafCount ?? 0} leaves`}
+            </small>
+          </div>
+        ) : null}
+
         {activeType === "items" ? (
           <div
             className="scene-objects-item-category-panel"
@@ -806,23 +1093,34 @@ export function SceneObjectAddPanel({
             : `No ${activeDefinition.label.toLowerCase()} objects available.`}
         </p>
       ) : (
-        <ul className="scene-object-list scene-object-add-list" aria-label={`${activeDefinition.label} add list`}>
-          {filteredRows.map((object) => (
-            <SceneObjectAddRow
-              key={object.id}
-              object={object}
-              activeType={activeType}
-              userId={userId}
-              trackTelemetryEvent={trackTelemetryEvent}
-              renderPayload={placeableRenderPayloadByTemplateId?.[object.id] ?? null}
-              placeableAssetAccessToken={placeableAssetAccessToken}
-              onObjectRenderPayloadNeeded={onObjectRenderPayloadNeeded}
-              onObjectPreviewSelect={onObjectPreviewSelect}
-              onObjectCreate={onObjectCreate}
-              activeCreateObjectId={activeCreateObjectId}
-            />
-          ))}
-        </ul>
+        <>
+          {hiddenRowCount > 0 ? (
+            <p className="scene-objects-result-window" role="status">
+              Showing {renderedRows.length} of {filteredRows.length} matches.
+            </p>
+          ) : null}
+          <ul
+            className="scene-object-list scene-object-add-list"
+            aria-label={`${activeDefinition.label} add list`}
+          >
+            {renderedRowsWithItemPreviews.map((object) => (
+              <SceneObjectAddRow
+                key={object.id}
+                object={object}
+                activeType={activeType}
+                userId={userId}
+                trackTelemetryEvent={trackTelemetryEvent}
+                renderPayload={placeableRenderPayloadByTemplateId?.[object.id] ?? null}
+                placeableAssetAccessToken={placeableAssetAccessToken}
+                onObjectRenderPayloadNeeded={onObjectRenderPayloadNeeded}
+                thumbnailRenderEnabled={thumbnailRenderEnabled}
+                onObjectPreviewSelect={onObjectPreviewSelect}
+                onObjectCreate={onObjectCreate}
+                activeCreateObjectId={activeCreateObjectId}
+              />
+            ))}
+          </ul>
+        </>
       )}
     </article>
   );

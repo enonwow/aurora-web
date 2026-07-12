@@ -9,6 +9,9 @@ export interface AdjustLocationDraft {
   z: number;
   bearingDeg: number;
   scale: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
   xRotationDeg: number;
   yRotationDeg: number;
   zRotationDeg: number;
@@ -17,8 +20,21 @@ export interface AdjustLocationDraft {
   zTranslation: number;
 }
 
+export interface AdjustLocationVisualTransformInput {
+  scale: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+  pitch: number;
+  yaw: number;
+  roll: number;
+}
+
 export type DebugState = WorkspaceToolbarState["canvasDebug"];
-export type MockRenderStatus = "ok" | "warning" | "error" | "non_render";
+export type ObjectRenderStatus = "ok" | "warning" | "error" | "non_render";
 
 export interface SceneGridVisibility {
   renderAreaGeometry: boolean;
@@ -35,16 +51,24 @@ export interface ObjectAddPayloadKeyInput {
 export const OBJECT_KIND_BY_SCOPE: Partial<Record<SelectionScope, SceneObjectKind>> = {
   creatures: "creatures",
   doors: "doors",
+  encounters: "encounters",
   items: "items",
   placeables: "placeables",
-  sounds: "sounds"
+  sounds: "sounds",
+  stores: "stores",
+  triggers: "triggers",
+  waypoints: "waypoints"
 };
 
 export const MOVE_ALLOWED_KINDS = new Set<SceneObjectKind>([
   "placeables",
   "creatures",
+  "encounters",
   "items",
-  "sounds"
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
 ]);
 
 export const DEGREES_PER_RADIAN = 180 / Math.PI;
@@ -52,6 +76,7 @@ export const RADIANS_PER_DEGREE = Math.PI / 180;
 
 const SCENE_COORDINATE_MIN = 0;
 const SCENE_COORDINATE_EPSILON = 1e-4;
+const VISUAL_SCALE_MIN = 0.01;
 const OBJECT_ADD_PLACEMENT_CACHE_MAX_AGE_MS = 2000;
 
 export function toDegrees(radians: number): number {
@@ -60,6 +85,17 @@ export function toDegrees(radians: number): number {
 
 export function toRadians(degrees: number): number {
   return normalizeBearingDegrees(degrees) * RADIANS_PER_DEGREE;
+}
+
+// Visual-transform pitch/yaw/roll are free tilt angles, not compass bearings.
+// They must NOT be wrapped into [0, 360): a pitch of -30° is a distinct edit
+// from 330° and wrapping breaks round-tripping and sign in the dialog inputs.
+export function toVisualRotationDegrees(radians: number): number {
+  return Number.isFinite(radians) ? radians * DEGREES_PER_RADIAN : 0;
+}
+
+export function toVisualRotationRadians(degrees: number): number {
+  return Number.isFinite(degrees) ? degrees * RADIANS_PER_DEGREE : 0;
 }
 
 export function normalizeBearingDegreesForInput(value: number): number {
@@ -82,8 +118,8 @@ export function toAdjustLocationCoordinate(
   sceneSize: number,
   unitsPerTile: number
 ): number {
-  const sceneMax = resolveSceneCoordinateMax(sceneSize);
-  return Math.max(0, (sceneMax - worldCoordinate) * unitsPerTile);
+  void sceneSize;
+  return Math.max(0, worldCoordinate * unitsPerTile);
 }
 
 export function fromAdjustLocationCoordinate(
@@ -92,7 +128,7 @@ export function fromAdjustLocationCoordinate(
   unitsPerTile: number
 ): number {
   const sceneMax = resolveSceneCoordinateMax(sceneSize);
-  const nextWorld = sceneMax - adjustCoordinate / unitsPerTile;
+  const nextWorld = adjustCoordinate / unitsPerTile;
   return Math.min(sceneMax, Math.max(SCENE_COORDINATE_MIN, nextWorld));
 }
 
@@ -104,13 +140,104 @@ export function fromAdjustLocationHeight(adjustHeight: number, unitsPerTile: num
   return adjustHeight / unitsPerTile;
 }
 
+export function toAdjustLocationVisualTranslation(
+  worldOffset: number,
+  unitsPerTile: number
+): number {
+  return toAdjustLocationHeight(worldOffset, unitsPerTile);
+}
+
+export function fromAdjustLocationVisualTranslation(
+  adjustOffset: number,
+  unitsPerTile: number
+): number {
+  return fromAdjustLocationHeight(adjustOffset, unitsPerTile);
+}
+
+export function normalizeAdjustLocationVisualScale(value: number, fallback = 1): number {
+  const resolved = Number.isFinite(value) ? value : fallback;
+  return Math.max(VISUAL_SCALE_MIN, resolved);
+}
+
+export function resolveAdjustLocationUniformVisualScale(
+  scaleX: number,
+  scaleY: number,
+  scaleZ: number
+): number {
+  return normalizeAdjustLocationVisualScale((scaleX + scaleY + scaleZ) / 3);
+}
+
+export function resolveNextAdjustLocationDraftField(
+  draft: AdjustLocationDraft,
+  field: keyof AdjustLocationDraft,
+  rawValue: string
+): AdjustLocationDraft | null {
+  const nextValue = Number(rawValue);
+  if (!Number.isFinite(nextValue)) {
+    return null;
+  }
+  const sanitizedValue =
+    field === "bearingDeg"
+      ? normalizeBearingDegreesForInput(nextValue)
+      : field === "scale" || field === "scaleX" || field === "scaleY" || field === "scaleZ"
+        ? normalizeAdjustLocationVisualScale(nextValue)
+        : nextValue;
+
+  if (field === "scale") {
+    return {
+      ...draft,
+      scale: sanitizedValue,
+      scaleX: sanitizedValue,
+      scaleY: sanitizedValue,
+      scaleZ: sanitizedValue
+    };
+  }
+
+  if (field === "scaleX" || field === "scaleY" || field === "scaleZ") {
+    const nextDraft = {
+      ...draft,
+      [field]: sanitizedValue
+    };
+    return {
+      ...nextDraft,
+      scale: resolveAdjustLocationUniformVisualScale(
+        nextDraft.scaleX,
+        nextDraft.scaleY,
+        nextDraft.scaleZ
+      )
+    };
+  }
+
+  return {
+    ...draft,
+    [field]: sanitizedValue
+  };
+}
+
 export function buildAdjustLocationDraft(
   source: SceneObject,
   unitsPerTile: number,
   sceneWidth: number,
   sceneHeight: number
 ): AdjustLocationDraft {
+  const scaleX = normalizeAdjustLocationVisualScale(
+    source.visualTransform.scaleX ?? source.visualTransform.scale
+  );
+  const scaleY = normalizeAdjustLocationVisualScale(
+    source.visualTransform.scaleY ?? source.visualTransform.scale
+  );
+  const scaleZ = normalizeAdjustLocationVisualScale(
+    source.visualTransform.scaleZ ?? source.visualTransform.scale
+  );
   const zInAdjustUnits = toAdjustLocationHeight(source.z, unitsPerTile);
+  const xTranslationInAdjustUnits = toAdjustLocationVisualTranslation(
+    source.visualTransform.offsetX,
+    unitsPerTile
+  );
+  const yTranslationInAdjustUnits = toAdjustLocationVisualTranslation(
+    source.visualTransform.offsetY,
+    unitsPerTile
+  );
   const zTranslationInAdjustUnits = toAdjustLocationHeight(
     source.visualTransform.offsetZ,
     unitsPerTile
@@ -120,12 +247,15 @@ export function buildAdjustLocationDraft(
     y: toAdjustLocationCoordinate(source.y, sceneHeight, unitsPerTile),
     z: zInAdjustUnits,
     bearingDeg: toDegrees(source.bearing),
-    scale: source.visualTransform.scale,
-    xRotationDeg: toDegrees(source.visualTransform.pitch),
-    yRotationDeg: toDegrees(source.visualTransform.yaw),
-    zRotationDeg: toDegrees(source.visualTransform.roll),
-    xTranslation: source.visualTransform.offsetX,
-    yTranslation: source.visualTransform.offsetY,
+    scale: resolveAdjustLocationUniformVisualScale(scaleX, scaleY, scaleZ),
+    scaleX,
+    scaleY,
+    scaleZ,
+    xRotationDeg: toVisualRotationDegrees(source.visualTransform.pitch),
+    yRotationDeg: toVisualRotationDegrees(source.visualTransform.yaw),
+    zRotationDeg: toVisualRotationDegrees(source.visualTransform.roll),
+    xTranslation: xTranslationInAdjustUnits,
+    yTranslation: yTranslationInAdjustUnits,
     zTranslation: zTranslationInAdjustUnits
   };
 }
@@ -140,6 +270,9 @@ export function areAdjustLocationDraftsEqual(
     left.z === right.z &&
     left.bearingDeg === right.bearingDeg &&
     left.scale === right.scale &&
+    left.scaleX === right.scaleX &&
+    left.scaleY === right.scaleY &&
+    left.scaleZ === right.scaleZ &&
     left.xRotationDeg === right.xRotationDeg &&
     left.yRotationDeg === right.yRotationDeg &&
     left.zRotationDeg === right.zRotationDeg &&
@@ -147,6 +280,27 @@ export function areAdjustLocationDraftsEqual(
     left.yTranslation === right.yTranslation &&
     left.zTranslation === right.zTranslation
   );
+}
+
+export function buildAdjustLocationVisualTransformInput(
+  draft: AdjustLocationDraft,
+  unitsPerTile: number
+): AdjustLocationVisualTransformInput {
+  const scaleX = normalizeAdjustLocationVisualScale(draft.scaleX);
+  const scaleY = normalizeAdjustLocationVisualScale(draft.scaleY);
+  const scaleZ = normalizeAdjustLocationVisualScale(draft.scaleZ);
+  return {
+    scale: resolveAdjustLocationUniformVisualScale(scaleX, scaleY, scaleZ),
+    scaleX,
+    scaleY,
+    scaleZ,
+    offsetX: fromAdjustLocationVisualTranslation(draft.xTranslation, unitsPerTile),
+    offsetY: fromAdjustLocationVisualTranslation(draft.yTranslation, unitsPerTile),
+    offsetZ: fromAdjustLocationVisualTranslation(draft.zTranslation, unitsPerTile),
+    pitch: toVisualRotationRadians(draft.xRotationDeg),
+    yaw: toVisualRotationRadians(draft.yRotationDeg),
+    roll: toVisualRotationRadians(draft.zRotationDeg)
+  };
 }
 
 export function areObjectPlacementsEqual(
@@ -174,6 +328,12 @@ export function areObjectPlacementsEqual(
     }
     return (
       leftObject.visualTransform.scale === rightObject.visualTransform.scale &&
+      (leftObject.visualTransform.scaleX ?? leftObject.visualTransform.scale) ===
+        (rightObject.visualTransform.scaleX ?? rightObject.visualTransform.scale) &&
+      (leftObject.visualTransform.scaleY ?? leftObject.visualTransform.scale) ===
+        (rightObject.visualTransform.scaleY ?? rightObject.visualTransform.scale) &&
+      (leftObject.visualTransform.scaleZ ?? leftObject.visualTransform.scale) ===
+        (rightObject.visualTransform.scaleZ ?? rightObject.visualTransform.scale) &&
       leftObject.visualTransform.offsetX === rightObject.visualTransform.offsetX &&
       leftObject.visualTransform.offsetY === rightObject.visualTransform.offsetY &&
       leftObject.visualTransform.offsetZ === rightObject.visualTransform.offsetZ &&
@@ -533,9 +693,15 @@ export function resolveMovableVisibleSelection(input: {
     return { ids: [], reason: "selection_contains_doors" };
   }
 
+  // Static placeables ARE movable in the Aurora Toolset and per docs 4.1
+  // (placeables expose position/bearing/visual transform with no Static
+  // exclusion). The Static flag only gates VT rendering channels, not world
+  // move/rotate/height — matching resolveGenericTransformTargets/
+  // resolveMovableTargets, which never drop static placeables. Excluding them
+  // here made World Move silently no-op on static-heavy Areas (e.g. bakery
+  // props), so the gizmo appeared to "do nothing".
   const unlockedMovableIds = selectedObjects
     .filter((object) => MOVE_ALLOWED_KINDS.has(object.kind))
-    .filter((object) => object.kind !== "placeables" || !(object.isStatic ?? true))
     .filter((object) => !isKindLocked(input.toolbarState.canvasDebug, object.kind))
     .map((object) => object.id);
 
@@ -561,7 +727,7 @@ export function findTileAtWorld(
   return scene.tiles.find((tile) => tile.col === col && tile.row === row) ?? null;
 }
 
-export function resolveMockRenderStatus(object: SceneObject): MockRenderStatus {
+export function resolveObjectRenderStatus(object: SceneObject): ObjectRenderStatus {
   if (!object.resRef.trim()) {
     return "error";
   }
@@ -722,14 +888,6 @@ export function clampTranslationDeltaToSceneBounds(
 }
 
 export function clampHeightDeltaToSurface(objects: SceneObject[], deltaZ: number): number {
-  if (objects.length === 0 || deltaZ >= 0) {
-    return deltaZ;
-  }
-
-  const minDeltaZ = objects.reduce(
-    (bound, object) => Math.max(bound, -object.z),
-    Number.NEGATIVE_INFINITY
-  );
-
-  return clampDeltaToBounds(deltaZ, minDeltaZ, Number.POSITIVE_INFINITY);
+  void objects;
+  return Number.isFinite(deltaZ) ? deltaZ : 0;
 }

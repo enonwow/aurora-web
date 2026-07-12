@@ -6,6 +6,7 @@ import type {
   TerrainBrushKind
 } from "../contracts";
 import type { SceneFacadeBundle } from "./sceneFacadeBundle";
+import type { AuroraAreaCandidateSelector, AuroraAreaEdge } from "../domain/auroraAreaEditing";
 
 export interface SceneViewportPoint {
   x: number;
@@ -26,6 +27,9 @@ export interface SceneViewportAbsoluteLocationInput {
 
 export interface SceneViewportVisualTransformInput {
   scale: number;
+  scaleX?: number;
+  scaleY?: number;
+  scaleZ?: number;
   offsetX: number;
   offsetY: number;
   offsetZ: number;
@@ -92,6 +96,25 @@ export interface SceneViewportPort {
     deltaBearingRad: number
   ): AreaScene;
   updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene;
+  applyAuroraAreaTerrainBrush(
+    scene: AreaScene,
+    tileId: string,
+    terrain: string,
+    selector?: AuroraAreaCandidateSelector
+  ): AreaScene;
+  applyAuroraAreaCrosserBrush(scene: AreaScene, tileId: string, edge: AuroraAreaEdge, crosser: string, selector?: AuroraAreaCandidateSelector): AreaScene;
+  applyAuroraAreaHeightBrush(scene: AreaScene, tileId: string, delta: -1 | 1, selector?: AuroraAreaCandidateSelector): AreaScene;
+  applyAuroraAreaEraser(scene: AreaScene, tileId: string): AreaScene;
+  placeAuroraAreaGroup(
+    scene: AreaScene,
+    tileId: string,
+    groupId: string,
+    orientation: 0 | 1 | 2 | 3,
+    selector?: AuroraAreaCandidateSelector
+  ): AreaScene;
+  removeAuroraAreaGroup(scene: AreaScene, tileId: string): AreaScene;
+  rotateAuroraAreaGroup(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene;
+  changeAuroraAreaGroupHeight(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject;
   resolveCopyAnchor(params: SceneViewportCopyAnchorParams): SceneViewportPoint | null;
@@ -173,6 +196,49 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     updateTileTerrain(scene: AreaScene, tileId: string, terrain: TerrainBrushKind): AreaScene {
       return bundle.mutations.updateTileTerrain(scene, tileId, terrain);
+    },
+    applyAuroraAreaTerrainBrush(
+      scene: AreaScene,
+      tileId: string,
+      terrain: string,
+      selector?: AuroraAreaCandidateSelector
+    ): AreaScene {
+      return selector
+        ? bundle.mutations.applyAuroraAreaTerrainBrush(scene, tileId, terrain, selector)
+        : bundle.mutations.applyAuroraAreaTerrainBrush(scene, tileId, terrain);
+    },
+    placeAuroraAreaGroup(
+      scene: AreaScene,
+      tileId: string,
+      groupId: string,
+      orientation: 0 | 1 | 2 | 3,
+      selector?: AuroraAreaCandidateSelector
+    ): AreaScene {
+      return selector
+        ? bundle.mutations.placeAuroraAreaGroup(scene, tileId, groupId, orientation, selector)
+        : bundle.mutations.placeAuroraAreaGroup(scene, tileId, groupId, orientation);
+    },
+    applyAuroraAreaCrosserBrush(scene, tileId, edge, crosser, selector) {
+      return bundle.mutations.applyAuroraAreaCrosserBrush(scene, tileId, edge, crosser, selector);
+    },
+    applyAuroraAreaHeightBrush(scene, tileId, delta, selector) {
+      return bundle.mutations.applyAuroraAreaHeightBrush(scene, tileId, delta, selector);
+    },
+    applyAuroraAreaEraser(scene: AreaScene, tileId: string): AreaScene {
+      return bundle.mutations.applyAuroraAreaEraser(scene, tileId);
+    },
+    removeAuroraAreaGroup(scene: AreaScene, tileId: string): AreaScene {
+      return bundle.mutations.removeAuroraAreaGroup(scene, tileId);
+    },
+    rotateAuroraAreaGroup(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene {
+      return bundle.mutations.rotateAuroraAreaGroup(scene, tileId, delta);
+    },
+    changeAuroraAreaGroupHeight(
+      scene: AreaScene,
+      tileId: string,
+      delta: -1 | 1
+    ): AreaScene {
+      return bundle.mutations.changeAuroraAreaGroupHeight(scene, tileId, delta);
     },
     resetObjectTransform(scene: AreaScene, objectId: string): AreaScene {
       return bundle.mutations.resetObjectTransform(scene, objectId);

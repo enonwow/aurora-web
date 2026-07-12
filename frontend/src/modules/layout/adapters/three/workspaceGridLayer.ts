@@ -92,6 +92,7 @@ export function rebuildGridLayer(
     color: TILE_OVERLAY_GRID_COLOR,
     transparent: true,
     opacity: 0.9,
+    depthTest: false,
     depthWrite: false
   });
   const overlayLines = new THREE.LineSegments(overlayGeometry, overlayMaterial);

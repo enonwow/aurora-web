@@ -1,8 +1,8 @@
 import type { AuthCredentials } from "../contracts";
-import { mockUsers, type MockUserRecord } from "../domain/mockUsers";
+import { testUsers, type TestUserRecord } from "../domain/testUsers";
 import type { AuthIdentity, AuthIdentityPort } from "../ports/authIdentityPort";
 
-function toAuthIdentity(record: MockUserRecord): AuthIdentity {
+function toAuthIdentity(record: TestUserRecord): AuthIdentity {
   return {
     id: record.id,
     username: record.username,
@@ -11,8 +11,8 @@ function toAuthIdentity(record: MockUserRecord): AuthIdentity {
   };
 }
 
-export function createStaticMockAuthIdentityPort(
-  sourceUsers: MockUserRecord[] = mockUsers
+export function createStaticTestAuthIdentityPort(
+  sourceUsers: TestUserRecord[] = testUsers
 ): AuthIdentityPort {
   return {
     findByCredentials(credentials: AuthCredentials) {

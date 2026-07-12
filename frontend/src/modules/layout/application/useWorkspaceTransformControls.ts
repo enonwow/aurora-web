@@ -119,7 +119,6 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
 
     const transformControls = runtime.transformControls;
     const gizmoMode = toolbarState.canvasDebug.gizmoMode;
-    const isVisualTranslateMode = gizmoMode === "vt_translate";
     const transformControlsMode = resolveTransformControlsMode(gizmoMode);
     const visualTransformMode = isVisualTransformGizmoMode(gizmoMode);
 
@@ -160,8 +159,7 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
       transformableObjects = selectedObjects.filter(
         (object) =>
           canUseVisualTransformGizmoForObject(object) &&
-          !isKindLocked(toolbarState.canvasDebug, object.kind) &&
-          (!isVisualTranslateMode || object.kind !== "placeables")
+          !isKindLocked(toolbarState.canvasDebug, object.kind)
       );
     } else {
       if (selectedObjects.some((object) => object.kind === "doors")) {
@@ -269,8 +267,7 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
           if (applyVisualTransform) {
             return (
               canUseVisualTransformGizmoForObject(object) &&
-              !isKindLocked(toolbarState.canvasDebug, object.kind) &&
-              (mode !== "translate" || object.kind !== "placeables")
+              !isKindLocked(toolbarState.canvasDebug, object.kind)
             );
           }
           return (
@@ -372,6 +369,9 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
                 }
                 nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
                   scale: sourceObject.visualTransform.scale,
+                  scaleX: sourceObject.visualTransform.scaleX ?? sourceObject.visualTransform.scale,
+                  scaleY: sourceObject.visualTransform.scaleY ?? sourceObject.visualTransform.scale,
+                  scaleZ: sourceObject.visualTransform.scaleZ ?? sourceObject.visualTransform.scale,
                   offsetX: sourceObject.visualTransform.offsetX + deltaX,
                   offsetY: sourceObject.visualTransform.offsetY + deltaY,
                   offsetZ: sourceObject.visualTransform.offsetZ + deltaZ,
@@ -452,6 +452,9 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
                 }
                 nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
                   scale: sourceObject.visualTransform.scale,
+                  scaleX: sourceObject.visualTransform.scaleX ?? sourceObject.visualTransform.scale,
+                  scaleY: sourceObject.visualTransform.scaleY ?? sourceObject.visualTransform.scale,
+                  scaleZ: sourceObject.visualTransform.scaleZ ?? sourceObject.visualTransform.scale,
                   offsetX: sourceObject.visualTransform.offsetX,
                   offsetY: sourceObject.visualTransform.offsetY,
                   offsetZ: sourceObject.visualTransform.offsetZ,
@@ -519,6 +522,15 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
               }
               nextScene = sceneViewportPort.setObjectsVisualTransformByIds(nextScene, [id], {
                 scale: sourceObject.visualTransform.scale * scaleFactor,
+                scaleX:
+                  (sourceObject.visualTransform.scaleX ?? sourceObject.visualTransform.scale) *
+                  scaleFactor,
+                scaleY:
+                  (sourceObject.visualTransform.scaleY ?? sourceObject.visualTransform.scale) *
+                  scaleFactor,
+                scaleZ:
+                  (sourceObject.visualTransform.scaleZ ?? sourceObject.visualTransform.scale) *
+                  scaleFactor,
                 offsetX: sourceObject.visualTransform.offsetX,
                 offsetY: sourceObject.visualTransform.offsetY,
                 offsetZ: sourceObject.visualTransform.offsetZ,
@@ -581,30 +593,24 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
               x: deltaX,
               y: deltaY
             });
-        const boundedDeltaZ = clampHeightDeltaToSurface(gesture.sourceObjects, deltaZ);
+        const boundedDeltaZ = gesture.applyVisualTransform
+          ? deltaZ
+          : clampHeightDeltaToSurface(gesture.sourceObjects, deltaZ);
 
         gesture.deltaX = boundedDelta.x;
         gesture.deltaY = boundedDelta.y;
         gesture.deltaZ = boundedDeltaZ;
 
-        const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
         gesture.objectIds.forEach((id) => {
           const mesh = runtime.objectMeshById.get(id);
           const sourcePosition = gesture.sourceMeshPositions.get(id);
           if (!mesh || !sourcePosition) {
             return;
           }
-          const sourceObject = sourceObjectById.get(id);
-          const freezeVisualXY =
-            gesture.applyVisualTransform &&
-            sourceObject?.kind === "placeables" &&
-            (sourceObject.isStatic ?? true);
-          const previewDeltaX = freezeVisualXY ? 0 : boundedDelta.x;
-          const previewDeltaY = freezeVisualXY ? 0 : boundedDelta.y;
           mesh.position.set(
-            sourcePosition.x + previewDeltaX,
+            sourcePosition.x + boundedDelta.x,
             sourcePosition.y + boundedDeltaZ,
-            sourcePosition.z + previewDeltaY
+            sourcePosition.z + boundedDelta.y
           );
         });
 
@@ -648,23 +654,16 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
           gesture.deltaYawRad = deltaYawRad;
           gesture.deltaRollRad = deltaRollRad;
 
-          const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
           gesture.objectIds.forEach((id) => {
             const mesh = runtime.objectMeshById.get(id);
             const sourceRotation = gesture.sourceMeshRotations.get(id);
             if (!mesh || !sourceRotation) {
               return;
             }
-            const sourceObject = sourceObjectById.get(id);
-            const freezeVisualRotation =
-              sourceObject?.kind === "placeables" && (sourceObject.isStatic ?? true);
-            const previewDeltaPitch = freezeVisualRotation ? 0 : deltaPitchRad;
-            const previewDeltaYaw = freezeVisualRotation ? 0 : deltaYawRad;
-            const previewDeltaRoll = freezeVisualRotation ? 0 : deltaRollRad;
             mesh.rotation.set(
-              sourceRotation.x + previewDeltaPitch,
-              sourceRotation.y + previewDeltaYaw,
-              sourceRotation.z + previewDeltaRoll
+              sourceRotation.x + deltaPitchRad,
+              sourceRotation.y + deltaYawRad,
+              sourceRotation.z + deltaRollRad
             );
           });
           return;
@@ -728,21 +727,16 @@ export function useWorkspaceTransformControls<TRuntime extends WorkspaceTransfor
         );
         gesture.deltaScaleFactor = clampedScaleFactor;
 
-        const sourceObjectById = new Map(gesture.sourceObjects.map((object) => [object.id, object]));
         gesture.objectIds.forEach((id) => {
           const mesh = runtime.objectMeshById.get(id);
           const sourceScaleForMesh = gesture.sourceMeshScales.get(id);
           if (!mesh || !sourceScaleForMesh) {
             return;
           }
-          const sourceObject = sourceObjectById.get(id);
-          const freezeVisualScale =
-            sourceObject?.kind === "placeables" && (sourceObject.isStatic ?? true);
-          const previewScaleFactor = freezeVisualScale ? 1 : clampedScaleFactor;
           mesh.scale.set(
-            sourceScaleForMesh.x * previewScaleFactor,
-            sourceScaleForMesh.y * previewScaleFactor,
-            sourceScaleForMesh.z * previewScaleFactor
+            sourceScaleForMesh.x * clampedScaleFactor,
+            sourceScaleForMesh.y * clampedScaleFactor,
+            sourceScaleForMesh.z * clampedScaleFactor
           );
         });
       }

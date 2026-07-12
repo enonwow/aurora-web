@@ -1,15 +1,25 @@
 import type {
   AreaScene,
   SceneObjectCreatureAdvancedSettings,
+  SceneObjectCreatureAppearanceProfile,
   SceneObjectCreatureAppearanceSettings,
   SceneObjectCreatureClassEntry,
+  SceneObjectCreatureEquippedItemReference,
   SceneObjectCreatureFeatEntry,
+  SceneObjectCreatureInventoryItemReference,
+  SceneObjectCreatureLocalizedStringRefs,
+  SceneObjectCreatureLocalizedStrings,
+  SceneObjectCreatureLookupProfile,
+  SceneObjectCreatureListCounts,
   SceneObjectCreatureProperties,
   SceneObjectCreatureScriptSlots,
   SceneObjectCreatureSkillEntry,
   SceneObjectCreatureSpecialAbilityEntry,
   SceneObjectCreatureSpellEntry,
   SceneObjectCreatureStatisticsSettings,
+  SceneObjectCreatureTemplateEntry,
+  SceneObjectEmbeddedItemSummary,
+  SceneObjectItemPropertyEntry,
   SceneObjectPlaceableAdvancedSettings,
   SceneObjectDoorAdvancedSettings,
   SceneObjectDoorLockSettings,
@@ -20,6 +30,7 @@ import type {
   SceneObjectDoorTransitionPayload,
   SceneObject,
   SceneObjectPlaceableDisabledFlags,
+  SceneObjectPlaceableInventoryItemReference,
   SceneObjectPlaceableProperties,
   SceneObjectPlaceableScriptSlots,
   SceneObjectPlaceableTrapSettings,
@@ -230,6 +241,8 @@ const DEFAULT_CREATURE_STATISTICS: SceneObjectCreatureStatisticsSettings = {
   sizeModifier: 0,
   baseHitPoints: 10,
   hitPointBonuses: 0,
+  currentHitPoints: 10,
+  maxHitPoints: 10,
   movementRate: "Default"
 };
 
@@ -252,7 +265,19 @@ const DEFAULT_CREATURE_APPEARANCE_SETTINGS: SceneObjectCreatureAppearanceSetting
   rightFoot: "",
   leftFoot: "",
   wings: "",
-  tail: ""
+  tail: "",
+  colors: {
+    skin: "",
+    hair: "",
+    tattoo1: "",
+    tattoo2: ""
+  },
+  sourceOnlyParts: {
+    belt: "",
+    robe: "",
+    rightShoulder: "",
+    leftShoulder: ""
+  }
 };
 
 const DEFAULT_CREATURE_SCRIPT_SLOTS: SceneObjectCreatureScriptSlots = {
@@ -275,9 +300,12 @@ const DEFAULT_CREATURE_ADVANCED_SETTINGS: SceneObjectCreatureAdvancedSettings = 
   blueprintResRef: "",
   disarmable: false,
   plot: false,
+  playerCharacter: false,
   leavesLootableCorpse: false,
   noPermanentDeath: false,
   immortal: false,
+  bodyBag: false,
+  startingPackage: false,
   treasureModel: "Default",
   corpseDecayTimeSeconds: 5,
   faction: "Hostile",
@@ -292,10 +320,13 @@ const DEFAULT_CREATURE_CLASS_ENTRIES: SceneObjectCreatureClassEntry[] = [
   { className: "Aberration", level: 1 }
 ];
 
+const DEFAULT_CREATURE_TEMPLATE_ENTRIES: SceneObjectCreatureTemplateEntry[] = [];
 const DEFAULT_CREATURE_SKILL_ENTRIES: SceneObjectCreatureSkillEntry[] = [];
 const DEFAULT_CREATURE_FEAT_ENTRIES: SceneObjectCreatureFeatEntry[] = [];
 const DEFAULT_CREATURE_SPELL_ENTRIES: SceneObjectCreatureSpellEntry[] = [];
 const DEFAULT_CREATURE_SPECIAL_ABILITY_ENTRIES: SceneObjectCreatureSpecialAbilityEntry[] = [];
+const DEFAULT_CREATURE_INVENTORY_ITEMS: SceneObjectCreatureInventoryItemReference[] = [];
+const DEFAULT_CREATURE_EQUIPPED_ITEMS: SceneObjectCreatureEquippedItemReference[] = [];
 
 const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
   version: "scene-object-vfx-preserve/v1",
@@ -358,6 +389,13 @@ function asString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function asOptionalString(value: unknown, fallback: string | undefined): string | undefined {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  return fallback;
+}
+
 function asEnumValue<TValue extends string>(
   value: unknown,
   allowed: ReadonlySet<TValue>,
@@ -371,6 +409,10 @@ function asEnumValue<TValue extends string>(
 
 function asFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asOptionalInteger(value: unknown, fallback: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback;
 }
 
 function clampMin(value: number, min: number): number {
@@ -813,10 +855,176 @@ function normalizeCreatureClassEntries(value: unknown): SceneObjectCreatureClass
     const className = asString(candidate.className, "").trim();
     const level = clampMin(Math.trunc(asFiniteNumber(candidate.level, 1)), 1);
     return {
+      ...(typeof candidate.classId === "number" && Number.isFinite(candidate.classId)
+        ? { classId: Math.max(0, Math.min(255, Math.trunc(candidate.classId))) }
+        : {}),
       className: className.length > 0 ? className : "Class",
       level
     };
   });
+}
+
+function normalizeCreatureTemplateEntries(value: unknown): SceneObjectCreatureTemplateEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => {
+      const candidate = isRecord(entry) ? entry : {};
+      const templateId = candidate.templateId;
+      return typeof templateId === "number" && Number.isFinite(templateId)
+        ? { templateId: Math.trunc(templateId) }
+        : {};
+    })
+    .filter((entry) => typeof entry.templateId === "number");
+}
+
+function normalizeCreatureLocalizedStringRefs(
+  value: Partial<Record<keyof SceneObjectCreatureLocalizedStringRefs, unknown>> | undefined,
+  fallback?: SceneObjectCreatureLocalizedStringRefs
+): SceneObjectCreatureLocalizedStringRefs | undefined {
+  const refs: SceneObjectCreatureLocalizedStringRefs = {
+    ...(asOptionalInteger(value?.firstName, fallback?.firstName) !== undefined
+      ? { firstName: asOptionalInteger(value?.firstName, fallback?.firstName) }
+      : {}),
+    ...(asOptionalInteger(value?.lastName, fallback?.lastName) !== undefined
+      ? { lastName: asOptionalInteger(value?.lastName, fallback?.lastName) }
+      : {}),
+    ...(asOptionalInteger(value?.localizedName, fallback?.localizedName) !== undefined
+      ? { localizedName: asOptionalInteger(value?.localizedName, fallback?.localizedName) }
+      : {}),
+    ...(asOptionalInteger(value?.description, fallback?.description) !== undefined
+      ? { description: asOptionalInteger(value?.description, fallback?.description) }
+      : {}),
+    ...(asOptionalInteger(value?.identifiedDescription, fallback?.identifiedDescription) !== undefined
+      ? {
+          identifiedDescription: asOptionalInteger(
+            value?.identifiedDescription,
+            fallback?.identifiedDescription
+          )
+        }
+      : {}),
+    ...(asOptionalInteger(value?.subrace, fallback?.subrace) !== undefined
+      ? { subrace: asOptionalInteger(value?.subrace, fallback?.subrace) }
+      : {}),
+    ...(asOptionalInteger(value?.deity, fallback?.deity) !== undefined
+      ? { deity: asOptionalInteger(value?.deity, fallback?.deity) }
+      : {})
+  };
+
+  return Object.values(refs).some((entry) => entry !== undefined) ? refs : undefined;
+}
+
+function normalizeCreatureLookupProfile(
+  value: Partial<Record<keyof SceneObjectCreatureLookupProfile, unknown>> | undefined,
+  fallback?: SceneObjectCreatureLookupProfile
+): SceneObjectCreatureLookupProfile | undefined {
+  const raceLabelSource2daRow = asOptionalInteger(
+    value?.raceLabelSource2daRow,
+    fallback?.raceLabelSource2daRow
+  );
+  const raceLabelSourceKey = asOptionalString(
+    value?.raceLabelSourceKey,
+    fallback?.raceLabelSourceKey
+  );
+  const genderLabelSource2daRow = asOptionalInteger(
+    value?.genderLabelSource2daRow,
+    fallback?.genderLabelSource2daRow
+  );
+  const genderLabelSourceKey = asOptionalString(
+    value?.genderLabelSourceKey,
+    fallback?.genderLabelSourceKey
+  );
+  const portraitResolvedSource2daRow = asOptionalInteger(
+    value?.portraitResolvedSource2daRow,
+    fallback?.portraitResolvedSource2daRow
+  );
+  const portraitResolvedSourceKey = asOptionalString(
+    value?.portraitResolvedSourceKey,
+    fallback?.portraitResolvedSourceKey
+  );
+  const soundSetResRef = asOptionalString(value?.soundSetResRef, fallback?.soundSetResRef);
+  const soundSetSource2daRow = asOptionalInteger(
+    value?.soundSetSource2daRow,
+    fallback?.soundSetSource2daRow
+  );
+  const soundSetSourceKey = asOptionalString(
+    value?.soundSetSourceKey,
+    fallback?.soundSetSourceKey
+  );
+  const profile: SceneObjectCreatureLookupProfile = {
+    ...(raceLabelSource2daRow !== undefined ? { raceLabelSource2daRow } : {}),
+    ...(raceLabelSourceKey ? { raceLabelSourceKey } : {}),
+    ...(genderLabelSource2daRow !== undefined ? { genderLabelSource2daRow } : {}),
+    ...(genderLabelSourceKey ? { genderLabelSourceKey } : {}),
+    ...(portraitResolvedSource2daRow !== undefined ? { portraitResolvedSource2daRow } : {}),
+    ...(portraitResolvedSourceKey ? { portraitResolvedSourceKey } : {}),
+    ...(soundSetResRef ? { soundSetResRef } : {}),
+    ...(soundSetSource2daRow !== undefined ? { soundSetSource2daRow } : {}),
+    ...(soundSetSourceKey ? { soundSetSourceKey } : {})
+  };
+
+  return Object.values(profile).some((entry) => entry !== undefined) ? profile : undefined;
+}
+
+function asOptionalCount(value: unknown, fallback: number | undefined): number | undefined {
+  const integer = asOptionalInteger(value, fallback);
+  return integer === undefined ? undefined : clampMin(integer, 0);
+}
+
+function normalizeCreatureListCounts(
+  value: Partial<Record<keyof SceneObjectCreatureListCounts, unknown>> | undefined,
+  fallback?: SceneObjectCreatureListCounts
+): SceneObjectCreatureListCounts | undefined {
+  const classListCount = asOptionalCount(value?.classListCount, fallback?.classListCount);
+  const skillListCount = asOptionalCount(value?.skillListCount, fallback?.skillListCount);
+  const featListCount = asOptionalCount(value?.featListCount, fallback?.featListCount);
+  const templateListCount = asOptionalCount(
+    value?.templateListCount,
+    fallback?.templateListCount
+  );
+  const specAbilityListCount = asOptionalCount(
+    value?.specAbilityListCount,
+    fallback?.specAbilityListCount
+  );
+  const inventoryItemListCount = asOptionalCount(
+    value?.inventoryItemListCount,
+    fallback?.inventoryItemListCount
+  );
+  const equipItemListCount = asOptionalCount(
+    value?.equipItemListCount,
+    fallback?.equipItemListCount
+  );
+  const counts: SceneObjectCreatureListCounts = {
+    ...(classListCount !== undefined ? { classListCount } : {}),
+    ...(skillListCount !== undefined ? { skillListCount } : {}),
+    ...(featListCount !== undefined ? { featListCount } : {}),
+    ...(templateListCount !== undefined ? { templateListCount } : {}),
+    ...(specAbilityListCount !== undefined ? { specAbilityListCount } : {}),
+    ...(inventoryItemListCount !== undefined ? { inventoryItemListCount } : {}),
+    ...(equipItemListCount !== undefined ? { equipItemListCount } : {})
+  };
+
+  return Object.values(counts).some((entry) => entry !== undefined) ? counts : undefined;
+}
+
+function normalizeCreatureLocalizedStrings(
+  value: Partial<Record<keyof SceneObjectCreatureLocalizedStrings, unknown>> | undefined,
+  fallback?: SceneObjectCreatureLocalizedStrings
+): SceneObjectCreatureLocalizedStrings | undefined {
+  const localizedName = asOptionalString(value?.localizedName, fallback?.localizedName);
+  const displayName = asOptionalString(value?.displayName, fallback?.displayName);
+  const identifiedDescription = asOptionalString(
+    value?.identifiedDescription,
+    fallback?.identifiedDescription
+  );
+  const strings: SceneObjectCreatureLocalizedStrings = {
+    ...(localizedName ? { localizedName } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(identifiedDescription ? { identifiedDescription } : {})
+  };
+
+  return Object.values(strings).some((entry) => entry !== undefined) ? strings : undefined;
 }
 
 function normalizeCreatureSkillEntries(value: unknown): SceneObjectCreatureSkillEntry[] | undefined {
@@ -839,6 +1047,9 @@ function normalizeCreatureFeatEntries(value: unknown): SceneObjectCreatureFeatEn
   return value.map((entry) => {
     const candidate = isRecord(entry) ? entry : {};
     return {
+      ...(typeof candidate.featId === "number" && Number.isFinite(candidate.featId)
+        ? { featId: Math.max(0, Math.min(65535, Math.trunc(candidate.featId))) }
+        : {}),
       name: asString(candidate.name, "").trim(),
       type: asString(candidate.type, "").trim(),
       assigned: isBoolean(candidate.assigned) ? candidate.assigned : false
@@ -853,10 +1064,22 @@ function normalizeCreatureSpellEntries(value: unknown): SceneObjectCreatureSpell
   return value.map((entry) => {
     const candidate = isRecord(entry) ? entry : {};
     return {
+      ...(typeof candidate.spellId === "number" && Number.isFinite(candidate.spellId)
+        ? { spellId: Math.max(0, Math.min(65535, Math.trunc(candidate.spellId))) }
+        : {}),
+      ...(typeof candidate.classIndex === "number" && Number.isFinite(candidate.classIndex)
+        ? { classIndex: clampMin(Math.trunc(candidate.classIndex), 0) }
+        : {}),
       prepared: isBoolean(candidate.prepared) ? candidate.prepared : false,
       name: asString(candidate.name, "").trim(),
       spellLevel: clampMin(Math.trunc(asFiniteNumber(candidate.spellLevel, 0)), 0),
-      castingLevel: clampMin(Math.trunc(asFiniteNumber(candidate.castingLevel, 0)), 0)
+      castingLevel: clampMin(Math.trunc(asFiniteNumber(candidate.castingLevel, 0)), 0),
+      ...(typeof candidate.metaMagic === "number" && Number.isFinite(candidate.metaMagic)
+        ? { metaMagic: Math.trunc(candidate.metaMagic) }
+        : {}),
+      ...(typeof candidate.flags === "number" && Number.isFinite(candidate.flags)
+        ? { flags: Math.trunc(candidate.flags) }
+        : {})
     };
   });
 }
@@ -870,12 +1093,233 @@ function normalizeCreatureSpecialAbilityEntries(
   return value.map((entry) => {
     const candidate = isRecord(entry) ? entry : {};
     return {
+      ...(typeof candidate.spellId === "number" && Number.isFinite(candidate.spellId)
+        ? { spellId: Math.max(0, Math.min(65535, Math.trunc(candidate.spellId))) }
+        : {}),
+      ...(typeof candidate.flags === "number" && Number.isFinite(candidate.flags)
+        ? { flags: Math.max(0, Math.min(255, Math.trunc(candidate.flags))) }
+        : {}),
       name: asString(candidate.name, "").trim(),
       type: asString(candidate.type, "").trim(),
       casterLevel: clampMin(Math.trunc(asFiniteNumber(candidate.casterLevel, 0)), 0),
       uses: clampMin(Math.trunc(asFiniteNumber(candidate.uses, 0)), 0)
     };
   });
+}
+
+function normalizeEmbeddedItemPropertyEntries(
+  value: unknown
+): SceneObjectItemPropertyEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => {
+      const candidate = isRecord(entry) ? entry : {};
+      const normalized: SceneObjectItemPropertyEntry = {
+        propertyName: normalizeEmbeddedItemNumber(candidate.propertyName),
+        propertyLabel: asString(candidate.propertyLabel, "").trim() || undefined,
+        subtype: normalizeEmbeddedItemNumber(candidate.subtype),
+        costTable: normalizeEmbeddedItemNumber(candidate.costTable),
+        costValue: normalizeEmbeddedItemNumber(candidate.costValue),
+        param1: normalizeEmbeddedItemNumber(candidate.param1),
+        param1Value: normalizeEmbeddedItemNumber(candidate.param1Value),
+        chanceAppear: normalizeEmbeddedItemNumber(candidate.chanceAppear),
+        propertyDefinitionSource2daRow: normalizeEmbeddedItemNumber(
+          candidate.propertyDefinitionSource2daRow
+        ),
+        propertyDefinitionSourceKey:
+          asString(candidate.propertyDefinitionSourceKey, "").trim() || undefined,
+        subTypeTable: asString(candidate.subTypeTable, "").trim() || undefined,
+        costTableDefinition: asString(candidate.costTableDefinition, "").trim() || undefined,
+        param1Table: asString(candidate.param1Table, "").trim() || undefined,
+        nameStrRef: normalizeEmbeddedItemNumber(candidate.nameStrRef),
+        gameStrRef: normalizeEmbeddedItemNumber(candidate.gameStrRef),
+        descriptionStrRef: normalizeEmbeddedItemNumber(candidate.descriptionStrRef)
+      };
+      return Object.values(normalized).some((entryValue) => entryValue !== undefined && entryValue !== "")
+        ? normalized
+        : undefined;
+    })
+    .filter((entry): entry is SceneObjectItemPropertyEntry => entry !== undefined);
+}
+
+function normalizeEmbeddedItemSummary(value: unknown): SceneObjectEmbeddedItemSummary | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const itemPropertyListEntries = normalizeEmbeddedItemPropertyEntries(
+    value.itemPropertyListEntries
+  );
+  const normalized: SceneObjectEmbeddedItemSummary = {
+    sourceStructTypeId: normalizeEmbeddedItemNumber(value.sourceStructTypeId),
+    templateResRef: asString(value.templateResRef, "").trim() || undefined,
+    tag: asString(value.tag, "").trim() || undefined,
+    localizedName: asString(value.localizedName, "").trim() || undefined,
+    localizedNameStrRef: normalizeEmbeddedItemNumber(value.localizedNameStrRef),
+    description: asString(value.description, "").trim() || undefined,
+    descriptionStrRef: normalizeEmbeddedItemNumber(value.descriptionStrRef),
+    identifiedDescription: asString(value.identifiedDescription, "").trim() || undefined,
+    identifiedDescriptionStrRef: normalizeEmbeddedItemNumber(value.identifiedDescriptionStrRef),
+    comments: asString(value.comments, "").trim() || undefined,
+    paletteId: normalizeEmbeddedItemNumber(value.paletteId),
+    plot: isBoolean(value.plot) ? value.plot : undefined,
+    baseItem: normalizeEmbeddedItemNumber(value.baseItem),
+    modelPart1: normalizeEmbeddedItemNumber(value.modelPart1),
+    modelPart2: normalizeEmbeddedItemNumber(value.modelPart2),
+    modelPart3: normalizeEmbeddedItemNumber(value.modelPart3),
+    cost: normalizeEmbeddedItemNumber(value.cost),
+    addCost: normalizeEmbeddedItemNumber(value.addCost),
+    costTable: normalizeEmbeddedItemNumber(value.costTable),
+    costValue: normalizeEmbeddedItemNumber(value.costValue),
+    charges: normalizeEmbeddedItemNumber(value.charges),
+    stackSize: normalizeEmbeddedItemNumber(value.stackSize),
+    identified: isBoolean(value.identified) ? value.identified : undefined,
+    stolen: isBoolean(value.stolen) ? value.stolen : undefined,
+    cursed: isBoolean(value.cursed) ? value.cursed : undefined,
+    bodyPartRFoot: normalizeEmbeddedItemNumber(value.bodyPartRFoot),
+    bodyPartLFoot: normalizeEmbeddedItemNumber(value.bodyPartLFoot),
+    bodyPartRShin: normalizeEmbeddedItemNumber(value.bodyPartRShin),
+    bodyPartLShin: normalizeEmbeddedItemNumber(value.bodyPartLShin),
+    bodyPartLThigh: normalizeEmbeddedItemNumber(value.bodyPartLThigh),
+    bodyPartRThigh: normalizeEmbeddedItemNumber(value.bodyPartRThigh),
+    bodyPartPelvis: normalizeEmbeddedItemNumber(value.bodyPartPelvis),
+    bodyPartTorso: normalizeEmbeddedItemNumber(value.bodyPartTorso),
+    bodyPartBelt: normalizeEmbeddedItemNumber(value.bodyPartBelt),
+    bodyPartNeck: normalizeEmbeddedItemNumber(value.bodyPartNeck),
+    bodyPartRFArm: normalizeEmbeddedItemNumber(value.bodyPartRFArm),
+    bodyPartLFArm: normalizeEmbeddedItemNumber(value.bodyPartLFArm),
+    bodyPartRBicep: normalizeEmbeddedItemNumber(value.bodyPartRBicep),
+    bodyPartLBicep: normalizeEmbeddedItemNumber(value.bodyPartLBicep),
+    bodyPartRShoul: normalizeEmbeddedItemNumber(value.bodyPartRShoul),
+    bodyPartLShoul: normalizeEmbeddedItemNumber(value.bodyPartLShoul),
+    bodyPartRHand: normalizeEmbeddedItemNumber(value.bodyPartRHand),
+    bodyPartLHand: normalizeEmbeddedItemNumber(value.bodyPartLHand),
+    bodyPartRobe: normalizeEmbeddedItemNumber(value.bodyPartRobe),
+    leather1Color: normalizeEmbeddedItemNumber(value.leather1Color),
+    leather2Color: normalizeEmbeddedItemNumber(value.leather2Color),
+    cloth1Color: normalizeEmbeddedItemNumber(value.cloth1Color),
+    cloth2Color: normalizeEmbeddedItemNumber(value.cloth2Color),
+    metal1Color: normalizeEmbeddedItemNumber(value.metal1Color),
+    metal2Color: normalizeEmbeddedItemNumber(value.metal2Color),
+    itemPropertyListCount:
+      itemPropertyListEntries !== undefined
+        ? itemPropertyListEntries.length
+        : normalizeEmbeddedItemNumber(value.itemPropertyListCount),
+    itemPropertyListEntries,
+    scripts: normalizeEmbeddedItemScripts(value.scripts),
+    fieldCount: normalizeEmbeddedItemNumber(value.fieldCount)
+  };
+  return Object.entries(normalized).some(([key, entry]) =>
+    key === "itemPropertyListEntries"
+      ? Array.isArray(entry) && entry.length > 0
+      : entry !== undefined && entry !== ""
+  )
+    ? normalized
+    : undefined;
+}
+
+function normalizeEmbeddedItemScripts(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const normalized = Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entry]) => [key.trim(), asString(entry, "").trim()] as const)
+      .filter(([key, entry]) => key.length > 0 && entry.length > 0)
+  );
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeEmbeddedItemNumber(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.trunc(value);
+}
+
+function normalizeCreatureInventoryItems(
+  value: unknown
+): SceneObjectCreatureInventoryItemReference[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => {
+      const candidate = isRecord(entry) ? entry : {};
+      const normalized: SceneObjectCreatureInventoryItemReference = {
+        resRef: asString(candidate.resRef, "").trim() || undefined,
+        randomResRef: asString(candidate.randomResRef, "").trim() || undefined,
+        randomList: asString(candidate.randomList, "").trim() || undefined,
+        embeddedItem: normalizeEmbeddedItemSummary(candidate.embeddedItem),
+        itemTemplateId: asString(candidate.itemTemplateId, "").trim() || undefined,
+        itemResRef: asString(candidate.itemResRef, "").trim() || undefined,
+        itemSourceFingerprint: asString(candidate.itemSourceFingerprint, "").trim() || undefined,
+        itemSourceObjectKey: asString(candidate.itemSourceObjectKey, "").trim() || undefined,
+        itemBaseItem:
+          typeof candidate.itemBaseItem === "number" && Number.isFinite(candidate.itemBaseItem)
+            ? Math.trunc(candidate.itemBaseItem)
+            : undefined,
+        itemBaseItemEquipableSlots:
+          asString(candidate.itemBaseItemEquipableSlots, "").trim() || undefined,
+        x:
+          typeof candidate.x === "number" && Number.isFinite(candidate.x)
+            ? Math.trunc(candidate.x)
+            : undefined,
+        y:
+          typeof candidate.y === "number" && Number.isFinite(candidate.y)
+            ? Math.trunc(candidate.y)
+            : undefined,
+        dropable: isBoolean(candidate.dropable) ? candidate.dropable : undefined,
+        pickpocketable: isBoolean(candidate.pickpocketable) ? candidate.pickpocketable : undefined,
+        infinite: isBoolean(candidate.infinite) ? candidate.infinite : undefined
+      };
+      return normalized;
+    })
+    .filter((entry) => Object.values(entry).some((value) => value !== undefined && value !== ""));
+}
+
+function normalizePlaceableInventoryItems(
+  value: unknown
+): SceneObjectPlaceableInventoryItemReference[] | undefined {
+  return normalizeCreatureInventoryItems(value);
+}
+
+function normalizeCreatureEquippedItems(
+  value: unknown
+): SceneObjectCreatureEquippedItemReference[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => {
+      const candidate = isRecord(entry) ? entry : {};
+      const normalized: SceneObjectCreatureEquippedItemReference = {
+        resRef: asString(candidate.resRef, "").trim() || undefined,
+        randomResRef: asString(candidate.randomResRef, "").trim() || undefined,
+        randomList: asString(candidate.randomList, "").trim() || undefined,
+        embeddedItem: normalizeEmbeddedItemSummary(candidate.embeddedItem),
+        itemTemplateId: asString(candidate.itemTemplateId, "").trim() || undefined,
+        itemResRef: asString(candidate.itemResRef, "").trim() || undefined,
+        itemSourceFingerprint: asString(candidate.itemSourceFingerprint, "").trim() || undefined,
+        itemSourceObjectKey: asString(candidate.itemSourceObjectKey, "").trim() || undefined,
+        itemBaseItem:
+          typeof candidate.itemBaseItem === "number" && Number.isFinite(candidate.itemBaseItem)
+            ? Math.trunc(candidate.itemBaseItem)
+            : undefined,
+        itemBaseItemEquipableSlots:
+          asString(candidate.itemBaseItemEquipableSlots, "").trim() || undefined,
+        slotMask:
+          typeof candidate.slotMask === "number" && Number.isFinite(candidate.slotMask)
+            ? Math.trunc(candidate.slotMask)
+            : undefined,
+        dropable: isBoolean(candidate.dropable) ? candidate.dropable : undefined,
+        pickpocketable: isBoolean(candidate.pickpocketable) ? candidate.pickpocketable : undefined,
+        infinite: isBoolean(candidate.infinite) ? candidate.infinite : undefined
+      };
+      return normalized;
+    })
+    .filter((entry) => Object.values(entry).some((value) => value !== undefined && value !== ""));
 }
 
 function areCreatureClassEntriesEqual(
@@ -890,8 +1334,23 @@ function areCreatureClassEntriesEqual(
   }
   return left.every(
     (entry, index) =>
-      entry.className === right[index]?.className && entry.level === right[index]?.level
+      entry.classId === right[index]?.classId &&
+      entry.className === right[index]?.className &&
+      entry.level === right[index]?.level
   );
+}
+
+function areCreatureTemplateEntriesEqual(
+  left: SceneObjectCreatureTemplateEntry[] | undefined,
+  right: SceneObjectCreatureTemplateEntry[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((entry, index) => entry.templateId === right[index]?.templateId);
 }
 
 function areCreatureSkillEntriesEqual(
@@ -921,6 +1380,7 @@ function areCreatureFeatEntriesEqual(
   }
   return left.every(
     (entry, index) =>
+      entry.featId === right[index]?.featId &&
       entry.name === right[index]?.name &&
       entry.type === right[index]?.type &&
       entry.assigned === right[index]?.assigned
@@ -939,10 +1399,14 @@ function areCreatureSpellEntriesEqual(
   }
   return left.every(
     (entry, index) =>
+      entry.spellId === right[index]?.spellId &&
+      entry.classIndex === right[index]?.classIndex &&
       entry.prepared === right[index]?.prepared &&
       entry.name === right[index]?.name &&
       entry.spellLevel === right[index]?.spellLevel &&
-      entry.castingLevel === right[index]?.castingLevel
+      entry.castingLevel === right[index]?.castingLevel &&
+      entry.metaMagic === right[index]?.metaMagic &&
+      entry.flags === right[index]?.flags
   );
 }
 
@@ -958,11 +1422,89 @@ function areCreatureSpecialAbilityEntriesEqual(
   }
   return left.every(
     (entry, index) =>
+      entry.spellId === right[index]?.spellId &&
+      entry.flags === right[index]?.flags &&
       entry.name === right[index]?.name &&
       entry.type === right[index]?.type &&
       entry.casterLevel === right[index]?.casterLevel &&
       entry.uses === right[index]?.uses
   );
+}
+
+function areCreatureInventoryItemsEqual(
+  left: SceneObjectCreatureInventoryItemReference[] | undefined,
+  right: SceneObjectCreatureInventoryItemReference[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.resRef === right[index]?.resRef &&
+      entry.randomResRef === right[index]?.randomResRef &&
+      entry.randomList === right[index]?.randomList &&
+      areEmbeddedItemSummariesEqual(entry.embeddedItem, right[index]?.embeddedItem) &&
+      entry.itemTemplateId === right[index]?.itemTemplateId &&
+      entry.itemResRef === right[index]?.itemResRef &&
+      entry.itemSourceFingerprint === right[index]?.itemSourceFingerprint &&
+      entry.itemSourceObjectKey === right[index]?.itemSourceObjectKey &&
+      entry.itemBaseItem === right[index]?.itemBaseItem &&
+      entry.itemBaseItemEquipableSlots === right[index]?.itemBaseItemEquipableSlots &&
+      entry.x === right[index]?.x &&
+      entry.y === right[index]?.y &&
+      entry.dropable === right[index]?.dropable &&
+      entry.pickpocketable === right[index]?.pickpocketable &&
+      entry.infinite === right[index]?.infinite
+  );
+}
+
+function arePlaceableInventoryItemsEqual(
+  left: SceneObjectPlaceableInventoryItemReference[] | undefined,
+  right: SceneObjectPlaceableInventoryItemReference[] | undefined
+): boolean {
+  return areCreatureInventoryItemsEqual(left, right);
+}
+
+function areCreatureEquippedItemsEqual(
+  left: SceneObjectCreatureEquippedItemReference[] | undefined,
+  right: SceneObjectCreatureEquippedItemReference[] | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every(
+    (entry, index) =>
+      entry.resRef === right[index]?.resRef &&
+      entry.randomResRef === right[index]?.randomResRef &&
+      entry.randomList === right[index]?.randomList &&
+      areEmbeddedItemSummariesEqual(entry.embeddedItem, right[index]?.embeddedItem) &&
+      entry.itemTemplateId === right[index]?.itemTemplateId &&
+      entry.itemResRef === right[index]?.itemResRef &&
+      entry.itemSourceFingerprint === right[index]?.itemSourceFingerprint &&
+      entry.itemSourceObjectKey === right[index]?.itemSourceObjectKey &&
+      entry.itemBaseItem === right[index]?.itemBaseItem &&
+      entry.itemBaseItemEquipableSlots === right[index]?.itemBaseItemEquipableSlots &&
+      entry.slotMask === right[index]?.slotMask &&
+      entry.dropable === right[index]?.dropable &&
+      entry.pickpocketable === right[index]?.pickpocketable &&
+      entry.infinite === right[index]?.infinite
+  );
+}
+
+function areEmbeddedItemSummariesEqual(
+  left: SceneObjectEmbeddedItemSummary | undefined,
+  right: SceneObjectEmbeddedItemSummary | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function areCreatureStatisticsEqual(
@@ -997,6 +1539,8 @@ function areCreatureStatisticsEqual(
     left.sizeModifier === right.sizeModifier &&
     left.baseHitPoints === right.baseHitPoints &&
     left.hitPointBonuses === right.hitPointBonuses &&
+    left.currentHitPoints === right.currentHitPoints &&
+    left.maxHitPoints === right.maxHitPoints &&
     left.movementRate === right.movementRate
   );
 }
@@ -1027,7 +1571,109 @@ function areCreatureAppearanceSettingsEqual(
     left.rightFoot === right.rightFoot &&
     left.leftFoot === right.leftFoot &&
     left.wings === right.wings &&
-    left.tail === right.tail
+    left.tail === right.tail &&
+    left.colors?.skin === right.colors?.skin &&
+    left.colors?.hair === right.colors?.hair &&
+    left.colors?.tattoo1 === right.colors?.tattoo1 &&
+    left.colors?.tattoo2 === right.colors?.tattoo2 &&
+    left.sourceOnlyParts?.belt === right.sourceOnlyParts?.belt &&
+    left.sourceOnlyParts?.robe === right.sourceOnlyParts?.robe &&
+    left.sourceOnlyParts?.rightShoulder === right.sourceOnlyParts?.rightShoulder &&
+    left.sourceOnlyParts?.leftShoulder === right.sourceOnlyParts?.leftShoulder
+  );
+}
+
+function areCreatureAppearanceProfilesEqual(
+  left: SceneObjectCreatureAppearanceProfile | undefined,
+  right: SceneObjectCreatureAppearanceProfile | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.source2daRow === right.source2daRow &&
+    left.sourceKey === right.sourceKey &&
+    left.modelType === right.modelType &&
+    left.raceModel === right.raceModel &&
+    left.portrait2da === right.portrait2da &&
+    left.envMap === right.envMap &&
+    left.defaultPhenotype === right.defaultPhenotype &&
+    left.bloodColor === right.bloodColor &&
+    left.sizeCategory === right.sizeCategory &&
+    left.sizeCategoryLabel === right.sizeCategoryLabel &&
+    left.sizeCategorySource2daRow === right.sizeCategorySource2daRow &&
+    left.sizeCategorySourceKey === right.sizeCategorySourceKey &&
+    left.raceAppearanceId === right.raceAppearanceId
+  );
+}
+
+function areCreatureLookupProfilesEqual(
+  left: SceneObjectCreatureLookupProfile | undefined,
+  right: SceneObjectCreatureLookupProfile | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.raceLabelSource2daRow === right.raceLabelSource2daRow &&
+    left.raceLabelSourceKey === right.raceLabelSourceKey &&
+    left.genderLabelSource2daRow === right.genderLabelSource2daRow &&
+    left.genderLabelSourceKey === right.genderLabelSourceKey &&
+    left.portraitResolvedSource2daRow === right.portraitResolvedSource2daRow &&
+    left.portraitResolvedSourceKey === right.portraitResolvedSourceKey &&
+    left.soundSetResRef === right.soundSetResRef &&
+    left.soundSetSource2daRow === right.soundSetSource2daRow &&
+    left.soundSetSourceKey === right.soundSetSourceKey
+  );
+}
+
+function areCreatureListCountsEqual(
+  left: SceneObjectCreatureListCounts | undefined,
+  right: SceneObjectCreatureListCounts | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.classListCount === right.classListCount &&
+    left.skillListCount === right.skillListCount &&
+    left.featListCount === right.featListCount &&
+    left.templateListCount === right.templateListCount &&
+    left.specAbilityListCount === right.specAbilityListCount &&
+    left.inventoryItemListCount === right.inventoryItemListCount &&
+    left.equipItemListCount === right.equipItemListCount
+  );
+}
+
+function areCreatureLocalizedStringRefsEqual(
+  left: SceneObjectCreatureLocalizedStringRefs | undefined,
+  right: SceneObjectCreatureLocalizedStringRefs | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.firstName === right.firstName &&
+    left.lastName === right.lastName &&
+    left.localizedName === right.localizedName &&
+    left.description === right.description &&
+    left.identifiedDescription === right.identifiedDescription &&
+    left.subrace === right.subrace &&
+    left.deity === right.deity
+  );
+}
+
+function areCreatureLocalizedStringsEqual(
+  left: SceneObjectCreatureLocalizedStrings | undefined,
+  right: SceneObjectCreatureLocalizedStrings | undefined
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.localizedName === right.localizedName &&
+    left.displayName === right.displayName &&
+    left.identifiedDescription === right.identifiedDescription
   );
 }
 
@@ -1064,11 +1710,15 @@ function areCreatureAdvancedSettingsEqual(
   }
   return (
     left.blueprintResRef === right.blueprintResRef &&
+    left.paletteId === right.paletteId &&
     left.disarmable === right.disarmable &&
     left.plot === right.plot &&
+    left.playerCharacter === right.playerCharacter &&
     left.leavesLootableCorpse === right.leavesLootableCorpse &&
     left.noPermanentDeath === right.noPermanentDeath &&
     left.immortal === right.immortal &&
+    left.bodyBag === right.bodyBag &&
+    left.startingPackage === right.startingPackage &&
     left.treasureModel === right.treasureModel &&
     left.corpseDecayTimeSeconds === right.corpseDecayTimeSeconds &&
     left.faction === right.faction &&
@@ -1076,7 +1726,14 @@ function areCreatureAdvancedSettingsEqual(
     left.deity === right.deity &&
     left.challengeRatingAdjustment === right.challengeRatingAdjustment &&
     left.soundSet === right.soundSet &&
-    left.perceptionRange === right.perceptionRange
+    left.perceptionRange === right.perceptionRange &&
+    left.walkRateSource2daRow === right.walkRateSource2daRow &&
+    left.walkRateSource2daName === right.walkRateSource2daName &&
+    left.walkRateSpeed2daRow === right.walkRateSpeed2daRow &&
+    left.walkRateAppearance2daSourceKey === right.walkRateAppearance2daSourceKey &&
+    left.walkRateSpeed2daSourceKey === right.walkRateSpeed2daSourceKey &&
+    left.animationState === right.animationState &&
+    left.animationName === right.animationName
   );
 }
 
@@ -1132,6 +1789,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const hasRawLockSettings = isRecord(rawPlaceableProperties?.lockSettings);
     const hasRawTrapSettings = isRecord(rawPlaceableProperties?.trapSettings);
     const hasRawAdvancedSettings = isRecord(rawPlaceableProperties?.advancedSettings);
+    const hasRawInventoryItems = Array.isArray(rawPlaceableProperties?.inventoryItems);
     const rawScriptSlots = hasRawScriptSlots
       ? (rawPlaceableProperties?.scriptSlots as Partial<
           Record<keyof SceneObjectPlaceableScriptSlots, unknown>
@@ -1168,6 +1826,8 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       hasRawTrapSettings || currentPlaceableProperties?.trapSettings !== undefined;
     const shouldNormalizeAdvancedSettings =
       hasRawAdvancedSettings || currentPlaceableProperties?.advancedSettings !== undefined;
+    const shouldNormalizeInventoryItems =
+      hasRawInventoryItems || currentPlaceableProperties?.inventoryItems !== undefined;
     const shouldNormalizeDescription =
       typeof rawPlaceableProperties?.description === "string" ||
       currentPlaceableProperties?.description !== undefined;
@@ -1327,6 +1987,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const nextComments = shouldNormalizeComments
       ? asString(rawPlaceableProperties?.comments, "")
       : undefined;
+    const nextInventoryItems = shouldNormalizeInventoryItems
+      ? normalizePlaceableInventoryItems(rawPlaceableProperties?.inventoryItems) ??
+        (currentPlaceableProperties?.inventoryItems
+          ? currentPlaceableProperties.inventoryItems.map((entry) => ({
+              ...entry,
+              embeddedItem: normalizeEmbeddedItemSummary(entry.embeddedItem)
+            }))
+          : [])
+      : undefined;
 
     const nextPlaceableProperties: SceneObjectPlaceableProperties = {
       plot: isBoolean(rawPlaceableProperties?.plot)
@@ -1353,6 +2022,9 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     }
     if (nextAdvancedSettings !== undefined) {
       nextPlaceableProperties.advancedSettings = nextAdvancedSettings;
+    }
+    if (nextInventoryItems !== undefined) {
+      nextPlaceableProperties.inventoryItems = nextInventoryItems;
     }
     if (nextDescription !== undefined) {
       nextPlaceableProperties.description = nextDescription;
@@ -1415,10 +2087,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       isLockSettingsUnchanged &&
       isTrapSettingsUnchanged &&
       isAdvancedSettingsUnchanged &&
+      arePlaceableInventoryItemsEqual(
+        currentPlaceableProperties?.inventoryItems,
+        nextInventoryItems
+      ) &&
       isDescriptionUnchanged &&
       isCommentsUnchanged &&
       normalizedObject.doorProperties === undefined &&
       normalizedObject.creatureProperties === undefined &&
+      normalizedObject.encounterProperties === undefined &&
       normalizedObject.soundPositioning === undefined
     ) {
       return normalizedObject;
@@ -1429,6 +2106,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       placeableProperties: nextPlaceableProperties,
       doorProperties: undefined,
       creatureProperties: undefined,
+      encounterProperties: undefined,
       soundPositioning: undefined
     };
   }
@@ -1442,13 +2120,24 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
 
     const hasRawStatistics = isRecord(rawCreatureProperties?.statistics);
     const hasRawAppearanceSettings = isRecord(rawCreatureProperties?.appearanceSettings);
+    const hasRawAppearanceProfile = isRecord(rawCreatureProperties?.appearanceProfile);
+    const hasRawLookupProfile = isRecord(rawCreatureProperties?.lookupProfile);
+    const hasRawListCounts = isRecord(rawCreatureProperties?.listCounts);
+    const hasRawLocalizedStringRefs = isRecord(rawCreatureProperties?.localizedStringRefs);
+    const hasRawLocalizedStrings = isRecord(rawCreatureProperties?.localizedStrings);
     const hasRawScriptSlots = isRecord(rawCreatureProperties?.scriptSlots);
     const hasRawAdvancedSettings = isRecord(rawCreatureProperties?.advancedSettings);
     const hasRawClassEntries = Array.isArray(rawCreatureProperties?.classEntries);
+    const hasRawTemplateEntries = Array.isArray(rawCreatureProperties?.templateEntries);
     const hasRawSkills = Array.isArray(rawCreatureProperties?.skills);
     const hasRawFeats = Array.isArray(rawCreatureProperties?.feats);
     const hasRawSpells = Array.isArray(rawCreatureProperties?.spells);
     const hasRawSpecialAbilities = Array.isArray(rawCreatureProperties?.specialAbilities);
+    const hasRawInventoryItems = Array.isArray(rawCreatureProperties?.inventoryItems);
+    const hasRawEquippedItems = Array.isArray(rawCreatureProperties?.equippedItems);
+    const shouldNormalizeAlignment =
+      typeof rawCreatureProperties?.alignment === "string" ||
+      currentCreatureProperties?.alignment !== undefined;
     const shouldNormalizeComments =
       typeof rawCreatureProperties?.comments === "string" ||
       currentCreatureProperties?.comments !== undefined;
@@ -1476,6 +2165,44 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const rawAppearanceSettings = hasRawAppearanceSettings
       ? (rawCreatureProperties?.appearanceSettings as Partial<
           Record<keyof SceneObjectCreatureAppearanceSettings, unknown>
+        >)
+      : undefined;
+    const rawAppearanceProfile = hasRawAppearanceProfile
+      ? (rawCreatureProperties?.appearanceProfile as Partial<
+          Record<keyof SceneObjectCreatureAppearanceProfile, unknown>
+        >)
+      : undefined;
+    const rawLookupProfile = hasRawLookupProfile
+      ? (rawCreatureProperties?.lookupProfile as Partial<
+          Record<keyof SceneObjectCreatureLookupProfile, unknown>
+        >)
+      : undefined;
+    const rawListCounts = hasRawListCounts
+      ? (rawCreatureProperties?.listCounts as Partial<
+          Record<keyof SceneObjectCreatureListCounts, unknown>
+        >)
+      : undefined;
+    const rawLocalizedStringRefs = hasRawLocalizedStringRefs
+      ? (rawCreatureProperties?.localizedStringRefs as Partial<
+          Record<keyof SceneObjectCreatureLocalizedStringRefs, unknown>
+        >)
+      : undefined;
+    const rawLocalizedStrings = hasRawLocalizedStrings
+      ? (rawCreatureProperties?.localizedStrings as Partial<
+          Record<keyof SceneObjectCreatureLocalizedStrings, unknown>
+        >)
+      : undefined;
+    const rawAppearanceColors = isRecord(rawAppearanceSettings?.colors)
+      ? (rawAppearanceSettings?.colors as Partial<
+          Record<NonNullable<SceneObjectCreatureAppearanceSettings["colors"]> extends infer T ? keyof T : never, unknown>
+        >)
+      : undefined;
+    const rawAppearanceSourceOnlyParts = isRecord(rawAppearanceSettings?.sourceOnlyParts)
+      ? (rawAppearanceSettings?.sourceOnlyParts as Partial<
+          Record<
+            NonNullable<SceneObjectCreatureAppearanceSettings["sourceOnlyParts"]> extends infer T ? keyof T : never,
+            unknown
+          >
         >)
       : undefined;
     const rawScriptSlots = hasRawScriptSlots
@@ -1593,6 +2320,19 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         sourceStatisticsCandidate?.hitPointBonuses,
         DEFAULT_CREATURE_STATISTICS.hitPointBonuses
       ),
+      currentHitPoints: asFiniteNumber(
+        sourceStatisticsCandidate?.currentHitPoints,
+        sourceStatisticsCandidate?.maxHitPoints ??
+          sourceStatisticsCandidate?.baseHitPoints ??
+          DEFAULT_CREATURE_STATISTICS.currentHitPoints ??
+          10
+      ),
+      maxHitPoints: asFiniteNumber(
+        sourceStatisticsCandidate?.maxHitPoints,
+        sourceStatisticsCandidate?.baseHitPoints ??
+          DEFAULT_CREATURE_STATISTICS.maxHitPoints ??
+          10
+      ),
       movementRate: asString(
         sourceStatisticsCandidate?.movementRate,
         DEFAULT_CREATURE_STATISTICS.movementRate
@@ -1659,8 +2399,99 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         DEFAULT_CREATURE_APPEARANCE_SETTINGS.leftFoot
       ),
       wings: asString(sourceAppearanceSettingsCandidate?.wings, DEFAULT_CREATURE_APPEARANCE_SETTINGS.wings),
-      tail: asString(sourceAppearanceSettingsCandidate?.tail, DEFAULT_CREATURE_APPEARANCE_SETTINGS.tail)
+      tail: asString(sourceAppearanceSettingsCandidate?.tail, DEFAULT_CREATURE_APPEARANCE_SETTINGS.tail),
+      colors: {
+        skin: asString(
+          sourceAppearanceSettingsCandidate?.colors?.skin,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.colors?.skin ?? ""
+        ),
+        hair: asString(
+          sourceAppearanceSettingsCandidate?.colors?.hair,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.colors?.hair ?? ""
+        ),
+        tattoo1: asString(
+          sourceAppearanceSettingsCandidate?.colors?.tattoo1,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.colors?.tattoo1 ?? ""
+        ),
+        tattoo2: asString(
+          sourceAppearanceSettingsCandidate?.colors?.tattoo2,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.colors?.tattoo2 ?? ""
+        )
+      },
+      sourceOnlyParts: {
+        belt: asString(
+          sourceAppearanceSettingsCandidate?.sourceOnlyParts?.belt,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.sourceOnlyParts?.belt ?? ""
+        ),
+        robe: asString(
+          sourceAppearanceSettingsCandidate?.sourceOnlyParts?.robe,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.sourceOnlyParts?.robe ?? ""
+        ),
+        rightShoulder: asString(
+          sourceAppearanceSettingsCandidate?.sourceOnlyParts?.rightShoulder,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.sourceOnlyParts?.rightShoulder ?? ""
+        ),
+        leftShoulder: asString(
+          sourceAppearanceSettingsCandidate?.sourceOnlyParts?.leftShoulder,
+          DEFAULT_CREATURE_APPEARANCE_SETTINGS.sourceOnlyParts?.leftShoulder ?? ""
+        )
+      }
     };
+    const sourceAppearanceProfileCandidate = currentCreatureProperties?.appearanceProfile;
+    const sourceAppearanceProfile: SceneObjectCreatureAppearanceProfile = {
+      ...(typeof sourceAppearanceProfileCandidate?.source2daRow === "number"
+        ? { source2daRow: sourceAppearanceProfileCandidate.source2daRow }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.sourceKey
+        ? { sourceKey: sourceAppearanceProfileCandidate.sourceKey }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.modelType
+        ? { modelType: sourceAppearanceProfileCandidate.modelType }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.raceModel
+        ? { raceModel: sourceAppearanceProfileCandidate.raceModel }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.portrait2da
+        ? { portrait2da: sourceAppearanceProfileCandidate.portrait2da }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.envMap
+        ? { envMap: sourceAppearanceProfileCandidate.envMap }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.defaultPhenotype
+        ? { defaultPhenotype: sourceAppearanceProfileCandidate.defaultPhenotype }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.bloodColor
+        ? { bloodColor: sourceAppearanceProfileCandidate.bloodColor }
+        : {}),
+      ...(typeof sourceAppearanceProfileCandidate?.sizeCategory === "number" &&
+      Number.isFinite(sourceAppearanceProfileCandidate.sizeCategory)
+        ? { sizeCategory: sourceAppearanceProfileCandidate.sizeCategory }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.sizeCategoryLabel
+        ? { sizeCategoryLabel: sourceAppearanceProfileCandidate.sizeCategoryLabel }
+        : {}),
+      ...(typeof sourceAppearanceProfileCandidate?.sizeCategorySource2daRow === "number" &&
+      Number.isFinite(sourceAppearanceProfileCandidate.sizeCategorySource2daRow)
+        ? { sizeCategorySource2daRow: sourceAppearanceProfileCandidate.sizeCategorySource2daRow }
+        : {}),
+      ...(sourceAppearanceProfileCandidate?.sizeCategorySourceKey
+        ? { sizeCategorySourceKey: sourceAppearanceProfileCandidate.sizeCategorySourceKey }
+        : {}),
+      ...(typeof sourceAppearanceProfileCandidate?.raceAppearanceId === "number" &&
+      Number.isFinite(sourceAppearanceProfileCandidate.raceAppearanceId)
+        ? { raceAppearanceId: sourceAppearanceProfileCandidate.raceAppearanceId }
+        : {})
+    };
+    const sourceLocalizedStringRefs = normalizeCreatureLocalizedStringRefs(
+      currentCreatureProperties?.localizedStringRefs
+    );
+    const sourceLookupProfile = normalizeCreatureLookupProfile(
+      currentCreatureProperties?.lookupProfile
+    );
+    const sourceListCounts = normalizeCreatureListCounts(currentCreatureProperties?.listCounts);
+    const sourceLocalizedStrings = normalizeCreatureLocalizedStrings(
+      currentCreatureProperties?.localizedStrings
+    );
     const sourceScriptSlotsCandidate = currentCreatureProperties?.scriptSlots;
     const sourceScriptSlots: SceneObjectCreatureScriptSlots = {
       onBlocked: asString(sourceScriptSlotsCandidate?.onBlocked, DEFAULT_CREATURE_SCRIPT_SLOTS.onBlocked),
@@ -1707,12 +2538,19 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         sourceAdvancedSettingsCandidate?.blueprintResRef,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.blueprintResRef
       ),
+      ...(typeof sourceAdvancedSettingsCandidate?.paletteId === "number" &&
+      Number.isFinite(sourceAdvancedSettingsCandidate.paletteId)
+        ? { paletteId: sourceAdvancedSettingsCandidate.paletteId }
+        : {}),
       disarmable: isBoolean(sourceAdvancedSettingsCandidate?.disarmable)
         ? sourceAdvancedSettingsCandidate.disarmable
         : DEFAULT_CREATURE_ADVANCED_SETTINGS.disarmable,
       plot: isBoolean(sourceAdvancedSettingsCandidate?.plot)
         ? sourceAdvancedSettingsCandidate.plot
         : DEFAULT_CREATURE_ADVANCED_SETTINGS.plot,
+      playerCharacter: isBoolean(sourceAdvancedSettingsCandidate?.playerCharacter)
+        ? sourceAdvancedSettingsCandidate.playerCharacter
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.playerCharacter,
       leavesLootableCorpse: isBoolean(sourceAdvancedSettingsCandidate?.leavesLootableCorpse)
         ? sourceAdvancedSettingsCandidate.leavesLootableCorpse
         : DEFAULT_CREATURE_ADVANCED_SETTINGS.leavesLootableCorpse,
@@ -1722,6 +2560,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       immortal: isBoolean(sourceAdvancedSettingsCandidate?.immortal)
         ? sourceAdvancedSettingsCandidate.immortal
         : DEFAULT_CREATURE_ADVANCED_SETTINGS.immortal,
+      bodyBag: isBoolean(sourceAdvancedSettingsCandidate?.bodyBag)
+        ? sourceAdvancedSettingsCandidate.bodyBag
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.bodyBag,
+      startingPackage: isBoolean(sourceAdvancedSettingsCandidate?.startingPackage)
+        ? sourceAdvancedSettingsCandidate.startingPackage
+        : DEFAULT_CREATURE_ADVANCED_SETTINGS.startingPackage,
       treasureModel: asString(
         sourceAdvancedSettingsCandidate?.treasureModel,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.treasureModel
@@ -1741,22 +2585,72 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         DEFAULT_CREATURE_ADVANCED_SETTINGS.challengeRatingAdjustment
       ),
       soundSet: asString(sourceAdvancedSettingsCandidate?.soundSet, DEFAULT_CREATURE_ADVANCED_SETTINGS.soundSet),
+      ...(typeof sourceAdvancedSettingsCandidate?.soundSetFile === "number" &&
+      Number.isFinite(sourceAdvancedSettingsCandidate.soundSetFile)
+        ? { soundSetFile: Math.max(0, Math.min(65535, Math.trunc(sourceAdvancedSettingsCandidate.soundSetFile))) }
+        : {}),
       perceptionRange: asString(
         sourceAdvancedSettingsCandidate?.perceptionRange,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.perceptionRange
-      )
+      ),
+      ...(typeof sourceAdvancedSettingsCandidate?.walkRateSource2daRow === "number" &&
+      Number.isFinite(sourceAdvancedSettingsCandidate.walkRateSource2daRow)
+        ? { walkRateSource2daRow: Math.trunc(sourceAdvancedSettingsCandidate.walkRateSource2daRow) }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.walkRateSource2daName === "string" &&
+      sourceAdvancedSettingsCandidate.walkRateSource2daName.trim().length > 0
+        ? { walkRateSource2daName: sourceAdvancedSettingsCandidate.walkRateSource2daName.trim() }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.walkRateSpeed2daRow === "number" &&
+      Number.isFinite(sourceAdvancedSettingsCandidate.walkRateSpeed2daRow)
+        ? { walkRateSpeed2daRow: Math.trunc(sourceAdvancedSettingsCandidate.walkRateSpeed2daRow) }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.walkRateAppearance2daSourceKey === "string" &&
+      sourceAdvancedSettingsCandidate.walkRateAppearance2daSourceKey.trim().length > 0
+        ? {
+            walkRateAppearance2daSourceKey:
+              sourceAdvancedSettingsCandidate.walkRateAppearance2daSourceKey.trim()
+          }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.walkRateSpeed2daSourceKey === "string" &&
+      sourceAdvancedSettingsCandidate.walkRateSpeed2daSourceKey.trim().length > 0
+        ? {
+            walkRateSpeed2daSourceKey:
+              sourceAdvancedSettingsCandidate.walkRateSpeed2daSourceKey.trim()
+          }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.animationState === "number" &&
+      Number.isFinite(sourceAdvancedSettingsCandidate.animationState)
+        ? { animationState: Math.trunc(sourceAdvancedSettingsCandidate.animationState) }
+        : {}),
+      ...(typeof sourceAdvancedSettingsCandidate?.animationName === "string" &&
+      sourceAdvancedSettingsCandidate.animationName.trim().length > 0
+        ? { animationName: sourceAdvancedSettingsCandidate.animationName.trim() }
+        : {})
     };
 
     const shouldNormalizeStatistics =
       hasRawStatistics || currentCreatureProperties?.statistics !== undefined;
     const shouldNormalizeAppearanceSettings =
       hasRawAppearanceSettings || currentCreatureProperties?.appearanceSettings !== undefined;
+    const shouldNormalizeAppearanceProfile =
+      hasRawAppearanceProfile || currentCreatureProperties?.appearanceProfile !== undefined;
+    const shouldNormalizeLookupProfile =
+      hasRawLookupProfile || currentCreatureProperties?.lookupProfile !== undefined;
+    const shouldNormalizeListCounts =
+      hasRawListCounts || currentCreatureProperties?.listCounts !== undefined;
+    const shouldNormalizeLocalizedStringRefs =
+      hasRawLocalizedStringRefs || currentCreatureProperties?.localizedStringRefs !== undefined;
+    const shouldNormalizeLocalizedStrings =
+      hasRawLocalizedStrings || currentCreatureProperties?.localizedStrings !== undefined;
     const shouldNormalizeScriptSlots =
       hasRawScriptSlots || currentCreatureProperties?.scriptSlots !== undefined;
     const shouldNormalizeAdvancedSettings =
       hasRawAdvancedSettings || currentCreatureProperties?.advancedSettings !== undefined;
     const shouldNormalizeClassEntries =
       hasRawClassEntries || currentCreatureProperties?.classEntries !== undefined;
+    const shouldNormalizeTemplateEntries =
+      hasRawTemplateEntries || currentCreatureProperties?.templateEntries !== undefined;
     const shouldNormalizeSkills =
       hasRawSkills || currentCreatureProperties?.skills !== undefined;
     const shouldNormalizeFeats =
@@ -1765,6 +2659,10 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       hasRawSpells || currentCreatureProperties?.spells !== undefined;
     const shouldNormalizeSpecialAbilities =
       hasRawSpecialAbilities || currentCreatureProperties?.specialAbilities !== undefined;
+    const shouldNormalizeInventoryItems =
+      hasRawInventoryItems || currentCreatureProperties?.inventoryItems !== undefined;
+    const shouldNormalizeEquippedItems =
+      hasRawEquippedItems || currentCreatureProperties?.equippedItems !== undefined;
 
     const nextStatistics: SceneObjectCreatureStatisticsSettings | undefined =
       shouldNormalizeStatistics
@@ -1835,6 +2733,16 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             sizeModifier: asFiniteNumber(rawStatistics?.sizeModifier, sourceStatistics.sizeModifier),
             baseHitPoints: asFiniteNumber(rawStatistics?.baseHitPoints, sourceStatistics.baseHitPoints),
             hitPointBonuses: asFiniteNumber(rawStatistics?.hitPointBonuses, sourceStatistics.hitPointBonuses),
+            currentHitPoints: asFiniteNumber(
+              rawStatistics?.currentHitPoints,
+              sourceStatistics.currentHitPoints ??
+                sourceStatistics.maxHitPoints ??
+                sourceStatistics.baseHitPoints
+            ),
+            maxHitPoints: asFiniteNumber(
+              rawStatistics?.maxHitPoints,
+              sourceStatistics.maxHitPoints ?? sourceStatistics.baseHitPoints
+            ),
             movementRate: asString(rawStatistics?.movementRate, sourceStatistics.movementRate)
           }
         : undefined;
@@ -1865,9 +2773,139 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             rightFoot: asString(rawAppearanceSettings?.rightFoot, sourceAppearanceSettings.rightFoot),
             leftFoot: asString(rawAppearanceSettings?.leftFoot, sourceAppearanceSettings.leftFoot),
             wings: asString(rawAppearanceSettings?.wings, sourceAppearanceSettings.wings),
-            tail: asString(rawAppearanceSettings?.tail, sourceAppearanceSettings.tail)
+            tail: asString(rawAppearanceSettings?.tail, sourceAppearanceSettings.tail),
+            colors: {
+              skin: asString(rawAppearanceColors?.skin, sourceAppearanceSettings.colors?.skin ?? ""),
+              hair: asString(rawAppearanceColors?.hair, sourceAppearanceSettings.colors?.hair ?? ""),
+              tattoo1: asString(
+                rawAppearanceColors?.tattoo1,
+                sourceAppearanceSettings.colors?.tattoo1 ?? ""
+              ),
+              tattoo2: asString(
+                rawAppearanceColors?.tattoo2,
+                sourceAppearanceSettings.colors?.tattoo2 ?? ""
+              )
+            },
+            sourceOnlyParts: {
+              belt: asString(
+                rawAppearanceSourceOnlyParts?.belt,
+                sourceAppearanceSettings.sourceOnlyParts?.belt ?? ""
+              ),
+              robe: asString(
+                rawAppearanceSourceOnlyParts?.robe,
+                sourceAppearanceSettings.sourceOnlyParts?.robe ?? ""
+              ),
+              rightShoulder: asString(
+                rawAppearanceSourceOnlyParts?.rightShoulder,
+                sourceAppearanceSettings.sourceOnlyParts?.rightShoulder ?? ""
+              ),
+              leftShoulder: asString(
+                rawAppearanceSourceOnlyParts?.leftShoulder,
+                sourceAppearanceSettings.sourceOnlyParts?.leftShoulder ?? ""
+              )
+            }
           }
         : undefined;
+    const nextAppearanceProfileSourceKey = asOptionalString(
+      rawAppearanceProfile?.sourceKey,
+      sourceAppearanceProfile.sourceKey
+    );
+    const nextAppearanceProfileModelType = asOptionalString(
+      rawAppearanceProfile?.modelType,
+      sourceAppearanceProfile.modelType
+    );
+    const nextAppearanceProfileRaceModel = asOptionalString(
+      rawAppearanceProfile?.raceModel,
+      sourceAppearanceProfile.raceModel
+    );
+    const nextAppearanceProfilePortrait2da = asOptionalString(
+      rawAppearanceProfile?.portrait2da,
+      sourceAppearanceProfile.portrait2da
+    );
+    const nextAppearanceProfileEnvMap = asOptionalString(
+      rawAppearanceProfile?.envMap,
+      sourceAppearanceProfile.envMap
+    );
+    const nextAppearanceProfileDefaultPhenotype = asOptionalString(
+      rawAppearanceProfile?.defaultPhenotype,
+      sourceAppearanceProfile.defaultPhenotype
+    );
+    const nextAppearanceProfileBloodColor = asOptionalString(
+      rawAppearanceProfile?.bloodColor,
+      sourceAppearanceProfile.bloodColor
+    );
+    const nextAppearanceProfileSizeCategory =
+      typeof rawAppearanceProfile?.sizeCategory === "number" &&
+      Number.isFinite(rawAppearanceProfile.sizeCategory)
+        ? rawAppearanceProfile.sizeCategory
+        : sourceAppearanceProfile.sizeCategory;
+    const nextAppearanceProfileSizeCategoryLabel = asOptionalString(
+      rawAppearanceProfile?.sizeCategoryLabel,
+      sourceAppearanceProfile.sizeCategoryLabel
+    );
+    const nextAppearanceProfileSizeCategorySource2daRow =
+      typeof rawAppearanceProfile?.sizeCategorySource2daRow === "number" &&
+      Number.isFinite(rawAppearanceProfile.sizeCategorySource2daRow)
+        ? rawAppearanceProfile.sizeCategorySource2daRow
+        : sourceAppearanceProfile.sizeCategorySource2daRow;
+    const nextAppearanceProfileSizeCategorySourceKey = asOptionalString(
+      rawAppearanceProfile?.sizeCategorySourceKey,
+      sourceAppearanceProfile.sizeCategorySourceKey
+    );
+    const nextAppearanceProfileRaceAppearanceId =
+      typeof rawAppearanceProfile?.raceAppearanceId === "number" &&
+      Number.isFinite(rawAppearanceProfile.raceAppearanceId)
+        ? rawAppearanceProfile.raceAppearanceId
+        : sourceAppearanceProfile.raceAppearanceId;
+    const nextAppearanceProfile: SceneObjectCreatureAppearanceProfile | undefined =
+      shouldNormalizeAppearanceProfile
+        ? {
+            ...(typeof rawAppearanceProfile?.source2daRow === "number" &&
+            Number.isFinite(rawAppearanceProfile.source2daRow)
+              ? { source2daRow: rawAppearanceProfile.source2daRow }
+              : sourceAppearanceProfile.source2daRow !== undefined
+              ? { source2daRow: sourceAppearanceProfile.source2daRow }
+              : {}),
+            ...(nextAppearanceProfileSourceKey ? { sourceKey: nextAppearanceProfileSourceKey } : {}),
+            ...(nextAppearanceProfileModelType ? { modelType: nextAppearanceProfileModelType } : {}),
+            ...(nextAppearanceProfileRaceModel ? { raceModel: nextAppearanceProfileRaceModel } : {}),
+            ...(nextAppearanceProfilePortrait2da ? { portrait2da: nextAppearanceProfilePortrait2da } : {}),
+            ...(nextAppearanceProfileEnvMap ? { envMap: nextAppearanceProfileEnvMap } : {}),
+            ...(nextAppearanceProfileDefaultPhenotype
+              ? { defaultPhenotype: nextAppearanceProfileDefaultPhenotype }
+              : {}),
+            ...(nextAppearanceProfileBloodColor
+              ? { bloodColor: nextAppearanceProfileBloodColor }
+              : {}),
+            ...(nextAppearanceProfileSizeCategory !== undefined
+              ? { sizeCategory: nextAppearanceProfileSizeCategory }
+              : {}),
+            ...(nextAppearanceProfileSizeCategoryLabel
+              ? { sizeCategoryLabel: nextAppearanceProfileSizeCategoryLabel }
+              : {}),
+            ...(nextAppearanceProfileSizeCategorySource2daRow !== undefined
+              ? { sizeCategorySource2daRow: nextAppearanceProfileSizeCategorySource2daRow }
+              : {}),
+            ...(nextAppearanceProfileSizeCategorySourceKey
+              ? { sizeCategorySourceKey: nextAppearanceProfileSizeCategorySourceKey }
+              : {}),
+            ...(nextAppearanceProfileRaceAppearanceId !== undefined
+              ? { raceAppearanceId: nextAppearanceProfileRaceAppearanceId }
+              : {})
+          }
+        : undefined;
+    const nextLocalizedStringRefs = shouldNormalizeLocalizedStringRefs
+      ? normalizeCreatureLocalizedStringRefs(rawLocalizedStringRefs, sourceLocalizedStringRefs)
+      : undefined;
+    const nextLookupProfile = shouldNormalizeLookupProfile
+      ? normalizeCreatureLookupProfile(rawLookupProfile, sourceLookupProfile)
+      : undefined;
+    const nextListCounts = shouldNormalizeListCounts
+      ? normalizeCreatureListCounts(rawListCounts, sourceListCounts)
+      : undefined;
+    const nextLocalizedStrings = shouldNormalizeLocalizedStrings
+      ? normalizeCreatureLocalizedStrings(rawLocalizedStrings, sourceLocalizedStrings)
+      : undefined;
 
     const nextScriptSlots: SceneObjectCreatureScriptSlots | undefined =
       shouldNormalizeScriptSlots
@@ -1901,12 +2939,22 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
               rawAdvancedSettings?.blueprintResRef,
               sourceAdvancedSettings.blueprintResRef
             ),
+            ...(typeof rawAdvancedSettings?.paletteId === "number" &&
+            Number.isFinite(rawAdvancedSettings.paletteId)
+              ? { paletteId: rawAdvancedSettings.paletteId }
+              : typeof sourceAdvancedSettings.paletteId === "number" &&
+                  Number.isFinite(sourceAdvancedSettings.paletteId)
+                ? { paletteId: sourceAdvancedSettings.paletteId }
+                : {}),
             disarmable: isBoolean(rawAdvancedSettings?.disarmable)
               ? rawAdvancedSettings.disarmable
               : sourceAdvancedSettings.disarmable,
             plot: isBoolean(rawAdvancedSettings?.plot)
               ? rawAdvancedSettings.plot
               : sourceAdvancedSettings.plot,
+            playerCharacter: isBoolean(rawAdvancedSettings?.playerCharacter)
+              ? rawAdvancedSettings.playerCharacter
+              : sourceAdvancedSettings.playerCharacter,
             leavesLootableCorpse: isBoolean(rawAdvancedSettings?.leavesLootableCorpse)
               ? rawAdvancedSettings.leavesLootableCorpse
               : sourceAdvancedSettings.leavesLootableCorpse,
@@ -1916,6 +2964,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             immortal: isBoolean(rawAdvancedSettings?.immortal)
               ? rawAdvancedSettings.immortal
               : sourceAdvancedSettings.immortal,
+            bodyBag: isBoolean(rawAdvancedSettings?.bodyBag)
+              ? rawAdvancedSettings.bodyBag
+              : sourceAdvancedSettings.bodyBag,
+            startingPackage: isBoolean(rawAdvancedSettings?.startingPackage)
+              ? rawAdvancedSettings.startingPackage
+              : sourceAdvancedSettings.startingPackage,
             treasureModel: asString(rawAdvancedSettings?.treasureModel, sourceAdvancedSettings.treasureModel),
             corpseDecayTimeSeconds: clampMin(
               asFiniteNumber(rawAdvancedSettings?.corpseDecayTimeSeconds, sourceAdvancedSettings.corpseDecayTimeSeconds),
@@ -1929,19 +2983,92 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
               sourceAdvancedSettings.challengeRatingAdjustment
             ),
             soundSet: asString(rawAdvancedSettings?.soundSet, sourceAdvancedSettings.soundSet),
+            ...(typeof rawAdvancedSettings?.soundSetFile === "number" &&
+            Number.isFinite(rawAdvancedSettings.soundSetFile)
+              ? { soundSetFile: Math.max(0, Math.min(65535, Math.trunc(rawAdvancedSettings.soundSetFile))) }
+              : sourceAdvancedSettings.soundSetFile !== undefined
+                ? { soundSetFile: sourceAdvancedSettings.soundSetFile }
+                : {}),
             perceptionRange: asString(
               rawAdvancedSettings?.perceptionRange,
               sourceAdvancedSettings.perceptionRange
-            )
+            ),
+            ...(typeof rawAdvancedSettings?.walkRateSource2daRow === "number" &&
+            Number.isFinite(rawAdvancedSettings.walkRateSource2daRow)
+              ? { walkRateSource2daRow: Math.trunc(rawAdvancedSettings.walkRateSource2daRow) }
+              : typeof sourceAdvancedSettings.walkRateSource2daRow === "number" &&
+                  Number.isFinite(sourceAdvancedSettings.walkRateSource2daRow)
+                ? { walkRateSource2daRow: Math.trunc(sourceAdvancedSettings.walkRateSource2daRow) }
+                : {}),
+            ...(typeof rawAdvancedSettings?.walkRateSource2daName === "string" &&
+            rawAdvancedSettings.walkRateSource2daName.trim().length > 0
+              ? { walkRateSource2daName: rawAdvancedSettings.walkRateSource2daName.trim() }
+              : typeof sourceAdvancedSettings.walkRateSource2daName === "string" &&
+                  sourceAdvancedSettings.walkRateSource2daName.trim().length > 0
+                ? { walkRateSource2daName: sourceAdvancedSettings.walkRateSource2daName.trim() }
+                : {}),
+            ...(typeof rawAdvancedSettings?.walkRateSpeed2daRow === "number" &&
+            Number.isFinite(rawAdvancedSettings.walkRateSpeed2daRow)
+              ? { walkRateSpeed2daRow: Math.trunc(rawAdvancedSettings.walkRateSpeed2daRow) }
+              : typeof sourceAdvancedSettings.walkRateSpeed2daRow === "number" &&
+                  Number.isFinite(sourceAdvancedSettings.walkRateSpeed2daRow)
+                ? { walkRateSpeed2daRow: Math.trunc(sourceAdvancedSettings.walkRateSpeed2daRow) }
+                : {}),
+            ...(typeof rawAdvancedSettings?.walkRateAppearance2daSourceKey === "string" &&
+            rawAdvancedSettings.walkRateAppearance2daSourceKey.trim().length > 0
+              ? {
+                  walkRateAppearance2daSourceKey:
+                    rawAdvancedSettings.walkRateAppearance2daSourceKey.trim()
+                }
+              : typeof sourceAdvancedSettings.walkRateAppearance2daSourceKey === "string" &&
+                  sourceAdvancedSettings.walkRateAppearance2daSourceKey.trim().length > 0
+                ? {
+                    walkRateAppearance2daSourceKey:
+                      sourceAdvancedSettings.walkRateAppearance2daSourceKey.trim()
+                  }
+                : {}),
+            ...(typeof rawAdvancedSettings?.walkRateSpeed2daSourceKey === "string" &&
+            rawAdvancedSettings.walkRateSpeed2daSourceKey.trim().length > 0
+              ? { walkRateSpeed2daSourceKey: rawAdvancedSettings.walkRateSpeed2daSourceKey.trim() }
+              : typeof sourceAdvancedSettings.walkRateSpeed2daSourceKey === "string" &&
+                  sourceAdvancedSettings.walkRateSpeed2daSourceKey.trim().length > 0
+                ? {
+                    walkRateSpeed2daSourceKey:
+                      sourceAdvancedSettings.walkRateSpeed2daSourceKey.trim()
+                  }
+                : {}),
+            ...(typeof rawAdvancedSettings?.animationState === "number" &&
+            Number.isFinite(rawAdvancedSettings.animationState)
+              ? { animationState: Math.trunc(rawAdvancedSettings.animationState) }
+              : typeof sourceAdvancedSettings.animationState === "number" &&
+                  Number.isFinite(sourceAdvancedSettings.animationState)
+                ? { animationState: Math.trunc(sourceAdvancedSettings.animationState) }
+                : {}),
+            ...(typeof rawAdvancedSettings?.animationName === "string" &&
+            rawAdvancedSettings.animationName.trim().length > 0
+              ? { animationName: rawAdvancedSettings.animationName.trim() }
+              : typeof sourceAdvancedSettings.animationName === "string" &&
+                  sourceAdvancedSettings.animationName.trim().length > 0
+                ? { animationName: sourceAdvancedSettings.animationName.trim() }
+                : {})
           }
         : undefined;
 
     const normalizedClassEntries = normalizeCreatureClassEntries(rawCreatureProperties?.classEntries);
+    const normalizedTemplateEntries = normalizeCreatureTemplateEntries(
+      rawCreatureProperties?.templateEntries
+    );
     const normalizedSkills = normalizeCreatureSkillEntries(rawCreatureProperties?.skills);
     const normalizedFeats = normalizeCreatureFeatEntries(rawCreatureProperties?.feats);
     const normalizedSpells = normalizeCreatureSpellEntries(rawCreatureProperties?.spells);
     const normalizedSpecialAbilities = normalizeCreatureSpecialAbilityEntries(
       rawCreatureProperties?.specialAbilities
+    );
+    const normalizedInventoryItems = normalizeCreatureInventoryItems(
+      rawCreatureProperties?.inventoryItems
+    );
+    const normalizedEquippedItems = normalizeCreatureEquippedItems(
+      rawCreatureProperties?.equippedItems
     );
 
     const nextClassEntries = shouldNormalizeClassEntries
@@ -1949,6 +3076,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         (currentCreatureProperties?.classEntries
           ? currentCreatureProperties.classEntries.map((entry) => ({ ...entry }))
           : DEFAULT_CREATURE_CLASS_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextTemplateEntries = shouldNormalizeTemplateEntries
+      ? normalizedTemplateEntries ??
+        (currentCreatureProperties?.templateEntries
+          ? currentCreatureProperties.templateEntries.map((entry) => ({ ...entry }))
+          : DEFAULT_CREATURE_TEMPLATE_ENTRIES.map((entry) => ({ ...entry })))
       : undefined;
     const nextSkills = shouldNormalizeSkills
       ? normalizedSkills ??
@@ -1973,6 +3106,24 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         (currentCreatureProperties?.specialAbilities
           ? currentCreatureProperties.specialAbilities.map((entry) => ({ ...entry }))
           : DEFAULT_CREATURE_SPECIAL_ABILITY_ENTRIES.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextInventoryItems = shouldNormalizeInventoryItems
+      ? normalizedInventoryItems ??
+        (currentCreatureProperties?.inventoryItems
+          ? currentCreatureProperties.inventoryItems.map((entry) => ({
+              ...entry,
+              embeddedItem: normalizeEmbeddedItemSummary(entry.embeddedItem)
+            }))
+          : DEFAULT_CREATURE_INVENTORY_ITEMS.map((entry) => ({ ...entry })))
+      : undefined;
+    const nextEquippedItems = shouldNormalizeEquippedItems
+      ? normalizedEquippedItems ??
+        (currentCreatureProperties?.equippedItems
+          ? currentCreatureProperties.equippedItems.map((entry) => ({
+              ...entry,
+              embeddedItem: normalizeEmbeddedItemSummary(entry.embeddedItem)
+            }))
+          : DEFAULT_CREATURE_EQUIPPED_ITEMS.map((entry) => ({ ...entry })))
       : undefined;
 
     const fallbackFirstName = asString(
@@ -2025,6 +3176,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const nextNoInterrupt = isBoolean(rawCreatureProperties?.noInterrupt)
       ? rawCreatureProperties.noInterrupt
       : sourceNoInterrupt;
+    const nextAlignment = shouldNormalizeAlignment
+      ? asString(
+          rawCreatureProperties?.alignment,
+          asString(currentCreatureProperties?.alignment, "True Neutral")
+        )
+      : undefined;
 
     const nextComments = shouldNormalizeComments
       ? asString(rawCreatureProperties?.comments, asString(currentCreatureProperties?.comments, ""))
@@ -2049,8 +3206,26 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     if (nextAppearanceSettings !== undefined) {
       nextCreatureProperties.appearanceSettings = nextAppearanceSettings;
     }
+    if (nextAppearanceProfile !== undefined) {
+      nextCreatureProperties.appearanceProfile = nextAppearanceProfile;
+    }
+    if (nextLookupProfile !== undefined) {
+      nextCreatureProperties.lookupProfile = nextLookupProfile;
+    }
+    if (nextListCounts !== undefined) {
+      nextCreatureProperties.listCounts = nextListCounts;
+    }
+    if (nextLocalizedStringRefs !== undefined) {
+      nextCreatureProperties.localizedStringRefs = nextLocalizedStringRefs;
+    }
+    if (nextLocalizedStrings !== undefined) {
+      nextCreatureProperties.localizedStrings = nextLocalizedStrings;
+    }
     if (nextClassEntries !== undefined) {
       nextCreatureProperties.classEntries = nextClassEntries;
+    }
+    if (nextTemplateEntries !== undefined) {
+      nextCreatureProperties.templateEntries = nextTemplateEntries;
     }
     if (nextSkills !== undefined) {
       nextCreatureProperties.skills = nextSkills;
@@ -2069,6 +3244,15 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     }
     if (nextSpecialAbilities !== undefined) {
       nextCreatureProperties.specialAbilities = nextSpecialAbilities;
+    }
+    if (nextInventoryItems !== undefined) {
+      nextCreatureProperties.inventoryItems = nextInventoryItems;
+    }
+    if (nextEquippedItems !== undefined) {
+      nextCreatureProperties.equippedItems = nextEquippedItems;
+    }
+    if (nextAlignment !== undefined) {
+      nextCreatureProperties.alignment = nextAlignment;
     }
     if (nextComments !== undefined) {
       nextCreatureProperties.comments = nextComments;
@@ -2093,12 +3277,39 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       (currentCreatureProperties?.conversation ?? "") === nextConversation &&
       (currentCreatureProperties?.noInterrupt ?? DEFAULT_CREATURE_PROPERTIES.noInterrupt) ===
         nextNoInterrupt &&
+      (shouldNormalizeAlignment
+        ? (currentCreatureProperties?.alignment ?? "True Neutral") === nextAlignment
+        : currentCreatureProperties?.alignment === undefined) &&
       areCreatureStatisticsEqual(currentCreatureProperties?.statistics, nextStatistics) &&
       areCreatureAppearanceSettingsEqual(
         currentCreatureProperties?.appearanceSettings,
         nextAppearanceSettings
       ) &&
+      areCreatureAppearanceProfilesEqual(
+        currentCreatureProperties?.appearanceProfile,
+        nextAppearanceProfile
+      ) &&
+      areCreatureLookupProfilesEqual(
+        currentCreatureProperties?.lookupProfile,
+        nextLookupProfile
+      ) &&
+      areCreatureListCountsEqual(
+        currentCreatureProperties?.listCounts,
+        nextListCounts
+      ) &&
+      areCreatureLocalizedStringRefsEqual(
+        currentCreatureProperties?.localizedStringRefs,
+        nextLocalizedStringRefs
+      ) &&
+      areCreatureLocalizedStringsEqual(
+        currentCreatureProperties?.localizedStrings,
+        nextLocalizedStrings
+      ) &&
       areCreatureClassEntriesEqual(currentCreatureProperties?.classEntries, nextClassEntries) &&
+      areCreatureTemplateEntriesEqual(
+        currentCreatureProperties?.templateEntries,
+        nextTemplateEntries
+      ) &&
       areCreatureSkillEntriesEqual(currentCreatureProperties?.skills, nextSkills) &&
       areCreatureScriptSlotsEqual(currentCreatureProperties?.scriptSlots, nextScriptSlots) &&
       areCreatureAdvancedSettingsEqual(
@@ -2111,9 +3322,18 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         currentCreatureProperties?.specialAbilities,
         nextSpecialAbilities
       ) &&
+      areCreatureInventoryItemsEqual(
+        currentCreatureProperties?.inventoryItems,
+        nextInventoryItems
+      ) &&
+      areCreatureEquippedItemsEqual(
+        currentCreatureProperties?.equippedItems,
+        nextEquippedItems
+      ) &&
       isCommentsUnchanged &&
       normalizedObject.doorProperties === undefined &&
       normalizedObject.placeableProperties === undefined &&
+      normalizedObject.encounterProperties === undefined &&
       normalizedObject.soundPositioning === undefined &&
       normalizedObject.doorTransition === undefined
     ) {
@@ -2126,6 +3346,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       doorProperties: undefined,
       creatureProperties: nextCreatureProperties,
       placeableProperties: undefined,
+      encounterProperties: undefined,
       soundPositioning: undefined,
       doorTransition: undefined
     };
@@ -2378,6 +3599,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       isDoorPropertiesUnchanged &&
       normalizedObject.placeableProperties === undefined &&
       normalizedObject.creatureProperties === undefined &&
+      normalizedObject.encounterProperties === undefined &&
       normalizedObject.soundPositioning === undefined &&
       isDoorTransitionUnchanged
     ) {
@@ -2389,8 +3611,30 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       doorProperties: nextDoorProperties,
       placeableProperties: undefined,
       creatureProperties: undefined,
+      encounterProperties: undefined,
       soundPositioning: undefined,
       doorTransition: nextDoorTransition
+    };
+  }
+
+  if (normalizedObject.kind === "encounters") {
+    if (
+      normalizedObject.doorProperties === undefined &&
+      normalizedObject.placeableProperties === undefined &&
+      normalizedObject.creatureProperties === undefined &&
+      normalizedObject.soundPositioning === undefined &&
+      normalizedObject.doorTransition === undefined
+    ) {
+      return normalizedObject;
+    }
+
+    return {
+      ...normalizedObject,
+      doorProperties: undefined,
+      placeableProperties: undefined,
+      creatureProperties: undefined,
+      soundPositioning: undefined,
+      doorTransition: undefined
     };
   }
 
@@ -2426,7 +3670,8 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       ) &&
       normalizedObject.doorProperties === undefined &&
       normalizedObject.placeableProperties === undefined &&
-      normalizedObject.creatureProperties === undefined
+      normalizedObject.creatureProperties === undefined &&
+      normalizedObject.encounterProperties === undefined
     ) {
       return normalizedObject;
     }
@@ -2436,6 +3681,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       doorProperties: undefined,
       placeableProperties: undefined,
       creatureProperties: undefined,
+      encounterProperties: undefined,
       soundPositioning: nextSoundPositioning
     };
   }
@@ -2444,6 +3690,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     normalizedObject.doorProperties === undefined &&
     normalizedObject.placeableProperties === undefined &&
     normalizedObject.creatureProperties === undefined &&
+    normalizedObject.encounterProperties === undefined &&
     normalizedObject.soundPositioning === undefined
   ) {
     return normalizedObject;
@@ -2456,6 +3703,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     doorProperties: undefined,
     placeableProperties: undefined,
     creatureProperties: undefined,
+    encounterProperties: undefined,
     soundPositioning: undefined
   };
 }
@@ -2589,8 +3837,12 @@ export function createNewSceneObject(
     placeables: "plc_a01",
     creatures: "nw_hguard",
     doors: "nw_door_ttr_11",
+    encounters: "enc_forest_ambush",
     items: "nw_it_mpotion001",
-    sounds: "as_amb_forest"
+    sounds: "as_amb_forest",
+    stores: "store_general",
+    triggers: "trg_generic",
+    waypoints: "wp_generic"
   };
 
   const key = kind.slice(0, 3);

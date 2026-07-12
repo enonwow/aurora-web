@@ -1,5 +1,7 @@
 import type {
+  AreaApiBinaryExportResult,
   AreaApiDetail,
+  AreaApiLightingEvidenceReport,
   AreaApiListQuery,
   AreaApiListResult,
   AreaApiLoginResult,
@@ -12,6 +14,7 @@ import type {
 export interface AreaApiPort {
   login(username: string, password: string): Promise<AreaApiLoginResult>;
   listAreas(accessToken: string, query?: AreaApiListQuery): Promise<AreaApiListResult>;
+  getAreaLightingEvidence(accessToken: string): Promise<AreaApiLightingEvidenceReport>;
   getAreaById(accessToken: string, areaId: string): Promise<AreaApiDetail>;
   processArea(
     accessToken: string,
@@ -23,4 +26,7 @@ export interface AreaApiPort {
     cacheKey: string,
     mode?: AreaApiTextureDeliveryMode
   ): Promise<AreaApiTextureDeliveryResult>;
+  exportAreaItemsGit(accessToken: string, areaId: string): Promise<AreaApiBinaryExportResult>;
+  exportAreaGit(accessToken: string, areaId: string): Promise<AreaApiBinaryExportResult>;
+  exportAreaAre(accessToken: string, areaId: string): Promise<AreaApiBinaryExportResult>;
 }

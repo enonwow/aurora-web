@@ -1,4 +1,6 @@
 import type {
+  TileApiProcessBatchRequestItem,
+  TileApiProcessBatchResult,
   TileApiProcessOptions,
   TileApiProcessResult,
   TileApiTextureDeliveryMode,
@@ -11,6 +13,10 @@ export interface TileApiPort {
     tileId: string,
     options?: TileApiProcessOptions
   ): Promise<TileApiProcessResult>;
+  processTiles?(
+    accessToken: string,
+    items: TileApiProcessBatchRequestItem[]
+  ): Promise<TileApiProcessBatchResult>;
   getTileTextureAtlasContracts(
     accessToken: string,
     cacheKey: string,

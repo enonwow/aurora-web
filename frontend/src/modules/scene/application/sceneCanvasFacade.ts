@@ -38,6 +38,10 @@ export interface SceneCanvasFacade {
 const SCENE_OBJECT_MIN_Z = 0;
 const LEGACY_SEED_SCENE_ID = "wnd_seed_builder_v1";
 
+function resolveFiniteNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -117,7 +121,7 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
       hasNormalizedZ ? withMetadata.z : withMetadata.visualTransform.offsetZ
     );
     const nextOffsetZ = hasNormalizedZ
-      ? Math.max(SCENE_OBJECT_MIN_Z, withMetadata.visualTransform.offsetZ)
+      ? resolveFiniteNumber(withMetadata.visualTransform.offsetZ, 0)
       : 0;
     const currentScale = object.visualTransform.scale;
     const nextScale =

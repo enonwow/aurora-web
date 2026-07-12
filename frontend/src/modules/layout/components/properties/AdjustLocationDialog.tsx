@@ -242,19 +242,46 @@ export function AdjustLocationDialog({
                   Visual Transforms
                   <span
                     className="canvas-adjust-location-info"
-                    title="Placeables: when Static is ON, visual transform values are saved but not rendered. When Static is OFF, saved values are applied."
+                    title="Placeables: Visual Transform values are saved and rendered for placeables, creatures, and items. World position and visual offset stay separate."
                     aria-label="Visual transform rules info"
                   >
                     i
                   </span>
                 </legend>
                 <label>
-                  Scale
+                  Uniform Scale
                   <input
                     type="number"
                     value={dialog.draft.scale}
                     step="0.01"
                     onChange={(event) => onDraftFieldChange("scale", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Scale X
+                  <input
+                    type="number"
+                    value={dialog.draft.scaleX}
+                    step="0.01"
+                    onChange={(event) => onDraftFieldChange("scaleX", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Scale Y
+                  <input
+                    type="number"
+                    value={dialog.draft.scaleY}
+                    step="0.01"
+                    onChange={(event) => onDraftFieldChange("scaleY", event.target.value)}
+                  />
+                </label>
+                <label>
+                  Scale Z
+                  <input
+                    type="number"
+                    value={dialog.draft.scaleZ}
+                    step="0.01"
+                    onChange={(event) => onDraftFieldChange("scaleZ", event.target.value)}
                   />
                 </label>
                 <label>
@@ -333,9 +360,9 @@ export function AdjustLocationDialog({
 
           {dialog.showVisualTransforms && dialog.mixedStaticPlaceables ? (
             <p className="canvas-adjust-location-note" role="note">
-              Mixed Static + non-Static selection: Visual Transforms are editable and saved for all
-              selected objects. Runtime applies scale/XY/rotation only where Static is OFF; Z
-              height still follows Adjust Location.
+              Mixed Static + non-Static selection: Static status does not block Visual
+              Transform. World position and height still follow Adjust Location separately from
+              visual offset.
             </p>
           ) : null}
 

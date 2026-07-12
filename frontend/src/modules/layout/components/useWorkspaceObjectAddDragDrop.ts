@@ -10,6 +10,11 @@ import type { SceneViewportPort } from "../../scene/application/sceneViewportPor
 import type { AreaScene, SceneHistoryState, SceneObject } from "../contracts";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
 import type { WorkspaceToolbarState } from "../application/workspaceChromeFacade";
+import {
+  cloneSceneObject,
+  cloneSceneObjectCreatureProperties,
+  cloneSceneObjectItemProperties
+} from "../application/workspaceSceneObjectClone";
 import type {
   CanvasObjectAddPreviewState,
   ObjectAddDropFeedbackState,
@@ -17,10 +22,12 @@ import type {
 } from "../application/workspaceObjectAddTypes";
 import {
   isKindLocked,
+  findTileAtWorld,
   resolveCreatedObjectSelectionIds,
   resolveObjectAddDropPlacement,
   resolveObjectAddPayloadKey,
   resolveRenderObjectIdsSet,
+  resolveSceneCoordinateMax,
   resolveSceneObjectRenderScale,
   shouldRenderAreaGeometry,
   snapAngleRadians,
@@ -33,8 +40,10 @@ import type {
 import {
   createObjectAddPayloadFromSceneObject,
   getCurrentObjectAddDragPayload,
+  getCurrentObjectAddDragSourceTemplate,
   OBJECT_ADD_DRAG_MIME,
   setCurrentObjectAddDragPayload,
+  setCurrentObjectAddDragSourceTemplate,
   tryParseObjectAddPayload,
   type ObjectAddDragPayload
 } from "../application/objectAddDragPayload";
@@ -65,6 +74,30 @@ interface ResolvedObjectAddPlacement {
   x: number;
   y: number;
   tileId: string;
+}
+
+function resolveSceneCenterObjectAddPlacement(scene: AreaScene): ResolvedObjectAddPlacement | null {
+  const maxX = resolveSceneCoordinateMax(scene.width);
+  const maxY = resolveSceneCoordinateMax(scene.height);
+  const centerX = Math.min(maxX, Math.max(0, scene.width / 2));
+  const centerY = Math.min(maxY, Math.max(0, scene.height / 2));
+  const centerTile =
+    findTileAtWorld(scene, centerX, centerY) ??
+    scene.tiles[Math.floor(scene.tiles.length / 2)] ??
+    null;
+  if (!centerTile) {
+    return {
+      x: centerX,
+      y: centerY,
+      tileId: "scene-center"
+    };
+  }
+
+  return {
+    x: Math.min(maxX, Math.max(0, centerTile.col + 0.5)),
+    y: Math.min(maxY, Math.max(0, centerTile.row + 0.5)),
+    tileId: centerTile.id
+  };
 }
 
 export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
@@ -100,6 +133,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
     setObjectAddPreview(null);
     setObjectAddPlacementMode(null);
     setCurrentObjectAddDragPayload(null);
+    setCurrentObjectAddDragSourceTemplate(null);
     objectAddPlacementCacheRef.current = null;
     clearObjectAddGhost();
   }, [clearObjectAddGhost]);
@@ -203,52 +237,59 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
       created.resRef = payload.resRef;
       created.name = payload.name;
       created.tag = payload.tag;
+      created.previewImageUrl = payload.previewImageUrl;
 
       const sourceTemplate =
         sourceTemplateOverride ?? scene.objects.find((object) => object.id === payload.id);
       if (sourceTemplate) {
-        created.resRef = sourceTemplate.resRef;
-        created.name = sourceTemplate.name;
-        created.tag = sourceTemplate.tag;
-        created.isStatic = sourceTemplate.isStatic;
-        created.placeableProperties = sourceTemplate.placeableProperties
+        const sourceSnapshot = cloneSceneObject(sourceTemplate);
+        created.resRef = sourceSnapshot.resRef;
+        created.name = sourceSnapshot.name;
+        created.tag = sourceSnapshot.tag;
+        created.previewImageUrl = sourceSnapshot.previewImageUrl;
+        created.isStatic = sourceSnapshot.isStatic;
+        created.placeableProperties = sourceSnapshot.placeableProperties
           ? {
-              ...sourceTemplate.placeableProperties,
-              scriptSlots: sourceTemplate.placeableProperties.scriptSlots
-                ? { ...sourceTemplate.placeableProperties.scriptSlots }
+              ...sourceSnapshot.placeableProperties,
+              scriptSlots: sourceSnapshot.placeableProperties.scriptSlots
+                ? { ...sourceSnapshot.placeableProperties.scriptSlots }
                 : undefined,
-              disabledFlags: sourceTemplate.placeableProperties.disabledFlags
-                ? { ...sourceTemplate.placeableProperties.disabledFlags }
+              disabledFlags: sourceSnapshot.placeableProperties.disabledFlags
+                ? { ...sourceSnapshot.placeableProperties.disabledFlags }
                 : undefined,
-              lockSettings: sourceTemplate.placeableProperties.lockSettings
-                ? { ...sourceTemplate.placeableProperties.lockSettings }
+              lockSettings: sourceSnapshot.placeableProperties.lockSettings
+                ? { ...sourceSnapshot.placeableProperties.lockSettings }
                 : undefined,
-              trapSettings: sourceTemplate.placeableProperties.trapSettings
-                ? { ...sourceTemplate.placeableProperties.trapSettings }
+              trapSettings: sourceSnapshot.placeableProperties.trapSettings
+                ? { ...sourceSnapshot.placeableProperties.trapSettings }
                 : undefined,
-              advancedSettings: sourceTemplate.placeableProperties.advancedSettings
-                ? { ...sourceTemplate.placeableProperties.advancedSettings }
+              advancedSettings: sourceSnapshot.placeableProperties.advancedSettings
+                ? { ...sourceSnapshot.placeableProperties.advancedSettings }
                 : undefined
             }
           : undefined;
-        created.soundPositioning = sourceTemplate.soundPositioning
+        created.creatureProperties = cloneSceneObjectCreatureProperties(
+          sourceSnapshot.creatureProperties
+        );
+        created.itemProperties = cloneSceneObjectItemProperties(sourceSnapshot.itemProperties);
+        created.soundPositioning = sourceSnapshot.soundPositioning
           ? {
-              ...sourceTemplate.soundPositioning,
-              preserve: sourceTemplate.soundPositioning.preserve
+              ...sourceSnapshot.soundPositioning,
+              preserve: sourceSnapshot.soundPositioning.preserve
                 ? {
-                    ...sourceTemplate.soundPositioning.preserve,
-                    flags: { ...sourceTemplate.soundPositioning.preserve.flags },
-                    extra: { ...sourceTemplate.soundPositioning.preserve.extra }
+                    ...sourceSnapshot.soundPositioning.preserve,
+                    flags: { ...sourceSnapshot.soundPositioning.preserve.flags },
+                    extra: { ...sourceSnapshot.soundPositioning.preserve.extra }
                   }
                 : undefined
             }
           : undefined;
-        created.doorTransition = sourceTemplate.doorTransition
+        created.doorTransition = sourceSnapshot.doorTransition
           ? {
-              ...sourceTemplate.doorTransition,
-              flags: { ...sourceTemplate.doorTransition.flags },
-              ...(sourceTemplate.doorTransition.extra
-                ? { extra: { ...sourceTemplate.doorTransition.extra } }
+              ...sourceSnapshot.doorTransition,
+              flags: { ...sourceSnapshot.doorTransition.flags },
+              ...(sourceSnapshot.doorTransition.extra
+                ? { extra: { ...sourceSnapshot.doorTransition.extra } }
                 : {})
             }
           : undefined;
@@ -366,9 +407,17 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
       const payload =
         tryParseObjectAddPayload(event.dataTransfer.getData(OBJECT_ADD_DRAG_MIME)) ??
         getCurrentObjectAddDragPayload();
+      const activeSourceTemplate = getCurrentObjectAddDragSourceTemplate();
+      const sourceTemplateOverride =
+        activeSourceTemplate &&
+        activeSourceTemplate.id === payload?.id &&
+        activeSourceTemplate.kind === payload?.kind
+          ? activeSourceTemplate
+          : null;
       if (!payload) {
         objectAddPlacementCacheRef.current = null;
         setCurrentObjectAddDragPayload(null);
+        setCurrentObjectAddDragSourceTemplate(null);
         clearObjectAddGhost();
         return;
       }
@@ -376,6 +425,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
       if (isKindLocked(toolbarState.canvasDebug, payload.kind)) {
         objectAddPlacementCacheRef.current = null;
         setCurrentObjectAddDragPayload(null);
+        setCurrentObjectAddDragSourceTemplate(null);
         clearObjectAddGhost();
         return;
       }
@@ -398,6 +448,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
       setObjectAddPreview(null);
       objectAddPlacementCacheRef.current = null;
       setCurrentObjectAddDragPayload(null);
+      setCurrentObjectAddDragSourceTemplate(null);
       clearObjectAddGhost();
       if (!resolvedPlacement || !resolvedPlacement.tileId) {
         setObjectAddDropFeedback({
@@ -418,7 +469,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
           y: resolvedPlacement.y,
           tileId: resolvedPlacement.tileId
         },
-        null,
+        sourceTemplateOverride,
         "drop"
       );
     },
@@ -488,6 +539,49 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
     },
     [clearObjectAddInteraction, objectAddPlacementMode, trackTelemetry, userId]
   );
+
+  const placeObjectAddAtSceneCenter = useCallback(() => {
+    if (!objectAddPlacementMode) {
+      return false;
+    }
+
+    const payload = objectAddPlacementMode.payload;
+    if (isKindLocked(toolbarState.canvasDebug, payload.kind)) {
+      cancelObjectAddPlacement("manual");
+      setObjectAddDropFeedback({
+        variant: "warning",
+        message: "This layer is locked. Unlock this object type before adding it."
+      });
+      return true;
+    }
+
+    const placement = resolveSceneCenterObjectAddPlacement(scene);
+    if (!placement) {
+      setObjectAddDropFeedback({
+        variant: "warning",
+        message: "No area tile is available for center placement."
+      });
+      return true;
+    }
+
+    addObjectFromPayload(payload, placement, objectAddPlacementMode.template, "click");
+    setObjectAddPreview(null);
+    objectAddPlacementCacheRef.current = null;
+    clearObjectAddGhost();
+    setCurrentObjectAddDragPayload(payload);
+    setObjectAddDropFeedback({
+      variant: "success",
+      message: `Placed ${objectAddPlacementMode.template.tag} at area center. Click another tile or press Esc.`
+    });
+    return true;
+  }, [
+    addObjectFromPayload,
+    cancelObjectAddPlacement,
+    clearObjectAddGhost,
+    objectAddPlacementMode,
+    scene,
+    toolbarState.canvasDebug
+  ]);
 
   const handleCanvasObjectAddMouseMove = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -639,6 +733,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
     objectAddDropFeedback,
     beginObjectAddPlacement,
     cancelObjectAddPlacement,
+    placeObjectAddAtSceneCenter,
     handleCanvasDragOver,
     handleCanvasDragLeave,
     handleCanvasDrop,

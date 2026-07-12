@@ -3,7 +3,7 @@
 ## Goal
 Frontend follows a modular monolith with hexagonal boundaries to keep:
 1. Aurora First consistency with backend architecture style.
-2. Facade-first integration for UI and mocks.
+2. Facade-first integration for UI and runtime/test adapters.
 3. Safe growth without cross-module coupling.
 
 ## Layer Model per Context
@@ -11,7 +11,7 @@ For each context in `src/modules/<context>` use:
 1. `domain/` for pure rules and domain types (no React, no browser APIs).
 2. `application/` for use-cases and facades used by UI.
 3. `ports/` for interfaces that application depends on.
-4. `adapters/` for concrete implementations of ports (localStorage, HTTP, mock, telemetry, etc.).
+4. `adapters/` for concrete implementations of ports (localStorage, HTTP, test fixtures, telemetry, etc.).
 5. `ui/` or `components/` for React views that call facades only.
 
 ## Dependency Rules
@@ -51,7 +51,7 @@ For each context in `src/modules/<context>` use:
 4. UI entrypoints consume injected facades/ports instead of local singleton construction:
    - `App.tsx`
    - `WorkspaceTopbar.tsx`
-   - `WorkspaceMockLayout.tsx`
+   - `WorkspaceLayout.tsx`
    - `WorkspaceCanvasViewport.tsx`
 5. Layout now centralizes scene/auth boundary typing via `layout/contracts.ts`, so components and layout application no longer reach directly into other contexts' internal files.
 

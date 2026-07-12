@@ -29,7 +29,7 @@ export function createBrowserLayoutPreferencesPort(
       try {
         storage.setItem(key, value);
       } catch {
-        // Ignore privacy/quota failures in mock mode.
+        // Ignore privacy/quota failures while reading browser layout preferences.
       }
     },
     remove(key) {
@@ -39,7 +39,7 @@ export function createBrowserLayoutPreferencesPort(
       try {
         storage.removeItem(key);
       } catch {
-        // Ignore privacy/quota failures in mock mode.
+        // Ignore privacy/quota failures while writing browser layout preferences.
       }
     },
     applyTheme(theme: LayoutThemeId) {

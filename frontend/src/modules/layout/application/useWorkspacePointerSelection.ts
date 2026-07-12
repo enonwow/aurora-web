@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type {
   Dispatch,
   MouseEvent as ReactMouseEvent,
@@ -9,14 +9,22 @@ import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 import type {
   AreaScene,
+  AuroraAreaEditingTool,
   SceneHistoryState,
   SceneObject,
   SceneObjectKind,
   TerrainBrushKind
 } from "../contracts";
 import type { WorkspaceOptionSettings } from "./layoutPreferencesFacade";
+import type { SelectionBoxMode } from "../workspaceOptionSettings";
 import type { ViewportFacade } from "./viewportFacade";
 import type { WorkspaceToolbarState } from "./workspaceChromeFacade";
+import {
+  resolveAuroraAreaPlacementPreview,
+  type AuroraAreaPalettePlacement,
+  type AuroraAreaPlacementPreview
+} from "../../scene/domain/auroraAreaPlacementPreview";
+import type { AuroraAreaEdge } from "../../scene/domain/auroraAreaEditing";
 import type { ContextMenuState } from "./useWorkspaceContextMenuActions";
 import type {
   WorkspaceAnchoredOverlayRuntimePort,
@@ -54,6 +62,106 @@ interface DragMoveState {
   objectIds: string[];
 }
 
+interface AuroraAreaPaintStrokeState {
+  active: boolean;
+  historyCommitted: boolean;
+  visitedTargets: Set<string>;
+}
+
+interface AuroraAreaPointerPlacementPreview {
+  preview: AuroraAreaPlacementPreview;
+  sceneId: string;
+  tileId: string;
+}
+
+interface AuroraAreaPlacementPreviewOverlayInput {
+  cells: readonly {
+    col: number;
+    row: number;
+    valid: boolean;
+    elevation?: number;
+  }[];
+  kind?: AuroraAreaPlacementPreview["kind"];
+  anchor?: { col: number; row: number };
+  targetEdge?: AuroraAreaEdge;
+}
+
+export function createAuroraAreaPlacementSelector(
+  sceneId: string,
+  row: number,
+  col: number,
+  tool: Exclude<AuroraAreaEditingTool, { kind: "inspect" }>
+): (candidateCount: number) => number {
+  const toolKey = tool.kind === "group"
+    ? `group:${tool.groupId}:${tool.orientation}`
+    : tool.kind === "terrain"
+      ? `terrain:${tool.terrain}`
+      : tool.kind === "crosser"
+        ? `crosser:${tool.crosser}`
+        : tool.kind === "height"
+          ? `height:${tool.delta}`
+          : "eraser";
+  const key = `${sceneId}:${row}:${col}:${toolKey}`;
+  let state = 2166136261;
+  for (let index = 0; index < key.length; index += 1) {
+    state ^= key.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+  return (candidateCount: number) => {
+    if (candidateCount <= 1) {
+      return 0;
+    }
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) % candidateCount;
+  };
+}
+
+/** Maps the half-grid crosser cursor to the nearest edge of its Area tile. */
+export function resolveAuroraAreaEdgeAtWorld(world: { x: number; y: number }): AuroraAreaEdge {
+  const x = world.x - Math.floor(world.x);
+  const y = world.y - Math.floor(world.y);
+  const distances: Array<{ edge: AuroraAreaEdge; distance: number }> = [
+    { edge: "top", distance: y },
+    { edge: "right", distance: 1 - x },
+    { edge: "bottom", distance: 1 - y },
+    { edge: "left", distance: x }
+  ];
+  return distances.reduce((best, candidate) =>
+    candidate.distance < best.distance ? candidate : best
+  ).edge;
+}
+
+export function resolveAuroraAreaInspectSelection(
+  current: readonly string[],
+  tileId: string,
+  additive: boolean
+): string[] {
+  if (!additive) return [tileId];
+  return current.includes(tileId)
+    ? current.filter((id) => id !== tileId)
+    : [...current, tileId];
+}
+
+export function resolveAuroraAreaBoxSelection(
+  current: readonly string[],
+  tileIdsInBox: readonly string[],
+  mode: SelectionBoxMode
+): string[] {
+  const boxIds = [...new Set(tileIdsInBox)];
+  if (mode === "replace") return boxIds;
+  if (mode === "add") {
+    const merged = new Set(current);
+    boxIds.forEach((id) => merged.add(id));
+    return [...merged];
+  }
+  const boxSet = new Set(boxIds);
+  return mode === "subtract"
+    ? current.filter((id) => !boxSet.has(id))
+    : current.filter((id) => boxSet.has(id));
+}
+
 interface UseWorkspacePointerSelectionArgs<TRuntime, TPointerRay> {
   runtimeRef: WorkspaceRuntimeRef<TRuntime>;
   pointerRuntimePort: WorkspacePointerRuntimePort<TRuntime, TPointerRay>;
@@ -63,16 +171,28 @@ interface UseWorkspacePointerSelectionArgs<TRuntime, TPointerRay> {
   viewportFacade: ViewportFacade;
   visibleObjects: SceneObject[];
   selectedObjectIds: string[];
+  selectedTileIds?: readonly string[];
   selectionBox: SelectionBoxState;
   setSelectionBox: Dispatch<SetStateAction<SelectionBoxState>>;
   setSelectedObjectIds: Dispatch<SetStateAction<string[]>>;
   setSelectedTileId: Dispatch<SetStateAction<string | null>>;
+  setSelectedTileIds?: Dispatch<SetStateAction<string[]>>;
   setSceneHistory: Dispatch<SetStateAction<SceneHistoryState>>;
   setContextMenu: Dispatch<SetStateAction<ContextMenuState | null>>;
   toolbarState: WorkspaceToolbarState;
   workspaceOptions: WorkspaceOptionSettings;
   objectBrush: SceneObjectKind;
   terrainBrush: TerrainBrushKind;
+  areaEditingTool: AuroraAreaEditingTool;
+  syncAuroraAreaPlacementPreview?: (
+    runtime: TRuntime,
+    input: AuroraAreaPlacementPreviewOverlayInput
+  ) => void;
+  clearAuroraAreaPlacementPreview?: (runtime: TRuntime) => void;
+  onAuroraAreaEditingFeedback?: (feedback: {
+    variant: "success" | "error";
+    message: string;
+  } | null) => void;
   lastPointerWorldRef: MutableRefObject<{ x: number; y: number } | null>;
   nextObjectSequenceRef: MutableRefObject<number>;
   isSelectableByActiveFilters: (object: SceneObject) => boolean;
@@ -94,16 +214,22 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
   viewportFacade,
   visibleObjects,
   selectedObjectIds,
+  selectedTileIds = [],
   selectionBox,
   setSelectionBox,
   setSelectedObjectIds,
   setSelectedTileId,
+  setSelectedTileIds,
   setSceneHistory,
   setContextMenu,
   toolbarState,
   workspaceOptions,
   objectBrush,
   terrainBrush,
+  areaEditingTool,
+  syncAuroraAreaPlacementPreview,
+  clearAuroraAreaPlacementPreview,
+  onAuroraAreaEditingFeedback,
   lastPointerWorldRef,
   nextObjectSequenceRef,
   isSelectableByActiveFilters,
@@ -116,6 +242,179 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
     lastWorld: null,
     objectIds: []
   });
+  const auroraAreaPaintStrokeRef = useRef<AuroraAreaPaintStrokeState>({
+    active: false,
+    historyCommitted: false,
+    visitedTargets: new Set()
+  });
+  const auroraAreaPlacementPreviewRef = useRef<AuroraAreaPointerPlacementPreview | null>(null);
+  const selectedAuroraAreaCellRef = useRef<{
+    sceneId: string;
+    row: number;
+    col: number;
+  } | null>(null);
+  const selectedAuroraAreaCellsRef = useRef<{
+    sceneId: string;
+    cells: Array<{ row: number; col: number }>;
+  } | null>(null);
+
+  const clearAuroraAreaPlacementPreviewState = useCallback(() => {
+    auroraAreaPlacementPreviewRef.current = null;
+    const runtime = runtimeRef.current;
+    if (runtime) {
+      clearAuroraAreaPlacementPreview?.(runtime);
+    }
+  }, [clearAuroraAreaPlacementPreview, runtimeRef]);
+
+  const resolveAuroraAreaPointerPlacementPreview = useCallback(
+    (world: { x: number; y: number }): AuroraAreaPlacementPreview | null => {
+      const payload = scene.auroraAreaEditing;
+      if (
+        !payload ||
+        areaEditingTool.kind === "inspect"
+      ) {
+        clearAuroraAreaPlacementPreviewState();
+        return null;
+      }
+
+      const tile = findTileAtWorld(scene, world.x, world.y);
+      if (!tile) {
+        clearAuroraAreaPlacementPreviewState();
+        return null;
+      }
+
+      const selection: AuroraAreaPalettePlacement = areaEditingTool.kind === "group"
+        ? {
+            kind: "group",
+            groupId: areaEditingTool.groupId,
+            orientation: areaEditingTool.orientation
+          }
+        : areaEditingTool.kind === "terrain"
+          ? { kind: "terrain", terrain: areaEditingTool.terrain }
+          : areaEditingTool.kind === "crosser"
+            ? {
+                kind: "crosser",
+                crosser: areaEditingTool.crosser,
+                edge: resolveAuroraAreaEdgeAtWorld(world)
+              }
+            : areaEditingTool.kind === "height"
+              ? { kind: "height", delta: areaEditingTool.delta }
+              : { kind: "eraser" };
+      const preview = resolveAuroraAreaPlacementPreview({
+        payload: { state: payload.state, definition: payload.definition },
+        hoveredCell: { row: tile.row, col: tile.col },
+        selection,
+        selector: createAuroraAreaPlacementSelector(
+          scene.sceneId,
+          tile.row,
+          tile.col,
+          areaEditingTool
+        )
+      });
+      auroraAreaPlacementPreviewRef.current = {
+        preview,
+        sceneId: scene.sceneId,
+        tileId: tile.id
+      };
+
+      const runtime = runtimeRef.current;
+      if (runtime) {
+        const elevationByCell = new Map(
+          scene.tiles.map((candidate) => [
+            `${candidate.row}:${candidate.col}`,
+            candidate.height ?? 0
+          ])
+        );
+        syncAuroraAreaPlacementPreview?.(runtime, {
+          cells: preview.targetCells.map((cell) => ({
+            row: cell.row,
+            col: cell.col,
+            valid: preview.valid,
+            elevation: elevationByCell.get(`${cell.row}:${cell.col}`) ?? 0
+          })),
+          kind: preview.kind,
+          anchor: preview.anchor,
+          targetEdge: selection.kind === "crosser" ? selection.edge : undefined
+        });
+      }
+      return preview;
+    },
+    [
+      areaEditingTool,
+      clearAuroraAreaPlacementPreviewState,
+      runtimeRef,
+      scene,
+      syncAuroraAreaPlacementPreview,
+      toolbarState.selectionMode
+    ]
+  );
+
+  useEffect(() => {
+    if (selectedTileIds.length === 0) {
+      selectedAuroraAreaCellsRef.current = null;
+      return;
+    }
+    selectedAuroraAreaCellsRef.current = {
+      sceneId: scene.sceneId,
+      cells: selectedTileIds.flatMap((id) => {
+        const tile = scene.tiles.find((candidate) => candidate.id === id);
+        return tile ? [{ row: tile.row, col: tile.col }] : [];
+      })
+    };
+  }, [scene.sceneId, selectedTileIds]);
+
+  // Topology operations can replace runtime tile ids. Preserve every selected
+  // Area cell and remap it after the next scene projection.
+  useEffect(() => {
+    const selectedCells = selectedAuroraAreaCellsRef.current;
+    if (setSelectedTileIds) {
+      if (selectedCells?.sceneId === scene.sceneId && selectedCells.cells.length > 0) {
+        setSelectedTileIds(
+          selectedCells.cells.flatMap((cell) => {
+            const tile = scene.tiles.find(
+              (candidate) => candidate.row === cell.row && candidate.col === cell.col
+            );
+            return tile ? [tile.id] : [];
+          })
+        );
+      }
+      return;
+    }
+    const selectedCell = selectedAuroraAreaCellRef.current;
+    if (!selectedCell || selectedCell.sceneId !== scene.sceneId) {
+      return;
+    }
+    const projectedTile = scene.tiles.find(
+      (tile) => tile.row === selectedCell.row && tile.col === selectedCell.col
+    );
+    setSelectedTileId(projectedTile?.id ?? null);
+  }, [scene.sceneId, scene.tiles, setSelectedTileId, setSelectedTileIds]);
+
+  // Palette changes and external Area scene updates invalidate any cursor result.
+  useEffect(() => {
+    clearAuroraAreaPlacementPreviewState();
+    return clearAuroraAreaPlacementPreviewState;
+  }, [
+    clearAuroraAreaPlacementPreviewState,
+    scene.sceneId,
+    scene.auroraAreaEditing?.state,
+    scene.auroraAreaEditing?.definition,
+    scene.auroraAreaEditing?.terrainBrush,
+    scene.auroraAreaEditing?.selectedGroupId,
+    scene.auroraAreaEditing?.groupOrientation,
+    areaEditingTool,
+    toolbarState.selectionMode
+  ]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        clearAuroraAreaPlacementPreviewState();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [clearAuroraAreaPlacementPreviewState]);
 
   const commitBoxSelection = useCallback(
     (box: SelectionBoxState, ctrlAdditive: boolean) => {
@@ -146,8 +445,38 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
         })
         .map((object) => object.id);
 
-      setSelectedTileId(null);
       const mode = ctrlAdditive ? "add" : workspaceOptions.selectionBoxMode;
+      if (scene.auroraAreaEditing && areaEditingTool.kind === "inspect" && setSelectedTileIds) {
+        const tileIdsInBox = scene.tiles
+          .slice()
+          .sort((left, right) => left.row - right.row || left.col - right.col)
+          .filter((tile) => {
+            const corners = [
+              pointerRuntimePort.worldToScreen(runtime, tile.col, tile.row),
+              pointerRuntimePort.worldToScreen(runtime, tile.col + 1, tile.row),
+              pointerRuntimePort.worldToScreen(runtime, tile.col, tile.row + 1),
+              pointerRuntimePort.worldToScreen(runtime, tile.col + 1, tile.row + 1)
+            ];
+            const tileMinX = Math.min(...corners.map((corner) => corner.x));
+            const tileMaxX = Math.max(...corners.map((corner) => corner.x));
+            const tileMinY = Math.min(...corners.map((corner) => corner.y));
+            const tileMaxY = Math.max(...corners.map((corner) => corner.y));
+            return tileMaxX >= minX && tileMinX <= maxX && tileMaxY >= minY && tileMinY <= maxY;
+          })
+          .map((tile) => tile.id);
+        setSelectedObjectIds([]);
+        setSelectedTileIds((current) =>
+          resolveAuroraAreaBoxSelection(current, tileIdsInBox, mode)
+        );
+        trackTelemetry("scene.area_tiles.selection.box", {
+          userId,
+          mode,
+          selectedInBox: tileIdsInBox.length
+        });
+        return;
+      }
+
+      setSelectedTileId(null);
       setSelectedObjectIds((current) => {
         if (mode === "replace") {
           return idsInBox;
@@ -173,10 +502,13 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
     },
     [
       isSelectableByActiveFilters,
+      areaEditingTool.kind,
       pointerRuntimePort,
       runtimeRef,
+      scene,
       setSelectedObjectIds,
       setSelectedTileId,
+      setSelectedTileIds,
       toolbarState.canvasDebug,
       trackTelemetry,
       userId,
@@ -293,6 +625,11 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
         return;
       }
 
+      auroraAreaPaintStrokeRef.current = {
+        active: false,
+        historyCommitted: false,
+        visitedTargets: new Set()
+      };
       setContextMenu(null);
       if (event.shiftKey) {
         pointerRuntimePort.setControlsEnabled(runtime, false);
@@ -307,33 +644,131 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
       }
       const tile = groundHit ? findTileAtWorld(scene, groundHit.x, groundHit.y) : null;
 
-      if (toolbarState.selectionMode === "terrain") {
+      const auroraAreaPaintToolActive = Boolean(
+        scene.auroraAreaEditing && areaEditingTool.kind !== "inspect"
+      );
+      if (toolbarState.selectionMode === "terrain" || auroraAreaPaintToolActive) {
         if (!tile) {
           setSelectedTileId(null);
+          clearAuroraAreaPlacementPreviewState();
           return;
         }
 
-        setSelectedTileId(tile.id);
+        selectedAuroraAreaCellRef.current = {
+          sceneId: scene.sceneId,
+          row: tile.row,
+          col: tile.col
+        };
+        const payload = scene.auroraAreaEditing;
+        if (payload && areaEditingTool.kind === "inspect" && event.ctrlKey && setSelectedTileIds) {
+          setSelectedTileIds((current) =>
+            resolveAuroraAreaInspectSelection(current, tile.id, true)
+          );
+        } else {
+          setSelectedTileId(tile.id);
+        }
         setSelectedObjectIds([]);
-        const shouldTrackTerrainPaint = tile.terrain !== terrainBrush;
+        if (payload && areaEditingTool.kind === "inspect") {
+          onAuroraAreaEditingFeedback?.(null);
+          clearAuroraAreaPlacementPreviewState();
+          return;
+        }
+        const activeTerrainBrush = areaEditingTool.kind === "terrain"
+          ? areaEditingTool.terrain
+          : payload?.terrainBrush ?? terrainBrush;
+        const preview = payload
+          ? resolveAuroraAreaPointerPlacementPreview({ x: groundHit!.x, y: groundHit!.y })
+          : null;
+        if (payload && !preview?.valid) {
+          onAuroraAreaEditingFeedback?.({
+            variant: "error",
+            message: preview?.message ?? "This Area tile operation is not valid at the selected cell."
+          });
+          return;
+        }
+
+        if (payload) {
+          onAuroraAreaEditingFeedback?.(null);
+        }
+
+        const shouldTrackTerrainPaint = tile.terrain !== activeTerrainBrush;
+        const supportsPaintStroke = Boolean(
+          payload &&
+          (areaEditingTool.kind === "terrain" ||
+            areaEditingTool.kind === "crosser" ||
+            areaEditingTool.kind === "height")
+        );
+        if (supportsPaintStroke) {
+          const target = areaEditingTool.kind === "crosser"
+            ? `${tile.row}:${tile.col}:${resolveAuroraAreaEdgeAtWorld(groundHit!)}`
+            : `${tile.row}:${tile.col}`;
+          auroraAreaPaintStrokeRef.current = {
+            active: true,
+            historyCommitted: false,
+            visitedTargets: new Set([target])
+          };
+        }
 
         setSceneHistory((current) => {
-          const nextScene = sceneViewportPort.updateTileTerrain(
-            current.present,
-            tile.id,
-            terrainBrush
-          );
+          const currentPayload = current.present.auroraAreaEditing;
+          const selector = areaEditingTool.kind === "inspect"
+            ? undefined
+            : createAuroraAreaPlacementSelector(
+                current.present.sceneId,
+                tile.row,
+                tile.col,
+                areaEditingTool
+              );
+          const nextScene = currentPayload
+            ? areaEditingTool.kind === "group"
+              ? sceneViewportPort.placeAuroraAreaGroup(
+                  current.present,
+                  tile.id,
+                  areaEditingTool.groupId,
+                  areaEditingTool.orientation,
+                  selector
+                )
+              : areaEditingTool.kind === "eraser"
+                ? sceneViewportPort.applyAuroraAreaEraser(current.present, tile.id)
+              : areaEditingTool.kind === "crosser"
+                ? sceneViewportPort.applyAuroraAreaCrosserBrush(
+                    current.present,
+                    tile.id,
+                    resolveAuroraAreaEdgeAtWorld(groundHit!),
+                    areaEditingTool.crosser,
+                    selector
+                  )
+                : areaEditingTool.kind === "height"
+                  ? sceneViewportPort.applyAuroraAreaHeightBrush(
+                      current.present,
+                      tile.id,
+                      areaEditingTool.delta,
+                      selector
+                    )
+                  : sceneViewportPort.applyAuroraAreaTerrainBrush(
+                  current.present,
+                  tile.id,
+                  activeTerrainBrush,
+                  selector
+                  )
+            : sceneViewportPort.updateTileTerrain(current.present, tile.id, terrainBrush);
           if (nextScene === current.present) {
             return current;
           }
+          if (supportsPaintStroke) {
+            auroraAreaPaintStrokeRef.current.historyCommitted = true;
+          }
           return sceneViewportPort.commitHistory(current, nextScene);
         });
-        if (shouldTrackTerrainPaint) {
+        if (areaEditingTool.kind === "terrain" && shouldTrackTerrainPaint) {
           trackTelemetry("scene.tiles.paint", {
             userId,
             tileId: tile.id,
-            terrain: terrainBrush
+            terrain: activeTerrainBrush
           });
+        }
+        if (payload) {
+          clearAuroraAreaPlacementPreviewState();
         }
         return;
       }
@@ -457,20 +892,25 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
       setSelectedTileId(tile?.id ?? null);
     },
     [
+      areaEditingTool,
       isSelectableByActiveFilters,
       anchoredOverlayRuntimePort,
+      clearAuroraAreaPlacementPreviewState,
       objectBrush,
       pointerRuntimePort,
       runtimeRef,
       scene,
       sceneViewportPort,
       selectedObjectIds,
+      selectedTileIds,
       setContextMenu,
       setSceneHistory,
       setSelectedObjectIds,
       setSelectedTileId,
+      setSelectedTileIds,
       setSelectionBox,
       terrainBrush,
+      resolveAuroraAreaPointerPlacementPreview,
       toolbarState.selectionMode,
       toolbarState.selectionScope,
       toolbarState.canvasDebug,
@@ -480,7 +920,8 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
       visibleObjects,
       workspaceOptions,
       lastPointerWorldRef,
-      nextObjectSequenceRef
+      nextObjectSequenceRef,
+      onAuroraAreaEditingFeedback
     ]
   );
 
@@ -525,27 +966,123 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
       return;
     }
 
+    const areaPaintStroke = auroraAreaPaintStrokeRef.current;
+    if (areaPaintStroke.active) {
+      if (!(event.buttons & 1)) {
+        auroraAreaPaintStrokeRef.current = {
+          active: false,
+          historyCommitted: false,
+          visitedTargets: new Set()
+        };
+        return;
+      }
+      const hoveredTile = groundHit ? findTileAtWorld(scene, groundHit.x, groundHit.y) : null;
+      if (
+        hoveredTile &&
+        (areaEditingTool.kind === "terrain" ||
+          areaEditingTool.kind === "crosser" ||
+          areaEditingTool.kind === "height")
+      ) {
+        const targetEdge = areaEditingTool.kind === "crosser"
+          ? resolveAuroraAreaEdgeAtWorld(groundHit!)
+          : undefined;
+        const targetKey = targetEdge
+          ? `${hoveredTile.row}:${hoveredTile.col}:${targetEdge}`
+          : `${hoveredTile.row}:${hoveredTile.col}`;
+        if (!areaPaintStroke.visitedTargets.has(targetKey)) {
+          areaPaintStroke.visitedTargets.add(targetKey);
+          setSceneHistory((current) => {
+            const currentTile = current.present.tiles.find(
+              (tile) => tile.row === hoveredTile.row && tile.col === hoveredTile.col
+            );
+            if (!currentTile || !current.present.auroraAreaEditing) {
+              return current;
+            }
+            const selector = createAuroraAreaPlacementSelector(
+              current.present.sceneId,
+              currentTile.row,
+              currentTile.col,
+              areaEditingTool
+            );
+            const nextScene = areaEditingTool.kind === "crosser"
+              ? sceneViewportPort.applyAuroraAreaCrosserBrush(
+                  current.present,
+                  currentTile.id,
+                  targetEdge!,
+                  areaEditingTool.crosser,
+                  selector
+                )
+              : areaEditingTool.kind === "height"
+                ? sceneViewportPort.applyAuroraAreaHeightBrush(
+                    current.present,
+                    currentTile.id,
+                    areaEditingTool.delta,
+                    selector
+                  )
+                : sceneViewportPort.applyAuroraAreaTerrainBrush(
+                    current.present,
+                    currentTile.id,
+                    areaEditingTool.terrain,
+                    selector
+                  );
+            if (nextScene === current.present) {
+              return current;
+            }
+            if (!areaPaintStroke.historyCommitted) {
+              areaPaintStroke.historyCommitted = true;
+              return sceneViewportPort.commitHistory(current, nextScene);
+            }
+            return {
+              ...current,
+              present: nextScene,
+              future: []
+            };
+          });
+          clearAuroraAreaPlacementPreviewState();
+        }
+      }
+      return;
+    }
+
     if (pointerRuntimePort.isTransformDragging(runtime)) {
       return;
     }
 
-    if (!selectionBox.active) {
+    if (selectionBox.active) {
+      const local = pointerRuntimePort.pointerToLocal(runtime, event);
+      setSelectionBox((current) => ({
+        ...current,
+        currentX: local.x,
+        currentY: local.y
+      }));
       return;
     }
 
-    const local = pointerRuntimePort.pointerToLocal(runtime, event);
-    setSelectionBox((current) => ({
-      ...current,
-      currentX: local.x,
-      currentY: local.y
-    }));
+    if (
+      toolbarState.selectionMode === "terrain" ||
+      Boolean(scene.auroraAreaEditing && areaEditingTool.kind !== "inspect")
+    ) {
+      if (groundHit) {
+        resolveAuroraAreaPointerPlacementPreview({ x: groundHit.x, y: groundHit.y });
+      } else {
+        clearAuroraAreaPlacementPreviewState();
+      }
+      return;
+    }
   }, [
+    clearAuroraAreaPlacementPreviewState,
+    areaEditingTool,
     lastPointerWorldRef,
     moveSelectedObjectsByDelta,
     pointerRuntimePort,
     runtimeRef,
+    scene,
+    sceneViewportPort,
     selectionBox.active,
-    setSelectionBox
+    setSceneHistory,
+    setSelectionBox,
+    resolveAuroraAreaPointerPlacementPreview,
+    toolbarState.selectionMode
   ]);
 
   const handleMouseUp = useCallback(
@@ -560,6 +1097,14 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
         if (runtime) {
           pointerRuntimePort.setControlsEnabled(runtime, true);
         }
+      }
+
+      if (auroraAreaPaintStrokeRef.current.active) {
+        auroraAreaPaintStrokeRef.current = {
+          active: false,
+          historyCommitted: false,
+          visitedTargets: new Set()
+        };
       }
 
       if (!selectionBox.active) {
@@ -582,9 +1127,19 @@ export function useWorkspacePointerSelection<TRuntime, TPointerRay>({
     [commitBoxSelection, pointerRuntimePort, runtimeRef, selectionBox, setSelectionBox]
   );
 
+  const handleMouseLeave = useCallback(() => {
+    auroraAreaPaintStrokeRef.current = {
+      active: false,
+      historyCommitted: false,
+      visitedTargets: new Set()
+    };
+    clearAuroraAreaPlacementPreviewState();
+  }, [clearAuroraAreaPlacementPreviewState]);
+
   return {
     handleMouseDown,
     handleMouseMove,
-    handleMouseUp
+    handleMouseUp,
+    handleMouseLeave
   };
 }

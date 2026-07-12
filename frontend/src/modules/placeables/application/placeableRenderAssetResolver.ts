@@ -3,8 +3,42 @@ import { normalizePlaceableTextureReference } from "./placeableTextureReferences
 
 const SUPPORTED_PLACEABLE_MODEL_EXTENSIONS: ReadonlyArray<string> = [".glb", ".gltf"];
 const UNSUPPORTED_PLACEABLE_MODEL_EXTENSIONS: ReadonlyArray<string> = [".mdl", ".mdb"];
-const DEFAULT_BACKEND_DELIVERY_ORIGIN = "http://localhost:3000";
+// Match the direct development API origin so relative delivery URLs and cache keys
+// keep one loopback identity instead of alternating between localhost and 127.0.0.1.
+const DEFAULT_BACKEND_DELIVERY_ORIGIN = "http://127.0.0.1:3000";
 const DEV_BACKEND_PROXY_PREFIX = "/_aurora";
+const DIFFUSE_TEXTURE_SUFFIXES: ReadonlyArray<string> = [
+  "_d",
+  "_diff",
+  "_diffuse",
+  "_albedo",
+  "_basecolor",
+  "_base_color",
+  "_color",
+  "_col"
+];
+const NON_COLOR_TEXTURE_SUFFIXES: ReadonlyArray<string> = [
+  "_n",
+  "_nrml",
+  "_normal",
+  "_r",
+  "_rough",
+  "_roughness",
+  "_s",
+  "_spec",
+  "_specular",
+  "_m",
+  "_h",
+  "_height",
+  "_b",
+  "_bump"
+];
+const PLACEABLE_FAST_SHADOW_TEXTURE_REFERENCES = new Set(["fxpa_dot01", "fxpa_dot01.tga"]);
+
+interface TextureDeliveryCandidate {
+  deliveryUrl: string;
+  reference: string | null;
+}
 
 export interface PlaceableRenderModelResolution {
   modelUrl: string | null;
@@ -18,9 +52,13 @@ export function resolveBackendDeliveryOriginFromConfig(
   configuredBaseUrl?: string,
   fallbackOrigin = resolveDefaultDeliveryOrigin()
 ): string {
-  if (configuredBaseUrl && configuredBaseUrl.trim().length > 0) {
+  const normalizedBaseUrl = configuredBaseUrl?.trim();
+  if (normalizedBaseUrl && normalizedBaseUrl.length > 0) {
     try {
-      return new URL(configuredBaseUrl, fallbackOrigin).origin;
+      return new URL(
+        normalizedBaseUrl,
+        resolveConfiguredDeliveryOriginBase(normalizedBaseUrl, fallbackOrigin)
+      ).origin;
     } catch {
       // Fallback handled below.
     }
@@ -28,15 +66,38 @@ export function resolveBackendDeliveryOriginFromConfig(
   return fallbackOrigin;
 }
 
+function resolveConfiguredDeliveryOriginBase(configuredBaseUrl: string, fallbackOrigin: string): string {
+  if (/^[a-z][a-z\d+\-.]*:/iu.test(configuredBaseUrl) || configuredBaseUrl.startsWith("//")) {
+    return fallbackOrigin;
+  }
+  const locationOrigin = globalThis.location?.origin;
+  return locationOrigin && locationOrigin !== "null" ? locationOrigin : fallbackOrigin;
+}
+
 function resolveDefaultDeliveryOrigin(): string {
   const locationOrigin = globalThis.location?.origin;
   if (import.meta.env.DEV && isViteDevServerOrigin(locationOrigin)) {
     return DEFAULT_BACKEND_DELIVERY_ORIGIN;
   }
+  if (locationOrigin && isDirectLoopbackBackendOrigin(locationOrigin)) {
+    return normalizeLoopbackDeliveryIdentity(locationOrigin, DEFAULT_BACKEND_DELIVERY_ORIGIN);
+  }
   if (locationOrigin && locationOrigin !== "null") {
     return locationOrigin;
   }
   return DEFAULT_BACKEND_DELIVERY_ORIGIN;
+}
+
+function isDirectLoopbackBackendOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
+      parsed.port === "3000"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isViteDevServerOrigin(origin: string | undefined): boolean {
@@ -45,12 +106,16 @@ function isViteDevServerOrigin(origin: string | undefined): boolean {
   }
   try {
     const parsed = new URL(origin);
+    const isLocalhost =
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "[::1]";
     return (
-      (parsed.hostname === "localhost" ||
-        parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "::1" ||
-        parsed.hostname === "[::1]") &&
-      /^517\d$/u.test(parsed.port)
+      isLocalhost &&
+      parsed.port.length > 0 &&
+      parsed.port !== "3000" &&
+      parsed.port !== "8888"
     );
   } catch {
     return false;
@@ -60,9 +125,36 @@ function isViteDevServerOrigin(origin: string | undefined): boolean {
 function resolveAbsoluteDeliveryUrl(deliveryUrl: string, deliveryOrigin: string): string {
   const resolvedDeliveryUrl = resolveDevProxiedDeliveryUrl(deliveryUrl, deliveryOrigin);
   if (/^https?:\/\//iu.test(resolvedDeliveryUrl)) {
-    return resolvedDeliveryUrl;
+    return normalizeLoopbackDeliveryIdentity(resolvedDeliveryUrl, deliveryOrigin);
+  }
+  const locationOrigin = globalThis.location?.origin;
+  if (
+    resolvedDeliveryUrl.startsWith(`${DEV_BACKEND_PROXY_PREFIX}/`) &&
+    isViteDevServerOrigin(locationOrigin)
+  ) {
+    return new URL(resolvedDeliveryUrl, locationOrigin).toString();
   }
   return new URL(resolvedDeliveryUrl, deliveryOrigin).toString();
+}
+
+function normalizeLoopbackDeliveryIdentity(deliveryUrl: string, deliveryOrigin: string): string {
+  try {
+    const parsedDeliveryUrl = new URL(deliveryUrl);
+    const parsedDeliveryOrigin = new URL(deliveryOrigin);
+    const loopbackHosts = new Set(["localhost", "127.0.0.1"]);
+    if (
+      parsedDeliveryUrl.protocol === parsedDeliveryOrigin.protocol &&
+      parsedDeliveryUrl.port === parsedDeliveryOrigin.port &&
+      loopbackHosts.has(parsedDeliveryUrl.hostname) &&
+      loopbackHosts.has(parsedDeliveryOrigin.hostname)
+    ) {
+      parsedDeliveryUrl.hostname = parsedDeliveryOrigin.hostname;
+      return parsedDeliveryUrl.toString();
+    }
+  } catch {
+    // Preserve the original absolute candidate when URL normalization is unavailable.
+  }
+  return deliveryUrl;
 }
 
 function toAssetObjectCacheKey(objectKey: string | undefined): string | null {
@@ -75,6 +167,69 @@ export function resolvePlaceableAssetDeliveryUrl(
   deliveryOrigin = resolveDefaultDeliveryOrigin()
 ): string {
   return resolveAbsoluteDeliveryUrl(deliveryUrl, deliveryOrigin);
+}
+
+function resolveAssetContractDeliveryCandidate(assetContract: {
+  deliveryPath?: string;
+  deliveryUrl?: string;
+}): string {
+  const deliveryPath =
+    typeof assetContract.deliveryPath === "string" ? assetContract.deliveryPath.trim() : "";
+  const deliveryUrl =
+    typeof assetContract.deliveryUrl === "string" ? assetContract.deliveryUrl.trim() : "";
+  if (
+    deliveryPath.length > 0 &&
+    (deliveryUrl.length === 0 || shouldPreferAssetContractDeliveryPath(deliveryUrl))
+  ) {
+    return deliveryPath;
+  }
+  return deliveryUrl.length > 0 ? deliveryUrl : deliveryPath;
+}
+
+function resolveModelAssetContractDeliveryCandidate(assetContract: {
+  deliveryPath?: string;
+  deliveryUrl?: string;
+}): string {
+  const deliveryUrl =
+    typeof assetContract.deliveryUrl === "string" ? assetContract.deliveryUrl.trim() : "";
+  const deliveryPath =
+    typeof assetContract.deliveryPath === "string" ? assetContract.deliveryPath.trim() : "";
+  if (
+    deliveryPath.length > 0 &&
+    (deliveryUrl.length === 0 || shouldPreferAssetContractDeliveryPath(deliveryUrl))
+  ) {
+    return deliveryPath;
+  }
+  return deliveryUrl.length > 0 ? deliveryUrl : deliveryPath;
+}
+
+function shouldPreferAssetContractDeliveryPath(deliveryUrl: string): boolean {
+  try {
+    const parsed = new URL(deliveryUrl, resolveDefaultDeliveryOrigin());
+    return parsed.port === "8888" || parsed.pathname.includes("/buckets/");
+  } catch {
+    return deliveryUrl.includes("/buckets/");
+  }
+}
+
+function buildTextureAssetContractDeliveryUrlByAssetId(
+  payload: PlaceableViewportRenderPayload
+): Map<string, string> {
+  const roleByAssetId = new Map<string, string>(
+    payload.placeable.assetManifest.assets.map((asset) => [asset.assetId, asset.role])
+  );
+  const deliveryUrlByAssetId = new Map<string, string>();
+  payload.assetContracts.assets.forEach((assetContract) => {
+    if (roleByAssetId.get(assetContract.assetId) !== "texture") {
+      return;
+    }
+    const deliveryUrl = resolveAssetContractDeliveryCandidate(assetContract);
+    if (deliveryUrl.length === 0 || deliveryUrlByAssetId.has(assetContract.assetId)) {
+      return;
+    }
+    deliveryUrlByAssetId.set(assetContract.assetId, deliveryUrl);
+  });
+  return deliveryUrlByAssetId;
 }
 
 function resolveDevProxiedDeliveryUrl(deliveryUrl: string, deliveryOrigin: string): string {
@@ -94,27 +249,108 @@ export function resolvePlaceableTextureDeliveryUrl(
   const roleByAssetId = new Map<string, string>(
     payload.placeable.assetManifest.assets.map((asset) => [asset.assetId, asset.role])
   );
-  const textureContract = payload.assetContracts.assets.find(
-    (assetContract) => roleByAssetId.get(assetContract.assetId) === "texture"
+  const assetById = new Map(
+    payload.placeable.assetManifest.assets.map((asset) => [asset.assetId, asset])
   );
-  if (textureContract?.deliveryUrl && textureContract.deliveryUrl.trim().length > 0) {
-    return resolveAbsoluteDeliveryUrl(textureContract.deliveryUrl, deliveryOrigin);
+  const textureAssetContractDeliveryUrlByAssetId =
+    buildTextureAssetContractDeliveryUrlByAssetId(payload);
+  const textureContractCandidates = payload.assetContracts.assets
+    .filter((assetContract) => roleByAssetId.get(assetContract.assetId) === "texture")
+    .map<TextureDeliveryCandidate>((assetContract) => ({
+      deliveryUrl: resolveAssetContractDeliveryCandidate(assetContract),
+      reference: normalizePlaceableTextureReference(
+        assetById.get(assetContract.assetId)?.fileName ?? assetContract.deliveryUrl
+      )
+    }));
+  const renderPackageTextureBindingCandidates = (payload.renderPackage?.textureBindings ?? [])
+    .filter((binding) => binding.deliveryUrl.trim().length > 0)
+    .map<TextureDeliveryCandidate>((binding) => ({
+      deliveryUrl:
+        textureAssetContractDeliveryUrlByAssetId.get(binding.assetId) ?? binding.deliveryUrl,
+      reference: normalizePlaceableTextureReference(binding.reference || binding.fileName)
+    }));
+  const contractTextureUrl = resolvePreferredTextureDeliveryUrl(
+    [...renderPackageTextureBindingCandidates, ...textureContractCandidates],
+    deliveryOrigin
+  );
+  if (contractTextureUrl) {
+    return contractTextureUrl;
   }
   const packageTextureUrls = payload.renderPackage?.textureUrls;
   if (!Array.isArray(packageTextureUrls)) {
     return null;
   }
-  for (const textureUrl of packageTextureUrls) {
-    if (typeof textureUrl !== "string") {
+  return resolvePreferredTextureDeliveryUrl(
+    packageTextureUrls
+      .filter((textureUrl): textureUrl is string => typeof textureUrl === "string")
+      .map((textureUrl) => ({
+        deliveryUrl: textureUrl,
+        reference: normalizePlaceableTextureReference(textureUrl)
+      })),
+    deliveryOrigin
+  );
+}
+
+function resolvePreferredTextureDeliveryUrl(
+  candidates: TextureDeliveryCandidate[],
+  deliveryOrigin: string
+): string | null {
+  let bestCandidate: TextureDeliveryCandidate | null = null;
+  let bestScore = -1;
+
+  for (const candidate of candidates) {
+    const normalizedDeliveryUrl = candidate.deliveryUrl.trim();
+    if (normalizedDeliveryUrl.length === 0) {
       continue;
     }
-    const normalizedTextureUrl = textureUrl.trim();
-    if (normalizedTextureUrl.length === 0) {
+    const score = scoreTextureDeliveryCandidate(candidate.reference);
+    if (score <= 0) {
       continue;
     }
-    return resolveAbsoluteDeliveryUrl(normalizedTextureUrl, deliveryOrigin);
+    if (score > bestScore) {
+      bestCandidate = {
+        deliveryUrl: normalizedDeliveryUrl,
+        reference: candidate.reference
+      };
+      bestScore = score;
+    }
+    if (score >= 3) {
+      break;
+    }
   }
-  return null;
+
+  return bestCandidate
+    ? resolveAbsoluteDeliveryUrl(bestCandidate.deliveryUrl, deliveryOrigin)
+    : null;
+}
+
+function scoreTextureDeliveryCandidate(reference: string | null): number {
+  const normalized = reference?.trim().toLowerCase();
+  if (!normalized) {
+    return 1;
+  }
+  if (isPlaceableFastShadowTextureReference(normalized)) {
+    return 0;
+  }
+  if (DIFFUSE_TEXTURE_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+    return 3;
+  }
+  if (NON_COLOR_TEXTURE_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+    return 0;
+  }
+  return 2;
+}
+
+function shouldExposePlaceableRuntimeTextureReference(reference: string | null): boolean {
+  return (
+    scoreTextureDeliveryCandidate(reference) > 0 ||
+    isPlaceableFastShadowTextureReference(reference)
+  );
+}
+
+function isPlaceableFastShadowTextureReference(reference: string | null | undefined): boolean {
+  const normalized = reference?.trim().toLowerCase();
+  return Boolean(normalized && PLACEABLE_FAST_SHADOW_TEXTURE_REFERENCES.has(normalized));
 }
 
 export function resolvePlaceableTextureDeliveryUrlsByReference(
@@ -124,20 +360,44 @@ export function resolvePlaceableTextureDeliveryUrlsByReference(
   const assetById = new Map(
     payload.placeable.assetManifest.assets.map((asset) => [asset.assetId, asset])
   );
+  const textureAssetContractDeliveryUrlByAssetId =
+    buildTextureAssetContractDeliveryUrlByAssetId(payload);
   const urlsByReference = new Map<string, string>();
+
+  payload.renderPackage?.textureBindings?.forEach((binding) => {
+    const normalizedDeliveryUrl = (
+      textureAssetContractDeliveryUrlByAssetId.get(binding.assetId) ?? binding.deliveryUrl
+    ).trim();
+    if (normalizedDeliveryUrl.length === 0) {
+      return;
+    }
+    const reference = normalizePlaceableTextureReference(binding.reference || binding.fileName);
+    if (!reference) {
+      return;
+    }
+    if (urlsByReference.has(reference)) {
+      return;
+    }
+    urlsByReference.set(reference, resolveAbsoluteDeliveryUrl(normalizedDeliveryUrl, deliveryOrigin));
+  });
 
   payload.assetContracts.assets.forEach((assetContract) => {
     const asset = assetById.get(assetContract.assetId);
-    if (!asset || asset.role !== "texture" || assetContract.deliveryUrl.trim().length === 0) {
+    const normalizedDeliveryUrl = resolveAssetContractDeliveryCandidate(assetContract);
+    if (!asset || asset.role !== "texture" || normalizedDeliveryUrl.length === 0) {
       return;
     }
     const reference = normalizePlaceableTextureReference(asset.fileName);
-    if (!reference || urlsByReference.has(reference)) {
+    if (
+      !reference ||
+      !shouldExposePlaceableRuntimeTextureReference(reference) ||
+      urlsByReference.has(reference)
+    ) {
       return;
     }
     urlsByReference.set(
       reference,
-      resolveAbsoluteDeliveryUrl(assetContract.deliveryUrl, deliveryOrigin)
+      resolveAbsoluteDeliveryUrl(normalizedDeliveryUrl, deliveryOrigin)
     );
   });
 
@@ -152,7 +412,11 @@ export function resolvePlaceableTextureDeliveryUrlsByReference(
         return;
       }
       const reference = normalizePlaceableTextureReference(normalizedTextureUrl);
-      if (!reference || urlsByReference.has(reference)) {
+      if (
+        !reference ||
+        !shouldExposePlaceableRuntimeTextureReference(reference) ||
+        urlsByReference.has(reference)
+      ) {
         return;
       }
       urlsByReference.set(reference, resolveAbsoluteDeliveryUrl(normalizedTextureUrl, deliveryOrigin));
@@ -181,8 +445,7 @@ export function resolvePlaceableVfxChunkModelDeliveryUrlsByAssetId(
   const urlsByAssetId = new Map<string, string>();
   payload.assetContracts.assets.forEach((assetContract) => {
     const assetId = normalizeAssetId(assetContract.assetId);
-    const deliveryUrl =
-      typeof assetContract.deliveryUrl === "string" ? assetContract.deliveryUrl.trim() : "";
+    const deliveryUrl = resolveModelAssetContractDeliveryCandidate(assetContract);
     const asset = assetById.get(assetId);
     if (
       assetId.length === 0 ||
@@ -245,8 +508,10 @@ function resolveModelCacheKeyFromAssetContracts(
 
   const normalizedCandidate = modelCandidate.trim();
   for (const contract of payload.assetContracts.assets) {
-    const deliveryUrl = contract.deliveryUrl.trim();
-    const deliveryPath = contract.deliveryPath.trim();
+    const deliveryUrl =
+      typeof contract.deliveryUrl === "string" ? contract.deliveryUrl.trim() : "";
+    const deliveryPath =
+      typeof contract.deliveryPath === "string" ? contract.deliveryPath.trim() : "";
     if (deliveryUrl !== normalizedCandidate && deliveryPath !== normalizedCandidate) {
       continue;
     }
@@ -268,9 +533,12 @@ function resolveDerivedModelDeliveryFromAssetContracts(
   const deliveryByAssetId = new Map<string, PlaceableModelDeliveryCandidate>();
   payload.assetContracts.assets.forEach((assetContract) => {
     const normalizedAssetId = normalizeAssetId(assetContract.assetId);
-    const normalizedDeliveryUrl =
-      typeof assetContract.deliveryUrl === "string" ? assetContract.deliveryUrl.trim() : "";
-    if (normalizedAssetId.length === 0 || normalizedDeliveryUrl.length === 0) {
+    const normalizedDeliveryUrl = resolveModelAssetContractDeliveryCandidate(assetContract);
+    if (
+      normalizedAssetId.length === 0 ||
+      normalizedDeliveryUrl.length === 0 ||
+      resolveUnsupportedModelCandidateReason(normalizedDeliveryUrl) !== null
+    ) {
       return;
     }
     if (!deliveryByAssetId.has(normalizedAssetId)) {
@@ -318,7 +586,7 @@ export function resolvePlaceableModelResolution(
         ? renderPackage.modelUrl
         : null;
   const derivedModelDelivery = resolveDerivedModelDeliveryFromAssetContracts(payload);
-  const modelCandidate = modelCandidateFromRenderPackage ?? derivedModelDelivery?.deliveryUrl ?? null;
+  const modelCandidate = derivedModelDelivery?.deliveryUrl ?? modelCandidateFromRenderPackage ?? null;
 
   if (status.length > 0 && normalizedStatus !== "ready" && !modelCandidate) {
     return {
@@ -354,9 +622,9 @@ export function resolvePlaceableModelResolution(
   return {
     modelUrl: resolveAbsoluteDeliveryUrl(modelCandidate, deliveryOrigin),
     modelCacheKey:
-      modelCandidateFromRenderPackage !== null
-        ? resolveModelCacheKeyFromAssetContracts(payload, modelCandidate)
-        : derivedModelDelivery?.modelCacheKey ?? null,
+      derivedModelDelivery?.deliveryUrl === modelCandidate
+        ? derivedModelDelivery.modelCacheKey
+        : resolveModelCacheKeyFromAssetContracts(payload, modelCandidate),
     status,
     fallbackReason: null,
     ready: true

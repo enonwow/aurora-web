@@ -1,6 +1,11 @@
 import type { SceneObjectCatalogType } from "./application/sceneObjectCatalogQueryFacade";
 
-export type WorkspaceModeId = "areas_mode" | "placeables_mode" | "sounds_mode";
+export type WorkspaceModeId =
+  | "areas_mode"
+  | "placeables_mode"
+  | "creatures_mode"
+  | "items_mode"
+  | "sounds_mode";
 
 export interface WorkspaceModeDefinition {
   id: WorkspaceModeId;
@@ -33,6 +38,8 @@ const AREAS_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = [
 ];
 
 const PLACEABLES_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["placeables"];
+const CREATURES_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["creatures"];
+const ITEMS_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["items"];
 const SOUNDS_MODE_ALLOWED_CATALOG_TYPES: readonly SceneObjectCatalogType[] = ["sounds"];
 
 const WORKSPACE_MODES: Record<WorkspaceModeId, WorkspaceModeDefinition> = {
@@ -60,6 +67,30 @@ const WORKSPACE_MODES: Record<WorkspaceModeId, WorkspaceModeDefinition> = {
     showSceneObjectAddPanel: true,
     showSceneObjectListPanel: false
   },
+  creatures_mode: {
+    id: "creatures_mode",
+    label: "Creatures Mode",
+    description: "Focused workspace mode for backend Aurora creature templates and preview payloads.",
+    renderAreaGeometry: false,
+    allowedCatalogTypes: CREATURES_MODE_ALLOWED_CATALOG_TYPES,
+    defaultAddType: "creatures",
+    defaultListType: "creatures",
+    showAreaSelectionPanel: false,
+    showSceneObjectAddPanel: true,
+    showSceneObjectListPanel: false
+  },
+  items_mode: {
+    id: "items_mode",
+    label: "Items Mode",
+    description: "Focused workspace mode for backend Aurora item templates.",
+    renderAreaGeometry: false,
+    allowedCatalogTypes: ITEMS_MODE_ALLOWED_CATALOG_TYPES,
+    defaultAddType: "items",
+    defaultListType: "items",
+    showAreaSelectionPanel: false,
+    showSceneObjectAddPanel: true,
+    showSceneObjectListPanel: false
+  },
   sounds_mode: {
     id: "sounds_mode",
     label: "Sounds Mode",
@@ -77,6 +108,8 @@ const WORKSPACE_MODES: Record<WorkspaceModeId, WorkspaceModeDefinition> = {
 const WORKSPACE_MODE_ORDER: readonly WorkspaceModeId[] = [
   "areas_mode",
   "placeables_mode",
+  "creatures_mode",
+  "items_mode",
   "sounds_mode"
 ];
 
@@ -93,7 +126,13 @@ export function getDefaultWorkspaceMode(): WorkspaceModeDefinition {
 }
 
 export function isWorkspaceModeId(value: unknown): value is WorkspaceModeId {
-  return value === "areas_mode" || value === "placeables_mode" || value === "sounds_mode";
+  return (
+    value === "areas_mode" ||
+    value === "placeables_mode" ||
+    value === "creatures_mode" ||
+    value === "items_mode" ||
+    value === "sounds_mode"
+  );
 }
 
 export function resolveWorkspaceModeId(value: unknown): WorkspaceModeId {
