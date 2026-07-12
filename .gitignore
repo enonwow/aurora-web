@@ -28,6 +28,8 @@ pnpm-debug.log*
 .cache/
 .turbo/
 .parcel-cache/
+__pycache__/
+*.py[cod]
 *.tsbuildinfo
 cache/
 caches/
@@ -39,8 +41,12 @@ runtime-cache/
 
 # Local proof and generated Aurora artifacts
 backend/backend/
+docs/aurora-reverse/artifacts/
 backend/docs/aurora-reverse/artifacts/
 backend/docs/aurora-reverse/guard-reports/
+frontend/public/aurora-evidence/
+**/*.chrome-profile/
+**/chrome-profile/
 backend/.placeable-render-audit*.json
 backend/tmp_*
 backend/*.bin
