@@ -71,7 +71,7 @@ Changed:
 Files:
 
 - `frontend/src/modules/layout/components/WorkspaceMockLayout.tsx`
-- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+- `frontend/tests/unit/modules/layout/WorkspaceLayout.viewportWiring.test.tsx`
 
 Proof:
 
@@ -173,7 +173,7 @@ Files:
 - `frontend/src/modules/layout/components/WorkspaceTopbar.tsx`
 - `frontend/src/styles.css`
 - `frontend/tests/unit/modules/layout/WorkspaceModeSwitch.test.tsx`
-- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+- `frontend/tests/unit/modules/layout/WorkspaceLayout.viewportWiring.test.tsx`
 
 Proof:
 
@@ -1092,9 +1092,399 @@ Proof:
 - `npx.cmd tsc -b --pretty false`
 - Browser proof on `http://localhost:5176/app`: after opening Add Objects and selecting `SND 16`, source tabs show `Standard16` active and `Custom0` disabled with `aria-disabled="true"`, sound rows remain visible, and the panel no longer falls into `No sounds match`.
 
+## Iteration 38 - Split Areas Workflow From Add Placeables
+
+Problem:
+
+- Areas Mode showed area selection and the Add Objects catalog in one vertical stack.
+- On the real left panel this compressed the area list into a tiny strip while the placeable catalog dominated the panel.
+- The old `Add Objects` jump button looked like another section header but only scrolled inside the same cramped layout.
+- Users need a clear mental split: first choose/open an area, then add placeables/templates to the current area.
+
+Changed:
+
+1. Replaced the `Add Objects` jump strip with two workflow tabs: `Select Area` and `Add Placeables`.
+2. Rendered only the active workflow section, so the area list and template catalog no longer fight for the same height.
+3. Switched to `Add Placeables` automatically after opening an area.
+4. Focused the Add Placeables filter when that workflow tab is selected.
+5. Allowed `SceneObjectAddPanel` to receive a contextual heading and used `Add Placeables` inside Areas Mode.
+6. Removed the small fixed-height Areas Mode constraints so the active area list can use the full available panel height.
+7. Disabled zero-count family rail buttons such as `CRT 0` or `VFX 0` when they are not active, preventing accidental dead-end views.
+
+Files:
+
+- `frontend/src/modules/layout/components/AreasModePanel.tsx`
+- `frontend/src/modules/layout/components/SceneObjectAddPanel.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+- `frontend/tests/unit/modules/layout/SceneObjectAddPanel.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceMockLayout.viewportWiring.test.tsx -t "separates area selection"`
+- `npm.cmd test -- SceneObjectAddPanel.test.tsx`
+- `npm.cmd test -- App.workspacePanels.test.tsx`
+- `npx.cmd tsc -b --pretty false`
+- Browser visual proof still needs a fresh browser handle after the interrupted turn; the previous in-app browser handle was lost.
+
+## Iteration 39 - Compact Area Selection Actions
+
+Problem:
+
+- The new Select Area view still spent too much vertical space on duplicate actions.
+- `Open Selected Area` appeared both as a selected-area quick action and as a full-width button at the bottom.
+- Readiness checks looked like primary workflow steps even though they are diagnostics.
+- Switching to Add Placeables after opening an area unmounted the Select Area panel, so local status/search/selection state could be lost when returning.
+
+Changed:
+
+1. Kept the selected-area quick row as the single place to open the current area.
+2. Removed the duplicate full-width `Open Selected Area` button from the bottom of the panel.
+3. Compressed terrain, texture, direct-delivery, and refresh actions into a four-button diagnostics row.
+4. Preserved accessible labels for the diagnostic actions while shortening visible text to fit the narrow sidebar.
+5. Added hidden-mode support to `AreaSelectionPanel` and `SceneObjectAddPanel`.
+6. Kept Select Area and Add Placeables mounted while switching tabs, so workflow state survives moving between them.
+7. Updated viewport wiring tests to assert the compact diagnostics area and persisted readiness status after opening an area and returning to Select Area.
+
+Files:
+
+- `frontend/src/modules/layout/components/AreaSelectionPanel.tsx`
+- `frontend/src/modules/layout/components/AreasModePanel.tsx`
+- `frontend/src/modules/layout/components/SceneObjectAddPanel.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceMockLayout.viewportWiring.test.tsx -t "area actions|selected area quick|texture readiness|Open Selected Area|area selection"`
+- `npm.cmd test -- App.workspacePanels.test.tsx`
+- `npm.cmd test -- SceneObjectAddPanel.test.tsx`
+- `npx.cmd tsc -b --pretty false`
+- Browser visual proof still needs a fresh browser handle.
+
+## Iteration 40 - Slim Area Row Menus
+
+Problem:
+
+- Each area row still had a full-height `...` action cell.
+- That made the row look like two competing cards and reduced the useful width for long area names.
+- The menu is a secondary action because right-click is already available on the row.
+
+Changed:
+
+1. Changed area list items from a two-column row layout to a single row with an overlaid action button.
+2. Kept the row itself as the primary click target.
+3. Kept the explicit `...` menu available for users who do not discover right-click.
+4. Reserved right-side padding in the row so the overlaid menu does not cover text.
+5. Reduced the menu button to a compact square control instead of a tall secondary card.
+
+Files:
+
+- `frontend/src/styles.css`
+
+Proof:
+
+- Covered by the same panel regression set in Iteration 39.
+- Browser visual proof still needs a fresh browser handle.
+
+## Iteration 41 - Remove Bottom Status Strip Overlay
+
+Problem:
+
+- The bottom workspace status strip covered canvas-adjacent controls and made the viewport feel clipped.
+- It repeated information already available elsewhere: mode in the left panel, object count in the inspector, selection in selection/inspector surfaces, and activity in runtime/loading overlays.
+- A visual CDP proof also caught that `hidden` panels were hidden semantically in tests but could still be painted by the browser because author CSS overrode the user-agent `hidden` display rule.
+
+Changed:
+
+1. Removed `WorkspaceStatusStrip` from the workspace layout.
+2. Deleted the `.workspace-status-*` CSS rules and classic-theme status-strip shadow binding.
+3. Updated the viewport wiring regression test to assert the redundant status strip is absent.
+4. Added a global `[hidden] { display: none !important; }` rule so hidden workflow panels are actually hidden visually, not only from Testing Library accessibility queries.
+5. Verified the Add Placeables workflow shows without the Areas panel and without the old bottom overlay.
+
+Files:
+
+- `frontend/src/modules/layout/components/WorkspaceMockLayout.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceMockLayout.viewportWiring.test.tsx -t "status strip|area actions|selected area quick|area selection"`
+- `npm.cmd test -- App.workspacePanels.test.tsx`
+- `npx.cmd tsc -b --pretty false`
+- CDP visual proof screenshot: `.codex-tmp/aurora-ui-proof/status-strip-removed-add-placeables.png`
+- CDP DOM proof: `statusStrip=false`, `areasVisible=false`, `addPlaceablesVisible=true`, `activeTab="Add Placeables"`.
+
+## Iteration 42 - Clarify Areas Workflow Tabs And Lock Add-List Scroll
+
+Problem:
+
+- The Areas Mode workflow tabs visually repeated the main `Areas / Placeables / Sounds` mode switch.
+- `Select Area / Add Placeables` looked like a second primary navigation row instead of a local two-step workflow.
+- In Add Placeables, the panel itself scrolled while the controls were sticky, allowing the first template row to visually slip under the panel header/controls in a narrow left sidebar.
+
+Changed:
+
+1. Kept the workflow split but shortened visible tab labels to `Area` and `Objects`.
+2. Preserved accessible tab names as `Select Area` and `Add Placeables`.
+3. Moved Areas Mode Add Placeables scrolling from the whole panel to the template list.
+4. Kept the Add Placeables header/filter rail stable while only rows scroll.
+5. Left Placeables Mode and Sounds Mode list scrolling behavior intact.
+
+Files:
+
+- `frontend/src/modules/layout/components/AreasModePanel.tsx`
+- `frontend/src/styles.css`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceMockLayout.viewportWiring.test.tsx -t "separates area selection|status strip|area actions|selected area quick|area selection"`
+- `npm.cmd test -- App.workspacePanels.test.tsx`
+- `npx.cmd tsc -b --pretty false`
+- Additional CDP screenshot attempt for this iteration was blocked by a Windows `PermissionDenied` process error before Chrome launched; no orphan process or profile remained.
+
+## Iteration 43 - Make Area Rows Select-Only And Show Open Area
+
+Problem:
+
+- A left-panel area row could still be opened by double-click, so normal list interaction was too easy to confuse with loading a new viewport scene.
+- The left sidebar did not clearly distinguish the selected area row from the area currently opened in the canvas.
+- Tests were clearing the wrong persisted store for opened areas: the app restores Areas Mode scene state from `sessionStorage`, not `localStorage`.
+
+Changed:
+
+1. Removed double-click-to-open from area rows.
+2. Kept row click as selection only; loading is now through the explicit `Open` action or the area context menu.
+3. Added a compact `Opened Area` status block above the `Area / Objects` workflow tabs.
+4. Wired the status block to the real `areaSceneSeed`, showing the opened area name, dimensions, and object count.
+5. Updated regression tests to verify row click/double-click do not call the area processing API, and the opened-area label changes only after `Open`.
+6. Fixed test cleanup to clear `AREAS_MODE_SELECTED_SCENE_STORAGE_KEY` from `sessionStorage`.
+
+Files:
+
+- `frontend/src/modules/layout/components/AreaSelectionPanel.tsx`
+- `frontend/src/modules/layout/components/AreasModePanel.tsx`
+- `frontend/src/modules/layout/components/WorkspaceMockLayout.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceMockLayout.viewportWiring.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceLayout.viewportWiring.test.tsx -t "area actions context menu|selected area quick actions|separates area selection"`
+- `npm.cmd test -- App.workspacePanels.test.tsx`
+- `npx.cmd tsc -b --pretty false`
+- Runtime capture attempt: `npm.cmd run areas:runtime-capture -- --area "_winds_houses" --outDir ".codex-tmp/aurora-ui-proof" --name "area-row-select-open-status" --requireScreenshot --httpTimeoutMs 10000 --chromeCdpTimeoutMs 30000`
+- Runtime frame confirmed `_winds_houses` was selected and opened via explicit `buttonText: "Open"`, with `externalSceneSeedDataset.sceneId = "area__winds_houses"`.
+- Screenshot proof did not complete because the existing Area PLC/DOR render-payload pipeline stayed blocked (`payload_responses_not_bound_to_scene_objects`) before the capture script emitted a PNG.
+
+## Iteration 44 - Keep Area Readiness Diagnostics From Reflowing Area List
+
+Problem:
+
+- `Terrain Readiness` and `Texture Readiness` rendered as full detail panels inside the same vertical flow as the Areas list.
+- Long readiness payloads pushed the list and made the left panel feel like the selected area list was collapsing or jumping.
+- The readiness report is useful diagnostic data, but it should not compete with the primary area selection workflow.
+
+Changed:
+
+1. Added an `area-readiness-detail-panel` variant for area diagnostics.
+2. Added an `area-readiness-property-list` inner scroller so long readiness fields scroll inside the compact report.
+3. Capped readiness panel height in the left panel to keep the Areas list stable.
+4. Kept existing readiness data attributes and headings for tests/runtime diagnostics.
+5. Added regression coverage for compact terrain readiness and texture readiness panels.
+
+Files:
+
+- `frontend/src/modules/layout/components/AreaSelectionPanel.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceLayout.viewportWiring.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceLayout.viewportWiring.test.tsx -t "terrain readiness diagnostics|area texture readiness metadata|selected area quick actions|separates area selection"`
+- `npx.cmd tsc -b --pretty false`
+- Local smoke: `http://localhost:5173/app` returned `200`, and `http://localhost:5173/_aurora/v1/health` returned `200`.
+
+## Iteration 45 - Viewport Full View Focus Mode
+
+Problem:
+
+- The viewport could not be opened without the left tools panel, right inspector, and topbar consuming screen space.
+- Large Areas scenes need a focused inspection mode because the panels make navigation and placement feel cramped.
+- Any fullscreen affordance must preserve predictable exit controls instead of trapping the user inside the canvas.
+
+Changed:
+
+1. Added a topbar `Full View` toggle that is independent from canvas command state.
+2. Added a `viewportFullscreen` layout mode that expands the workspace to the full browser window.
+3. Hid both sidebars in full-view mode and passed zero left/right panel widths to the viewport so canvas overlays re-center.
+4. Added a floating `Exit Fullscreen` viewport button plus `Esc` handling.
+5. Added focused unit coverage for the topbar toggle, layout class/data state, zeroed viewport offsets, and exit actions.
+
+Files:
+
+- `frontend/src/App.tsx`
+- `frontend/src/modules/layout/components/WorkspaceTopbar.tsx`
+- `frontend/src/modules/layout/components/WorkspaceLayout.tsx`
+- `frontend/src/styles.css`
+- `frontend/tests/unit/modules/layout/WorkspaceTopbar.facades.test.tsx`
+- `frontend/tests/unit/modules/layout/WorkspaceLayout.viewportWiring.test.tsx`
+
+Proof:
+
+- `npm.cmd test -- WorkspaceTopbar.facades.test.tsx -t "viewport fullscreen"`
+- `npm.cmd test -- WorkspaceLayout.viewportWiring.test.tsx -t "viewport over both side panels"`
+- `npx.cmd tsc -b --pretty false`
+
+## Iteration 46 - Do Not Dead-Block Canvas Wheel At Zoom Limits
+
+Problem:
+
+- The render canvas React `onWheel` always called `preventDefault()` and `stopPropagation()`.
+- Three.js `OrbitControls` also prevents default wheel behavior whenever controls are enabled.
+- That meant wheel input could be swallowed even while assets were loading, controls were disabled, or the camera was already at its min/max zoom distance.
+
+Changed:
+
+1. Added `shouldConsumeCanvasWheelForCamera()` as the single wheel-intent rule.
+2. Consume wheel only when canvas controls are active and the current zoom direction can still change camera distance.
+3. Let wheel pass through while assets are loading, controls/zoom are disabled, delta is zero, or the camera is already at the relevant zoom boundary.
+4. Added a native capture listener on the canvas host so no-op wheel events are stopped before `OrbitControls` can call `preventDefault()`.
+5. Kept normal in-range wheel zoom behavior intact.
+
+Files:
+
+- `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+- `frontend/tests/unit/modules/layout/WorkspaceCanvasViewport.renderFilter.test.ts`
+
+Reference:
+
+- `C:\Projects\New Folder\export\functions.tsv` exposes Aurora `TSEdit.WMMouseWheel`.
+- `C:\Projects\New Folder\export\strings.tsv` exposes Aurora camera/zoom strings including `zoomSpeed` and `PreventZoomIn`.
+- The decompiled `TSEdit.WMMouseWheel` is text-edit scrolling rather than camera code, so the implemented rule follows the verified Aurora-like input model: wheel is a camera action only while it can produce camera movement.
+
+Proof:
+
+- `npm.cmd test -- WorkspaceCanvasViewport.renderFilter.test.ts -t "wheel camera intent"`
+- `npx.cmd tsc -b --pretty false`
+
+## Iteration 47 - Keep Area Camera Zoom Range Usable After Panning
+
+Problem:
+
+- Iteration 46 correctly avoided dead-blocking wheel at zoom boundaries, but exposed that the Area camera `maxDistance` itself was too tight.
+- Aurora Area top-down framing used `span * 8` as the maximum zoom range.
+- After moving/panning the camera across X/Y, the lateral offset could consume that range and make OrbitControls believe the camera was already at max zoom.
+
+Changed:
+
+1. Extracted `resolveSceneFrameMaxDistance()` from `centerCameraForScene()`.
+2. Gave Aurora Area top-down views a much wider max-distance budget: at least `512`, `span * 32`, or `frameDistance * 12`.
+3. Kept placeable/object preview zoom ranges tighter so preview controls do not become wildly loose.
+4. Added camera-framing coverage that simulates a panned Area camera and verifies the max-distance range still permits zoom.
+5. Added wheel-intent coverage for a laterally displaced camera within the valid zoom range.
+
+Files:
+
+- `frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts`
+- `frontend/tests/unit/modules/layout/workspaceThreeRuntime.cameraFraming.test.ts`
+- `frontend/tests/unit/modules/layout/WorkspaceCanvasViewport.renderFilter.test.ts`
+
+Proof:
+
+- `npm.cmd test -- workspaceThreeRuntime.cameraFraming.test.ts WorkspaceCanvasViewport.renderFilter.test.ts -t "zoom range|lateral camera movement"`
+- `npx.cmd tsc -b --pretty false`
+
+## Iteration 48 - Stabilize Area Viewport Navigation
+
+Problem:
+
+- Area top-down navigation still used OrbitControls rotation on middle mouse drag.
+- With the top-down camera using a horizontal screen-up vector, orbit rotation could feel like the world was rolling/tilting during navigation.
+- Area zoom-in was also capped too far from the floor on larger scenes because `minDistance` scaled with the area span.
+
+Changed:
+
+1. Added an Area top-down navigation mode for OrbitControls.
+2. Disabled rotate for Area top-down views.
+3. Remapped middle mouse from rotate to pan while viewing Area geometry.
+4. Kept object/VFX preview controls in perspective-orbit mode with middle mouse rotation.
+5. Lowered Area top-down minimum zoom distance to `0.28`.
+6. Updated the viewport controls hint so Area mode says `MMB pan`, not `MMB rotate`.
+
+Files:
+
+- `frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts`
+- `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+- `frontend/tests/unit/modules/layout/workspaceThreeRuntime.cameraFraming.test.ts`
+
+Proof:
+
+- `npm.cmd test -- workspaceThreeRuntime.cameraFraming.test.ts -t "frames Aurora area|VFX object"`
+- `npx.cmd tsc -b --pretty false`
+
+## Iteration 49 - Restore Baseline Area Viewport Navigation
+
+Problem:
+
+- The wheel/top-down navigation experiments in Iterations 46-48 regressed normal Area viewport movement.
+- Special-casing Area controls made movement feel unpredictable and uncomfortable.
+- Fixing zoom limits must not happen by changing basic navigation semantics.
+
+Changed:
+
+1. Removed the custom wheel-intent helper and native wheel capture listener.
+2. Restored the previous canvas `onWheel` path so Three.js OrbitControls owns zoom behavior again.
+3. Removed the Area-specific top-down navigation mode.
+4. Restored middle mouse to standard OrbitControls rotation for Area views.
+5. Restored the previous Area min/max distance formulas.
+6. Updated tests to assert the restored baseline instead of the experimental behavior.
+
+Files:
+
+- `frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts`
+- `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+- `frontend/tests/unit/modules/layout/workspaceThreeRuntime.cameraFraming.test.ts`
+- `frontend/tests/unit/modules/layout/WorkspaceCanvasViewport.renderFilter.test.ts`
+
+Proof:
+
+- `npm.cmd test -- workspaceThreeRuntime.cameraFraming.test.ts WorkspaceCanvasViewport.renderFilter.test.ts -t "frames Aurora area|VFX object|runtime evidence datasets"`
+- `npx.cmd tsc -b --pretty false`
+
+## Iteration 50 - Restore Placeables-Style Area Camera Controls
+
+Problem:
+
+- The Area-specific middle-mouse guard made Area camera controls diverge from Placeables controls.
+- Area viewport movement must behave like Placeables: `MMB rotate`, wheel zoom, and `Ctrl+RMB` pan.
+- The fix should remove the special Area binding instead of stacking another exception onto camera input.
+
+Changed:
+
+1. Removed the Area top-down middle-mouse guard.
+2. Restored shared OrbitControls bindings so Area and Placeables both use `MMB rotate`.
+3. Left wheel zoom on the normal OrbitControls path.
+4. Left `Ctrl+RMB` pan on the normal shared binding path.
+5. Restored the Area controls hint to include `MMB rotate`.
+6. Updated camera-framing regression coverage so Area asserts the same middle-mouse binding as Placeables, including after `Ctrl+RMB` pan toggles.
+
+Files:
+
+- `frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts`
+- `frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx`
+- `frontend/tests/unit/modules/layout/workspaceThreeRuntime.cameraFraming.test.ts`
+
+Proof:
+
+- `npm.cmd test -- workspaceThreeRuntime.cameraFraming.test.ts -t "frames Aurora area|VFX object"`
+- `npx.cmd tsc -b --pretty false`
+
 ## Remaining UX Notes
 
-- The left panel is much closer to a usable area-building flow after persistent placement and double-click placement.
+- The left panel is much closer to a usable area-building flow after the explicit Area/Objects split and select-only area rows.
 - Next loop should isolate why the live `Place object on canvas` action did not arm `canvasCreateObjectSignal` during browser proof even though the panel rendered 16 sound templates and unit coverage verifies the hook path.
 - Continue reducing `WorkspaceMockLayout.tsx` by moving shared mode orchestration helpers into smaller application-layer modules.
 

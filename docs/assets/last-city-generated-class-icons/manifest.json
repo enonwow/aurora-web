@@ -1,0 +1,167 @@
+[
+  {
+    "row": 100,
+    "label": "Warrior",
+    "name_pl_ascii": "Wojownik",
+    "proposed_icon_resref": "ir_lc_warr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_warr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_warr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_warr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_warr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_warr.tga"
+  },
+  {
+    "row": 101,
+    "label": "Tracker",
+    "name_pl_ascii": "Tropiciel",
+    "proposed_icon_resref": "ir_lc_trk",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_trk.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_trk.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_trk.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_trk.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_trk.tga"
+  },
+  {
+    "row": 102,
+    "label": "Charlatan",
+    "name_pl_ascii": "Szarlatan",
+    "proposed_icon_resref": "ir_lc_chr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_chr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_chr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_chr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_chr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_chr.tga"
+  },
+  {
+    "row": 103,
+    "label": "Scientist",
+    "name_pl_ascii": "Uczony",
+    "proposed_icon_resref": "ir_lc_sci",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_sci.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_sci.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_sci.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_sci.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_sci.tga"
+  },
+  {
+    "row": 110,
+    "label": "Shieldmaster",
+    "name_pl_ascii": "Zbrojny",
+    "proposed_icon_resref": "ir_lc_shld",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_shld.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_shld.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_shld.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_shld.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_shld.tga"
+  },
+  {
+    "row": 111,
+    "label": "Berserker",
+    "name_pl_ascii": "Berserker",
+    "proposed_icon_resref": "ir_lc_brsrk",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_brsrk.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_brsrk.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_brsrk.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_brsrk.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_brsrk.tga"
+  },
+  {
+    "row": 112,
+    "label": "Knight",
+    "name_pl_ascii": "Rycerz",
+    "proposed_icon_resref": "ir_lc_knght",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_knght.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_knght.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_knght.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_knght.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_knght.tga"
+  },
+  {
+    "row": 113,
+    "label": "Alchemist",
+    "name_pl_ascii": "Alchemik",
+    "proposed_icon_resref": "ir_lc_alch",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_alch.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_alch.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_alch.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_alch.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_alch.tga"
+  },
+  {
+    "row": 114,
+    "label": "Medic",
+    "name_pl_ascii": "Medyk",
+    "proposed_icon_resref": "ir_lc_medic",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_medic.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_medic.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_medic.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_medic.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_medic.tga"
+  },
+  {
+    "row": 115,
+    "label": "Engineer",
+    "name_pl_ascii": "Inzynier",
+    "proposed_icon_resref": "ir_lc_engnr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_engnr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_engnr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_engnr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_engnr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_engnr.tga"
+  },
+  {
+    "row": 116,
+    "label": "Archer",
+    "name_pl_ascii": "Mysliwy",
+    "proposed_icon_resref": "ir_lc_arr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_arr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_arr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_arr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_arr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_arr.tga"
+  },
+  {
+    "row": 117,
+    "label": "Hunter",
+    "name_pl_ascii": "Straznik",
+    "proposed_icon_resref": "ir_lc_htr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_htr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_htr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_htr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_htr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_htr.tga"
+  },
+  {
+    "row": 118,
+    "label": "Tamer",
+    "name_pl_ascii": "Treser bestii",
+    "proposed_icon_resref": "ir_lc_tmr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_tmr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_tmr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_tmr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_tmr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_tmr.tga"
+  },
+  {
+    "row": 119,
+    "label": "Boxer",
+    "name_pl_ascii": "Piesciarz",
+    "proposed_icon_resref": "ir_lc_bxr",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_bxr.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_bxr.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_bxr.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_bxr.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_bxr.tga"
+  },
+  {
+    "row": 120,
+    "label": "Assassin",
+    "name_pl_ascii": "Skrytobojca",
+    "proposed_icon_resref": "ir_lc_asn",
+    "png_256": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-256\\ir_lc_asn.png",
+    "png_128": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-128\\ir_lc_asn.png",
+    "png_64": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-64\\ir_lc_asn.png",
+    "png_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\png-32\\ir_lc_asn.png",
+    "tga_32": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-generated-class-icons\\tga-32\\ir_lc_asn.tga"
+  }
+]

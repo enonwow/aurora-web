@@ -1,0 +1,23 @@
+Use case: stylized-concept
+Asset type: original 32x32 RPG class icon sprite sheet for Neverwinter Nights Last City UI
+Primary request: Create a 5 columns x 3 rows sprite sheet of 15 ORIGINAL class icons. No text, no labels, no numbers. These are small 32x32 game UI icons, so each tile must use one huge central symbol, bold black silhouette, bright rim light, simple readable shape, high contrast, and very little tiny detail. Do not copy or recreate any Guild Wars 2 icon; make original symbols only.
+Style/medium: gritty hand-painted MMO ability icon style, closer to compact Last City skill icons: dark smoky square tile, heavy painted strokes, hard light accents, thick dark outline around the subject, saturated class-color glow, aged fantasy UI mood. More icon/glyph than illustration. Avoid realistic scenes and character portraits.
+Composition/framing: exact 5x3 grid, equal square tiles, thin dark gutters, no text. The symbol fills 70-85% of each square. Crisp readable silhouette at 32x32. Strong centered composition with no cropping.
+Color families: warrior line orange/iron; tracker line toxic emerald green; scientist line cold cyan/steel blue; trickster line violet/magenta.
+Tile order left to right, top to bottom:
+1 Warrior: crossed short sword over round shield, orange impact sparks, no body.
+2 Shieldmaster: massive tower shield front view with bright orange edge glow, no body.
+3 Berserker: double axe head with cracked rage rune, orange-red flame halo, no person.
+4 Knight: closed knight helmet with small lance tip behind it, orange steel glint, no body.
+5 Tracker: compass needle inside trap ring with paw notch, emerald glow.
+6 Archer: curved bow and single arrow head, simple diagonal green slash.
+7 Hunter: claw mark crossed with arrowhead, emerald toxic glow.
+8 Tamer: beast paw print inside collar ring with small whistle tag, emerald glow.
+9 Scientist: glass vial crossed with atom orbit, cyan sparkle.
+10 Alchemist: round flask with reagent swirl and bubbles, icy blue glow.
+11 Medic: bold medical cross over open palm, cyan healing ring.
+12 Engineer: large cog wheel with compact crossbow silhouette inside, blue steel, no gun.
+13 Charlatan: theatrical half-mask with one playing card corner and sand flash, violet glow.
+14 Boxer: wrapped fist impact glyph, violet shock ring, no arm/body.
+15 Assassin: dagger under hooded eye crescent, violet shadow, no full figure.
+Constraints: original artwork only; no logos; no letters; no text; no watermark; no photorealism; no flat vector clipart; no full characters; no clutter; no backgrounds with scenery; no extra decorative objects; no tiny unreadable details; no duplicated symbols between classes.

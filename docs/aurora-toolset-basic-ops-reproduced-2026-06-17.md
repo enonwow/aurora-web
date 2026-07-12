@@ -22,6 +22,11 @@ Nie zastapilem istniejacych dokumentow. To jest osobny zapis przebiegu.
 
 Toolset byl juz uruchomiony jako proces `nwtoolset.exe`.
 
+Wazna zasada startu: uruchamiac `nwtoolset.exe` bez argumentow. Nie podawac
+sciezki `.mod` jako argumentu procesu i nie uzywac `Start-Process ... -ArgumentList
+<module.mod>` jako skrotu do ladowania modulu. Na tej maszynie taka sciezka
+jest zawodna i czesto konczy sie pustym Toolsetem albo stanem `Error`.
+
 Widoczne glowne okno:
 
 - klasa: `TfrmFrame`
@@ -168,7 +173,7 @@ Zoom out:
 
 ## Minimalna sciezka operatora
 
-1. Uruchom `nwtoolset.exe`.
+1. Uruchom `nwtoolset.exe` bez argumentow.
 2. Wybierz `File > Open`.
 3. W dialogu `Open` wybierz `the_last_city [U+2014 em dash] codex`.
 4. Kliknij `Open`.

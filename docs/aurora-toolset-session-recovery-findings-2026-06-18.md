@@ -1,5 +1,7 @@
 # Aurora Toolset: session recovery findings
 
+> Historical manual-recovery evidence. The canonical unattended workflow is `backend/docs/aurora-reverse/aurora-toolset-session-workflow.md`; it treats a recovery prompt as a blocker and never follows recovery with `File > Open`.
+
 Data: 2026-06-18
 
 Ten dokument opisuje recovery po restarcie Aurora Toolsetu dla modulu

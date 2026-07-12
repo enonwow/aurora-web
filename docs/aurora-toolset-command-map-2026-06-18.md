@@ -33,6 +33,17 @@ Status vocabulary:
 
 ## Command map
 
+## Hard launch rule
+
+Start `nwtoolset.exe` without arguments. Do not pass a `.mod` path on the
+command line and do not use `Start-Process ... -ArgumentList <module.mod>`.
+That launch shape is unreliable on this machine and often produces an empty
+Toolset window or an error state instead of a loaded module.
+
+The only promoted module-load path is still `File > Open` via `WM_COMMAND 44`,
+then selecting `the_last_city [U+2014 em dash] codex` inside
+`TdlgModuleSelect`.
+
 | ID | Command / technique | Status | Procedure | Evidence / notes |
 | --- | --- | --- | --- | --- |
 | CM-01 | File Open: `WM_COMMAND 44` to main `TfrmFrame` | `proven` | Locate visible main Toolset `TfrmFrame`, send targeted `SendMessageTimeout(..., WM_COMMAND=0x0111, wParam=44)`, then wait for `TdlgModuleSelect` titled `Open`. | `load-module.ps1` uses exactly this sequence. `aurora-toolset-basic-ops-reproduced-2026-06-17.md` confirms `File > Open` maps to `WM_COMMAND 44` and opens `TdlgModuleSelect`. |
@@ -120,6 +131,9 @@ and some palette recovery paths remain context-sensitive.
 
 ## Known blockers / do-not-promote
 
+- Do not launch `nwtoolset.exe` with a module path argument. This is not a
+  valid shortcut for oracle work; it frequently leaves Toolset empty or in an
+  error state. Use `WM_COMMAND 44` and the module-open dialog.
 - Do not promote area context `Properties` activation to `safe-repeatable`:
   `WM_COMMAND 19`, popup `WM_LBUTTONDOWN/UP`, and `VK_END + VK_RETURN` failed
   in the targeted-only refresh.
@@ -136,12 +150,13 @@ and some palette recovery paths remain context-sensitive.
 
 ## Short operator summary
 
-1. `WM_COMMAND 44` opens File/Open on the main `TfrmFrame`.
-2. In `TdlgModuleSelect`, select `the_last_city [U+2014 em dash] codex` at codex index `28`.
-3. If post-load `Error` appears, close only that dialog with targeted
+1. Start `nwtoolset.exe` without arguments.
+2. `WM_COMMAND 44` opens File/Open on the main `TfrmFrame`.
+3. In `TdlgModuleSelect`, select `the_last_city [U+2014 em dash] codex` at codex index `28`.
+4. If post-load `Error` appears, close only that dialog with targeted
    `WM_COMMAND IDOK`.
-4. `WM_COMMAND 106` toggles `Environment -> Fog`; send it twice for
+5. `WM_COMMAND 106` toggles `Environment -> Fog`; send it twice for
    before/after/rollback.
-5. `TTreeView` pulses are valid only when targeted to the real tree handle and
+6. `TTreeView` pulses are valid only when targeted to the real tree handle and
    verified after each step; tree popup activation remains a blocker where
    noted.
