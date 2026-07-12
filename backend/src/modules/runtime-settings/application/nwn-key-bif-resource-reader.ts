@@ -13,7 +13,12 @@ export const NWN_KEY_BIF_RESOURCE_TYPES = {
   WOK: 2016,
   TWO_DA: 2017,
   TXI: 2022,
+  UTI: 2025,
+  UTC: 2027,
+  ITP: 2030,
   DDS: 2033,
+  UTP: 2044,
+  UTM: 2051,
   DWK: 2052,
   PWK: 2053,
   MTR: 2072

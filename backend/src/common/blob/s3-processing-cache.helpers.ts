@@ -1,11 +1,51 @@
 import { createHash } from "node:crypto";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client
 } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import type { BlobStorageSettings } from "../../modules/runtime-settings/domain/runtime-settings.types";
+
+const DEFAULT_BLOB_S3_MAX_SOCKETS = 128;
+const DEFAULT_BLOB_S3_SOCKET_WARNING_TIMEOUT_MS = 30_000;
+const DEFAULT_BLOB_S3_REQUEST_TIMEOUT_MS = 120_000;
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  if (Number.isInteger(raw) && raw > 0) {
+    return raw;
+  }
+  return fallback;
+}
+
+export function createBlobS3RequestHandler(): NodeHttpHandler {
+  const maxSockets = readPositiveIntegerEnv(
+    "AURORA_BLOB_S3_MAX_SOCKETS",
+    DEFAULT_BLOB_S3_MAX_SOCKETS
+  );
+  return new NodeHttpHandler({
+    httpAgent: new HttpAgent({
+      keepAlive: true,
+      maxSockets
+    }),
+    httpsAgent: new HttpsAgent({
+      keepAlive: true,
+      maxSockets
+    }),
+    requestTimeout: readPositiveIntegerEnv(
+      "AURORA_BLOB_S3_REQUEST_TIMEOUT_MS",
+      DEFAULT_BLOB_S3_REQUEST_TIMEOUT_MS
+    ),
+    socketAcquisitionWarningTimeout: readPositiveIntegerEnv(
+      "AURORA_BLOB_S3_SOCKET_WARNING_TIMEOUT_MS",
+      DEFAULT_BLOB_S3_SOCKET_WARNING_TIMEOUT_MS
+    )
+  });
+}
 
 export interface S3ProcessingCacheEntry<TValue = unknown> {
   key: string;
@@ -25,6 +65,7 @@ export function createBlobS3Client(settings: BlobStorageSettings): S3Client {
     endpoint: settings.endpoint,
     region: settings.region,
     forcePathStyle: settings.forcePathStyle,
+    requestHandler: createBlobS3RequestHandler(),
     credentials: {
       accessKeyId: settings.accessKeyId,
       secretAccessKey: settings.secretAccessKey
@@ -64,9 +105,15 @@ export function buildPointerObjectKey(
 export async function readProcessingCacheEntry<TValue>(
   client: S3Client,
   settings: BlobStorageSettings,
-  objectKey: string
+  objectKey: string,
+  abortSignal?: AbortSignal
 ): Promise<S3ProcessingCacheEntry<TValue> | null> {
-  const parsed = await readJsonObject<S3ProcessingCacheEntry<TValue>>(client, settings, objectKey);
+  const parsed = await readJsonObject<S3ProcessingCacheEntry<TValue>>(
+    client,
+    settings,
+    objectKey,
+    abortSignal
+  );
   if (!parsed) {
     return null;
   }
@@ -83,7 +130,8 @@ export async function writeJsonObject(
   client: S3Client,
   settings: BlobStorageSettings,
   objectKey: string,
-  payload: unknown
+  payload: unknown,
+  abortSignal?: AbortSignal
 ): Promise<void> {
   await client.send(
     new PutObjectCommand({
@@ -91,17 +139,24 @@ export async function writeJsonObject(
       Key: objectKey,
       Body: JSON.stringify(payload),
       ContentType: "application/json; charset=utf-8"
-    })
+    }),
+    abortSignal ? { abortSignal } : undefined
   );
 }
 
 export async function readPointerEntry(
   client: S3Client,
   settings: BlobStorageSettings,
-  pointerObjectKey: string
+  pointerObjectKey: string,
+  abortSignal?: AbortSignal
 ): Promise<S3CachePointerEntry | null> {
   try {
-    const parsed = await readJsonObject<S3CachePointerEntry>(client, settings, pointerObjectKey);
+    const parsed = await readJsonObject<S3CachePointerEntry>(
+      client,
+      settings,
+      pointerObjectKey,
+      abortSignal
+    );
     if (
       !parsed ||
       typeof parsed.logicalId !== "string" ||
@@ -120,14 +175,15 @@ export async function deletePreviousObjectIfPointerStable(
   settings: BlobStorageSettings,
   pointerObjectKey: string,
   expectedCurrentCacheKey: string,
-  previousObjectKey: string
+  previousObjectKey: string,
+  abortSignal?: AbortSignal
 ): Promise<void> {
-  const pointer = await readPointerEntry(client, settings, pointerObjectKey);
+  const pointer = await readPointerEntry(client, settings, pointerObjectKey, abortSignal);
   if (!pointer || pointer.cacheKey !== expectedCurrentCacheKey) {
     return;
   }
 
-  await deleteObjectIfExists(client, settings, previousObjectKey);
+  await deleteObjectIfExists(client, settings, previousObjectKey, abortSignal);
 }
 
 function normalizePrefix(value: string): string {
@@ -141,14 +197,16 @@ function normalizePrefix(value: string): string {
 async function readJsonObject<TValue>(
   client: S3Client,
   settings: BlobStorageSettings,
-  objectKey: string
+  objectKey: string,
+  abortSignal?: AbortSignal
 ): Promise<TValue | null> {
   try {
     const response = await client.send(
       new GetObjectCommand({
         Bucket: settings.bucket,
         Key: objectKey
-      })
+      }),
+      abortSignal ? { abortSignal } : undefined
     );
     const bodyText = await readBodyAsString(response.Body);
     return JSON.parse(bodyText) as TValue;
@@ -163,14 +221,16 @@ async function readJsonObject<TValue>(
 async function deleteObjectIfExists(
   client: S3Client,
   settings: BlobStorageSettings,
-  objectKey: string
+  objectKey: string,
+  abortSignal?: AbortSignal
 ): Promise<void> {
   try {
     await client.send(
       new DeleteObjectCommand({
         Bucket: settings.bucket,
         Key: objectKey
-      })
+      }),
+      abortSignal ? { abortSignal } : undefined
     );
   } catch (error) {
     if (!isMissingObjectError(error)) {

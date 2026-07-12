@@ -8,6 +8,10 @@ import {
 import { AppException } from "../../../common/http/app-exception";
 import { AppConfigService } from "../../../common/config/app-config.service";
 import {
+  DERIVED_ASSET_GENERATOR,
+  type DerivedAssetGeneratorPort
+} from "../../runtime-settings/application/ports/derived-asset-generator.port";
+import {
   MODULE_BLOB_STORAGE,
   type ModuleBlobObjectPayload,
   type ModuleBlobStoragePort
@@ -20,7 +24,9 @@ import {
   RuntimeSettingsApplicationService,
   type TextureDeliveryContract
 } from "../../runtime-settings/application/runtime-settings.application.service";
+import { inspectAuroraMdlSource } from "../../runtime-settings/adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter";
 import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../runtime-settings/domain/derived-asset-versions";
 import {
   TILE_PROCESSING_CACHE,
   type TileProcessingCachePort
@@ -79,6 +85,25 @@ export interface TileTextureDeliveryEnvelope {
   textureAtlas: TileTextureDeliveryContract;
 }
 
+export interface TileProcessBatchItemQuery {
+  tileId: string;
+  bypassCache?: boolean;
+}
+
+export interface TileProcessBatchItemEnvelope {
+  tileId: string;
+  status: "ready" | "blocked";
+  result?: TileProcessingEnvelope;
+  error?: {
+    code: string | null;
+    message: string;
+  };
+}
+
+export interface TileProcessBatchEnvelope {
+  items: TileProcessBatchItemEnvelope[];
+}
+
 export interface TileModelBlobEnvelope {
   cacheKey: string;
   modelAsset: NonNullable<TileRenderAssetContract["modelAsset"]>;
@@ -88,6 +113,10 @@ export interface TileModelBlobEnvelope {
 const TILE_REPOSITORY_SNAPSHOT_REFRESH_DEBOUNCE_MS = 2_000;
 const TILE_CATALOG_ID_PREFIX = "tile_";
 const TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY = "areas-tile-process-auto-sync";
+const TILE_PROCESS_BATCH_CONCURRENCY = 12;
+const GLB_MAGIC = 0x46546c67;
+const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
+const TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT = 5.25;
 
 @Injectable()
 export class TilesApplicationService {
@@ -106,7 +135,10 @@ export class TilesApplicationService {
     @Inject(MODULE_BLOB_STORAGE)
     private readonly moduleBlobStorage?: ModuleBlobStoragePort,
     @Optional()
-    private readonly runtimeSettingsApplication?: RuntimeSettingsApplicationService
+    private readonly runtimeSettingsApplication?: RuntimeSettingsApplicationService,
+    @Optional()
+    @Inject(DERIVED_ASSET_GENERATOR)
+    private readonly derivedAssetGenerator?: DerivedAssetGeneratorPort
   ) {}
 
   listTiles(query: TileListQuery) {
@@ -248,6 +280,60 @@ export class TilesApplicationService {
     return query.bypassCache
       ? processMiss()
       : executeInFlight(this.inFlightTileProcessing, cacheKey, processMiss);
+  }
+
+  async processTilesBatch(items: TileProcessBatchItemQuery[]): Promise<TileProcessBatchEnvelope> {
+    const dedupedItems = dedupeTileProcessBatchItems(items);
+    await this.syncMissingVanillaTileModelSourcesForTileIds(
+      dedupedItems.map((item) => item.tileId)
+    );
+
+    const results = new Map<string, TileProcessBatchItemEnvelope>();
+    let cursor = 0;
+    const runWorker = async (): Promise<void> => {
+      while (cursor < dedupedItems.length) {
+        const item = dedupedItems[cursor];
+        cursor += 1;
+        if (!item) {
+          continue;
+        }
+        try {
+          results.set(item.tileId, {
+            tileId: item.tileId,
+            status: "ready",
+            result: await this.processTile({
+              tileId: item.tileId,
+              bypassCache: item.bypassCache === true
+            })
+          });
+        } catch (error) {
+          results.set(item.tileId, {
+            tileId: item.tileId,
+            status: "blocked",
+            error: {
+              code: getExceptionCode(error),
+              message: getExceptionMessage(error)
+            }
+          });
+        }
+      }
+    };
+
+    const workerCount = Math.min(TILE_PROCESS_BATCH_CONCURRENCY, dedupedItems.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    return {
+      items: items.map(
+        (item) =>
+          results.get(item.tileId) ?? {
+            tileId: item.tileId,
+            status: "blocked",
+            error: {
+              code: "TILE_BATCH_RESULT_MISSING",
+              message: "Tile batch result was not produced."
+            }
+          }
+      )
+    };
   }
 
   private async refreshTileRepositorySnapshotForBypass(): Promise<void> {
@@ -512,7 +598,7 @@ export class TilesApplicationService {
       return tile;
     }
 
-    if (bypassCache) {
+    if (bypassCache || parseTileModelResRefFromCatalogId(tileId)) {
       await this.syncMissingVanillaTileModelSource(tileId);
       const syncedTile = await this.repository.findById(tileId);
       if (syncedTile) {
@@ -539,6 +625,38 @@ export class TilesApplicationService {
     );
     await this.repository.refreshSnapshot?.();
     this.tileRepositorySnapshotRefreshedAtMs = Date.now();
+  }
+
+  private async syncMissingVanillaTileModelSourcesForTileIds(tileIds: string[]): Promise<void> {
+    if (!this.runtimeSettingsApplication) {
+      return;
+    }
+    const modelResRefs = dedupeText(await this.collectTileModelResRefsNeedingSourceSync(tileIds));
+    if (modelResRefs.length === 0) {
+      return;
+    }
+    await this.runtimeSettingsApplication.syncVanillaTileModelSources(
+      TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY,
+      modelResRefs
+    );
+    await this.repository.refreshSnapshot?.();
+    this.tileRepositorySnapshotRefreshedAtMs = Date.now();
+  }
+
+  private async collectTileModelResRefsNeedingSourceSync(tileIds: string[]): Promise<string[]> {
+    const modelResRefs: string[] = [];
+    for (const tileId of tileIds) {
+      const modelResRef = parseTileModelResRefFromCatalogId(tileId);
+      if (!modelResRef) {
+        continue;
+      }
+      const tile = await this.repository.findById(tileId);
+      if (tile && !shouldRefreshTileModelSourceForRenderReadiness(tile)) {
+        continue;
+      }
+      modelResRefs.push(modelResRef);
+    }
+    return modelResRefs;
   }
 
   private async resolveBenchmarkCandidates(tileIds?: string[]): Promise<TileRecord[]> {
@@ -610,7 +728,100 @@ export class TilesApplicationService {
   ): Promise<TileRenderAssetContract> {
     const sourceAsset = buildTileSourceAssetContract(tile);
     const materialTextureAssets = await this.resolveTileMaterialTextureAssets(tile, sourceAsset);
-    return buildTileRenderAssetContract(tile, cacheKey, materialTextureAssets);
+    const renderReadyTile = await this.ensureCurrentTileRenderModelAsset(tile, sourceAsset);
+    return buildTileRenderAssetContract(renderReadyTile, cacheKey, materialTextureAssets);
+  }
+
+  private async ensureCurrentTileRenderModelAsset(
+    tile: TileRecord,
+    sourceAsset: TileSourceAssetContract
+  ): Promise<TileRecord> {
+    if (sourceAsset.role !== "mdl_source" || !sourceAsset.objectKey) {
+      return tile;
+    }
+
+    if (await this.isTileRenderModelConverterCurrent(tile)) {
+      return tile;
+    }
+
+    return (await this.generateCurrentTileRenderModelAsset(tile, sourceAsset)) ?? tile;
+  }
+
+  private async isTileRenderModelConverterCurrent(tile: TileRecord): Promise<boolean> {
+    if (!tile.renderModelObjectKey) {
+      return false;
+    }
+    const extension = tile.renderModelExtension ?? extractObjectKeyExtension(tile.renderModelObjectKey);
+    if (extension !== "glb" && extension !== "gltf") {
+      return false;
+    }
+
+    const payload = await this.readModuleBlobObject(tile.renderModelObjectKey);
+    if (!payload || payload.bytes.length === 0) {
+      return false;
+    }
+
+    const modelJson = parseTileDerivedModelJsonPayload(extension, payload.bytes);
+    return (
+      resolveTileDerivedModelConverterVersion(modelJson) ===
+        AURORA_MDL_TO_GLB_CONVERTER_VERSION &&
+      isTileDerivedModelFootprintCurrent(modelJson)
+    );
+  }
+
+  private async generateCurrentTileRenderModelAsset(
+    tile: TileRecord,
+    sourceAsset: TileSourceAssetContract
+  ): Promise<TileRecord | null> {
+    if (
+      !this.runtimeSettingsRepository ||
+      !this.moduleBlobStorage?.putModuleObject ||
+      !this.derivedAssetGenerator
+    ) {
+      return null;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    const sourcePayload = await this.moduleBlobStorage.getModuleObject(
+      settings.blobStorage,
+      sourceAsset.objectKey
+    );
+    if (!sourcePayload || sourcePayload.bytes.length === 0) {
+      return null;
+    }
+
+    const generated = await this.derivedAssetGenerator.generateDerivedAssets({
+      settingsRevision: settings.revision,
+      modulePrefix: settings.blobStorage.modulePrefix,
+      sourceFiles: [
+        {
+          fileName: sourceAsset.objectKey,
+          resourceType: 0,
+          bytes: sourcePayload.bytes
+        }
+      ]
+    });
+    const derivedModel = selectGeneratedTileDerivedModelFile(tile, generated.files);
+    if (!derivedModel) {
+      return null;
+    }
+
+    const stored = await this.moduleBlobStorage.putModuleObject(
+      settings.blobStorage,
+      derivedModel
+    );
+    const extension = extractObjectKeyExtension(stored.key);
+    if (extension !== "glb" && extension !== "gltf") {
+      return null;
+    }
+
+    return {
+      ...tile,
+      renderModelObjectKey: stored.key,
+      renderModelExtension: extension,
+      renderModelSizeBytes: stored.size,
+      renderModelEtag: stored.etag
+    };
   }
 
   private async resolveTileMaterialTextureAssets(
@@ -630,7 +841,7 @@ export class TilesApplicationService {
       return [];
     }
 
-    const textureReferences = collectTileMdlTextureReferences(sourcePayload.bytes);
+    const textureReferences = collectTileRenderTextureReferences(tile, sourcePayload.bytes);
     if (textureReferences.length === 0) {
       return [];
     }
@@ -780,6 +991,57 @@ function percentile(sorted: number[], ratio: number): number {
 function buildTileTextureDeliveryPath(cacheKey: string): string {
   const encodedCacheKey = encodeURIComponent(cacheKey);
   return `/api/v1/catalog/tiles/cache/${encodedCacheKey}/textures`;
+}
+
+function dedupeTileProcessBatchItems(
+  items: TileProcessBatchItemQuery[]
+): TileProcessBatchItemQuery[] {
+  const byTileId = new Map<string, TileProcessBatchItemQuery>();
+  for (const item of items) {
+    const tileId = item.tileId.trim();
+    if (!tileId) {
+      continue;
+    }
+    const existing = byTileId.get(tileId);
+    byTileId.set(tileId, {
+      tileId,
+      bypassCache: existing?.bypassCache === true || item.bypassCache === true
+    });
+  }
+  return [...byTileId.values()];
+}
+
+function dedupeText(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
+function getExceptionCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) {
+    return null;
+  }
+  const directCode = (error as { code?: unknown }).code;
+  if (typeof directCode === "string") {
+    return directCode;
+  }
+  const responseCode = (error as { response?: { code?: unknown } }).response?.code;
+  return typeof responseCode === "string" ? responseCode : null;
+}
+
+function getExceptionMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "Tile process failed.";
 }
 
 function buildTileModelDeliveryPath(cacheKey: string): string {
@@ -959,8 +1221,49 @@ function resolveTileSourceAssetBlocker(sourceAsset: TileSourceAssetContract): st
 function collectTileMdlTextureReferences(bytes: Buffer): string[] {
   const references = new Set<string>();
   const text = bytes.toString("latin1");
+
+  try {
+    let inspectedReferenceCount = 0;
+    inspectAuroraMdlSource(bytes).textureReferences.forEach((reference) => {
+      const normalized = normalizeTileTextureReference(reference);
+      if (normalized) {
+        references.add(normalized);
+        inspectedReferenceCount += 1;
+      }
+    });
+    if (inspectedReferenceCount > 0) {
+      return [...references].sort((left, right) => left.localeCompare(right));
+    }
+  } catch {
+    // Keep the lightweight token scanners below as a fallback for partial or unusual MDL payloads.
+  }
+
+  collectTileMdlTextureReferencesFromText(text, references);
+  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0) {
+    collectTileMdlTextureReferencesFromBinaryPayload(bytes, references);
+  }
+
+  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
+function collectTileRenderTextureReferences(tile: TileRecord, bytes: Buffer): string[] {
+  return dedupeText([
+    ...collectTileMdlTextureReferences(bytes),
+    ...collectTileImageMapTextureReferences(tile)
+  ]);
+}
+
+function collectTileImageMapTextureReferences(tile: TileRecord): string[] {
+  const normalized = normalizeTileTextureReference(`mi_${tile.resref}`);
+  return normalized ? [normalized] : [];
+}
+
+function collectTileMdlTextureReferencesFromText(
+  text: string,
+  references: Set<string>
+): void {
   const matches = text.matchAll(
-    /(?:^|[\r\n\t ])(?:bitmap|texture\d*|texture)\s+("[^"\r\n]+"|[^\s\r\n]+)/giu
+    /(?:^|[\r\n\t\0 ])(?:bitmap|texture\d*|texture|bumpmap|tno\d*)\s+("[^"\r\n\0]+"|[^\s\r\n\0]+)/giu
   );
   for (const match of matches) {
     const reference = normalizeTileTextureReference(match[1]);
@@ -968,13 +1271,67 @@ function collectTileMdlTextureReferences(bytes: Buffer): string[] {
       references.add(reference);
     }
   }
-  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
+function collectTileMdlTextureReferencesFromBinaryPayload(
+  bytes: Buffer,
+  references: Set<string>
+): void {
+  const nulSeparated = bytes.toString("latin1").split("\u0000");
+
+  for (let index = 0; index < nulSeparated.length; index += 1) {
+    const token = nulSeparated[index]?.trim().toLowerCase() ?? "";
+    if (!token) {
+      continue;
+    }
+
+    if (isMdlTextureKey(token) && index + 1 < nulSeparated.length) {
+      const value = nulSeparated[index + 1];
+      const reference = normalizeTileTextureReference(value);
+      if (reference) {
+        references.add(reference);
+      }
+    }
+
+    if (isMdlTextureCandidate(token) && !isMdlNoiseToken(token)) {
+      const reference = normalizeTileTextureReference(token);
+      if (reference) {
+        references.add(reference);
+      }
+    }
+  }
+}
+
+function isMdlTextureKey(value: string): boolean {
+  return /^(?:bitmap|bumpmap|texture|texture\d*|tno\d*)$/u.test(value);
+}
+
+function isMdlTextureCandidate(value: string): boolean {
+  if (value.length <= 2 || value.length > 128) {
+    return false;
+  }
+  if (!/[a-z0-9]/u.test(value)) {
+    return false;
+  }
+  if (value.includes(" ")) {
+    return false;
+  }
+  return (
+    /\.(dds|tga|plt|txi|mtr|bmp)$/u.test(value) ||
+    value.includes("/") ||
+    value.includes("\\")
+  );
+}
+
+function isMdlNoiseToken(value: string): boolean {
+  return /^(?:0|1|2|3|4|5|6|7|8|9|[\.,-]+)$/u.test(value);
 }
 
 function normalizeTileTextureReference(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
+
   const withoutExtension = value
     .trim()
     .replace(/^"+|"+$/gu, "")
@@ -1055,6 +1412,168 @@ function buildExpectedTileDerivedModelObjectKey(tile: TileRecord): string {
   return `${prefix}__aurora/derived/models/${tile.resref.toLowerCase()}.glb`;
 }
 
+function selectGeneratedTileDerivedModelFile(
+  tile: TileRecord,
+  files: Array<{ fileName: string; resourceType: number; bytes: Buffer }>
+) {
+  const expectedFileName = `${tile.resref.toLowerCase()}.glb`;
+  return (
+    files.find((file) => extractFileName(file.fileName).toLowerCase() === expectedFileName) ??
+    files.find((file) => {
+      const extension = extractObjectKeyExtension(file.fileName);
+      return extension === "glb" || extension === "gltf";
+    }) ??
+    null
+  );
+}
+
+function parseTileDerivedModelJsonPayload(
+  extension: string,
+  bytes: Buffer
+): unknown | null {
+  if (extension === "glb") {
+    return parseGlbJson(bytes);
+  }
+  if (extension === "gltf") {
+    return parseGltfJson(bytes);
+  }
+  return null;
+}
+
+function parseGlbJson(bytes: Buffer): unknown | null {
+  if (bytes.length < 20 || bytes.readUInt32LE(0) !== GLB_MAGIC) {
+    return null;
+  }
+
+  const jsonLength = bytes.readUInt32LE(12);
+  const jsonType = bytes.readUInt32LE(16);
+  const jsonStart = 20;
+  const jsonEnd = jsonStart + jsonLength;
+  if (jsonType !== GLB_JSON_CHUNK_TYPE || jsonLength <= 0 || jsonEnd > bytes.length) {
+    return null;
+  }
+
+  try {
+    const jsonText = bytes
+      .subarray(jsonStart, jsonEnd)
+      .toString("utf-8")
+      .replace(/\0+$/u, "")
+      .trimEnd();
+    return JSON.parse(jsonText) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function parseGltfJson(bytes: Buffer): unknown | null {
+  try {
+    return JSON.parse(bytes.toString("utf-8")) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTileDerivedModelConverterVersion(modelJson: unknown): string | null {
+  const root = asRecord(modelJson);
+  const extras = root ? asRecord(root["extras"]) : null;
+  const aurora = extras ? asRecord(extras["aurora"]) : null;
+  const converterVersion = aurora ? aurora["converterVersion"] : undefined;
+  if (typeof converterVersion === "string" && converterVersion.trim().length > 0) {
+    return converterVersion.trim();
+  }
+
+  const asset = root ? asRecord(root["asset"]) : null;
+  const generator = asset ? asset["generator"] : undefined;
+  if (
+    typeof generator === "string" &&
+    generator.includes(AURORA_MDL_TO_GLB_CONVERTER_VERSION)
+  ) {
+    return AURORA_MDL_TO_GLB_CONVERTER_VERSION;
+  }
+  return null;
+}
+
+function isTileDerivedModelFootprintCurrent(modelJson: unknown): boolean {
+  const bounds = resolveTileDerivedModelPositionBounds(modelJson);
+  if (!bounds) {
+    return false;
+  }
+
+  return (
+    bounds.minX >= -TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
+    bounds.maxX <= TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
+    bounds.minZ >= -TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
+    bounds.maxZ <= TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT
+  );
+}
+
+type TileDerivedModelPositionBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
+
+function resolveTileDerivedModelPositionBounds(
+  modelJson: unknown
+): TileDerivedModelPositionBounds | null {
+  const root = asRecord(modelJson);
+  const accessors = Array.isArray(root?.["accessors"]) ? root["accessors"] : null;
+  const meshes = Array.isArray(root?.["meshes"]) ? root["meshes"] : null;
+  if (!accessors || !meshes) {
+    return null;
+  }
+
+  let bounds: TileDerivedModelPositionBounds | null = null;
+  for (const meshValue of meshes) {
+    const mesh = asRecord(meshValue);
+    const primitives = Array.isArray(mesh?.["primitives"]) ? mesh["primitives"] : [];
+    for (const primitiveValue of primitives) {
+      const primitive = asRecord(primitiveValue);
+      const attributes = asRecord(primitive?.["attributes"]);
+      const positionAccessorIndex = attributes?.["POSITION"];
+      if (typeof positionAccessorIndex !== "number") {
+        continue;
+      }
+
+      const accessor = asRecord(accessors[positionAccessorIndex]);
+      const min = readNumericTuple(accessor?.["min"]);
+      const max = readNumericTuple(accessor?.["max"]);
+      if (!min || !max || min.length < 3 || max.length < 3) {
+        continue;
+      }
+
+      const nextBounds: TileDerivedModelPositionBounds = {
+        minX: min[0]!,
+        maxX: max[0]!,
+        minZ: min[2]!,
+        maxZ: max[2]!
+      };
+      bounds = mergeTileDerivedModelPositionBounds(bounds, nextBounds);
+    }
+  }
+
+  return bounds;
+}
+
+function mergeTileDerivedModelPositionBounds(
+  current: TileDerivedModelPositionBounds | null,
+  next: TileDerivedModelPositionBounds
+): TileDerivedModelPositionBounds {
+  if (!current) {
+    return next;
+  }
+  return {
+    minX: Math.min(current.minX, next.minX),
+    maxX: Math.max(current.maxX, next.maxX),
+    minZ: Math.min(current.minZ, next.minZ),
+    maxZ: Math.max(current.maxZ, next.maxZ)
+  };
+}
+
+function readNumericTuple(value: unknown): number[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const numeric = value.map((item) => Number(item));
+  return numeric.every((item) => Number.isFinite(item)) ? numeric : null;
+}
+
 function resolveTileSourceAssetRole(
   extension: string,
   sourceAssetObjectKeyPresent: boolean,
@@ -1088,6 +1607,18 @@ function extractObjectKeyExtension(objectKey: string): string {
   const fileName = normalized.split("/").pop() ?? normalized;
   const index = fileName.lastIndexOf(".");
   return index > -1 ? fileName.slice(index + 1) : "unknown";
+}
+
+function extractFileName(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/gu, "/");
+  return normalized.split("/").pop() ?? normalized;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 export const __tilesApplicationServiceInternals = {

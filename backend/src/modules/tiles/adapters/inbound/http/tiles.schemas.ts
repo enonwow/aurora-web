@@ -19,6 +19,18 @@ const tileProcessPayloadSchema = z.object({
   bypassCache: z.coerce.boolean().default(false)
 });
 
+const tileProcessBatchPayloadSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        tileId: z.string().trim().min(1).max(120),
+        bypassCache: z.coerce.boolean().optional()
+      })
+    )
+    .min(1)
+    .max(200)
+});
+
 const tileBenchmarkPayloadSchema = z.object({
   tileIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
   iterations: z.coerce.number().int().min(1).max(5000).default(200),
@@ -64,6 +76,23 @@ export function parseTileProcessPayload(input: unknown) {
     status: 422,
     code: "VALIDATION_FAILED",
     message: "Tile process payload validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseTileProcessBatchPayload(input: unknown) {
+  const parsed = tileProcessBatchPayloadSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Tile process batch payload validation failed.",
     details: parsed.error.issues.map((issue) => ({
       path: issue.path.join("."),
       reason: issue.message

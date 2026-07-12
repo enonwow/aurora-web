@@ -546,7 +546,7 @@ function buildSoundAudioDeliveryPath(cacheKey: string): string {
 }
 
 function toBrowserFriendlySoundAudioPayload(payload: ModuleBlobObjectPayload): ModuleBlobObjectPayload {
-  const pcmWav = transcodeMonoImaAdpcmWavToPcmWav(payload.bytes);
+  const pcmWav = transcodeImaAdpcmWavToPcmWav(payload.bytes);
   if (!pcmWav) {
     return payload;
   }
@@ -588,7 +588,7 @@ const IMA_STEP_TABLE = [
   15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
 ] as const;
 
-function transcodeMonoImaAdpcmWavToPcmWav(wav: Buffer): Buffer | null {
+function transcodeImaAdpcmWavToPcmWav(wav: Buffer): Buffer | null {
   if (wav.length < 44 || wav.toString("ascii", 0, 4) !== "RIFF" || wav.toString("ascii", 8, 12) !== "WAVE") {
     return null;
   }
@@ -603,9 +603,10 @@ function transcodeMonoImaAdpcmWavToPcmWav(wav: Buffer): Buffer | null {
   const format = readImaAdpcmFormat(wav, fmtChunk);
   if (
     !format ||
-    format.channels !== 1 ||
+    format.channels < 1 ||
+    format.channels > 2 ||
     format.bitsPerSample !== 4 ||
-    format.blockAlign <= 4 ||
+    format.blockAlign <= format.channels * 4 ||
     dataChunk.start + dataChunk.size > wav.length
   ) {
     return null;
@@ -616,9 +617,9 @@ function transcodeMonoImaAdpcmWavToPcmWav(wav: Buffer): Buffer | null {
     factChunk && factChunk.size >= 4 && factChunk.start + 4 <= wav.length
       ? wav.readUInt32LE(factChunk.start)
       : undefined;
-  const samples = decodeMonoImaAdpcmBlocks(
+  const samples = decodeImaAdpcmBlocks(
     wav.subarray(dataChunk.start, dataChunk.start + dataChunk.size),
-    format.blockAlign,
+    format,
     expectedSamples
   );
   if (samples.length === 0) {
@@ -657,31 +658,77 @@ function readImaAdpcmFormat(wav: Buffer, chunk: WavChunk): ImaAdpcmFormat | null
   };
 }
 
-function decodeMonoImaAdpcmBlocks(data: Buffer, blockAlign: number, expectedSamples?: number): number[] {
+function decodeImaAdpcmBlocks(data: Buffer, format: ImaAdpcmFormat, expectedFrames?: number): number[] {
   const samples: number[] = [];
-  const sampleLimit = expectedSamples && expectedSamples > 0 ? expectedSamples : Number.POSITIVE_INFINITY;
+  const frameLimit = expectedFrames && expectedFrames > 0 ? expectedFrames : Number.POSITIVE_INFINITY;
+  let frames = 0;
 
-  for (let blockStart = 0; blockStart + 4 <= data.length && samples.length < sampleLimit; blockStart += blockAlign) {
-    const blockEnd = Math.min(blockStart + blockAlign, data.length);
-    let sample = clampPcmSample(data.readInt16LE(blockStart));
-    let index = clampImaIndex(data.readUInt8(blockStart + 2));
-    samples.push(sample);
+  for (
+    let blockStart = 0;
+    blockStart + format.channels * 4 <= data.length && frames < frameLimit;
+    blockStart += format.blockAlign
+  ) {
+    const blockEnd = Math.min(blockStart + format.blockAlign, data.length);
+    const states = Array.from({ length: format.channels }, (_, channel) => ({
+      sample: clampPcmSample(data.readInt16LE(blockStart + channel * 4)),
+      index: clampImaIndex(data.readUInt8(blockStart + channel * 4 + 2))
+    }));
+    pushImaFrame(samples, states);
+    frames += 1;
 
-    for (let offset = blockStart + 4; offset < blockEnd && samples.length < sampleLimit; offset += 1) {
-      const byte = data.readUInt8(offset);
-      [byte & 0x0f, byte >> 4].forEach((nibble) => {
-        if (samples.length >= sampleLimit) {
-          return;
+    const encodedStart = blockStart + format.channels * 4;
+    if (format.channels === 1) {
+      for (let offset = encodedStart; offset < blockEnd && frames < frameLimit; offset += 1) {
+        for (const nibble of readImaByteNibbles(data.readUInt8(offset))) {
+          if (frames >= frameLimit) {
+            break;
+          }
+          decodeImaNibbleIntoState(nibble, states[0]);
+          pushImaFrame(samples, states);
+          frames += 1;
         }
-        const decoded = decodeImaNibble(nibble, sample, index);
-        sample = decoded.sample;
-        index = decoded.index;
-        samples.push(sample);
+      }
+      continue;
+    }
+
+    const packetSize = format.channels * 4;
+    for (let groupStart = encodedStart; groupStart + packetSize <= blockEnd && frames < frameLimit; groupStart += packetSize) {
+      const decodedPackets = states.map((state, channel) => {
+        const channelSamples: number[] = [];
+        const packetStart = groupStart + channel * 4;
+        for (let offset = packetStart; offset < packetStart + 4; offset += 1) {
+          for (const nibble of readImaByteNibbles(data.readUInt8(offset))) {
+            decodeImaNibbleIntoState(nibble, state);
+            channelSamples.push(state.sample);
+          }
+        }
+        return channelSamples;
       });
+
+      for (let frame = 0; frame < 8 && frames < frameLimit; frame += 1) {
+        for (let channel = 0; channel < format.channels; channel += 1) {
+          samples.push(decodedPackets[channel][frame] ?? states[channel].sample);
+        }
+        frames += 1;
+      }
     }
   }
 
   return samples;
+}
+
+function pushImaFrame(samples: number[], states: Array<{ sample: number; index: number }>) {
+  states.forEach((state) => samples.push(state.sample));
+}
+
+function readImaByteNibbles(byte: number): [number, number] {
+  return [byte & 0x0f, byte >> 4];
+}
+
+function decodeImaNibbleIntoState(nibble: number, state: { sample: number; index: number }) {
+  const decoded = decodeImaNibble(nibble, state.sample, state.index);
+  state.sample = decoded.sample;
+  state.index = decoded.index;
 }
 
 function decodeImaNibble(nibble: number, previousSample: number, previousIndex: number) {
@@ -735,5 +782,5 @@ export const __soundsApplicationServiceInternals = {
   summarizeDurations,
   percentile,
   buildBlobObjectHttpUrl,
-  transcodeMonoImaAdpcmWavToPcmWav
+  transcodeImaAdpcmWavToPcmWav
 } as const;

@@ -19,7 +19,9 @@ const RESOURCE_EXTENSIONS: Record<number, string> = {
   4: "wav",
   6: "plt",
   7: "ini",
+  8: "bmu",
   10: "txt",
+  11: "mp3",
   2002: "mdl",
   2009: "nss",
   2010: "ncs",
@@ -55,6 +57,15 @@ const RESOURCE_EXTENSIONS: Record<number, string> = {
   2060: "ssf",
   2072: "mtr"
 };
+
+export interface NwnErfResourceIndexEntry {
+  resref: string;
+  resourceType: number;
+  fileOffset: number;
+  fileSize: number;
+}
+
+export type NwnErfResourceIndex = ReadonlyMap<string, NwnErfResourceIndexEntry>;
 
 @Injectable()
 export class NwnErfPackedModuleExtractorService
@@ -148,6 +159,114 @@ export class NwnErfPackedModuleExtractorService
     } finally {
       await fileHandle.close();
     }
+  }
+}
+
+export function buildNwnErfResourceIndexKey(
+  resref: string,
+  resourceType: number
+): string {
+  return `${resref.trim().toLowerCase()}|${resourceType}`;
+}
+
+export async function readNwnErfResourceIndex(
+  modulePackedPath: string
+): Promise<Map<string, NwnErfResourceIndexEntry> | null> {
+  const resolvedModulePath = resolveModulePath(modulePackedPath);
+  const fileHandle = await open(resolvedModulePath, "r");
+
+  try {
+    const stats = await fileHandle.stat();
+    if (stats.size < ERF_HEADER_SIZE_BYTES) {
+      return null;
+    }
+
+    const header = await readExact(fileHandle, 0, ERF_HEADER_SIZE_BYTES);
+    const signature = header.toString("ascii", 0, 4);
+    const version = header.toString("ascii", 4, 8);
+    if (!VALID_ERF_SIGNATURES.has(signature)) {
+      return null;
+    }
+    if (version !== "V1.0" && version !== "V1.1") {
+      return null;
+    }
+
+    const keyEntrySize =
+      version === "V1.1" ? ERF_KEY_ENTRY_SIZE_V11 : ERF_KEY_ENTRY_SIZE_V10;
+    const resrefLength =
+      version === "V1.1" ? ERF_RESREF_LENGTH_V11 : ERF_RESREF_LENGTH_V10;
+    const entryCount = header.readUInt32LE(16);
+    const keyListOffset = header.readUInt32LE(24);
+    const resourceListOffset = header.readUInt32LE(28);
+    const keyTableLength = entryCount * keyEntrySize;
+    const resourceTableLength = entryCount * 8;
+    assertRangeWithinFile(resolvedModulePath, stats.size, keyListOffset, keyTableLength);
+    assertRangeWithinFile(
+      resolvedModulePath,
+      stats.size,
+      resourceListOffset,
+      resourceTableLength
+    );
+
+    const keyTable = await readExact(fileHandle, keyListOffset, keyTableLength);
+    const resourceTable = await readExact(
+      fileHandle,
+      resourceListOffset,
+      resourceTableLength
+    );
+    const entries = new Map<string, NwnErfResourceIndexEntry>();
+
+    for (let index = 0; index < entryCount; index += 1) {
+      const keyOffset = index * keyEntrySize;
+      const resourceOffset = index * 8;
+      const resref = decodeResref(keyTable.subarray(keyOffset, keyOffset + resrefLength));
+      const resourceType = keyTable.readUInt16LE(keyOffset + resrefLength + 4);
+      const fileOffset = resourceTable.readUInt32LE(resourceOffset);
+      const fileSize = resourceTable.readUInt32LE(resourceOffset + 4);
+      assertRangeWithinFile(resolvedModulePath, stats.size, fileOffset, fileSize);
+
+      const resourceKey = buildNwnErfResourceIndexKey(resref, resourceType);
+      if (!entries.has(resourceKey)) {
+        entries.set(resourceKey, {
+          resref,
+          resourceType,
+          fileOffset,
+          fileSize
+        });
+      }
+    }
+
+    return entries;
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+export async function readNwnErfResourceFromIndex(
+  modulePackedPath: string,
+  index: NwnErfResourceIndex,
+  resref: string,
+  resourceType: number
+): Promise<Buffer | null> {
+  const entry = index.get(buildNwnErfResourceIndexKey(resref, resourceType));
+  if (!entry) {
+    return null;
+  }
+
+  const resolvedModulePath = resolveModulePath(modulePackedPath);
+  const fileHandle = await open(resolvedModulePath, "r");
+
+  try {
+    const stats = await fileHandle.stat();
+    assertRangeWithinFile(
+      resolvedModulePath,
+      stats.size,
+      entry.fileOffset,
+      entry.fileSize
+    );
+    return readExact(fileHandle, entry.fileOffset, entry.fileSize);
+  } finally {
+    await fileHandle.close();
   }
 }
 

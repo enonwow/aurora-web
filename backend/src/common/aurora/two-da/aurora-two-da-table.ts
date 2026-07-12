@@ -30,6 +30,7 @@ export interface AuroraTwoDaRow {
   rowIdRaw: string;
   label: string;
   rawLine: string;
+  physicalRowIndex: number;
   physicalLineNumber: number;
   cells: AuroraTwoDaCell[];
   cellsByColumn: Record<string, AuroraTwoDaCell>;
@@ -226,7 +227,7 @@ export function parseAuroraTwoDaTable(
   }
 
   const rows: AuroraTwoDaRow[] = [];
-  significantLines.forEach((line) => {
+  significantLines.forEach((line, physicalRowIndex) => {
     const tokenized = tokenizeTwoDaLine(line.text);
     const [rowIdToken, ...cellTokens] = tokenized.tokens;
     const rowIdRawValue = rowIdToken?.value ?? "";
@@ -269,6 +270,7 @@ export function parseAuroraTwoDaTable(
       rowIdRaw: rowIdToken?.raw ?? "",
       label: rowIdToken?.value ?? "",
       rawLine: line.raw,
+      physicalRowIndex,
       physicalLineNumber: line.lineNumber,
       cells,
       cellsByColumn,

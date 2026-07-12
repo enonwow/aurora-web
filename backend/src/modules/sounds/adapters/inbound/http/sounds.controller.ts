@@ -94,7 +94,7 @@ export class SoundsController extends ProcessingHttpBaseController {
   @Post(":soundId/process")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.sound.run")
   @ApiOperation({
     summary: "Process sound payload and store/read cached contract."
   })
@@ -123,7 +123,7 @@ export class SoundsController extends ProcessingHttpBaseController {
   @Post("benchmark")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.sound.run")
   @ApiOperation({
     summary: "Run sound processing benchmark and return deterministic fingerprint."
   })
@@ -151,7 +151,7 @@ export class SoundsController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.sound.read")
   @ApiOperation({ summary: "Get processed sound payload from cache by cache key." })
   @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
   @ApiResponse({ status: 200, description: "Cached sound payload." })
@@ -164,7 +164,7 @@ export class SoundsController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey/audio/contracts")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.sound.read")
   @ApiOperation({
     summary: "Get hybrid audio delivery contract for processed sound cache entry."
   })

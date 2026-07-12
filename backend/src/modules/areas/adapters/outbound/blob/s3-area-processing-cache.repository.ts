@@ -1,5 +1,6 @@
 import { S3Client } from "@aws-sdk/client-s3";
-import { Inject, Injectable, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, OnModuleDestroy, Optional } from "@nestjs/common";
+import { AppConfigService } from "../../../../../common/config/app-config.service";
 import {
   buildBlobSettingsSignature,
   buildCacheObjectKey,
@@ -33,7 +34,8 @@ export class S3AreaProcessingCacheRepository
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
-    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort
+    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
+    @Optional() private readonly config?: AppConfigService
   ) {}
 
   onModuleDestroy(): void {
@@ -45,8 +47,16 @@ export class S3AreaProcessingCacheRepository
   async get(key: string): Promise<AreaProcessingCacheEntry | null> {
     const { settings, client } = await this.resolveClient();
     const objectKey = buildCacheObjectKey(settings, AREA_CACHE_SUFFIX, key);
-    const entry = await readProcessingCacheEntry<AreaProcessingResult>(client, settings, objectKey);
-    return entry as AreaProcessingCacheEntry | null;
+    return this.withAreaCacheTimeout(
+      (abortSignal) =>
+        readProcessingCacheEntry<AreaProcessingResult>(
+          client,
+          settings,
+          objectKey,
+          abortSignal
+        ) as Promise<AreaProcessingCacheEntry | null>,
+      null
+    );
   }
 
   async set(key: string, value: AreaProcessingResult): Promise<AreaProcessingCacheEntry> {
@@ -57,7 +67,6 @@ export class S3AreaProcessingCacheRepository
       AREA_CURRENT_POINTER_SUFFIX,
       logicalId
     );
-    const previousPointer = await readPointerEntry(client, settings, pointerObjectKey);
     const objectKey = buildCacheObjectKey(settings, AREA_CACHE_SUFFIX, key);
     const entry: AreaProcessingCacheEntry = {
       key,
@@ -66,25 +75,66 @@ export class S3AreaProcessingCacheRepository
       hits: 0
     };
 
-    await writeJsonObject(client, settings, objectKey, entry);
-
-    await writeJsonObject(client, settings, pointerObjectKey, {
-      logicalId,
-      cacheKey: key,
-      updatedAt: new Date().toISOString()
-    });
-
-    if (previousPointer && previousPointer.cacheKey !== key) {
-      await deletePreviousObjectIfPointerStable(
+    return this.withAreaCacheTimeout(async (abortSignal) => {
+      const previousPointer = await readPointerEntry(
         client,
         settings,
         pointerObjectKey,
-        key,
-        buildCacheObjectKey(settings, AREA_CACHE_SUFFIX, previousPointer.cacheKey)
+        abortSignal
       );
-    }
+      await writeJsonObject(client, settings, objectKey, entry, abortSignal);
+      await writeJsonObject(
+        client,
+        settings,
+        pointerObjectKey,
+        {
+          logicalId,
+          cacheKey: key,
+          updatedAt: new Date().toISOString()
+        },
+        abortSignal
+      );
 
-    return entry;
+      if (previousPointer && previousPointer.cacheKey !== key) {
+        await deletePreviousObjectIfPointerStable(
+          client,
+          settings,
+          pointerObjectKey,
+          key,
+          buildCacheObjectKey(settings, AREA_CACHE_SUFFIX, previousPointer.cacheKey),
+          abortSignal
+        );
+      }
+      return entry;
+    }, entry);
+  }
+
+  private async withAreaCacheTimeout<TValue>(
+    operation: (abortSignal: AbortSignal) => Promise<TValue>,
+    timeoutFallback: TValue
+  ): Promise<TValue> {
+    const abortController = new AbortController();
+    const timeoutMs = this.config?.processingCacheL2AreaTimeoutMs ?? 15_000;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const operationResult = operation(abortController.signal).catch((error) => {
+      if (abortController.signal.aborted) {
+        return timeoutFallback;
+      }
+      throw error;
+    });
+    const timeoutResult = new Promise<TValue>((resolve) => {
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        resolve(timeoutFallback);
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([operationResult, timeoutResult]);
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   private async getBlobSettings(): Promise<BlobStorageSettings> {

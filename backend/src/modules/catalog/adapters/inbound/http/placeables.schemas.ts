@@ -5,6 +5,9 @@ const processPayloadSchema = z
   .object({
     templateId: z.string().trim().min(1).optional(),
     resref: z.string().trim().min(1).optional(),
+    tag: z.string().trim().min(1).optional(),
+    localizedName: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
     subtypeHint: z
       .enum([
         "generic",

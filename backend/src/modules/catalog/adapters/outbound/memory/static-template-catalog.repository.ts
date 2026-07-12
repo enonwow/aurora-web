@@ -370,7 +370,10 @@ export class StaticTemplateCatalogRepository implements TemplateCatalogRepositor
     );
   }
 
-  getPrecomputedTemplateCacheKey(kind: "creature" | "item", templateId: string): string | null {
+  getPrecomputedTemplateCacheKey(
+    kind: Exclude<TemplateKind, "placeable">,
+    templateId: string
+  ): string | null {
     return (
       TEMPLATE_CACHE_KEYS_BY_KIND_AND_TEMPLATE.get(
         buildTemplateCacheIndexKey(kind, templateId)
@@ -397,6 +400,9 @@ function buildPlaceableCacheIndexKey(templateId: string, subtype: PlaceableSubty
   return `${templateId}:${subtype}`;
 }
 
-function buildTemplateCacheIndexKey(kind: "creature" | "item", templateId: string): string {
+function buildTemplateCacheIndexKey(
+  kind: Exclude<TemplateKind, "placeable">,
+  templateId: string
+): string {
   return `${kind}:${templateId}`;
 }

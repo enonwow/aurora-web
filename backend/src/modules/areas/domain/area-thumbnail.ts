@@ -19,8 +19,12 @@ const AREA_OBJECT_COLORS: Record<AreaObjectKind, string> = {
   placeable: "#8bd3ff",
   door: "#ffc970",
   creature: "#ff8e78",
+  encounter: "#f5d66f",
   item: "#91e8a5",
-  sound: "#bba0ff"
+  sound: "#bba0ff",
+  store: "#62d6c5",
+  trigger: "#e784d8",
+  waypoint: "#d6e28b"
 };
 
 export function buildAreaPreviewImageUrl(areaId: string): string {

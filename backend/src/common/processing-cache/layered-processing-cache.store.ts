@@ -12,6 +12,7 @@ export interface LayeredProcessingCacheConfig {
   admissionHits: number;
   admissionWindowMs: number;
   admissionTrackingLimit: number;
+  awaitL2Write?: boolean;
 }
 
 export class LayeredProcessingCacheStore<
@@ -46,6 +47,13 @@ export class LayeredProcessingCacheStore<
   }
 
   async set(key: string, value: TValue): Promise<TEntry> {
+    if (this.config.awaitL2Write === false) {
+      const backgroundL2Write = this.l2Cache.set(key, value).catch(() => null);
+      const stored = await this.l1Cache.set(key, value);
+      this.admission.delete(key);
+      void backgroundL2Write;
+      return stored;
+    }
     const [stored] = await Promise.all([this.l2Cache.set(key, value), this.l1Cache.set(key, value)]);
     this.admission.delete(key);
     return stored;

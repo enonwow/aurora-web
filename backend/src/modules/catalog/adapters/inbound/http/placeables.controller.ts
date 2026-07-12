@@ -1,4 +1,16 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiBody,
@@ -31,6 +43,10 @@ import {
   parsePlaceableProcessBatchPayload,
   parsePlaceableProcessPayload
 } from "./placeables.schemas";
+import {
+  parsePlaceableBlueprintCreatePayload,
+  parsePlaceableBlueprintResRef
+} from "./template-processing.schemas";
 
 @Controller("catalog/placeables")
 @ApiTags("catalog-placeables")
@@ -72,6 +88,65 @@ export class PlaceablesController extends ProcessingHttpBaseController {
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
     return this.handleParsedQuery(request, query, parseCatalogListQuery, (parsed) =>
       this.service.listPlaceables(parsed)
+    );
+  }
+
+  @Post("blueprints")
+  @HttpCode(201)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary: "Create a module-backed placeable UTP blueprint."
+  })
+  @ApiResponse({ status: 201, description: "Created placeable blueprint." })
+  @ApiResponse({ status: 409, description: "Blueprint already exists." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async createBlueprint(
+    @Req() request: AppRequest,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleParsedBody(request, body, parsePlaceableBlueprintCreatePayload, (parsed) =>
+      this.service.createPlaceableBlueprint(parsed)
+    );
+  }
+
+  @Put("blueprints/:resRef")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary: "Update an existing module-backed placeable UTP blueprint."
+  })
+  @ApiParam({ name: "resRef" })
+  @ApiResponse({ status: 200, description: "Updated placeable blueprint." })
+  @ApiResponse({ status: 404, description: "Blueprint not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async updateBlueprint(
+    @Req() request: AppRequest,
+    @Param("resRef") resRef: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleByIdAndParsedBody(
+      request,
+      resRef,
+      body,
+      parsePlaceableBlueprintCreatePayload,
+      (id, parsed) => this.service.updatePlaceableBlueprint(parsePlaceableBlueprintResRef(id), parsed)
+    );
+  }
+
+  @Delete("blueprints/:resRef")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary: "Delete an existing module-backed placeable UTP blueprint."
+  })
+  @ApiParam({ name: "resRef" })
+  @ApiResponse({ status: 200, description: "Deleted placeable blueprint." })
+  @ApiResponse({ status: 404, description: "Blueprint not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async deleteBlueprint(@Req() request: AppRequest, @Param("resRef") resRef: string) {
+    return this.handleById(request, resRef, (id) =>
+      this.service.deletePlaceableBlueprint(parsePlaceableBlueprintResRef(id))
     );
   }
 
@@ -155,6 +230,22 @@ export class PlaceablesController extends ProcessingHttpBaseController {
   async processBatch(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
     return this.handleParsedBody(request, body, parsePlaceableProcessBatchPayload, (parsed) =>
       this.service.processPlaceablesBatch(parsed.items)
+    );
+  }
+
+  @Post("render-payloads/batch")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.placeable.run")
+  @ApiOperation({
+    summary:
+      "Process multiple placeables and return backend-owned render payloads with asset delivery contracts."
+  })
+  @ApiResponse({ status: 200, description: "Viewport render payload batch." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async renderPayloadsBatch(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
+    return this.handleParsedBody(request, body, parsePlaceableProcessBatchPayload, (parsed) =>
+      this.service.getPlaceableViewportRenderPayloadBatch(parsed.items)
     );
   }
 
@@ -248,7 +339,7 @@ export class PlaceablesController extends ProcessingHttpBaseController {
     const data = await this.service.getProcessedPlaceableAsset(cacheKey, assetId);
 
     applyBinaryPayloadHeaders(response, data.payload, {
-      cacheControl: "private, max-age=120",
+      cacheControl: "private, max-age=31536000, immutable",
       extraHeaders: {
         "X-Aurora-Asset-Id": data.asset.assetId,
         "X-Aurora-Cache-Key": data.cacheKey,

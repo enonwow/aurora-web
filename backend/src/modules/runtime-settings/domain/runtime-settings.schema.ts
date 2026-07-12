@@ -46,6 +46,22 @@ const runtimeSourceSettingsSchema = z.object({
   hakProfileId: optionalConfigValueSchema.default(""),
   hakPriorityList: hakPriorityListSchema
 });
+const defaultCreatureSourceSettings = {
+  includeModuleTemp0: true,
+  includeModulePacked: false,
+  includeHaks: true,
+  includeVanilla: true,
+  hakProfileId: "lc_creatures",
+  hakPriorityList: []
+} satisfies z.input<typeof runtimeSourceSettingsSchema>;
+const defaultItemSourceSettings = {
+  includeModuleTemp0: true,
+  includeModulePacked: false,
+  includeHaks: true,
+  includeVanilla: true,
+  hakProfileId: "lc_creatures",
+  hakPriorityList: []
+} satisfies z.input<typeof runtimeSourceSettingsSchema>;
 
 const hakProfileEntrySchema = z.array(z.string().trim().min(1));
 const hakProfilesSchema = z.record(z.string().trim().min(1), hakProfileEntrySchema);
@@ -88,7 +104,9 @@ const runtimeSettingsPayloadObjectSchema = z.object({
     tile: runtimeSourceSettingsSchema,
     area: runtimeSourceSettingsSchema,
     sound: runtimeSourceSettingsSchema,
-    vfx: runtimeSourceSettingsSchema
+    vfx: runtimeSourceSettingsSchema,
+    creature: runtimeSourceSettingsSchema.default(defaultCreatureSourceSettings),
+    item: runtimeSourceSettingsSchema.default(defaultItemSourceSettings)
   }),
   benchmarkCandidates: benchmarkCandidatesSettingsSchema
 });
@@ -116,6 +134,8 @@ function validateRuntimeSettingsCrossFieldRules(
       area: { hakProfileId: string };
       sound: { hakProfileId: string };
       vfx: { hakProfileId: string };
+      creature?: { hakProfileId: string };
+      item?: { hakProfileId: string };
     };
   },
   context: z.RefinementCtx
@@ -132,9 +152,21 @@ function validateRuntimeSettingsCrossFieldRules(
     });
   }
 
-  const sourceKinds = ["placeable", "tile", "area", "sound", "vfx"] as const;
+  const sourceKinds = [
+    "placeable",
+    "tile",
+    "area",
+    "sound",
+    "vfx",
+    "creature",
+    "item"
+  ] as const;
   for (const sourceKind of sourceKinds) {
-    const profileId = value.sources[sourceKind].hakProfileId.trim();
+    const source = value.sources[sourceKind];
+    if (!source) {
+      continue;
+    }
+    const profileId = source.hakProfileId.trim();
     if (profileId.length === 0) {
       continue;
     }

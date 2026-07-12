@@ -88,12 +88,269 @@ export interface AuroraVisualEffectSourceRow
 export interface AuroraProgFxSourceRow extends AuroraVfxSourceRowBase<"progfx.2da"> {
   type?: number;
   typeRaw?: string;
+  type4Light?: AuroraProgFxType4LightSource;
   params: Array<{
     column: string;
     raw: string;
     value?: string;
   }>;
 }
+
+export interface AuroraProgFxType4LightSource {
+  proofStatus: "profile-gated-source-preserved-no-runtime-scheduling";
+  animationRaw?: string;
+  animation?: string;
+  animationParameterStatus?: string;
+  animationKind?: "light" | "vision";
+  animationSymbolicColor?: string;
+  animationTokenRadiusMeters?: number;
+  animationTokenRadiusProofStatus?: "source-backed-progfx-param1-animation-token-radius";
+  sourceMdlNodeName?: "AuroraLight01" | "AuroraLight02";
+  sourceMdlAnimation?: string;
+  sourceMdlColor?: { r: number; g: number; b: number };
+  sourceMdlRadiusMeters?: number;
+  sourceMdlRadiusFrames?: [number, number];
+  sourceMdlColorSource?: string;
+  sourceMdlColorProofStatus?: "source-family-backed-fx_light_clr-mdl-animation-rgb";
+  sourceMdlRadiusSource?: string;
+  sourceMdlRadiusProofStatus?: "source-family-backed-fx_light_clr-mdl-animation-radius";
+  visionMode?: string;
+  animationSemanticSource?: string;
+  animationSpeedRaw?: string;
+  animationSpeed?: number;
+  animationSpeedParameterStatus?: string;
+  castShadowsRaw?: string;
+  castShadows?: boolean;
+  castShadowParameterStatus?: string;
+  priorityRaw?: string;
+  priority?: number;
+  priorityParameterStatus?: string;
+  proximitySuppressionRaw?: string;
+  proximitySuppression?: boolean;
+  proximitySuppressionParameterStatus?: string;
+  attachToSceneRaw?: string;
+  attachToScene?: boolean;
+  sceneAttachmentParameterStatus?: string;
+  modelRaw?: string;
+  modelRef?: string;
+  modelParameterStatus?: string;
+  unusedParam8Raw?: string;
+  visionParameterStatus?: string;
+  parameterSource: string;
+  parameterPreservationProofSource: string;
+  parameterPreservationProofStatus: string;
+}
+
+export interface AuroraProgFxType4TableSummary {
+  sourceTable: "progfx.2da";
+  proofStatus: "source-backed-progfx-type4-table-parameter-distribution-runtime-scheduler-blocked";
+  rowCount: number;
+  type4RowCount: number;
+  itemLightNormalRowCount: number;
+  itemLightFadeRowCount: number;
+  nonItemType4RowCount: number;
+  animationKindCounts: {
+    light: number;
+    vision: number;
+    unknown: number;
+  };
+  castShadowsBooleanCounts: {
+    true: number;
+    false: number;
+    unknown: number;
+  };
+  proximitySuppressionBooleanCounts: {
+    true: number;
+    false: number;
+    unknown: number;
+  };
+  attachToSceneBooleanCounts: {
+    true: number;
+    false: number;
+    unknown: number;
+  };
+  castShadowsRawCounts: Record<string, number>;
+  priorityRawCounts: Record<string, number>;
+  proximitySuppressionRawCounts: Record<string, number>;
+  attachToSceneRawCounts: Record<string, number>;
+  modelCounts: Record<string, number>;
+  lightTokenRadiusCounts: Record<string, number>;
+  sampleRows: AuroraProgFxType4SummaryRow[];
+  nonItemRows: AuroraProgFxType4SummaryRow[];
+  nonItemCastShadowRows: AuroraProgFxType4SummaryRow[];
+  proximitySuppressionRows: AuroraProgFxType4SummaryRow[];
+  attachToSceneRows: AuroraProgFxType4SummaryRow[];
+  visionRows: AuroraProgFxType4SummaryRow[];
+  remainingBlockedSemantics: string[];
+}
+
+export interface AuroraProgFxType4SummaryRow {
+  rowId: number;
+  label: string;
+  animation?: string;
+  animationKind?: "light" | "vision";
+  castShadowsRaw?: string;
+  priorityRaw?: string;
+  proximitySuppressionRaw?: string;
+  attachToSceneRaw?: string;
+  modelRef?: string;
+}
+
+export type AuroraProgFxType4OwnerKind = "item-light" | "non-item";
+
+export interface AuroraProgFxType4VisualEffectOwnerRow {
+  visualEffectRowId: number;
+  visualEffectLabel: string;
+  typeFd?: AuroraVfxTypeFd;
+  phase: AuroraVfxPhaseKind;
+  progFxRowId: number;
+  progFxLabel: string;
+  ownerKind: AuroraProgFxType4OwnerKind;
+  animation?: string;
+  animationKind?: "light" | "vision";
+  castShadowsRaw?: string;
+  priorityRaw?: string;
+  proximitySuppressionRaw?: string;
+  attachToSceneRaw?: string;
+  modelRef?: string;
+}
+
+export interface AuroraProgFxType4VisualEffectOwnerSummary {
+  sourceTable: "visualeffects.2da";
+  linkedProgFxTable: "progfx.2da";
+  proofStatus: "source-backed-visualeffects-progfx-type4-owner-phase-map-runtime-scheduler-blocked";
+  visualEffectRowCount: number;
+  type4OwnerPhaseCount: number;
+  itemLightOwnerPhaseCount: number;
+  nonItemOwnerPhaseCount: number;
+  nonItemVisionOwnerPhaseCount: number;
+  nonItemCastShadowOwnerPhaseCount: number;
+  nonItemAttachToSceneOwnerPhaseCount: number;
+  nonItemProximitySuppressionOwnerPhaseCount: number;
+  missingProgFxReferenceCount: number;
+  nonType4ProgFxReferenceCount: number;
+  ownerPhaseCounts: Record<AuroraVfxPhaseKind, number>;
+  nonItemOwnerRows: AuroraProgFxType4VisualEffectOwnerRow[];
+  itemLightOwnerRows: AuroraProgFxType4VisualEffectOwnerRow[];
+  remainingBlockedSemantics: string[];
+}
+
+const PROGFX_TYPE4_PARAMETER_SOURCE =
+  "retail progfx.2da Type 4 Param1 animation, Param2 speed, Param3 cast shadows, Param4 priority, Param5 proximity suppression, Param6 attach to scene, Param7 model";
+const PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_SOURCE =
+  "nwn_base.key progfx.2da selected rows 300..333 and 350..377 preserve Type 4 Param1..Param7; backend parser keeps raw Param1..Param8 cells before runtime scheduling";
+const PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_STATUS =
+  "source-backed-progfx-type4-param1-param8-raw-preserved";
+const PROGFX_TYPE4_PARAM1_ANIMATION_STATUS =
+  "source-backed-progfx-type4-param1-animation-token-preserved";
+const PROGFX_TYPE4_PARAM2_SPEED_STATUS =
+  "source-backed-progfx-type4-param2-animation-speed-preserved-runtime-playback-blocked";
+const PROGFX_TYPE4_PARAM3_CAST_SHADOW_STATUS =
+  "source-backed-progfx-type4-param3-cast-shadows-preserved-item-toggle-known-non-item-vanilla-cast-shadow-absent";
+const PROGFX_TYPE4_PARAM4_PRIORITY_STATUS =
+  "docs-backed-progfx-type4-param4-priority-lower-value-wins";
+const PROGFX_TYPE4_PARAM5_PROXIMITY_STATUS =
+  "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light";
+const PROGFX_TYPE4_PARAM6_ATTACH_STATUS =
+  "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights";
+const PROGFX_TYPE4_PARAM7_MODEL_STATUS =
+  "source-backed-progfx-type4-param7-model-ref-preserved-client-loader-path-source-backed";
+const PROGFX_TYPE4_PARAM1_VISION_STATUS =
+  "docs-backed-progfx-type4-param1-vision-token-param4-priority";
+
+const PROGFX_TYPE4_FX_LIGHT_CLR_COLOR_SOURCE =
+  "nwn_base.key fx_light_clr.mdl AuroraLight01 animation light-color controller type 76";
+const PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_SOURCE =
+  "nwn_base.key fx_light_clr.mdl AuroraLight01 animation radius controller type 88 frames 0 -> 13.3";
+const PROGFX_TYPE4_FX_LIGHT_CLR_VISION_COLOR_SOURCE =
+  "nwn_base.key fx_light_clr.mdl AuroraLight02 vision animation light-color controller type 76";
+const PROGFX_TYPE4_FX_LIGHT_CLR_VISION_RADIUS_SOURCE =
+  "nwn_base.key fx_light_clr.mdl AuroraLight02 vision animation radius controller type 88";
+const PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_METERS = 13.3;
+const PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_FRAMES: [number, number] = [
+  0,
+  PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_METERS
+];
+
+interface ProgFxType4FxLightClrFacts {
+  readonly symbolicColor: string;
+  readonly sourceMdlAnimation: string;
+  readonly color: { r: number; g: number; b: number };
+}
+
+const PROGFX_TYPE4_FX_LIGHT_CLR_FACTS: Readonly<Record<string, ProgFxType4FxLightClrFacts>> = {
+  blue_5m: { symbolicColor: "Blue", sourceMdlAnimation: "Blue_5m", color: { r: 0.5, g: 0.5, b: 1 } },
+  blue_10m: { symbolicColor: "Blue", sourceMdlAnimation: "Blue_10m", color: { r: 0.75, g: 0.75, b: 1.25 } },
+  blue_15m: { symbolicColor: "Blue", sourceMdlAnimation: "Blue_15m", color: { r: 1, g: 1, b: 1.5 } },
+  blue_20m: { symbolicColor: "Blue", sourceMdlAnimation: "Blue_20m", color: { r: 1.25, g: 1.25, b: 1.75 } },
+  yello_5m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_5m", color: { r: 1, g: 0.75, b: 0.25 } },
+  yello_10m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_10m", color: { r: 1.25, g: 1, b: 0.5 } },
+  yello_15m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_15m", color: { r: 1.5, g: 1.25, b: 0.75 } },
+  yello_20m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_20m", color: { r: 1.75, g: 1.5, b: 1 } },
+  yellow_5m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_5m", color: { r: 1, g: 0.75, b: 0.25 } },
+  yellow_10m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_10m", color: { r: 1.25, g: 1, b: 0.5 } },
+  yellow_15m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_15m", color: { r: 1.5, g: 1.25, b: 0.75 } },
+  yellow_20m: { symbolicColor: "Yellow", sourceMdlAnimation: "Yello_20m", color: { r: 1.75, g: 1.5, b: 1 } },
+  purp_5m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_5m", color: { r: 1, g: 0.5, b: 1 } },
+  purp_10m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_10m", color: { r: 1.25, g: 0.75, b: 1.25 } },
+  purp_15m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_15m", color: { r: 1.5, g: 1, b: 1.5 } },
+  purp_20m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_20m", color: { r: 1.75, g: 1.25, b: 1.75 } },
+  purple_5m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_5m", color: { r: 1, g: 0.5, b: 1 } },
+  purple_10m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_10m", color: { r: 1.25, g: 0.75, b: 1.25 } },
+  purple_15m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_15m", color: { r: 1.5, g: 1, b: 1.5 } },
+  purple_20m: { symbolicColor: "Purple", sourceMdlAnimation: "Purp_20m", color: { r: 1.75, g: 1.25, b: 1.75 } },
+  red_5m: { symbolicColor: "Red", sourceMdlAnimation: "Red_5m", color: { r: 1, g: 0.35, b: 0.2 } },
+  red_10m: { symbolicColor: "Red", sourceMdlAnimation: "Red_10m", color: { r: 1.25, g: 0.5, b: 0.3 } },
+  red_15m: { symbolicColor: "Red", sourceMdlAnimation: "Red_15m", color: { r: 1.5, g: 0.66, b: 0.4 } },
+  red_20m: { symbolicColor: "Red", sourceMdlAnimation: "Red_20m", color: { r: 1.75, g: 0.75, b: 0.5 } },
+  gren_5m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_5m", color: { r: 0.5, g: 1, b: 0.25 } },
+  gren_10m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_10m", color: { r: 0.75, g: 1.25, b: 0.5 } },
+  gren_15m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_15m", color: { r: 1, g: 1.5, b: 0.75 } },
+  gren_20m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_20m", color: { r: 1.25, g: 1.75, b: 1 } },
+  green_5m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_5m", color: { r: 0.5, g: 1, b: 0.25 } },
+  green_10m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_10m", color: { r: 0.75, g: 1.25, b: 0.5 } },
+  green_15m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_15m", color: { r: 1, g: 1.5, b: 0.75 } },
+  green_20m: { symbolicColor: "Green", sourceMdlAnimation: "Gren_20m", color: { r: 1.25, g: 1.75, b: 1 } },
+  orng_5m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_5m", color: { r: 1, g: 0.55, b: 0.225 } },
+  orng_10m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_10m", color: { r: 1.25, g: 0.75, b: 0.4 } },
+  orng_15m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_15m", color: { r: 1.5, g: 0.9, b: 0.55 } },
+  orng_20m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_20m", color: { r: 1.75, g: 1.15, b: 0.75 } },
+  orange_5m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_5m", color: { r: 1, g: 0.55, b: 0.225 } },
+  orange_10m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_10m", color: { r: 1.25, g: 0.75, b: 0.4 } },
+  orange_15m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_15m", color: { r: 1.5, g: 0.9, b: 0.55 } },
+  orange_20m: { symbolicColor: "Orange", sourceMdlAnimation: "Orng_20m", color: { r: 1.75, g: 1.15, b: 0.75 } },
+  white_5m: { symbolicColor: "White", sourceMdlAnimation: "white_5m", color: { r: 1, g: 1, b: 1 } },
+  white_10m: { symbolicColor: "White", sourceMdlAnimation: "white_10m", color: { r: 1.25, g: 1.25, b: 1.25 } },
+  white_15m: { symbolicColor: "White", sourceMdlAnimation: "white_15m", color: { r: 1.5, g: 1.5, b: 1.5 } },
+  white_20m: { symbolicColor: "White", sourceMdlAnimation: "white_20m", color: { r: 1.75, g: 1.75, b: 1.75 } }
+};
+
+const PROGFX_TYPE4_FX_LIGHT_CLR_VISION_FACTS: Readonly<Record<string, ProgFxType4FxLightClrFacts & { radius: number }>> = {
+  blind_vision: {
+    symbolicColor: "",
+    sourceMdlAnimation: "Blind_Vision",
+    color: { r: 0.3, g: 0.3, b: 0.3 },
+    radius: 7
+  },
+  low_light_vision: {
+    symbolicColor: "",
+    sourceMdlAnimation: "Low_Light_Vision",
+    color: { r: 0.3, g: 0.3, b: 0.4 },
+    radius: 11
+  },
+  dark_vision: {
+    symbolicColor: "",
+    sourceMdlAnimation: "Dark_Vision",
+    color: { r: 0.3, g: 0.3, b: 0.4 },
+    radius: 15
+  },
+  ultra_vision: {
+    symbolicColor: "",
+    sourceMdlAnimation: "Ultra_Vision",
+    color: { r: 0.7, g: 0.5, b: 1 },
+    radius: 15
+  }
+};
 
 export interface AuroraAoeSourceRow extends AuroraVfxSourceRowBase<"vfx_persistent.2da"> {
   shapeRaw?: string;
@@ -673,6 +930,7 @@ export function parseAuroraProgFxTwoDa(
 
   const rows = table.rows.map((row): AuroraProgFxSourceRow => {
     const typeRaw = getRaw(row, "Type");
+    const type = parseIntCell(typeRaw);
     const params = table.header
       .filter((column) => /^Param\d+$/u.test(column))
       .map((column) => {
@@ -685,14 +943,516 @@ export function parseAuroraProgFxTwoDa(
       });
 
     return {
-      ...sourceRowBase("progfx.2da", profile, row, getLabel(row), []),
-      type: parseIntCell(typeRaw),
+      ...sourceRowBase(
+        "progfx.2da",
+        profile,
+        row,
+        getLabel(row),
+        buildProgFxRowDiagnostics(type)
+      ),
+      type,
       typeRaw: isBlankCell(typeRaw) ? undefined : typeRaw,
+      ...(type === 4 ? { type4Light: buildProgFxType4LightSource(row) } : {}),
       params
     };
   });
 
   return { table, rows, diagnostics };
+}
+
+export function summarizeAuroraProgFxType4Rows(
+  rows: readonly AuroraProgFxSourceRow[],
+  sampleLimit = 16
+): AuroraProgFxType4TableSummary {
+  const type4Rows = rows.filter((row) => row.type === 4);
+  const animationKindCounts = { light: 0, vision: 0, unknown: 0 };
+  const castShadowsBooleanCounts = { true: 0, false: 0, unknown: 0 };
+  const proximitySuppressionBooleanCounts = { true: 0, false: 0, unknown: 0 };
+  const attachToSceneBooleanCounts = { true: 0, false: 0, unknown: 0 };
+  const castShadowsRawCounts: Record<string, number> = {};
+  const priorityRawCounts: Record<string, number> = {};
+  const proximitySuppressionRawCounts: Record<string, number> = {};
+  const attachToSceneRawCounts: Record<string, number> = {};
+  const modelCounts: Record<string, number> = {};
+  const lightTokenRadiusCounts: Record<string, number> = {};
+  let itemLightNormalRowCount = 0;
+  let itemLightFadeRowCount = 0;
+  const nonItemRows: AuroraProgFxSourceRow[] = [];
+  const nonItemCastShadowRows: AuroraProgFxSourceRow[] = [];
+  const proximitySuppressionRows: AuroraProgFxSourceRow[] = [];
+  const attachToSceneRows: AuroraProgFxSourceRow[] = [];
+  const visionRows: AuroraProgFxSourceRow[] = [];
+
+  for (const row of type4Rows) {
+    const type4 = row.type4Light;
+    const animationKind = type4?.animationKind;
+    if (animationKind === "light") {
+      animationKindCounts.light += 1;
+    } else if (animationKind === "vision") {
+      animationKindCounts.vision += 1;
+    } else {
+      animationKindCounts.unknown += 1;
+    }
+
+    incrementBooleanCount(castShadowsBooleanCounts, type4?.castShadows);
+    incrementBooleanCount(proximitySuppressionBooleanCounts, type4?.proximitySuppression);
+    incrementBooleanCount(attachToSceneBooleanCounts, type4?.attachToScene);
+    incrementCount(castShadowsRawCounts, type4?.castShadowsRaw);
+    incrementCount(priorityRawCounts, type4?.priorityRaw);
+    incrementCount(proximitySuppressionRawCounts, type4?.proximitySuppressionRaw);
+    incrementCount(attachToSceneRawCounts, type4?.attachToSceneRaw);
+    incrementCount(modelCounts, type4?.modelRef ?? type4?.modelRaw);
+    incrementCount(lightTokenRadiusCounts, type4?.animationTokenRadiusMeters?.toString());
+
+    const isItemLightNormalRow = row.rowId >= 300 && row.rowId <= 327;
+    const isItemLightFadeRow = row.rowId >= 350 && row.rowId <= 377;
+    if (isItemLightNormalRow) {
+      itemLightNormalRowCount += 1;
+    } else if (isItemLightFadeRow) {
+      itemLightFadeRowCount += 1;
+    } else {
+      nonItemRows.push(row);
+      if (type4?.castShadows === true) {
+        nonItemCastShadowRows.push(row);
+      }
+    }
+    if (type4?.proximitySuppression === true) {
+      proximitySuppressionRows.push(row);
+    }
+    if (type4?.attachToScene === true) {
+      attachToSceneRows.push(row);
+    }
+    if (type4?.animationKind === "vision") {
+      visionRows.push(row);
+    }
+  }
+
+  return {
+    sourceTable: "progfx.2da",
+    proofStatus: "source-backed-progfx-type4-table-parameter-distribution-runtime-scheduler-blocked",
+    rowCount: rows.length,
+    type4RowCount: type4Rows.length,
+    itemLightNormalRowCount,
+    itemLightFadeRowCount,
+    nonItemType4RowCount: type4Rows.length - itemLightNormalRowCount - itemLightFadeRowCount,
+    animationKindCounts,
+    castShadowsBooleanCounts,
+    proximitySuppressionBooleanCounts,
+    attachToSceneBooleanCounts,
+    castShadowsRawCounts: sortCountRecord(castShadowsRawCounts),
+    priorityRawCounts: sortCountRecord(priorityRawCounts),
+    proximitySuppressionRawCounts: sortCountRecord(proximitySuppressionRawCounts),
+    attachToSceneRawCounts: sortCountRecord(attachToSceneRawCounts),
+    modelCounts: sortCountRecord(modelCounts),
+    lightTokenRadiusCounts: sortCountRecord(lightTokenRadiusCounts),
+    sampleRows: type4Rows.slice(0, sampleLimit).map(toAuroraProgFxType4SummaryRow),
+    nonItemRows: nonItemRows.slice(0, sampleLimit).map(toAuroraProgFxType4SummaryRow),
+    nonItemCastShadowRows: nonItemCastShadowRows
+      .slice(0, sampleLimit)
+      .map(toAuroraProgFxType4SummaryRow),
+    proximitySuppressionRows: proximitySuppressionRows
+      .slice(0, sampleLimit)
+      .map(toAuroraProgFxType4SummaryRow),
+    attachToSceneRows: attachToSceneRows.slice(0, sampleLimit).map(toAuroraProgFxType4SummaryRow),
+    visionRows: visionRows.slice(0, sampleLimit).map(toAuroraProgFxType4SummaryRow),
+    remainingBlockedSemantics: [
+      "Param3/Param4/Param5/Param6 table distribution is source-backed",
+      "retail table/owner-phase audit proves nonItemCastShadowRows=[] and nonItemCastShadowOwnerPhaseCount=0 for vanilla resources",
+      "table distribution does not prove runtime scheduler order, vtable dispatch, proximity suppression, scene attachment, vision mutation, or cross-lane insertion behavior"
+    ]
+  };
+}
+
+export function summarizeAuroraProgFxType4VisualEffectOwners(
+  visualEffectRows: readonly AuroraVisualEffectSourceRow[],
+  progFxRows: readonly AuroraProgFxSourceRow[],
+  sampleLimit = 64
+): AuroraProgFxType4VisualEffectOwnerSummary {
+  const progFxByRowId = new Map(progFxRows.map((row) => [row.rowId, row]));
+  const ownerPhaseCounts: Record<AuroraVfxPhaseKind, number> = {
+    impact: 0,
+    duration: 0,
+    cessation: 0
+  };
+  const nonItemOwnerRows: AuroraProgFxType4VisualEffectOwnerRow[] = [];
+  const itemLightOwnerRows: AuroraProgFxType4VisualEffectOwnerRow[] = [];
+  let type4OwnerPhaseCount = 0;
+  let itemLightOwnerPhaseCount = 0;
+  let nonItemOwnerPhaseCount = 0;
+  let nonItemVisionOwnerPhaseCount = 0;
+  let nonItemCastShadowOwnerPhaseCount = 0;
+  let nonItemAttachToSceneOwnerPhaseCount = 0;
+  let nonItemProximitySuppressionOwnerPhaseCount = 0;
+  let missingProgFxReferenceCount = 0;
+  let nonType4ProgFxReferenceCount = 0;
+
+  for (const visualEffectRow of visualEffectRows) {
+    for (const phase of visualEffectRow.phases) {
+      if (typeof phase.progFxRowId !== "number") {
+        continue;
+      }
+
+      const progFxRow = progFxByRowId.get(phase.progFxRowId);
+      if (!progFxRow) {
+        missingProgFxReferenceCount += 1;
+        continue;
+      }
+      if (progFxRow.type !== 4) {
+        nonType4ProgFxReferenceCount += 1;
+        continue;
+      }
+
+      const ownerKind = isAuroraProgFxType4ItemLightRow(progFxRow.rowId)
+        ? "item-light"
+        : "non-item";
+      const ownerRow = toAuroraProgFxType4VisualEffectOwnerRow(
+        visualEffectRow,
+        phase,
+        progFxRow,
+        ownerKind
+      );
+
+      type4OwnerPhaseCount += 1;
+      ownerPhaseCounts[phase.phase] += 1;
+      if (ownerKind === "item-light") {
+        itemLightOwnerPhaseCount += 1;
+        itemLightOwnerRows.push(ownerRow);
+        continue;
+      }
+
+      nonItemOwnerPhaseCount += 1;
+      nonItemOwnerRows.push(ownerRow);
+      if (progFxRow.type4Light?.animationKind === "vision") {
+        nonItemVisionOwnerPhaseCount += 1;
+      }
+      if (progFxRow.type4Light?.castShadows === true) {
+        nonItemCastShadowOwnerPhaseCount += 1;
+      }
+      if (progFxRow.type4Light?.attachToScene === true) {
+        nonItemAttachToSceneOwnerPhaseCount += 1;
+      }
+      if (progFxRow.type4Light?.proximitySuppression === true) {
+        nonItemProximitySuppressionOwnerPhaseCount += 1;
+      }
+    }
+  }
+
+  return {
+    sourceTable: "visualeffects.2da",
+    linkedProgFxTable: "progfx.2da",
+    proofStatus: "source-backed-visualeffects-progfx-type4-owner-phase-map-runtime-scheduler-blocked",
+    visualEffectRowCount: visualEffectRows.length,
+    type4OwnerPhaseCount,
+    itemLightOwnerPhaseCount,
+    nonItemOwnerPhaseCount,
+    nonItemVisionOwnerPhaseCount,
+    nonItemCastShadowOwnerPhaseCount,
+    nonItemAttachToSceneOwnerPhaseCount,
+    nonItemProximitySuppressionOwnerPhaseCount,
+    missingProgFxReferenceCount,
+    nonType4ProgFxReferenceCount,
+    ownerPhaseCounts,
+    nonItemOwnerRows: nonItemOwnerRows
+      .slice(0, sampleLimit)
+      .map(sortStableOwnerRowFields),
+    itemLightOwnerRows: itemLightOwnerRows
+      .slice(0, sampleLimit)
+      .map(sortStableOwnerRowFields),
+    remainingBlockedSemantics: [
+      "visualeffects.2da owner phase references for ProgFX Type 4 are source-backed",
+      "owner phase mapping does not prove client runtime scheduler priority, proximity suppression, scene attachment, vision mutation, or shadow projection behavior",
+      "retail cross-lane ordering still requires scheduler data-flow or a retail oracle scene"
+    ]
+  };
+}
+
+function isAuroraProgFxType4ItemLightRow(rowId: number): boolean {
+  return (rowId >= 300 && rowId <= 327) || (rowId >= 350 && rowId <= 377);
+}
+
+function toAuroraProgFxType4SummaryRow(
+  row: AuroraProgFxSourceRow
+): AuroraProgFxType4SummaryRow {
+  return {
+    rowId: row.rowId,
+    label: row.label,
+    ...(row.type4Light?.animation ? { animation: row.type4Light.animation } : {}),
+    ...(row.type4Light?.animationKind
+      ? { animationKind: row.type4Light.animationKind }
+      : {}),
+    ...(row.type4Light?.castShadowsRaw
+      ? { castShadowsRaw: row.type4Light.castShadowsRaw }
+      : {}),
+    ...(row.type4Light?.priorityRaw ? { priorityRaw: row.type4Light.priorityRaw } : {}),
+    ...(row.type4Light?.proximitySuppressionRaw
+      ? { proximitySuppressionRaw: row.type4Light.proximitySuppressionRaw }
+      : {}),
+    ...(row.type4Light?.attachToSceneRaw
+      ? { attachToSceneRaw: row.type4Light.attachToSceneRaw }
+      : {}),
+    ...(row.type4Light?.modelRef ? { modelRef: row.type4Light.modelRef } : {})
+  };
+}
+
+function toAuroraProgFxType4VisualEffectOwnerRow(
+  visualEffectRow: AuroraVisualEffectSourceRow,
+  phase: AuroraVfxPhaseSourceRefs,
+  progFxRow: AuroraProgFxSourceRow,
+  ownerKind: AuroraProgFxType4OwnerKind
+): AuroraProgFxType4VisualEffectOwnerRow {
+  return {
+    visualEffectRowId: visualEffectRow.rowId,
+    visualEffectLabel: visualEffectRow.label,
+    ...(visualEffectRow.typeFd ? { typeFd: visualEffectRow.typeFd } : {}),
+    phase: phase.phase,
+    progFxRowId: progFxRow.rowId,
+    progFxLabel: progFxRow.label,
+    ownerKind,
+    ...(progFxRow.type4Light?.animation ? { animation: progFxRow.type4Light.animation } : {}),
+    ...(progFxRow.type4Light?.animationKind
+      ? { animationKind: progFxRow.type4Light.animationKind }
+      : {}),
+    ...(progFxRow.type4Light?.castShadowsRaw
+      ? { castShadowsRaw: progFxRow.type4Light.castShadowsRaw }
+      : {}),
+    ...(progFxRow.type4Light?.priorityRaw
+      ? { priorityRaw: progFxRow.type4Light.priorityRaw }
+      : {}),
+    ...(progFxRow.type4Light?.proximitySuppressionRaw
+      ? { proximitySuppressionRaw: progFxRow.type4Light.proximitySuppressionRaw }
+      : {}),
+    ...(progFxRow.type4Light?.attachToSceneRaw
+      ? { attachToSceneRaw: progFxRow.type4Light.attachToSceneRaw }
+      : {}),
+    ...(progFxRow.type4Light?.modelRef ? { modelRef: progFxRow.type4Light.modelRef } : {})
+  };
+}
+
+function sortStableOwnerRowFields(
+  row: AuroraProgFxType4VisualEffectOwnerRow
+): AuroraProgFxType4VisualEffectOwnerRow {
+  return row;
+}
+
+function incrementCount(counts: Record<string, number>, rawValue: string | undefined): void {
+  const key = rawValue && rawValue.trim().length > 0 ? rawValue.trim() : BLANK_CELL;
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function incrementBooleanCount(
+  counts: { true: number; false: number; unknown: number },
+  value: boolean | undefined
+): void {
+  if (value === true) {
+    counts.true += 1;
+    return;
+  }
+  if (value === false) {
+    counts.false += 1;
+    return;
+  }
+  counts.unknown += 1;
+}
+
+function sortCountRecord(counts: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function buildProgFxType4LightSource(row: AuroraTwoDaRow): AuroraProgFxType4LightSource {
+  const animationRaw = getRaw(row, "Param1");
+  const animation = isBlankCell(animationRaw) ? undefined : getValue(row, "Param1");
+  const animationSpeedRaw = getRaw(row, "Param2");
+  const castShadowsRaw = getRaw(row, "Param3");
+  const priorityRaw = getRaw(row, "Param4");
+  const proximitySuppressionRaw = getRaw(row, "Param5");
+  const attachToSceneRaw = getRaw(row, "Param6");
+  const modelRaw = getRaw(row, "Param7");
+  const modelRef = isBlankCell(modelRaw) ? undefined : getValue(row, "Param7");
+  const unusedParam8Raw = getRaw(row, "Param8");
+    return {
+      proofStatus: "profile-gated-source-preserved-no-runtime-scheduling",
+      ...(isBlankCell(animationRaw)
+        ? {}
+        : {
+            animationRaw,
+            animation,
+            animationParameterStatus: PROGFX_TYPE4_PARAM1_ANIMATION_STATUS
+          }),
+      ...buildProgFxType4AnimationFacts(animation, modelRef),
+      ...(isBlankCell(animationSpeedRaw)
+        ? {}
+        : {
+            animationSpeedRaw,
+            ...(typeof parseNumberCell(animationSpeedRaw) === "number"
+              ? { animationSpeed: parseNumberCell(animationSpeedRaw) }
+              : {}),
+            animationSpeedParameterStatus: PROGFX_TYPE4_PARAM2_SPEED_STATUS
+          }),
+      ...(isBlankCell(castShadowsRaw)
+        ? {}
+        : {
+            castShadowsRaw,
+            ...(typeof parseBooleanIntCell(castShadowsRaw) === "boolean"
+              ? { castShadows: parseBooleanIntCell(castShadowsRaw) }
+              : {}),
+            castShadowParameterStatus: PROGFX_TYPE4_PARAM3_CAST_SHADOW_STATUS
+          }),
+      ...(isBlankCell(priorityRaw)
+        ? {}
+        : {
+            priorityRaw,
+            ...(typeof parseIntCell(priorityRaw) === "number"
+              ? { priority: parseIntCell(priorityRaw) }
+              : {}),
+            priorityParameterStatus: PROGFX_TYPE4_PARAM4_PRIORITY_STATUS
+          }),
+      ...(isBlankCell(proximitySuppressionRaw)
+        ? {}
+        : {
+            proximitySuppressionRaw,
+            ...(typeof parseBooleanIntCell(proximitySuppressionRaw) === "boolean"
+              ? { proximitySuppression: parseBooleanIntCell(proximitySuppressionRaw) }
+              : {}),
+            proximitySuppressionParameterStatus: PROGFX_TYPE4_PARAM5_PROXIMITY_STATUS
+          }),
+      ...(isBlankCell(attachToSceneRaw)
+        ? {}
+        : {
+            attachToSceneRaw,
+            ...(typeof parseBooleanIntCell(attachToSceneRaw) === "boolean"
+              ? { attachToScene: parseBooleanIntCell(attachToSceneRaw) }
+              : {}),
+            sceneAttachmentParameterStatus: PROGFX_TYPE4_PARAM6_ATTACH_STATUS
+          }),
+      ...(isBlankCell(modelRaw)
+        ? {}
+        : {
+            modelRaw,
+            modelRef,
+            modelParameterStatus: PROGFX_TYPE4_PARAM7_MODEL_STATUS
+          }),
+      ...(isBlankCell(unusedParam8Raw) ? {} : { unusedParam8Raw }),
+      parameterSource: PROGFX_TYPE4_PARAMETER_SOURCE,
+      parameterPreservationProofSource: PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_SOURCE,
+      parameterPreservationProofStatus: PROGFX_TYPE4_PARAMETER_PRESERVATION_PROOF_STATUS
+    };
+  }
+
+function buildProgFxType4AnimationFacts(
+  animation: string | undefined,
+  modelRef: string | undefined
+): Partial<AuroraProgFxType4LightSource> {
+  const normalized = animation?.trim();
+  if (!normalized) {
+    return {};
+  }
+  const hasFxLightClrModel = modelRef?.trim().toLowerCase() === "fx_light_clr";
+
+  const lightMatch =
+    /^(Blue|Yello|Yellow|Purp|Purple|Red|Orng|Orange|Gren|Green|White|white)_(5|10|15|20)m$/u.exec(
+      normalized
+    );
+  if (lightMatch) {
+    const tokenRadiusMeters = Number.parseInt(lightMatch[2] ?? "", 10);
+    const sourceMdlFacts = hasFxLightClrModel
+      ? PROGFX_TYPE4_FX_LIGHT_CLR_FACTS[normalized.toLowerCase()]
+      : undefined;
+    if (!Number.isFinite(tokenRadiusMeters)) {
+      return {};
+    }
+    return {
+      animationKind: "light",
+      animationSymbolicColor: sourceMdlFacts?.symbolicColor ?? lightMatch[1],
+      animationTokenRadiusMeters: tokenRadiusMeters,
+      animationTokenRadiusProofStatus: "source-backed-progfx-param1-animation-token-radius",
+      ...(sourceMdlFacts
+        ? {
+            sourceMdlNodeName: "AuroraLight01" as const,
+            sourceMdlAnimation: sourceMdlFacts.sourceMdlAnimation,
+            sourceMdlColor: sourceMdlFacts.color,
+            sourceMdlRadiusMeters: PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_METERS,
+            sourceMdlRadiusFrames: [...PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_FRAMES] as [
+              number,
+              number
+            ],
+            sourceMdlColorSource: PROGFX_TYPE4_FX_LIGHT_CLR_COLOR_SOURCE,
+            sourceMdlColorProofStatus:
+              "source-family-backed-fx_light_clr-mdl-animation-rgb" as const,
+            sourceMdlRadiusSource: PROGFX_TYPE4_FX_LIGHT_CLR_RADIUS_SOURCE,
+            sourceMdlRadiusProofStatus:
+              "source-family-backed-fx_light_clr-mdl-animation-radius" as const
+          }
+        : {}),
+      animationSemanticSource:
+        "progfx.2da Type 4 Param1 names the fx_light_clr.mdl animation; 5m/10m/15m/20m is preserved as a token, while source MDL controller type 88 supplies radius"
+    };
+  }
+
+  if (/vision/iu.test(normalized)) {
+    const sourceMdlFacts = hasFxLightClrModel
+      ? PROGFX_TYPE4_FX_LIGHT_CLR_VISION_FACTS[normalized.toLowerCase()]
+      : undefined;
+    return {
+      animationKind: "vision",
+      visionMode: normalized,
+      visionParameterStatus: PROGFX_TYPE4_PARAM1_VISION_STATUS,
+      ...(sourceMdlFacts
+        ? {
+            sourceMdlNodeName: "AuroraLight02" as const,
+            sourceMdlAnimation: sourceMdlFacts.sourceMdlAnimation,
+            sourceMdlColor: sourceMdlFacts.color,
+            sourceMdlRadiusMeters: sourceMdlFacts.radius,
+            sourceMdlRadiusFrames: [0, sourceMdlFacts.radius] as [number, number],
+            sourceMdlColorSource: PROGFX_TYPE4_FX_LIGHT_CLR_VISION_COLOR_SOURCE,
+            sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb" as const,
+            sourceMdlRadiusSource: PROGFX_TYPE4_FX_LIGHT_CLR_VISION_RADIUS_SOURCE,
+            sourceMdlRadiusProofStatus:
+              "source-family-backed-fx_light_clr-mdl-animation-radius" as const
+          }
+        : {}),
+      animationSemanticSource:
+        "progfx.2da Type 4 Param1 animation token contains a vision-mode request"
+    };
+  }
+
+  return {};
+}
+
+function parseBooleanIntCell(value: string | undefined): boolean | undefined {
+  const parsed = parseIntCell(value);
+  if (parsed === 0) {
+    return false;
+  }
+  if (parsed === 1) {
+    return true;
+  }
+  return undefined;
+}
+
+function buildProgFxRowDiagnostics(type: number | undefined): AuroraVfxDiagnostic[] {
+  if (type !== 4) {
+    return [];
+  }
+
+  return [
+    diagnostic(
+      "VFX_PROGFX_TYPE4_REQUEST_CONTEXT_REQUIRED",
+      "warn",
+      "progfx.2da Type 4 is a phase-owned client light/vision request and requires owning visualeffects.2da phase plus effect-instance context before preview or runtime scheduling."
+    ),
+    diagnostic(
+      "VFX_PROGFX_TYPE4_NOT_MDL_LIGHT_NODE",
+      "warn",
+      "progfx.2da Type 4 is not an MDL node light and must not be merged with source MDL light-node payloads."
+    ),
+    diagnostic(
+      "VFX_CLIENT_LIGHT_NOT_GENERIC_POINT_LIGHT",
+      "warn",
+      "progfx.2da Type 4 client light/vision semantics must not become a generic renderer PointLight without selected-profile and retail/runtime validation."
+    )
+  ];
 }
 
 export function parseAuroraAoeTwoDa(

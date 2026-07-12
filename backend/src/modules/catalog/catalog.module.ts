@@ -9,8 +9,10 @@ import {
   TEMPLATE_CATALOG_REPOSITORY
 } from "./application/ports/template-catalog-repository.port";
 import { CreaturesController } from "./adapters/inbound/http/creatures.controller";
+import { EncountersController } from "./adapters/inbound/http/encounters.controller";
 import { ItemsController } from "./adapters/inbound/http/items.controller";
 import { PlaceablesController } from "./adapters/inbound/http/placeables.controller";
+import { StoresController } from "./adapters/inbound/http/stores.controller";
 import { ModuleSnapshotTemplateCatalogRepository } from "./adapters/outbound/blob/module-snapshot-template-catalog.repository";
 import { S3PlaceableProcessingCacheRepository } from "./adapters/outbound/blob/s3-placeable-processing-cache.repository";
 import { LayeredPlaceableProcessingCacheRepository } from "./adapters/outbound/layered/layered-placeable-processing-cache.repository";
@@ -19,7 +21,13 @@ import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/stat
 
 @Module({
   imports: [RuntimeSettingsModule],
-  controllers: [PlaceablesController, CreaturesController, ItemsController],
+  controllers: [
+    PlaceablesController,
+    CreaturesController,
+    ItemsController,
+    EncountersController,
+    StoresController
+  ],
   providers: [
     CatalogApplicationService,
     StaticTemplateCatalogRepository,

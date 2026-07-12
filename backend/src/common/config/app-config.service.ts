@@ -61,7 +61,7 @@ export class AppConfigService {
   }
 
   get useMemoryInfrastructure() {
-    return this.isTest || this.hostLocalRuntime;
+    return this.isTest || this.hostLocalRuntime || this.env.AUTH_REPOSITORY_DRIVER === "memory";
   }
 
   get redisUrl() {
@@ -132,6 +132,14 @@ export class AppConfigService {
     return this.env.PROCESSING_CACHE_L1_ADMISSION_WINDOW_SECONDS;
   }
 
+  get processingCacheL2AreaTimeoutMs() {
+    return this.env.PROCESSING_CACHE_L2_AREA_TIMEOUT_MS;
+  }
+
+  get processingCacheL2TileTimeoutMs() {
+    return this.env.PROCESSING_CACHE_L2_TILE_TIMEOUT_MS;
+  }
+
   get runtimeSettingsFile() {
     return this.env.RUNTIME_SETTINGS_FILE;
   }
@@ -162,5 +170,11 @@ export class AppConfigService {
 
   get derivedAssetOutputExtension() {
     return this.env.AURORA_DERIVED_ASSET_OUTPUT_EXTENSION;
+  }
+
+  get itemGeneratorSourceDirs() {
+    return this.env.AURORA_ITEM_GENERATOR_SOURCE_DIRS.split(/[;,]/u)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
   }
 }

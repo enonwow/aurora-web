@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import type {
@@ -68,7 +68,7 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
       : [];
     const objects = allObjects.sort((left, right) => left.key.localeCompare(right.key));
     const offset = Math.max(Number.parseInt(String(options.continuationToken ?? "0"), 10) || 0, 0);
-    const limit = Math.min(Math.max(Number(options.limit ?? 1000), 1), 1000);
+    const limit = Math.min(Math.max(Number(options.limit ?? 1000), 1), 50_000);
     const page = objects.slice(offset, offset + limit);
     const nextOffset = offset + page.length;
     const truncated = nextOffset < objects.length;
@@ -128,6 +128,23 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
       etag: sha256Hex(bytes),
       lastModified: new Date().toISOString()
     };
+  }
+
+  async deleteModuleObject(_settings: BlobStorageSettings, key: string): Promise<boolean> {
+    const normalizedKey = normalizeObjectKey(key);
+    if (!normalizedKey) {
+      return false;
+    }
+
+    const root = this.resolveRoot();
+    const path = safeJoinObjectKey(root, normalizedKey);
+    const fileStat = await statSafe(path);
+    if (!fileStat?.isFile()) {
+      return false;
+    }
+
+    await unlink(path);
+    return true;
   }
 
   private resolveRoot(): string {

@@ -34,6 +34,8 @@ export interface RuntimeSourcesByAsset {
   area: RuntimeSourceSettings;
   sound: RuntimeSourceSettings;
   vfx: RuntimeSourceSettings;
+  creature?: RuntimeSourceSettings;
+  item?: RuntimeSourceSettings;
 }
 
 export type RuntimeAssetKind = keyof RuntimeSourcesByAsset;

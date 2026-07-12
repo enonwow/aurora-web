@@ -113,7 +113,7 @@ export class S3PlaceableProcessingCacheRepository
   }
 }
 
-function buildPlaceableLogicalId(value: unknown): string | null {
+export function buildPlaceableLogicalId(value: unknown): string | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -132,5 +132,64 @@ function buildPlaceableLogicalId(value: unknown): string | null {
   const subtypeRaw =
     typeof record.placeableSubtype === "string" ? record.placeableSubtype.trim().toLowerCase() : "";
   const subtype = subtypeRaw || "generic";
+  const metadata = readRecord(record.metadata);
+  const areaInstanceRenderSource = readLogicalIdString(metadata, "areaInstanceRenderSource");
+  const areaInstanceLookupStatus = readLogicalIdString(
+    metadata,
+    "areaInstanceModelLookupStatus"
+  );
+  const areaInstanceModelResRef =
+    readLogicalIdString(metadata, "lookupModelResRef") ??
+    readLogicalIdString(metadata, "modelResRef");
+  const isAreaInstance =
+    areaInstanceRenderSource === "git" ||
+    Boolean(areaInstanceLookupStatus) ||
+    Boolean(areaInstanceModelResRef);
+  if (isAreaInstance) {
+    const modelId = areaInstanceModelResRef
+      ? `model:${normalizeLogicalIdPart(areaInstanceModelResRef)}`
+      : [
+          "facts",
+          `appearance:${readLogicalIdNumber(metadata, "areaInstanceAppearanceType") ?? "none"}`,
+          `generic:${readLogicalIdNumber(metadata, "areaInstanceGenericType") ?? "none"}`
+        ].join(":");
+    return `placeable-area-instance:${subtype}:${modelId}`;
+  }
+
   return `placeable:${templateId.toLowerCase()}:${subtype}`;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readLogicalIdString(
+  record: Record<string, unknown> | null,
+  key: string
+): string | null {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function readLogicalIdNumber(
+  record: Record<string, unknown> | null,
+  key: string
+): string | null {
+  const value = record?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? String(Math.trunc(parsed)) : null;
+  }
+  return null;
+}
+
+function normalizeLogicalIdPart(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_.-]+/gu, "_");
 }

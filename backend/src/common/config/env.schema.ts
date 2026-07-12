@@ -78,6 +78,8 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(300),
+  PROCESSING_CACHE_L2_AREA_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  PROCESSING_CACHE_L2_TILE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   RUNTIME_SETTINGS_FILE: z.string().min(1).default("./config/runtime-settings.json"),
   PROCESSING_GRAPH_SNAPSHOT_FILE: z
     .string()
@@ -94,7 +96,8 @@ export const envSchema = z.object({
     .positive()
     .default(30_000),
   AURORA_DERIVED_ASSET_MAX_MODELS: z.coerce.number().int().positive().default(200),
-  AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: z.enum(["glb", "gltf"]).default("glb")
+  AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: z.enum(["glb", "gltf"]).default("glb"),
+  AURORA_ITEM_GENERATOR_SOURCE_DIRS: z.string().default("")
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

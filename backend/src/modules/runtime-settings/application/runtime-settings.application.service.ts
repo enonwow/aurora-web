@@ -8,6 +8,7 @@ import {
   type AuroraTwoDaRow
 } from "../../../common/aurora/two-da/aurora-two-da-table";
 import { buildS3ObjectUrl } from "../../../common/blob/blob-url.helpers";
+import { resolveHostLocalMountedPath } from "../../../common/host/host-local-paths";
 import { AppException } from "../../../common/http/app-exception";
 import {
   DERIVED_ASSET_GENERATOR,
@@ -40,9 +41,40 @@ import {
   NWN_KEY_BIF_RESOURCE_TYPES,
   NwnKeyBifResourceReader
 } from "./nwn-key-bif-resource-reader";
+import {
+  readNwnErfResource,
+  readNwnErfResourceFromIndex,
+  readNwnErfResourceIndex
+} from "../adapters/outbound/nwn/nwn-erf-packed-module-extractor.service";
+import { inspectAuroraMdlSource } from "../adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter";
 
-const RUNTIME_ASSET_KINDS = ["placeable", "tile", "area", "sound", "vfx"] as const;
+const RUNTIME_ASSET_KINDS = [
+  "placeable",
+  "tile",
+  "area",
+  "sound",
+  "vfx",
+  "creature",
+  "item"
+] as const;
+const DEFAULT_CREATURE_SOURCE_SETTINGS: RuntimeSourceSettings = {
+  includeModuleTemp0: true,
+  includeModulePacked: false,
+  includeHaks: true,
+  includeVanilla: true,
+  hakProfileId: "lc_creatures",
+  hakPriorityList: []
+};
+const DEFAULT_ITEM_SOURCE_SETTINGS: RuntimeSourceSettings = {
+  includeModuleTemp0: true,
+  includeModulePacked: false,
+  includeHaks: true,
+  includeVanilla: true,
+  hakProfileId: "lc_creatures",
+  hakPriorityList: []
+};
 const TEXTURE_EXTENSIONS = new Set(["dds", "tga", "plt", "txi", "mtr", "bmp"]);
+const MODULE_AREA_SOURCE_EXTENSIONS = new Set(["are", "git", "gic"]);
 const SOUND_ASSET_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
 const PLACEABLE_HAK_ASSET_EXTENSIONS = new Set([
   "utp",
@@ -55,6 +87,12 @@ const PLACEABLE_HAK_ASSET_EXTENSIONS = new Set([
   "wok",
   "vis",
   "pfx"
+]);
+const CREATURE_TEMPLATE_ASSET_EXTENSIONS = new Set(["utc"]);
+const PLACEABLE_TWO_DA_SOURCE_NAMES = new Set([
+  "placeables.2da",
+  "doortypes.2da",
+  "genericdoors.2da"
 ]);
 const VANILLA_KEY_FILE_CANDIDATES = ["nwn_base.key", "nwn_retail.key"] as const;
 const VANILLA_PLACEABLE_RELATED_RESOURCE_TYPES: ReadonlyArray<{
@@ -86,6 +124,22 @@ const VANILLA_TEXTURE_RESOURCE_TYPES: ReadonlyArray<{
   { extension: "bmp", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.BMP },
   { extension: "plt", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.PLT }
 ];
+const VANILLA_SOUND_RESOURCE_TYPES: ReadonlyArray<{
+  extension: string;
+  resourceType: number;
+}> = [
+  { extension: "wav", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.WAV },
+  { extension: "bmu", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.BMU },
+  { extension: "mp3", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MP3 }
+];
+const VANILLA_CREATURE_TEMPLATE_RESOURCE_TYPES: ReadonlyArray<{
+  extension: string;
+  resourceType: number;
+}> = [{ extension: "utc", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTC }];
+const VANILLA_ITEM_TEMPLATE_RESOURCE_TYPES: ReadonlyArray<{
+  extension: string;
+  resourceType: number;
+}> = [{ extension: "uti", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI }];
 const TEXTURE_INDEX_FILE_NAME = "__aurora/meta/texture-index.v1.json";
 const TEXTURE_INDEX_LOOKUP_CACHE_TTL_MS = 30_000;
 
@@ -152,6 +206,31 @@ export interface TextureSyncSummary {
 }
 
 export interface DerivedAssetSyncSummary extends DerivedAssetGeneratorSummary {}
+
+export interface ModuleAreaSourceSyncEnvelope {
+  mode: "module-area-source-sync";
+  settingsRevision: number;
+  triggeredBy: string;
+  triggeredAt: string;
+  enabled: boolean;
+  source: {
+    type: "decompiled" | "packed" | "none";
+    path: string;
+  };
+  uploadedFiles: number;
+  uploadedBytes: number;
+  files: Array<{
+    fileName: string;
+    objectKey: string;
+    size: number;
+    resourceType: number;
+    etag?: string;
+  }>;
+  skippedReason?:
+    | "area_module_sources_disabled"
+    | "module_source_not_configured"
+    | "module_blob_storage_put_unavailable";
+}
 
 export interface VanillaTilesetSetSourceSyncEnvelope {
   mode: "vanilla-tileset-set-source-sync";
@@ -246,6 +325,60 @@ export interface PlaceableModelSourceSyncEnvelope {
     | "no_placeable_sources_requested";
 }
 
+export interface CreatureTemplateSourceSyncEnvelope {
+  mode: "creature-template-source-sync";
+  settingsRevision: number;
+  triggeredBy: string;
+  triggeredAt: string;
+  enabled: boolean;
+  source: {
+    vanillaDataPath: string;
+    hakPaths: string[];
+    missingHakPaths: string[];
+  };
+  discoveredHakTemplates: number;
+  discoveredVanillaTemplates: number;
+  uploadedFiles: number;
+  uploadedBytes: number;
+  files: Array<{
+    fileName: string;
+    objectKey: string;
+    size: number;
+    resourceType: number;
+    etag?: string;
+  }>;
+  skippedReason?:
+    | "creature_template_sources_disabled"
+    | "module_blob_storage_put_unavailable";
+}
+
+export interface ItemTemplateSourceSyncEnvelope {
+  mode: "item-template-source-sync";
+  settingsRevision: number;
+  triggeredBy: string;
+  triggeredAt: string;
+  enabled: boolean;
+  source: {
+    vanillaDataPath: string;
+    hakPaths: string[];
+    missingHakPaths: string[];
+  };
+  discoveredHakTemplates: number;
+  discoveredVanillaTemplates: number;
+  uploadedFiles: number;
+  uploadedBytes: number;
+  files: Array<{
+    fileName: string;
+    objectKey: string;
+    size: number;
+    resourceType: number;
+    etag?: string;
+  }>;
+  skippedReason?:
+    | "item_template_sources_disabled"
+    | "module_blob_storage_put_unavailable";
+}
+
 export interface TextureDeliveryContract {
   textureId: string;
   resref: string;
@@ -306,12 +439,16 @@ interface TextureSourceFile extends PackedModuleFile {
 interface SourceSupplementResult {
   textureFiles: TextureSourceFile[];
   placeableAssetFiles: PackedModuleFile[];
+  creatureTemplateFiles: PackedModuleFile[];
   soundAssetFiles: PackedModuleFile[];
   summary: {
     hakTextures: number;
     hakPlaceableAssets: number;
+    hakCreatureTemplates: number;
     hakSounds: number;
     vanillaTextures: number;
+    vanillaCreatureTemplates: number;
+    vanillaSounds: number;
   };
 }
 
@@ -604,6 +741,7 @@ export class RuntimeSettingsApplicationService {
       ...source.files,
       ...toPackedModuleFileList(supplement.textureFiles),
       ...supplement.placeableAssetFiles,
+      ...supplement.creatureTemplateFiles,
       ...supplement.soundAssetFiles
     ];
     const derivedAssets = await this.generateDerivedAssetFiles(settings, source.files);
@@ -685,6 +823,92 @@ export class RuntimeSettingsApplicationService {
     }
   ): Promise<ModuleBlobSyncEnvelope> {
     return this.syncModuleBlobCache(triggeredBy, options);
+  }
+
+  async syncModuleAreaSourceFiles(
+    triggeredBy: string
+  ): Promise<ModuleAreaSourceSyncEnvelope> {
+    const settings = await this.repository.get();
+    if (!settings.sources.area.includeModuleTemp0 && !settings.sources.area.includeModulePacked) {
+      return {
+        mode: "module-area-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: false,
+        source: {
+          type: "none",
+          path: ""
+        },
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "area_module_sources_disabled"
+      };
+    }
+
+    if (!this.moduleBlobStorage.putModuleObject) {
+      return {
+        mode: "module-area-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: true,
+        source: {
+          type: "none",
+          path: ""
+        },
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "module_blob_storage_put_unavailable"
+      };
+    }
+
+    const source = await this.loadModuleAreaSourceFiles(settings);
+    if (source.type === "none") {
+      return {
+        mode: "module-area-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: true,
+        source,
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "module_source_not_configured"
+      };
+    }
+
+    const storedFiles: ModuleAreaSourceSyncEnvelope["files"] = [];
+    let uploadedBytes = 0;
+    for (const file of source.files) {
+      const stored = await this.moduleBlobStorage.putModuleObject(settings.blobStorage, file);
+      uploadedBytes += stored.size;
+      storedFiles.push({
+        fileName: file.fileName,
+        objectKey: stored.key,
+        size: stored.size,
+        resourceType: file.resourceType,
+        ...(stored.etag ? { etag: stored.etag } : {})
+      });
+    }
+
+    return {
+      mode: "module-area-source-sync",
+      settingsRevision: settings.revision,
+      triggeredBy,
+      triggeredAt: new Date().toISOString(),
+      enabled: true,
+      source: {
+        type: source.type,
+        path: source.path
+      },
+      uploadedFiles: storedFiles.length,
+      uploadedBytes,
+      files: storedFiles
+    };
   }
 
   async syncVanillaTilesetSetSources(
@@ -859,7 +1083,6 @@ export class RuntimeSettingsApplicationService {
       const hakResult = await readHakTileModelAssets(
         tileHakPaths,
         requestedModelResRefs,
-        this.packedModuleExtractor,
         this.logger
       );
       for (const file of hakResult.files) {
@@ -881,13 +1104,15 @@ export class RuntimeSettingsApplicationService {
       missingModelResRefs = vanillaResult.missingModelResRefs;
     }
     const sourceFiles = [...sourceFilesByName.values()];
-    const requestedTextureResRefs = collectAuroraMdlTextureReferencesFromFiles(sourceFiles);
+    const requestedTextureResRefs = collectTileModelTextureReferences(
+      requestedModelResRefs,
+      sourceFiles
+    );
     const textureFilesByName = new Map<string, TextureSourceFile>();
     if (requestedTextureResRefs.length > 0 && settings.sources.tile.includeHaks) {
       const hakTextureFiles = await readHakTextureAssets(
         tileHakPaths,
         requestedTextureResRefs,
-        this.packedModuleExtractor,
         this.logger
       );
       for (const file of hakTextureFiles) {
@@ -998,30 +1223,6 @@ export class RuntimeSettingsApplicationService {
       };
     }
 
-    if (requestedAppearanceTypes.length === 0 && directModelResRefs.length === 0) {
-      return {
-        mode: "placeable-model-source-sync",
-        settingsRevision: settings.revision,
-        triggeredBy,
-        triggeredAt: new Date().toISOString(),
-        enabled: true,
-        source: {
-          vanillaDataPath,
-          hakPaths: placeableHakPaths
-        },
-        requestedAppearanceTypes,
-        resolvedAppearanceModels: [],
-        missingAppearanceTypes: [],
-        requestedModelResRefs: [],
-        missingModelResRefs: [],
-        uploadedFiles: 0,
-        uploadedBytes: 0,
-        derivedAssets: buildSkippedDerivedAssetSummary("no_placeable_sources_requested"),
-        files: [],
-        skippedReason: "no_placeable_sources_requested"
-      };
-    }
-
     if (!this.moduleBlobStorage.putModuleObject) {
       return {
         mode: "placeable-model-source-sync",
@@ -1053,7 +1254,6 @@ export class RuntimeSettingsApplicationService {
     if (settings.sources.placeable.includeHaks) {
       const hakTwoDa = await readHakPlaceablesTwoDaAssets(
         placeableHakPaths,
-        this.packedModuleExtractor,
         this.logger
       );
       for (const file of hakTwoDa.files) {
@@ -1069,7 +1269,9 @@ export class RuntimeSettingsApplicationService {
     if (settings.sources.placeable.includeVanilla) {
       const vanillaTwoDa = await readVanillaPlaceablesTwoDaAsset(vanillaDataPath, this.logger);
       if (vanillaTwoDa) {
-        sourceFilesByName.set(vanillaTwoDa.file.fileName, vanillaTwoDa.file);
+        for (const file of vanillaTwoDa.files) {
+          sourceFilesByName.set(file.fileName, file);
+        }
         for (const [rowId, modelResRef] of vanillaTwoDa.appearanceModelByRowId) {
           if (!appearanceModelByRowId.has(rowId)) {
             appearanceModelByRowId.set(rowId, modelResRef);
@@ -1133,7 +1335,6 @@ export class RuntimeSettingsApplicationService {
       const hakTextures = await readHakTextureAssets(
         placeableHakPaths,
         requestedTextureResRefs,
-        this.packedModuleExtractor,
         this.logger
       );
       for (const file of hakTextures) {
@@ -1208,6 +1409,307 @@ export class RuntimeSettingsApplicationService {
     };
   }
 
+  async syncCreatureTemplateSources(
+    triggeredBy: string
+  ): Promise<CreatureTemplateSourceSyncEnvelope> {
+    const settings = await this.repository.get();
+    const vanillaDataPath = resolveFilePath(settings.paths.vanillaDataPath.trim());
+    const moduleIfoHakList = await readModuleIfOHakList(settings.paths.moduleDecompiledPath);
+    const creatureHakPaths = settings.sources.creature?.includeHaks
+      ? resolveHakSettingsByAsset(settings, moduleIfoHakList).creature.hakPaths
+      : [];
+    const uniqueHakPaths = deduplicateOrdered(creatureHakPaths);
+
+    if (
+      settings.sources.creature?.includeVanilla !== true &&
+      settings.sources.creature?.includeHaks !== true
+    ) {
+      return {
+        mode: "creature-template-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: false,
+        source: {
+          vanillaDataPath,
+          hakPaths: uniqueHakPaths,
+          missingHakPaths: []
+        },
+        discoveredHakTemplates: 0,
+        discoveredVanillaTemplates: 0,
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "creature_template_sources_disabled"
+      };
+    }
+
+    if (!this.moduleBlobStorage.putModuleObject) {
+      return {
+        mode: "creature-template-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: true,
+        source: {
+          vanillaDataPath,
+          hakPaths: uniqueHakPaths,
+          missingHakPaths: []
+        },
+        discoveredHakTemplates: 0,
+        discoveredVanillaTemplates: 0,
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "module_blob_storage_put_unavailable"
+      };
+    }
+
+    const filesByName = new Map<string, PackedModuleFile>();
+    const missingHakPaths: string[] = [];
+    let discoveredHakTemplates = 0;
+    let discoveredVanillaTemplates = 0;
+
+    if (settings.sources.creature?.includeHaks === true) {
+      for (const hakPath of uniqueHakPaths) {
+        const resolved = resolveFilePath(hakPath);
+        if (!(await existsAsFile(resolved))) {
+          missingHakPaths.push(resolved);
+          this.logger.warn(
+            `Skipping creature template HAK source because file does not exist: ${resolved}`
+          );
+          continue;
+        }
+        try {
+          const startedAt = Date.now();
+          const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+          const creatureTemplates = await readCreatureTemplateFilesFromHak(
+            resolved,
+            hakName
+          );
+          this.logger.log(
+            JSON.stringify({
+              event: "creatureTemplateSourceSyncHak",
+              hakPath: resolved,
+              discoveredFiles: creatureTemplates.length,
+              elapsedMs: Date.now() - startedAt
+            })
+          );
+          discoveredHakTemplates += creatureTemplates.length;
+          for (const asset of creatureTemplates) {
+            filesByName.set(asset.fileName, {
+              fileName: asset.fileName,
+              resourceType: asset.resourceType,
+              bytes: Buffer.from(asset.bytes)
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping creature template HAK source because extraction failed (${resolved}): ${stringifyError(error)}`
+          );
+        }
+      }
+    }
+
+    if (settings.sources.creature?.includeVanilla === true) {
+      if (await existsAsDirectory(vanillaDataPath)) {
+        const vanillaCreatureTemplateFiles = await readVanillaCreatureTemplateAssetsFromKeyBif(
+          vanillaDataPath,
+          this.logger
+        );
+        discoveredVanillaTemplates = vanillaCreatureTemplateFiles.length;
+        for (const file of vanillaCreatureTemplateFiles) {
+          filesByName.set(file.fileName, file);
+        }
+      } else {
+        this.logger.warn(
+          `Skipping vanilla creature template source because directory does not exist: ${vanillaDataPath}`
+        );
+      }
+    }
+
+    const files = [...filesByName.values()];
+    const storedFiles: CreatureTemplateSourceSyncEnvelope["files"] = [];
+    let uploadedBytes = 0;
+    for (const file of files) {
+      const stored = await this.moduleBlobStorage.putModuleObject(settings.blobStorage, file);
+      uploadedBytes += stored.size;
+      storedFiles.push({
+        fileName: file.fileName,
+        objectKey: stored.key,
+        size: stored.size,
+        resourceType: file.resourceType,
+        ...(stored.etag ? { etag: stored.etag } : {})
+      });
+    }
+
+    return {
+      mode: "creature-template-source-sync",
+      settingsRevision: settings.revision,
+      triggeredBy,
+      triggeredAt: new Date().toISOString(),
+      enabled: true,
+      source: {
+        vanillaDataPath,
+        hakPaths: uniqueHakPaths,
+        missingHakPaths
+      },
+      discoveredHakTemplates,
+      discoveredVanillaTemplates,
+      uploadedFiles: storedFiles.length,
+      uploadedBytes,
+      files: storedFiles
+    };
+  }
+
+  async syncItemTemplateSources(
+    triggeredBy: string
+  ): Promise<ItemTemplateSourceSyncEnvelope> {
+    const settings = await this.repository.get();
+    const itemSource = settings.sources.item ?? DEFAULT_ITEM_SOURCE_SETTINGS;
+    const vanillaDataPath = resolveFilePath(settings.paths.vanillaDataPath.trim());
+    const moduleIfoHakList = await readModuleIfOHakList(settings.paths.moduleDecompiledPath);
+    const itemHakPaths = itemSource.includeHaks
+      ? resolveHakSettingsByAsset(settings, moduleIfoHakList).item.hakPaths
+      : [];
+    const uniqueHakPaths = deduplicateOrdered(itemHakPaths);
+
+    if (!itemSource.includeVanilla && !itemSource.includeHaks) {
+      return {
+        mode: "item-template-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: false,
+        source: {
+          vanillaDataPath,
+          hakPaths: uniqueHakPaths,
+          missingHakPaths: []
+        },
+        discoveredHakTemplates: 0,
+        discoveredVanillaTemplates: 0,
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "item_template_sources_disabled"
+      };
+    }
+
+    if (!this.moduleBlobStorage.putModuleObject) {
+      return {
+        mode: "item-template-source-sync",
+        settingsRevision: settings.revision,
+        triggeredBy,
+        triggeredAt: new Date().toISOString(),
+        enabled: true,
+        source: {
+          vanillaDataPath,
+          hakPaths: uniqueHakPaths,
+          missingHakPaths: []
+        },
+        discoveredHakTemplates: 0,
+        discoveredVanillaTemplates: 0,
+        uploadedFiles: 0,
+        uploadedBytes: 0,
+        files: [],
+        skippedReason: "module_blob_storage_put_unavailable"
+      };
+    }
+
+    const filesByName = new Map<string, PackedModuleFile>();
+    const missingHakPaths: string[] = [];
+    let discoveredHakTemplates = 0;
+    let discoveredVanillaTemplates = 0;
+
+    if (itemSource.includeHaks) {
+      for (const hakPath of uniqueHakPaths) {
+        const resolved = resolveFilePath(hakPath);
+        if (!(await existsAsFile(resolved))) {
+          missingHakPaths.push(resolved);
+          this.logger.warn(
+            `Skipping item template HAK source because file does not exist: ${resolved}`
+          );
+          continue;
+        }
+        try {
+          const startedAt = Date.now();
+          const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+          const itemTemplates = await readItemTemplateFilesFromHak(resolved, hakName);
+          this.logger.log(
+            JSON.stringify({
+              event: "itemTemplateSourceSyncHak",
+              hakPath: resolved,
+              discoveredFiles: itemTemplates.length,
+              elapsedMs: Date.now() - startedAt
+            })
+          );
+          discoveredHakTemplates += itemTemplates.length;
+          for (const asset of itemTemplates) {
+            filesByName.set(asset.fileName, {
+              fileName: asset.fileName,
+              resourceType: asset.resourceType,
+              bytes: Buffer.from(asset.bytes)
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Skipping item template HAK source because extraction failed (${resolved}): ${stringifyError(error)}`
+          );
+        }
+      }
+    }
+
+    if (itemSource.includeVanilla) {
+      if (await existsAsDirectory(vanillaDataPath)) {
+        const vanillaItemTemplateFiles = await readVanillaItemTemplateAssetsFromKeyBif(
+          vanillaDataPath,
+          this.logger
+        );
+        discoveredVanillaTemplates = vanillaItemTemplateFiles.length;
+        for (const file of vanillaItemTemplateFiles) {
+          filesByName.set(file.fileName, file);
+        }
+      } else {
+        this.logger.warn(
+          `Skipping vanilla item template source because directory does not exist: ${vanillaDataPath}`
+        );
+      }
+    }
+
+    const files = [...filesByName.values()];
+    const storedFiles: ItemTemplateSourceSyncEnvelope["files"] = [];
+    let uploadedBytes = 0;
+    for (const file of files) {
+      const stored = await this.moduleBlobStorage.putModuleObject(settings.blobStorage, file);
+      uploadedBytes += stored.size;
+      storedFiles.push({
+        fileName: file.fileName,
+        objectKey: stored.key,
+        size: stored.size,
+        resourceType: file.resourceType,
+        ...(stored.etag ? { etag: stored.etag } : {})
+      });
+    }
+
+    return {
+      mode: "item-template-source-sync",
+      settingsRevision: settings.revision,
+      triggeredBy,
+      triggeredAt: new Date().toISOString(),
+      enabled: true,
+      source: {
+        vanillaDataPath,
+        hakPaths: uniqueHakPaths,
+        missingHakPaths
+      },
+      discoveredHakTemplates,
+      discoveredVanillaTemplates,
+      uploadedFiles: storedFiles.length,
+      uploadedBytes,
+      files: storedFiles
+    };
+  }
+
   private async loadModuleSourceFiles(
     settings: RuntimeSettingsRecord
   ): Promise<{
@@ -1241,16 +1743,64 @@ export class RuntimeSettingsApplicationService {
     );
   }
 
+  private async loadModuleAreaSourceFiles(
+    settings: RuntimeSettingsRecord
+  ): Promise<
+    | {
+        type: "decompiled" | "packed";
+        path: string;
+        files: PackedModuleFile[];
+      }
+    | {
+        type: "none";
+        path: string;
+        files: [];
+      }
+  > {
+    const decompiledPath = settings.paths.moduleDecompiledPath.trim();
+    if (settings.sources.area.includeModuleTemp0 && decompiledPath.length > 0) {
+      const resolvedPath = resolveModulePath(decompiledPath);
+      const files = await readDecompiledModuleAreaSourceFiles(resolvedPath);
+      return {
+        type: "decompiled",
+        path: resolvedPath,
+        files
+      };
+    }
+
+    const packedPath = settings.paths.modulePackedPath.trim();
+    if (settings.sources.area.includeModulePacked && packedPath.length > 0) {
+      const files = (await this.packedModuleExtractor.extractFromPackedModule(packedPath)).filter(
+        (file) => isAreaModuleSourceFileName(file.fileName)
+      );
+      return {
+        type: "packed",
+        path: packedPath,
+        files
+      };
+    }
+
+    return {
+      type: "none",
+      path: "",
+      files: []
+    };
+  }
+
   private async loadSourceSupplementFiles(
     settings: RuntimeSettingsRecord
   ): Promise<SourceSupplementResult> {
     const textureFiles: TextureSourceFile[] = [];
     const placeableAssetFiles: PackedModuleFile[] = [];
+    const creatureTemplateFiles: PackedModuleFile[] = [];
     const soundAssetFiles: PackedModuleFile[] = [];
     let hakTextures = 0;
     let hakPlaceableAssets = 0;
+    let hakCreatureTemplates = 0;
     let hakSounds = 0;
     let vanillaTextures = 0;
+    let vanillaCreatureTemplates = 0;
+    let vanillaSounds = 0;
 
     const moduleIfoHakList = await readModuleIfOHakList(settings.paths.moduleDecompiledPath);
     const hakPaths = collectEnabledHakPaths(settings, moduleIfoHakList);
@@ -1282,11 +1832,21 @@ export class RuntimeSettingsApplicationService {
             isPlaceableHakAssetFileName(entry.fileName) &&
             !isTextureFileName(entry.fileName)
         );
+        const extractedCreatureTemplateFiles = extracted.filter((entry) =>
+          isCreatureTemplateAssetFileName(entry.fileName)
+        );
         const extractedSoundAssetFiles = extracted.filter((entry) =>
           isSoundAssetFileName(entry.fileName)
         );
         for (const asset of extractedPlaceableAssetFiles) {
           placeableAssetFiles.push({
+            fileName: normalizeRelativePath(`__aurora/sources/hak/${hakName}/${asset.fileName}`),
+            resourceType: asset.resourceType,
+            bytes: Buffer.from(asset.bytes)
+          });
+        }
+        for (const asset of extractedCreatureTemplateFiles) {
+          creatureTemplateFiles.push({
             fileName: normalizeRelativePath(`__aurora/sources/hak/${hakName}/${asset.fileName}`),
             resourceType: asset.resourceType,
             bytes: Buffer.from(asset.bytes)
@@ -1301,6 +1861,7 @@ export class RuntimeSettingsApplicationService {
         }
         hakTextures += extractedTextureFiles.length;
         hakPlaceableAssets += extractedPlaceableAssetFiles.length;
+        hakCreatureTemplates += extractedCreatureTemplateFiles.length;
         hakSounds += extractedSoundAssetFiles.length;
       } catch (error) {
         this.logger.warn(
@@ -1309,24 +1870,28 @@ export class RuntimeSettingsApplicationService {
       }
     }
 
-    const includeVanilla = shouldIncludeVanillaTextures(settings);
+    const includeVanillaTextures = shouldIncludeVanillaTextures(settings);
+    const includeVanillaSounds = settings.sources.sound.includeVanilla;
+    const includeVanilla = includeVanillaTextures || includeVanillaSounds;
     if (includeVanilla) {
       const vanillaRoot = resolveFilePath(settings.paths.vanillaDataPath.trim());
       if (await existsAsDirectory(vanillaRoot)) {
-        const vanillaTextureFilesByName = new Map<string, TextureSourceFile>();
-        const vanillaFiles = await readTextureFilesFromDirectory(vanillaRoot, vanillaRoot);
-        for (const texture of vanillaFiles) {
-          const file: TextureSourceFile = {
-            fileName: normalizeRelativePath(`__aurora/sources/vanilla/${texture.relativePath}`),
-            resourceType: texture.resourceType,
-            bytes: texture.bytes,
-            source: "vanilla",
-            sourcePath: texture.relativePath
-          };
-          vanillaTextureFilesByName.set(file.fileName, file);
+        if (includeVanillaTextures) {
+          const vanillaTextureFilesByName = new Map<string, TextureSourceFile>();
+          const vanillaFiles = await readTextureFilesFromDirectory(vanillaRoot, vanillaRoot);
+          for (const texture of vanillaFiles) {
+            const file: TextureSourceFile = {
+              fileName: normalizeRelativePath(`__aurora/sources/vanilla/${texture.relativePath}`),
+              resourceType: texture.resourceType,
+              bytes: texture.bytes,
+              source: "vanilla",
+              sourcePath: texture.relativePath
+            };
+            vanillaTextureFilesByName.set(file.fileName, file);
+          }
+          textureFiles.push(...vanillaTextureFilesByName.values());
+          vanillaTextures += vanillaTextureFilesByName.size;
         }
-        textureFiles.push(...vanillaTextureFilesByName.values());
-        vanillaTextures += vanillaTextureFilesByName.size;
         if (settings.sources.placeable.includeVanilla) {
           const vanillaPlaceableAssets = await readVanillaPlaceableAssetsFromKeyBif(
             vanillaRoot,
@@ -1341,9 +1906,27 @@ export class RuntimeSettingsApplicationService {
           );
           placeableAssetFiles.push(...vanillaTilesetSetAssets);
         }
+        if (settings.sources.creature?.includeVanilla === true) {
+          const vanillaCreatureTemplateFiles = await readVanillaCreatureTemplateAssetsFromKeyBif(
+            vanillaRoot,
+            this.logger
+          );
+          creatureTemplateFiles.push(...vanillaCreatureTemplateFiles);
+          vanillaCreatureTemplates += vanillaCreatureTemplateFiles.length;
+        }
+        if (settings.sources.sound.includeVanilla) {
+          const vanillaSoundFiles = await readSoundFilesFromDirectory(vanillaRoot, vanillaRoot);
+          const vanillaSoundAssets = await readVanillaSoundAssetsFromKeyBif(
+            vanillaRoot,
+            this.logger
+          );
+          soundAssetFiles.push(...vanillaSoundFiles);
+          soundAssetFiles.push(...vanillaSoundAssets);
+          vanillaSounds += vanillaSoundFiles.length + vanillaSoundAssets.length;
+        }
       } else {
         this.logger.warn(
-          `Skipping vanilla texture source because directory does not exist: ${vanillaRoot}`
+          `Skipping vanilla supplement source because directory does not exist: ${vanillaRoot}`
         );
       }
     }
@@ -1351,12 +1934,16 @@ export class RuntimeSettingsApplicationService {
     return {
       textureFiles,
       placeableAssetFiles,
+      creatureTemplateFiles,
       soundAssetFiles,
       summary: {
         hakTextures,
         hakPlaceableAssets,
+        hakCreatureTemplates,
         hakSounds,
-        vanillaTextures
+        vanillaTextures,
+        vanillaCreatureTemplates,
+        vanillaSounds
       }
     };
   }
@@ -1550,11 +2137,20 @@ export function resolveHakSettingsByAsset(
 ): ResolvedHakSettingsByAsset {
   const resolved = {} as ResolvedHakSettingsByAsset;
   for (const assetKind of RUNTIME_ASSET_KINDS) {
+    const source =
+      settings.sources[assetKind] ??
+      (assetKind === "creature"
+        ? DEFAULT_CREATURE_SOURCE_SETTINGS
+        : assetKind === "item"
+          ? DEFAULT_ITEM_SOURCE_SETTINGS
+          : settings.sources.placeable);
     resolved[assetKind] = resolveSingleSourceHakSettings(
       settings.paths.hakDirectoryPath,
       settings.hakProfiles,
-      settings.sources[assetKind],
-      assetKind === "placeable" ? moduleIfoHakList : []
+      source,
+      assetKind === "placeable" || assetKind === "creature" || assetKind === "tile"
+        ? moduleIfoHakList
+        : []
     );
   }
 
@@ -1953,43 +2549,15 @@ function resolveFilePath(pathValue: string): string {
   return hostLocalPath ?? (isAbsolute(pathValue) ? pathValue : resolve(process.cwd(), pathValue));
 }
 
-function resolveHostLocalMountedPath(pathValue: string): string | null {
-  if (!isTruthyEnv(process.env.AURORA_HOST_LOCAL_RUNTIME)) {
-    return null;
-  }
-  const normalized = pathValue
-    .trim()
-    .replace(/\\/gu, "/")
-    .replace(/^[a-z]:\/host\//iu, "/host/")
-    .replace(/\/+$/u, "");
-  const mountMappings = [
-    {
-      mount: "/host/nwn-docs",
-      localRoot: "C:/Users/enonw/Documents/Neverwinter Nights"
-    },
-    {
-      mount: "/host/nwn-game",
-      localRoot: "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights"
-    }
-  ];
-  const match = mountMappings.find(
-    (mapping) => normalized === mapping.mount || normalized.startsWith(`${mapping.mount}/`)
-  );
-  if (!match) {
-    return null;
-  }
-  const suffix = normalized.slice(match.mount.length).replace(/^\/+/u, "");
-  return suffix ? resolve(match.localRoot, ...suffix.split("/")) : resolve(match.localRoot);
-}
-
-function isTruthyEnv(value: string | undefined): boolean {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
-
 async function readDecompiledModuleFiles(rootPath: string): Promise<PackedModuleFile[]> {
   const files: PackedModuleFile[] = [];
   await collectDirectoryFiles(rootPath, rootPath, files);
+  return files;
+}
+
+async function readDecompiledModuleAreaSourceFiles(rootPath: string): Promise<PackedModuleFile[]> {
+  const files: PackedModuleFile[] = [];
+  await collectDirectoryAreaSourceFiles(rootPath, rootPath, files);
   return files;
 }
 
@@ -2024,6 +2592,42 @@ async function collectDirectoryFiles(
   }
 }
 
+async function collectDirectoryAreaSourceFiles(
+  rootPath: string,
+  currentPath: string,
+  files: PackedModuleFile[]
+): Promise<void> {
+  const entries = await readdir(currentPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const absolutePath = resolve(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      await collectDirectoryAreaSourceFiles(rootPath, absolutePath, files);
+      continue;
+    }
+
+    if (!entry.isFile() || !isAreaModuleSourceFileName(entry.name)) {
+      continue;
+    }
+
+    const bytes = await readFile(absolutePath);
+    const relativePath = normalizeRelativePath(
+      absolutePath.slice(rootPath.length).replace(/^[/\\]+/u, "")
+    );
+
+    files.push({
+      fileName: relativePath,
+      resourceType: 0,
+      bytes
+    });
+  }
+}
+
+function isAreaModuleSourceFileName(fileName: string): boolean {
+  const extension = extname(fileName).replace(/^\./u, "").toLowerCase();
+  return MODULE_AREA_SOURCE_EXTENSIONS.has(extension);
+}
+
 function normalizeRelativePath(value: string): string {
   return value.replace(/\\/gu, "/");
 }
@@ -2033,7 +2637,14 @@ function collectEnabledHakPaths(
   moduleIfoHakList: string[] = []
 ): string[] {
   const resolved = resolveHakSettingsByAsset(settings, moduleIfoHakList);
-  const enabledKinds: RuntimeAssetKind[] = ["placeable", "tile", "area", "sound", "vfx"];
+  const enabledKinds: RuntimeAssetKind[] = [
+    "placeable",
+    "tile",
+    "area",
+    "sound",
+    "vfx",
+    "creature"
+  ];
   const hakPaths: string[] = [];
   for (const kind of enabledKinds) {
     hakPaths.push(...resolved[kind].hakPaths);
@@ -2046,8 +2657,256 @@ function shouldIncludeVanillaTextures(settings: RuntimeSettingsRecord): boolean 
     settings.sources.placeable.includeVanilla ||
     settings.sources.tile.includeVanilla ||
     settings.sources.area.includeVanilla ||
-    settings.sources.vfx.includeVanilla
+    settings.sources.vfx.includeVanilla ||
+    settings.sources.creature?.includeVanilla === true
   );
+}
+
+async function readVanillaSoundAssetsFromKeyBif(
+  vanillaRoot: string,
+  logger: Logger
+): Promise<PackedModuleFile[]> {
+  const keyPath = await resolveFirstExistingVanillaKeyFile(vanillaRoot);
+  if (!keyPath) {
+    return [];
+  }
+
+  let reader: NwnKeyBifResourceReader;
+  try {
+    reader = await NwnKeyBifResourceReader.open(keyPath, vanillaRoot);
+  } catch (error) {
+    logger.warn(
+      `Skipping vanilla KEY/BIF sound source because KEY parsing failed (${keyPath}): ${stringifyError(error)}`
+    );
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const assetType of VANILLA_SOUND_RESOURCE_TYPES) {
+    for (const resource of reader.list(assetType.resourceType)) {
+      const bytes = await reader.read(resource.resref, assetType.resourceType);
+      if (!bytes) {
+        continue;
+      }
+
+      const normalizedResref = sanitizeSegment(resource.resref);
+      const fileName = normalizeRelativePath(
+        `__aurora/sources/vanilla/audio/${assetType.extension}/${normalizedResref}.${assetType.extension}`
+      );
+      if (!filesByName.has(fileName)) {
+        filesByName.set(fileName, {
+          fileName,
+          resourceType: assetType.resourceType,
+          bytes
+        });
+      }
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function readVanillaCreatureTemplateAssetsFromKeyBif(
+  vanillaRoot: string,
+  logger: Logger
+): Promise<PackedModuleFile[]> {
+  const keyPath = await resolveFirstExistingVanillaKeyFile(vanillaRoot);
+  if (!keyPath) {
+    return [];
+  }
+
+  let reader: NwnKeyBifResourceReader;
+  try {
+    reader = await NwnKeyBifResourceReader.open(keyPath, vanillaRoot);
+  } catch (error) {
+    logger.warn(
+      `Skipping vanilla KEY/BIF creature template source because KEY parsing failed (${keyPath}): ${stringifyError(error)}`
+    );
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const assetType of VANILLA_CREATURE_TEMPLATE_RESOURCE_TYPES) {
+    for (const resource of reader.list(assetType.resourceType)) {
+      const bytes = await reader.read(resource.resref, assetType.resourceType);
+      if (!bytes) {
+        continue;
+      }
+
+      const normalizedResref = sanitizeSegment(resource.resref);
+      const fileName = normalizeRelativePath(
+        `__aurora/sources/vanilla/creatures/${normalizedResref}.${assetType.extension}`
+      );
+      if (!filesByName.has(fileName)) {
+        filesByName.set(fileName, {
+          fileName,
+          resourceType: assetType.resourceType,
+          bytes
+        });
+      }
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function readVanillaItemTemplateAssetsFromKeyBif(
+  vanillaRoot: string,
+  logger: Logger
+): Promise<PackedModuleFile[]> {
+  const keyPath = await resolveFirstExistingVanillaKeyFile(vanillaRoot);
+  if (!keyPath) {
+    return [];
+  }
+
+  let reader: NwnKeyBifResourceReader;
+  try {
+    reader = await NwnKeyBifResourceReader.open(keyPath, vanillaRoot);
+  } catch (error) {
+    logger.warn(
+      `Skipping vanilla KEY/BIF item template source because KEY parsing failed (${keyPath}): ${stringifyError(error)}`
+    );
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const assetType of VANILLA_ITEM_TEMPLATE_RESOURCE_TYPES) {
+    for (const resource of reader.list(assetType.resourceType)) {
+      const bytes = await reader.read(resource.resref, assetType.resourceType);
+      if (!bytes) {
+        continue;
+      }
+
+      const normalizedResref = sanitizeSegment(resource.resref);
+      const fileName = normalizeRelativePath(
+        `__aurora/sources/vanilla/items/${normalizedResref}.${assetType.extension}`
+      );
+      if (!filesByName.has(fileName)) {
+        filesByName.set(fileName, {
+          fileName,
+          resourceType: assetType.resourceType,
+          bytes
+        });
+      }
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function readCreatureTemplateFilesFromHak(
+  hakPath: string,
+  hakName: string
+): Promise<PackedModuleFile[]> {
+  const resourceIndex = await readNwnErfResourceIndex(hakPath);
+  if (!resourceIndex) {
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const entry of resourceIndex.values()) {
+    if (entry.resourceType !== NWN_KEY_BIF_RESOURCE_TYPES.UTC) {
+      continue;
+    }
+
+    const bytes = await readNwnErfResourceFromIndex(
+      hakPath,
+      resourceIndex,
+      entry.resref,
+      entry.resourceType
+    );
+    if (!bytes) {
+      continue;
+    }
+
+    const normalizedResref = sanitizeSegment(entry.resref);
+    const fileName = normalizeRelativePath(
+      `__aurora/sources/hak/${hakName}/${normalizedResref}.utc`
+    );
+    if (!filesByName.has(fileName)) {
+      filesByName.set(fileName, {
+        fileName,
+        resourceType: entry.resourceType,
+        bytes
+      });
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function readItemTemplateFilesFromHak(
+  hakPath: string,
+  hakName: string
+): Promise<PackedModuleFile[]> {
+  const resourceIndex = await readNwnErfResourceIndex(hakPath);
+  if (!resourceIndex) {
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const entry of resourceIndex.values()) {
+    if (entry.resourceType !== NWN_KEY_BIF_RESOURCE_TYPES.UTI) {
+      continue;
+    }
+
+    const bytes = await readNwnErfResourceFromIndex(
+      hakPath,
+      resourceIndex,
+      entry.resref,
+      entry.resourceType
+    );
+    if (!bytes) {
+      continue;
+    }
+
+    const normalizedResref = sanitizeSegment(entry.resref);
+    const fileName = normalizeRelativePath(
+      `__aurora/sources/hak/${hakName}/items/${normalizedResref}.uti`
+    );
+    if (!filesByName.has(fileName)) {
+      filesByName.set(fileName, {
+        fileName,
+        resourceType: entry.resourceType,
+        bytes
+      });
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
+async function readSoundFilesFromDirectory(
+  rootPath: string,
+  currentPath: string
+): Promise<PackedModuleFile[]> {
+  const files: PackedModuleFile[] = [];
+  const entries = await readdir(currentPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const absolutePath = resolve(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await readSoundFilesFromDirectory(rootPath, absolutePath)));
+      continue;
+    }
+
+    if (!entry.isFile() || !isSoundAssetFileName(entry.name)) {
+      continue;
+    }
+
+    const extension = extname(entry.name).replace(/^\./u, "").toLowerCase();
+    const bytes = await readFile(absolutePath);
+    const relativePath = normalizeRelativePath(
+      absolutePath.slice(rootPath.length).replace(/^[/\\]+/u, "")
+    );
+    files.push({
+      fileName: normalizeRelativePath(`__aurora/sources/vanilla/audio/files/${relativePath}`),
+      resourceType: getSoundResourceType(extension),
+      bytes
+    });
+  }
+
+  return files;
 }
 
 async function readVanillaPlaceableAssetsFromKeyBif(
@@ -2069,20 +2928,18 @@ async function readVanillaPlaceableAssetsFromKeyBif(
     return [];
   }
 
-  const placeables2daBytes = await reader.read(
-    "placeables",
-    NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA
-  );
+  const twoDaFiles = await readVanillaPlaceableTwoDaSourceFiles(reader);
+  const placeables2daBytes = twoDaFiles.find(
+    (file) => basename(file.fileName).trim().toLowerCase() === "placeables.2da"
+  )?.bytes;
   if (!placeables2daBytes) {
     return [];
   }
 
   const filesByName = new Map<string, PackedModuleFile>();
-  filesByName.set("__aurora/sources/vanilla/placeables.2da", {
-    fileName: "__aurora/sources/vanilla/placeables.2da",
-    resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
-    bytes: placeables2daBytes
-  });
+  for (const file of twoDaFiles) {
+    filesByName.set(file.fileName, file);
+  }
 
   const modelResrefs = parsePlaceableModelResrefsFromTwoDa(placeables2daBytes);
   for (const resref of modelResrefs) {
@@ -2304,7 +3161,6 @@ async function readHakTilesetSetAssets(
 async function readHakTileModelAssets(
   hakPaths: string[],
   modelResRefs: string[],
-  packedModuleExtractor: PackedModuleExtractorPort,
   logger: Logger
 ): Promise<{ files: PackedModuleFile[]; missingModelResRefs: string[] }> {
   const requested = new Set(modelResRefs.map((value) => value.trim().toLowerCase()));
@@ -2317,34 +3173,41 @@ async function readHakTileModelAssets(
       logger.warn(`Skipping HAK tile model source because file does not exist: ${resolved}`);
       continue;
     }
-    try {
-      const extracted = await packedModuleExtractor.extractFromPackedModule(resolved);
-      const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
-      for (const asset of extracted) {
-        const extension = extname(asset.fileName).replace(/^\./u, "").toLowerCase();
-        if (!VANILLA_TILE_MODEL_RESOURCE_TYPES.some((entry) => entry.extension === extension)) {
-          continue;
-        }
-        const resref = basename(asset.fileName, extname(asset.fileName)).trim().toLowerCase();
-        if (!requested.has(resref)) {
-          continue;
-        }
-        foundByResRef.add(resref);
-        const fileName = normalizeRelativePath(
-          `__aurora/sources/hak/${hakName}/${asset.fileName}`
-        );
-        if (!filesByName.has(fileName)) {
-          filesByName.set(fileName, {
-            fileName,
-            resourceType: asset.resourceType,
-            bytes: Buffer.from(asset.bytes)
-          });
-        }
+    const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+    for (const resref of requested) {
+      if (foundByResRef.has(resref)) {
+        continue;
       }
-    } catch (error) {
-      logger.warn(
-        `Skipping HAK tile model source because extraction failed (${resolved}): ${stringifyError(error)}`
-      );
+      try {
+        let foundAnyForResref = false;
+        for (const assetType of VANILLA_TILE_MODEL_RESOURCE_TYPES) {
+          const bytes = await readNwnErfResource(resolved, resref, assetType.resourceType);
+          if (!bytes) {
+            continue;
+          }
+          foundAnyForResref = true;
+          const fileName = normalizeRelativePath(
+            `__aurora/sources/hak/${hakName}/${resref}.${assetType.extension}`
+          );
+          if (!filesByName.has(fileName)) {
+            filesByName.set(fileName, {
+              fileName,
+              resourceType: assetType.resourceType,
+              bytes
+            });
+          }
+        }
+        if (foundAnyForResref) {
+          foundByResRef.add(resref);
+        }
+      } catch (error) {
+        logger.warn(
+          `Skipping HAK tile model source lookup because direct resource read failed (${resolved}, ${resref}): ${stringifyError(error)}`
+        );
+      }
+    }
+    if (foundByResRef.size >= requested.size) {
+      break;
     }
   }
 
@@ -2356,9 +3219,65 @@ async function readHakTileModelAssets(
   };
 }
 
+async function readHakTextureAssets(
+  hakPaths: string[],
+  textureResRefs: string[],
+  logger: Logger
+): Promise<TextureSourceFile[]> {
+  const requested = new Set(normalizeRequestedTextureResrefs(textureResRefs));
+  if (requested.size === 0) {
+    return [];
+  }
+
+  const filesByName = new Map<string, TextureSourceFile>();
+  const foundByResRef = new Set<string>();
+  for (const hakPath of deduplicateOrdered(hakPaths)) {
+    const resolved = resolveFilePath(hakPath);
+    if (!(await existsAsFile(resolved))) {
+      logger.warn(`Skipping HAK texture source because file does not exist: ${resolved}`);
+      continue;
+    }
+    const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+    for (const resref of requested) {
+      if (foundByResRef.has(resref)) {
+        continue;
+      }
+      try {
+        for (const assetType of VANILLA_TEXTURE_RESOURCE_TYPES) {
+          const bytes = await readNwnErfResource(resolved, resref, assetType.resourceType);
+          if (!bytes) {
+            continue;
+          }
+          const fileName = normalizeRelativePath(
+            `__aurora/sources/hak/${hakName}/${resref}.${assetType.extension}`
+          );
+          if (!filesByName.has(fileName)) {
+            filesByName.set(fileName, {
+              fileName,
+              resourceType: assetType.resourceType,
+              bytes,
+              source: "hak",
+              sourcePath: normalizeRelativePath(resolved)
+            });
+          }
+          foundByResRef.add(resref);
+          continue;
+        }
+      } catch (error) {
+        logger.warn(
+          `Skipping HAK texture source lookup because direct resource read failed (${resolved}, ${resref}): ${stringifyError(error)}`
+        );
+      }
+    }
+    if (foundByResRef.size >= requested.size) {
+      break;
+    }
+  }
+  return [...filesByName.values()];
+}
+
 async function readHakPlaceablesTwoDaAssets(
   hakPaths: string[],
-  packedModuleExtractor: PackedModuleExtractorPort,
   logger: Logger
 ): Promise<{
   files: PackedModuleFile[];
@@ -2366,33 +3285,51 @@ async function readHakPlaceablesTwoDaAssets(
 }> {
   const filesByName = new Map<string, PackedModuleFile>();
   const appearanceModelByRowId = new Map<number, string>();
+  const foundSourceNames = new Set<string>();
 
   for (const hakPath of deduplicateOrdered(hakPaths)) {
+    if (foundSourceNames.size >= PLACEABLE_TWO_DA_SOURCE_NAMES.size) {
+      break;
+    }
     const resolved = resolveFilePath(hakPath);
     if (!(await existsAsFile(resolved))) {
       logger.warn(`Skipping HAK placeables.2da source because file does not exist: ${resolved}`);
       continue;
     }
+    if (!(await shouldScanHakForPlaceableTwoDaSources(resolved))) {
+      continue;
+    }
     try {
-      const extracted = await packedModuleExtractor.extractFromPackedModule(resolved);
       const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
-      for (const asset of extracted) {
-        if (basename(asset.fileName).trim().toLowerCase() !== "placeables.2da") {
+      for (const sourceName of PLACEABLE_TWO_DA_SOURCE_NAMES) {
+        if (foundSourceNames.has(sourceName)) {
+          continue;
+        }
+        const resref = basename(sourceName, extname(sourceName));
+        const bytes = await readNwnErfResource(
+          resolved,
+          resref,
+          NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA
+        );
+        if (!bytes) {
           continue;
         }
         const fileName = normalizeRelativePath(
-          `__aurora/sources/hak/${hakName}/${asset.fileName}`
+          `__aurora/sources/hak/${hakName}/${sourceName}`
         );
         const file = {
           fileName,
-          resourceType: asset.resourceType,
-          bytes: Buffer.from(asset.bytes)
+          resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(bytes)
         };
         filesByName.set(fileName, file);
-        const lookup = parsePlaceablesAppearanceModelLookup(file.bytes);
-        for (const [rowId, modelResRef] of lookup) {
-          if (!appearanceModelByRowId.has(rowId)) {
-            appearanceModelByRowId.set(rowId, modelResRef);
+        foundSourceNames.add(sourceName);
+        if (sourceName === "placeables.2da") {
+          const lookup = parsePlaceablesAppearanceModelLookup(file.bytes);
+          for (const [rowId, modelResRef] of lookup) {
+            if (!appearanceModelByRowId.has(rowId)) {
+              appearanceModelByRowId.set(rowId, modelResRef);
+            }
           }
         }
       }
@@ -2413,7 +3350,7 @@ async function readVanillaPlaceablesTwoDaAsset(
   vanillaRoot: string,
   logger: Logger
 ): Promise<{
-  file: PackedModuleFile;
+  files: PackedModuleFile[];
   appearanceModelByRowId: Map<number, string>;
 } | null> {
   const keyPath = await resolveFirstExistingVanillaKeyFile(vanillaRoot);
@@ -2431,19 +3368,51 @@ async function readVanillaPlaceablesTwoDaAsset(
     return null;
   }
 
-  const bytes = await reader.read("placeables", NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA);
-  if (!bytes) {
+  const files = await readVanillaPlaceableTwoDaSourceFiles(reader);
+  const placeables2da = files.find(
+    (file) => basename(file.fileName).trim().toLowerCase() === "placeables.2da"
+  );
+  if (!placeables2da) {
     return null;
   }
 
   return {
-    file: {
-      fileName: "__aurora/sources/vanilla/placeables.2da",
+    files,
+    appearanceModelByRowId: parsePlaceablesAppearanceModelLookup(placeables2da.bytes)
+  };
+}
+
+async function shouldScanHakForPlaceableTwoDaSources(hakPath: string): Promise<boolean> {
+  const normalizedBaseName = basename(hakPath, extname(hakPath)).trim().toLowerCase();
+  if (normalizedBaseName.includes("2da")) {
+    return true;
+  }
+
+  try {
+    const metadata = await stat(hakPath);
+    return metadata.size <= 64 * 1024 * 1024;
+  } catch {
+    return false;
+  }
+}
+
+async function readVanillaPlaceableTwoDaSourceFiles(
+  reader: NwnKeyBifResourceReader
+): Promise<PackedModuleFile[]> {
+  const files: PackedModuleFile[] = [];
+  for (const sourceName of PLACEABLE_TWO_DA_SOURCE_NAMES) {
+    const resref = basename(sourceName, extname(sourceName));
+    const bytes = await reader.read(resref, NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA);
+    if (!bytes) {
+      continue;
+    }
+    files.push({
+      fileName: `__aurora/sources/vanilla/${sourceName}`,
       resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
       bytes
-    },
-    appearanceModelByRowId: parsePlaceablesAppearanceModelLookup(bytes)
-  };
+    });
+  }
+  return files;
 }
 
 async function readHakPlaceableModelAssets(
@@ -2522,59 +3491,6 @@ async function readHakPlaceableModelAssets(
       (resref) => !foundByResRef.has(resref.trim().toLowerCase())
     )
   };
-}
-
-async function readHakTextureAssets(
-  hakPaths: string[],
-  textureResRefs: string[],
-  packedModuleExtractor: PackedModuleExtractorPort,
-  logger: Logger
-): Promise<TextureSourceFile[]> {
-  const requested = new Set(normalizeRequestedTextureResrefs(textureResRefs));
-  if (requested.size === 0) {
-    return [];
-  }
-
-  const filesByName = new Map<string, TextureSourceFile>();
-  for (const hakPath of deduplicateOrdered(hakPaths)) {
-    const resolved = resolveFilePath(hakPath);
-    if (!(await existsAsFile(resolved))) {
-      logger.warn(`Skipping HAK texture source because file does not exist: ${resolved}`);
-      continue;
-    }
-    try {
-      const extracted = await packedModuleExtractor.extractFromPackedModule(resolved);
-      const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
-      for (const asset of extracted) {
-        if (!isTextureFileName(asset.fileName)) {
-          continue;
-        }
-        const resref = normalizeTextureResref(
-          basename(asset.fileName, extname(asset.fileName))
-        );
-        if (!resref || !requested.has(resref)) {
-          continue;
-        }
-        const fileName = normalizeRelativePath(
-          `__aurora/sources/hak/${hakName}/${asset.fileName}`
-        );
-        if (!filesByName.has(fileName)) {
-          filesByName.set(fileName, {
-            fileName,
-            resourceType: asset.resourceType,
-            bytes: Buffer.from(asset.bytes),
-            source: "hak",
-            sourcePath: normalizeRelativePath(resolved)
-          });
-        }
-      }
-    } catch (error) {
-      logger.warn(
-        `Skipping HAK texture source because extraction failed (${resolved}): ${stringifyError(error)}`
-      );
-    }
-  }
-  return [...filesByName.values()];
 }
 
 async function readVanillaTileModelAssetsFromKeyBif(
@@ -2756,7 +3672,7 @@ function normalizePlaceableModelResref(value: string | undefined): string | null
   return normalized;
 }
 
-function parsePlaceablesAppearanceModelLookup(bytes: Buffer): Map<number, string> {
+export function parsePlaceablesAppearanceModelLookup(bytes: Buffer): Map<number, string> {
   const lookup = new Map<number, string>();
   const table = parseAuroraTwoDaTable(bytes, {
     tableName: "placeables.2da",
@@ -2769,6 +3685,13 @@ function parsePlaceablesAppearanceModelLookup(bytes: Buffer): Map<number, string
     );
     if (modelResRef && !lookup.has(row.rowId)) {
       lookup.set(row.rowId, modelResRef);
+    }
+    if (
+      modelResRef &&
+      row.physicalRowIndex !== row.rowId &&
+      !lookup.has(row.physicalRowIndex)
+    ) {
+      lookup.set(row.physicalRowIndex, modelResRef);
     }
   }
   return lookup;
@@ -2840,18 +3763,47 @@ function collectAuroraMdlTextureReferencesFromFiles(files: PackedModuleFile[]): 
     if (extension !== "mdl") {
       continue;
     }
-    const text = Buffer.from(file.bytes).toString("latin1");
-    const matches = text.matchAll(
-      /(?:^|[\r\n\t ])(?:bitmap|texture\d*|texture)\s+("[^"\r\n]+"|[^\s\r\n]+)/giu
-    );
-    for (const match of matches) {
-      const resref = normalizeTextureResref(match[1]);
+    collectAuroraMdlTextureReferencesFromFile(file, references);
+  }
+  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
+function collectAuroraMdlTextureReferencesFromFile(
+  file: PackedModuleFile,
+  references: Set<string>
+): void {
+  const bytes = Buffer.from(file.bytes);
+  try {
+    inspectAuroraMdlSource(bytes).textureReferences.forEach((reference) => {
+      const resref = normalizeTextureResref(reference);
       if (resref) {
         references.add(resref);
       }
+    });
+  } catch {
+    // Keep the lightweight token scanner below as a fallback for partial or unusual MDL payloads.
+  }
+
+  const text = bytes.toString("latin1");
+  const matches = text.matchAll(
+    /(?:^|[\r\n\t\0 ])(?:bitmap|texture\d*|texture)[\s\0]+("[^"\r\n\0]+"|[^\s\r\n\0]+)/giu
+  );
+  for (const match of matches) {
+    const resref = normalizeTextureResref(match[1]);
+    if (resref) {
+      references.add(resref);
     }
   }
-  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
+function collectTileModelTextureReferences(
+  modelResRefs: string[],
+  files: PackedModuleFile[]
+): string[] {
+  return normalizeRequestedTextureResrefs([
+    ...collectAuroraMdlTextureReferencesFromFiles(files),
+    ...modelResRefs.map((resref) => `mi_${resref}`)
+  ]);
 }
 
 function hasTextureSourceForResref(
@@ -2898,12 +3850,17 @@ function isTextureFileName(fileName: string): boolean {
 
 function isPlaceableHakAssetFileName(fileName: string): boolean {
   const normalizedFileName = basename(fileName).trim().toLowerCase();
-  if (normalizedFileName === "placeables.2da") {
+  if (PLACEABLE_TWO_DA_SOURCE_NAMES.has(normalizedFileName)) {
     return true;
   }
 
   const extension = extname(fileName).replace(/^\./u, "").toLowerCase();
   return PLACEABLE_HAK_ASSET_EXTENSIONS.has(extension);
+}
+
+function isCreatureTemplateAssetFileName(fileName: string): boolean {
+  const extension = extname(fileName).replace(/^\./u, "").toLowerCase();
+  return CREATURE_TEMPLATE_ASSET_EXTENSIONS.has(extension);
 }
 
 function isPlaceableModelRelatedExtension(extension: string): boolean {
@@ -2919,6 +3876,19 @@ function isPlaceableModelRelatedExtension(extension: string): boolean {
 function isSoundAssetFileName(fileName: string): boolean {
   const extension = extname(fileName).replace(/^\./u, "").toLowerCase();
   return SOUND_ASSET_EXTENSIONS.has(extension);
+}
+
+function getSoundResourceType(extension: string): number {
+  if (extension === "wav") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.WAV;
+  }
+  if (extension === "bmu") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.BMU;
+  }
+  if (extension === "mp3") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.MP3;
+  }
+  return 0;
 }
 
 function sanitizeSegment(value: string): string {

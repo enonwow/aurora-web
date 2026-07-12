@@ -9,6 +9,7 @@ import type {
   AuroraVfxDiagnostic,
   AuroraVfxEffectInstance,
   AuroraVfxPhaseSchedule,
+  AuroraProgFxSourceRow,
   AuroraVisualEffectSourceRow
 } from "../domain/aurora-vfx-source.parser";
 import type { AuroraVfxSourcePolicyTrace } from "../domain/aurora-vfx-source-policy";
@@ -74,6 +75,7 @@ export interface VfxResourceTraceInput {
 export interface VfxProcessCommand {
   packageKind: VfxPackageKind;
   sourceTableText: string;
+  progFxTableText?: string;
   sourceObjectKey?: string;
   sourceLayer?: "module" | "hak" | "vanilla" | "external_fixture";
   sourceHash?: string;
@@ -135,6 +137,7 @@ export interface VfxRuntimePackage {
   packageKind: VfxPackageKind;
   sourcePolicyTrace: AuroraVfxSourcePolicyTrace;
   sourceRows: AuroraVisualEffectSourceRow[];
+  progFxRows?: AuroraProgFxSourceRow[];
   selectedSourceRow?: AuroraVisualEffectSourceRow;
   effectInstance?: AuroraVfxEffectInstance;
   phaseSchedule?: AuroraVfxPhaseSchedule;

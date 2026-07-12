@@ -38,8 +38,11 @@ import {
 } from "../domain/aurora-vfx-source-policy";
 import {
   buildAuroraVfxPhaseSchedule,
+  parseAuroraProgFxTwoDa,
   parseAuroraVisualEffectsTwoDa,
   type AuroraVfxDiagnostic,
+  type AuroraProgFxSourceRow,
+  type AuroraVfxPhaseSchedule,
   type AuroraVisualEffectSourceRow
 } from "../domain/aurora-vfx-source.parser";
 import type {
@@ -98,6 +101,26 @@ export class VfxApplicationService {
         hash: sourceHash
       }
     });
+    const progFxHash =
+      typeof command.progFxTableText === "string"
+        ? hashString(command.progFxTableText)
+        : undefined;
+    const parsedProgFx =
+      typeof command.progFxTableText === "string"
+        ? parseAuroraProgFxTwoDa(command.progFxTableText, {
+            profile: command.sourceProfile
+              ? `${command.sourceProfile}:progfx`
+              : `${DEFAULT_VFX_PROFILE}:progfx`,
+            source: {
+              objectKey: "fixtures/vfx/progfx.2da",
+              layer:
+                command.sourceLayer ??
+                sourcePolicyTrace.selectedSource?.layer ??
+                "external_fixture",
+              hash: progFxHash
+            }
+          })
+        : undefined;
     const selectedSourceRow = selectSourceRow(parsed.rows, command.sourceRowId);
     const selectedRowDiagnostics =
       command.sourceRowId !== undefined && !selectedSourceRow
@@ -124,6 +147,7 @@ export class VfxApplicationService {
     const cacheKey = buildAuroraVfxOutputCacheKeyFromPolicy({
       packageKind: command.packageKind,
       sourceHash,
+      ...(progFxHash ? { progFxHash } : {}),
       sourceRowId: selectedSourceRow?.rowId,
       sourcePolicyTrace,
       dependencyGraph,
@@ -146,7 +170,9 @@ export class VfxApplicationService {
           ? buildRuntimeAndRender(
               normalizeEmitter(command.sourceEmitter),
               dependencyGraph,
-              command.runtime
+              command.runtime,
+              phaseSchedule,
+              parsedProgFx?.rows
             )
           : undefined;
       const runtimeSourceDiagnostics =
@@ -163,6 +189,8 @@ export class VfxApplicationService {
         ...sourcePolicyTrace.diagnostics,
         ...parsed.diagnostics,
         ...parsed.rows.flatMap((row) => row.diagnostics),
+        ...(parsedProgFx?.diagnostics ?? []),
+        ...(parsedProgFx?.rows.flatMap((row) => row.diagnostics) ?? []),
         ...selectedRowDiagnostics,
         ...(phaseSchedule?.diagnostics ?? []),
         ...dependencyGraph.diagnostics,
@@ -186,6 +214,7 @@ export class VfxApplicationService {
         packageKind: command.packageKind,
         sourcePolicyTrace,
         sourceRows: parsed.rows,
+        ...(parsedProgFx ? { progFxRows: parsedProgFx.rows } : {}),
         ...(selectedSourceRow ? { selectedSourceRow } : {}),
         ...(command.effectInstance ? { effectInstance: command.effectInstance } : {}),
         ...(phaseSchedule ? { phaseSchedule } : {}),
@@ -236,6 +265,8 @@ export class VfxApplicationService {
     return this.processVfxPackage({
       packageKind: input.packageKind === "source_parse" ? "source_parse" : "runtime_package",
       sourceTableText: input.sourceTableText,
+      progFxTableText:
+        typeof input.progFxTableText === "string" ? input.progFxTableText : undefined,
       sourceObjectKey:
         typeof input.sourceObjectKey === "string" ? input.sourceObjectKey : targetId,
       sourceLayer: isSourceLayer(input.sourceLayer) ? input.sourceLayer : "external_fixture",
@@ -460,7 +491,9 @@ export class VfxApplicationService {
 function buildRuntimeAndRender(
   sourceEmitter: AuroraMdlEmitterNode,
   dependencyGraph: AuroraVfxDependencyGraph,
-  runtimeOptions: VfxProcessCommand["runtime"]
+  runtimeOptions: VfxProcessCommand["runtime"],
+  phaseSchedule?: AuroraVfxPhaseSchedule,
+  progFxRows?: AuroraProgFxSourceRow[]
 ) {
   const runtime = normalizeRuntimeOptions(runtimeOptions);
   const initialState = createAuroraEmitterRuntimeState(sourceEmitter, {
@@ -472,7 +505,9 @@ function buildRuntimeAndRender(
   const renderContract = buildAuroraVfxRuntimeRenderContract({
     runtimeState,
     sourceEmitter,
-    dependencyGraph
+    dependencyGraph,
+    phaseSchedule,
+    progFxRows
   });
   return { runtimeState, runtimeSnapshot, renderContract };
 }

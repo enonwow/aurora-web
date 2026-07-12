@@ -6,6 +6,8 @@ import type {
   ProcessingCacheEntry
 } from "../../../application/ports/placeable-processing-cache.port";
 
+const MEMORY_INFRASTRUCTURE_MAX_ENTRY_BYTES = 32 * 1024 * 1024;
+
 @Injectable()
 export class MemoryPlaceableProcessingCacheRepository
   implements PlaceableProcessingCachePort
@@ -13,9 +15,15 @@ export class MemoryPlaceableProcessingCacheRepository
   private readonly store: MemoryProcessingCacheStore<unknown>;
 
   constructor(config: AppConfigService) {
+    const maxEntryBytes = config.useMemoryInfrastructure
+      ? Math.max(
+          config.processingCacheL1CatalogMaxEntryBytes,
+          MEMORY_INFRASTRUCTURE_MAX_ENTRY_BYTES
+        )
+      : config.processingCacheL1CatalogMaxEntryBytes;
     this.store = new MemoryProcessingCacheStore<unknown>(
       config.processingCacheL1CatalogMaxEntries,
-      config.processingCacheL1CatalogMaxEntryBytes,
+      maxEntryBytes,
       config.processingCacheL1TtlSeconds * 1000
     );
   }

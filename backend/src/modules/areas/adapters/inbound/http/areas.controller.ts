@@ -59,6 +59,16 @@ export class AreasController extends ProcessingHttpBaseController {
     );
   }
 
+  @Get("lighting/evidence")
+  @ApiOperation({
+    summary: "Get aggregated area lighting evidence from ARE tile flags and GIT placeable hints."
+  })
+  @ApiResponse({ status: 200, description: "Area lighting evidence report." })
+  async lightingEvidence(@Req() request: AppRequest) {
+    const data = await this.service.getAreaLightingEvidence();
+    return this.success(request, data);
+  }
+
   @Get(":areaId")
   @ApiOperation({ summary: "Get full area payload with composition." })
   @ApiParam({ name: "areaId" })
@@ -92,10 +102,77 @@ export class AreasController extends ProcessingHttpBaseController {
     return response.send(thumbnail.bytes);
   }
 
+  @Get(":areaId/export/items.git")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Export placed area items as a GIT ItemList GFF fragment."
+  })
+  @ApiParam({ name: "areaId" })
+  @ApiResponse({ status: 200, description: "Binary GIT payload with ItemList." })
+  @ApiResponse({ status: 404, description: "Area not found." })
+  async exportItemsGit(@Param("areaId") areaId: string, @Res() response: FastifyReply) {
+    const data = await this.service.getAreaItemGitExport(areaId);
+    applyBinaryPayloadHeaders(response, data, {
+      cacheControl: "private, max-age=0",
+      extraHeaders: {
+        "X-Aurora-Area-Id": data.areaId,
+        "X-Aurora-Area-Item-Count": String(data.itemCount)
+      }
+    });
+    setInlineContentDisposition(response, data.fileName);
+    return response.send(data.bytes);
+  }
+
+  @Get(":areaId/export/area.git")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Export complete supported area object root lists as a native GIT GFF."
+  })
+  @ApiParam({ name: "areaId" })
+  @ApiResponse({ status: 200, description: "Binary GIT payload with supported root lists." })
+  @ApiResponse({ status: 404, description: "Area not found." })
+  async exportAreaGit(@Param("areaId") areaId: string, @Res() response: FastifyReply) {
+    const data = await this.service.getAreaGitExport(areaId);
+    applyBinaryPayloadHeaders(response, data, {
+      cacheControl: "private, max-age=0",
+      extraHeaders: {
+        "X-Aurora-Area-Id": data.areaId,
+        "X-Aurora-Area-Object-Count": String(data.objectCounts.total),
+        "X-Aurora-Area-Item-Count": String(data.objectCounts.items)
+      }
+    });
+    setInlineContentDisposition(response, data.fileName);
+    return response.send(data.bytes);
+  }
+
+  @Get(":areaId/export/area.are")
+  @Roles("builder", "dm", "admin")
+  @Permissions("scene.read")
+  @ApiOperation({
+    summary: "Export supported area metadata and tile list as a native ARE GFF."
+  })
+  @ApiParam({ name: "areaId" })
+  @ApiResponse({ status: 200, description: "Binary ARE payload with supported area metadata." })
+  @ApiResponse({ status: 404, description: "Area not found." })
+  async exportAreaAre(@Param("areaId") areaId: string, @Res() response: FastifyReply) {
+    const data = await this.service.getAreaAreExport(areaId);
+    applyBinaryPayloadHeaders(response, data, {
+      cacheControl: "private, max-age=0",
+      extraHeaders: {
+        "X-Aurora-Area-Id": data.areaId,
+        "X-Aurora-Area-Tile-Count": String(data.tileCount)
+      }
+    });
+    setInlineContentDisposition(response, data.fileName);
+    return response.send(data.bytes);
+  }
+
   @Post(":areaId/process")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.area.run")
   @ApiOperation({
     summary: "Process area payload and store/read cached contract."
   })
@@ -123,7 +200,7 @@ export class AreasController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.area.read")
   @ApiOperation({ summary: "Get processed area payload from cache by cache key." })
   @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
   @ApiResponse({ status: 200, description: "Cached area payload." })
@@ -136,7 +213,7 @@ export class AreasController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey/textures/contracts")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.area.read")
   @ApiOperation({
     summary: "Get hybrid texture-atlas delivery contract for processed area cache entry."
   })
@@ -184,7 +261,7 @@ export class AreasController extends ProcessingHttpBaseController {
     const data = await this.service.getProcessedAreaTexture(cacheKey);
 
     applyBinaryPayloadHeaders(response, data.payload, {
-      cacheControl: "private, max-age=120",
+      cacheControl: "private, max-age=31536000, immutable",
       extraHeaders: {
         "X-Aurora-Area-Atlas-Id": data.textureAtlas.atlasId,
         "X-Aurora-Area-Atlas-Object-Key": data.textureAtlas.objectKey ?? "",

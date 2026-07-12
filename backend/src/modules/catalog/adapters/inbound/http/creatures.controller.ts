@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -14,6 +25,12 @@ import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { TemplateCatalogBaseController } from "./template-catalog.base-controller";
+import {
+  parseCreatureBlueprintCreatePayload,
+  parseCreatureBlueprintRenamePayload,
+  parseCreatureBlueprintResRef,
+  parseCreatureResourceOptionsQuery
+} from "./template-processing.schemas";
 
 @Controller("catalog/creatures")
 @ApiTags("catalog-creatures")
@@ -43,6 +60,19 @@ export class CreaturesController extends TemplateCatalogBaseController {
     return this.handleList(request, query);
   }
 
+  @Get("resources")
+  @ApiOperation({ summary: "List validated module resource options for creature properties." })
+  @ApiQuery({ name: "kind", enum: ["conversation", "portrait", "script", "soundset"] })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiResponse({ status: 200, description: "Creature resource options." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listResourceOptions(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
+    return this.handleParsedQuery(request, query, parseCreatureResourceOptionsQuery, (parsed) =>
+      this.service.listCreatureResourceOptions(parsed)
+    );
+  }
+
   @Get(":templateId/preview")
   @ApiOperation({ summary: "Get creature preview payload by template id." })
   @ApiParam({ name: "templateId" })
@@ -55,7 +85,7 @@ export class CreaturesController extends TemplateCatalogBaseController {
   @Post("process")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.creature.run")
   @ApiOperation({
     summary:
       "Process creature into backend contract and store/read cached payload."
@@ -67,9 +97,89 @@ export class CreaturesController extends TemplateCatalogBaseController {
     return this.handleProcess(request, body);
   }
 
+  @Post("blueprints")
+  @HttpCode(201)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.creature.run")
+  @ApiOperation({ summary: "Create a module-backed creature UTC blueprint and process it." })
+  @ApiResponse({ status: 201, description: "Created creature blueprint and preview payload." })
+  @ApiResponse({ status: 409, description: "Blueprint already exists." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async createBlueprint(
+    @Req() request: AppRequest,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleParsedBody(request, body, parseCreatureBlueprintCreatePayload, (parsed) =>
+      this.service.createCreatureBlueprint(parsed)
+    );
+  }
+
+  @Put("blueprints/:resRef")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.creature.run")
+  @ApiOperation({ summary: "Update a module-backed creature UTC blueprint and process it." })
+  @ApiParam({ name: "resRef" })
+  @ApiResponse({ status: 200, description: "Updated creature blueprint and preview payload." })
+  @ApiResponse({ status: 404, description: "Blueprint not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async updateBlueprint(
+    @Req() request: AppRequest,
+    @Param("resRef") resRef: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleByIdAndParsedBody(
+      request,
+      resRef,
+      body,
+      parseCreatureBlueprintCreatePayload,
+      (id, parsed) => this.service.updateCreatureBlueprint(parseCreatureBlueprintResRef(id), parsed)
+    );
+  }
+
+  @Post("blueprints/:resRef/rename")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.creature.run")
+  @ApiOperation({ summary: "Rename a module-backed creature UTC blueprint with compensated storage rollback." })
+  @ApiParam({ name: "resRef" })
+  @ApiResponse({ status: 200, description: "Renamed creature blueprint and preview payload." })
+  @ApiResponse({ status: 404, description: "Blueprint not found." })
+  @ApiResponse({ status: 409, description: "Target resref already exists." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async renameBlueprint(
+    @Req() request: AppRequest,
+    @Param("resRef") resRef: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.handleByIdAndParsedBody(
+      request,
+      resRef,
+      body,
+      parseCreatureBlueprintRenamePayload,
+      (id, parsed) =>
+        this.service.renameCreatureBlueprint(
+          parseCreatureBlueprintResRef(id),
+          parsed.templateResRef
+        )
+    );
+  }
+
+  @Delete("blueprints/:resRef")
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.creature.run")
+  @ApiOperation({ summary: "Delete a module-backed creature UTC blueprint." })
+  @ApiParam({ name: "resRef" })
+  @ApiResponse({ status: 200, description: "Deleted creature blueprint." })
+  @ApiResponse({ status: 404, description: "Blueprint not found." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async deleteBlueprint(@Req() request: AppRequest, @Param("resRef") resRef: string) {
+    return this.handleById(request, resRef, (id) =>
+      this.service.deleteCreatureBlueprint(parseCreatureBlueprintResRef(id))
+    );
+  }
+
   @Get("cache/:cacheKey")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.creature.read")
   @ApiOperation({ summary: "Get processed creature payload from cache by cache key." })
   @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
   @ApiResponse({ status: 200, description: "Cached creature payload." })

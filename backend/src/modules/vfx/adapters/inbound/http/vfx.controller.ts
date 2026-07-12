@@ -42,6 +42,7 @@ export class VfxController extends ProcessingHttpBaseController {
       properties: {
         packageKind: { type: "string", enum: ["source_parse", "runtime_package"] },
         sourceTableText: { type: "string" },
+        progFxTableText: { type: "string" },
         sourceObjectKey: { type: "string" },
         sourceLayer: { type: "string", enum: ["module", "hak", "vanilla", "external_fixture"] },
         sourceRowId: { type: "number" },

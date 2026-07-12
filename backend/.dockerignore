@@ -5,3 +5,27 @@ Dockerfile*
 dist
 coverage
 test
+
+# Codex/runtime proof output. These folders can grow to many GB and must never
+# be copied into Docker image layers by `COPY . .`.
+.codex
+.codex/**
+.codex-tmp
+.codex-tmp/**
+docs/aurora-reverse/artifacts
+docs/aurora-reverse/artifacts/**
+backend/docs/aurora-reverse/artifacts
+backend/docs/aurora-reverse/artifacts/**
+
+# Browser capture leftovers.
+**/*.chrome-profile
+**/*.chrome-profile/**
+**/chrome-profile
+**/chrome-profile/**
+**/Crashpad
+**/Crashpad/**
+
+# Heavy generated proof media.
+**/*.mp4
+**/*.webm
+**/*.avi

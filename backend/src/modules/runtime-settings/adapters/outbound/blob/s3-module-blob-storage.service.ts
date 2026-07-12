@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { createHash } from "node:crypto";
+import { createBlobS3Client } from "../../../../../common/blob/s3-processing-cache.helpers";
 import type {
   ModuleBlobSourceDeltaSummary,
   ModuleBlobSyncSource,
@@ -366,6 +367,17 @@ export class S3ModuleBlobStorageService
     };
   }
 
+  async deleteModuleObject(settings: BlobStorageSettings, key: string): Promise<boolean> {
+    const normalizedKey = normalizeObjectKey(key);
+    if (!normalizedKey) {
+      return false;
+    }
+
+    const client = this.resolveClient(settings);
+    await deleteObjectKeys(client, settings.bucket, [normalizedKey]);
+    return true;
+  }
+
   private resolveClient(settings: BlobStorageSettings): S3Client {
     const signature = buildSettingsSignature(settings);
     if (!this.client) {
@@ -495,15 +507,7 @@ function classifySourceKey(key: string, normalizedPrefix: string): ModuleBlobSyn
 }
 
 function createClient(settings: BlobStorageSettings): S3Client {
-  return new S3Client({
-    endpoint: settings.endpoint,
-    region: settings.region,
-    forcePathStyle: settings.forcePathStyle,
-    credentials: {
-      accessKeyId: settings.accessKeyId,
-      secretAccessKey: settings.secretAccessKey
-    }
-  });
+  return createBlobS3Client(settings);
 }
 
 function buildSettingsSignature(settings: BlobStorageSettings): string {

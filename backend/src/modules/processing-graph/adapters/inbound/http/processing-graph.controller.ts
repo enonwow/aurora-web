@@ -23,7 +23,7 @@ import {
 @ApiTags("processing-graph")
 @ApiBearerAuth("bearer")
 @Roles("admin", "builder", "dm")
-@Permissions("scene.read")
+@Permissions("processing.graph.read")
 export class ProcessingGraphController {
   constructor(
     private readonly service: ProcessingGraphApplicationService,
@@ -60,7 +60,7 @@ export class ProcessingGraphController {
   @Post("delta/checkpoint")
   @HttpCode(200)
   @Roles("admin", "builder")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.graph.run")
   @ApiOperation({
     summary:
       "Compute graph delta and update latest snapshot checkpoint used for incremental processing."
@@ -78,7 +78,7 @@ export class ProcessingGraphController {
   @Post("delta/rebuild")
   @HttpCode(200)
   @Roles("admin", "builder")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.graph.run")
   @ApiOperation({
     summary:
       "Run selective rebuild job from current graph delta (only impacted targets are processed)."

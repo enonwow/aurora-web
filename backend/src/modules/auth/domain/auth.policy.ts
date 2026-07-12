@@ -12,11 +12,50 @@ export const PERMISSIONS = [
   "admin.user.manage",
   "processing.placeable.read",
   "processing.placeable.run",
+  "processing.creature.read",
+  "processing.creature.run",
+  "processing.item.read",
+  "processing.item.run",
+  "processing.encounter.read",
+  "processing.encounter.run",
+  "processing.area.read",
+  "processing.area.run",
+  "processing.tile.read",
+  "processing.tile.run",
+  "processing.sound.read",
+  "processing.sound.run",
   "processing.vfx.read",
-  "processing.vfx.run"
+  "processing.vfx.run",
+  "processing.job.read",
+  "processing.job.run",
+  "processing.graph.read",
+  "processing.graph.run"
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
+
+const PROCESSING_ROLE_PERMISSIONS: Permission[] = [
+  "processing.placeable.read",
+  "processing.placeable.run",
+  "processing.creature.read",
+  "processing.creature.run",
+  "processing.item.read",
+  "processing.item.run",
+  "processing.encounter.read",
+  "processing.encounter.run",
+  "processing.area.read",
+  "processing.area.run",
+  "processing.tile.read",
+  "processing.tile.run",
+  "processing.sound.read",
+  "processing.sound.run",
+  "processing.vfx.read",
+  "processing.vfx.run",
+  "processing.job.read",
+  "processing.job.run",
+  "processing.graph.read",
+  "processing.graph.run"
+];
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   viewer: ["scene.read", "asset.preview"],
@@ -25,19 +64,13 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "scene.edit",
     "asset.place",
     "asset.delete",
-    "processing.placeable.read",
-    "processing.placeable.run",
-    "processing.vfx.read",
-    "processing.vfx.run"
+    ...PROCESSING_ROLE_PERMISSIONS
   ],
   dm: [
     "scene.read",
     "dm.spawn_creature",
     "dm.spawn_vfx",
-    "processing.placeable.read",
-    "processing.placeable.run",
-    "processing.vfx.read",
-    "processing.vfx.run"
+    ...PROCESSING_ROLE_PERMISSIONS
   ],
   admin: [
     "scene.read",
@@ -46,10 +79,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "asset.delete",
     "admin.config.write",
     "admin.user.manage",
-    "processing.placeable.read",
-    "processing.placeable.run",
-    "processing.vfx.read",
-    "processing.vfx.run"
+    ...PROCESSING_ROLE_PERMISSIONS
   ]
 };
 

@@ -315,6 +315,42 @@ export class RuntimeSettingsController extends ProcessingHttpBaseController {
     );
   }
 
+  @Post("module-cache/sources/creature-templates/sync")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync creature UTC template source objects from configured HAK and vanilla sources without rebuilding the full module snapshot."
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Creature template source objects were written or the sync was skipped with a concrete reason."
+  })
+  async syncCreatureTemplateSources(@Req() request: AppRequest) {
+    return this.success(
+      request,
+      await this.settingsService.syncCreatureTemplateSources(request.auth!.user.username)
+    );
+  }
+
+  @Post("module-cache/sources/item-templates/sync")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Sync item UTI template source objects from configured HAK and vanilla sources without rebuilding the full module snapshot."
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Item template source objects were written or the sync was skipped with a concrete reason."
+  })
+  async syncItemTemplateSources(@Req() request: AppRequest) {
+    return this.success(
+      request,
+      await this.settingsService.syncItemTemplateSources(request.auth!.user.username)
+    );
+  }
+
   @Put()
   @Permissions("admin.config.write")
   @ApiOperation({

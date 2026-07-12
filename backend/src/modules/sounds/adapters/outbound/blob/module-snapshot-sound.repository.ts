@@ -294,7 +294,7 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
 
     do {
       const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 1000,
+        limit: 50_000,
         continuationToken
       });
 

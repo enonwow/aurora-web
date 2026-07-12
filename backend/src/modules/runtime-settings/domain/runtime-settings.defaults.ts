@@ -37,9 +37,45 @@ export function buildDefaultRuntimeSettings(
         "cep3_core0.hak",
         "nwic_placeables.hak"
       ],
-      lc_tiles: ["medieval.hak"],
+      lc_tiles: ["medieval.hak", "+sic11.hak"],
       lc_audio: ["lc_music.hak", "lc_sounds.hak", "npc_sounds.hak"],
-      lc_vfx: ["lc_2da.hak", "lc_vfx.hak", "cep3_vfx.hak"]
+      lc_vfx: ["lc_2da.hak", "lc_vfx.hak", "cep3_vfx.hak"],
+      lc_items: [
+        "lc_2da.hak",
+        "lc_icons.hak",
+        "bdhd_items.hak",
+        "cep3_core0.hak",
+        "cep3_core1.hak",
+        "cep3_core2.hak",
+        "cep3_reforge.hak",
+        "cep3_armor.hak",
+        "vale-c_and_m.hak",
+        "witcher.hak",
+        "witcher2.hak"
+      ],
+      lc_creatures: [
+        "lc_2da.hak",
+        "lc_appearance.hak",
+        "lc_heads.hak",
+        "lc_character.hak",
+        "lc_hd_animals.hak",
+        "lc_ccc.hak",
+        "bdhd_pheno_other.hak",
+        "bdhd_pheno_chest.hak",
+        "bdhd_items.hak",
+        "cep3_core0.hak",
+        "cep3_core1.hak",
+        "cep3_core2.hak",
+        "cep3_facelift.hak",
+        "cep3_heads.hak",
+        "cep3_phenos.hak",
+        "cep3_reforge.hak",
+        "cep3_armor.hak",
+        "cep3_portraits.hak",
+        "vale-c_and_m.hak",
+        "witcher.hak",
+        "witcher2.hak"
+      ]
     },
     sources: {
       placeable: {
@@ -70,7 +106,7 @@ export function buildDefaultRuntimeSettings(
         includeModuleTemp0: true,
         includeModulePacked: false,
         includeHaks: true,
-        includeVanilla: false,
+        includeVanilla: true,
         hakProfileId: "lc_audio",
         hakPriorityList: []
       },
@@ -80,6 +116,22 @@ export function buildDefaultRuntimeSettings(
         includeHaks: true,
         includeVanilla: true,
         hakProfileId: "lc_vfx",
+        hakPriorityList: []
+      },
+      creature: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: true,
+        includeVanilla: true,
+        hakProfileId: "lc_creatures",
+        hakPriorityList: []
+      },
+      item: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: true,
+        includeVanilla: true,
+        hakProfileId: "lc_items",
         hakPriorityList: []
       }
     },

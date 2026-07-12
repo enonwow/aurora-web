@@ -27,7 +27,8 @@ export class LayeredTileProcessingCacheRepository implements TileProcessingCache
       {
         admissionHits: config.processingCacheL1AdmissionHits,
         admissionWindowMs: config.processingCacheL1AdmissionWindowSeconds * 1000,
-        admissionTrackingLimit: Math.max(1000, config.processingCacheL1AreaMaxEntries * 4)
+        admissionTrackingLimit: Math.max(1000, config.processingCacheL1AreaMaxEntries * 4),
+        awaitL2Write: false
       }
     );
   }

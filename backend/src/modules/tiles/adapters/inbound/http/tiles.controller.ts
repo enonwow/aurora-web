@@ -24,6 +24,7 @@ import {
   parseTileBenchmarkPayload,
   parseTileCacheKey,
   parseTileListQuery,
+  parseTileProcessBatchPayload,
   parseTileProcessPayload,
   parseTileTextureDeliveryQuery
 } from "./tiles.schemas";
@@ -76,10 +77,25 @@ export class TilesController extends ProcessingHttpBaseController {
     return this.handleById(request, tileId, (id) => this.service.getTilePreview(id));
   }
 
+  @Post("process/batch")
+  @HttpCode(200)
+  @Roles("builder", "dm", "admin")
+  @Permissions("processing.tile.run")
+  @ApiOperation({
+    summary: "Process multiple tile payloads and store/read cached contracts."
+  })
+  @ApiResponse({ status: 200, description: "Processed tile payload batch." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async processBatch(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
+    return this.handleParsedBody(request, body, parseTileProcessBatchPayload, (parsed) =>
+      this.service.processTilesBatch(parsed.items)
+    );
+  }
+
   @Post(":tileId/process")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.tile.run")
   @ApiOperation({
     summary: "Process tile payload and store/read cached contract."
   })
@@ -108,7 +124,7 @@ export class TilesController extends ProcessingHttpBaseController {
   @Post("benchmark")
   @HttpCode(200)
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.run")
+  @Permissions("processing.tile.run")
   @ApiOperation({
     summary: "Run tile processing benchmark and return deterministic fingerprint."
   })
@@ -136,7 +152,7 @@ export class TilesController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.tile.read")
   @ApiOperation({ summary: "Get processed tile payload from cache by cache key." })
   @ApiParam({ name: "cacheKey", description: "Hex cache key returned by process endpoint." })
   @ApiResponse({ status: 200, description: "Cached tile payload." })
@@ -149,7 +165,7 @@ export class TilesController extends ProcessingHttpBaseController {
 
   @Get("cache/:cacheKey/textures/contracts")
   @Roles("builder", "dm", "admin")
-  @Permissions("processing.placeable.read")
+  @Permissions("processing.tile.read")
   @ApiOperation({
     summary: "Get hybrid texture-atlas delivery contract for processed tile cache entry."
   })
@@ -197,7 +213,7 @@ export class TilesController extends ProcessingHttpBaseController {
     const data = await this.service.getProcessedTileTexture(cacheKey);
 
     applyBinaryPayloadHeaders(response, data.payload, {
-      cacheControl: "private, max-age=120",
+      cacheControl: "private, max-age=31536000, immutable",
       extraHeaders: {
         "X-Aurora-Tile-Atlas-Id": data.textureAtlas.atlasId,
         "X-Aurora-Tile-Atlas-Object-Key": data.textureAtlas.objectKey ?? "",
@@ -226,7 +242,7 @@ export class TilesController extends ProcessingHttpBaseController {
     const data = await this.service.getProcessedTileModel(cacheKey);
 
     applyBinaryPayloadHeaders(response, data.payload, {
-      cacheControl: "private, max-age=120",
+      cacheControl: "private, max-age=31536000, immutable",
       extraHeaders: {
         "X-Aurora-Tile-Model-Object-Key": data.modelAsset.objectKey,
         "X-Aurora-Tile-Model-Extension": data.modelAsset.extension,

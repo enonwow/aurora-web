@@ -59,6 +59,7 @@ interface DerivedTileModelCandidate {
 
 const CANDIDATE_EXTENSIONS = new Set(["set", "itp", "mdl", "wok"]);
 const DERIVED_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
+const SNAPSHOT_INDEX_CACHE_TTL_MS = 10 * 60_000;
 
 @Injectable()
 export class ModuleSnapshotTileRepository implements TileRepositoryPort {
@@ -158,7 +159,11 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
 
   private async getSnapshotIndex(): Promise<SnapshotIndex | null> {
     const now = Date.now();
-    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < 30_000) {
+    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < SNAPSHOT_INDEX_CACHE_TTL_MS) {
+      return this.snapshotIndex;
+    }
+    if (this.snapshotIndex) {
+      this.refreshSnapshotIndexInBackground();
       return this.snapshotIndex;
     }
     if (this.snapshotIndexPromise) {
@@ -171,6 +176,24 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
     } finally {
       this.snapshotIndexPromise = null;
     }
+  }
+
+  private refreshSnapshotIndexInBackground(): void {
+    if (this.snapshotIndexPromise) {
+      return;
+    }
+
+    const previousIndex = this.snapshotIndex;
+    this.snapshotIndexPromise = this.rebuildSnapshotIndex(Date.now())
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Tile snapshot index refresh failed; keeping stale index. ${formatErrorForLog(error)}`
+        );
+        return previousIndex;
+      })
+      .finally(() => {
+        this.snapshotIndexPromise = null;
+      });
   }
 
   private async rebuildSnapshotIndex(now: number): Promise<SnapshotIndex | null> {
@@ -221,7 +244,7 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
 
     do {
       const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 1000,
+        limit: 50_000,
         continuationToken
       });
       moduleHash = moduleHash ?? page.moduleHash;
@@ -403,6 +426,9 @@ function looksLikeTileResref(resref: string, sourceKey: string): boolean {
   if (normalizedKey.includes("/tile/") || normalizedKey.includes("/tiles/")) {
     return true;
   }
+  if (/^[a-z][a-z0-9]{2,12}_[a-z]\d{2}_\d{2}[a-z]?$/u.test(resref)) {
+    return true;
+  }
   return /^t[a-z0-9_]+$/u.test(resref);
 }
 
@@ -519,8 +545,7 @@ function buildAtlasFingerprint(candidate: TileCandidate): string {
         candidate.sourceKey,
         candidate.extension,
         String(candidate.sourceSize),
-        candidate.sourceEtag ?? "",
-        candidate.updatedAt
+        candidate.sourceEtag ?? ""
       ].join("|")
     )
     .digest("hex");
@@ -568,6 +593,13 @@ function humanizeName(resref: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }
 
 function normalizePrefixForLookup(value: string): string {

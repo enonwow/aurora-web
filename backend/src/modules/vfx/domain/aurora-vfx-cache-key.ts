@@ -5,6 +5,7 @@ import type { AuroraVfxSourcePolicyTrace } from "./aurora-vfx-source-policy";
 export interface AuroraVfxOutputCacheKeyInput {
   packageKind: string;
   sourceHash: string;
+  progFxHash?: string;
   sourceRowId?: number;
   runtimeSettingsRevision: number;
   hakListHash: string;
@@ -23,6 +24,7 @@ export interface AuroraVfxOutputCacheKeyParts {
   version: "aurora-vfx-output-cache-key/v1";
   packageKind: string;
   sourceHash: string;
+  progFxHash?: string;
   sourceRowId?: number;
   runtimeSettingsRevision: number;
   hakListHash: string;
@@ -46,6 +48,7 @@ export function buildAuroraVfxOutputCacheKeyParts(
     version: "aurora-vfx-output-cache-key/v1",
     packageKind: input.packageKind,
     sourceHash: input.sourceHash,
+    ...(input.progFxHash ? { progFxHash: input.progFxHash } : {}),
     ...(typeof input.sourceRowId === "number" ? { sourceRowId: input.sourceRowId } : {}),
     runtimeSettingsRevision: input.runtimeSettingsRevision,
     hakListHash: input.hakListHash,
@@ -75,6 +78,7 @@ export function buildAuroraVfxOutputCacheKeyFromPolicy(
   input: {
     packageKind: string;
     sourceHash: string;
+    progFxHash?: string;
     sourceRowId?: number;
     sourcePolicyTrace: AuroraVfxSourcePolicyTrace;
     dependencyGraph?: AuroraVfxDependencyGraph;
@@ -84,6 +88,7 @@ export function buildAuroraVfxOutputCacheKeyFromPolicy(
   return buildAuroraVfxOutputCacheKey({
     packageKind: input.packageKind,
     sourceHash: input.sourceHash,
+    ...(input.progFxHash ? { progFxHash: input.progFxHash } : {}),
     ...(typeof input.sourceRowId === "number" ? { sourceRowId: input.sourceRowId } : {}),
     runtimeSettingsRevision: input.sourcePolicyTrace.cacheKeyParts.runtimeSettingsRevision,
     hakListHash: input.sourcePolicyTrace.cacheKeyParts.hakListHash,

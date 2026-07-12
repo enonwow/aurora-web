@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { executeInFlight } from "../../../common/async/in-flight.helpers";
 import {
   buildBlobObjectHttpUrl,
@@ -11,6 +11,7 @@ import {
   type ModuleBlobObjectPayload,
   type ModuleBlobStoragePort
 } from "../../runtime-settings/application/ports/module-blob-storage.port";
+import { CatalogApplicationService } from "../../catalog/application/catalog.application.service";
 import {
   RUNTIME_SETTINGS_REPOSITORY,
   type RuntimeSettingsRepositoryPort
@@ -37,9 +38,21 @@ import {
   countAreaObjectsByKind
 } from "../domain/area-processing.builders";
 import {
+  buildAreaLightingEvidenceReport,
+  type AreaCatalogLightSourceInput,
+  type AreaProcessedMdlLightColor,
+  type AreaProcessedMdlLightSourceEvidence,
+  type AreaProcessedMdlLightVector3
+} from "../domain/area-lighting-evidence";
+import {
   buildAreaThumbnailPayload,
   withAreaPreviewImageUrl
 } from "../domain/area-thumbnail";
+import { serializeAreaItemPlacementsToGitGff } from "../adapters/outbound/blob/aurora-gff-area-item-writer";
+import {
+  serializeAreaToAreGff,
+  serializeAreaToGitGff
+} from "../adapters/outbound/blob/aurora-gff-area-writer";
 
 export interface AreaProcessingEnvelope {
   cache: {
@@ -75,8 +88,44 @@ export interface AreaTextureDeliveryEnvelope {
   textureAtlas: AreaTextureDeliveryContract;
 }
 
+export interface AreaItemGitExportEnvelope {
+  areaId: string;
+  fileName: string;
+  contentType: "application/octet-stream";
+  size: number;
+  bytes: Buffer;
+  itemCount: number;
+}
+
+export interface AreaGitExportEnvelope {
+  areaId: string;
+  fileName: string;
+  contentType: "application/octet-stream";
+  size: number;
+  bytes: Buffer;
+  objectCounts: ReturnType<typeof countAreaObjectsByKind>;
+}
+
+export interface AreaAreExportEnvelope {
+  areaId: string;
+  fileName: string;
+  contentType: "application/octet-stream";
+  size: number;
+  bytes: Buffer;
+  tileCount: number;
+}
+
 const AREA_LIST_CACHE_TTL_MS = 60_000;
 const AREA_LIST_CACHE_MAX_ENTRIES = 128;
+const PROCESSED_MDL_LIGHT_SCAN_LIMIT = 24;
+const AURORA_MDL_LIGHT_QUADRATIC_ATTEN_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 uploads lightQuadraticAtten = 9/(max(radius,0.1)^2*2)";
+const AURORA_MDL_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS =
+  "source-backed-mdl-radius-quadratic-attenuation";
+const AURORA_MDL_LIGHT_FIELD_PARSER_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:883029-883250 FUN_00a5872c parses AuroraLight color into +0x54, radius into +0x58, shadowradius into +0x60, verticaldisplacement into +0x64, multiplier into +0x8c, shadow into +0xc0, and lightpriority into +0xb0";
+const AURORA_MDL_LIGHT_FIELD_PARSER_PROOF_STATUS =
+  "source-backed-mdl-auroralight-field-parser";
 
 interface AreaListCacheEntry {
   result: AreaListResult;
@@ -98,7 +147,9 @@ export class AreasApplicationService {
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
-    private readonly moduleBlobStorage?: ModuleBlobStoragePort
+    private readonly moduleBlobStorage?: ModuleBlobStoragePort,
+    @Optional()
+    private readonly catalogService?: CatalogApplicationService
   ) {}
 
   listAreas(query: AreaListQuery) {
@@ -169,6 +220,7 @@ export class AreasApplicationService {
       },
       tileSet: area.tileSet,
       tiles: area.tiles,
+      ...(area.lighting ? { lighting: area.lighting } : {}),
       soundscape: area.soundscape,
       composition: counts,
       objects: area.objects,
@@ -203,6 +255,14 @@ export class AreasApplicationService {
     };
   }
 
+  async getAreaLightingEvidence() {
+    const areas = await this.loadAllAreasForLightingEvidence();
+    const catalogLightSources = await this.loadCatalogLightSourcesForLightingEvidence();
+    const processedMdlLightScan =
+      await this.loadProcessedMdlLightsForLightingEvidence(catalogLightSources);
+    return buildAreaLightingEvidenceReport(areas, catalogLightSources, processedMdlLightScan);
+  }
+
   async getAreaThumbnail(areaId: string) {
     const area = await this.resolveAreaRecord(areaId);
     const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
@@ -210,6 +270,216 @@ export class AreasApplicationService {
       area,
       precomputed?.composition ?? countAreaObjectsByKind(area.objects)
     );
+  }
+
+  async getAreaItemGitExport(areaId: string): Promise<AreaItemGitExportEnvelope> {
+    const area = await this.resolveAreaRecord(areaId);
+    const items = area.objects
+      .filter((object) => object.kind === "item")
+      .map((object) => ({
+        templateResRef: object.resRef ?? object.templateId,
+        tag: object.tag,
+        localizedName: object.localizedName,
+        description: object.description,
+        x: object.x,
+        y: object.y,
+        z: object.z,
+        bearing: object.bearing,
+        itemMetadata: object.itemMetadata
+      }));
+    const bytes = serializeAreaItemPlacementsToGitGff(items);
+    return {
+      areaId: area.areaId,
+      fileName: `${area.areaId}.items.git`,
+      contentType: "application/octet-stream",
+      size: bytes.length,
+      bytes,
+      itemCount: items.length
+    };
+  }
+
+  async getAreaGitExport(areaId: string): Promise<AreaGitExportEnvelope> {
+    const area = await this.resolveAreaRecord(areaId);
+    const bytes = serializeAreaToGitGff(area);
+    return {
+      areaId: area.areaId,
+      fileName: `${area.areaId}.git`,
+      contentType: "application/octet-stream",
+      size: bytes.length,
+      bytes,
+      objectCounts: countAreaObjectsByKind(area.objects)
+    };
+  }
+
+  async getAreaAreExport(areaId: string): Promise<AreaAreExportEnvelope> {
+    const area = await this.resolveAreaRecord(areaId);
+    const bytes = serializeAreaToAreGff(area);
+    return {
+      areaId: area.areaId,
+      fileName: `${area.areaId}.are`,
+      contentType: "application/octet-stream",
+      size: bytes.length,
+      bytes,
+      tileCount: area.tiles?.length ?? 0
+    };
+  }
+
+  private async loadAllAreasForLightingEvidence(): Promise<AreaRecord[]> {
+    const areas: AreaRecord[] = [];
+    const limit = 1000;
+    let offset = 0;
+
+    while (true) {
+      const page = await this.repository.list({ limit, offset });
+      for (const item of page.items) {
+        const area = await this.repository.findById(item.areaId);
+        if (area) {
+          areas.push(area);
+        }
+      }
+
+      offset += page.items.length;
+      if (page.items.length === 0 || offset >= page.total) {
+        break;
+      }
+    }
+
+    return areas;
+  }
+
+  private async loadCatalogLightSourcesForLightingEvidence() {
+    if (!this.catalogService) {
+      return [];
+    }
+
+    const templates: AreaCatalogLightSourceInput[] = [];
+    const limit = 1000;
+    let offset = 0;
+
+    while (true) {
+      const page = await this.catalogService.listPlaceables({
+        subtype: "light_source",
+        limit,
+        offset
+      });
+      templates.push(...page.items);
+
+      offset += page.items.length;
+      if (page.items.length === 0 || offset >= page.total) {
+        break;
+      }
+    }
+
+    return templates;
+  }
+
+  private async loadProcessedMdlLightsForLightingEvidence(
+    catalogLightSources: readonly AreaCatalogLightSourceInput[]
+  ): Promise<{
+    processedMdlLightSources: AreaProcessedMdlLightSourceEvidence[];
+    processedMdlLightTemplatesScanned: number;
+    processedMdlLightScanLimit: number;
+  }> {
+    if (!this.catalogService || catalogLightSources.length === 0) {
+      return {
+        processedMdlLightSources: [],
+        processedMdlLightTemplatesScanned: 0,
+        processedMdlLightScanLimit: 0
+      };
+    }
+
+    const candidates = catalogLightSources.slice(0, PROCESSED_MDL_LIGHT_SCAN_LIMIT);
+    const batch = await this.catalogService.processPlaceablesBatch(
+      candidates.map((candidate) => ({
+        templateId: candidate.templateId,
+        resref: candidate.resref,
+        bypassCache: false,
+        includeBenchmarkMetadata: false
+      }))
+    );
+
+    return {
+      processedMdlLightSources: batch.items.flatMap((item, index) => {
+        const catalogLightSource = candidates[index];
+        const lights = item.placeable.renderPackage?.auroraLight?.lights ?? [];
+        if (!catalogLightSource || lights.length === 0) {
+          return [];
+        }
+        return [
+          {
+            templateId: catalogLightSource.templateId,
+            resref: catalogLightSource.resref,
+            name: catalogLightSource.name,
+            ...optionalText(
+              "modelResRef",
+              readLightingMetadataString(catalogLightSource.metadata, "modelResRef")
+            ),
+            ...optionalText(
+              "lookupModelResRef",
+              readLightingMetadataString(catalogLightSource.metadata, "lookupModelResRef")
+            ),
+            cacheKey: item.cache.key,
+            cacheHit: item.cache.hit,
+            nodes: lights.map((light) => {
+              const quadraticAtten = resolveMdlLightQuadraticAtten(light.radius);
+              return {
+                source: light.source,
+                sourceModelAssetId: light.sourceModelAssetId,
+                sourceModelFileName: light.sourceModelFileName,
+                sourceModelObjectKey: light.sourceModelObjectKey,
+                nodeName: light.nodeName,
+                ...optionalText("sourceNodeKind", light.sourceNodeKind),
+                ...optionalText("parentNodeName", light.parentNodeName),
+                ...optionalVector3("position", mapMdlVector3(light.transform?.position)),
+                ...optionalNumber("scale", light.transform?.scale),
+                ...optionalNumber("radius", light.radius),
+                auroraLightFieldParserSource: AURORA_MDL_LIGHT_FIELD_PARSER_SOURCE,
+                auroraLightFieldParserProofStatus: AURORA_MDL_LIGHT_FIELD_PARSER_PROOF_STATUS,
+                ...optionalNumber("quadraticAtten", quadraticAtten),
+                ...(quadraticAtten !== undefined
+                  ? {
+                      quadraticAttenSource: AURORA_MDL_LIGHT_QUADRATIC_ATTEN_SOURCE,
+                      quadraticAttenProofStatus: AURORA_MDL_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS
+                    }
+                  : {}),
+                ...optionalNumber("shadowRadius", light.shadowRadius),
+                ...optionalNumber("verticalDisplacement", light.verticalDisplacement),
+                ...optionalNumber("multiplier", light.multiplier),
+                ...optionalColor("color", mapMdlColor(light.color)),
+                ...optionalBoolean("ambientOnly", light.ambientOnly),
+                ...optionalNumber("dynamicType", light.dynamicType),
+                ...optionalBoolean("affectDynamic", light.affectDynamic),
+                ...optionalBoolean("shadow", light.shadow),
+                ...optionalNumber("lightPriority", light.lightPriority),
+                ...optionalBoolean("generateFlare", light.generateFlare),
+                ...(light.textureNames?.length ? { textureNames: light.textureNames } : {}),
+                ...(light.flareSizes?.length ? { flareSizes: light.flareSizes } : {}),
+                ...(light.flarePositions?.length ? { flarePositions: light.flarePositions } : {}),
+                ...(light.flareColorShifts?.length
+                  ? {
+                      flareColorShifts: light.flareColorShifts
+                        .map(mapMdlColor)
+                        .filter((color): color is NonNullable<ReturnType<typeof mapMdlColor>> =>
+                          Boolean(color)
+                        )
+                    }
+                  : {}),
+                ...optionalNumber("flareRadius", light.flareRadius),
+                ...optionalBoolean("lensFlares", light.lensFlares),
+                ...optionalBoolean("fadingLight", light.fadingLight),
+                ...(light.animations?.length
+                  ? {
+                      animationNames: light.animations.map((animation) => animation.animationName)
+                    }
+                  : {})
+              };
+            })
+          }
+        ];
+      }),
+      processedMdlLightTemplatesScanned: candidates.length,
+      processedMdlLightScanLimit: PROCESSED_MDL_LIGHT_SCAN_LIMIT
+    };
   }
 
   async processArea(query: AreaProcessQuery) {
@@ -277,6 +547,7 @@ export class AreasApplicationService {
         },
         tileSet: area.tileSet,
         tiles: area.tiles,
+        ...(area.lighting ? { lighting: area.lighting } : {}),
         soundscape: area.soundscape,
         composition,
         objects: area.objects,
@@ -516,6 +787,69 @@ function buildAreaListCacheKey(query: AreaListQuery): string {
     String(query.limit),
     String(query.offset)
   ].join("|");
+}
+
+function readLightingMetadataString(
+  metadata: AreaCatalogLightSourceInput["metadata"],
+  key: string
+): string | undefined {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function mapMdlVector3(
+  value: [number, number, number] | undefined
+): AreaProcessedMdlLightVector3 | undefined {
+  return value ? { x: value[0], y: value[1], z: value[2] } : undefined;
+}
+
+function mapMdlColor(
+  value: [number, number, number] | undefined
+): AreaProcessedMdlLightColor | undefined {
+  return value ? { red: value[0], green: value[1], blue: value[2] } : undefined;
+}
+
+function resolveMdlLightQuadraticAtten(radius: number | undefined): number | undefined {
+  if (typeof radius !== "number" || !Number.isFinite(radius)) {
+    return undefined;
+  }
+  const clampedRadius = Math.max(radius, 0.1);
+  return 9 / (clampedRadius * clampedRadius * 2);
+}
+
+function optionalText<TKey extends string>(
+  key: TKey,
+  value: string | undefined
+): { [K in TKey]?: string } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in TKey]?: string });
+}
+
+function optionalNumber<TKey extends string>(
+  key: TKey,
+  value: number | undefined
+): { [K in TKey]?: number } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in TKey]?: number });
+}
+
+function optionalBoolean<TKey extends string>(
+  key: TKey,
+  value: boolean | undefined
+): { [K in TKey]?: boolean } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in TKey]?: boolean });
+}
+
+function optionalVector3<TKey extends string>(
+  key: TKey,
+  value: AreaProcessedMdlLightVector3 | undefined
+): { [K in TKey]?: AreaProcessedMdlLightVector3 } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in TKey]?: AreaProcessedMdlLightVector3 });
+}
+
+function optionalColor<TKey extends string>(
+  key: TKey,
+  value: AreaProcessedMdlLightColor | undefined
+): { [K in TKey]?: AreaProcessedMdlLightColor } {
+  return value === undefined ? {} : ({ [key]: value } as { [K in TKey]?: AreaProcessedMdlLightColor });
 }
 
 function normalizeAreaListCacheValue(value: string): string {

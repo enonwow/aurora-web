@@ -60,6 +60,7 @@ const vfxProcessPayloadSchema = z
   .object({
     packageKind: z.enum(packageKinds).default("runtime_package"),
     sourceTableText: z.string().min(1),
+    progFxTableText: z.string().min(1).optional(),
     sourceObjectKey: z.string().trim().min(1).optional(),
     sourceLayer: z.enum(sourceLayers).default("external_fixture"),
     sourceHash: z.string().trim().min(1).optional(),

@@ -87,4 +87,6 @@ export interface ModuleBlobStoragePort {
     settings: BlobStorageSettings,
     file: PackedModuleFile
   ): Promise<ModuleBlobObjectSummary>;
+
+  deleteModuleObject?(settings: BlobStorageSettings, key: string): Promise<boolean>;
 }

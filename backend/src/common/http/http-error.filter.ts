@@ -58,6 +58,16 @@ export class HttpErrorFilter implements ExceptionFilter {
       }
     }
 
+    if (!(exception instanceof AppException) && status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // Keep unexpected backend failures actionable in dev/runtime captures.
+      console.error("Unexpected HTTP exception", {
+        requestId,
+        method: request.method,
+        url: request.url,
+        exception
+      });
+    }
+
     const payload: ErrorEnvelope = {
       contractVersion: this.config.contractVersion,
       requestId,
