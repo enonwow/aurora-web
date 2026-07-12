@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AREAS_MODE_SELECTED_SCENE_STORAGE_KEY,
   PLACEABLES_MODE_STATE_STORAGE_KEY,
-  WorkspaceMockLayout
-} from "../../../../src/modules/layout/components/WorkspaceMockLayout";
+  WorkspaceLayout
+} from "../../../../src/modules/layout/components/WorkspaceLayout";
 import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
 import { createWorkspaceChromeFacade } from "../../../../src/modules/layout/application/workspaceChromeFacade";
 import { DEFAULT_WORKSPACE_OPTION_SETTINGS } from "../../../../src/modules/layout/workspaceOptionSettings";
@@ -11,12 +12,21 @@ import { createBrowserSceneViewportPort } from "../../../../src/modules/scene/co
 import { createNewSceneObject } from "../../../../src/modules/scene/domain/sceneFactory";
 import { AreaApiRequestError } from "../../../../src/modules/areas/adapters/httpAreaApiPort";
 import type { AreaApiPort } from "../../../../src/modules/areas/ports/areaApiPort";
-import type { AreaApiDetail, AreaApiListItem } from "../../../../src/modules/areas/contracts";
+import type {
+  AreaApiDetail,
+  AreaApiListItem,
+  AreaApiProcessResult
+} from "../../../../src/modules/areas/contracts";
 import type { PlaceableApiPort } from "../../../../src/modules/placeables/ports/placeableApiPort";
+import type { CreatureApiPort } from "../../../../src/modules/creatures/ports/creatureApiPort";
 import type { SoundApiPort } from "../../../../src/modules/sounds/ports/soundApiPort";
 import type { SoundApiListItem } from "../../../../src/modules/sounds/contracts";
 
-const mockWiring = vi.hoisted(() => {
+type AreasRuntimeCaptureWindow = typeof window & {
+  __AURORA_AREAS_RUNTIME_CAPTURE_TERRAIN_ONLY__?: boolean;
+};
+
+const viewportWiringHarness = vi.hoisted(() => {
   return {
     viewportPropsSpy: vi.fn()
   };
@@ -24,7 +34,7 @@ const mockWiring = vi.hoisted(() => {
 
 vi.mock("../../../../src/modules/layout/components/WorkspaceCanvasViewport", () => ({
   WorkspaceCanvasViewport: (props: unknown) => {
-    mockWiring.viewportPropsSpy(props);
+    viewportWiringHarness.viewportPropsSpy(props);
     return <div data-testid="workspace-canvas-viewport-stub" />;
   }
 }));
@@ -123,7 +133,32 @@ function buildAreaDetailFixture(
   };
 }
 
-describe("WorkspaceMockLayout viewport wiring", () => {
+function buildAreaProcessResult(
+  detail: AreaApiDetail,
+  cacheKey = `cache_${detail.areaId}`
+): AreaApiProcessResult {
+  return {
+    cache: {
+      key: cacheKey,
+      hit: false,
+      storedAt: "2026-01-01T00:00:00.000Z",
+      hits: 0
+    },
+    area: {
+      ...detail,
+      processedAt: "2026-01-01T00:00:00.000Z"
+    }
+  };
+}
+
+function attachProcessAreaFromDetail(areaApiPort: AreaApiPort): AreaApiPort {
+  areaApiPort.processArea = vi.fn(async (accessToken, areaId) =>
+    buildAreaProcessResult(await areaApiPort.getAreaById(accessToken, areaId))
+  );
+  return areaApiPort;
+}
+
+describe("WorkspaceLayout viewport wiring", () => {
   const areaApiPortStub: AreaApiPort = {
     login: vi.fn(async () => ({ accessToken: "token" })),
     listAreas: vi.fn(async () => ({ items: [], total: 0, limit: 100, offset: 0 })),
@@ -359,7 +394,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(button, { detail: 0 });
   }
 
-  type MockSoundAudioInstance = {
+  type SoundAudioTestDouble = {
     play: ReturnType<typeof vi.fn>;
     pause: ReturnType<typeof vi.fn>;
     load: ReturnType<typeof vi.fn>;
@@ -369,17 +404,30 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     onended: null | (() => void);
     onerror: null | (() => void);
   };
+  type SoundWebAudioSourceTestDouble = {
+    start: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+    loop: boolean;
+    buffer: unknown;
+    onended: null | (() => void);
+  };
 
-  function installSoundPlaybackMocks(options: {
+  function installSoundPlaybackTestDoubles(options: {
     objectUrl?: string;
-    play?: MockSoundAudioInstance["play"];
+    play?: SoundAudioTestDouble["play"];
     previewDurationSeconds?: number;
+    webAudio?: {
+      durationSeconds?: number;
+      start?: ReturnType<typeof vi.fn>;
+    };
   } = {}) {
     const originalAudio = globalThis.Audio;
     const originalAudioContext = globalThis.AudioContext;
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
-    const audio: MockSoundAudioInstance = {
+    const audio: SoundAudioTestDouble = {
       play: options.play ?? vi.fn(async () => undefined),
       pause: vi.fn(),
       load: vi.fn(),
@@ -389,9 +437,42 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       onended: null,
       onerror: null
     };
+    const webAudioSources: SoundWebAudioSourceTestDouble[] = [];
+    const webAudioStart = options.webAudio?.start ?? vi.fn();
+    const webAudioContext =
+      options.webAudio !== undefined
+        ? {
+            state: "running",
+            sampleRate: 8000,
+            destination: {},
+            resume: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+            createBuffer: vi.fn(() => ({ duration: 0 })),
+            createBufferSource: vi.fn(() => {
+              const source: SoundWebAudioSourceTestDouble = {
+                start: webAudioStart,
+                stop: vi.fn(),
+                connect: vi.fn(),
+                disconnect: vi.fn(),
+                loop: false,
+                buffer: null,
+                onended: null
+              };
+              webAudioSources.push(source);
+              return source as unknown as AudioBufferSourceNode;
+            }),
+            decodeAudioData: vi.fn(async () => ({
+              duration: options.webAudio?.durationSeconds ?? 1
+            }))
+          }
+        : null;
 
     globalThis.Audio = vi.fn(() => audio) as unknown as typeof Audio;
-    if (options.previewDurationSeconds !== undefined) {
+    if (webAudioContext) {
+      globalThis.AudioContext = vi.fn(
+        () => webAudioContext as unknown as AudioContext
+      ) as unknown as typeof AudioContext;
+    } else if (options.previewDurationSeconds !== undefined) {
       globalThis.AudioContext = vi.fn(
         () =>
           ({
@@ -405,6 +486,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     return {
       audio,
+      webAudioContext,
+      webAudioSources,
       restore: () => {
         globalThis.Audio = originalAudio;
         globalThis.AudioContext = originalAudioContext;
@@ -415,7 +498,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
   }
 
   function expectSoundAudioCleanup(
-    audio: Pick<MockSoundAudioInstance, "pause" | "removeAttribute" | "load"> | undefined,
+    audio: Pick<SoundAudioTestDouble, "pause" | "removeAttribute" | "load"> | undefined,
     options: {
       releaseCalls?: number;
       revokedUrl?: string;
@@ -453,7 +536,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
     const trackTelemetryEvent = options.trackTelemetryEvent ?? vi.fn();
     const view = render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -486,10 +569,113 @@ describe("WorkspaceMockLayout viewport wiring", () => {
   }
 
   beforeEach(() => {
-    mockWiring.viewportPropsSpy.mockClear();
+    viewportWiringHarness.viewportPropsSpy.mockClear();
     vi.clearAllMocks();
+    delete (window as AreasRuntimeCaptureWindow)
+      .__AURORA_AREAS_RUNTIME_CAPTURE_TERRAIN_ONLY__;
     window.history.replaceState({}, "", "/");
+    window.sessionStorage.removeItem(AREAS_MODE_SELECTED_SCENE_STORAGE_KEY);
     window.localStorage.removeItem(PLACEABLES_MODE_STATE_STORAGE_KEY);
+  });
+
+  it("adds backend creature templates to the Areas add-object palette", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const creatureApiPort: CreatureApiPort = {
+      listCreatures: vi.fn(async () => ({
+        items: [
+          {
+            templateId: "cre_guard_captain",
+            resref: "cre_guard",
+            name: "Guard Captain",
+            category: "npc",
+            tags: ["guard"],
+            previewImageUrl: "/preview/cre_guard_captain.png",
+            metadata: {
+              tag: "guard_captain",
+              firstName: "Guard",
+              lastName: "Captain",
+              strength: 16,
+              dexterity: 13,
+              constitution: 14,
+              intelligence: 10,
+              wisdom: 12,
+              charisma: 8,
+              plot: true
+            }
+          }
+        ],
+        total: 1,
+        limit: 1000,
+        offset: 0
+      })),
+      processCreature: vi.fn(async () => ({
+        cache: {
+          key: "cre_guard_captain:v1",
+          hit: false,
+          storedAt: "2026-01-01T00:00:00.000Z",
+          hits: 0
+        },
+        creature: {
+          templateId: "cre_guard_captain",
+          kind: "creature",
+          resref: "cre_guard",
+          name: "Guard Captain",
+          category: "npc",
+          benchmarkCandidate: false,
+          render: {
+            backendType: "creature",
+            frontendType: "creature",
+            rendererPreset: "creature-standard"
+          },
+          processedAt: "2026-01-01T00:00:00.000Z"
+        }
+      })),
+      getProcessedCreature: vi.fn()
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        placeableApiPort={placeableApiPortStub}
+        creatureApiPort={creatureApiPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    await waitFor(() => {
+      expect(creatureApiPort.listCreatures).toHaveBeenCalledWith("token", {
+        limit: 1000,
+        offset: 0
+      });
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: /add objects/i }));
+    const addObjectsSection = await screen.findByRole("article", {
+      name: /add objects section/i
+    });
+    const familyRail = within(addObjectsSection).getByRole("tablist", {
+      name: /object family palette/i
+    });
+    fireEvent.click(within(familyRail).getByRole("tab", { name: /creatures family/i }));
+
+    expect(await within(addObjectsSection).findByText("GUARD_CAPTAIN")).toBeInTheDocument();
+    expect(within(addObjectsSection).getByText("cre_guard")).toBeInTheDocument();
   });
 
   it("passes injected scene viewport port down to WorkspaceCanvasViewport", () => {
@@ -499,7 +685,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="viewer"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -520,28 +706,117 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
 
     expect(screen.getByTestId("workspace-canvas-viewport-stub")).toBeInTheDocument();
-    expect(mockWiring.viewportPropsSpy).toHaveBeenCalled();
+    expect(viewportWiringHarness.viewportPropsSpy).toHaveBeenCalled();
 
-    const firstViewportProps = mockWiring.viewportPropsSpy.mock.calls[0]?.[0] as {
+    const firstViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[0]?.[0] as {
       sceneViewportPort: unknown;
     };
     expect(firstViewportProps.sceneViewportPort).toBe(sceneViewportPort);
   });
 
-  it("renders builder left panel with only Add Objects runtime section", async () => {
+  it("keeps the Area tile selection callback stable and idempotent", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+
+    render(
+      <WorkspaceLayout
+        role="viewer"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        placeableApiPort={placeableApiPortStub}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    type SelectionProps = {
+      onSelectedTileChange: (tileId: string | null, tileIds: string[]) => void;
+    };
+    const firstProps = viewportWiringHarness.viewportPropsSpy.mock.lastCall?.[0] as SelectionProps;
+    const firstCallback = firstProps.onSelectedTileChange;
+    const renderCount = viewportWiringHarness.viewportPropsSpy.mock.calls.length;
+
+    act(() => firstCallback("tile-0-0", ["tile-0-0"]));
+    await waitFor(() => {
+      expect(viewportWiringHarness.viewportPropsSpy.mock.calls.length).toBeGreaterThan(renderCount);
+    });
+
+    const secondProps = viewportWiringHarness.viewportPropsSpy.mock.lastCall?.[0] as SelectionProps;
+    expect(secondProps.onSelectedTileChange).toBe(firstCallback);
+    act(() => secondProps.onSelectedTileChange("tile-0-0", ["tile-0-0"]));
+    expect(viewportWiringHarness.viewportPropsSpy.mock.lastCall?.[0]).toBe(secondProps);
+  });
+
+  it("expands the viewport over both side panels in fullscreen focus mode", () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const onExitViewportFullscreen = vi.fn();
+
+    render(
+      <WorkspaceLayout
+        role="viewer"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        placeableApiPort={placeableApiPortStub}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        viewportFullscreen={true}
+        onExitViewportFullscreen={onExitViewportFullscreen}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    const layout = screen.getByLabelText("workspace layout");
+    expect(layout).toHaveClass("is-viewport-fullscreen");
+    expect(layout).toHaveAttribute("data-viewport-fullscreen", "true");
+
+    const viewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[0]?.[0] as {
+      leftPanelWidthPx: number;
+      rightPanelWidthPx: number;
+    };
+    expect(viewportProps.leftPanelWidthPx).toBe(0);
+    expect(viewportProps.rightPanelWidthPx).toBe(0);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /exit viewport fullscreen/i })
+    );
+    expect(onExitViewportFullscreen).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onExitViewportFullscreen).toHaveBeenCalledTimes(2);
+  });
+
+  it("separates area selection from add-placeables workflow in the builder left panel", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
     const trackTelemetryEvent = vi.fn();
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView
-    });
-
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -568,11 +843,19 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
     const workflow = screen.getByRole("group", { name: /areas mode workflow/i });
     expect(workflow).toHaveClass("areas-mode-panel");
+    expect(within(workflow).getByLabelText("Opened area status")).toHaveTextContent(
+      "No area opened"
+    );
+    const workflowTabs = within(workflow).getByRole("tablist", {
+      name: /areas workflow steps/i
+    });
+    const selectAreaTab = within(workflowTabs).getByRole("tab", { name: /select area/i });
+    const addObjectsTab = within(workflowTabs).getByRole("tab", { name: /add objects/i });
+    expect(selectAreaTab).toHaveAttribute("aria-selected", "true");
+    expect(addObjectsTab).toHaveAttribute("aria-selected", "false");
+
     const areaSection = within(workflow).getByRole("article", {
       name: /area selection section/i
-    });
-    const addObjectsSection = within(workflow).getByRole("article", {
-      name: /add objects section/i
     });
     expect(within(areaSection).getByRole("heading", { name: "Areas" })).toBeInTheDocument();
     expect(
@@ -581,6 +864,20 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(
       within(areaSection).getByRole("searchbox", { name: /filter areas/i })
     ).toBeInTheDocument();
+    expect(within(workflow).queryByRole("article", {
+      name: /add objects section/i
+    })).not.toBeInTheDocument();
+
+    fireEvent.click(addObjectsTab);
+
+    expect(addObjectsTab).toHaveAttribute("aria-selected", "true");
+    expect(selectAreaTab).toHaveAttribute("aria-selected", "false");
+    expect(within(workflow).queryByRole("article", {
+      name: /area selection section/i
+    })).not.toBeInTheDocument();
+    const addObjectsSection = within(workflow).getByRole("article", {
+      name: /add objects section/i
+    });
     expect(
       within(addObjectsSection).getByRole("heading", { name: "Add Objects" })
     ).toBeInTheDocument();
@@ -589,20 +886,16 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         name: /add object type selector/i
       })
     ).toBeInTheDocument();
-    fireEvent.click(within(workflow).getByRole("button", { name: /^add objects$/i }));
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest",
-      behavior: "smooth"
-    });
     await waitFor(() => {
       expect(document.activeElement).toBe(
         within(addObjectsSection).getByRole("searchbox", { name: /filter objects/i })
       );
     });
-    expect(trackTelemetryEvent).toHaveBeenCalledWith("ui.workspace.areas.add_objects_jump", {
-      userId: "u_builder_001"
+    expect(trackTelemetryEvent).toHaveBeenCalledWith("ui.workspace.areas.workflow_step_changed", {
+      userId: "u_builder_001",
+      step: "placeables",
+      source: "tab"
     });
-    expect(workflow).toContainElement(areaSection);
     expect(workflow).toContainElement(addObjectsSection);
     await waitFor(() => {
       expect(screen.queryByText("Loading areas...")).not.toBeInTheDocument();
@@ -619,7 +912,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -640,10 +933,29 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const selector = screen.getByRole("combobox", { name: /add object type selector/i });
+    fireEvent.click(screen.getByRole("tab", { name: /add objects/i }));
+
+    const addObjectsSection = await screen.findByRole("article", {
+      name: /add objects section/i
+    });
+    await waitFor(() => {
+      expect(placeableApiPortStub.listPlaceables).toHaveBeenCalledWith("token", {
+        limit: 1000,
+        offset: 0
+      });
+    });
+    expect(
+      within(addObjectsSection).getByRole("button", { name: /plc_barrel_01/i })
+    ).toBeInTheDocument();
+
+    const selector = within(addObjectsSection).getByRole("combobox", {
+      name: /add object type selector/i
+    });
     fireEvent.change(selector, { target: { value: "sounds" } });
 
-    const soundsList = await screen.findByRole("list", { name: /sounds add list/i });
+    const soundsList = await within(addObjectsSection).findByRole("list", {
+      name: /sounds add list/i
+    });
     expect(within(soundsList).getByRole("button", { name: /sound_amb_city_market_day/i }))
       .toBeInTheDocument();
     expect(within(soundsList).getByText("amb_city_market_day")).toBeInTheDocument();
@@ -682,7 +994,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -709,6 +1021,16 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       "src",
       "/assets/previews/areas/area_preview_ready.webp"
     );
+    const previewFrame = previewImage.closest(".scene-object-thumbnail");
+    expect(previewFrame).not.toBeNull();
+    fireEvent.mouseEnter(previewFrame as HTMLElement);
+    const expandedPreview = document.querySelector(".thumbnail-hover-preview img");
+    expect(expandedPreview).toHaveAttribute(
+      "src",
+      "/assets/previews/areas/area_preview_ready.webp"
+    );
+    fireEvent.mouseLeave(previewFrame as HTMLElement);
+    expect(document.querySelector(".thumbnail-hover-preview")).not.toBeInTheDocument();
     fireEvent.error(previewImage);
     await waitFor(() => {
       expect(previewImage.getAttribute("src") ?? "").toContain("data:image/svg+xml");
@@ -720,7 +1042,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(screen.getByText("Atlas atlas_area_preview_missing")).toBeInTheDocument();
     const areaSection = screen.getByLabelText("area selection section");
     const areaList = within(areaSection).getByRole("list", { name: /area list/i });
-    const areaActions = within(areaSection).getByLabelText("area actions");
+    const areaActions = within(areaSection).getByLabelText("area diagnostics actions");
     expect(
       areaList.compareDocumentPosition(areaActions) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -748,27 +1070,36 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
     const trackTelemetryEvent = vi.fn();
-    const getAreaById = vi.fn(async (_accessToken: string, areaId: string) =>
-      buildAreaDetailFixture({
-        areaId,
-        name: areaId === "area_beta" ? "Area Beta" : "Area Alpha"
-      })
-    );
+    const processArea = vi.fn(async (_accessToken: string, areaId: string) => ({
+      cache: {
+        key: `cache_${areaId}`,
+        hit: false,
+        storedAt: "2026-01-01T00:00:00.000Z",
+        hits: 0
+      },
+      area: {
+        ...buildAreaDetailFixture({
+          areaId,
+          name: areaId === "area_beta" ? "Area Row Beta" : "Area Row Alpha"
+        }),
+        processedAt: "2026-01-01T00:00:00.000Z"
+      }
+    }));
     const areaPortWithRows: AreaApiPort = {
       ...areaApiPortStub,
       listAreas: vi.fn(async () => ({
         items: [
-          buildAreaListItemFixture({ areaId: "area_alpha", name: "Area Alpha" }),
-          buildAreaListItemFixture({ areaId: "area_beta", name: "Area Beta" })
+          buildAreaListItemFixture({ areaId: "area_alpha", name: "Area Row Alpha" }),
+          buildAreaListItemFixture({ areaId: "area_beta", name: "Area Row Beta" })
         ],
         total: 2,
         limit: 100,
         offset: 0
       })),
-      getAreaById
+      processArea
     };
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -788,10 +1119,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const betaRow = await screen.findByRole("button", { name: /area beta/i });
+    const betaRow = await screen.findByRole("button", { name: /area row beta/i });
     fireEvent.contextMenu(betaRow, { clientX: 32, clientY: 104 });
 
-    const menu = screen.getByRole("menu", { name: /area context menu for area beta/i });
+    const menu = screen.getByRole("menu", { name: /area context menu for area row beta/i });
     const openMenuItem = within(menu).getByRole("menuitem", { name: "Open Area" });
     expect(openMenuItem).toBeInTheDocument();
     await waitFor(() => {
@@ -811,7 +1142,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(openMenuItem);
 
     await waitFor(() => {
-      expect(getAreaById).toHaveBeenCalledWith("token", "area_beta");
+      expect(processArea).toHaveBeenCalledWith("token", "area_beta", { bypassCache: false });
     });
     expect(screen.queryByRole("menu", { name: /area context menu/i })).not.toBeInTheDocument();
     expect(trackTelemetryEvent).toHaveBeenCalledWith(
@@ -839,8 +1170,9 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
     const trackTelemetryEvent = vi.fn();
 
+    window.sessionStorage.removeItem(AREAS_MODE_SELECTED_SCENE_STORAGE_KEY);
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -876,34 +1208,44 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
   });
 
-  it("surfaces selected area quick actions and opens area rows directly", async () => {
+  it("surfaces selected area quick actions without opening area rows directly", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
-    const getAreaById = vi.fn(async (_accessToken: string, areaId: string) =>
-      buildAreaDetailFixture({
-        areaId,
-        name: areaId === "area_beta" ? "Area Beta" : "Area Alpha"
-      })
-    );
+    const processArea = vi.fn(async (_accessToken: string, areaId: string) => ({
+      cache: {
+        key: `cache_${areaId}`,
+        hit: false,
+        storedAt: "2026-01-01T00:00:00.000Z",
+        hits: 0
+      },
+      area: {
+        ...buildAreaDetailFixture({
+          areaId,
+          name: areaId === "area_beta" ? "Area Row Beta" : "Area Row Alpha"
+        }),
+        processedAt: "2026-01-01T00:00:00.000Z"
+      }
+    }));
     const areaPortWithRows: AreaApiPort = {
       ...areaApiPortStub,
       listAreas: vi.fn(async () => ({
         items: [
-          buildAreaListItemFixture({ areaId: "area_alpha", name: "Area Alpha" }),
-          buildAreaListItemFixture({ areaId: "area_beta", name: "Area Beta" })
+          buildAreaListItemFixture({ areaId: "area_alpha", name: "Area Row Alpha" }),
+          buildAreaListItemFixture({ areaId: "area_beta", name: "Area Row Beta" })
         ],
         total: 2,
         limit: 100,
         offset: 0
       })),
-      getAreaById
+      processArea
     };
     const trackTelemetryEvent = vi.fn();
 
+    window.sessionStorage.removeItem(AREAS_MODE_SELECTED_SCENE_STORAGE_KEY);
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -923,29 +1265,44 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const betaRow = await screen.findByRole("button", { name: /area beta/i });
+    const betaRow = await screen.findByRole("button", { name: /area row beta/i });
+    const workflow = screen.getByRole("group", { name: /areas mode workflow/i });
+    const openedAreaStatus = within(workflow).getByLabelText("Opened area status");
+    expect(openedAreaStatus).not.toHaveTextContent("Area Row Beta");
+
     fireEvent.click(betaRow);
     expect(betaRow).toHaveAttribute("aria-pressed", "true");
+    expect(processArea).not.toHaveBeenCalled();
+    expect(openedAreaStatus).not.toHaveTextContent("Area Row Beta");
 
     const quickActions = screen.getByLabelText("selected area quick actions");
-    expect(within(quickActions).getByText("Area Beta")).toBeInTheDocument();
+    expect(within(quickActions).getByText("Area Row Beta")).toBeInTheDocument();
     fireEvent.click(
       within(quickActions).getByRole("button", {
         name: "Selected area actions menu"
       })
     );
-    expect(screen.getByRole("menu", { name: /area context menu for area beta/i }))
+    expect(screen.getByRole("menu", { name: /area context menu for area row beta/i }))
       .toBeInTheDocument();
 
     fireEvent.doubleClick(betaRow);
-
-    await waitFor(() => {
-      expect(getAreaById).toHaveBeenCalledWith("token", "area_beta");
-    });
-    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+    expect(processArea).not.toHaveBeenCalled();
+    expect(trackTelemetryEvent).not.toHaveBeenCalledWith(
       "ui.workspace.areas.row_open_shortcut",
-      expect.objectContaining({ areaId: "area_beta", source: "row_double_click" })
+      expect.anything()
     );
+
+    fireEvent.click(
+      within(quickActions).getByRole("button", {
+        name: /open selected area/i
+      })
+    );
+    await waitFor(() => {
+      expect(processArea).toHaveBeenCalledWith("token", "area_beta", { bypassCache: false });
+    });
+    await waitFor(() => {
+      expect(openedAreaStatus).toHaveTextContent("Area Row Beta");
+    });
   });
 
   it("renders area texture readiness metadata from process and proxy contract results", async () => {
@@ -1009,7 +1366,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1033,6 +1390,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check Texture Readiness" }));
 
     const status = await screen.findByLabelText("area texture readiness status");
+    expect(status).toHaveClass("area-readiness-detail-panel");
+    expect(status.querySelector(".area-readiness-property-list")).not.toBeNull();
     expect(within(status).getByRole("heading", { name: "Texture Readiness Ready" }))
       .toBeInTheDocument();
     expect(within(status).getByText("4f8c2a1b9e7d6c5a")).toBeInTheDocument();
@@ -1052,6 +1411,71 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       "token",
       "4f8c2a1b9e7d6c5a",
       "proxy"
+    );
+  });
+
+  it("keeps terrain readiness diagnostics compact inside the area selection panel", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const areaPortWithTerrainReadiness: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: [
+          buildAreaListItemFixture({
+            areaId: "area_terrain_ready",
+            name: "Area Terrain Ready",
+            width: 4,
+            height: 4
+          })
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0
+      })),
+      getAreaById: vi.fn(async () =>
+        buildAreaDetailFixture({
+          areaId: "area_terrain_ready",
+          name: "Area Terrain Ready",
+          width: 4,
+          height: 4
+        })
+      )
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaPortWithTerrainReadiness}
+        placeableApiPort={placeableApiPortStub}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    await screen.findByRole("button", { name: /area terrain ready/i });
+    fireEvent.click(screen.getByRole("button", { name: "Check Terrain Readiness" }));
+
+    const status = await screen.findByLabelText("area terrain readiness status");
+    expect(status).toHaveClass("area-readiness-detail-panel");
+    expect(status.querySelector(".area-readiness-property-list")).not.toBeNull();
+    expect(within(status).getByRole("heading", { name: "Terrain Readiness" }))
+      .toBeInTheDocument();
+    expect(areaPortWithTerrainReadiness.getAreaById).toHaveBeenCalledWith(
+      "token",
+      "area_terrain_ready"
     );
   });
 
@@ -1098,7 +1522,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1169,7 +1593,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1249,7 +1673,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1316,7 +1740,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1389,7 +1813,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1469,7 +1893,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1498,7 +1922,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Checking texture readiness...");
     expect(screen.getByRole("button", { name: "Check Texture Readiness" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Check Direct Texture Delivery" })).toBeDisabled();
-    expect(screen.getByText("Checking Texture...")).toBeInTheDocument();
+    expect(screen.getByText("Texture...")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Check Direct Texture Delivery" }));
     expect(areaPortWithBusyTextureReadiness.processArea).toHaveBeenCalledTimes(1);
@@ -1609,7 +2033,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1641,11 +2065,13 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
     await waitFor(() => {
-      expect(areaPortWithPersistentTextureReadiness.getAreaById).toHaveBeenCalledWith(
+      expect(areaPortWithPersistentTextureReadiness.processArea).toHaveBeenCalledWith(
         "token",
-        "area_texture_ready"
+        "area_texture_ready",
+        { bypassCache: false }
       );
     });
+    fireEvent.click(screen.getByRole("tab", { name: /select area/i }));
     const persistedStatus = screen.getByLabelText("area texture readiness status");
     expect(within(persistedStatus).getByText("ready-cache-key-001")).toBeInTheDocument();
     expect(within(persistedStatus).getByText("atlas_area_texture_ready")).toBeInTheDocument();
@@ -1706,7 +2132,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1838,7 +2264,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -1985,7 +2411,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2057,14 +2483,61 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const areaPortWithSoundObject: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: [
+          buildAreaListItemFixture({
+            areaId: "area_sound_properties",
+            name: "Area Sound Properties",
+            objectCounts: {
+              placeables: 0,
+              doors: 0,
+              creatures: 0,
+              items: 0,
+              sounds: 1,
+              total: 1
+            }
+          })
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0
+      })),
+      getAreaById: vi.fn(async () => buildAreaDetailFixture({
+        areaId: "area_sound_properties",
+        name: "Area Sound Properties",
+        composition: {
+          placeables: 0,
+          doors: 0,
+          creatures: 0,
+          items: 0,
+          sounds: 1,
+          total: 1
+        },
+        objects: [
+          {
+            objectId: "snd_amb_01",
+            kind: "sound",
+            templateId: "sound_forest_01",
+            resRef: "sound_forest_01",
+            x: 1,
+            y: 1,
+            z: 0,
+            bearing: 0
+          }
+        ]
+      }))
+    };
+    attachProcessAreaFromDetail(areaPortWithSoundObject);
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
         sceneViewportPort={sceneViewportPort}
-        areaApiPort={areaApiPortStub}
+        areaApiPort={areaPortWithSoundObject}
         placeableApiPort={placeableApiPortStub}
         soundApiPort={soundApiPortStub}
         backendAccessToken={"token"}
@@ -2080,6 +2553,14 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
+    await waitFor(() => expect(screen.getByRole("button", { name: /open selected area/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
+    await waitFor(() => {
+      expect(
+        within(screen.getByLabelText("Opened area status")).getByText("Area Sound Properties")
+      ).toBeInTheDocument();
+    });
+
     const selector = screen.getByRole("combobox", { name: /^object type selector$/i });
     fireEvent.change(selector, { target: { value: "sounds" } });
 
@@ -2090,12 +2571,12 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(within(item as HTMLElement).getByRole("button", { name: /open object properties/i }));
 
     await waitFor(() => {
-      const calls = mockWiring.viewportPropsSpy.mock.calls;
+      const calls = viewportWiringHarness.viewportPropsSpy.mock.calls;
       const latestProps = calls[calls.length - 1]?.[0] as {
         sidebarPropertiesSignal?: { objectId: string; objectKind: string } | null;
       };
       expect(latestProps.sidebarPropertiesSignal).toMatchObject({
-        objectId: "snd_amb_01",
+        objectId: "area_sound_properties:snd_amb_01",
         objectKind: "sounds"
       });
     });
@@ -2108,7 +2589,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2129,10 +2610,18 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const selector = screen.getByRole("combobox", { name: /^add object type selector$/i });
+    fireEvent.click(screen.getByRole("tab", { name: /add objects/i }));
+    const addObjectsSection = await screen.findByRole("article", {
+      name: /add objects section/i
+    });
+    const selector = within(addObjectsSection).getByRole("combobox", {
+      name: /^add object type selector$/i
+    });
     fireEvent.change(selector, { target: { value: "sounds" } });
 
-    const soundsList = await screen.findByRole("list", { name: /sounds add list/i });
+    const soundsList = await within(addObjectsSection).findByRole("list", {
+      name: /sounds add list/i
+    });
     const row = within(soundsList).getByRole("button", {
       name: /preview sound_amb_city_market_day/i
     });
@@ -2143,7 +2632,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
 
     await waitFor(() => {
-      const calls = mockWiring.viewportPropsSpy.mock.calls;
+      const calls = viewportWiringHarness.viewportPropsSpy.mock.calls;
       const latestProps = calls[calls.length - 1]?.[0] as {
         canvasCreateObjectSignal?: {
           template?: {
@@ -2181,7 +2670,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2218,6 +2707,256 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("switches builder workspace mode to creatures and renders creatures-only left panel", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const creatureApiPort: CreatureApiPort = {
+      listCreatures: vi.fn(async () => ({
+        items: [
+          {
+            templateId: "cre_guard_captain",
+            resref: "cre_guard",
+            name: "Guard Captain",
+            category: "npc",
+            tags: ["guard"],
+            previewImageUrl: "/preview/cre_guard_captain.png",
+            metadata: {
+              tag: "GUARD_CAPTAIN"
+            }
+          }
+        ],
+        total: 1,
+        limit: 1000,
+        offset: 0
+      })),
+      processCreature: vi.fn(async () => ({
+        cache: {
+          key: "cre_guard_captain:v1",
+          hit: false,
+          storedAt: "2026-01-01T00:00:00.000Z",
+          hits: 0
+        },
+        creature: {
+          templateId: "cre_guard_captain",
+          kind: "creature",
+          resref: "cre_guard",
+          name: "Guard Captain",
+          category: "npc",
+          benchmarkCandidate: false,
+          render: {
+            backendType: "creature",
+            frontendType: "creature",
+            rendererPreset: "creature-standard"
+          },
+          processedAt: "2026-01-01T00:00:00.000Z"
+        }
+      })),
+      getProcessedCreature: vi.fn()
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        placeableApiPort={placeableApiPortStub}
+        creatureApiPort={creatureApiPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    const creaturesModeButton = screen.getByRole("button", { name: /creatures mode/i });
+    await act(async () => {
+      fireEvent.click(creaturesModeButton);
+    });
+
+    expect(creaturesModeButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("heading", { name: "Areas" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Creatures" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Creatures Mode" })).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: /creatures mode section/i })).toHaveClass(
+      "creatures-mode-panel"
+    );
+    expect(await screen.findByText("GUARD_CAPTAIN")).toBeInTheDocument();
+    expect(screen.getByTitle("cre_template_cre_guard_captain / cre_guard")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /filter creatures/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Scene Objects" })).not.toBeInTheDocument();
+    expect(creatureApiPort.listCreatures).toHaveBeenCalledWith("token", {
+      limit: 1000,
+      offset: 0
+    });
+    const latestViewportCall =
+      viewportWiringHarness.viewportPropsSpy.mock.calls[
+        viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
+      ];
+    const latestViewportProps = latestViewportCall?.[0] as {
+      renderObjectIds?: string[] | null;
+      externalSceneSeed?: {
+        objects?: Array<{
+          creatureProperties?: {
+            advancedSettings?: {
+              animationState?: number;
+            };
+          };
+        }>;
+      } | null;
+      toolbarState?: {
+        selectionScope?: string;
+        visibility?: Record<string, boolean>;
+      };
+    };
+    expect(latestViewportProps.renderObjectIds).toEqual([
+      "preview:cre_template_cre_guard_captain"
+    ]);
+    expect(latestViewportProps.toolbarState?.selectionScope).toBe("creatures");
+    expect(latestViewportProps.toolbarState?.visibility?.creatures).toBe(true);
+    expect(latestViewportProps.toolbarState?.visibility?.placeables).toBe(false);
+
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Creature animation state"), {
+        target: { value: "0" }
+      });
+    });
+    await waitFor(() => {
+      const latestCall =
+        viewportWiringHarness.viewportPropsSpy.mock.calls[
+          viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
+        ];
+      const props = latestCall?.[0] as typeof latestViewportProps;
+      expect(props.externalSceneSeed?.objects?.[0]?.creatureProperties?.advancedSettings?.animationState)
+        .toBe(0);
+    });
+  });
+
+  it("keeps the creature preview aligned with the filtered creature row", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const creatureApiPort: CreatureApiPort = {
+      listCreatures: vi.fn(async () => ({
+        items: [
+          {
+            templateId: "cre_auctioneer",
+            resref: "auctioneer",
+            name: "Auctioneer",
+            category: "creature",
+            tags: ["npc"],
+            previewImageUrl: "/preview/cre_auctioneer.png",
+            metadata: {
+              tag: "AUCTIONEER"
+            }
+          },
+          {
+            templateId: "cre_npc_bimber2",
+            resref: "npc_bimber2",
+            name: "Bimbrownik2",
+            category: "creature",
+            tags: ["npc"],
+            previewImageUrl: "/preview/cre_npc_bimber2.png",
+            metadata: {
+              tag: "BIMBROWNIK2"
+            }
+          }
+        ],
+        total: 2,
+        limit: 1000,
+        offset: 0
+      })),
+      processCreature: vi.fn(async (_accessToken, payload) => {
+        const templateId = payload.templateId;
+        const isBimber = templateId === "cre_npc_bimber2";
+        return {
+          cache: {
+            key: `${templateId}:v1`,
+            hit: payload.bypassCache ? false : true,
+            storedAt: "2026-01-01T00:00:00.000Z",
+            hits: 0
+          },
+          creature: {
+            templateId,
+            kind: "creature",
+            resref: isBimber ? "npc_bimber2" : "auctioneer",
+            name: isBimber ? "Bimbrownik2" : "Auctioneer",
+            category: "creature",
+            benchmarkCandidate: false,
+            render: {
+              backendType: "creature",
+              frontendType: "creature",
+              rendererPreset: "creature-standard"
+            },
+            processedAt: "2026-01-01T00:00:00.000Z"
+          }
+        };
+      }),
+      getProcessedCreature: vi.fn()
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaApiPortStub}
+        placeableApiPort={placeableApiPortStub}
+        creatureApiPort={creatureApiPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /creatures mode/i }));
+    });
+
+    expect(await screen.findByText("AUCTIONEER")).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: /filter creatures/i });
+    await act(async () => {
+      fireEvent.change(search, { target: { value: "bimber2" } });
+    });
+
+    expect(await screen.findByText("BIMBROWNIK2")).toBeInTheDocument();
+    expect(screen.queryByText("AUCTIONEER")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(creatureApiPort.processCreature).toHaveBeenLastCalledWith("token", {
+        templateId: "cre_npc_bimber2",
+        resref: "npc_bimber2",
+        includeBenchmarkMetadata: false
+      });
+    });
+    await waitFor(() => {
+      const calls = viewportWiringHarness.viewportPropsSpy.mock.calls;
+      const latestProps = calls[calls.length - 1]?.[0] as {
+        renderObjectIds?: string[] | null;
+      };
+      expect(latestProps.renderObjectIds).toEqual([
+        "preview:cre_template_cre_npc_bimber2"
+      ]);
+    });
+  });
+
   it("resets viewport seed and sidebar sizing when switching into focused modes", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
@@ -2235,7 +2974,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2266,7 +3005,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       "placeables-mode-panel"
     );
     let latestViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     let latestViewportProps = latestViewportCall?.[0] as {
       externalSceneSeed?: { sceneId?: string; objects?: unknown[] } | null;
       renderObjectIds?: string[] | null;
@@ -2278,6 +3017,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(latestViewportProps.renderObjectIds).toEqual([
       "__placeables_mode_render_none__"
     ]);
+    const viewportCallsAfterPlaceables = viewportWiringHarness.viewportPropsSpy.mock.calls.length;
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /sounds mode/i }));
@@ -2287,17 +3027,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(screen.getByRole("article", { name: /sounds mode section/i })).toHaveClass(
       "sounds-mode-panel"
     );
-    latestViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
-    latestViewportProps = latestViewportCall?.[0] as {
-      externalSceneSeed?: { sceneId?: string; objects?: unknown[] } | null;
-      renderObjectIds?: string[] | null;
-    };
-    expect(latestViewportProps.externalSceneSeed).toMatchObject({
-      sceneId: "sounds_mode_empty_preview",
-      objects: []
-    });
-    expect(latestViewportProps.renderObjectIds ?? null).toBeNull();
+    expect(screen.getByRole("region", { name: /sounds mode audio stage/i })).toBeInTheDocument();
+    expect(viewportWiringHarness.viewportPropsSpy).toHaveBeenCalledTimes(
+      viewportCallsAfterPlaceables
+    );
   });
 
   it("preserves latest area objects when leaving and returning to Areas Mode", () => {
@@ -2308,7 +3041,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const trackTelemetryEvent = vi.fn();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2328,8 +3061,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const latestViewportPropsBeforeEdit = mockWiring.viewportPropsSpy.mock.calls[
-      mockWiring.viewportPropsSpy.mock.calls.length - 1
+    const latestViewportPropsBeforeEdit = viewportWiringHarness.viewportPropsSpy.mock.calls[
+      viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
     ]?.[0] as {
       externalSceneSeed?: { objects?: Array<{ id: string }> } | null;
       onSceneObjectsSnapshotChange?: (objects: Array<{ id: string }>) => void;
@@ -2349,8 +3082,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /placeables mode/i }));
     fireEvent.click(screen.getByRole("button", { name: /areas mode/i }));
 
-    const latestViewportPropsAfterReturn = mockWiring.viewportPropsSpy.mock.calls[
-      mockWiring.viewportPropsSpy.mock.calls.length - 1
+    const latestViewportPropsAfterReturn = viewportWiringHarness.viewportPropsSpy.mock.calls[
+      viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
     ]?.[0] as {
       externalSceneSeed?: { objects?: Array<{ id: string }> } | null;
     };
@@ -2361,14 +3094,14 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     ).toBe(true);
   });
 
-  it("renders a workspace status strip with active mode and dock state", () => {
+  it("does not render a redundant workspace status strip over the canvas", () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2387,14 +3120,9 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       />
     );
 
-    const statusStrip = screen.getByRole("contentinfo", {
-      name: /workspace status/i
-    });
-    expect(statusStrip).toHaveTextContent("Areas Mode");
-    expect(statusStrip).toHaveTextContent(/Objects\s+\d+/);
-    expect(statusStrip).toHaveTextContent("Selection 0");
-    expect(statusStrip).toHaveTextContent("Tools docked");
-    expect(statusStrip).toHaveTextContent("Inspector docked");
+    expect(screen.queryByRole("contentinfo", { name: /workspace status/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/workspace canvas/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /scene objects/i })).toBeInTheDocument();
   });
 
   it("switches builder workspace mode to sounds and renders backend sound catalog panels", async () => {
@@ -2404,7 +3132,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2432,6 +3160,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(screen.queryByRole("heading", { name: "Areas" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sounds" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sounds Mode" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /sounds mode audio stage/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/workspace canvas/i)).not.toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: /filter sounds/i })).toBeInTheDocument();
     const soundsSection = screen.getByRole("article", { name: /sounds mode section/i });
     const soundsSearch = within(soundsSection).getByRole("searchbox", {
@@ -2496,7 +3226,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const onBackendSessionInvalidated = vi.fn();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2525,7 +3255,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(onBackendSessionInvalidated).toHaveBeenCalledWith("sounds_catalog", "token");
   });
 
-  it("keeps Sounds Mode catalog playback-first without placing sounds on canvas", async () => {
+  it("keeps Sounds Mode catalog playback-first without rendering a canvas sound marker", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
@@ -2533,7 +3263,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const trackTelemetryEvent = vi.fn();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -2558,24 +3288,11 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const soundRow = await screen.findByText("amb_city_market_day");
     fireEvent.click(soundRow);
 
-    await waitFor(() => {
-      const calls = mockWiring.viewportPropsSpy.mock.calls;
-      const latestProps = calls[calls.length - 1]?.[0] as {
-        externalSceneSeed?: { objects: Array<Record<string, unknown>> } | null;
-        catalogScope?: { sourceType: string; allowedObjectIds: string[] } | null;
-        sidebarSelectSignal?: { objectId: string; sourceType: string } | null;
-      };
-      expect(latestProps.externalSceneSeed?.objects ?? []).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: "snd_template_sound_ambient_city_market_001",
-            kind: "sounds"
-          })
-        ])
-      );
-      expect(latestProps.catalogScope?.sourceType).not.toBe("sounds");
-      expect(latestProps.sidebarSelectSignal?.sourceType).not.toBe("sounds");
-    });
+    expect(screen.getByRole("region", { name: /sounds mode audio stage/i })).toHaveTextContent(
+      "amb_city_market_day"
+    );
+    expect(screen.queryByLabelText(/workspace canvas/i)).not.toBeInTheDocument();
+    expect(viewportWiringHarness.viewportPropsSpy).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /place amb_city_market_day on canvas/i })).toBeNull();
     expect(screen.getByRole("button", { name: /play amb_city_market_day/i })).toBeInTheDocument();
     expect(screen.queryByText(/canvasObject:/i)).not.toBeInTheDocument();
@@ -2751,7 +3468,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     try {
       render(
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -2847,11 +3564,11 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(within(inspector).getByText("vanilla")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /place al_an_bees1 on canvas/i })).toBeNull();
 
-      const latestViewportProps =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1]?.[0] as {
-          catalogScope?: { sourceType: string } | null;
-        };
-      expect(latestViewportProps.catalogScope?.sourceType).not.toBe("sounds");
+      expect(screen.getByRole("region", { name: /sounds mode audio stage/i })).toHaveTextContent(
+        "al_an_bees1"
+      );
+      expect(screen.queryByLabelText(/workspace canvas/i)).not.toBeInTheDocument();
+      expect(viewportWiringHarness.viewportPropsSpy).not.toHaveBeenCalled();
 
       const playButton = screen.getByRole("button", { name: /play al_an_bees1/i });
       fireEvent.click(playButton);
@@ -2872,14 +3589,13 @@ describe("WorkspaceMockLayout viewport wiring", () => {
           "cache_vanilla_bees"
         );
       });
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1));
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(within(inspector).getByText("state:")).toBeInTheDocument();
-      expect(within(inspector).getByText("Ready")).toBeInTheDocument();
-      expect(screen.getAllByText("Ready")).not.toHaveLength(0);
-      const preparedStopButton = screen.getByRole("button", { name: /stop al_an_bees1/i });
-      expect(preparedStopButton).toBeInTheDocument();
+      expect(within(inspector).getByText("Playing")).toBeInTheDocument();
+      expect(screen.getAllByText("Playing")).not.toHaveLength(0);
+      const playingStopButton = screen.getByRole("button", { name: /stop al_an_bees1/i });
+      expect(playingStopButton).toBeInTheDocument();
       expect(within(inspector).getByText(/vanilla \/ proxy \/ audio\/wav \/ 215 KB/i)).toBeInTheDocument();
       expect(
         within(inspector).getByText(
@@ -2887,23 +3603,19 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         )
       ).toBeInTheDocument();
 
-      fireEvent.click(preparedStopButton);
-      expect(playSpy).not.toHaveBeenCalled();
+      fireEvent.click(playingStopButton);
       expectSoundAudioCleanup(audioInstances[0], {
         revokedUrl: "blob:vanilla-sound-preview"
       });
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop al_an_bees1/i })).not.toBeInTheDocument();
 
       fireEvent.click(playButton);
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      fireEvent.click(playButton);
-      await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(2));
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(within(inspector).getByText(/vanilla \/ proxy \/ audio\/wav \/ 215 KB/i)).toBeInTheDocument();
-      const playingStopButton = screen.getByRole("button", { name: /stop al_an_bees1/i });
-      fireEvent.click(playingStopButton);
+      const secondStopButton = screen.getByRole("button", { name: /stop al_an_bees1/i });
+      fireEvent.click(secondStopButton);
       expectSoundAudioCleanup(audioInstances[1], { revokedCallCount: 2 });
       expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop al_an_bees1/i })).not.toBeInTheDocument();
@@ -2914,8 +3626,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     }
   });
 
-  it("prepares backend sound audio before playing it from a second user click", async () => {
-    const playbackMocks = installSoundPlaybackMocks();
+  it("loads and plays backend sound audio from the first Play click", async () => {
+    const playbackDoubles = installSoundPlaybackTestDoubles();
 
     try {
       const { unmount, trackTelemetryEvent } = renderSoundsModeWorkspace();
@@ -2939,29 +3651,22 @@ describe("WorkspaceMockLayout viewport wiring", () => {
           "cache_sound_abc"
         );
       });
-      expect(playbackMocks.audio.play).not.toHaveBeenCalled();
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      await waitFor(() => {
+        expect(playbackDoubles.audio.play).toHaveBeenCalledTimes(1);
+      });
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(
         await screen.findByRole("button", { name: /stop amb_city_market_day/i })
       ).toBeInTheDocument();
-
-      fireEvent.click(playButton);
-
-      await waitFor(() => {
-        expect(playbackMocks.audio.play).toHaveBeenCalledTimes(1);
-      });
       expect(soundApiPortStub.processSound).toHaveBeenCalledTimes(1);
       expect(soundApiPortStub.getSoundAudioContracts).toHaveBeenCalledTimes(1);
       expect(soundApiPortStub.getSoundAudioBlob).toHaveBeenCalledTimes(1);
-      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(playButton).toBeDisabled();
 
       fireEvent.click(screen.getByRole("button", { name: /stop amb_city_market_day/i }));
 
       await waitFor(() => {
-        expectSoundAudioCleanup(playbackMocks.audio, {
+        expectSoundAudioCleanup(playbackDoubles.audio, {
           revokedUrl: "blob:sound-preview"
         });
       });
@@ -2976,12 +3681,56 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       );
       unmount();
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
-  it("shows decoded browser preview duration separately from source duration after prepare", async () => {
-    const playbackMocks = installSoundPlaybackMocks({
+  it("plays async-loaded sound through unlocked Web Audio when HTML audio would need a second click", async () => {
+    const htmlAudioPlay = vi.fn(async () => {
+      throw new Error("play() failed because the user didn't interact with the document first.");
+    });
+    const webAudioStart = vi.fn();
+    const playbackDoubles = installSoundPlaybackTestDoubles({
+      play: htmlAudioPlay,
+      webAudio: {
+        durationSeconds: 21.768,
+        start: webAudioStart
+      }
+    });
+    const webAudioBlob = new Blob(["audio"], { type: "audio/ogg" }) as Blob & {
+      arrayBuffer: ReturnType<typeof vi.fn>;
+    };
+    webAudioBlob.arrayBuffer = vi.fn(async () => new ArrayBuffer(8));
+    const webAudioSoundApiPort: SoundApiPort = {
+      ...soundApiPortStub,
+      getSoundAudioBlob: vi.fn(async () => webAudioBlob)
+    };
+
+    try {
+      renderSoundsModeWorkspace({ soundApiPort: webAudioSoundApiPort });
+
+      const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
+      fireEvent.click(playButton);
+
+      await waitFor(() => {
+        expect(webAudioSoundApiPort.getSoundAudioBlob).toHaveBeenCalledWith(
+          "token",
+          "cache_sound_abc"
+        );
+        expect(webAudioStart).toHaveBeenCalledTimes(2);
+      });
+      expect(htmlAudioPlay).not.toHaveBeenCalled();
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+      expect(screen.queryByText(/Browser playback needs a direct Play click/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
+      expect(playbackDoubles.webAudioSources[1]?.loop).toBe(true);
+    } finally {
+      playbackDoubles.restore();
+    }
+  });
+
+  it("shows decoded browser preview duration separately from source duration after playback starts", async () => {
+    const playbackDoubles = installSoundPlaybackTestDoubles({
       previewDurationSeconds: 9.9269375
     });
 
@@ -2991,9 +3740,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
       fireEvent.click(playButton);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       const inspector = screen.getByRole("article", { name: /sounds mode inspector/i });
 
       expect(within(inspector).getByText("duration:")).toBeInTheDocument();
@@ -3010,50 +3757,45 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(within(inspector).getByText("etag:")).toBeInTheDocument();
       expect(within(inspector).getByText("source-audio-etag-001")).toBeInTheDocument();
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
-  it("keeps prepared sound audio available when the browser blocks automated playback", async () => {
+  it("keeps loaded sound audio available when the browser blocks playback", async () => {
     const playSpy = vi.fn(async () => {
       throw new Error(
         "play() failed because the user didn't interact with the document first."
       );
     });
-    const playbackMocks = installSoundPlaybackMocks({ play: playSpy });
+    const playbackDoubles = installSoundPlaybackTestDoubles({ play: playSpy });
 
     try {
       const { unmount } = renderSoundsModeWorkspace();
 
       const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
       fireEvent.click(playButton);
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-
-      fireEvent.click(playButton);
 
       expect(
         await screen.findAllByText(
-          /Ready to play from backend audio cache\. Browser playback needs a direct Play click\./i
+          /Audio is loaded\. Browser playback needs a direct Play click\./i
         )
       ).not.toHaveLength(0);
       expect(playSpy).toHaveBeenCalledTimes(1);
-      expect(playbackMocks.audio.pause).not.toHaveBeenCalled();
+      expect(playbackDoubles.audio.pause).not.toHaveBeenCalled();
       expect(URL.revokeObjectURL).not.toHaveBeenCalled();
       expect(soundApiPortStub.processSound).toHaveBeenCalledTimes(1);
       expect(soundApiPortStub.getSoundAudioBlob).toHaveBeenCalledTimes(1);
       unmount();
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
-  it("shows a retry affordance when prepared audio playback fails", async () => {
+  it("shows a retry affordance when audio playback fails", async () => {
     const originalAudio = globalThis.Audio;
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
-    const audioInstances: MockSoundAudioInstance[] = [];
+    const audioInstances: SoundAudioTestDouble[] = [];
     globalThis.Audio = vi.fn(() => {
       const play = vi.fn();
       if (audioInstances.length === 0) {
@@ -3061,7 +3803,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       } else {
         play.mockResolvedValue(undefined);
       }
-      const audio: MockSoundAudioInstance = {
+      const audio: SoundAudioTestDouble = {
         play,
         pause: vi.fn(),
         load: vi.fn(),
@@ -3090,13 +3832,6 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       });
       fireEvent.click(playButton);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
-
-      fireEvent.click(playButton);
-
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "Sound preview failed: prepared audio playback failed"
       );
@@ -3123,10 +3858,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       fireEvent.click(retryButton);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      expect(within(inspector).getByText("Ready")).toBeInTheDocument();
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+      expect(within(inspector).getByText("Playing")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
       expect(soundApiPortStub.processSound).toHaveBeenCalledTimes(2);
       expect(soundApiPortStub.getSoundAudioContracts).toHaveBeenCalledTimes(2);
@@ -3179,7 +3912,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
       render(
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -3204,9 +3937,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
       fireEvent.click(playButton);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
       expect(audioInstances[0]?.onerror).toBeTypeOf("function");
 
@@ -3227,9 +3958,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       fireEvent.click(playButton);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
       expect(soundApiPortStub.processSound).toHaveBeenCalledTimes(2);
       expect(soundApiPortStub.getSoundAudioContracts).toHaveBeenCalledTimes(2);
@@ -3242,7 +3971,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     }
   });
 
-  it("keeps Play and Stop labels and status regions clear across busy, ready, and error states", async () => {
+  it("keeps Play and Stop labels and status regions clear across busy, playing, and error states", async () => {
     const originalAudio = globalThis.Audio;
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
@@ -3286,7 +4015,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
       render(
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -3326,14 +4055,12 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       processDeferred.resolve(processResult);
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      expect(playButton).not.toBeDisabled();
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+      expect(playButton).toBeDisabled();
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
-      expectStatusRegionText(/Ready to play from backend audio cache\. Click Play again\./i);
-      expectStatusRegionText(/state:\s*Ready/i);
-      expect(within(inspector).getByText("Ready")).toBeInTheDocument();
+      expectStatusRegionText(/Playing from backend audio cache/i);
+      expectStatusRegionText(/state:\s*Playing/i);
+      expect(within(inspector).getByText("Playing")).toBeInTheDocument();
 
       act(() => {
         audioInstances[0]?.onerror?.();
@@ -3354,8 +4081,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     }
   });
 
-  it("keeps the Play prepare, second Play, Stop, and retry flow keyboard accessible", async () => {
-    const playbackMocks = installSoundPlaybackMocks();
+  it("keeps the Play, Stop, and retry flow keyboard accessible", async () => {
+    const playbackDoubles = installSoundPlaybackTestDoubles();
 
     try {
       renderSoundsModeWorkspace();
@@ -3368,24 +4095,15 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       activateFocusedButtonFromKeyboard(playButton, "Enter");
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      expect(playbackMocks.audio.play).not.toHaveBeenCalled();
-      expect(within(inspector).getByText(/sound_ambient_city_market_001/i)).toBeInTheDocument();
-      expect(within(inspector).getByText("Ready")).toBeInTheDocument();
-      const preparedStopButton = screen.getByRole("button", { name: /stop amb_city_market_day/i });
-      expect(preparedStopButton).toBeInTheDocument();
-
-      activateFocusedButtonFromKeyboard(playButton, "Enter");
-
-      await waitFor(() => expect(playbackMocks.audio.play).toHaveBeenCalledTimes(1));
       expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+      expect(playbackDoubles.audio.play).toHaveBeenCalledTimes(1);
+      expect(within(inspector).getByText(/sound_ambient_city_market_001/i)).toBeInTheDocument();
+      expect(within(inspector).getByText("Playing")).toBeInTheDocument();
 
       const playingStopButton = screen.getByRole("button", { name: /stop amb_city_market_day/i });
       activateFocusedButtonFromKeyboard(playingStopButton, " ");
 
-      expectSoundAudioCleanup(playbackMocks.audio, {
+      expectSoundAudioCleanup(playbackDoubles.audio, {
         revokedUrl: "blob:sound-preview"
       });
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
@@ -3393,21 +4111,20 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       activateFocusedButtonFromKeyboard(playButton, "Enter");
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
       expect(soundApiPortStub.processSound).toHaveBeenCalledTimes(2);
       expect(soundApiPortStub.getSoundAudioContracts).toHaveBeenCalledTimes(2);
       expect(soundApiPortStub.getSoundAudioBlob).toHaveBeenCalledTimes(2);
+      expect(playbackDoubles.audio.play).toHaveBeenCalledTimes(2);
       expect(screen.queryByRole("button", { name: /place amb_city_market_day on canvas/i })).toBeNull();
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
   it("keeps keyboard-selected sound metadata and playback state coherent when filters change", async () => {
-    const playbackMocks = installSoundPlaybackMocks();
+    const playbackDoubles = installSoundPlaybackTestDoubles();
     const hakSound: SoundApiListItem = {
       ...soundListItem,
       soundId: "sound_port_1",
@@ -3450,9 +4167,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         within(soundsSection).getByRole("button", { name: /play amb_city_market_day/i }),
         "Enter"
       );
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
 
       const sourceFilter = within(soundsSection).getByRole("group", {
@@ -3463,10 +4178,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(await within(soundsSection).findByText("1/2")).toBeInTheDocument();
       expect(within(soundsSection).getByText("port_1")).toBeInTheDocument();
       expect(within(soundsSection).queryByText("amb_city_market_day")).not.toBeInTheDocument();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
       expect(within(inspector).getByText("Select a sound to inspect its Aurora contract.")).toBeInTheDocument();
-      expectSoundAudioCleanup(playbackMocks.audio, {
+      expectSoundAudioCleanup(playbackDoubles.audio, {
         revokedUrl: "blob:sound-preview"
       });
 
@@ -3477,7 +4192,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
       expect(within(inspector).getByText(/sound_port_1/i)).toBeInTheDocument();
       expect(within(inspector).getByText("hak")).toBeInTheDocument();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /place port_1 on canvas/i })).toBeNull();
 
       activateFocusedButtonFromKeyboard(within(sourceFilter).getByRole("button", { name: /^all$/i }), "Enter");
@@ -3486,9 +4201,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         within(soundsSection).getByRole("button", { name: /play port_1/i }),
         "Enter"
       );
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop port_1/i })).toBeInTheDocument();
 
       const categoryFilter = within(soundsSection).getByRole("group", {
@@ -3502,10 +4215,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(await within(soundsSection).findByText("1/2")).toBeInTheDocument();
       expect(within(soundsSection).getByText("amb_city_market_day")).toBeInTheDocument();
       expect(within(soundsSection).queryByText("port_1")).not.toBeInTheDocument();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop port_1/i })).not.toBeInTheDocument();
       expect(within(inspector).getByText("Select a sound to inspect its Aurora contract.")).toBeInTheDocument();
-      expectSoundAudioCleanup(playbackMocks.audio, {
+      expectSoundAudioCleanup(playbackDoubles.audio, {
         releaseCalls: 2,
         revokedCallCount: 2
       });
@@ -3518,9 +4231,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         within(soundsSection).getByRole("button", { name: /play amb_city_market_day/i }),
         "Enter"
       );
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
 
       const searchInput = within(soundsSection).getByRole("searchbox", {
@@ -3531,19 +4242,19 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       fireEvent.change(searchInput, { target: { value: "port" } });
 
       expect(searchInput).toHaveFocus();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
       expect(within(inspector).getByText("Select a sound to inspect its Aurora contract.")).toBeInTheDocument();
-      expectSoundAudioCleanup(playbackMocks.audio, {
+      expectSoundAudioCleanup(playbackDoubles.audio, {
         releaseCalls: 3,
         revokedCallCount: 3
       });
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
-  it("clears prepared playback state and releases audio when sound filters or selection change", async () => {
+  it("clears active playback state and releases audio when sound filters or selection change", async () => {
     const originalAudio = globalThis.Audio;
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
@@ -3608,7 +4319,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
       render(
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -3635,10 +4346,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       await within(soundsSection).findByText("2");
       fireEvent.click(within(soundsSection).getByRole("button", { name: /play amb_city_market_day/i }));
 
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      expect(within(inspector).getByText("Ready")).toBeInTheDocument();
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+      expect(within(inspector).getByText("Playing")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
 
       const sourceFilter = within(soundsSection).getByRole("group", {
@@ -3649,7 +4358,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(await within(soundsSection).findByText("1/2")).toBeInTheDocument();
       expect(within(soundsSection).getByText("port_1")).toBeInTheDocument();
       expect(within(soundsSection).queryByText("amb_city_market_day")).not.toBeInTheDocument();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
       expectSoundAudioCleanup(audioInstances[0], {
         revokedUrl: "blob:sound-preview-1"
@@ -3658,15 +4367,13 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       fireEvent.click(within(sourceFilter).getByRole("button", { name: /^all$/i }));
       expect(await within(soundsSection).findByText("2")).toBeInTheDocument();
       fireEvent.click(within(soundsSection).getByRole("button", { name: /play amb_city_market_day/i }));
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
 
       fireEvent.click(await within(soundsSection).findByText("port_1"));
 
       expect(within(inspector).getByText(/sound_port_1/i)).toBeInTheDocument();
       expect(within(inspector).getByText("hak")).toBeInTheDocument();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
       expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound-preview-2");
       expect(screen.queryByRole("button", { name: /place port_1 on canvas/i })).toBeNull();
@@ -3712,7 +4419,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -3753,8 +4460,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(screen.queryByRole("button", { name: /place port_1 on canvas/i })).toBeNull();
   });
 
-  it("stops prepared catalog audio and releases its object URL when leaving Sounds Mode", async () => {
-    const playbackMocks = installSoundPlaybackMocks();
+  it("stops catalog audio and releases its object URL when leaving Sounds Mode", async () => {
+    const playbackDoubles = installSoundPlaybackTestDoubles();
 
     try {
       const workspaceChromeFacade = createWorkspaceChromeFacade();
@@ -3762,7 +4469,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
       const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
       const renderLayout = (activeBuilderModeId: "areas_mode" | "sounds_mode") => (
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -3787,44 +4494,38 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const { rerender } = render(renderLayout("sounds_mode"));
       const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
       fireEvent.click(playButton);
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
+      expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
       expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
 
       rerender(renderLayout("areas_mode"));
 
       await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sound-preview"));
-      expectSoundAudioCleanup(playbackMocks.audio);
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expectSoundAudioCleanup(playbackDoubles.audio);
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /stop amb_city_market_day/i })).not.toBeInTheDocument();
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
   it("stops playing catalog audio and releases its object URL on unmount", async () => {
     const playSpy = vi.fn(async () => undefined);
-    const playbackMocks = installSoundPlaybackMocks({ play: playSpy });
+    const playbackDoubles = installSoundPlaybackTestDoubles({ play: playSpy });
 
     try {
       const { unmount } = renderSoundsModeWorkspace();
 
       const playButton = await screen.findByRole("button", { name: /play amb_city_market_day/i });
       fireEvent.click(playButton);
-      expect(
-        await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-      ).not.toHaveLength(0);
-      fireEvent.click(playButton);
       await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1));
 
       unmount();
 
-      expectSoundAudioCleanup(playbackMocks.audio, {
+      expectSoundAudioCleanup(playbackDoubles.audio, {
         revokedUrl: "blob:sound-preview"
       });
     } finally {
-      playbackMocks.restore();
+      playbackDoubles.restore();
     }
   });
 
@@ -3896,7 +4597,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
         render(
-          <WorkspaceMockLayout
+          <WorkspaceLayout
             role="builder"
             userId="u_builder_001"
             workspaceChromeFacade={workspaceChromeFacade}
@@ -3944,10 +4645,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
           blobDeferred.resolve(new Blob(["audio"], { type: "audio/ogg" }));
         }
 
-        expect(
-          await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-        ).not.toHaveLength(0);
-        expect(within(inspector).getByText("Ready")).toBeInTheDocument();
+        expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+        expect(within(inspector).getByText("Playing")).toBeInTheDocument();
       } finally {
         globalThis.Audio = originalAudio;
         URL.createObjectURL = originalCreateObjectUrl;
@@ -4012,7 +4711,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
       render(
-        <WorkspaceMockLayout
+        <WorkspaceLayout
           role="builder"
           userId="u_builder_001"
           workspaceChromeFacade={workspaceChromeFacade}
@@ -4050,7 +4749,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       expect(getSoundAudioContracts).not.toHaveBeenCalled();
       expect(getSoundAudioBlob).not.toHaveBeenCalled();
       expect(URL.createObjectURL).not.toHaveBeenCalled();
-      expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+      expect(screen.queryByText("Playing")).not.toBeInTheDocument();
       expect(within(inspector).getByText(/sound_port_1/i)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /place port_1 on canvas/i })).toBeNull();
     } finally {
@@ -4155,7 +4854,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
         render(
-          <WorkspaceMockLayout
+          <WorkspaceLayout
             role="builder"
             userId="u_builder_001"
             workspaceChromeFacade={workspaceChromeFacade}
@@ -4208,12 +4907,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
         fireEvent.click(retryButton);
 
-        expect(
-          await screen.findAllByText(/Ready to play from backend audio cache\. Click Play again\./i)
-        ).not.toHaveLength(0);
-        expect(within(inspector).getByText("Ready")).toBeInTheDocument();
+        expect(await screen.findAllByText(/Playing from backend audio cache/i)).not.toHaveLength(0);
+        expect(within(inspector).getByText("Playing")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /stop amb_city_market_day/i })).toBeInTheDocument();
-        expect(playSpy).not.toHaveBeenCalled();
+        expect(playSpy).toHaveBeenCalledTimes(1);
 
         expect(processSound).toHaveBeenCalledTimes(2);
         expect(getSoundAudioContracts).toHaveBeenCalledTimes(stage === "process" ? 1 : 2);
@@ -4257,7 +4954,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4279,7 +4976,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
 
     const lastViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const viewportProps = lastViewportCall?.[0] as {
       toolbarState: ReturnType<typeof workspaceChromeFacade.createDefaultToolbarState>;
       workspaceOptions: typeof DEFAULT_WORKSPACE_OPTION_SETTINGS;
@@ -4294,6 +4991,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       merchants: false,
       placeables: true,
       sounds: false,
+      stores: false,
       triggers: false,
       waypoints: false,
       start_location: false
@@ -4338,7 +5036,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4390,7 +5088,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const onBackendSessionInvalidated = vi.fn();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4449,7 +5147,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       "/app?placeable=plc_zlc_o45&subtype=vfx"
     );
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4501,7 +5199,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     window.history.replaceState({}, "", "/app?demo=plc_zlc_o45_magic_mouth");
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4540,7 +5238,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4600,7 +5298,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4686,7 +5384,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4778,7 +5476,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4878,7 +5576,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -4984,7 +5682,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5015,7 +5713,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     });
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: { sceneId?: string } | null;
         placeableRenderPayloadByObjectId?: Record<string, { templateId: string }> | null;
@@ -5067,7 +5765,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5131,7 +5829,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5152,7 +5850,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
 
     const initialLastCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const initialProps = initialLastCall?.[0] as {
       renderObjectIds?: string[] | null;
     };
@@ -5163,7 +5861,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     await screen.findByRole("button", { name: /plc_table_02/i });
     await waitFor(() => {
       const placeablesLastCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const placeablesPropsBeforeSelect = placeablesLastCall?.[0] as {
         renderObjectIds?: string[] | null;
       };
@@ -5173,7 +5871,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     });
 
     const placeablesLastCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const placeablesPropsBeforeSelect = placeablesLastCall?.[0] as {
       renderObjectIds?: string[] | null;
     };
@@ -5183,7 +5881,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     await waitFor(() => {
       const selectedLastCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const placeablesPropsAfterSelect = selectedLastCall?.[0] as {
         renderObjectIds?: string[] | null;
         externalSceneSeed?: { sceneId?: string; tiles?: unknown[]; objects?: Array<{ id: string }> } | null;
@@ -5282,7 +5980,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5341,7 +6039,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(contractsTriggeredForSelected).toBe(true);
 
     const lastViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const lastViewportProps = (lastViewportCall?.[0] ?? {}) as Record<string, unknown>;
     const serializedViewportProps = JSON.stringify(lastViewportProps);
     expect(serializedViewportProps).toContain("cache_key_plc_table_02");
@@ -5462,7 +6160,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5504,7 +6202,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(vfxPort.getPlaceableAssetContracts).not.toHaveBeenCalled();
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: { objects?: Array<{ id: string }> } | null;
         placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string; templateId: string }> | null;
@@ -5636,7 +6334,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5669,7 +6367,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ?? {}) as {
         placeableRenderPayloadByObjectId?: Record<
           string,
@@ -5720,7 +6418,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -5754,7 +6452,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     ).toBeInTheDocument();
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const props = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: {
           objects?: Array<{
@@ -5862,7 +6560,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6037,7 +6735,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6069,7 +6767,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: {
           objects?: Array<{
@@ -6179,7 +6877,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6210,7 +6908,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     ).toBeInTheDocument();
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const props = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: {
           objects?: Array<{
@@ -6398,7 +7096,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6431,7 +7129,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: {
           objects?: Array<{
@@ -6527,7 +7225,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6556,7 +7254,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     expect(vfxPort.getPlaceablePreview).not.toHaveBeenCalled();
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const props = (lastViewportCall?.[0] ?? {}) as {
         externalSceneSeed?: {
           objects?: Array<{
@@ -6715,9 +7413,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithFullComposition);
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6745,8 +7444,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      const latestViewportProps = mockWiring.viewportPropsSpy.mock.calls[
-        mockWiring.viewportPropsSpy.mock.calls.length - 1
+      const latestViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[
+        viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
       ]?.[0] as {
         externalSceneSeed?: {
           sceneId?: string;
@@ -6880,9 +7579,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       })),
       getAreaById: vi.fn(() => areaDetailPromise)
     };
+    attachProcessAreaFromDetail(delayedAreaPort);
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -6908,8 +7608,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      const latestViewportProps = mockWiring.viewportPropsSpy.mock.calls[
-        mockWiring.viewportPropsSpy.mock.calls.length - 1
+      const latestViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[
+        viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
       ]?.[0] as {
         areaCanvasLoading?: {
           source?: string;
@@ -6935,8 +7635,8 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     });
 
     await waitFor(() => {
-      const latestViewportProps = mockWiring.viewportPropsSpy.mock.calls[
-        mockWiring.viewportPropsSpy.mock.calls.length - 1
+      const latestViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[
+        viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1
       ]?.[0] as {
         areaCanvasLoading?: unknown;
       };
@@ -7053,6 +7753,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithPlaceables);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceable,
@@ -7060,7 +7761,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -7084,16 +7785,16 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", {
+      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
         templateId: "plc_area_table_01",
         resref: "plc_area_table_01",
         subtypeHint: "generic",
         includeBenchmarkMetadata: false
-      });
+      }));
     });
 
     const lastViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const lastViewportProps = (lastViewportCall?.[0] ??
       {}) as {
       placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
@@ -7220,6 +7921,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithRawResrefPlaceable);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceable,
@@ -7227,7 +7929,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -7251,16 +7953,16 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", {
+      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
         templateId: "zep_tomest_001",
         resref: "zep_tomest_001",
         subtypeHint: "generic",
         includeBenchmarkMetadata: false
-      });
+      }));
     });
 
     const lastViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const lastViewportProps = (lastViewportCall?.[0] ??
       {}) as {
       placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
@@ -7364,13 +8066,14 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithDuplicateRenderFacts);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceables
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -7395,20 +8098,24 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     await waitFor(() => {
       expect(processPlaceables).toHaveBeenCalledTimes(1);
-      expect(processPlaceables).toHaveBeenCalledWith("token", [
-        {
-          templateId: "zep_tomest_001",
-          resref: "zep_tomest_001",
-          subtypeHint: "generic",
-          appearanceType: 104,
-          includeBenchmarkMetadata: false
-        }
-      ]);
+      expect(processPlaceables).toHaveBeenCalledWith(
+        "token",
+        [
+          expect.objectContaining({
+            templateId: "zep_tomest_001",
+            resref: "zep_tomest_001",
+            subtypeHint: "generic",
+            appearanceType: 104,
+            includeBenchmarkMetadata: false
+          })
+        ],
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
     });
 
     await waitFor(() => {
       const lastViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const lastViewportProps = (lastViewportCall?.[0] ??
         {}) as {
         areaCanvasLoading?: unknown;
@@ -7455,7 +8162,135 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     });
   });
 
-  it("loads Area GIT placeable render payloads in progressive 96 item batches", async () => {
+  it("skips Area GIT placeable render payload batches during terrain-only runtime capture", async () => {
+    (window as AreasRuntimeCaptureWindow)
+      .__AURORA_AREAS_RUNTIME_CAPTURE_TERRAIN_ONLY__ = true;
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const trackTelemetryEvent = vi.fn();
+    const processPlaceables = vi.fn(async () => ({ items: [] }));
+    const processPlaceable = vi.fn(placeableApiPortStub.processPlaceable);
+    const areaPortWithPlaceable: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: [
+          buildAreaListItemFixture({
+            areaId: "area_tile_only_capture",
+            name: "Tile Only Capture",
+            objectCounts: {
+              placeables: 1,
+              doors: 0,
+              creatures: 0,
+              items: 0,
+              sounds: 0,
+              total: 1
+            }
+          })
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0
+      })),
+      getAreaById: vi.fn(async () => buildAreaDetailFixture({
+        areaId: "area_tile_only_capture",
+        name: "Tile Only Capture",
+        objects: [
+          {
+            objectId: "plc_terrain_only",
+            kind: "placeable",
+            templateId: "zep_tomest_001",
+            x: 1,
+            y: 1,
+            z: 0,
+            bearing: 90,
+            appearanceType: 104
+          }
+        ]
+      }))
+    };
+    attachProcessAreaFromDetail(areaPortWithPlaceable);
+    const flowPort: PlaceableApiPort = {
+      ...placeableApiPortStub,
+      listPlaceables: vi.fn(async () => ({
+        items: [],
+        total: 0,
+        limit: 1000,
+        offset: 0
+      })),
+      processPlaceable,
+      processPlaceables
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaPortWithPlaceable}
+        placeableApiPort={flowPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /open selected area/i })).not.toBeDisabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
+
+    const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
+    await waitFor(() => {
+      expect(workspaceLayout).toHaveAttribute(
+        "data-area-runtime-capture-terrain-only-object-payload-skip",
+        "true"
+      );
+      expect(workspaceLayout).toHaveAttribute(
+        "data-area-placeable-render-payload-queue-mode",
+        "unavailable"
+      );
+      expect(
+        JSON.parse(
+          workspaceLayout.getAttribute("data-area-placeable-render-payload-queue-snapshot") ??
+            "{}"
+        )
+      ).toMatchObject({
+        rendererPath: "shared-placeables-renderer",
+        status: "blocked",
+        placeholderStatus: "blocked",
+        queueMode: "unavailable",
+        objectCount: 1,
+        lookupCount: 1,
+        payloadReadyLookupCount: 0,
+        stillLoadingLookupCount: 0,
+        missingPayloadCount: 1
+      });
+    });
+
+    expect(processPlaceables).not.toHaveBeenCalled();
+    expect(processPlaceable).not.toHaveBeenCalled();
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.areas_mode.render_payload_queue_skipped",
+      expect.objectContaining({
+        rendererPath: "shared-placeables-renderer",
+        objectCount: 1,
+        lookupCount: 1,
+        reason: "terrain_only_runtime_capture"
+      })
+    );
+  });
+
+  it("loads Area GIT placeable render payloads in progressive 8 item batches with two bounded batch workers", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
@@ -7521,7 +8356,10 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         }))
       })
     );
-    const areaObjects = Array.from({ length: 257 }, (_unused, index) => ({
+    const getPlaceableViewportRenderPayloadBatch = vi.fn(async () => {
+      throw new Error("Area GIT payload queue must not use backend viewport render-payload batch");
+    });
+    const areaObjects = Array.from({ length: 15 }, (_unused, index) => ({
       objectId: `plc_progress_${String(index).padStart(2, "0")}`,
       kind: "placeable" as const,
       templateId: `plc_progress_${String(index).padStart(2, "0")}`,
@@ -7558,14 +8396,16 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         objects: areaObjects
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithProgressivePlaceables);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceables,
-      getPlaceableAssetContractsBatch
+      getPlaceableAssetContractsBatch,
+      getPlaceableViewportRenderPayloadBatch
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -7591,7 +8431,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
     const readLatestAreaCanvasLoading = () => {
       const latestViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const latestViewportProps = (latestViewportCall?.[0] ?? {}) as {
         areaCanvasLoading?: {
           source?: string;
@@ -7606,8 +8446,9 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       return latestViewportProps.areaCanvasLoading;
     };
     await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(2));
-    expect(processPlaceables.mock.calls[0]?.[1]).toHaveLength(96);
-    expect(processPlaceables.mock.calls[1]?.[1]).toHaveLength(96);
+    expect(getPlaceableViewportRenderPayloadBatch).not.toHaveBeenCalled();
+    expect(processPlaceables.mock.calls[0]?.[1]).toHaveLength(8);
+    expect(processPlaceables.mock.calls[1]?.[1]).toHaveLength(7);
 
     await waitFor(() => {
       expect(
@@ -7618,22 +8459,22 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "loading",
         queueMode: "batch",
-        batchSize: 96,
-        batchCount: 3,
+        batchSize: 8,
+        batchCount: 2,
         completedBatchCount: 0,
-        lookupCount: 257,
+        lookupCount: 15,
         payloadReadyLookupCount: 0,
-        stillLoadingLookupCount: 257,
+        stillLoadingLookupCount: 15,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toMatchObject({
         source: "areas",
         label: "Loading Area PLC/DOR render payloads",
         completed: 0,
-        total: 257,
-        inFlight: 192,
-        queued: 65,
-        currentLabel: "Area PLC/DOR payload batches 1-2/3"
+        total: 15,
+        inFlight: 15,
+        queued: 0,
+        currentLabel: "Area PLC/DOR payload batches 1-2/2"
       });
     });
 
@@ -7641,8 +8482,6 @@ describe("WorkspaceMockLayout viewport wiring", () => {
       deferredBatches[0]?.resolve(buildProcessBatchResult(deferredBatches[0].payloads));
     });
 
-    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(3));
-    expect(processPlaceables.mock.calls[2]?.[1]).toHaveLength(65);
     await waitFor(() => {
       expect(
         JSON.parse(
@@ -7652,59 +8491,27 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "loading",
         queueMode: "batch",
-        batchSize: 96,
-        batchCount: 3,
+        batchSize: 8,
+        batchCount: 2,
         completedBatchCount: 1,
-        lookupCount: 257,
-        payloadReadyLookupCount: 96,
-        stillLoadingLookupCount: 161,
+        lookupCount: 15,
+        payloadReadyLookupCount: 8,
+        stillLoadingLookupCount: 7,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toMatchObject({
         source: "areas",
         label: "Loading Area PLC/DOR render payloads",
-        completed: 96,
-        total: 257,
-        inFlight: 161,
+        completed: 8,
+        total: 15,
+        inFlight: 7,
         queued: 0,
-        currentLabel: "Area PLC/DOR payload batches 2-3/3"
+        currentLabel: "Area PLC/DOR payload batch 2/2"
       });
     });
 
     await act(async () => {
       deferredBatches[1]?.resolve(buildProcessBatchResult(deferredBatches[1].payloads));
-    });
-
-    await waitFor(() => {
-      expect(
-        JSON.parse(
-          workspaceLayout.getAttribute("data-area-placeable-render-payload-queue-snapshot") ?? "{}"
-        )
-      ).toMatchObject({
-        rendererPath: "shared-placeables-renderer",
-        status: "loading",
-        queueMode: "batch",
-        batchSize: 96,
-        batchCount: 3,
-        completedBatchCount: 2,
-        lookupCount: 257,
-        payloadReadyLookupCount: 192,
-        stillLoadingLookupCount: 65,
-        missingPayloadCount: 0
-      });
-      expect(readLatestAreaCanvasLoading()).toMatchObject({
-        source: "areas",
-        label: "Loading Area PLC/DOR render payloads",
-        completed: 192,
-        total: 257,
-        inFlight: 65,
-        queued: 0,
-        currentLabel: "Area PLC/DOR payload batch 3/3"
-      });
-    });
-
-    await act(async () => {
-      deferredBatches[2]?.resolve(buildProcessBatchResult(deferredBatches[2].payloads));
     });
 
     await waitFor(() => {
@@ -7715,16 +8522,17 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "ready",
         queueMode: "batch",
-        batchSize: 96,
-        batchCount: 3,
-        completedBatchCount: 3,
-        lookupCount: 257,
-        payloadReadyLookupCount: 257,
+        batchSize: 8,
+        batchCount: 2,
+        completedBatchCount: 2,
+        lookupCount: 15,
+        payloadReadyLookupCount: 15,
         stillLoadingLookupCount: 0,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toBeNull();
     });
+    expect(getPlaceableViewportRenderPayloadBatch).not.toHaveBeenCalled();
   });
 
   it("recovers Area GIT placeable render payloads that are missing from a completed batch response", async () => {
@@ -7860,6 +8668,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         objects: areaObjects
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithPartialBatch);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceable,
@@ -7869,7 +8678,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -7894,13 +8703,17 @@ describe("WorkspaceMockLayout viewport wiring", () => {
 
     await waitFor(() => {
       expect(processPlaceables).toHaveBeenCalledTimes(1);
-      expect(processPlaceable).toHaveBeenCalledWith("token", {
-        templateId: "plc_batch_missing",
-        resref: "plc_batch_missing",
-        subtypeHint: "generic",
-        appearanceType: 3101,
-        includeBenchmarkMetadata: false
-      });
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "plc_batch_missing",
+          resref: "plc_batch_missing",
+          subtypeHint: "generic",
+          appearanceType: 3101,
+          includeBenchmarkMetadata: false
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
     });
 
     const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
@@ -7915,14 +8728,14 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         objectCount: 2,
         lookupCount: 2,
         payloadReadyLookupCount: 2,
-        modelReadyLookupCount: 2,
+        modelReadyLookupCount: 0,
         stillLoadingLookupCount: 0,
         missingPayloadCount: 0
       });
     });
 
     const lastViewportCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const lastViewportProps = (lastViewportCall?.[0] ??
       {}) as {
       placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
@@ -7936,6 +8749,209 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ["area_partial_batch:plc_batch_missing"]: expect.objectContaining({
           templateId: "plc_batch_missing",
           cacheKey: "cache_key_plc_batch_missing"
+        })
+      })
+    );
+  });
+
+  it("continues Area GIT single recovery past blocked asset contracts", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const areaObjects = Array.from({ length: 12 }, (_value, index) => ({
+      objectId: `plc_tail_${index}`,
+      kind: "placeable" as const,
+      templateId: `plc_tail_${index}`,
+      x: index,
+      y: 1,
+      z: 0,
+      bearing: 0,
+      appearanceType: 4100 + index
+    }));
+    const buildProcessResult = (templateId: string) => {
+      const assetId = `${templateId}_model_asset`;
+      const cacheKey = `cache_key_${templateId}`;
+      return {
+        cacheKey,
+        cacheHit: false,
+        storedAt: "2026-01-01T00:00:00.000Z",
+        hits: 0,
+        placeable: {
+          templateId,
+          resref: templateId,
+          name: templateId.toUpperCase(),
+          category: "placeables",
+          placeableSubtype: "generic" as const,
+          render: {
+            backendType: "generic" as const,
+            frontendType: "placeable" as const,
+            rendererPreset: "default",
+            isDoor: false,
+            isVfx: false
+          },
+          renderPackage: {
+            status: "ready" as const,
+            modelUrl: `/api/v1/catalog/placeables/cache/${cacheKey}/assets/${assetId}.glb`,
+            diagnostics: [],
+            assetRefs: {
+              derivedModelAssetIds: [assetId]
+            }
+          },
+          assetManifest: {
+            version: "placeable-asset-manifest/v1" as const,
+            source: "module-blob-snapshot" as const,
+            generatedAt: "2026-01-01T00:00:00.000Z",
+            assetCount: 1,
+            candidatesScanned: 1,
+            assets: [
+              {
+                assetId,
+                role: "model" as const,
+                fileName: `${templateId}.glb`,
+                objectKey: `objects/${templateId}.glb`,
+                extension: "glb",
+                sizeBytes: 1024,
+                contentType: "model/gltf-binary"
+              }
+            ]
+          }
+        }
+      };
+    };
+    const processPlaceables = vi.fn(async (_accessToken: string, payloads: Array<{ templateId?: string }>) => ({
+      items: [buildProcessResult(payloads[0]?.templateId ?? "plc_tail_0")]
+    }));
+    const processPlaceable = vi.fn(async (_accessToken: string, payload: { templateId?: string }) =>
+      buildProcessResult(payload.templateId ?? "plc_tail_unknown")
+    );
+    const getPlaceableAssetContracts = vi.fn(
+      async () => await new Promise<never>(() => undefined)
+    );
+    const getPlaceableAssetContractsBatch = vi.fn(
+      async (_accessToken: string, items: Array<{ cacheKey: string }>) => ({
+        items: items.map((item) => {
+          const templateId = item.cacheKey.replace(/^cache_key_/u, "");
+          return {
+            cacheKey: item.cacheKey,
+            assets: [
+              {
+                assetId: `${templateId}_model_asset`,
+                objectKey: `objects/${templateId}.glb`,
+                contentType: "model/gltf-binary",
+                sizeBytes: 1024,
+                deliveryPath: `/api/v1/catalog/placeables/cache/${item.cacheKey}/assets/${templateId}_model_asset.glb`,
+                deliveryUrl: `/api/v1/catalog/placeables/cache/${item.cacheKey}/assets/${templateId}_model_asset.glb`
+              }
+            ]
+          };
+        })
+      })
+    );
+    const areaPortWithTailRecoveryObjects: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: [
+          buildAreaListItemFixture({
+            areaId: "area_tail_recovery",
+            name: "Area Tail Recovery",
+            objectCounts: {
+              placeables: areaObjects.length,
+              doors: 0,
+              creatures: 0,
+              items: 0,
+              sounds: 0,
+              total: areaObjects.length
+            }
+          })
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0
+      })),
+      getAreaById: vi.fn(async () => buildAreaDetailFixture({
+        areaId: "area_tail_recovery",
+        name: "Area Tail Recovery",
+        objects: areaObjects
+      }))
+    };
+    attachProcessAreaFromDetail(areaPortWithTailRecoveryObjects);
+    const flowPort: PlaceableApiPort = {
+      ...placeableApiPortStub,
+      processPlaceable,
+      processPlaceables,
+      getPlaceableAssetContracts,
+      getPlaceableAssetContractsBatch
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaPortWithTailRecoveryObjects}
+        placeableApiPort={flowPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /open selected area/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
+
+    await waitFor(() => {
+      expect(processPlaceables).toHaveBeenCalled();
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "plc_tail_11",
+          resref: "plc_tail_11",
+          subtypeHint: "generic",
+          appearanceType: 4111,
+          includeBenchmarkMetadata: false
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+    });
+
+    const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
+    await waitFor(() => {
+      const snapshot = JSON.parse(
+        workspaceLayout.getAttribute("data-area-placeable-render-payload-queue-snapshot") ?? "{}"
+      );
+      expect(snapshot).toMatchObject({
+        rendererPath: "shared-placeables-renderer",
+        status: "ready",
+        queueMode: "batch",
+        objectCount: areaObjects.length,
+        lookupCount: areaObjects.length,
+        payloadReadyLookupCount: areaObjects.length,
+        modelReadyLookupCount: areaObjects.length,
+        stillLoadingLookupCount: 0,
+        missingPayloadCount: 0
+      });
+    });
+
+    const lastViewportCall =
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
+    const lastViewportProps = (lastViewportCall?.[0] ??
+      {}) as {
+      placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
+    };
+    expect(lastViewportProps.placeableRenderPayloadByObjectId).toEqual(
+      expect.objectContaining({
+        ["area_tail_recovery:plc_tail_11"]: expect.objectContaining({
+          templateId: "plc_tail_11",
+          cacheKey: "cache_key_plc_tail_11"
         })
       })
     );
@@ -8030,6 +9046,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithIkeaPlaceable);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceables,
@@ -8037,7 +9054,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -8061,21 +9078,25 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceables).toHaveBeenCalledWith("token", [
-        {
-          templateId: "nwic095",
-          resref: "nwic095",
-          subtypeHint: "generic",
-          appearanceType: 7460,
-          includeBenchmarkMetadata: false
-        }
-      ]);
+      expect(processPlaceables).toHaveBeenCalledWith(
+        "token",
+        [
+          expect.objectContaining({
+            templateId: "nwic095",
+            resref: "nwic095",
+            subtypeHint: "generic",
+            appearanceType: 7460,
+            includeBenchmarkMetadata: false
+          })
+        ],
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
     });
 
     const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
     await waitFor(() => {
       const latestViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const latestViewportProps = (latestViewportCall?.[0] ??
         {}) as {
         placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
@@ -8204,6 +9225,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
         ]
       }))
     };
+    attachProcessAreaFromDetail(areaPortWithIkeaPlaceable);
     const flowPort: PlaceableApiPort = {
       ...placeableApiPortStub,
       processPlaceable,
@@ -8212,7 +9234,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -8236,19 +9258,19 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", {
+      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
         templateId: "nwic095",
         resref: "nwic095",
         subtypeHint: "generic",
         appearanceType: 7460,
         includeBenchmarkMetadata: false
-      });
+      }));
     });
 
     const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
     await waitFor(() => {
       const latestViewportCall =
-        mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+        viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
       const latestViewportProps = (latestViewportCall?.[0] ??
         {}) as {
         placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
@@ -8325,7 +9347,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     };
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -8359,7 +9381,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="viewer"
         userId="u_viewer_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -8389,7 +9411,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
@@ -8410,7 +9432,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     );
 
     const lastCall =
-      mockWiring.viewportPropsSpy.mock.calls[mockWiring.viewportPropsSpy.mock.calls.length - 1];
+      viewportWiringHarness.viewportPropsSpy.mock.calls[viewportWiringHarness.viewportPropsSpy.mock.calls.length - 1];
     const lastProps = lastCall?.[0] as {
       renderObjectIds?: string[] | null;
     };
@@ -8425,7 +9447,7 @@ describe("WorkspaceMockLayout viewport wiring", () => {
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
 
     render(
-      <WorkspaceMockLayout
+      <WorkspaceLayout
         role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}

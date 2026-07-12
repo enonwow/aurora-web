@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
+import { saveLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
+import { createSeedAreaScene } from "../../../src/modules/scene/domain/sceneFactory";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
 
 function renderAtPath(pathname: string) {
@@ -27,6 +29,10 @@ async function openCreaturePropertiesDialog() {
   return screen.findByRole("dialog", { name: /creature properties/i });
 }
 
+function seedBuilderDraft() {
+  saveLocalSceneDraft("u_builder_001", createSeedAreaScene(), window.localStorage);
+}
+
 describe("Regression smoke: creature properties dialog", () => {
   beforeEach(() => {
     clearTelemetry();
@@ -35,6 +41,7 @@ describe("Regression smoke: creature properties dialog", () => {
   });
 
   it("opens creature properties tabs and persists edits on Apply/OK while cancel reverts transient edits", async () => {
+    seedBuilderDraft();
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 

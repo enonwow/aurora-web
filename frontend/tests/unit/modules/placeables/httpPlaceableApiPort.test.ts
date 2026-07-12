@@ -127,6 +127,201 @@ describe("HttpPlaceableApiPort", () => {
     );
   });
 
+  it("creates module-backed UTP placeable blueprints", async () => {
+    const fetchStub = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            blueprint: {
+              templateId: "plc_custom_chest_001",
+              resref: "custom_chest_001",
+              name: "Custom Chest",
+              objectKey: "modules/current/custom_chest_001.utp",
+              sizeBytes: 512,
+              etag: "etag-placeable",
+              sourceFileType: "UTP ",
+              sourceFileVersion: "V3.2"
+            },
+            placeable: {
+              templateId: "plc_custom_chest_001",
+              kind: "placeable",
+              resref: "custom_chest_001",
+              name: "Custom Chest",
+              category: "custom",
+              placeableSubtype: "container",
+              tags: ["custom", "wizard", "container"],
+              previewImageUrl: "/api/v1/catalog/placeables/plc_custom_chest_001/thumbnail",
+              metadata: {
+                hasInventory: true,
+                inventoryItemListCount: 1
+              }
+            }
+          }
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "https://aurora.test/api/v1"
+    );
+
+    const result = await port.createPlaceableBlueprint("token-123", {
+      templateResRef: "custom_chest_001",
+      name: "Custom Chest",
+      hasInventory: true,
+      inventoryItemListEntries: [
+        {
+          resRef: "nw_it_mpotion021",
+          x: 0,
+          y: 0,
+          dropable: true,
+          infinite: true
+        }
+      ]
+    });
+
+    expect(fetchStub).toHaveBeenCalledWith(
+      "https://aurora.test/api/v1/catalog/placeables/blueprints",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          templateResRef: "custom_chest_001",
+          name: "Custom Chest",
+          hasInventory: true,
+          inventoryItemListEntries: [
+            {
+              resRef: "nw_it_mpotion021",
+              x: 0,
+              y: 0,
+              dropable: true,
+              infinite: true
+            }
+          ]
+        })
+      }
+    );
+    expect(result.blueprint).toMatchObject({
+      templateId: "plc_custom_chest_001",
+      objectKey: "modules/current/custom_chest_001.utp",
+      sourceFileType: "UTP "
+    });
+    expect(result.placeable).toMatchObject({
+      kind: "placeable",
+      placeableSubtype: "container",
+      metadata: {
+        hasInventory: true,
+        inventoryItemListCount: 1
+      }
+    });
+  });
+
+  it("updates module-backed UTP placeable blueprints", async () => {
+    const fetchStub = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            blueprint: {
+              templateId: "plc_custom_chest_001",
+              resref: "custom_chest_001",
+              name: "Updated Chest",
+              objectKey: "modules/current/custom_chest_001.utp",
+              sizeBytes: 768,
+              sourceFileType: "UTP ",
+              sourceFileVersion: "V3.2"
+            },
+            placeable: {
+              templateId: "plc_custom_chest_001",
+              kind: "placeable",
+              resref: "custom_chest_001",
+              name: "Updated Chest",
+              category: "custom",
+              tags: ["custom", "wizard"],
+              previewImageUrl: "",
+              metadata: {
+                appearanceId: 205
+              }
+            }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "https://aurora.test/api/v1"
+    );
+
+    const result = await port.updatePlaceableBlueprint("token-123", "custom_chest_001", {
+      templateResRef: "custom_chest_001",
+      name: "Updated Chest",
+      appearanceId: 205,
+      overwrite: true
+    });
+
+    expect(fetchStub).toHaveBeenCalledWith(
+      "https://aurora.test/api/v1/catalog/placeables/blueprints/custom_chest_001",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer token-123",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          templateResRef: "custom_chest_001",
+          name: "Updated Chest",
+          appearanceId: 205,
+          overwrite: true
+        })
+      }
+    );
+    expect(result.placeable).toMatchObject({
+      resref: "custom_chest_001",
+      name: "Updated Chest",
+      metadata: {
+        appearanceId: 205
+      }
+    });
+  });
+
+  it("deletes module-backed UTP placeable blueprints", async () => {
+    const fetchStub = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            resref: "custom_chest_001",
+            objectKey: "modules/current/custom_chest_001.utp",
+            deleted: true
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "https://aurora.test/api/v1"
+    );
+
+    await expect(port.deletePlaceableBlueprint("token-123", "custom_chest_001")).resolves.toEqual({
+      resref: "custom_chest_001",
+      objectKey: "modules/current/custom_chest_001.utp",
+      deleted: true
+    });
+    expect(fetchStub).toHaveBeenCalledWith(
+      "https://aurora.test/api/v1/catalog/placeables/blueprints/custom_chest_001",
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: "Bearer token-123"
+        }
+      }
+    );
+  });
+
   it("processes placeable and returns cache metadata + manifest", async () => {
     const fetchStub = vi.fn(async () =>
       new Response(
@@ -264,6 +459,61 @@ describe("HttpPlaceableApiPort", () => {
                 },
                 glbUrl: "/api/v1/catalog/placeables/assets/model.glb",
                 textureUrls: ["/api/v1/catalog/placeables/assets/tex_01.dds"],
+                textureBindings: [
+                  {
+                    reference: "tex_01",
+                    assetId: "asset_texture_001",
+                    fileName: "tex_01.dds",
+                    objectKey: "modules/current/textures/tex_01.dds",
+                    deliveryUrl: "/api/v1/catalog/placeables/assets/tex_01.dds",
+                    txi: {
+                      decal: true,
+                      clamp: 3,
+                      blending: "additive",
+                      mipmap: false,
+                      filter: false,
+                      bumpmaptexture: "tex_01_b",
+                      envmaptexture: "tex_01_e"
+                    }
+                  }
+                ],
+                auroraLight: {
+                  source: "source-mdl",
+                  lights: [
+                    {
+                      source: "aurora-mdl-ascii",
+                      sourceModelAssetId: "asset_light_model",
+                      sourceModelFileName: "plc_light.mdl",
+                      sourceModelObjectKey: "modules/current/models/plc_light.mdl",
+                      nodeName: "inverted_light",
+                      radius: -1.5,
+                      shadowRadius: 1.25,
+                      verticalDisplacement: 0.35,
+                      multiplier: -0.25,
+                      color: [-0.1, 0.5, 1.2],
+                      shadow: false,
+                      generateFlare: true,
+                      textureNames: ["fx_flare_core", "fx_flare_ring"],
+                      flareSizes: [0.25, 0.5],
+                      flarePositions: [0.1, 0.9],
+                      flareColorShifts: [
+                        [1, 0.8, 0.4],
+                        [0.4, 0.8, 1]
+                      ],
+                      flareRadius: 12,
+                      animations: [
+                        {
+                          animationName: "default",
+                          radiusTimeline: [{ time: 0, value: 3 }],
+                          shadowRadiusTimeline: [{ time: 0, value: 1.25 }],
+                          verticalDisplacementTimeline: [{ time: 0, value: 0.35 }],
+                          multiplierTimeline: [{ time: 0, value: 2 }]
+                        }
+                      ]
+                    }
+                  ],
+                  diagnostics: []
+                },
                 auroraMaterial: {
                   source: "mtr",
                   diagnostics: [],
@@ -277,7 +527,24 @@ describe("HttpPlaceableApiPort", () => {
                         blending: "punchthrough",
                         auroraBlendField48: 2,
                         auroraBlendField4c: 3,
-                        decal: true
+                        decal: true,
+                        transparency: true,
+                        twoSided: true,
+                        renderHint: "NormalAndSpecMapped",
+                        roughness: 0.62,
+                        specularity: 0.45,
+                        textureSlots: [
+                          {
+                            slot: 0,
+                            role: "diffuse",
+                            reference: "fx_punch_d"
+                          },
+                          {
+                            slot: 1,
+                            role: "normal",
+                            reference: "fx_punch_n"
+                          }
+                        ]
                       }
                     }
                   ]
@@ -340,8 +607,62 @@ describe("HttpPlaceableApiPort", () => {
       modelUrl: undefined,
       glbUrl: "/api/v1/catalog/placeables/assets/model.glb",
       textureUrls: ["/api/v1/catalog/placeables/assets/tex_01.dds"],
+      textureBindings: [
+        {
+          reference: "tex_01",
+          assetId: "asset_texture_001",
+          fileName: "tex_01.dds",
+          objectKey: "modules/current/textures/tex_01.dds",
+          deliveryUrl: "/api/v1/catalog/placeables/assets/tex_01.dds",
+          txi: {
+            decal: true,
+            clamp: 3,
+            blending: "additive",
+            mipmap: false,
+            filter: false,
+            bumpmaptexture: "tex_01_b",
+            envmaptexture: "tex_01_e"
+          }
+        }
+      ],
       auroraEmitter: undefined,
-      auroraLight: undefined,
+      auroraLight: {
+        source: "source-mdl",
+        lights: [
+          expect.objectContaining({
+            nodeName: "inverted_light",
+            radius: -1.5,
+            shadowRadius: 1.25,
+            verticalDisplacement: 0.35,
+            multiplier: -0.25,
+            color: [-0.1, 0.5, 1.2],
+            shadow: false,
+            generateFlare: true,
+            textureNames: ["fx_flare_core", "fx_flare_ring"],
+            flareSizes: [0.25, 0.5],
+            flarePositions: [0.1, 0.9],
+            flareColorShifts: [
+              [1, 0.8, 0.4],
+              [0.4, 0.8, 1]
+            ],
+            flareRadius: 12,
+            animations: [
+              {
+                animationName: "default",
+                lengthSeconds: undefined,
+                transitionSeconds: undefined,
+                positionTimeline: undefined,
+                colorTimeline: undefined,
+                radiusTimeline: [{ time: 0, value: 3 }],
+                shadowRadiusTimeline: [{ time: 0, value: 1.25 }],
+                verticalDisplacementTimeline: [{ time: 0, value: 0.35 }],
+                multiplierTimeline: [{ time: 0, value: 2 }]
+              }
+            ]
+          })
+        ],
+        diagnostics: []
+      },
       auroraMaterial: {
         source: "mtr",
         diagnostics: [],
@@ -355,7 +676,24 @@ describe("HttpPlaceableApiPort", () => {
               blending: "punchthrough",
               auroraBlendField48: 2,
               auroraBlendField4c: 3,
-              decal: true
+              decal: true,
+              transparency: true,
+              twoSided: true,
+              renderHint: "NormalAndSpecMapped",
+              roughness: 0.62,
+              specularity: 0.45,
+              textureSlots: [
+                {
+                  slot: 0,
+                  role: "diffuse",
+                  reference: "fx_punch_d"
+                },
+                {
+                  slot: 1,
+                  role: "normal",
+                  reference: "fx_punch_n"
+                }
+              ]
             }
           }
         ]
@@ -600,7 +938,7 @@ describe("HttpPlaceableApiPort", () => {
                           lengthSeconds: 2,
                           transitionSeconds: 0,
                           simulation: {
-                            birthrate: 0,
+                            birthrate: -4,
                             timeline: {
                               birthrate: [
                                 { time: 0, value: 0 },
@@ -672,7 +1010,10 @@ describe("HttpPlaceableApiPort", () => {
                 state: {
                   appearanceType: 11286,
                   animationState: 4,
-                  lightState: 1
+                  lightState: 1,
+                  lightStateSource: "utp.LightState",
+                  lightStateProofStatus: "source-backed-utp-lightstate",
+                  lightStateDefaulted: false
                 }
               }
             }
@@ -903,7 +1244,7 @@ describe("HttpPlaceableApiPort", () => {
           xSize: undefined,
           ySize: undefined,
           spawnType: undefined,
-          birthrate: 0,
+          birthrate: -4,
           lifeExp: undefined,
           mass: undefined,
           velocity: undefined,
@@ -1047,7 +1388,10 @@ describe("HttpPlaceableApiPort", () => {
       portraitId: undefined,
       currentHitPoints: undefined,
       hardness: undefined,
-      lightState: 1
+      lightState: 1,
+      lightStateSource: "utp.LightState",
+      lightStateProofStatus: "source-backed-utp-lightstate",
+      lightStateDefaulted: false
     });
   });
 

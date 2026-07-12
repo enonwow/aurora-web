@@ -25,10 +25,18 @@ describe("WorkspaceModeSwitch", () => {
       "aria-pressed",
       "false"
     );
+    expect(within(selector).getByRole("button", { name: "Creatures Mode" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    expect(within(selector).getByRole("button", { name: "Items Mode" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
     expect(screen.queryByRole("button", { name: "Magic Mouth Demo" })).not.toBeInTheDocument();
 
-    fireEvent.click(within(selector).getByRole("button", { name: "Placeables Mode" }));
+    fireEvent.click(within(selector).getByRole("button", { name: "Creatures Mode" }));
 
-    expect(onModeSelect).toHaveBeenCalledWith("placeables_mode");
+    expect(onModeSelect).toHaveBeenCalledWith("creatures_mode");
   });
 });

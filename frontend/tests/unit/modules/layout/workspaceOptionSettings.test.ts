@@ -16,6 +16,8 @@ describe("workspaceOptionSettings", () => {
     expect(loadWorkspaceOptionSettingsFromStorage(window.localStorage)).toEqual(
       DEFAULT_WORKSPACE_OPTION_SETTINGS
     );
+    expect(DEFAULT_WORKSPACE_OPTION_SETTINGS.showTileGridOverlay).toBe(true);
+    expect(DEFAULT_WORKSPACE_OPTION_SETTINGS.runtimeMaxLights).toBe(128);
   });
 
   it("persists and loads workspace options", () => {
@@ -29,6 +31,7 @@ describe("workspaceOptionSettings", () => {
       showTileGridOverlay: true,
       enableRuntimeSoundPreview: true,
       showRuntimeSoundNowPlaying: false,
+      runtimeMaxLights: 32,
       cameraRotateSpeed: 1.4,
       cameraZoomSpeed: 1.3,
       cameraPanSpeed: 1.2,
@@ -54,6 +57,7 @@ describe("workspaceOptionSettings", () => {
         showTileGridOverlay: "invalid",
         enableRuntimeSoundPreview: "invalid",
         showRuntimeSoundNowPlaying: "invalid",
+        runtimeMaxLights: 999,
         cameraRotateSpeed: 0,
         cameraZoomSpeed: 9,
         cameraPanSpeed: -5,
@@ -68,9 +72,10 @@ describe("workspaceOptionSettings", () => {
     expect(loaded.snapHeightStep).toBe(0.05);
     expect(loaded.selectionBoxMode).toBe("replace");
     expect(loaded.showPerObjectGizmoHints).toBe(true);
-    expect(loaded.showTileGridOverlay).toBe(false);
+    expect(loaded.showTileGridOverlay).toBe(true);
     expect(loaded.enableRuntimeSoundPreview).toBe(false);
     expect(loaded.showRuntimeSoundNowPlaying).toBe(true);
+    expect(loaded.runtimeMaxLights).toBe(128);
     expect(loaded.cameraRotateSpeed).toBe(0.1);
     expect(loaded.cameraZoomSpeed).toBe(4);
     expect(loaded.cameraPanSpeed).toBe(0.1);
@@ -89,6 +94,7 @@ describe("workspaceOptionSettings", () => {
         showTileGridOverlay: true,
         enableRuntimeSoundPreview: true,
         showRuntimeSoundNowPlaying: false,
+        runtimeMaxLights: "16",
         cameraRotateSpeed: "1.2",
         cameraZoomSpeed: "1.3",
         cameraPanSpeed: "1.4",
@@ -105,6 +111,7 @@ describe("workspaceOptionSettings", () => {
     expect(loaded.showTileGridOverlay).toBe(true);
     expect(loaded.enableRuntimeSoundPreview).toBe(true);
     expect(loaded.showRuntimeSoundNowPlaying).toBe(false);
+    expect(loaded.runtimeMaxLights).toBe(16);
     expect(loaded.cameraRotateSpeed).toBe(1.2);
     expect(loaded.cameraZoomSpeed).toBe(1.3);
     expect(loaded.cameraPanSpeed).toBe(1.4);

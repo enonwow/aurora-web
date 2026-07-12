@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   createObjectAddPayloadFromSceneObject,
   getCurrentObjectAddDragPayload,
+  getCurrentObjectAddDragSourceTemplate,
   OBJECT_ADD_DRAG_MIME,
   serializeObjectAddPayload,
   setCurrentObjectAddDragPayload,
+  setCurrentObjectAddDragSourceTemplate,
   tryParseObjectAddPayload,
   type ObjectAddDragPayload
 } from "../../../../src/modules/layout/application/objectAddDragPayload";
@@ -19,7 +21,8 @@ describe("objectAddDragPayload", () => {
       kind: "placeables",
       tag: "barrel_a",
       resRef: "plc_barrel01",
-      name: "Barrel"
+      name: "Barrel",
+      previewImageUrl: "/api/v1/catalog/placeables/plc_barrel01/thumbnail"
     };
 
     const serialized = serializeObjectAddPayload(payload);
@@ -40,6 +43,42 @@ describe("objectAddDragPayload", () => {
       kind: "creatures",
       tag: "wolf_a",
       resRef: "cre_wolf01"
+    });
+  });
+
+  it("accepts encounter templates as object add payloads", () => {
+    const serialized = JSON.stringify({
+      id: "enc_template_enc_forest_ambush",
+      kind: "encounters",
+      tag: "ENC_FOREST_AMBUSH",
+      resRef: "enc_forest_ambush",
+      name: "Forest Ambush"
+    });
+
+    expect(tryParseObjectAddPayload(serialized)).toEqual({
+      id: "enc_template_enc_forest_ambush",
+      kind: "encounters",
+      tag: "ENC_FOREST_AMBUSH",
+      resRef: "enc_forest_ambush",
+      name: "Forest Ambush"
+    });
+  });
+
+  it("accepts store templates as object add payloads", () => {
+    const serialized = JSON.stringify({
+      id: "sto_template_store_nw_storemagic001",
+      kind: "stores",
+      tag: "MAGIC_SHOP",
+      resRef: "nw_storemagic001",
+      name: "Magic Store"
+    });
+
+    expect(tryParseObjectAddPayload(serialized)).toEqual({
+      id: "sto_template_store_nw_storemagic001",
+      kind: "stores",
+      tag: "MAGIC_SHOP",
+      resRef: "nw_storemagic001",
+      name: "Magic Store"
     });
   });
 
@@ -139,6 +178,163 @@ describe("objectAddDragPayload", () => {
 
     setCurrentObjectAddDragPayload(null);
     expect(getCurrentObjectAddDragPayload()).toBeNull();
+  });
+
+  it("stores an active drag source template snapshot and clears it with the payload", () => {
+    const creatureTemplate = {
+      ...createNewSceneObject("creatures", 1, 2, 9),
+      id: "cre_template_guard",
+      tag: "CRE_GUARD",
+      resRef: "cre_guard",
+      creatureProperties: {
+        firstName: "Guard",
+        lastName: "Captain",
+        race: "Human",
+        appearance: "Human, Male",
+        phenotype: "Normal",
+        gender: "Male",
+        description: "Template-backed guard",
+        challengeRating: 3,
+        portraitResRef: "po_hm_guard",
+        conversation: "guard_talk",
+        noInterrupt: true,
+        appearanceProfile: {
+          source2daRow: 42,
+          sourceKey: "guard_captain",
+          modelType: "P",
+          raceModel: "c_guard",
+          defaultPhenotype: "normal"
+        },
+        lookupProfile: {
+          raceLabelSource2daRow: 6,
+          genderLabelSource2daRow: 0,
+          soundSetResRef: "ss_guard"
+        },
+        listCounts: {
+          classListCount: 1,
+          skillListCount: 1,
+          inventoryItemListCount: 1,
+          equipItemListCount: 1
+        },
+        localizedStringRefs: {
+          firstName: 9101,
+          description: 9102
+        },
+        localizedStrings: {
+          displayName: "Guard Captain",
+          identifiedDescription: "Template-backed guard"
+        },
+        statistics: {
+          abilityScores: {
+            strength: 16,
+            dexterity: 12,
+            constitution: 14,
+            intelligence: 10,
+            wisdom: 11,
+            charisma: 9
+          },
+          racialModifiers: {
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0
+          },
+          saves: {
+            fortitudeBase: 3,
+            fortitudeBonus: 1,
+            reflexBase: 1,
+            reflexBonus: 0,
+            willBase: 1,
+            willBonus: 0
+          },
+          naturalArmorClass: 1,
+          baseArmorClass: 10,
+          dexterityBonus: 1,
+          sizeModifier: 0,
+          baseHitPoints: 24,
+          hitPointBonuses: 4,
+          movementRate: "Normal"
+        },
+        advancedSettings: {
+          blueprintResRef: "cre_guard",
+          disarmable: true,
+          plot: true,
+          leavesLootableCorpse: true,
+          noPermanentDeath: false,
+          immortal: false,
+          treasureModel: "Small",
+          corpseDecayTimeSeconds: 30,
+          faction: "Defender",
+          subrace: "",
+          deity: "",
+          challengeRatingAdjustment: 0,
+          soundSet: "Guard",
+          perceptionRange: "Default"
+        },
+        inventoryItems: [
+          {
+            resRef: "nw_wswmls001",
+            itemTemplateId: "item_nw_wswmls001",
+            itemResRef: "nw_wswmls001",
+            x: 2,
+            y: 3,
+            dropable: true
+          }
+        ],
+        equippedItems: [
+          {
+            resRef: "nw_maarcl001",
+            itemTemplateId: "item_nw_maarcl001",
+            itemResRef: "nw_maarcl001",
+            slotMask: 2,
+            infinite: true
+          }
+        ]
+      }
+    };
+    const payload = createObjectAddPayloadFromSceneObject(creatureTemplate);
+
+    setCurrentObjectAddDragPayload(payload);
+    setCurrentObjectAddDragSourceTemplate(creatureTemplate);
+
+    const snapshot = getCurrentObjectAddDragSourceTemplate();
+    expect(snapshot).toEqual(creatureTemplate);
+    expect(snapshot).not.toBe(creatureTemplate);
+    expect(snapshot?.creatureProperties).not.toBe(creatureTemplate.creatureProperties);
+    expect(snapshot?.creatureProperties?.statistics?.abilityScores).not.toBe(
+      creatureTemplate.creatureProperties.statistics?.abilityScores
+    );
+    expect(snapshot?.creatureProperties?.inventoryItems).not.toBe(
+      creatureTemplate.creatureProperties.inventoryItems
+    );
+    expect(snapshot?.creatureProperties?.equippedItems).not.toBe(
+      creatureTemplate.creatureProperties.equippedItems
+    );
+    expect(snapshot?.creatureProperties?.appearanceProfile).not.toBe(
+      creatureTemplate.creatureProperties.appearanceProfile
+    );
+    expect(snapshot?.creatureProperties?.lookupProfile).not.toBe(
+      creatureTemplate.creatureProperties.lookupProfile
+    );
+    expect(snapshot?.creatureProperties?.listCounts).not.toBe(
+      creatureTemplate.creatureProperties.listCounts
+    );
+    expect(snapshot?.creatureProperties?.localizedStringRefs).not.toBe(
+      creatureTemplate.creatureProperties.localizedStringRefs
+    );
+    expect(snapshot?.creatureProperties?.localizedStrings).not.toBe(
+      creatureTemplate.creatureProperties.localizedStrings
+    );
+    expect(snapshot?.creatureProperties?.listCounts?.inventoryItemListCount).toBe(1);
+    expect(snapshot?.creatureProperties?.localizedStringRefs?.firstName).toBe(9101);
+    expect(snapshot?.creatureProperties?.localizedStrings?.displayName).toBe("Guard Captain");
+
+    setCurrentObjectAddDragPayload(null);
+
+    expect(getCurrentObjectAddDragPayload()).toBeNull();
+    expect(getCurrentObjectAddDragSourceTemplate()).toBeNull();
   });
 
   it("roundtrips sound positioning metadata only for sound payloads", () => {

@@ -1,6 +1,70 @@
 import { describe, expect, it } from "vitest";
 import { createSceneMutationsFacade } from "../../../../../src/modules/scene/application/sceneMutationsFacade";
+import { applyAuroraAreaEditingStateToScene } from "../../../../../src/modules/scene/domain/auroraAreaEditingSceneMapper";
+import {
+  createAuroraAreaEditingState,
+  type AuroraAreaTilesetDefinition
+} from "../../../../../src/modules/scene/domain/auroraAreaEditing";
 import { createNewSceneObject, createSeedAreaScene } from "../../../../../src/modules/scene/domain/sceneFactory";
+
+const allCorners = (terrain: string) => ({
+  topLeft: terrain,
+  topRight: terrain,
+  bottomRight: terrain,
+  bottomLeft: terrain
+});
+
+const auroraAreaDefinition: AuroraAreaTilesetDefinition = {
+  tilesetResRef: "scene-facade-testset",
+  fingerprint: "b".repeat(64),
+  defaultTerrain: "grass",
+  transitionRules: [],
+  tiles: [
+    { tileId: 0, terrain: allCorners("grass"), crossers: {}, cornerHeights: {} },
+    {
+      tileId: 2,
+      terrain: allCorners("grass"),
+      crossers: {},
+      cornerHeights: {},
+      groupId: "group0"
+    },
+    {
+      tileId: 3,
+      terrain: allCorners("grass"),
+      crossers: {},
+      cornerHeights: {},
+      groupId: "group0"
+    }
+  ],
+  groups: [{ id: "group0", name: "Two tile building", rows: 1, columns: 2, tileIds: [2, 3] }]
+};
+
+function createAuroraEditableScene() {
+  const state = createAuroraAreaEditingState({
+    areaResRef: "scene-facade-area",
+    width: 2,
+    height: 2,
+    definition: auroraAreaDefinition,
+    selector: () => 0
+  });
+  if (!state.ok) {
+    throw new Error(state.message);
+  }
+  const scene = applyAuroraAreaEditingStateToScene(
+    createSeedAreaScene(),
+    state.state,
+    auroraAreaDefinition,
+    "grass"
+  );
+  return {
+    ...scene,
+    auroraAreaEditing: {
+      ...scene.auroraAreaEditing!,
+      selectedGroupId: "palette-group",
+      groupOrientation: 2 as const
+    }
+  };
+}
 
 function withDynamicPlaceables(scene: ReturnType<typeof createSeedAreaScene>) {
   return {
@@ -37,7 +101,7 @@ describe("sceneMutationsFacade", () => {
     expect(nextScene).toBe(scene);
   });
 
-  it("clamps appended objects to scene bounds and surface floor", () => {
+  it("clamps appended objects to scene bounds while preserving Aurora Z offsets", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const created = createNewSceneObject("placeables", -5, 20, 902);
@@ -49,7 +113,7 @@ describe("sceneMutationsFacade", () => {
     expect(appended?.x).toBe(0);
     expect(appended?.y).toBeLessThan(scene.height);
     expect(appended?.y).toBeGreaterThan(scene.height - 0.01);
-    expect(appended?.visualTransform.offsetZ).toBe(0);
+    expect(appended?.visualTransform.offsetZ).toBe(-1.4);
   });
 
   it("deletes objects by id set", () => {
@@ -118,6 +182,9 @@ describe("sceneMutationsFacade", () => {
     expect(resetObject?.bearing).toBe(0);
     expect(resetObject?.visualTransform).toEqual({
       scale: 1,
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1,
       offsetX: 0,
       offsetY: 0,
       offsetZ: 0,
@@ -268,7 +335,7 @@ describe("sceneMutationsFacade", () => {
     expect(changed?.visualTransform.offsetZ).toBeCloseTo(movable?.visualTransform.offsetZ ?? 0);
   });
 
-  it("prevents lowering selected objects below surface while keeping shared delta", () => {
+  it("allows lowering selected objects below surface while keeping shared Aurora Z delta", () => {
     const facade = createSceneMutationsFacade();
     const scene = withDynamicPlaceables(createSeedAreaScene());
     const first = scene.objects.find((object) => object.id === "plc_barrel_01");
@@ -305,8 +372,8 @@ describe("sceneMutationsFacade", () => {
     expect(nextFirst).toBeDefined();
     expect(nextSecond).toBeDefined();
 
-    expect(nextFirst?.z).toBeCloseTo(0);
-    expect(nextSecond?.z).toBeCloseTo(0.8);
+    expect(nextFirst?.z).toBeCloseTo(-0.5);
+    expect(nextSecond?.z).toBeCloseTo(0.3);
   });
 
   it("rotates movable object bearing around Y axis", () => {
@@ -447,7 +514,7 @@ describe("sceneMutationsFacade", () => {
     expect(bearingRotated).toBe(scene);
   });
 
-  it("blocks visual-transform changes when selection contains doors", () => {
+  it("applies visual-transform changes when selection contains doors", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const door = scene.objects.find((object) => object.kind === "doors");
@@ -469,7 +536,63 @@ describe("sceneMutationsFacade", () => {
       }
     );
 
-    expect(transformed).toBe(scene);
+    expect(transformed).not.toBe(scene);
+    const transformedDoor = transformed.objects.find((object) => object.id === door!.id);
+    const transformedPlaceable = transformed.objects.find((object) => object.id === placeable!.id);
+    expect(transformedDoor?.visualTransform.scale).toBeCloseTo(1.1);
+    expect(transformedDoor?.visualTransform.offsetX).toBeCloseTo(0.2);
+    expect(transformedDoor?.visualTransform.pitch).toBeCloseTo(0.05);
+    expect(transformedPlaceable?.visualTransform.scale).toBeCloseTo(1.1);
+  });
+
+  it("removes a placed Aurora SET group through any member tile and preserves the editing payload", () => {
+    const facade = createSceneMutationsFacade();
+    const editable = createAuroraEditableScene();
+    const anchorTileId = editable.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.id;
+    expect(anchorTileId).toBeDefined();
+    const grouped = facade.placeAuroraAreaGroup(editable, anchorTileId!, "group0", 0);
+    const memberTileId = grouped.auroraAreaEditing?.state.groupInstances[0]?.tileIds[1];
+    expect(memberTileId).toBeDefined();
+
+    const removed = facade.removeAuroraAreaGroup(grouped, memberTileId!);
+
+    expect(removed).not.toBe(grouped);
+    expect(removed.auroraAreaEditing?.state.groupInstances).toEqual([]);
+    expect(removed.auroraAreaEditing?.state.tiles.every((tile) => tile.groupId === undefined)).toBe(true);
+    expect(removed.auroraAreaEditing).toMatchObject({
+      definition: auroraAreaDefinition,
+      terrainBrush: "grass",
+      selectedGroupId: grouped.auroraAreaEditing?.selectedGroupId,
+      groupOrientation: grouped.auroraAreaEditing?.groupOrientation
+    });
+  });
+
+  it("keeps Aurora group mutations atomic and no-ops when a selected tile is invalid or ungrouped", () => {
+    const facade = createSceneMutationsFacade();
+    const editable = createAuroraEditableScene();
+    const anchorTileId = editable.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.id;
+    expect(anchorTileId).toBeDefined();
+    const grouped = facade.placeAuroraAreaGroup(editable, anchorTileId!, "group0", 0);
+    const groupMemberId = grouped.auroraAreaEditing?.state.groupInstances[0]?.tileIds[1];
+    expect(groupMemberId).toBeDefined();
+
+    const rotated = facade.rotateAuroraAreaGroup(grouped, groupMemberId!, 1);
+    expect(rotated.auroraAreaEditing?.state.groupInstances[0]).toMatchObject({ orientation: 1 });
+    expect(rotated.auroraAreaEditing).toMatchObject({
+      selectedGroupId: "group0",
+      groupOrientation: 1
+    });
+    const rotatedMemberId = rotated.auroraAreaEditing?.state.groupInstances[0]?.tileIds[0];
+    expect(rotatedMemberId).toBeDefined();
+
+    const raised = facade.changeAuroraAreaGroupHeight(rotated, rotatedMemberId!, 1);
+    const group = raised.auroraAreaEditing?.state.groupInstances[0];
+    expect(group?.tileIds.map((id) => raised.auroraAreaEditing?.state.tiles.find((tile) => tile.id === id)?.height)).toEqual([1, 1]);
+
+    const ungroupedTileId = grouped.tiles.find((tile) => tile.row === 1 && tile.col === 1)?.id;
+    expect(facade.removeAuroraAreaGroup(grouped, ungroupedTileId!)).toBe(grouped);
+    expect(facade.rotateAuroraAreaGroup(grouped, "missing-tile", 1)).toBe(grouped);
+    expect(facade.changeAuroraAreaGroupHeight(grouped, groupMemberId!, 0 as -1 | 1)).toBe(grouped);
   });
 
   it("applies shared delta for absolute location and bearing on movable multi-selection", () => {
@@ -556,7 +679,7 @@ describe("sceneMutationsFacade", () => {
     expect(secondAsPrimary?.bearing).toBeCloseTo(0.8);
   });
 
-  it("clamps shared absolute-location delta on X/Y/Z bounds for multi-select edge positions", () => {
+  it("clamps shared absolute-location delta on X/Y bounds while preserving Aurora Z", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const first = scene.objects.find((object) => object.id === "plc_barrel_01");
@@ -610,8 +733,8 @@ describe("sceneMutationsFacade", () => {
     expect(nextFirst?.x).toBeCloseTo(0);
     expect(nextFirst?.y).toBeLessThan(scene.height);
     expect(nextFirst?.y).toBeGreaterThan(scene.height - 0.2);
-    expect(nextFirst?.z).toBeCloseTo(0);
-    expect(nextSecond?.z).toBeCloseTo(1.1);
+    expect(nextFirst?.z).toBeCloseTo(-3);
+    expect(nextSecond?.z).toBeCloseTo(-1.9);
   });
 
   it("clamps absolute-location multi-selection movement to shared scene bounds delta", () => {
@@ -673,7 +796,7 @@ describe("sceneMutationsFacade", () => {
     expect(nextScene).toBe(scene);
   });
 
-  it("clamps absolute-location Z updates to shared floor delta for multi-selection", () => {
+  it("applies negative absolute-location Z updates with shared delta for multi-selection", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const first = scene.objects.find((object) => object.id === "plc_barrel_01");
@@ -709,8 +832,8 @@ describe("sceneMutationsFacade", () => {
     const nextSecond = nextScene.objects.find((object) => object.id === second!.id);
     expect(nextFirst).toBeDefined();
     expect(nextSecond).toBeDefined();
-    expect(nextFirst?.z).toBeCloseTo(0);
-    expect(nextSecond?.z).toBeCloseTo(0.8);
+    expect(nextFirst?.z).toBeCloseTo(-0.5);
+    expect(nextSecond?.z).toBeCloseTo(0.3);
   });
 
   it("normalizes absolute-location bearing input to 0..2pi", () => {
@@ -771,7 +894,7 @@ describe("sceneMutationsFacade", () => {
     expect(nextSound?.soundPositioning).toEqual(sound?.soundPositioning);
   });
 
-  it("sets visual transform values and clamps scale/height floor", () => {
+  it("sets visual transform values while clamping scale but not visual offset height", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const target = scene.objects.find((object) => object.kind === "creatures");
@@ -793,12 +916,55 @@ describe("sceneMutationsFacade", () => {
     const changed = nextScene.objects.find((object) => object.id === target!.id);
     expect(changed).toBeDefined();
     expect(changed?.visualTransform.scale).toBeCloseTo(0.01);
+    expect(changed?.visualTransform.scaleX).toBeCloseTo(0.01);
+    expect(changed?.visualTransform.scaleY).toBeCloseTo(0.01);
+    expect(changed?.visualTransform.scaleZ).toBeCloseTo(0.01);
     expect(changed?.visualTransform.offsetX).toBeCloseTo(0.35);
     expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.5);
-    expect(changed?.visualTransform.offsetZ).toBeCloseTo(0);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(-0.8);
     expect(changed?.visualTransform.pitch).toBeCloseTo(0.3);
     expect(changed?.visualTransform.yaw).toBeCloseTo(-0.4);
     expect(changed?.visualTransform.roll).toBeCloseTo(0.2);
+  });
+
+  it("sets visual transform values for every Area object kind", () => {
+    const facade = createSceneMutationsFacade();
+    const baseScene = createSeedAreaScene();
+    const extraObjects = [
+      createNewSceneObject("encounters", 2, 2, 901),
+      createNewSceneObject("stores", 3, 3, 902),
+      createNewSceneObject("triggers", 4, 4, 903),
+      createNewSceneObject("waypoints", 5, 5, 904)
+    ];
+    const scene = {
+      ...baseScene,
+      objects: [...baseScene.objects, ...extraObjects]
+    };
+    const objectIds = [
+      ...new Set(scene.objects.map((object) => object.kind))
+    ].map((kind) => scene.objects.find((object) => object.kind === kind)!.id);
+
+    const nextScene = facade.setObjectsVisualTransformByIds(scene, objectIds, {
+      scale: 1.2,
+      offsetX: 0.35,
+      offsetY: -0.5,
+      offsetZ: 0.8,
+      pitch: 0.3,
+      yaw: -0.4,
+      roll: 0.2
+    });
+
+    expect(nextScene).not.toBe(scene);
+    for (const objectId of objectIds) {
+      const changed = nextScene.objects.find((object) => object.id === objectId);
+      expect(changed?.visualTransform.scale).toBeCloseTo(1.2);
+      expect(changed?.visualTransform.offsetX).toBeCloseTo(0.35);
+      expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.5);
+      expect(changed?.visualTransform.offsetZ).toBeCloseTo(0.8);
+      expect(changed?.visualTransform.pitch).toBeCloseTo(0.3);
+      expect(changed?.visualTransform.yaw).toBeCloseTo(-0.4);
+      expect(changed?.visualTransform.roll).toBeCloseTo(0.2);
+    }
   });
 
   it("returns same scene reference for no-op visual-transform update", () => {
@@ -841,6 +1007,9 @@ describe("sceneMutationsFacade", () => {
     expect(changed).toBeDefined();
     expect(changed).not.toBe(target);
     expect(changed?.visualTransform.scale).toBeCloseTo(1.4);
+    expect(changed?.visualTransform.scaleX).toBeCloseTo(1.4);
+    expect(changed?.visualTransform.scaleY).toBeCloseTo(1.4);
+    expect(changed?.visualTransform.scaleZ).toBeCloseTo(1.4);
     expect(changed?.visualTransform.offsetX).toBeCloseTo(0.5);
     expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.2);
     expect(changed?.visualTransform.offsetZ).toBeCloseTo(0.7);
@@ -883,12 +1052,106 @@ describe("sceneMutationsFacade", () => {
     const changed = nextScene.objects.find((object) => object.id === target!.id);
     expect(changed).toBeDefined();
     expect(changed?.visualTransform.scale).toBeCloseTo(1.3);
+    expect(changed?.visualTransform.scaleX).toBeCloseTo(1.3);
+    expect(changed?.visualTransform.scaleY).toBeCloseTo(1.3);
+    expect(changed?.visualTransform.scaleZ).toBeCloseTo(1.3);
     expect(changed?.visualTransform.offsetX).toBeCloseTo(0.25);
     expect(changed?.visualTransform.offsetY).toBeCloseTo(-0.15);
     expect(changed?.visualTransform.offsetZ).toBeCloseTo(0.45);
     expect(changed?.visualTransform.pitch).toBeCloseTo(0.05);
     expect(changed?.visualTransform.yaw).toBeCloseTo(0.1);
     expect(changed?.visualTransform.roll).toBeCloseTo(-0.07);
+  });
+
+  it("preserves imported visual-transform scale axes when only VT offset or rotation changes", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+
+    const importedAxisScene = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === target!.id
+          ? {
+              ...object,
+              visualTransform: {
+                ...object.visualTransform,
+                scale: 0.5,
+                scaleX: 0.5,
+                scaleY: 0.75,
+                scaleZ: 1.25
+              }
+            }
+          : object
+      )
+    };
+
+    const nextScene = facade.setObjectsVisualTransformByIds(
+      importedAxisScene,
+      [target!.id],
+      {
+        scale: 0.5,
+        offsetX: 0.12,
+        offsetY: -0.08,
+        offsetZ: -0.03,
+        pitch: 0.2,
+        yaw: -0.15,
+        roll: 0.05
+      }
+    );
+
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed?.visualTransform.scale).toBeCloseTo(0.5);
+    expect(changed?.visualTransform.scaleX).toBeCloseTo(0.5);
+    expect(changed?.visualTransform.scaleY).toBeCloseTo(0.75);
+    expect(changed?.visualTransform.scaleZ).toBeCloseTo(1.25);
+    expect(changed?.visualTransform.offsetZ).toBeCloseTo(-0.03);
+  });
+
+  it("scales imported visual-transform axes when uniform VT scale changes", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables");
+    expect(target).toBeDefined();
+
+    const importedAxisScene = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === target!.id
+          ? {
+              ...object,
+              visualTransform: {
+                ...object.visualTransform,
+                scale: 0.5,
+                scaleX: 0.5,
+                scaleY: 0.75,
+                scaleZ: 1.25
+              }
+            }
+          : object
+      )
+    };
+
+    const nextScene = facade.setObjectsVisualTransformByIds(
+      importedAxisScene,
+      [target!.id],
+      {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    );
+
+    const changed = nextScene.objects.find((object) => object.id === target!.id);
+    expect(changed?.visualTransform.scale).toBeCloseTo(1);
+    expect(changed?.visualTransform.scaleX).toBeCloseTo(1);
+    expect(changed?.visualTransform.scaleY).toBeCloseTo(1.5);
+    expect(changed?.visualTransform.scaleZ).toBeCloseTo(2.5);
   });
 
   it("restores object placement from snapshots", () => {
@@ -916,6 +1179,43 @@ describe("sceneMutationsFacade", () => {
     expect(restoredSecond?.y).toBeCloseTo(second!.y);
     expect(restoredSecond?.bearing).toBeCloseTo(second!.bearing);
     expect(restoredSecond?.z).toBeCloseTo(second!.z);
+  });
+
+  it("restores negative Aurora Z placement from snapshots", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.id === "plc_barrel_01");
+    expect(target).toBeDefined();
+
+    const sourceScene = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === target!.id
+          ? {
+              ...object,
+              z: -0.021,
+              visualTransform: {
+                ...object.visualTransform,
+                offsetZ: -0.03
+              }
+            }
+          : object
+      )
+    };
+    const snapshot = sourceScene.objects.find((object) => object.id === target!.id);
+    expect(snapshot).toBeDefined();
+
+    const moved = facade.setObjectsAbsoluteLocationByIds(sourceScene, [target!.id], {
+      x: 0.9,
+      y: 1.2,
+      z: 0.4,
+      bearing: 0.35
+    });
+    const restored = facade.restoreObjectsPlacementBySnapshots(moved, [snapshot!]);
+    const restoredTarget = restored.objects.find((object) => object.id === target!.id);
+
+    expect(restoredTarget?.z).toBeCloseTo(-0.021);
+    expect(restoredTarget?.visualTransform.offsetZ).toBeCloseTo(-0.03);
   });
 
   it("restores sound placement from snapshot without touching sound metadata", () => {

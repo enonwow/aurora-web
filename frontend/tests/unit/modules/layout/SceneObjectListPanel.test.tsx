@@ -35,6 +35,29 @@ describe("SceneObjectListPanel", () => {
     expect(screen.getByText(/crt_devourer_01/i)).toBeInTheDocument();
   });
 
+  it("shows an expanded thumbnail preview on hover", () => {
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
+
+    const thumbnailImage = screen.getByRole("img", { name: /plc_barrel_01 2D preview/i });
+    const thumbnail = thumbnailImage.closest(".scene-object-thumbnail");
+    expect(thumbnail).not.toBeNull();
+
+    fireEvent.mouseEnter(thumbnail as HTMLElement);
+
+    const expandedPreview = document.querySelector(".thumbnail-hover-preview img");
+    expect(expandedPreview).toHaveAttribute("src", thumbnailImage.getAttribute("src"));
+
+    fireEvent.mouseLeave(thumbnail as HTMLElement);
+    expect(document.querySelector(".thumbnail-hover-preview")).not.toBeInTheDocument();
+  });
+
   it("uses a clean empty state for the all-objects view", () => {
     render(
       <SceneObjectListPanel
@@ -239,6 +262,74 @@ describe("SceneObjectListPanel", () => {
         userId: "u_builder_001",
         objectId: "snd_template_sound_dia_hakon_add_12",
         objectKind: "sounds",
+        source: "scene_object_list"
+      })
+    );
+  });
+
+  it("opens properties from an item row through a stable row action", () => {
+    const onObjectPropertiesOpen = vi.fn();
+    const itemObject = {
+      ...createNewSceneObject("items", 1.5, 5.5, 104),
+      id: "itm_scene_nw_aarcl008",
+      tag: "NW_AARCL008",
+      resRef: "aarcl009",
+      itemProperties: {
+        localizedName: "Hide Armor",
+        baseItem: 16,
+        baseItemLabel: "Armor",
+        cost: 19463,
+        armorParts: {
+          torso: 43,
+          pelvis: 8
+        },
+        materialColors: {
+          leather1: 5,
+          metal1: 17
+        }
+      }
+    };
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[itemObject]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="items"
+        allowedCatalogTypes={["items"]}
+        hideUnsupportedCatalogTypes
+        onObjectPropertiesOpen={onObjectPropertiesOpen}
+      />
+    );
+
+    const list = screen.getByRole("list", { name: /items list/i });
+    const row = within(list).getByRole("button", { name: /nw_aarcl008/i });
+    const item = row.closest("li");
+    expect(item).not.toBeNull();
+    fireEvent.click(
+      within(item as HTMLElement).getByRole("button", { name: /open object properties/i })
+    );
+
+    expect(onObjectPropertiesOpen).toHaveBeenCalledTimes(1);
+    expect(onObjectPropertiesOpen.mock.calls[0][0]).toMatchObject({
+      id: "itm_scene_nw_aarcl008",
+      kind: "items",
+      itemProperties: {
+        localizedName: "Hide Armor",
+        baseItem: 16,
+        baseItemLabel: "Armor",
+        armorParts: {
+          torso: 43,
+          pelvis: 8
+        }
+      }
+    });
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.properties_opened",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectId: "itm_scene_nw_aarcl008",
+        objectKind: "items",
         source: "scene_object_list"
       })
     );

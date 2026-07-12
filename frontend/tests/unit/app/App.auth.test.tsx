@@ -53,7 +53,7 @@ async function openToolbarGroup(groupName: RegExp) {
   return tab;
 }
 
-describe("App auth mock flow", () => {
+describe("App auth test flow", () => {
   beforeEach(() => {
     clearTelemetry();
     clearAuthBenchmarks();
@@ -80,7 +80,7 @@ describe("App auth mock flow", () => {
     expect(window.location.pathname).toBe("/app");
     expect(screen.getByLabelText(/workspace render canvas/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /^add objects$/i })
+      screen.getByRole("heading", { name: /^areas$/i })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });

@@ -38,34 +38,92 @@ function createCanvasDebugState() {
   return createWorkspaceChromeFacade().createDefaultToolbarState().canvasDebug;
 }
 
+const ALL_SCENE_OBJECT_KINDS: SceneObjectKind[] = [
+  "creatures",
+  "doors",
+  "encounters",
+  "items",
+  "placeables",
+  "sounds",
+  "stores",
+  "triggers",
+  "waypoints"
+];
+
 describe("visualTransformGizmoRules", () => {
-  it("blocks VT gizmo for static placeables", () => {
+  it("allows VT gizmo for static placeables and keeps default VT inactive", () => {
     const debugState = createCanvasDebugState();
     const staticPlaceable = createObject("placeables", { isStatic: true });
 
     const reason = resolveVisualTransformSelectionBlockedReason([staticPlaceable], debugState);
-    expect(reason).toContain("disabled for static placeables");
-    expect(canUseVisualTransformGizmoForObject(staticPlaceable)).toBe(false);
+    expect(reason).toBeNull();
+    expect(canUseVisualTransformGizmoForObject(staticPlaceable)).toBe(true);
     expect(isVisualTransformAppliedToObject(staticPlaceable)).toBe(false);
   });
 
-  it("allows VT gizmo for non-static VT-capable objects", () => {
-    const debugState = createCanvasDebugState();
-    const nonStaticPlaceable = createObject("placeables", { isStatic: false });
-    const creature = createObject("creatures");
+  it("applies saved Aurora VT for static placeables", () => {
+    const staticPlaceable = createObject("placeables", {
+      isStatic: true,
+      visualTransform: {
+        scale: 0.5,
+        scaleX: 0.5,
+        scaleY: 0.5,
+        scaleZ: 0.5,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        roll: 0,
+        yaw: Math.PI / 2
+      }
+    });
 
-    expect(resolveVisualTransformSelectionBlockedReason([nonStaticPlaceable], debugState)).toBeNull();
-    expect(resolveVisualTransformSelectionBlockedReason([creature], debugState)).toBeNull();
-    expect(canUseVisualTransformGizmoForObject(nonStaticPlaceable)).toBe(true);
-    expect(canUseVisualTransformGizmoForObject(creature)).toBe(true);
+    expect(canUseVisualTransformGizmoForObject(staticPlaceable)).toBe(true);
+    expect(isVisualTransformAppliedToObject(staticPlaceable)).toBe(true);
   });
 
-  it("blocks VT gizmo for non-editable kinds and locked layers", () => {
+  it("keeps default VT inactive for non-static placeables", () => {
+    const nonStaticPlaceable = createObject("placeables", { isStatic: false });
+
+    expect(canUseVisualTransformGizmoForObject(nonStaticPlaceable)).toBe(true);
+    expect(isVisualTransformAppliedToObject(nonStaticPlaceable)).toBe(false);
+  });
+
+  it("reports Aurora VT as applied for non-static placeables", () => {
+    const nonStaticPlaceable = createObject("placeables", {
+      isStatic: false,
+      visualTransform: {
+        scale: 0.5,
+        scaleX: 0.5,
+        scaleY: 0.5,
+        scaleZ: 0.5,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        roll: 0,
+        yaw: Math.PI / 2
+      }
+    });
+
+    expect(canUseVisualTransformGizmoForObject(nonStaticPlaceable)).toBe(true);
+    expect(isVisualTransformAppliedToObject(nonStaticPlaceable)).toBe(true);
+  });
+
+  it("allows VT gizmo for every Area object kind", () => {
+    const debugState = createCanvasDebugState();
+    for (const kind of ALL_SCENE_OBJECT_KINDS) {
+      const object = createObject(kind, kind === "placeables" ? { isStatic: false } : undefined);
+
+      expect(resolveVisualTransformSelectionBlockedReason([object], debugState)).toBeNull();
+      expect(canUseVisualTransformGizmoForObject(object)).toBe(true);
+    }
+  });
+
+  it("blocks VT gizmo only through locked layers", () => {
     const defaultDebug = createCanvasDebugState();
     const door = createObject("doors");
-    expect(resolveVisualTransformSelectionBlockedReason([door], defaultDebug)).toContain(
-      "unavailable for selected kind(s): doors"
-    );
+    expect(resolveVisualTransformSelectionBlockedReason([door], defaultDebug)).toBeNull();
 
     const lockedDebug = {
       ...defaultDebug,

@@ -551,7 +551,7 @@ describe("Regression smoke: workspace interactions", () => {
     expect(afterNonStaticObject?.isStatic ?? true).toBe(false);
   });
 
-  it("blocks VT gizmo on static placeable and unblocks after disabling Static", async () => {
+  it("keeps VT gizmo available on static placeables", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -572,20 +572,6 @@ describe("Regression smoke: workspace interactions", () => {
     await openCanvasCommands();
     fireEvent.click(screen.getByRole("button", { name: /vt rotate \(3\)/i }));
     fireEvent.click(row);
-
-    const blockedNote = await screen.findByLabelText(/visual transform blocked info/i);
-    expect(blockedNote).toHaveTextContent(/disabled for static placeables/i);
-
-    fireEvent.contextMenu(row, { clientX: 264, clientY: 206 });
-    fireEvent.click(screen.getByRole("menuitem", { name: /^properties$/i }));
-    const reopenDialog = await screen.findByRole("dialog", { name: /placeable properties/i });
-    const reopenStaticCheckbox = within(reopenDialog).getByRole("checkbox", {
-      name: /static/i
-    }) as HTMLInputElement;
-    if (reopenStaticCheckbox.checked) {
-      fireEvent.click(reopenStaticCheckbox);
-    }
-    fireEvent.click(within(reopenDialog).getByRole("button", { name: /^ok$/i }));
 
     await waitFor(() => {
       expect(screen.queryByLabelText(/visual transform blocked info/i)).not.toBeInTheDocument();

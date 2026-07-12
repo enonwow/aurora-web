@@ -13,6 +13,9 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("show_none", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("debug_textures", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("debug_status_map_off", initial)).toBe(true);
+    expect(actionStateFacade.isActionActive("display_shadows", initial)).toBe(true);
+    expect(actionStateFacade.isActionActive("display_fog", initial)).toBe(false);
+    expect(actionStateFacade.isActionActive("use_area_lighting", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("canvas_gizmo_translate", initial)).toBe(true);
     expect(actionStateFacade.isActionActive("canvas_gizmo_vt_rotate", initial)).toBe(false);
     expect(actionStateFacade.isActionActive("canvas_gizmo_vt_translate", initial)).toBe(false);
@@ -36,6 +39,21 @@ describe("workspaceTopbarActionStateFacade", () => {
     expect(actionStateFacade.isActionActive("show_items", hidden)).toBe(false);
     expect(actionStateFacade.isActionActive("show_placeables", hidden)).toBe(false);
     expect(actionStateFacade.isActionActive("show_sounds", hidden)).toBe(false);
+  });
+
+  it("tracks area environment light/fog/shadow toggles", () => {
+    const chromeFacade = createWorkspaceChromeFacade();
+    const actionStateFacade = createWorkspaceTopbarActionStateFacade();
+    const shadowsOff = chromeFacade.applyToolbarAction(
+      chromeFacade.createDefaultToolbarState(),
+      "display_shadows"
+    );
+    const fogOn = chromeFacade.applyToolbarAction(shadowsOff, "display_fog");
+    const lightingOn = chromeFacade.applyToolbarAction(fogOn, "use_area_lighting");
+
+    expect(actionStateFacade.isActionActive("display_shadows", shadowsOff)).toBe(false);
+    expect(actionStateFacade.isActionActive("display_fog", fogOn)).toBe(true);
+    expect(actionStateFacade.isActionActive("use_area_lighting", lightingOn)).toBe(true);
   });
 
   it("tracks lock and isolation canvas states", () => {

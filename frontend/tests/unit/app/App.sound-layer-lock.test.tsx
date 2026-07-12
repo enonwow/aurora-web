@@ -16,13 +16,16 @@ vi.mock("../../../src/modules/sounds/adapters/httpSoundApiPort", () => ({
           soundId: "sound_dia_hakon_add_12",
           resref: "dia_hakon_add_12",
           name: "Dia Hakon Add 12",
-          category: "dialogue",
+          category: "effect",
           format: "wav",
           tags: ["npc_sounds"],
           benchmark: false,
           previewWaveformUrl: "/api/v1/catalog/sounds/sound_dia_hakon_add_12/preview",
           spatialMode: "3d",
-          playbackMode: "single",
+          playbackMode: "continuous",
+          source: {
+            layer: "hak"
+          },
           auroraUsage: {
             bindingKey: "SoundList",
             sourceField: "Sounds"
@@ -42,6 +45,40 @@ vi.mock("../../../src/modules/sounds/adapters/httpSoundApiPort", () => ({
     processSound: vi.fn(),
     getSoundAudioContracts: vi.fn(),
     getSoundAudioBlob: vi.fn()
+  })
+}));
+
+vi.mock("../../../src/modules/creatures/adapters/httpCreatureApiPort", () => ({
+  createHttpCreatureApiPort: () => ({
+    listCreatures: vi.fn(async () => ({
+      items: [],
+      total: 0,
+      limit: 1000,
+      offset: 0
+    })),
+    processCreature: vi.fn(async () => ({
+      cache: {
+        key: "cre_empty:v1",
+        hit: false,
+        storedAt: "2026-01-01T00:00:00.000Z",
+        hits: 0
+      },
+      creature: {
+        templateId: "cre_empty",
+        kind: "creature",
+        resref: "cre_empty",
+        name: "Creature",
+        category: "npc",
+        benchmarkCandidate: false,
+        render: {
+          backendType: "creature",
+          frontendType: "creature",
+          rendererPreset: "creature-standard"
+        },
+        processedAt: "2026-01-01T00:00:00.000Z"
+      }
+    })),
+    getProcessedCreature: vi.fn()
   })
 }));
 
@@ -143,28 +180,22 @@ describe("App sound layer lock wiring", () => {
     expect(lockSoundsButton.className).not.toContain("is-active");
   });
 
-  it("keeps backend sound marker diagnostics while Lock SND suppresses editor guides", async () => {
+  it("keeps Sounds Mode free of canvas sound marker diagnostics", async () => {
     renderAtPath("/login");
     await signInAsBuilder();
 
     fireEvent.click(screen.getByRole("button", { name: /sounds mode/i }));
-    const placeButton = await screen.findByRole("button", {
-      name: /place dia_hakon_add_12 on canvas/i
-    });
-    fireEvent.click(placeButton);
-
-    const viewportProbe = screen.getByTestId("workspace-canvas-viewport-probe");
-    await waitFor(() => {
-      expect(viewportProbe).toHaveAttribute("data-sound-marker-count", "1");
-      expect(Number(viewportProbe.getAttribute("data-sound-editor-guide-count"))).toBeGreaterThan(0);
-    });
-
-    await openToolbarGroup(/^canvas$/i);
-    fireEvent.click(screen.getByRole("button", { name: /^lock snd$/i }));
 
     await waitFor(() => {
-      expect(viewportProbe).toHaveAttribute("data-sound-marker-count", "1");
-      expect(viewportProbe).toHaveAttribute("data-sound-editor-guide-count", "0");
+      expect(screen.getByRole("region", { name: /sounds mode audio stage/i })).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("workspace-canvas-viewport-probe")).not.toBeInTheDocument();
+    expect(mockViewport.propsSpy).not.toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        externalSceneSeed: expect.objectContaining({
+          objects: expect.arrayContaining([expect.objectContaining({ kind: "sounds" })])
+        })
+      })
+    );
   });
 });

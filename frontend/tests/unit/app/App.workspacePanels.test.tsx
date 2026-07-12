@@ -76,6 +76,61 @@ vi.mock("../../../src/modules/placeables/adapters/httpPlaceableApiPort", () => (
   })
 }));
 
+vi.mock("../../../src/modules/creatures/adapters/httpCreatureApiPort", () => ({
+  createHttpCreatureApiPort: () => ({
+    listCreatures: vi.fn(async () => ({
+      items: [
+        {
+          templateId: "cre_guard_captain",
+          resref: "cre_guard",
+          name: "Guard Captain",
+          category: "npc",
+          tags: ["creatures"],
+          previewImageUrl: "/preview/cre_guard_captain.png",
+          metadata: {
+            tag: "guard_captain",
+            firstName: "Guard",
+            lastName: "Captain",
+            strength: 16,
+            dexterity: 13,
+            constitution: 14,
+            intelligence: 10,
+            wisdom: 12,
+            charisma: 8,
+            plot: true
+          }
+        }
+      ],
+      total: 1,
+      limit: 1000,
+      offset: 0
+    })),
+    processCreature: vi.fn(async () => ({
+      cache: {
+        key: "cre_guard_captain:v1",
+        hit: false,
+        storedAt: "2026-01-01T00:00:00.000Z",
+        hits: 0
+      },
+      creature: {
+        templateId: "cre_guard_captain",
+        kind: "creature",
+        resref: "cre_guard",
+        name: "Guard Captain",
+        category: "npc",
+        benchmarkCandidate: false,
+        render: {
+          backendType: "creature",
+          frontendType: "creature",
+          rendererPreset: "creature-standard"
+        },
+        processedAt: "2026-01-01T00:00:00.000Z"
+      }
+    })),
+    getProcessedCreature: vi.fn()
+  })
+}));
+
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
   return render(<App />);
@@ -108,7 +163,7 @@ const rolePanelExpectations = [
     label: "builder",
     username: "builder.user",
     password: "builder123",
-    left: ["Add Objects"],
+    left: ["Areas"],
     right: ["Scene Objects"]
   },
   {
@@ -287,6 +342,8 @@ describe("App workspace side panels", () => {
     await signInAs("builder.user", "builder123");
 
     const leftSidebar = screen.getByLabelText(/left sidebar/i);
+    fireEvent.click(within(leftSidebar).getByRole("tab", { name: /add placeables/i }));
+
     const addObjectsSection = within(leftSidebar).getByRole("article", {
       name: /add objects section/i
     });

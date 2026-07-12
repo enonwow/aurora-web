@@ -96,6 +96,9 @@ function createAreaApiPortStub(
     getAreaTextureAtlasContracts: vi.fn(async () =>
       backendTextureResult(backendReadyProxyTextureAtlas)
     ),
+    exportAreaItemsGit: vi.fn(),
+    exportAreaGit: vi.fn(),
+    exportAreaAre: vi.fn(),
     ...overrides
   };
 }

@@ -3,6 +3,7 @@ import type { DragEvent, MouseEvent, SetStateAction } from "react";
 import { createWorkspaceChromeFacade } from "../../../../src/modules/layout/application/workspaceChromeFacade";
 import {
   serializeObjectAddPayload,
+  setCurrentObjectAddDragSourceTemplate,
   type ObjectAddDragPayload
 } from "../../../../src/modules/layout/application/objectAddDragPayload";
 import { DEFAULT_WORKSPACE_OPTION_SETTINGS } from "../../../../src/modules/layout/workspaceOptionSettings";
@@ -150,6 +151,251 @@ describe("useWorkspaceObjectAddDragDrop", () => {
         sourceTemplateId: "snd_template_sound_dia_hakon_add_12"
       })
     );
+  });
+
+  it("preserves a backend creature template snapshot when dragged into an area scene", () => {
+    const baseScene = createSeedAreaScene();
+    const scene: AreaScene = {
+      ...baseScene,
+      objects: []
+    };
+    const creatureTemplate = {
+      ...createNewSceneObject("creatures", 0, 0, 12),
+      id: "cre_template_guard_captain",
+      tag: "CRE_GUARD_CAPTAIN",
+      resRef: "cre_guard_captain",
+      name: "Guard Captain",
+      creatureProperties: {
+        firstName: "Guard",
+        lastName: "Captain",
+        race: "Human",
+        appearance: "Human, Male",
+        phenotype: "Normal",
+        gender: "Male",
+        description: "Backend catalog creature",
+        challengeRating: 4,
+        portraitResRef: "po_hm_guard",
+        conversation: "guard_talk",
+        noInterrupt: true,
+        appearanceProfile: {
+          source2daRow: 42,
+          sourceKey: "guard_captain",
+          modelType: "P",
+          raceModel: "c_guard",
+          defaultPhenotype: "normal"
+        },
+        lookupProfile: {
+          raceLabelSource2daRow: 6,
+          genderLabelSource2daRow: 0,
+          soundSetResRef: "ss_guard"
+        },
+        listCounts: {
+          classListCount: 1,
+          skillListCount: 1,
+          featListCount: 1,
+          inventoryItemListCount: 1
+        },
+        localizedStringRefs: {
+          firstName: 9101,
+          description: 9102
+        },
+        localizedStrings: {
+          displayName: "Guard Captain",
+          identifiedDescription: "Backend catalog creature"
+        },
+        statistics: {
+          abilityScores: {
+            strength: 16,
+            dexterity: 13,
+            constitution: 14,
+            intelligence: 10,
+            wisdom: 12,
+            charisma: 8
+          },
+          racialModifiers: {
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0
+          },
+          saves: {
+            fortitudeBase: 4,
+            fortitudeBonus: 1,
+            reflexBase: 2,
+            reflexBonus: 0,
+            willBase: 1,
+            willBonus: 0
+          },
+          naturalArmorClass: 1,
+          baseArmorClass: 10,
+          dexterityBonus: 1,
+          sizeModifier: 0,
+          baseHitPoints: 36,
+          hitPointBonuses: 6,
+          movementRate: "Normal"
+        },
+        advancedSettings: {
+          blueprintResRef: "cre_guard_captain",
+          disarmable: true,
+          plot: true,
+          leavesLootableCorpse: true,
+          noPermanentDeath: false,
+          immortal: false,
+          treasureModel: "Small",
+          corpseDecayTimeSeconds: 30,
+          faction: "Defender",
+          subrace: "",
+          deity: "",
+          challengeRatingAdjustment: 0,
+          soundSet: "Guard",
+          perceptionRange: "Default"
+        },
+        classEntries: [{ className: "Fighter", level: 4 }],
+        skills: [{ skill: "Discipline", rank: 7 }],
+        feats: [{ name: "Power Attack", type: "general", assigned: true }]
+      }
+    };
+    const payload: ObjectAddDragPayload = {
+      id: creatureTemplate.id,
+      kind: "creatures",
+      tag: creatureTemplate.tag,
+      resRef: creatureTemplate.resRef,
+      name: creatureTemplate.name
+    };
+    const runtimeRef = { current: {} };
+    const objectAddRuntimePort: WorkspaceObjectAddRuntimePort<object, object> = {
+      clearObjectAddGhost: vi.fn(),
+      syncObjectAddGhost: vi.fn(),
+      resolveCanvasObjectAddPlacement: vi.fn(() => ({
+        x: 6,
+        y: 7,
+        tileId: scene.tiles[0]?.id ?? null
+      }))
+    };
+    const sceneViewportPort = {
+      createObject: vi.fn((kind, x, y, sequence) => createNewSceneObject(kind, x, y, sequence)),
+      appendObjects: vi.fn((currentScene, objects) => ({
+        ...currentScene,
+        objects: [...currentScene.objects, ...objects]
+      })),
+      commitHistory: vi.fn((currentHistory, nextScene) => ({
+        past: [...currentHistory.past, currentHistory.present],
+        present: nextScene,
+        future: []
+      })),
+      getSceneScale: vi.fn(() => 1)
+    } as unknown as SceneViewportPort;
+    let history: SceneHistoryState = { past: [], present: scene, future: [] };
+    const setSceneHistory = vi.fn((updater: SetStateAction<SceneHistoryState>) => {
+      history = typeof updater === "function" ? updater(history) : updater;
+    });
+    const setSelectedObjectIds = vi.fn();
+    const setSelectedTileId = vi.fn();
+    const trackTelemetry = vi.fn();
+    let handlers: ReturnType<typeof useWorkspaceObjectAddDragDrop<object, object>> | null = null;
+
+    function Harness() {
+      handlers = useWorkspaceObjectAddDragDrop({
+        runtimeRef,
+        objectAddRuntimePort,
+        scene,
+        sceneViewportPort,
+        renderObjectIds: null,
+        toolbarState: createWorkspaceChromeFacade().createDefaultToolbarState(),
+        workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
+        nextObjectSequenceRef: { current: 101 },
+        setSceneHistory,
+        setSelectedObjectIds,
+        setSelectedTileId,
+        trackTelemetry,
+        userId: "u_builder_001"
+      });
+      return null;
+    }
+
+    render(<Harness />);
+    setCurrentObjectAddDragSourceTemplate(creatureTemplate);
+
+    act(() => {
+      handlers?.handleCanvasDrop({
+        clientX: 240,
+        clientY: 160,
+        preventDefault: vi.fn(),
+        dataTransfer: {
+          getData: vi.fn(() => serializeObjectAddPayload(payload))
+        }
+      } as unknown as DragEvent<HTMLDivElement>);
+    });
+
+    const droppedCreature = history.present.objects[0];
+    expect(droppedCreature).toMatchObject({
+      kind: "creatures",
+      x: 6,
+      y: 7,
+      tag: "CRE_GUARD_CAPTAIN",
+      resRef: "cre_guard_captain",
+      creatureProperties: {
+        firstName: "Guard",
+        lastName: "Captain",
+        statistics: {
+          abilityScores: {
+            strength: 16,
+            dexterity: 13,
+            constitution: 14,
+            intelligence: 10,
+            wisdom: 12,
+            charisma: 8
+          }
+        },
+        advancedSettings: {
+          plot: true,
+          faction: "Defender"
+        },
+        appearanceProfile: {
+          sourceKey: "guard_captain",
+          raceModel: "c_guard"
+        },
+        lookupProfile: {
+          soundSetResRef: "ss_guard"
+        },
+        listCounts: {
+          classListCount: 1,
+          inventoryItemListCount: 1
+        },
+        localizedStringRefs: {
+          firstName: 9101,
+          description: 9102
+        },
+        localizedStrings: {
+          displayName: "Guard Captain"
+        },
+        classEntries: [{ className: "Fighter", level: 4 }],
+        skills: [{ skill: "Discipline", rank: 7 }]
+      }
+    });
+    expect(droppedCreature?.creatureProperties).not.toBe(creatureTemplate.creatureProperties);
+    expect(droppedCreature?.creatureProperties?.statistics?.abilityScores).not.toBe(
+      creatureTemplate.creatureProperties.statistics?.abilityScores
+    );
+    expect(droppedCreature?.creatureProperties?.appearanceProfile).not.toBe(
+      creatureTemplate.creatureProperties.appearanceProfile
+    );
+    expect(droppedCreature?.creatureProperties?.lookupProfile).not.toBe(
+      creatureTemplate.creatureProperties.lookupProfile
+    );
+    expect(droppedCreature?.creatureProperties?.listCounts).not.toBe(
+      creatureTemplate.creatureProperties.listCounts
+    );
+    expect(droppedCreature?.creatureProperties?.localizedStringRefs).not.toBe(
+      creatureTemplate.creatureProperties.localizedStringRefs
+    );
+    expect(droppedCreature?.creatureProperties?.localizedStrings).not.toBe(
+      creatureTemplate.creatureProperties.localizedStrings
+    );
+    expect(setSelectedObjectIds).toHaveBeenCalledWith([droppedCreature?.id]);
+    expect(setSelectedTileId).toHaveBeenCalledWith(scene.tiles[0]?.id);
   });
 
   it("keeps an armed panel template active for repeated area tile placement until cancelled", () => {
@@ -405,6 +651,173 @@ describe("useWorkspaceObjectAddDragDrop", () => {
         sourceTemplateId: "plc_template_table"
       })
     );
+  });
+
+  it("places an armed item template at the area center while preserving item properties", () => {
+    const baseScene = createSeedAreaScene();
+    const scene: AreaScene = {
+      ...baseScene,
+      objects: []
+    };
+    const template = {
+      ...createNewSceneObject("items", 0.5, 0.5, 7),
+      id: "itm_template_hide_armor",
+      tag: "NW_AARCL008",
+      resRef: "aarcl009",
+      name: "Hide Armor",
+      previewImageUrl: "/api/v1/catalog/items/aarcl009/thumbnail",
+      itemProperties: {
+        localizedName: "Hide Armor",
+        baseItem: 16,
+        baseItemLabel: "Armor",
+        cost: 19463,
+        stackSize: 1,
+        identified: true,
+        modelPart1: 66,
+        armorParts: {
+          torso: 43,
+          pelvis: 8,
+          rShoul: 15,
+          lShoul: 15
+        },
+        materialColors: {
+          leather1: 5,
+          leather2: 7,
+          cloth1: 2,
+          cloth2: 3,
+          metal1: 17,
+          metal2: 8
+        },
+        propertyList: [
+          {
+            propertyName: 1,
+            propertyLabel: "Armor",
+            subtype: 0,
+            costValue: 5
+          }
+        ],
+        scripts: {
+          onActivate: "itm_hide_activate"
+        }
+      }
+    };
+    const runtimeRef = { current: {} };
+    const objectAddRuntimePort: WorkspaceObjectAddRuntimePort<object, object> = {
+      clearObjectAddGhost: vi.fn(),
+      syncObjectAddGhost: vi.fn(),
+      resolveCanvasObjectAddPlacement: vi.fn(() => null)
+    };
+    const sceneViewportPort = {
+      createObject: vi.fn((kind, x, y, sequence) => createNewSceneObject(kind, x, y, sequence)),
+      appendObjects: vi.fn((currentScene, objects) => ({
+        ...currentScene,
+        objects: [...currentScene.objects, ...objects]
+      })),
+      commitHistory: vi.fn((currentHistory, nextScene) => ({
+        past: [...currentHistory.past, currentHistory.present],
+        present: nextScene,
+        future: []
+      })),
+      getSceneScale: vi.fn(() => 1)
+    } as unknown as SceneViewportPort;
+    let history: SceneHistoryState = { past: [], present: scene, future: [] };
+    const setSceneHistory = vi.fn((updater: SetStateAction<SceneHistoryState>) => {
+      history = typeof updater === "function" ? updater(history) : updater;
+    });
+    const setSelectedObjectIds = vi.fn();
+    const setSelectedTileId = vi.fn();
+    const trackTelemetry = vi.fn();
+    let handlers: ReturnType<typeof useWorkspaceObjectAddDragDrop<object, object>> | null = null;
+
+    function Harness() {
+      handlers = useWorkspaceObjectAddDragDrop({
+        runtimeRef,
+        objectAddRuntimePort,
+        scene,
+        sceneViewportPort,
+        renderObjectIds: null,
+        toolbarState: createWorkspaceChromeFacade().createDefaultToolbarState(),
+        workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
+        nextObjectSequenceRef: { current: 77 },
+        setSceneHistory,
+        setSelectedObjectIds,
+        setSelectedTileId,
+        trackTelemetry,
+        userId: "u_builder_001"
+      });
+      return null;
+    }
+
+    render(<Harness />);
+
+    act(() => {
+      handlers?.beginObjectAddPlacement(template, 394);
+    });
+    act(() => {
+      handlers?.placeObjectAddAtSceneCenter();
+    });
+
+    const placedItem = history.present.objects[0];
+    expect(placedItem).toMatchObject({
+      kind: "items",
+      tag: "NW_AARCL008",
+      resRef: "aarcl009",
+      name: "Hide Armor",
+      previewImageUrl: "/api/v1/catalog/items/aarcl009/thumbnail",
+      itemProperties: {
+        localizedName: "Hide Armor",
+        baseItem: 16,
+        baseItemLabel: "Armor",
+        cost: 19463,
+        armorParts: {
+          torso: 43,
+          pelvis: 8,
+          rShoul: 15,
+          lShoul: 15
+        },
+        materialColors: {
+          leather1: 5,
+          leather2: 7,
+          cloth1: 2,
+          cloth2: 3,
+          metal1: 17,
+          metal2: 8
+        },
+        propertyList: [
+          {
+            propertyName: 1,
+            propertyLabel: "Armor",
+            subtype: 0,
+            costValue: 5
+          }
+        ],
+        scripts: {
+          onActivate: "itm_hide_activate"
+        }
+      }
+    });
+    expect(placedItem?.itemProperties).not.toBe(template.itemProperties);
+    expect(placedItem?.itemProperties?.armorParts).not.toBe(template.itemProperties.armorParts);
+    expect(placedItem?.itemProperties?.materialColors).not.toBe(
+      template.itemProperties.materialColors
+    );
+    expect(placedItem?.itemProperties?.propertyList).not.toBe(template.itemProperties.propertyList);
+    expect(placedItem?.x).toBeGreaterThanOrEqual(0);
+    expect(placedItem?.y).toBeGreaterThanOrEqual(0);
+    expect(setSelectedObjectIds).toHaveBeenCalledWith([placedItem?.id]);
+    expect(setSelectedTileId).toHaveBeenCalledWith(expect.any(String));
+    expect(trackTelemetry).toHaveBeenCalledWith(
+      "scene.objects.add_from_panel",
+      expect.objectContaining({
+        kind: "items",
+        source: "click",
+        sourceTemplateId: "itm_template_hide_armor"
+      })
+    );
+    expect(handlers?.objectAddDropFeedback).toEqual({
+      variant: "success",
+      message: "Placed NW_AARCL008 at area center. Click another tile or press Esc."
+    });
   });
 
   it("shows clear ASCII feedback when armed placement misses an area tile", () => {

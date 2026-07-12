@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ItemApiPaletteTreeResult } from "../../../../src/modules/items/contracts";
 import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
 import { SceneObjectAddPanel } from "../../../../src/modules/layout/components/SceneObjectAddPanel";
 import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
@@ -78,6 +79,43 @@ describe("SceneObjectAddPanel", () => {
     expect(filterInput).toHaveValue("");
     expect(within(addObjectsSection).queryByText("1/4")).not.toBeInTheDocument();
     expect(within(list).getByText(/plc_barrel_01/i)).toBeInTheDocument();
+  });
+
+  it("keeps large add-object catalogs windowed while preserving full counts", () => {
+    const placeables = Array.from({ length: 125 }, (_, index) => {
+      const sequence = String(index + 1).padStart(3, "0");
+      return {
+        ...objects[0],
+        id: `plc_template_bulk_${sequence}`,
+        kind: "placeables" as const,
+        name: `Bulk Placeable ${sequence}`,
+        tag: `BULK_${sequence}`,
+        resRef: `bulk_${sequence}`,
+        source: {
+          ...objects[0].source,
+          templateId: `plc_bulk_${sequence}`,
+          sourceObjectId: `plc_bulk_${sequence}`
+        }
+      };
+    });
+
+    render(
+      <SceneObjectAddPanel
+        userId="u_builder_001"
+        objects={placeables}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+      />
+    );
+
+    const addObjectsSection = screen.getByRole("article", { name: /add objects section/i });
+    const list = within(addObjectsSection).getByRole("list", { name: /placeables add list/i });
+
+    expect(within(addObjectsSection).getByText("Showing 120 of 125 matches.")).toBeInTheDocument();
+    expect(within(addObjectsSection).getByText("125 templates")).toBeInTheDocument();
+    expect(within(list).getAllByRole("listitem")).toHaveLength(120);
+    expect(within(list).getAllByText(/bulk_120/i).length).toBeGreaterThan(0);
+    expect(within(list).queryByText(/bulk_121/i)).not.toBeInTheDocument();
   });
 
   it("resets add-object search, source, and item category filters without changing family", () => {
@@ -222,6 +260,175 @@ describe("SceneObjectAddPanel", () => {
       "aria-selected",
       "true"
     );
+  });
+
+  it("filters Add-to-Area items through the shared itempal tree", () => {
+    const itemPaletteTree: ItemApiPaletteTreeResult = {
+      generatedAt: "2026-06-30T00:00:00.000Z",
+      activeSource: "itempalstd",
+      sources: [],
+      rootCount: 1,
+      leafCount: 1,
+      folderCount: 1,
+      categoryLeafCount: 0,
+      maxDepth: 1,
+      roots: [
+        {
+          nodeId: "weapons",
+          kind: "folder",
+          depth: 0,
+          label: "Weapons",
+          strRef: 7,
+          leafCount: 1,
+          folderCount: 0,
+          categoryLeafCount: 0,
+          children: [
+            {
+              nodeId: "weapons/nw_wswm001",
+              kind: "leaf",
+              depth: 1,
+              label: "Longsword",
+              resRef: "nw_wswm001",
+              name: "Longsword",
+              leafCount: 1,
+              folderCount: 0,
+              categoryLeafCount: 0,
+              children: []
+            }
+          ]
+        }
+      ]
+    };
+
+    render(
+      <SceneObjectAddPanel
+        userId="u_builder_001"
+        objects={objects}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="items"
+        itemPaletteTree={itemPaletteTree}
+      />
+    );
+
+    expect(screen.getByText(/item_chest_01/i)).toBeInTheDocument();
+    expect(screen.getByText(/item_sword_02/i)).toBeInTheDocument();
+
+    const paletteSelector = screen.getByRole("combobox", {
+      name: /add item palette category/i
+    });
+    fireEvent.change(paletteSelector, { target: { value: "weapons" } });
+
+    expect(screen.queryByText(/item_chest_01/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/item_sword_02/i)).toBeInTheDocument();
+
+    const itemCategories = screen.getByRole("group", { name: /item palette categories/i });
+    expect(within(itemCategories).getByRole("button", { name: /weapons 1/i })).toBeInTheDocument();
+    expect(
+      within(itemCategories).getByRole("button", { name: /miscellaneous 0/i })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /reset add object filters/i }));
+
+    expect(paletteSelector).toHaveValue("all");
+    expect(screen.getByText(/item_chest_01/i)).toBeInTheDocument();
+    expect(screen.getByText(/item_sword_02/i)).toBeInTheDocument();
+  });
+
+  it("classifies add-item categories from Aurora StorePanel metadata before text fallback", () => {
+    const baseItemTemplate = objects.find((object) => object.kind === "items")!;
+    const itemTemplates = [
+      {
+        ...baseItemTemplate,
+        id: "itm_store_panel_armor",
+        tag: "MISC_BOX",
+        resRef: "misc_box",
+        name: "Misc Box",
+        itemProperties: {
+          ...baseItemTemplate.itemProperties,
+          baseItemStorePanel: 0,
+          baseItemStorePanelSort: 10
+        }
+      },
+      {
+        ...baseItemTemplate,
+        id: "itm_store_panel_potion",
+        tag: "PLAIN_VIAL",
+        resRef: "plain_vial",
+        name: "Plain Vial",
+        itemProperties: {
+          ...baseItemTemplate.itemProperties,
+          baseItemStorePanel: 2,
+          baseItemStorePanelSort: 0
+        }
+      },
+      {
+        ...baseItemTemplate,
+        id: "itm_store_panel_magic",
+        tag: "PLAIN_BAND",
+        resRef: "plain_band",
+        name: "Plain Band",
+        itemProperties: {
+          ...baseItemTemplate.itemProperties,
+          baseItemStorePanel: 3,
+          baseItemStorePanelSort: 0
+        }
+      },
+      {
+        ...baseItemTemplate,
+        id: "itm_store_panel_creature_weapon",
+        tag: "WEAPON_BITE",
+        resRef: "weapon_bite",
+        name: "Weapon Bite",
+        itemProperties: {
+          ...baseItemTemplate.itemProperties,
+          baseItemLabel: "cslashweapon",
+          baseItemItemClass: "it_cr_sla",
+          baseItemStorePanel: 1,
+          baseItemStorePanelSort: 0
+        }
+      }
+    ];
+
+    render(
+      <SceneObjectAddPanel
+        userId="u_builder_001"
+        objects={itemTemplates}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        allowedCatalogTypes={["items"]}
+        defaultActiveType="items"
+      />
+    );
+
+    const itemCategories = screen.getByRole("group", { name: /item palette categories/i });
+    expect(within(itemCategories).getByRole("button", { name: /armor 1/i })).toBeInTheDocument();
+    expect(within(itemCategories).getByRole("button", { name: /weapons 0/i })).toBeInTheDocument();
+    expect(
+      within(itemCategories).getByRole("button", { name: /potions \/ scrolls 1/i })
+    ).toBeInTheDocument();
+    expect(
+      within(itemCategories).getByRole("button", { name: /magic items 1/i })
+    ).toBeInTheDocument();
+    expect(
+      within(itemCategories).getByRole("button", { name: /creature items 1/i })
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(itemCategories).getByRole("button", { name: /armor 1/i }));
+    expect(screen.getByRole("button", { name: /preview misc_box/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /preview plain_vial/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(itemCategories).getByRole("button", { name: /potions \/ scrolls 1/i }));
+    expect(screen.getByRole("button", { name: /preview plain_vial/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /preview misc_box/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(itemCategories).getByRole("button", { name: /magic items 1/i }));
+    expect(screen.getByRole("button", { name: /preview plain_band/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /preview weapon_bite/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(itemCategories).getByRole("button", { name: /creature items 1/i }));
+    expect(screen.getByRole("button", { name: /preview weapon_bite/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /preview plain_band/i })).not.toBeInTheDocument();
   });
 
   it("writes expected drag payload into dataTransfer and sets copy effect", () => {

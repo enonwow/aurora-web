@@ -168,6 +168,86 @@ describe("mapPlaceablePreviewToScene", () => {
     expect(scene.objects[0].bearing).toBe(225);
   });
 
+  it("maps decompiled UTP ItemList metadata into placeable inventory properties", () => {
+    const payload: PlaceablePreviewPayload = {
+      templateId: "plc_loot_chest",
+      resref: "plc_loot_chest",
+      name: "Loot Chest",
+      kind: "placeable",
+      metadata: {
+        useable: true,
+        hasInventory: true,
+        inventoryItemListEntries: JSON.stringify([
+          {
+            resRef: "nw_it_mpotion001",
+            randomResRef: "rnd_potion",
+            randomList: "rl_potions",
+            itemTemplateId: "item_nw_it_mpotion001",
+            itemResref: "nw_it_mpotion001",
+            x: 2,
+            y: 3,
+            dropable: true,
+            pickpocketable: false,
+            infinite: false
+          },
+          {
+            embeddedItem: {
+              sourceStructTypeId: 4294967295,
+              templateResRef: "emb_chest_ring",
+              tag: "EMB_CHEST_RING",
+              localizedName: "Embedded Ring",
+              baseItem: 52,
+              itemPropertyListCount: 1,
+              fieldCount: 5
+            },
+            x: 4,
+            y: 5,
+            dropable: true,
+            pickpocketable: false,
+            infinite: true
+          }
+        ])
+      }
+    };
+
+    const scene = mapPlaceablePreviewToScene(payload);
+
+    expect(scene.objects[0].placeableProperties).toMatchObject({
+      useable: true,
+      hasInventory: true,
+      inventoryItems: [
+        {
+          resRef: "nw_it_mpotion001",
+          randomResRef: "rnd_potion",
+          randomList: "rl_potions",
+          itemTemplateId: "item_nw_it_mpotion001",
+          itemResRef: "nw_it_mpotion001",
+          x: 2,
+          y: 3,
+          dropable: true,
+          pickpocketable: false,
+          infinite: false
+        },
+        {
+          embeddedItem: {
+            sourceStructTypeId: 4294967295,
+            templateResRef: "emb_chest_ring",
+            tag: "EMB_CHEST_RING",
+            localizedName: "Embedded Ring",
+            baseItem: 52,
+            itemPropertyListCount: 1,
+            fieldCount: 5
+          },
+          x: 4,
+          y: 5,
+          dropable: true,
+          pickpocketable: false,
+          infinite: true
+        }
+      ]
+    });
+  });
+
   it("adds Aurora-first preserve payload for VFX placeable previews", () => {
     const payload: PlaceablePreviewPayload = {
       templateId: "plc_cot_fx01",

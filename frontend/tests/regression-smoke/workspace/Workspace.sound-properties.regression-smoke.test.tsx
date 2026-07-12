@@ -316,7 +316,7 @@ describe("Regression smoke: sound properties dialog", () => {
     );
   });
 
-  it("plays and stops preview using bundled mock test sound", async () => {
+  it("plays and stops preview using bundled preview tone", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -344,7 +344,7 @@ describe("Regression smoke: sound properties dialog", () => {
     try {
       fireEvent.click(within(dialog).getByRole("button", { name: /^play$/i }));
       await waitFor(() => {
-        expect(mockAudioConstructor).toHaveBeenCalledWith("/sounds/mock_test_tone.wav");
+        expect(mockAudioConstructor).toHaveBeenCalledWith("/sounds/preview_tone.wav");
       });
       expect(playMock).toHaveBeenCalledTimes(1);
 
@@ -394,7 +394,7 @@ describe("Regression smoke: sound properties dialog", () => {
     });
   });
 
-  it("supports undo/redo and copy/paste regression flow for sound mock", async () => {
+  it("supports undo/redo and copy/paste regression flow for sound object", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 

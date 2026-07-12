@@ -4,11 +4,11 @@ import {
   parseAuthenticateResponse,
   parseAuthorizationResponse
 } from "../../../../src/modules/auth/contractSchemas";
-import { mockAuthFacade } from "../../../../src/modules/auth/mockAuthFacade";
+import { testAuthFacade } from "../../../../src/modules/auth/testAuthFacade";
 
 describe("auth contract runtime schemas", () => {
   it("accepts valid authenticate success payload", async () => {
-    const response = await mockAuthFacade.authenticate({
+    const response = await testAuthFacade.authenticate({
       username: "admin.user",
       password: "admin123"
     });
@@ -18,7 +18,7 @@ describe("auth contract runtime schemas", () => {
   });
 
   it("accepts valid authenticate failure payload", async () => {
-    const response = await mockAuthFacade.authenticate({
+    const response = await testAuthFacade.authenticate({
       username: "admin.user",
       password: "wrong-pass"
     });
@@ -28,7 +28,7 @@ describe("auth contract runtime schemas", () => {
   });
 
   it("accepts valid authorization payload", async () => {
-    const auth = await mockAuthFacade.authenticate({
+    const auth = await testAuthFacade.authenticate({
       username: "builder.user",
       password: "builder123"
     });
@@ -36,7 +36,7 @@ describe("auth contract runtime schemas", () => {
       throw new Error("Expected successful authentication");
     }
 
-    const authz = await mockAuthFacade.authorize(auth.session);
+    const authz = await testAuthFacade.authorize(auth.session);
     const parsed = parseAuthorizationResponse(authz);
 
     expect(parsed.role).toBe("builder");

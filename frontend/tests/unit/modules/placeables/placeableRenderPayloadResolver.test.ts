@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  fetchPlaceableViewportRenderPayloadBatch,
   fetchPlaceableViewportRenderPayload
 } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
 import type {
@@ -80,6 +81,20 @@ function createProcessResultWithRenderPackage(
   };
 }
 
+function createProcessResultForTemplate(templateId: string): PlaceableApiProcessResult {
+  const result = createProcessResult([]);
+  return {
+    ...result,
+    cacheKey: `cache_${templateId}`,
+    placeable: {
+      ...result.placeable,
+      templateId,
+      resref: templateId,
+      name: templateId.toUpperCase()
+    }
+  };
+}
+
 function createPortStub(
   processResult: PlaceableApiProcessResult,
   getContractsImpl: (
@@ -108,6 +123,169 @@ function createPortStub(
 }
 
 describe("fetchPlaceableViewportRenderPayload", () => {
+  it("publishes process payloads before asset contract batches settle", async () => {
+    const processResult = createProcessResultForTemplate("plc_contract_wait");
+    const processPlaceables = vi.fn(async () => ({
+      items: [processResult]
+    }));
+    let resolveContractsBatch:
+      | ((value: { items: PlaceableApiAssetContractsResult[] }) => void)
+      | null = null;
+    const getPlaceableAssetContractsBatch = vi.fn(
+      () =>
+        new Promise<{ items: PlaceableApiAssetContractsResult[] }>((resolve) => {
+          resolveContractsBatch = resolve;
+        })
+    );
+    const port: PlaceableApiPort = {
+      ...createPortStub(createProcessResult([]), async (cacheKey) => ({
+        cacheKey,
+        assets: []
+      })),
+      processPlaceables,
+      getPlaceableAssetContractsBatch
+    };
+    const onProcessPayload = vi.fn();
+
+    const payloadPromise = fetchPlaceableViewportRenderPayloadBatch(
+      port,
+      "token",
+      [{ key: "area_alpha:obj_contract_wait", lookup: { templateId: "plc_contract_wait" } }],
+      {
+        onProcessPayload,
+        preferBackendViewportBatch: false
+      }
+    );
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(onProcessPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: "plc_contract_wait",
+        cacheKey: "cache_plc_contract_wait"
+      }),
+      {
+        key: "area_alpha:obj_contract_wait",
+        lookup: { templateId: "plc_contract_wait" }
+      }
+    );
+
+    resolveContractsBatch?.({
+      items: [
+        {
+          cacheKey: "cache_plc_contract_wait",
+          assets: []
+        }
+      ]
+    });
+    await expect(payloadPromise).resolves.toEqual([
+      expect.objectContaining({
+        key: "area_alpha:obj_contract_wait",
+        payload: expect.objectContaining({
+          templateId: "plc_contract_wait",
+          cacheKey: "cache_plc_contract_wait"
+        })
+      })
+    ]);
+  });
+
+  it("keeps successful Area batch payloads when slow entries fall back to partial recovery", async () => {
+    const processPlaceables = vi.fn(async () => {
+      throw new Error("process batch unavailable");
+    });
+    const processPlaceable = vi.fn(async (_token: string, payload: { templateId?: string }) => {
+      const templateId = payload.templateId ?? "plc_unknown";
+      if (templateId === "plc_slow") {
+        throw new Error("single process timed out");
+      }
+      return createProcessResultForTemplate(templateId);
+    });
+    const getPlaceableAssetContractsBatch = vi.fn(
+      async (_token: string, items: Array<{ cacheKey: string }>) => ({
+        items: items.map((item) => ({
+          cacheKey: item.cacheKey,
+          assets: []
+        }))
+      })
+    );
+    const port: PlaceableApiPort = {
+      ...createPortStub(createProcessResult([]), async (cacheKey) => ({
+        cacheKey,
+        assets: []
+      })),
+      processPlaceable,
+      processPlaceables,
+      getPlaceableAssetContractsBatch
+    };
+
+    const payloads = await fetchPlaceableViewportRenderPayloadBatch(
+      port,
+      "token",
+      [
+        { key: "plc_ready", lookup: { templateId: "plc_ready" } },
+        { key: "plc_slow", lookup: { templateId: "plc_slow" } }
+      ],
+      {
+        allowPartialProcessBatchResults: true,
+        preferBackendViewportBatch: false
+      }
+    );
+
+    expect(processPlaceables).toHaveBeenCalledTimes(1);
+    expect(processPlaceable).toHaveBeenCalledTimes(2);
+    expect(payloads.map((payload) => payload.key)).toEqual(["plc_ready"]);
+    expect(payloads[0]?.payload.templateId).toBe("plc_ready");
+  });
+
+  it("falls back to process recovery when the backend viewport batch fast path fails", async () => {
+    const getPlaceableViewportRenderPayloadBatch = vi.fn(async () => {
+      throw new Error("viewport batch unavailable");
+    });
+    const processPlaceables = vi.fn(async () => {
+      throw new Error("process batch unavailable");
+    });
+    const processPlaceable = vi.fn(async (_token: string, payload: { templateId?: string }) =>
+      createProcessResultForTemplate(payload.templateId ?? "plc_unknown")
+    );
+    const getPlaceableAssetContractsBatch = vi.fn(
+      async (_token: string, items: Array<{ cacheKey: string }>) => ({
+        items: items.map((item) => ({
+          cacheKey: item.cacheKey,
+          assets: []
+        }))
+      })
+    );
+    const port: PlaceableApiPort = {
+      ...createPortStub(createProcessResult([]), async (cacheKey) => ({
+        cacheKey,
+        assets: []
+      })),
+      getPlaceableViewportRenderPayloadBatch,
+      processPlaceable,
+      processPlaceables,
+      getPlaceableAssetContractsBatch
+    };
+
+    const payloads = await fetchPlaceableViewportRenderPayloadBatch(
+      port,
+      "token",
+      [
+        { key: "plc_ready_a", lookup: { templateId: "plc_ready_a" } },
+        { key: "plc_ready_b", lookup: { templateId: "plc_ready_b" } }
+      ],
+      {
+        allowPartialProcessBatchResults: true
+      }
+    );
+
+    expect(getPlaceableViewportRenderPayloadBatch).toHaveBeenCalledTimes(1);
+    expect(processPlaceables).toHaveBeenCalledTimes(1);
+    expect(processPlaceable).toHaveBeenCalledTimes(2);
+    expect(payloads.map((payload) => payload.key)).toEqual(["plc_ready_a", "plc_ready_b"]);
+  });
+
   it("uses deterministic preferred ids and returns deterministic asset order prioritizing model/texture", async () => {
     const processResult = createProcessResult([
       createManifestAsset("meta_1", "metadata"),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMockAuthFacade } from "../../../../src/modules/auth/composition/createMockAuthFacade";
+import { createTestAuthFacade } from "../../../../src/modules/auth/composition/createTestAuthFacade";
 import type { TelemetryFacade } from "../../../../src/modules/telemetry/application/telemetryFacade";
 import type {
   TelemetryEvent,
@@ -48,11 +48,11 @@ function createSpyTelemetryFacade(eventNames: string[]): TelemetryFacade {
   };
 }
 
-describe("createMockAuthFacade composition", () => {
+describe("createTestAuthFacade composition", () => {
   it("tracks auth events through injected telemetry facade", async () => {
     const trackedEventNames: string[] = [];
     const telemetryFacade = createSpyTelemetryFacade(trackedEventNames);
-    const authFacade = createMockAuthFacade({ telemetryFacade });
+    const authFacade = createTestAuthFacade({ telemetryFacade });
 
     const authResult = await authFacade.authenticate({
       username: "admin.user",

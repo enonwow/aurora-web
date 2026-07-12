@@ -53,6 +53,35 @@ describe("roleTopbarPolicy canvas tools", () => {
     expect(height.canvasDebug.snapHeight).toBe(!angle.canvasDebug.snapHeight);
   });
 
+  it("toggles environment light, fog, and shadow controls", () => {
+    const initial = createDefaultToolbarState();
+    expect(initial.canvasDebug.displayShadows).toBe(true);
+    expect(initial.canvasDebug.displayFog).toBe(false);
+    expect(initial.canvasDebug.useAreaLighting).toBe(false);
+
+    const shadows = applyToolbarAction(initial, "display_shadows");
+    const fog = applyToolbarAction(shadows, "display_fog");
+    const areaLighting = applyToolbarAction(fog, "use_area_lighting");
+
+    expect(shadows.canvasDebug.displayShadows).toBe(false);
+    expect(fog.canvasDebug.displayFog).toBe(true);
+    expect(areaLighting.canvasDebug.useAreaLighting).toBe(true);
+    expect(areaLighting.lastCommand).toBe("use_area_lighting");
+  });
+
+  it("promotes area environment controls to supported builder actions", () => {
+    const environment = getRoleToolbarGroups("builder").find(
+      (group) => group.key === "environment"
+    );
+
+    expect(environment?.actions.find((action) => action.key === "display_shadows"))
+      .toMatchObject({ status: "mvp", supported: true });
+    expect(environment?.actions.find((action) => action.key === "display_fog"))
+      .toMatchObject({ status: "mvp", supported: true });
+    expect(environment?.actions.find((action) => action.key === "use_area_lighting"))
+      .toMatchObject({ status: "mvp", supported: true });
+  });
+
   it("toggles layer locks and unlocks all", () => {
     const initial = createDefaultToolbarState();
     const lockPlaceables = applyToolbarAction(initial, "lock_placeables");

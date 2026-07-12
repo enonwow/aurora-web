@@ -174,6 +174,212 @@ describe("sceneFactory", () => {
     });
   });
 
+  it("preserves source-backed creature optional data while normalizing scene objects", () => {
+    const creature = {
+      ...createNewSceneObject("creatures", 1, 1, 1),
+      creatureProperties: {
+        ...createNewSceneObject("creatures", 1, 1, 1).creatureProperties!,
+        alignment: "Lawful Good",
+        statistics: {
+          abilityScores: {
+            strength: 16,
+            dexterity: 13,
+            constitution: 14,
+            intelligence: 10,
+            wisdom: 12,
+            charisma: 8
+          },
+          racialModifiers: {
+            strength: 0,
+            dexterity: 0,
+            constitution: 0,
+            intelligence: 0,
+            wisdom: 0,
+            charisma: 0
+          },
+          saves: {
+            fortitudeBase: 0,
+            fortitudeBonus: 3,
+            reflexBase: 0,
+            reflexBonus: 2,
+            willBase: 0,
+            willBonus: 1
+          },
+          naturalArmorClass: 2,
+          baseArmorClass: 10,
+          dexterityBonus: 1,
+          sizeModifier: 0,
+          baseHitPoints: 36,
+          hitPointBonuses: 6,
+          currentHitPoints: 31,
+          maxHitPoints: 42,
+          movementRate: "4"
+        },
+        appearanceSettings: {
+          partBasedAppearance: true,
+          head: "9",
+          neck: "1",
+          torso: "2",
+          pelvis: "3",
+          rightBicep: "4",
+          leftBicep: "5",
+          rightForearm: "6",
+          leftForearm: "7",
+          rightHand: "8",
+          leftHand: "10",
+          rightThigh: "11",
+          leftThigh: "12",
+          rightShin: "13",
+          leftShin: "14",
+          rightFoot: "15",
+          leftFoot: "16",
+          wings: "17",
+          tail: "18",
+          colors: {
+            skin: "22",
+            hair: "23",
+            tattoo1: "24",
+            tattoo2: "25"
+          },
+          sourceOnlyParts: {
+            belt: "19",
+            robe: "26",
+            rightShoulder: "20",
+            leftShoulder: "21"
+          }
+        },
+        advancedSettings: {
+          blueprintResRef: "cre_guard",
+          paletteId: 9,
+          disarmable: true,
+          plot: true,
+          playerCharacter: true,
+          leavesLootableCorpse: true,
+          noPermanentDeath: true,
+          immortal: false,
+          bodyBag: true,
+          startingPackage: true,
+          treasureModel: "Default",
+          corpseDecayTimeSeconds: 33,
+          faction: "Faction 7",
+          subrace: "veteran",
+          deity: "Helm",
+          challengeRatingAdjustment: 1,
+          soundSet: "SoundSet 55",
+          perceptionRange: "11"
+        },
+        templateEntries: [{ templateId: 77 }],
+        spells: [
+          {
+            prepared: true,
+            name: "Spell 202",
+            spellLevel: 0,
+            castingLevel: 5,
+            metaMagic: 4,
+            flags: 8
+          }
+        ],
+        inventoryItems: [
+          {
+            resRef: "nw_wswmls001",
+            itemTemplateId: "item_nw_wswmls001",
+            itemResRef: "nw_wswmls001",
+            itemSourceFingerprint: "uti-mainhand-fingerprint",
+            itemSourceObjectKey: "templates/items/nw_wswmls001.uti",
+            x: 2,
+            y: 3,
+            dropable: true,
+            pickpocketable: false,
+            infinite: false
+          }
+        ],
+        equippedItems: [
+          {
+            resRef: "nw_maarcl001",
+            itemTemplateId: "item_nw_maarcl001",
+            itemResRef: "nw_maarcl001",
+            itemSourceFingerprint: "uti-armor-fingerprint",
+            itemSourceObjectKey: "templates/items/nw_maarcl001.uti",
+            slotMask: 2,
+            dropable: false,
+            pickpocketable: false,
+            infinite: true
+          }
+        ]
+      }
+    };
+
+    const [normalized] = rescaleSceneObjectsToSize([creature], 2, 2, 2, 2);
+
+    expect(normalized?.creatureProperties).toMatchObject({
+      alignment: "Lawful Good",
+      statistics: {
+        baseHitPoints: 36,
+        hitPointBonuses: 6,
+        currentHitPoints: 31,
+        maxHitPoints: 42
+      },
+      appearanceSettings: {
+        colors: {
+          skin: "22",
+          hair: "23",
+          tattoo1: "24",
+          tattoo2: "25"
+        },
+        sourceOnlyParts: {
+          belt: "19",
+          robe: "26",
+          rightShoulder: "20",
+          leftShoulder: "21"
+        }
+      },
+      advancedSettings: {
+        paletteId: 9,
+        playerCharacter: true,
+        bodyBag: true,
+        startingPackage: true
+      },
+      templateEntries: [{ templateId: 77 }],
+      spells: [
+        {
+          prepared: true,
+          name: "Spell 202",
+          spellLevel: 0,
+          castingLevel: 5,
+          metaMagic: 4,
+          flags: 8
+        }
+      ],
+      inventoryItems: [
+        {
+          resRef: "nw_wswmls001",
+          itemTemplateId: "item_nw_wswmls001",
+          itemResRef: "nw_wswmls001",
+          itemSourceFingerprint: "uti-mainhand-fingerprint",
+          itemSourceObjectKey: "templates/items/nw_wswmls001.uti",
+          x: 2,
+          y: 3,
+          dropable: true,
+          pickpocketable: false,
+          infinite: false
+        }
+      ],
+      equippedItems: [
+        {
+          resRef: "nw_maarcl001",
+          itemTemplateId: "item_nw_maarcl001",
+          itemResRef: "nw_maarcl001",
+          itemSourceFingerprint: "uti-armor-fingerprint",
+          itemSourceObjectKey: "templates/items/nw_maarcl001.uti",
+          slotMask: 2,
+          dropable: false,
+          pickpocketable: false,
+          infinite: true
+        }
+      ]
+    });
+  });
+
   it("creates scene objects with expected defaults", () => {
     const object = createNewSceneObject("placeables", 4.5, 7.5, 21);
 

@@ -7,7 +7,9 @@ import { createDefaultToolbarState } from "../../../../../src/modules/layout/rol
 import { createNewSceneObject } from "../../../../../src/modules/scene/domain/sceneFactory";
 
 describe("workspaceSceneInteraction MOVE_ALLOWED_KINDS", () => {
-  it("allows non-static placeables while keeping static placeables locked", () => {
+  it("allows moving both static and non-static placeables (Aurora Toolset parity)", () => {
+    // Static placeables are movable in the Aurora Toolset and per docs 4.1;
+    // the Static flag only gates VT rendering, not world move/rotate/height.
     const staticPlaceable = createNewSceneObject("placeables", 1, 1, 1);
     const dynamicPlaceable = {
       ...createNewSceneObject("placeables", 1, 1, 2),
@@ -22,7 +24,7 @@ describe("workspaceSceneInteraction MOVE_ALLOWED_KINDS", () => {
         objects: [staticPlaceable],
         toolbarState
       })
-    ).toEqual({ ids: [], reason: "selection_locked_or_immovable" });
+    ).toEqual({ ids: [staticPlaceable.id] });
     expect(
       resolveMovableVisibleSelection({
         selectedObjectIds: [dynamicPlaceable.id],

@@ -3,20 +3,20 @@ import {
   clearAuthBenchmarks,
   getAuthBenchmarks
 } from "../../../../src/modules/auth/authBenchmarks";
-import { mockAuthFacade } from "../../../../src/modules/auth/mockAuthFacade";
+import { testAuthFacade } from "../../../../src/modules/auth/testAuthFacade";
 import {
   clearTelemetry,
   getTelemetryEvents
 } from "../../../../src/modules/telemetry/telemetryStore";
 
-describe("mockAuthFacade contracts", () => {
+describe("testAuthFacade contracts", () => {
   beforeEach(() => {
     clearTelemetry();
     clearAuthBenchmarks();
   });
 
   it("returns session for valid credentials", async () => {
-    const response = await mockAuthFacade.authenticate({
+    const response = await testAuthFacade.authenticate({
       username: "dm.user",
       password: "dm123"
     });
@@ -27,11 +27,11 @@ describe("mockAuthFacade contracts", () => {
     }
 
     expect(response.session.user.role).toBe("dm");
-    expect(response.session.accessToken).toContain("mock-token");
+    expect(response.session.accessToken).toContain("test-token");
   });
 
   it("returns error for invalid credentials", async () => {
-    const response = await mockAuthFacade.authenticate({
+    const response = await testAuthFacade.authenticate({
       username: "dm.user",
       password: "bad-password"
     });
@@ -45,30 +45,30 @@ describe("mockAuthFacade contracts", () => {
   });
 
   it("returns role-based permissions after authorization", async () => {
-    const auth = await mockAuthFacade.authenticate({
+    const auth = await testAuthFacade.authenticate({
       username: "admin.user",
       password: "admin123"
     });
     if (!auth.ok) {
-      throw new Error("Expected successful mock auth for admin.user");
+      throw new Error("Expected successful test auth for admin.user");
     }
 
-    const authz = await mockAuthFacade.authorize(auth.session);
+    const authz = await testAuthFacade.authorize(auth.session);
 
     expect(authz.role).toBe("admin");
     expect(authz.permissions).toContain("admin.config.write");
   });
 
   it("records telemetry and benchmark samples for auth flow", async () => {
-    const auth = await mockAuthFacade.authenticate({
+    const auth = await testAuthFacade.authenticate({
       username: "builder.user",
       password: "builder123"
     });
     if (!auth.ok) {
-      throw new Error("Expected successful mock auth for builder.user");
+      throw new Error("Expected successful test auth for builder.user");
     }
 
-    await mockAuthFacade.authorize(auth.session);
+    await testAuthFacade.authorize(auth.session);
 
     const telemetry = getTelemetryEvents();
     const benchmarks = getAuthBenchmarks();
@@ -87,9 +87,9 @@ describe("mockAuthFacade contracts", () => {
     );
   });
 
-  it("keeps mock authentication latency in low milliseconds", async () => {
+  it("keeps test authentication latency in low milliseconds", async () => {
     for (let index = 0; index < 50; index += 1) {
-      await mockAuthFacade.authenticate({
+      await testAuthFacade.authenticate({
         username: "viewer.user",
         password: "viewer123"
       });

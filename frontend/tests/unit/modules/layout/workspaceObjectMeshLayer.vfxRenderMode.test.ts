@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
-import { rebuildObjectMeshes } from "../../../../src/modules/layout/adapters/three/workspaceObjectMeshLayer";
+import {
+  rebuildObjectMeshes,
+  resolveObjectVisualOffsetVectorForTests,
+  resolveObjectVisualRotationEulerForTests,
+  resolveObjectVisualScaleVectorForTests,
+  writePlaceableTwoDaLightRenderDiagnostics
+} from "../../../../src/modules/layout/adapters/three/workspaceObjectMeshLayer";
+import { createPlaceableTwoDaLightPreviewGroup } from "../../../../src/modules/layout/adapters/three/workspacePlaceableModelPresentation";
+import { resolveAuroraAreaRenderYaw } from "../../../../src/modules/layout/adapters/three/workspaceAreaRenderCoordinates";
+import { resolvePlaceableTextureDeliveryUrlsByReference } from "../../../../src/modules/layout/application/workspacePlaceableRenderContracts";
 import type { PlaceableViewportRenderPayload } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
+import plcT04ParserPayload from "../../../fixtures/placeable-vfx/plc_t04.parser-payload.json";
 
 function createVfxPayloadWithReadyModel(
   options: {
@@ -120,6 +130,82 @@ function createVfxPayloadWithReadyModel(
   } as PlaceableViewportRenderPayload;
 }
 
+function createPlaceablesTwoDaLightPayload(
+  options: {
+    lightState?: number;
+    lightStateSource?: string;
+    lightStateProofStatus?: string;
+    lightStateDefaulted?: boolean;
+    includeRuntimeLightState?: boolean;
+    includeShadowSize?: boolean;
+    shadowSize?: number;
+    shadowSizeOverrideSource?: string;
+    shadowSizeOverrideProofStatus?: string;
+  } = {}
+): PlaceableViewportRenderPayload {
+  const includeRuntimeLightState = options.includeRuntimeLightState !== false;
+  const includeShadowSize = options.includeShadowSize !== false;
+  const payload = createVfxPayloadWithReadyModel({
+    templateId: "plc_lamppost",
+    resref: "plc_lamppost",
+    placeableName: "Lamp Post",
+    metadata: {
+      source2daLightColorRaw: "7",
+      source2daLightColorRow: 7,
+      source2daLightColorLabel: "Yellow",
+      source2daLightRed: 1.9,
+      source2daLightGreen: 1.7,
+      source2daLightBlue: 0.06,
+      source2daToolsetRed: 0.96,
+      source2daToolsetGreen: 0.87,
+      source2daToolsetBlue: 0.03,
+      source2daLightOffsetX: 0.25,
+      source2daLightOffsetY: -0.5,
+      source2daLightOffsetZ: 1.75,
+      ...(includeShadowSize ? { source2daShadowSize: options.shadowSize ?? 2 } : {}),
+      ...(options.shadowSizeOverrideSource
+        ? { source2daShadowSizeOverrideSource: options.shadowSizeOverrideSource }
+        : {}),
+      ...(options.shadowSizeOverrideProofStatus
+        ? { source2daShadowSizeOverrideProofStatus: options.shadowSizeOverrideProofStatus }
+        : {})
+    },
+    ...(includeRuntimeLightState
+      ? {
+          placeableRuntime: {
+            state: {
+              lightState: options.lightState ?? 1,
+              ...(options.lightStateSource
+                ? { lightStateSource: options.lightStateSource }
+                : {}),
+              ...(options.lightStateProofStatus
+                ? { lightStateProofStatus: options.lightStateProofStatus }
+                : {}),
+              ...(typeof options.lightStateDefaulted === "boolean"
+                ? { lightStateDefaulted: options.lightStateDefaulted }
+                : {})
+            }
+          }
+        }
+      : {})
+  });
+  payload.placeable.category = "lights";
+  payload.placeable.placeableSubtype = "light_source";
+  payload.placeable.render = {
+    backendType: "model",
+    frontendType: "model",
+    rendererPreset: "placeable-model",
+    isDoor: false,
+    isVfx: false
+  } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+  payload.renderPackage = {
+    status: "missing_assets",
+    diagnostics: [],
+    assetRefs: {}
+  } as unknown as PlaceableViewportRenderPayload["renderPackage"];
+  return payload;
+}
+
 function createSingleTextureAuroraEmitter(
   options: {
     texture?: string;
@@ -159,6 +245,14 @@ function createSingleTextureAuroraEmitter(
       }
     ]
   };
+}
+
+function createPlcT04SourceMdlAuroraEmitter(): NonNullable<
+  NonNullable<PlaceableViewportRenderPayload["renderPackage"]>["auroraEmitter"]
+> {
+  return plcT04ParserPayload as NonNullable<
+    NonNullable<PlaceableViewportRenderPayload["renderPackage"]>["auroraEmitter"]
+  >;
 }
 
 function createDebugState() {
@@ -553,7 +647,7 @@ function expectAuroraAtlasBatchParticleUvs(
 }
 
 describe("workspaceObjectMeshLayer VFX render mode", () => {
-  function createRuntime(load: ReturnType<typeof vi.fn>) {
+function createRuntime(load: ReturnType<typeof vi.fn>) {
     const textureLoader = vi.fn((_url: string, onLoad: (texture: THREE.Texture) => void) => {
       onLoad(new THREE.Texture());
     });
@@ -574,6 +668,41 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       placeableNormalizedModelCacheByKey: new Map<string, THREE.Object3D>(),
       placeableNormalizedModelPendingByKey: new Map<string, Promise<THREE.Object3D | null>>()
     } as unknown as Parameters<typeof rebuildObjectMeshes>[0];
+  }
+
+  async function flushRendererAsyncWork(frames = 2): Promise<void> {
+    for (let frame = 0; frame < frames; frame += 1) {
+      await Promise.resolve();
+      await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(() => resolve());
+          return;
+        }
+        setTimeout(resolve, 0);
+      });
+      await Promise.resolve();
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+  }
+
+  async function waitForRuntimeObjectUserData(
+    runtime: Parameters<typeof rebuildObjectMeshes>[0],
+    objectId: string,
+    predicate: (userData: THREE.Object3D["userData"]) => boolean
+  ): Promise<THREE.Object3D | undefined> {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const root = runtime.objectMeshById.get(objectId);
+      if (root && predicate(root.userData)) {
+        return root;
+      }
+      await flushRendererAsyncWork(1);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
+    }
+    return runtime.objectMeshById.get(objectId);
   }
 
   it("marks Area GIT placeables and doors with shared renderer runtime evidence", () => {
@@ -663,13 +792,99 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       expect(root?.userData.auroraAreaObjectSharedRendererPlaceholderReason).toBe(
         "missing-payload"
       );
-      const markedDescendant = root?.children.find(
-        (child) =>
-          child.userData.auroraAreaObjectSharedRendererRuntimeMarker ===
+      let markedDescendantOrSelf: THREE.Object3D | null = null;
+      root?.traverse((node) => {
+        if (
+          node.userData.auroraAreaObjectSharedRendererRuntimeMarker ===
           "shared-placeables-renderer"
-      );
-      expect(markedDescendant).toBeDefined();
+        ) {
+          markedDescendantOrSelf ??= node;
+        }
+      });
+      expect(markedDescendantOrSelf).toBeDefined();
     });
+  });
+
+  it("applies stored visual transform to static Area GIT placeables in the renderer", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "area_bakery:plc_static_visual_transform",
+      kind: "placeables",
+      name: "Bakery Counter",
+      resRef: "plc_bakery_counter",
+      tag: "PLC_BAKERY_COUNTER",
+      x: 1,
+      y: 2,
+      z: 0.05,
+      bearing: Math.PI / 6,
+      isStatic: true,
+      visualTransform: {
+        scale: 1.4,
+        offsetX: 0.25,
+        offsetY: 0.5,
+        offsetZ: 0.15,
+        pitch: 0.1,
+        yaw: Math.PI / 8,
+        roll: -0.2
+      },
+      source: {
+        type: "aurora_git",
+        areaId: "area_bakery",
+        sourceObjectId: "plc_static_visual_transform",
+        sourceKind: "placeable",
+        templateId: "plc_bakery_counter"
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      4,
+      4,
+      10,
+      true,
+      10,
+      [],
+      false,
+      null
+    );
+
+    expect(load).not.toHaveBeenCalled();
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root).toBeDefined();
+    const visualOffset = resolveObjectVisualOffsetVectorForTests(
+      object.visualTransform,
+      object.bearing,
+      resolveAuroraAreaRenderYaw,
+      true
+    );
+    const visualRotation = resolveObjectVisualRotationEulerForTests(
+      object.visualTransform,
+      object.bearing,
+      resolveAuroraAreaRenderYaw,
+      true,
+      object
+    );
+    const visualScale = resolveObjectVisualScaleVectorForTests(object.visualTransform, 1);
+    expect(root!.userData.auroraAreaObjectRenderTransformOffsetX).toBeCloseTo(visualOffset.x);
+    expect(root!.userData.auroraAreaObjectRenderTransformOffsetY).toBeCloseTo(visualOffset.y);
+    expect(root!.userData.auroraAreaObjectRenderTransformOffsetZ).toBeCloseTo(visualOffset.z);
+    expect(root!.position.x).toBeCloseTo(
+      Number(root!.userData.auroraAreaObjectRenderAnchorX) + visualOffset.x
+    );
+    expect(root!.position.z).toBeCloseTo(
+      Number(root!.userData.auroraAreaObjectRenderAnchorZ) + visualOffset.z
+    );
+    expect(root!.position.y).toBeGreaterThan(0.15);
+    expect(root!.rotation.x).toBeCloseTo(visualRotation.x);
+    expect(root!.rotation.y).toBeCloseTo(visualRotation.y);
+    expect(root!.rotation.z).toBeCloseTo(visualRotation.z);
+    expect(root!.scale.x).toBeCloseTo(visualScale.x);
+    expect(root!.scale.y).toBeCloseTo(visualScale.y);
+    expect(root!.scale.z).toBeCloseTo(visualScale.z);
   });
 
   it("classifies Area GIT placeable model loader failures after shared payload binding", async () => {
@@ -800,14 +1015,12 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       "still-loading"
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-
-    const failedRoot = runtime.objectMeshById.get(object.id);
+    const failedRoot = await waitForRuntimeObjectUserData(
+      runtime,
+      object.id,
+      (userData) =>
+        userData.auroraAreaObjectSharedRendererGeometryStatus === "model-load-failed"
+    );
     expect(failedRoot?.userData.auroraAreaObjectSharedRendererGeometryStatus).toBe(
       "model-load-failed"
     );
@@ -880,6 +1093,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       null
     );
 
+    expect(load).not.toHaveBeenCalled();
     const root = runtime.objectMeshById.get(object.id);
     expect(root).toBeInstanceOf(THREE.Group);
     expect(root?.userData.vfxPreviewRole).toBe("pending-render-payload");
@@ -1006,7 +1220,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
 
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -1055,6 +1269,207 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(texturedMeshCount).toBeGreaterThan(0);
   });
 
+  it("keeps preview-only source MDL flame and smoke emitters renderable without a static model", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const textureLoader = vi.fn();
+    runtime.placeableTgaTextureLoader = { load: textureLoader };
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_tm_pl_lightred",
+      resref: "tm_pl_lightred",
+      placeableName: "VFX: Flame, Large 1",
+      textureFileName: "fxpa_flame00.tga",
+      textureDeliveryUrl: "/assets/fxpa_flame00.tga",
+      metadata: {
+        lookupModelResRef: "plc_t04",
+        modelResRef: "plc_t04"
+      },
+      placeableRuntime: {
+        state: {
+          animationState: 4,
+          lightState: 0
+        }
+      },
+      auroraEmitter: createPlcT04SourceMdlAuroraEmitter()
+    });
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      diagnostics: [
+        {
+          code: "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL",
+          severity: "warn",
+          message: "Source MDL emitter payload is preview-only."
+        }
+      ],
+      assetRefs: {
+        textureAssetIds: ["texture-1", "plc-t04-smoke-texture"]
+      },
+      textureBindings: [
+        {
+          reference: "fxpa_flame00",
+          assetId: "texture-1",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_flame00.tga",
+          deliveryUrl: "/assets/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_smoke01",
+          assetId: "plc-t04-smoke-texture",
+          fileName: "fxpa_smoke01.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_smoke01.tga",
+          deliveryUrl: "/assets/fxpa_smoke01.tga"
+        }
+      ],
+      glbUrl: ""
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    payload.placeable.assetManifest.assets = [
+      ...payload.placeable.assetManifest.assets,
+      {
+        assetId: "plc-t04-smoke-texture",
+        role: "texture",
+        fileName: "fxpa_smoke01.tga"
+      } as PlaceableViewportRenderPayload["placeable"]["assetManifest"]["assets"][number]
+    ];
+    payload.assetContracts.assets = [
+      ...payload.assetContracts.assets,
+      {
+        assetId: "plc-t04-smoke-texture",
+        deliveryUrl: "/assets/fxpa_smoke01.tga"
+      } as PlaceableViewportRenderPayload["assetContracts"]["assets"][number]
+    ];
+
+    const object = {
+      id: "area_enon_bakery:obj_plc_vfxflamelarge1",
+      kind: "placeables",
+      name: "VFX: Flame, Large 1",
+      resRef: "tm_pl_lightred",
+      tag: "VFXFlameLarge1",
+      x: 2.557,
+      y: 2.52,
+      z: 0.05,
+      bearing: 12.7025,
+      isStatic: false,
+      source: {
+        type: "aurora_git",
+        areaId: "enon_bakery",
+        sourceObjectId: "obj_plc_vfxflamelarge1",
+        sourceKind: "placeable",
+        templateId: "tm_pl_lightred",
+        appearanceType: 332
+      },
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      true,
+      {
+        [object.id]: payload
+      }
+    );
+
+    expect(textureLoader).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/assets/fxpa_flame00.tga",
+      expect.any(Function),
+      undefined,
+      expect.any(Function)
+    );
+    expect(textureLoader).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      expect.any(Function),
+      undefined,
+      expect.any(Function)
+    );
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root).toBeInstanceOf(THREE.Group);
+    expect(root?.userData.sourceMdlEmitterPreviewStatus).toBe("active");
+    expect(root?.userData.sourceMdlEmitterPreviewMode).toBe(
+      "placeable-source-mdl-emitter-overlay"
+    );
+    expect(root?.userData.sourceMdlEmitterPreviewTextureStatus).toBe("loading");
+    expect(root?.userData.vfxPreviewRole).toBe("aurora-multi-emitter");
+    expect(root?.userData.vfxEmitterCount).toBe(2);
+    expect(root?.userData.auroraEmitterNodes).toEqual(["OmenEmitter240", "fire!02"]);
+    expect(root?.userData.auroraEmitterTextures).toEqual(["fxpa_flame00", "fxpa_smoke01"]);
+    expect(root?.userData.auroraEmitterSelectedAnimationName).toBeUndefined();
+    expect(root?.userData.auroraEmitterLightStateCouplingPolicy).toBe(
+      "independent-animationstate-only"
+    );
+    expect(root?.userData.auroraEmitterLightStateDiagnostic).toBe(
+      "VFX_EMITTER_ANIMATION_NOT_DRIVEN_BY_LIGHTSTATE"
+    );
+    expect(root?.userData.auroraEmitterObservedLightState).toBe(0);
+    expect(root?.userData.vfxTextureStatus).toBe("loading");
+    expect(root?.userData.auroraAreaObjectSharedRendererPayloadStatus).toBe("payload-bound");
+    expect(root?.userData.auroraAreaObjectSharedRendererPlaceholderReason).toBe("none");
+    const emitterRoots = root?.children.filter(
+      (child) => child.userData?.auroraEmitterPackageSource === "source-mdl"
+    );
+    const flameEmitter = emitterRoots?.find(
+      (child) => child.userData?.auroraEmitterNode === "OmenEmitter240"
+    );
+    const smokeEmitter = emitterRoots?.find(
+      (child) => child.userData?.auroraEmitterNode === "fire!02"
+    );
+    expect(flameEmitter?.userData.auroraEmitterSourceMdlPreviewKind).toBe("flame");
+    expect(flameEmitter?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-flame-fountain"
+    );
+    expect(flameEmitter?.userData.auroraEmitterSelectedAnimationName).toBe("on");
+    expect(flameEmitter?.userData.auroraEmitterAnimationState).toBe(4);
+    expect(flameEmitter?.userData.auroraEmitterSourceMdlTransformPositionPolicy).toBe(
+      "source-mdl-model-space-position"
+    );
+    expect(flameEmitter?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(flameEmitter?.userData.auroraEmitterParticleSizeTimelineScale).toBe(1);
+    expect(flameEmitter?.userData.auroraEmitterSourceMdlParticleSizeScaleSource).toContain(
+      "same model-space host"
+    );
+    expect(flameEmitter?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "source-mdl-flame-fountain-atlas-size-curve"
+    );
+    expect(flameEmitter?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "flame-atlas-campfire-visibility-floor"
+    );
+    expect(flameEmitter?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "surface-emitter-catalog-visibility-floor"
+    );
+    expect(smokeEmitter?.userData.auroraEmitterSourceMdlPreviewKind).toBe("smoke");
+    expect(smokeEmitter?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-smoke-fountain"
+    );
+    expect(smokeEmitter?.userData.auroraEmitterSelectedAnimationName).toBe("on");
+    expect(smokeEmitter?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(smokeEmitter?.userData.auroraEmitterParticleSizeTimelineScale).toBe(1);
+    let meshCount = 0;
+    root?.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        meshCount += 1;
+      }
+    });
+    expect(meshCount).toBeGreaterThan(0);
+  });
+
   it("renders source MDL light-node VFX with visible preview markers by default", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
@@ -1099,13 +1514,24 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
               position: [0, 0, 2.5]
             },
             radius: 3,
-            multiplier: 3,
+            shadowRadius: 1.25,
+            verticalDisplacement: 0.35,
+            multiplier: 1,
             color: [0, 0.592157, 0.141176],
             ambientOnly: false,
             dynamicType: 1,
             affectDynamic: true,
             shadow: true,
             lightPriority: 2,
+            generateFlare: true,
+            textureNames: ["fx_flare_core", "fx_flare_ring"],
+            flareSizes: [0.25, 0.5],
+            flarePositions: [0.1, 0.9],
+            flareColorShifts: [
+              [1, 0.8, 0.4],
+              [0.4, 0.8, 1]
+            ],
+            flareRadius: 12,
             animations: [
               {
                 animationName: "default",
@@ -1123,6 +1549,21 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
                 radiusTimeline: [
                   { time: 0, value: 3 },
                   { time: 2.33333, value: 10 },
+                  { time: 4.66667, value: 3 }
+                ],
+                shadowRadiusTimeline: [
+                  { time: 0, value: 1.25 },
+                  { time: 2.33333, value: 2.5 },
+                  { time: 4.66667, value: 1.25 }
+                ],
+                verticalDisplacementTimeline: [
+                  { time: 0, value: 0.35 },
+                  { time: 2.33333, value: 0.75 },
+                  { time: 4.66667, value: 0.35 }
+                ],
+                multiplierTimeline: [
+                  { time: 0, value: 3 },
+                  { time: 2.33333, value: 7 },
                   { time: 4.66667, value: 3 }
                 ]
               }
@@ -1152,7 +1593,6 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       }
     );
 
-    expect(load).not.toHaveBeenCalled();
     const root = runtime.objectMeshById.get(object.id);
     expect(root?.userData.vfxPreviewRole).toBe("aurora-light-node-group");
     expect(root?.userData.auroraVfxPreviewMode).toBe("aurora_light_node_preview");
@@ -1170,6 +1610,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const lightNodes: THREE.Object3D[] = [];
     const radiusGizmos: THREE.Mesh[] = [];
     const cores: THREE.Mesh[] = [];
+    const flareSprites: THREE.Sprite[] = [];
     root?.traverse((node) => {
       if (node instanceof THREE.PointLight) {
         pointLights.push(node);
@@ -1183,19 +1624,3029 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       if (node.userData?.auroraLightPreviewRole === "source-mdl-light-core") {
         cores.push(node as THREE.Mesh);
       }
+      if (node.userData?.auroraLightPreviewRole === "source-mdl-light-flare-sprite") {
+        flareSprites.push(node as THREE.Sprite);
+      }
     });
 
     expect(pointLights).toHaveLength(1);
+    expect(pointLights[0]?.intensity).toBeCloseTo(3, 5);
+    expect(pointLights[0]?.color.r).toBeCloseTo(0.0392157, 5);
     expect(pointLights[0]?.color.g).toBeCloseTo(0.6, 5);
+    expect(pointLights[0]?.color.b).toBeCloseTo(0.164706, 5);
     expect(pointLights[0]?.distance).toBeCloseTo(1.5, 5);
-    expect(lightNodes[0]?.position.y).toBeCloseTo(1.25, 5);
+    expect(pointLights[0]?.userData.auroraLightSourceRadius).toBe(3);
+    expect(pointLights[0]?.userData.auroraLightSourceRadiusUnits).toBe(
+      "aurora-model-units"
+    );
+    expect(pointLights[0]?.userData.auroraLightSourceUnitScale).toBe(0.5);
+    expect(pointLights[0]?.userData.auroraLightSourceUnitScaleSource).toBe(
+      "Aurora Web source-unit scale for source MDL light nodes; catalog/model preview uses max(objectRadius,0.5)"
+    );
+    expect(
+      pointLights[0]?.userData.auroraLightSourceRadiusWorldDistance
+    ).toBeCloseTo(1.5, 5);
+    expect(
+      pointLights[0]?.userData.auroraLightSourceRadiusWorldDistanceSource
+    ).toBe(
+      "source MDL light-node radius multiplied by max(objectRadius,0.5); auroraLightWorldRadius may additionally apply preview floor objectRadius*0.9"
+    );
+    expect(pointLights[0]?.castShadow).toBe(true);
+    expect(pointLights[0]?.shadow.radius).toBeCloseTo(1.25, 5);
+    expect(pointLights[0]?.shadow.camera.far).toBeCloseTo(1.5, 5);
+    expect(pointLights[0]?.userData.auroraLightShadowMapBlurRadius).toBeCloseTo(1.25, 5);
+    expect(pointLights[0]?.userData.auroraLightShadowMapBlurSource).toContain(
+      "Three.PointLight.shadow.radius is a shadow-map blur preview value"
+    );
+    expect(pointLights[0]?.userData.auroraLightShadowProjectionSourceRadius).toBeCloseTo(
+      1.25,
+      5
+    );
+    expect(
+      pointLights[0]?.userData.auroraLightShadowProjectionRadiusWorldDistance
+    ).toBeCloseTo(0.625, 5);
+    expect(pointLights[0]?.userData.auroraLightShadowProjectionRadiusSource).toContain(
+      "chooses shadowradius +0x60 when positive, otherwise radius +0x58"
+    );
+    expect(pointLights[0]?.userData.auroraLightShadowProjectionRadiusProofStatus).toBe(
+      "source-backed-shadowradius-profile-scaled-three-shadow-camera-far"
+    );
+    expect(pointLights[0]?.userData.auroraLightShadowProofStatus).toBe(
+      "source-backed-mdl-shadow-pointlight-castShadow"
+    );
+    expect(lightNodes[0]?.position.y).toBeCloseTo(1.425, 5);
     expect(lightNodes[0]?.userData.auroraLightSelectedAnimationName).toBe("default");
+    expect(lightNodes[0]?.userData.auroraLightSourceRadius).toBe(3);
+    expect(lightNodes[0]?.userData.auroraLightSourceRadiusUnits).toBe(
+      "aurora-model-units"
+    );
+    expect(lightNodes[0]?.userData.auroraLightSourceUnitScale).toBe(0.5);
+    expect(
+      lightNodes[0]?.userData.auroraLightSourceRadiusWorldDistance
+    ).toBeCloseTo(1.5, 5);
+    expect(lightNodes[0]?.userData.auroraLightWorldRadius).toBeCloseTo(1.5, 5);
+    expect(lightNodes[0]?.userData.auroraLightAnimatedMultiplier).toBeCloseTo(3, 5);
+    expect(lightNodes[0]?.userData.auroraLightShadowRadius).toBeCloseTo(1.25, 5);
+    expect(lightNodes[0]?.userData.auroraLightAnimatedShadowRadius).toBeCloseTo(1.25, 5);
+    expect(lightNodes[0]?.userData.auroraLightShadowProjectionSourceRadius).toBeCloseTo(
+      1.25,
+      5
+    );
+    expect(
+      lightNodes[0]?.userData.auroraLightShadowProjectionRadiusWorldDistance
+    ).toBeCloseTo(0.625, 5);
+    expect(lightNodes[0]?.userData.auroraLightShadowEnabled).toBe(true);
+    expect(lightNodes[0]?.userData.auroraLightShadowProofStatus).toBe(
+      "source-backed-mdl-shadow-pointlight-castShadow"
+    );
+    expect(lightNodes[0]?.userData.auroraLightVerticalDisplacement).toBeCloseTo(0.35, 5);
+    expect(lightNodes[0]?.userData.auroraLightAnimatedVerticalDisplacement).toBeCloseTo(
+      0.35,
+      5
+    );
+    expect(lightNodes[0]?.userData.auroraLightGenerateFlare).toBe(true);
+    expect(lightNodes[0]?.userData.auroraLightTextureNames).toEqual([
+      "fx_flare_core",
+      "fx_flare_ring"
+    ]);
+    expect(lightNodes[0]?.userData.auroraLightFlareSizeCount).toBe(2);
+    expect(lightNodes[0]?.userData.auroraLightFlarePositionCount).toBe(2);
+    expect(lightNodes[0]?.userData.auroraLightFlareColorShiftCount).toBe(2);
+    expect(lightNodes[0]?.userData.auroraLightFlareRadius).toBeCloseTo(12, 5);
+    expect(lightNodes[0]?.userData.auroraLightFlareSpriteCount).toBe(2);
+    expect(lightNodes[0]?.userData.auroraLightFlarePreviewMode).toBe(
+      "source-mdl-flare-sprite-preview-screen-space-formula-unverified"
+    );
+    expect(lightNodes[0]?.userData.auroraLightFlareProofStatus).toBe(
+      "source-backed-mdl-flare-payload-screen-space-formula-unverified"
+    );
+    expect(lightNodes[0]?.userData.auroraLightFlareRadiusProofStatus).toBe(
+      "source-token-preserved-write-target-unverified"
+    );
+    expect(root?.userData.auroraLightFlarePayloadNodeCount).toBe(1);
+    expect(root?.userData.auroraLightFlareSpriteCount).toBe(2);
+    expect(root?.userData.auroraLightFlarePreviewMode).toBe(
+      "source-mdl-flare-sprite-preview-screen-space-formula-unverified"
+    );
+    expect(root?.userData.auroraLightFlareRadiusWriteUnverified).toBe(true);
     expect(lightNodes[0]?.userData.auroraLightVisualPreviewMode).toBe(
       "source-mdl-light-visible-preview"
     );
     expect(radiusGizmos).toHaveLength(0);
-    expect(cores).toHaveLength(1);
-    expect(cores[0]?.visible).toBe(true);
+    expect(cores).toHaveLength(0);
+    expect(flareSprites).toHaveLength(2);
+    expect(flareSprites[0]?.userData.auroraLightFlareSourceTextureName).toBe(
+      "fx_flare_core"
+    );
+    expect(flareSprites[0]?.userData.auroraLightFlareSourceSize).toBeCloseTo(0.25, 5);
+    expect(flareSprites[0]?.userData.auroraLightFlareSourcePosition).toBeCloseTo(0.1, 5);
+    expect(flareSprites[0]?.userData.auroraLightFlareSourceColorShift).toEqual([
+      1,
+      0.8,
+      0.4
+    ]);
+    expect(flareSprites[0]?.userData.auroraLightFlareProofStatus).toBe(
+      "source-backed-mdl-flare-payload-screen-space-formula-unverified"
+    );
+    expect(flareSprites[0]?.userData.auroraLightFlarePreviewScale).toBeGreaterThan(0);
+  });
+
+  it("overlays source MDL light nodes on non-VFX light-source placeable models", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_tnp_fire_001",
+      kind: "placeables",
+      name: "Light: Brazier 2",
+      resRef: "tnp_fire_001",
+      tag: "TNP_FIRE_001",
+      x: 0,
+      y: 0,
+      z: 0,
+      bearing: 0,
+      isStatic: false,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as const;
+    const payload = createVfxPayloadWithReadyModel({
+      templateId: "plc_tnp_fire_001",
+      resref: "tnp_fire_001",
+      placeableName: "Light: Brazier 2",
+      auroraLight: {
+        source: "source-mdl",
+        lights: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelFileName: "tnp_fire_001.mdl",
+            sourceModelObjectKey: "modules/current/__aurora/sources/vanilla/models/tnp_fire_001.mdl",
+            nodeName: "auralight01",
+            parentNodeName: "tnp_fire_001",
+            radius: 2,
+            multiplier: 1,
+            color: [1, 0.803922, 0],
+            ambientOnly: false,
+            dynamicType: 1,
+            affectDynamic: true,
+            shadow: true,
+            lightPriority: 3,
+            fadingLight: true
+          }
+        ],
+        diagnostics: []
+      }
+    });
+    payload.placeable.category = "lights";
+    payload.placeable.placeableSubtype = "light_source";
+    payload.placeable.render = {
+      backendType: "light_source",
+      frontendType: "placeable",
+      rendererPreset: "placeable-light",
+      isDoor: false,
+      isVfx: false
+    } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+    if (payload.renderPackage) {
+      delete payload.renderPackage.auroraEmitter;
+      payload.renderPackage.diagnostics = [
+        {
+          code: "PLACEABLE_AURORA_MDL_LIGHT_PAYLOAD_READY",
+          severity: "warn",
+          message: "Source MDL light nodes were parsed and attached."
+        },
+        {
+          code: "VFX_AURORA_MDL_LIGHT_PAYLOAD_READY",
+          severity: "warn",
+          message: "Source MDL light nodes were parsed and attached."
+        }
+      ];
+    }
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    expect(load).toHaveBeenCalled();
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const lightNodes: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.userData?.vfxPreviewRole === "aurora-light-node") {
+        lightNodes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.color.g).toBeCloseTo(0.803922, 5);
+    expect(pointLights[0]?.color.b).toBeCloseTo(0, 5);
+    expect(pointLights[0]?.distance).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.userData.auroraLightQuadraticAtten).toBeCloseTo(1.125, 5);
+    expect(pointLights[0]?.userData.auroraLightQuadraticAttenProofStatus).toBe(
+      "source-backed-mdl-radius-quadratic-attenuation"
+    );
+    expect(pointLights[0]?.userData.auroraLightFalloffFormula).toBe(
+      "max(0,1-distance/radius)"
+    );
+    expect(pointLights[0]?.userData.auroraLightFalloffProofStatus).toBe(
+      "source-backed-active-light-linear-radius-falloff"
+    );
+    expect(lightNodes[0]?.userData.auroraLightNodeName).toBe("auralight01");
+    expect(lightNodes[0]?.userData.auroraLightQuadraticAtten).toBeCloseTo(1.125, 5);
+    expect(lightNodes[0]?.userData.auroraLightPointLightDecay).toBe(1);
+    expect(lightNodes[0]?.userData.auroraLightShadow).toBe(true);
+    expect(lightNodes[0]?.userData.auroraLightPreviewMode).toBe(
+      "source-mdl-light-node-preview"
+    );
+  });
+
+  it("clamps source MDL light negative radius, multiplier, and shadow radius without losing source facts", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_negative_light",
+      kind: "placeables",
+      name: "Light: Negative Edge",
+      resRef: "plc_negative_light",
+      tag: "PLC_NEGATIVE_LIGHT",
+      x: 0,
+      y: 0,
+      z: 0,
+      bearing: 0,
+      isStatic: false,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as const;
+    const payload = createVfxPayloadWithReadyModel({
+      templateId: "plc_negative_light",
+      resref: "plc_negative_light",
+      placeableName: "Light: Negative Edge",
+      auroraLight: {
+        source: "source-mdl",
+        lights: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelFileName: "negative_light.mdl",
+            sourceModelObjectKey: "modules/current/models/negative_light.mdl",
+            nodeName: "negative_radius_light",
+            parentNodeName: "negative_light",
+            radius: -4,
+            multiplier: -2,
+            shadowRadius: -5,
+            color: [1.2, 0.25, -0.5],
+            ambientOnly: false,
+            dynamicType: 1,
+            affectDynamic: true,
+            shadow: true,
+            lightPriority: 1
+          }
+        ],
+        diagnostics: []
+      }
+    });
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const lightNodes: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.userData?.vfxPreviewRole === "aurora-light-node") {
+        lightNodes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(lightNodes).toHaveLength(1);
+    expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.color.g).toBeCloseTo(0.25, 5);
+    expect(pointLights[0]?.color.b).toBeCloseTo(0, 5);
+    expect(pointLights[0]?.distance).toBeGreaterThan(0);
+    expect(pointLights[0]?.intensity).toBe(0);
+    expect(pointLights[0]?.shadow.radius).toBe(0);
+    expect(pointLights[0]?.userData.auroraLightRadius).toBe(-4);
+    expect(pointLights[0]?.userData.auroraLightAnimatedSourceRadius).toBe(-4);
+    expect(pointLights[0]?.userData.auroraLightMultiplier).toBe(-2);
+    expect(pointLights[0]?.userData.auroraLightAnimatedMultiplier).toBe(0);
+    expect(pointLights[0]?.userData.auroraLightShadowRadius).toBe(-5);
+    expect(pointLights[0]?.userData.auroraLightAnimatedShadowRadius).toBe(-5);
+    expect(pointLights[0]?.userData.auroraLightShadowProjectionSourceRadius).toBe(-4);
+    expect(pointLights[0]?.userData.auroraLightShadowProjectionRadiusWorldDistance).toBe(0);
+    expect(pointLights[0]?.userData.auroraLightQuadraticAtten).toBeCloseTo(450, 5);
+    expect(pointLights[0]?.userData.auroraLightQuadraticAttenProofStatus).toBe(
+      "source-backed-mdl-radius-quadratic-attenuation"
+    );
+    expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.userData.auroraLightFalloffProofStatus).toBe(
+      "source-backed-active-light-linear-radius-falloff"
+    );
+    expect(lightNodes[0]?.userData).toMatchObject({
+      auroraLightRadius: -4,
+      auroraLightAnimatedSourceRadius: -4,
+      auroraLightMultiplier: -2,
+      auroraLightAnimatedMultiplier: 0,
+      auroraLightShadowRadius: -5,
+      auroraLightAnimatedShadowRadius: -5,
+      auroraLightShadowProjectionSourceRadius: -4,
+      auroraLightShadowProjectionRadiusWorldDistance: 0,
+      auroraLightPointLightDecay: 1,
+      auroraLightFalloffFormula: "max(0,1-distance/radius)",
+      auroraLightQuadraticAttenProofStatus:
+        "source-backed-mdl-radius-quadratic-attenuation"
+    });
+  });
+
+  it("renders ItemPropertyLight as a source-backed item PointLight without item mesh glow", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:item_light_red",
+      kind: "items",
+      name: "Ruby Light",
+      resRef: "it_ruby_light",
+      tag: "IT_RUBY_LIGHT",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      },
+      itemProperties: {
+        baseItem: 29,
+        baseItemLabel: "miscsmall",
+        propertyList: [
+          {
+            propertyName: 44,
+            propertyLabel: "Light",
+            costValue: 4,
+            costTableDefinition: "iprp_lightcost",
+            param1Value: 3,
+            param1Table: "iprp_color",
+            propertyDefinitionSource2daRow: 44,
+            propertyDefinitionSourceKey:
+              "modules/current/__aurora/sources/hak/lc_2da/itempropdef.2da"
+          }
+        ]
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      null
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const itemLightSources: THREE.Object3D[] = [];
+    const itemLightCores: THREE.Mesh[] = [];
+    const itemLightHalos: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.name === "item_property_light_source") {
+        itemLightSources.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "item_property_light_core") {
+        itemLightCores.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "item_property_light_halo") {
+        itemLightHalos.push(node);
+      }
+    });
+
+    expect(load).not.toHaveBeenCalled();
+    expect(pointLights).toHaveLength(1);
+    expect(itemLightSources).toHaveLength(1);
+    expect(itemLightCores).toHaveLength(1);
+    expect(itemLightHalos).toHaveLength(1);
+    expect(root?.userData.itemPropertyLightPreviewStatus).toBe("active");
+    expect(root?.userData.itemPropertyLightPreviewMode).toBe("itemproperty-light");
+    expect(root?.userData.itemPropertyLightPropertyName).toBe(44);
+    expect(root?.userData.itemPropertyLightCostTableDefinition).toBe("iprp_lightcost");
+    expect(root?.userData.itemPropertyLightParam1Table).toBe("iprp_color");
+    expect(root?.userData.itemPropertyLightBrightness).toBe(4);
+    expect(root?.userData.itemPropertyLightBrightnessLabel).toBe("Bright");
+    expect(root?.userData.itemPropertyLightBrightnessRadiusMeters).toBe(20);
+    expect(root?.userData.itemPropertyLightColorValue).toBe(3);
+    expect(root?.userData.itemPropertyLightColorLabel).toBe("Red");
+    expect(root?.userData.itemPropertyLightColor).toEqual([1.75, 0.75, 0.5]);
+    expect(root?.userData.itemPropertyLightEvidence).toBe(
+      "C:/Projects/New Folder/item-retail-extract/nss/nwscript.nss:617,4643-4653,9732-9734"
+    );
+    expect(root?.userData.itemPropertyLightRadiusProofStatus).toBe(
+      "source-backed-retail-key-bif-iprp-lightcost-token-radius"
+    );
+    expect(root?.userData.itemPropertyLightBrightnessRadiusSource).toBe(
+      "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/data/nwn_base.key -> base_2da.bif: itempropdef.2da row 44 Light has costtable=18 and param1=9; iprp_costtable.2da row 18 is IPRP_LIGHTCOST ClientLoad=1; iprp_paramtable.2da row 9 is IPRP_COLOR; iprp_lightcost.2da rows 1..4 label Dim (5m), Low (10m), Normal (15m), Bright (20m); iprp_color.2da rows 0..6 label Blue, Yellow, Purple, Red, Green, Orange, White"
+    );
+    expect(root?.userData.itemPropertyLightColorProofStatus).toBe(
+      "source-family-backed-fx_light_clr-mdl-animation-rgb"
+    );
+    expect(root?.userData.itemPropertyLightProgFxFamilyProofStatus).toBe(
+      "source-backed-applylight-vfxdur-looping-vfx-owner-message-lastupdate-client-receive-newcaurobject-mdlnodelight-partlight-create-gob-attach"
+    );
+    expect(root?.userData.itemPropertyLightRelatedVisualEffectRowId).toBe(168);
+    expect(root?.userData.itemPropertyLightRelatedVisualEffectConstant).toBe(
+      "VFX_DUR_LIGHT_RED_20"
+    );
+    expect(root?.userData.itemPropertyLightRelatedVisualEffectLabel).toBe(
+      "VFX_DUR_LIGHT_RED_20"
+    );
+    expect(root?.userData.itemPropertyLightRelatedVisualEffectLabelSource).toBe(
+      "visualeffects.2da rows 153..180; rows 177..180 are labeled VFX_DUR_LIGHT_GREEN_* while nwscript.nss exposes same ids as VFX_DUR_LIGHT_GREY_*"
+    );
+    expect(root?.userData.itemPropertyLightRelatedProgFxRowId).toBe(315);
+    expect(root?.userData.itemPropertyLightRelatedProgFxLabel).toBe("LightRed20m");
+    expect(root?.userData.itemPropertyLightRelatedProgFxFadeRowId).toBe(365);
+    expect(root?.userData.itemPropertyLightRelatedProgFxFadeLabel).toBe("FadeLRed20m");
+    expect(root?.userData.itemPropertyLightRelatedProgFxRowSource).toBe(
+      "visualeffects.2da rows 153..180 map each VFX_DUR_LIGHT_* row to explicit progfx.2da Type 4 normal/fade rows; ordering is White, Blue, Yellow, Red, Orange, Purple, Green in progfx.2da and must not be derived by visualeffects row offset"
+    );
+    expect(root?.userData.itemPropertyLightRelatedProgFxAnimation).toBe("Red_20m");
+    expect(root?.userData.itemPropertyLightRelatedProgFxSymbolicColor).toBe("Red");
+    expect(root?.userData.itemPropertyLightRelatedProgFxRadiusMeters).toBe(20);
+    expect(root?.userData.itemPropertyLightProgFxFamilySource).toBe(
+      "nwscript.nss VFX_DUR_LIGHT_* constants plus visualeffects.2da rows 153..180 mapping to progfx.2da normal rows 300..327 and fade rows 350..377; progfx.2da Type 4 Param1 Blue/Yello/Purp/Red/Gren/Orng/white_5m/10m/15m/20m -> fx_light_clr.mdl animation"
+    );
+    expect(root?.userData.itemPropertyLightSourceMdlAnimation).toBe("Red_20m");
+    expect(root?.userData.itemPropertyLightSourceMdlNodeName).toBe("AuroraLight01");
+    expect(root?.userData.itemPropertyLightSourceMdlColor).toEqual([1.75, 0.75, 0.5]);
+    expect(root?.userData.itemPropertyLightSourceMdlColorSource).toBe(
+      "nwn_base.key fx_light_clr.mdl AuroraLight01 animation light-color controller type 76 supplies RGB for Blue/Yello/Purp/Red/Gren/Orng/white_5m/10m/15m/20m"
+    );
+    expect(root?.userData.itemPropertyLightSourceMdlRadiusMeters).toBe(13.3);
+    expect(root?.userData.itemPropertyLightSourceMdlRadiusUnits).toBe("meters");
+    expect(root?.userData.itemPropertyLightSourceMdlRadiusFrames).toEqual([0, 13.3]);
+    expect(root?.userData.itemPropertyLightSourceMdlRadiusSource).toBe(
+      "nwn_base.key fx_light_clr.mdl AuroraLight01 animation radius controller type 88 has frames 0 -> 13.3 for normal colored light animations"
+    );
+    expect(root?.userData.itemPropertyLightMetersToWorldScale).toBeCloseTo(0.1, 5);
+    expect(root?.userData.itemPropertyLightSourceMdlRadiusWorldDistance).toBeCloseTo(
+      1.33,
+      5
+    );
+    expect(root?.userData.itemPropertyLightFalloffProofStatus).toBe(
+      "source-family-backed-fx_light_clr-mdl-radius-linear-falloff-itemproperty-scheduler-unverified"
+    );
+    expect(root?.userData.itemPropertyLightFalloffFormula).toBe(
+      "source-family max(0,1-distance/13.3)"
+    );
+    expect(["installed", "already-installed"]).toContain(
+      root?.userData.itemPropertyLightFalloffRendererPatchStatus
+    );
+    expect(root?.userData.itemPropertyLightFalloffRendererProofStatus).toBe(
+      "source-backed-linear-radius-falloff-preview-shaderchunk-adapter"
+    );
+    expect(root?.userData.itemPropertyLightFalloffRendererSource).toContain(
+      "max(0,1-distance/radius)*color*fade"
+    );
+    expect(root?.userData.itemPropertyLightPointLightDecay).toBe(1);
+    expect(root?.userData.itemPropertyLightPointLightDecaySource).toBe(
+      "fx_light_clr.mdl AuroraLight01 radius controller plus active-light linear falloff; retail ApplyLight bridge, object-level looping VFX owner add/remove, CNWSMessage last-update copy/diff, CNWSMessage game-object update serialization, client receive/render/Gob instantiation, and generic MdlNodeLight PartLight creation/Gob-list attach are recovered"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "backend/scripts/audit-retail-light-function-disasm.py disassembles nwmain.exe ApplyLight"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "createdCGameEffectSizeBytes=272"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "internalApplyTargetVa=0x14048e350"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CNWSItemPropertyHandler::ApplyLight at 0x140405e40"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "color byte [CNWItemProperty+9] jump-table maps iprp_color values 0..6 to VFX_DUR_LIGHT base rows 153/157/161/165/177/169/173"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "brightness word [CNWItemProperty+6] adds 0..3 for Dim/Low/Normal/Bright"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "OnRemoveLight disassembles via linear fallback to mov eax,1; ret"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "mdlNodeLightPartLightLifecycle"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "createdPartLightSizeBytes=192"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CNWSObject::AddLoopingVisualEffect at 0x140435400"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CNWSObject+0x160 with count +0x168"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CNWSMessage::UpdateLastUpdateObject 0x1404e5700..0x1404e6305"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CompareVisualEffectLists calls at 0x1404caac1 and 0x1404cb4cb"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "CNWSMessage::WriteGameObjUpdate_UpdateObject 0x1404eb590..0x1404edc4a"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "ObjectVisualTransformData::Write at 0x1404eca3a"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "source-backed-cnwcmessage-client-vfx-receive-vtable-add-newcaurobject-mdl-gob-light-path"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "visual-effect loaders create CAurObject/Gob instances through NewCAurObject"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerBlocker).toContain(
+      "cross-lane insertion order and retail shadow-volume projection parity"
+    );
+    expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
+      "progfx.2da Type 4 Param3 provides item-light cast-shadow toggle with 5m rows=0 and 10m/15m/20m rows=1"
+    );
+    expect(root?.userData.itemPropertyLightRelatedProgFxCastShadowsRaw).toBe("1");
+    expect(root?.userData.itemPropertyLightRelatedProgFxCastShadows).toBe(true);
+    expect(root?.userData.itemPropertyLightRelatedProgFxFadeCastShadowsRaw).toBe("1");
+    expect(root?.userData.itemPropertyLightRelatedProgFxFadeCastShadows).toBe(true);
+    expect(root?.userData.itemPropertyLightShadowStatus).toBe(
+      "enabled-by-progfx-param3"
+    );
+    expect(root?.userData.itemPropertyLightShadowPolicySource).toBe(
+      "nwn_base.key progfx.2da Type 4 item-light rows 300..327 and fade rows 350..377 use Param3 as cast shadows: 5m rows have 0, 10m/15m/20m rows have 1; fx_light_clr.mdl AuroraLight01 has shadow=true and shadowradius=15, while retail shadow-volume projection parity remains blocked"
+    );
+    expect(root?.userData.itemPropertyLightShadowProofStatus).toBe(
+      "source-backed-progfx-type4-param3-item-light-shadow-toggle-shadowvol-projection-blocked"
+    );
+    expect(root?.userData.itemPropertyLightNoSelfGlowProofStatus).toBe(
+      "source-backed-no-item-mesh-glow"
+    );
+    expect(root?.userData.placeableTwoDaLightPreviewMode).toBeUndefined();
+    expect(pointLights[0]?.userData.itemPropertyLightPreviewRole).toBe(
+      "item-property-point-light"
+    );
+    expect(pointLights[0]?.intensity).toBeCloseTo(1.75, 5);
+    expect(pointLights[0]?.distance).toBeCloseTo(1.33, 5);
+    expect(pointLights[0]?.decay).toBe(1);
+    expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.color.g).toBeCloseTo(0.75 / 1.75, 5);
+    expect(pointLights[0]?.color.b).toBeCloseTo(0.5 / 1.75, 5);
+    expect(pointLights[0]?.castShadow).toBe(true);
+  });
+
+  it("uses exact fx_light_clr/progfx animation tokens for ItemPropertyLight color labels", () => {
+    const cases = [
+      {
+        colorValue: 1,
+        label: "Yellow",
+        vfxConstant: "VFX_DUR_LIGHT_YELLOW_5",
+        visualEffectLabel: "VFX_DUR_LIGHT_YELLOW_5",
+        progFxRowId: 308,
+        progFxLabel: "LightYellow5m",
+        progFxFadeRowId: 358,
+        progFxFadeLabel: "FadeLYellow5m",
+        animation: "Yello_5m",
+        rgb: [1, 0.75, 0.25]
+      },
+      {
+        colorValue: 2,
+        label: "Purple",
+        vfxConstant: "VFX_DUR_LIGHT_PURPLE_5",
+        visualEffectLabel: "VFX_DUR_LIGHT_PURPLE_5",
+        progFxRowId: 320,
+        progFxLabel: "LightPurple5m",
+        progFxFadeRowId: 370,
+        progFxFadeLabel: "FadeLPurple5m",
+        animation: "Purp_5m",
+        rgb: [1, 0.5, 1]
+      },
+      {
+        colorValue: 4,
+        label: "Green",
+        vfxConstant: "VFX_DUR_LIGHT_GREY_5",
+        visualEffectLabel: "VFX_DUR_LIGHT_GREEN_5",
+        progFxRowId: 324,
+        progFxLabel: "LightGreen5m",
+        progFxFadeRowId: 374,
+        progFxFadeLabel: "FadeLGreen5m",
+        animation: "Gren_5m",
+        rgb: [0.5, 1, 0.25]
+      },
+      {
+        colorValue: 5,
+        label: "Orange",
+        vfxConstant: "VFX_DUR_LIGHT_ORANGE_5",
+        visualEffectLabel: "VFX_DUR_LIGHT_ORANGE_5",
+        progFxRowId: 316,
+        progFxLabel: "LightOrange5m",
+        progFxFadeRowId: 366,
+        progFxFadeLabel: "FadeLOrange5m",
+        animation: "Orng_5m",
+        rgb: [1, 0.55, 0.225]
+      },
+      {
+        colorValue: 6,
+        label: "White",
+        vfxConstant: "VFX_DUR_LIGHT_WHITE_5",
+        visualEffectLabel: "VFX_DUR_LIGHT_WHITE_5",
+        progFxRowId: 300,
+        progFxLabel: "LightWhite5m",
+        progFxFadeRowId: 350,
+        progFxFadeLabel: "FadeLWhite5m",
+        animation: "white_5m",
+        rgb: [1, 1, 1]
+      }
+    ] as const;
+
+    for (const itemLightCase of cases) {
+      const runtime = createRuntime(vi.fn());
+      const object = {
+        id: `preview:item_light_${itemLightCase.label.toLowerCase()}`,
+        kind: "items",
+        name: `${itemLightCase.label} Light`,
+        resRef: `it_${itemLightCase.label.toLowerCase()}_light`,
+        tag: `IT_${itemLightCase.label.toUpperCase()}_LIGHT`,
+        x: 0.5,
+        y: 0.5,
+        z: 0,
+        bearing: 0,
+        visualTransform: {
+          scale: 1,
+          offsetX: 0,
+          offsetY: 0,
+          offsetZ: 0,
+          pitch: 0,
+          yaw: 0,
+          roll: 0
+        },
+        itemProperties: {
+          baseItem: 29,
+          baseItemLabel: "miscsmall",
+          propertyList: [
+            {
+              propertyName: 44,
+              propertyLabel: "Light",
+              costValue: 1,
+              costTableDefinition: "iprp_lightcost",
+              param1Value: itemLightCase.colorValue,
+              param1Table: "iprp_color"
+            }
+          ]
+        }
+      } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+      rebuildObjectMeshes(
+        runtime,
+        [object],
+        [],
+        createDebugState(),
+        1,
+        false,
+        10,
+        [],
+        false,
+        null
+      );
+
+      const root = runtime.objectMeshById.get(object.id);
+      expect(root?.userData.itemPropertyLightColorLabel).toBe(itemLightCase.label);
+      expect(root?.userData.itemPropertyLightRelatedVisualEffectConstant).toBe(
+        itemLightCase.vfxConstant
+      );
+      expect(root?.userData.itemPropertyLightRelatedVisualEffectLabel).toBe(
+        itemLightCase.visualEffectLabel
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxRowId).toBe(
+        itemLightCase.progFxRowId
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxLabel).toBe(
+        itemLightCase.progFxLabel
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxFadeRowId).toBe(
+        itemLightCase.progFxFadeRowId
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxFadeLabel).toBe(
+        itemLightCase.progFxFadeLabel
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxAnimation).toBe(
+        itemLightCase.animation
+      );
+      expect(root?.userData.itemPropertyLightSourceMdlAnimation).toBe(
+        itemLightCase.animation
+      );
+      expect(root?.userData.itemPropertyLightSourceMdlColor).toEqual(
+        itemLightCase.rgb
+      );
+      expect(root?.userData.itemPropertyLightRelatedProgFxCastShadowsRaw).toBe("0");
+      expect(root?.userData.itemPropertyLightRelatedProgFxCastShadows).toBe(false);
+      expect(root?.userData.itemPropertyLightRelatedProgFxFadeCastShadowsRaw).toBe("0");
+      expect(root?.userData.itemPropertyLightRelatedProgFxFadeCastShadows).toBe(false);
+      expect(root?.userData.itemPropertyLightShadowStatus).toBe(
+        "disabled-by-progfx-param3"
+      );
+      const itemPointLights: THREE.PointLight[] = [];
+      root?.traverse((node) => {
+        if (node instanceof THREE.PointLight) {
+          itemPointLights.push(node);
+        }
+      });
+      expect(itemPointLights[0]?.castShadow).toBe(false);
+    }
+  });
+
+  it("drops standalone ItemPropertyLight PointLight when the runtime light cap is exhausted", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    (runtime as unknown as { scene: THREE.Scene }).scene = new THREE.Scene();
+    runtime.scene.userData.auroraLightConfiguredMaxLights = 0;
+    const object = {
+      id: "preview:item_light_red_budgeted",
+      kind: "items",
+      name: "Ruby Light",
+      resRef: "it_ruby_light",
+      tag: "IT_RUBY_LIGHT",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      },
+      itemProperties: {
+        baseItem: 29,
+        baseItemLabel: "miscsmall",
+        propertyList: [
+          {
+            propertyName: 44,
+            propertyLabel: "Light",
+            costValue: 4,
+            costTableDefinition: "iprp_lightcost",
+            param1Value: 3,
+            param1Table: "iprp_color"
+          }
+        ]
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      null
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const itemLightSources: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.name === "item_property_light_source") {
+        itemLightSources.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(0);
+    expect(itemLightSources).toHaveLength(1);
+    expect(root?.userData).toMatchObject({
+      itemPropertyLightPreviewStatus: "dropped-by-light-budget",
+      itemPropertyLightPreviewMode: "itemproperty-light",
+      itemPropertyLightBudgetAccepted: false,
+      itemPropertyLightBudgetRank: 1,
+      itemPropertyLightBudgetCandidateCount: 1,
+      itemPropertyLightBudgetCap: 0,
+      itemPropertyLightBudgetHardCap: 128,
+      itemPropertyLightConfiguredMaxLights: 0,
+      itemPropertyLightDroppedReason: "active-light-slot-cap",
+      itemPropertyLightBudgetCapProofStatus:
+        "source-backed-active-light-slot-cap-max-128"
+    });
+  });
+
+  it("renders placeables.2da LightColor metadata as a real PointLight with source offset", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    (runtime as unknown as { scene: THREE.Scene }).scene = new THREE.Scene();
+    const object = {
+      id: "preview:plc_lamppost",
+      kind: "placeables",
+      name: "Lamp Post",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createPlaceablesTwoDaLightPayload();
+    const areaShadowOpacitySource =
+      "ARE.ShadowOpacity read/write at decompiled_all.c:255224/255904; normalized to shadowOpacity/100 at decompiled_all.c:256306";
+    const areaShadowOpacityFactorSource =
+      "decompiled_all.c:256306 stores ShadowOpacity/100, then shadow plane alpha multiplies that factor at decompiled_all.c:910844";
+    runtime.scene.userData.auroraTerrainAreaGlobalShadowOpacity = 50;
+    runtime.scene.userData.auroraTerrainAreaGlobalShadowOpacitySource =
+      areaShadowOpacitySource;
+    runtime.scene.userData.auroraTerrainAreaGlobalShadowOpacityFactor = 0.5;
+    runtime.scene.userData.auroraTerrainAreaGlobalShadowOpacityFactorSource =
+      areaShadowOpacityFactorSource;
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const twoDaLightNodes: THREE.Object3D[] = [];
+    const fastShadows: THREE.Mesh[] = [];
+    const receivers: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.name === "placeable_2da_light_source") {
+        twoDaLightNodes.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_receiver") {
+        receivers.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(twoDaLightNodes).toHaveLength(1);
+    expect(fastShadows).toHaveLength(1);
+    expect(receivers).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaLightPreviewMode).toBe("placeables-2da-lightcolor");
+    expect(root?.userData.placeableTwoDaLightColorRow).toBe(7);
+    expect(root?.userData.placeableTwoDaLightColorLabel).toBe("Yellow");
+    expect(root?.userData.placeableTwoDaLightState).toBe(1);
+    expect(root?.userData.placeableTwoDaLightStateSource).toBe(
+      "placeableRuntime.state.lightState parsed from placed instance"
+    );
+    expect(root?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "source-backed-lightstate"
+    );
+    expect(root?.userData.placeableTwoDaLightOffset).toEqual([0.25, -0.5, 1.75]);
+    expect(root?.userData.placeableTwoDaLightMappedOffset).toEqual([0.125, 0.875, -0.25]);
+    expect(root?.userData.placeableTwoDaLightOffsetScale).toBe(0.5);
+    expect(root?.userData.placeableTwoDaFastShadowStatus).toBe("active");
+    expect(root?.userData.placeableTwoDaFastShadowRendererMode).toBe(
+      "aurora-fast-shadow-source-mdl-textured-quad-proxy"
+    );
+    expect(root?.userData.placeableTwoDaShadowSizeLane).toBe("large");
+    expect(root?.userData.placeableTwoDaFastShadowModelFileName).toBe("fx_shadow_l.mdl");
+    expect(root?.userData.placeableTwoDaFastShadowSourceModelHash).toBe(
+      "7bef849b6b31160bc98146f815e75e3492731139e232bb4302ee20f4341a5be1"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowSourceNodeOffset).toBe(1764);
+    expect(root?.userData.placeableTwoDaFastShadowEmitterNodeName).toBe("Large");
+    expect(root?.userData.placeableTwoDaFastShadowTexture).toBe("fxpa_Dot01");
+    expect(root?.userData.placeableTwoDaFastShadowTextureBindingStatus).toBe(
+      "retail-key-bif-fxpa-dot01-confirmed-procedural-preview-alpha-map"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowTextureMapBound).toBe(true);
+    expect(root?.userData.placeableTwoDaFastShadowTextureBindingProofStatus).toBe(
+      "source-backed-retail-fxpa-dot01-resource-confirmed-preview-procedural-fallback"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowTextureBindingSource).toContain(
+      "nwn_base.key contains fxpa_dot01.tga"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowEmitterType).toBe("Single");
+    expect(root?.userData.placeableTwoDaFastShadowBlendMode).toBe("Normal");
+    expect(root?.userData.placeableTwoDaFastShadowEmitterPosition).toEqual([
+      0,
+      0,
+      0.029999999329447746
+    ]);
+    expect(root?.userData.placeableTwoDaFastShadowEmitterSize).toBe(3);
+    expect(root?.userData.placeableTwoDaFastShadowGeometryType).toBe(
+      "source-mdl-single-billboard-local-z-plane"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowQuadSize).toBe(3);
+    expect(root?.userData.placeableTwoDaFastShadowGeometryProofStatus).toBe(
+      "source-backed-retail-shadow-mdl-single-billboard-local-z-quad"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowEmitterAlphaStart).toBeCloseTo(0.7, 5);
+    expect(root?.userData.placeableTwoDaFastShadowRadius).toBeCloseTo(1.5, 5);
+    expect(root?.userData.placeableTwoDaFastShadowRadiusSource).toContain(
+      "ShadowSize and selects Fx_Shadow_S/M/L"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowOpacitySource).toContain(
+      "Fx_Shadow_* binary MDL emitter alphaStart/alphaEnd"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowOpacitySource).toContain(
+      "multiplied by ARE.ShadowOpacity/100"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowBaseOpacity).toBeCloseTo(0.7, 5);
+    expect(root?.userData.placeableTwoDaFastShadowOpacity).toBeCloseTo(0.35, 5);
+    expect(root?.userData.placeableTwoDaFastShadowAreaOpacity).toBe(50);
+    expect(root?.userData.placeableTwoDaFastShadowAreaOpacitySource).toBe(
+      areaShadowOpacitySource
+    );
+    expect(root?.userData.placeableTwoDaFastShadowAreaOpacityFactor).toBeCloseTo(0.5, 5);
+    expect(root?.userData.placeableTwoDaFastShadowAreaOpacityFactorSource).toBe(
+      areaShadowOpacityFactorSource
+    );
+    expect(root?.userData.placeableTwoDaFastShadowAreaOpacityProofStatus).toBe(
+      "source-backed-area-shadowopacity-factor-fast-shadow-proxy-opacity"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowOpacityProofStatus).toBe(
+      "source-backed-area-shadowopacity-factor-fast-shadow-proxy-opacity"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowProofStatus).toBe(
+      "source-backed-retail-placeable-shadow-mdl-emitter-textured-quad-proxy"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingToggleSource).toBe(
+      "nwscript.nss SetPlaceableIllumination/GetPlaceableIllumination plus RecomputeStaticLighting"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingToggleProofStatus).toBe(
+      "source-backed-nwscript-static-lighting-recompute"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingRecomputeHint).toBe(
+      "call-RecomputeStaticLighting-after-SetPlaceableIllumination-tile-light-change-or-placeable-light-add-delete"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingRecomputeToken).toBe(
+      "1:7:1.9:1.7:0.06:0.25:-0.5:1.75:2"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightPreviewRole).toBe(
+      "placeables-2da-point-light"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightColor).toEqual([1.9, 1.7, 0.06]);
+    expect(pointLights[0]?.userData.placeableTwoDaLightColorSource).toBe("lightcolor.2da.RGB");
+    expect(pointLights[0]?.userData.placeableTwoDaLightColorProofStatus).toBe(
+      "source-backed-lightcolor-2da"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightRgbVectorSource).toContain(
+      "placeables.2da LightColor points at lightcolor.2da RGB"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightRgbVectorProofStatus).toBe(
+      "source-backed-lightcolor-rgb-vector"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightPreviewColor).toEqual([
+      1,
+      1.7 / 1.9,
+      0.06 / 1.9
+    ]);
+    expect(pointLights[0]?.userData.placeableTwoDaLightDisplayColor).toEqual([
+      0.96,
+      0.87,
+      0.03
+    ]);
+    expect(pointLights[0]?.userData.placeableTwoDaLightIntensity).toBeCloseTo(1.9, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightIntensityProofStatus).toBe(
+      "preview-adapter-rgb-max-intensity-no-source-intensity-field"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightIntensitySource).toContain(
+      "Preview adapter only"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightIntensitySource).toContain(
+      "color*intensity reconstructs lightcolor.2da RGB"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistance).toBeCloseTo(5, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistanceSource).toBe(
+      "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistanceUsesShadowSize).toBe(false);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceModelFileName).toBe(
+      "fx_placeable01.mdl"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceNodeName).toBe(
+      "AuroraLight01"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadius).toBe(10);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusUnits).toBe(
+      "aurora-model-units"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusController).toBe("0x58");
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusSource).toContain(
+      "fx_placeable01.mdl AuroraLight01 controller 0x58 = 10"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceUnitScale).toBeCloseTo(0.5, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceUnitScaleSource).toBe(
+      "catalog/model preview normalized model scale max(objectRadius,0.5)"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusWorldDistance).toBeCloseTo(
+      5,
+      5
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceShadowRadius).toBe(15);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceShadowRadiusController).toBe("0x60");
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceVerticalDisplacement).toBe(3);
+    expect(pointLights[0]?.userData.placeableTwoDaLightRetailScoreSource).toContain(
+      "FUN_00a41850"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightRetailScoreSourceRadius).toBeCloseTo(
+      5,
+      5
+    );
+    expect(
+      pointLights[0]?.userData.placeableTwoDaLightRetailScoreActiveSelectionRadiusOverride
+    ).toBeCloseTo(7.5, 5);
+    expect(
+      pointLights[0]?.userData.placeableTwoDaLightRetailScoreActiveSelectionRadiusLimit
+    ).toBeCloseTo(7.5, 5);
+    expect(
+      pointLights[0]?.userData.placeableTwoDaLightRetailScoreActiveSelectionRadiusEnforced
+    ).toBe(true);
+    expect(
+      pointLights[0]?.userData.placeableTwoDaLightRetailScoreActiveSelectionRadiusPassed
+    ).toBe(true);
+    expect(
+      pointLights[0]?.userData.placeableTwoDaLightRetailScoreActiveSelectionRadiusSource
+    ).toContain("FUN_00a42728");
+    expect(pointLights[0]?.userData.placeableTwoDaLightRadiusProofStatus).toBe(
+      "source-backed-fx-placeable01-auroralight01-radius-controller"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightFalloffFormula).toBe(
+      "max(0,1-distance/radius)"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightFalloffProofStatus).toBe(
+      "source-backed-active-light-linear-radius-falloff"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightFalloffRendererProofStatus).toBe(
+      "source-backed-linear-radius-falloff-preview-shaderchunk-adapter"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightFalloffRendererSource).toContain(
+      "max(0,1-distance/radius)*color*fade"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightPointLightDecay).toBe(1);
+    expect(pointLights[0]?.userData.placeableTwoDaLightOffset).toEqual([0.25, -0.5, 1.75]);
+    expect(pointLights[0]?.userData.placeableTwoDaLightMappedOffset).toEqual([
+      0.125,
+      0.875,
+      -0.25
+    ]);
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSize).toBe(2);
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(pointLights[0]?.intensity).toBeCloseTo(1.9, 5);
+    expect(pointLights[0]?.distance).toBeCloseTo(5, 5);
+    expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.color.g).toBeCloseTo(1.7 / 1.9, 5);
+    expect(pointLights[0]?.color.b).toBeCloseTo(0.06 / 1.9, 5);
+    const diagnostics = writePlaceableTwoDaLightRenderDiagnostics(runtime);
+    expect(diagnostics.status).toBe("active");
+    expect(diagnostics.pointLights).toBe(1);
+    expect(
+      diagnostics.samples.some(
+        (sample) =>
+          sample.includes("role=placeables-2da-point-light") &&
+            sample.includes("color=1.9,1.7,0.06") &&
+          sample.includes("rgbVectorProof=source-backed-lightcolor-rgb-vector") &&
+          sample.includes("intensity=1.9") &&
+          sample.includes(
+            "intensityProof=preview-adapter-rgb-max-intensity-no-source-intensity-field"
+          ) &&
+          sample.includes("distance=5") &&
+          sample.includes("distanceUsesShadowSize=false") &&
+          sample.includes("sourceRadius=10") &&
+          sample.includes("sourceRadiusUnits=aurora-model-units") &&
+          sample.includes("sourceUnitScale=0.5") &&
+          sample.includes("sourceWorldDistance=5") &&
+          sample.includes(
+            "radiusProof=source-backed-fx-placeable01-auroralight01-radius-controller"
+          )
+      )
+    ).toBe(true);
+    expect(
+      diagnostics.samples.some(
+        (sample) =>
+          sample.includes("shadowLane=large") &&
+          sample.includes("fastShadowModel=fx_shadow_l.mdl") &&
+          sample.includes(
+            "fastShadowModelHash=7bef849b6b31160bc98146f815e75e3492731139e232bb4302ee20f4341a5be1"
+          ) &&
+          sample.includes("fastShadowSourceNodeOffset=1764") &&
+          sample.includes("fastShadowEmitter=Large") &&
+          sample.includes("fastShadowEmitterType=Single") &&
+          sample.includes("fastShadowTexture=fxpa_Dot01") &&
+          sample.includes(
+            "fastShadowTextureBinding=retail-key-bif-fxpa-dot01-confirmed-procedural-preview-alpha-map"
+          ) &&
+          sample.includes("fastShadowTextureMapBound=true") &&
+          sample.includes(
+            "fastShadowTextureBindingProof=source-backed-retail-fxpa-dot01-resource-confirmed-preview-procedural-fallback"
+          ) &&
+          sample.includes("fastShadowRenderMode=Billboard_to_Local_Z") &&
+          sample.includes("fastShadowBlendMode=Normal") &&
+          sample.includes("fastShadowEmitterPosition=0,0,0.03") &&
+          sample.includes("fastShadowEmitterSize=3") &&
+          sample.includes("fastShadowGeometry=source-mdl-single-billboard-local-z-plane") &&
+          sample.includes("fastShadowQuadSize=3") &&
+          sample.includes(
+            "fastShadowGeometryProof=source-backed-retail-shadow-mdl-single-billboard-local-z-quad"
+          ) &&
+          sample.includes("fastShadowEmitterAlpha=0.7") &&
+          sample.includes("fastShadowRadius=1.5") &&
+          sample.includes("fastShadowBaseOpacity=0.7") &&
+          sample.includes("fastShadowAreaOpacity=50") &&
+          sample.includes("fastShadowAreaFactor=0.5") &&
+          sample.includes("fastShadowOpacity=0.35") &&
+            sample.includes(
+              "fastShadowOpacityProof=source-backed-area-shadowopacity-factor-fast-shadow-proxy-opacity"
+          ) &&
+          sample.includes(
+            "fastShadowProjectionStatus=source-backed-retail-shadow-mdl-single-billboard-local-z-textured-quad-shadowvol-stencil-pass-active-pixel-parity-blocked"
+          ) &&
+          sample.includes("fastShadowProjectionSource=") &&
+          sample.includes("Fx_Shadow_L") &&
+          sample.includes(
+            "fastShadowProjectionProof=source-backed-retail-shadowsize-shadow-mdl-textured-quad-active-proxy-shadowvol-stencil-pass-pixel-parity-blocked"
+          ) &&
+          sample.includes("fastShadowVolumeSourceQuadSize=3") &&
+          sample.includes("fastShadowVolumeSourceQuadSizeSource=") &&
+          sample.includes(
+            "fastShadowVolumeStencil=source-backed-shadowvol-w-pair-stencil-volume-pass-active-retail-pixel-parity-blocked"
+          ) &&
+          sample.includes(
+            "fastShadowVolumeStencilRenderer=three-webgl-stencil-front-back-zpass-zfail-shadow-volume-preview"
+          ) &&
+          sample.includes("fastShadowVolumeShaders=vs_shadowvol,fs_shadowvol") &&
+          sample.includes("fastShadowVolumeBuckets=0xd,0xe,0xb,0xc") &&
+          sample.includes("fastShadowVolumePath=") &&
+          sample.includes("FUN_00a878f8") &&
+          sample.includes("fastShadowVolumeDrawWrapper=") &&
+          sample.includes("FUN_00a78128 wraps FUN_00a75e3c") &&
+          sample.includes(
+            "fastShadowVolumePathProof=source-backed-shadowvol-shader-buckets-draw-wrapper-caster-reset-stencil-parity-blocked"
+          )
+      )
+    ).toBe(true);
+    expect(twoDaLightNodes[0]?.position.x).toBeCloseTo(0.125, 5);
+    expect(twoDaLightNodes[0]?.position.y).toBeCloseTo(0.875, 5);
+    expect(twoDaLightNodes[0]?.position.z).toBeCloseTo(-0.25, 5);
+    expect(fastShadows[0]?.position.y).toBeCloseTo(-0.86, 5);
+    expect(fastShadows[0]?.userData.placeableTwoDaShadowSize).toBe(2);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowRendererMode).toBe(
+      "aurora-fast-shadow-source-mdl-textured-quad-proxy"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaShadowSizeLane).toBe("large");
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowModelFileName).toBe(
+      "fx_shadow_l.mdl"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowSourceModelHash).toBe(
+      "7bef849b6b31160bc98146f815e75e3492731139e232bb4302ee20f4341a5be1"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowSourceNodeOffset).toBe(
+      1764
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowEmitterNodeName).toBe("Large");
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowEmitterType).toBe("Single");
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowTextureBindingStatus).toBe(
+      "retail-key-bif-fxpa-dot01-confirmed-procedural-preview-alpha-map"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowTextureMapBound).toBe(true);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowTextureBindingProofStatus).toBe(
+      "source-backed-retail-fxpa-dot01-resource-confirmed-preview-procedural-fallback"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowBlendMode).toBe("Normal");
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowEmitterPosition).toEqual([
+      0,
+      0,
+      0.029999999329447746
+    ]);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowEmitterSize).toBe(3);
+    expect(fastShadows[0]?.geometry).toBeInstanceOf(THREE.PlaneGeometry);
+    expect((fastShadows[0]?.geometry as THREE.PlaneGeometry).parameters.width).toBeCloseTo(
+      3,
+      5
+    );
+    expect((fastShadows[0]?.geometry as THREE.PlaneGeometry).parameters.height).toBeCloseTo(
+      3,
+      5
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowGeometryType).toBe(
+      "source-mdl-single-billboard-local-z-plane"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowQuadSize).toBe(3);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowGeometryProofStatus).toBe(
+      "source-backed-retail-shadow-mdl-single-billboard-local-z-quad"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowRadius).toBeCloseTo(1.5, 5);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowRadiusSource).toContain(
+      "Fx_Shadow_* binary MDL emitter sizeStart/sizeEnd"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowBaseOpacity).toBeCloseTo(
+      0.7,
+      5
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowOpacity).toBeCloseTo(0.35, 5);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowOpacitySource).toContain(
+      "Fx_Shadow_* binary MDL emitter alphaStart/alphaEnd"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowProjectionStatus).toBe(
+      "source-backed-retail-shadow-mdl-single-billboard-local-z-textured-quad-shadowvol-stencil-pass-active-pixel-parity-blocked"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowProjectionSource).toContain(
+      "Fx_Shadow_L"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowProjectionProofStatus).toBe(
+      "source-backed-retail-shadowsize-shadow-mdl-textured-quad-active-proxy-shadowvol-stencil-pass-pixel-parity-blocked"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowAreaOpacity).toBe(50);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowAreaOpacityFactor).toBeCloseTo(
+      0.5,
+      5
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowAreaOpacityFactorSource).toBe(
+      areaShadowOpacityFactorSource
+    );
+    const fastShadowMaterial = fastShadows[0]?.material as THREE.MeshBasicMaterial | undefined;
+    expect(fastShadowMaterial?.opacity).toBeCloseTo(0.35, 5);
+    expect(fastShadowMaterial?.alphaMap).toBeInstanceOf(THREE.DataTexture);
+    expect(fastShadowMaterial?.alphaMap?.userData.auroraTextureReference).toBe(
+      "fxpa_Dot01"
+    );
+    expect(fastShadowMaterial?.alphaMap?.userData.auroraTextureBindingProofStatus).toBe(
+      "source-backed-retail-fxpa-dot01-resource-confirmed-preview-procedural-fallback"
+    );
+    expect(root?.userData.placeableTwoDaLightColorSource).toBe("lightcolor.2da.RGB");
+    expect(root?.userData.placeableTwoDaLightColorProofStatus).toBe(
+      "source-backed-lightcolor-2da"
+    );
+    expect(root?.userData.placeableTwoDaLightRgbVectorSource).toContain(
+      "placeables.2da LightColor points at lightcolor.2da RGB"
+    );
+    expect(root?.userData.placeableTwoDaLightRgbVectorProofStatus).toBe(
+      "source-backed-lightcolor-rgb-vector"
+    );
+    expect(root?.userData.placeableTwoDaLightToolsetColor).toEqual([0.96, 0.87, 0.03]);
+    expect(root?.userData.placeableTwoDaLightToolsetColorSource).toBe(
+      "lightcolor.2da TOOLSETRED/GREEN/BLUE used for visible Toolset emitter tint"
+    );
+    expect(root?.userData.placeableTwoDaLightToolsetColorEvidence).toBe(
+      "C:/Projects/New Folder/export/decompiled_all.c:40976-41071 reads TOOLSETRED/GREEN/BLUE from lightcolor.2da"
+    );
+    expect(root?.userData.placeableTwoDaLightDisplayColor).toEqual([0.96, 0.87, 0.03]);
+    expect(root?.userData.placeableTwoDaLightDisplayColorSource).toBe(
+      "lightcolor.2da TOOLSETRED/GREEN/BLUE used for visible Toolset emitter tint"
+    );
+    expect(root?.userData.placeableTwoDaLightIntensitySource).toContain(
+      "Preview adapter only"
+    );
+    expect(root?.userData.placeableTwoDaLightIntensitySource).toContain(
+      "color*intensity reconstructs lightcolor.2da RGB"
+    );
+    expect(root?.userData.placeableTwoDaLightIntensityProofStatus).toBe(
+      "preview-adapter-rgb-max-intensity-no-source-intensity-field"
+    );
+    expect(root?.userData.placeableTwoDaLightDistanceSource).toBe(
+      "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units"
+    );
+    expect(root?.userData.placeableTwoDaLightRadiusProofStatus).toBe(
+      "source-backed-fx-placeable01-auroralight01-radius-controller"
+    );
+    expect(root?.userData.placeableTwoDaLightSourceModelFileName).toBe("fx_placeable01.mdl");
+    expect(root?.userData.placeableTwoDaLightSourceNodeName).toBe("AuroraLight01");
+    expect(root?.userData.placeableTwoDaLightSourceRadius).toBe(10);
+    expect(root?.userData.placeableTwoDaLightSourceRadiusUnits).toBe("aurora-model-units");
+    expect(root?.userData.placeableTwoDaLightSourceUnitScale).toBeCloseTo(0.5, 5);
+    expect(root?.userData.placeableTwoDaLightSourceRadiusWorldDistance).toBeCloseTo(5, 5);
+    expect(root?.userData.placeableTwoDaLightSourceShadowRadius).toBe(15);
+    expect(root?.userData.placeableTwoDaLightFalloffFormula).toBe(
+      "max(0,1-distance/radius)"
+    );
+    expect(root?.userData.placeableTwoDaLightPointLightDecay).toBe(1);
+    expect(root?.userData.placeableTwoDaLightOffsetSource).toBe("placeables.2da.LightOffset");
+    expect(root?.userData.placeableTwoDaLightOffsetProofStatus).toBe(
+      "source-backed-placeables-2da"
+    );
+    expect(root?.userData.placeableTwoDaShadowSizeSource).toBe("placeables.2da.ShadowSize");
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(root?.userData.placeableTwoDaLightReceiverRadius).toBeCloseTo(1.2, 5);
+    expect(receivers[0]?.userData.placeableTwoDaLightReceiverSource).toBe(
+      "debug-preview-surface-not-aurora-light-radius"
+    );
+  });
+
+  it("scales placeables.2da light radius with the same tile-space scale as LightOffset in area render", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    (runtime as unknown as { scene: THREE.Scene }).scene = new THREE.Scene();
+    const object = {
+      id: "area:plc_lamppost",
+      kind: "placeables",
+      name: "Lamp Post",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      true,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload()
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const twoDaLightNodes: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.name === "placeable_2da_light_source") {
+        twoDaLightNodes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(twoDaLightNodes).toHaveLength(1);
+    expect(pointLights[0]?.distance).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadius).toBe(10);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceUnitScale).toBeCloseTo(0.1, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusWorldDistance).toBeCloseTo(
+      1,
+      5
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceUnitScaleSource).toBe(
+      "PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE=0.1"
+    );
+    expect(twoDaLightNodes[0]?.position.x).toBeCloseTo(0.025, 5);
+    expect(twoDaLightNodes[0]?.position.y).toBeCloseTo(0.175, 5);
+    expect(twoDaLightNodes[0]?.position.z).toBeCloseTo(-0.05, 5);
+  });
+
+  it("keeps missing UTP LightState default provenance visible on placeable lights", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_default_lightstate",
+      kind: "placeables",
+      name: "Lamp Post Default LightState",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_DEFAULT_LIGHTSTATE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({
+          lightState: 1,
+          lightStateSource:
+            "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read",
+          lightStateProofStatus:
+            "retail-binary-backed-nwserver-lightstate-default-on-xref",
+          lightStateDefaulted: true
+        })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaLightState).toBe(1);
+    expect(root?.userData.placeableTwoDaLightStateSource).toBe(
+      "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read"
+    );
+    expect(root?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "retail-binary-backed-nwserver-lightstate-default-on-xref"
+    );
+    expect(root?.userData.placeableTwoDaLightStateDefaulted).toBe(true);
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateSource).toBe(
+      "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "retail-binary-backed-nwserver-lightstate-default-on-xref"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateDefaulted).toBe(true);
+  });
+
+  it("uses the explicit Aurora Web LightState default marker when runtime LightState is absent", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_no_runtime_lightstate",
+      kind: "placeables",
+      name: "Lamp Post No Runtime LightState",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_NO_RUNTIME_LIGHTSTATE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({
+          includeRuntimeLightState: false
+        })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaLightState).toBe(1);
+    expect(root?.userData.placeableTwoDaLightStateSource).toBe(
+      "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read"
+    );
+    expect(root?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "retail-binary-backed-nwserver-lightstate-default-on-xref"
+    );
+    expect(root?.userData.placeableTwoDaLightStateDefaulted).toBe(true);
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateSource).toBe(
+      "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "retail-binary-backed-nwserver-lightstate-default-on-xref"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaLightStateDefaulted).toBe(true);
+  });
+
+  it("hides placeables.2da light preview geometry when Use Area Lighting is off", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_no_area_lighting",
+      kind: "placeables",
+      name: "Lamp Post No Area Lighting",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_NO_AREA_LIGHTING",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      {
+        ...createDebugState(),
+        useAreaLighting: false
+      },
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload()
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const twoDaLightNodes: THREE.Object3D[] = [];
+    const lightPreviewMeshes: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.name === "placeable_2da_light_source") {
+        twoDaLightNodes.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        typeof node.userData?.placeableTwoDaLightPreviewRole === "string"
+      ) {
+        lightPreviewMeshes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(0);
+    expect(twoDaLightNodes).toHaveLength(0);
+    expect(lightPreviewMeshes).toHaveLength(0);
+    expect(root?.userData.placeableTwoDaLightPreviewStatus).toBe(
+      "off-by-use-area-lighting"
+    );
+    expect(root?.userData.placeableTwoDaLightDisabledReason).toBe(
+      "Use Area Lighting=false"
+    );
+    expect(root?.userData.placeableTwoDaLightDisabledProofStatus).toBe(
+      "source-backed-toolset-use-area-lighting-toggle"
+    );
+    expect(root?.userData.placeableTwoDaLightColorRow).toBe(7);
+    expect(root?.userData.placeableTwoDaLightColorLabel).toBe("Yellow");
+    expect(root?.userData.placeableTwoDaLightColor).toEqual([1.9, 1.7, 0.06]);
+    expect(root?.userData.placeableTwoDaLightToolsetColor).toEqual([0.96, 0.87, 0.03]);
+    expect(root?.userData.placeableTwoDaLightColorSource).toBe("lightcolor.2da.RGB");
+    expect(root?.userData.placeableTwoDaLightColorProofStatus).toBe(
+      "source-backed-lightcolor-2da"
+    );
+    expect(root?.userData.placeableTwoDaShadowSize).toBe(2);
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingRecomputeToken).toBe(
+      "1:7:1.9:1.7:0.06:0.25:-0.5:1.75:2"
+    );
+
+    const diagnostics = writePlaceableTwoDaLightRenderDiagnostics(runtime);
+    expect(diagnostics.status).toBe("disabled");
+    expect(diagnostics.sourceGroups).toBe(0);
+    expect(diagnostics.pointLights).toBe(0);
+    expect(diagnostics.disabledByUseAreaLighting).toBe(1);
+    expect(runtime.container.dataset.placeableTwoDaLightDisabledCount).toBe("1");
+    expect(
+      runtime.container.dataset.placeableTwoDaLightDisabledByUseAreaLightingCount
+    ).toBe("1");
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "status=off-by-use-area-lighting"
+    );
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain("row=7");
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "label=Yellow"
+    );
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "color=1.9,1.7,0.06"
+    );
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain("shadow=2");
+  });
+
+  it("binds a supplied retail fxpa_Dot01 texture for placeables.2da fast shadows", () => {
+    const retailTexture = new THREE.DataTexture(
+      new Uint8Array([
+        255, 255, 255, 0,
+        255, 255, 255, 64,
+        255, 255, 255, 128,
+        255, 255, 255, 255
+      ]),
+      2,
+      2,
+      THREE.RGBAFormat
+    );
+    retailTexture.name = "fxpa_Dot01";
+    const group = createPlaceableTwoDaLightPreviewGroup(
+      createPlaceablesTwoDaLightPayload(),
+      1,
+      {
+        fastShadowTexture: retailTexture,
+        fastShadowTextureSource:
+          "backend/scripts/audit-retail-shadow-texture.ts over nwn_base.key fxpa_dot01.tga",
+        fastShadowTextureProofStatus:
+          "source-backed-retail-key-bif-fxpa-dot01-texture-bound"
+      }
+    );
+    const fastShadows: THREE.Mesh[] = [];
+    group?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(fastShadows).toHaveLength(1);
+    expect(group?.userData.placeableTwoDaFastShadowTextureBindingStatus).toBe(
+      "source-backed-retail-fxpa-dot01-rgba-texture-bound"
+    );
+    expect(group?.userData.placeableTwoDaFastShadowTextureBindingProofStatus).toBe(
+      "source-backed-retail-key-bif-fxpa-dot01-texture-bound"
+    );
+    expect(group?.userData.placeableTwoDaFastShadowTextureBindingMapKind).toBe(
+      "retail-rgba-map"
+    );
+    const material = fastShadows[0]?.material as THREE.MeshBasicMaterial | undefined;
+    expect(material?.map).toBe(retailTexture);
+    expect(material?.alphaMap).toBeNull();
+    expect(retailTexture.userData.auroraTextureReference).toBe("fxpa_Dot01");
+    expect(retailTexture.userData.auroraTextureBindingStatus).toBe(
+      "source-backed-retail-fxpa-dot01-rgba-texture-bound"
+    );
+    expect(retailTexture.userData.auroraTextureBindingSource).toContain(
+      "audit-retail-shadow-texture.ts"
+    );
+  });
+
+  it("passes delivered fxpa_dot01 texture contracts into placeables.2da fast shadows", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_shadow_texture",
+      kind: "placeables",
+      name: "Lamp Post Shadow Texture",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_SHADOW_TEXTURE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createPlaceablesTwoDaLightPayload();
+    payload.placeable.assetManifest.assets = [
+      {
+        assetId: "shadow-texture",
+        role: "texture",
+        fileName: "fxpa_dot01.tga",
+        objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_dot01.tga",
+        extension: "tga",
+        sizeBytes: 22,
+        contentType: "image/x-tga"
+      }
+    ];
+    payload.assetContracts.assets = [
+      {
+        assetId: "shadow-texture",
+        objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_dot01.tga",
+        contentType: "image/x-tga",
+        sizeBytes: 22,
+        deliveryPath:
+          "/api/v1/catalog/placeables/cache/cache-shadow/assets/shadow-texture.tga",
+        deliveryUrl:
+          "/api/v1/catalog/placeables/cache/cache-shadow/assets/shadow-texture.tga"
+      }
+    ];
+    const textureUrl = resolvePlaceableTextureDeliveryUrlsByReference(payload).get(
+      "fxpa_dot01"
+    );
+    expect(textureUrl).toBeTruthy();
+    const retailTexture = new THREE.DataTexture(
+      new Uint8Array([
+        255, 255, 255, 0,
+        255, 255, 255, 255,
+        255, 255, 255, 96,
+        255, 255, 255, 192
+      ]),
+      2,
+      2,
+      THREE.RGBAFormat
+    );
+    runtime.placeableTextureCacheByUrl.set(textureUrl!, retailTexture);
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const fastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(fastShadows).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaFastShadowTextureBindingStatus).toBe(
+      "source-backed-retail-fxpa-dot01-rgba-texture-bound"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowTextureBindingMapKind).toBe(
+      "retail-rgba-map"
+    );
+    const material = fastShadows[0]?.material as THREE.MeshBasicMaterial | undefined;
+    expect(material?.map).toBe(retailTexture);
+    expect(material?.alphaMap).toBeNull();
+  });
+
+  it("maps placeables.2da ShadowSize zero to the retail small shadow MDL", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_shadow_zero",
+      kind: "placeables",
+      name: "Lamp Post Shadow Zero",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_SHADOW_ZERO",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({ shadowSize: 0 })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const fastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(fastShadows).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaShadowSize).toBe(0);
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowStatus).toBe("active");
+    expect(root?.userData.placeableTwoDaShadowSizeLane).toBe("small");
+    expect(root?.userData.placeableTwoDaFastShadowModelFileName).toBe("fx_shadow_s.mdl");
+    expect(root?.userData.placeableTwoDaFastShadowEmitterNodeName).toBe("Small");
+    expect(root?.userData.placeableTwoDaFastShadowEmitterSize).toBe(1);
+    expect(root?.userData.placeableTwoDaFastShadowRadius).toBeCloseTo(0.5, 5);
+    expect(root?.userData.placeableTwoDaFastShadowBaseOpacity).toBeCloseTo(0.6, 5);
+    expect(root?.userData.placeableTwoDaStaticLightingRecomputeToken).toBe(
+      "1:7:1.9:1.7:0.06:0.25:-0.5:1.75:0"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSize).toBe(0);
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowModelFileName).toBe(
+      "fx_shadow_s.mdl"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowEmitterNodeName).toBe("Small");
+  });
+
+  it("keeps dev ShadowSize override provenance separate from source placeables.2da", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_shadow_override",
+      kind: "placeables",
+      name: "Lamp Post Shadow Override",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_SHADOW_OVERRIDE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({
+          shadowSize: 2,
+          shadowSizeOverrideSource:
+            "dev-catalog-vfx-preview-query-shadowSize-local-diagnostic-override",
+          shadowSizeOverrideProofStatus:
+            "local-diagnostic-shadowsize-override-source-backed-retail-selection-rule"
+        })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const fastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(root?.userData.placeableTwoDaShadowSize).toBe(2);
+    expect(root?.userData.placeableTwoDaShadowSizeSource).toBe(
+      "dev-catalog-vfx-preview-query-shadowSize-local-diagnostic-override"
+    );
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "local-diagnostic-shadowsize-override-source-backed-retail-selection-rule"
+    );
+    expect(root?.userData.placeableTwoDaShadowSizeLane).toBe("large");
+    expect(root?.userData.placeableTwoDaFastShadowModelFileName).toBe("fx_shadow_l.mdl");
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSizeSource).toBe(
+      "dev-catalog-vfx-preview-query-shadowSize-local-diagnostic-override"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "local-diagnostic-shadowsize-override-source-backed-retail-selection-rule"
+    );
+    expect(fastShadows[0]?.userData.placeableTwoDaShadowSizeLane).toBe("large");
+
+    writePlaceableTwoDaLightRenderDiagnostics(runtime);
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "shadowSource=dev-catalog-vfx-preview-query-shadowSize-local-diagnostic-override"
+    );
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "shadowProof=local-diagnostic-shadowsize-override-source-backed-retail-selection-rule"
+    );
+  });
+
+  it("maps placeables.2da ShadowSize one to the retail medium shadow MDL", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_shadow_medium",
+      kind: "placeables",
+      name: "Lamp Post Shadow Medium",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_SHADOW_MEDIUM",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({ shadowSize: 1 })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const fastShadows: THREE.Mesh[] = [];
+    const volumeCasters: THREE.Mesh[] = [];
+    const projectionPreviews: THREE.Mesh[] = [];
+    const stencilFront: THREE.Mesh[] = [];
+    const stencilBack: THREE.Mesh[] = [];
+    const stencilZFailFront: THREE.Mesh[] = [];
+    const stencilZFailBack: THREE.Mesh[] = [];
+    const stencilReceivers: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_caster"
+      ) {
+        volumeCasters.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_projection_preview"
+      ) {
+        projectionPreviews.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_stencil_front"
+      ) {
+        stencilFront.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_stencil_back"
+      ) {
+        stencilBack.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_stencil_zfail_front"
+      ) {
+        stencilZFailFront.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_stencil_zfail_back"
+      ) {
+        stencilZFailBack.push(node);
+      }
+      if (
+        node instanceof THREE.Mesh &&
+        node.name === "placeable_2da_light_fast_shadow_volume_stencil_receiver"
+      ) {
+        stencilReceivers.push(node);
+      }
+    });
+
+    expect(fastShadows).toHaveLength(1);
+    expect(volumeCasters).toHaveLength(1);
+    expect(projectionPreviews).toHaveLength(1);
+    expect(stencilFront).toHaveLength(1);
+    expect(stencilBack).toHaveLength(1);
+    expect(stencilZFailFront).toHaveLength(1);
+    expect(stencilZFailBack).toHaveLength(1);
+    expect(stencilReceivers).toHaveLength(1);
+    expect(root?.userData.placeableTwoDaShadowSize).toBe(1);
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+    expect(root?.userData.placeableTwoDaShadowSizeLane).toBe("medium");
+    expect(root?.userData.placeableTwoDaFastShadowModelFileName).toBe("fx_shadow_m.mdl");
+    expect(root?.userData.placeableTwoDaFastShadowEmitterNodeName).toBe("Med");
+    expect(root?.userData.placeableTwoDaFastShadowEmitterSize).toBeCloseTo(1.6, 5);
+    expect(root?.userData.placeableTwoDaFastShadowRadius).toBeCloseTo(0.8, 5);
+    expect(root?.userData.placeableTwoDaFastShadowBaseOpacity).toBeCloseTo(0.6, 5);
+    expect(root?.userData.placeableTwoDaFastShadowProjectionSource).toContain(
+      "Fx_Shadow_M"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowProjectionStatus).toBe(
+      "source-backed-retail-shadow-mdl-single-billboard-local-z-textured-quad-shadowvol-stencil-pass-active-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterStatus).toBe(
+      "source-backed-shadowvol-caster-buffer-three-geometry-bound-to-placeable-fast-shadow-proxy-stencil-lane-active-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterGeometryStatus).toBe(
+      "source-backed-shadowvol-caster-buffer-three-geometry-helper-ported-active-renderer-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterSourceVertexCount).toBe(4);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSize).toBeCloseTo(
+      1.6,
+      5
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSizeSource
+    ).toContain("Fx_Shadow_* binary MDL emitter sizeStart/sizeEnd");
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterEdgeCount).toBe(4);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterVertexRecordCount).toBe(10);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterIndexCount).toBe(24);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeCasterWAttribute).toBe(
+      "auroraShadowVolumeW"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewStatus).toBe(
+      "source-backed-shadowvol-w-pair-extrusion-preview-active-stencil-parity-blocked"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewRendererMode
+    ).toBe("three-shadermaterial-aurora-w-pair-extrusion-preview-no-stencil");
+    expect(root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewVisible).toBe(
+      true
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewWAttribute).toBe(
+      "auroraShadowVolumeW"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewLightPosition
+    ).toEqual([0, 0, 1.5]);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewExtrusionDistance
+    ).toBeCloseTo(7.5, 5);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewOpacity).toBeCloseTo(
+      0.18,
+      5
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewOpacityScale
+    ).toBeCloseTo(0.32, 5);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewOpacitySource
+    ).toContain("Aurora Web local preview calibration");
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewOpacityProofStatus
+    ).toBe(
+      "preview-adapter-shadowvol-overlay-opacity-scale-retail-pixel-parity-blocked"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewProofStatus
+    ).toBe(
+      "source-backed-shadowvol-w-pair-preview-renderer-active-retail-stencil-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilStatus).toBe(
+      "source-backed-shadowvol-w-pair-stencil-volume-pass-active-retail-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilRendererMode).toBe(
+      "three-webgl-stencil-front-back-zpass-zfail-shadow-volume-preview"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilVisible).toBe(true);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilWAttribute).toBe(
+      "auroraShadowVolumeW"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilLightPosition).toEqual([
+      0,
+      0,
+      1.5
+    ]);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilExtrusionDistance).toBeCloseTo(
+      7.5,
+      5
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverSize).toBeCloseTo(
+      9,
+      5
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacity).toBeCloseTo(
+      0.156,
+      5
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacityScale
+    ).toBeCloseTo(0.26, 5);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacitySource
+    ).toContain("Aurora Web local preview calibration");
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverOpacityProofStatus
+    ).toBe(
+      "preview-adapter-shadowvol-stencil-receiver-opacity-scale-retail-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverFunc).toBe(
+      "NotEqual(0)"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilVolumePasses).toEqual([
+      "back:zpass",
+      "front:zpass",
+      "back:zfail",
+      "front:zfail"
+    ]);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilPassStateSamples
+    ).toEqual([
+      expect.stringContaining(
+        "pass=back:zpass,side=BackSide,colorWrite=false,depthWrite=false,depthTest=true,stencilWrite=true"
+      ),
+      expect.stringContaining(
+        "pass=front:zpass,side=FrontSide,colorWrite=false,depthWrite=false,depthTest=true,stencilWrite=true"
+      ),
+      expect.stringContaining(
+        "pass=back:zfail,side=BackSide,colorWrite=false,depthWrite=false,depthTest=true,stencilWrite=true"
+      ),
+      expect.stringContaining(
+        "pass=front:zfail,side=FrontSide,colorWrite=false,depthWrite=false,depthTest=true,stencilWrite=true"
+      )
+    ]);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilPassStateSamples
+    ).toEqual([
+      expect.stringContaining("stencilZPass=Decrement"),
+      expect.stringContaining("stencilZPass=Increment"),
+      expect.stringContaining("stencilZFail=Increment"),
+      expect.stringContaining("stencilZFail=Decrement")
+    ]);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilReceiverState).toContain(
+      "receiver=stencil-nonzero-overlay,colorWrite=true,depthWrite=false,depthTest=false,stencilWrite=true,stencilFunc=NotEqual(0)"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilStateProofStatus).toBe(
+      "source-backed-shadowvol-local-material-state-captured-retail-op-sequence-pixel-parity-blocked"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilRetailFaceOpTable
+    ).toContain("faces=slot0=GL_FRONT/0x404,slot1=GL_BACK/0x405");
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilRetailOpSequence).toContain(
+      "pass=front:zpass,call=FUN_00a78344(0,0,0,3),faceSlot=0,face=GL_FRONT/0x404"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilRetailOpSequence).toContain(
+      "pass=back:zfail,call=FUN_00a78344(1,0,3,0),faceSlot=1,face=GL_BACK/0x405"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeStencilRetailOpSequenceSource
+    ).toContain(
+      "face table 0xcc9a38 slot 0=GL_FRONT/0x404 slot 1=GL_BACK/0x405"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeStencilProofStatus).toBe(
+      "source-backed-shadowvol-w-pair-stencil-pass-active-retail-face-op-mapped-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeRenderShaderNames).toEqual([
+      "vs_shadowvol",
+      "fs_shadowvol"
+    ]);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeRenderBuckets).toEqual([
+      "0xd",
+      "0xe",
+      "0xb",
+      "0xc"
+    ]);
+    expect(root?.userData.placeableTwoDaFastShadowVolumeRenderBucketPhases).toEqual([
+      "case=local_29_false;condition=current-light-branch-not-active;sequence=0xd:zpass->0xe:zfail",
+      "case=local_29_true;condition=param_1+0x34==DAT_00cc4350 and differs from scene +0x108/+0x68;sequence=0xd:zpass->0xb:zpass->0xe:zfail->0xc:zfail"
+    ]);
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderBucketPhaseSource
+    ).toContain("913922-913928");
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderBucketPhaseProofStatus
+    ).toBe(
+      "source-backed-shadowvol-branch-aware-bucket-op-ordering-retail-pixel-parity-blocked"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateCallSequence
+    ).toEqual(expect.arrayContaining([
+      expect.stringContaining("pre=FUN_00a7818c(3)"),
+      expect.stringContaining("lazyBegin=FUN_00a780f0()"),
+      expect.stringContaining("perCaster=FUN_00a788b0(DAT_00d0247c)"),
+      expect.stringContaining("draw=FUN_00a78128"),
+      expect.stringContaining("post=FUN_00a7816c(3)")
+    ]));
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateCallSource
+    ).toContain("913995-914015");
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateCallProofStatus
+    ).toBe(
+      "source-backed-shadowvol-render-state-wrapper-call-sequence-slot3-gl-cull-face-exposed-wrapped-state-factor-parity-blocked"
+    );
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics
+    ).toEqual(expect.arrayContaining([
+      expect.stringContaining("slot3=FUN_00a7818c(3)->FUN_00a6f0bc(3)->glDisable(GL_CULL_FACE/0x0b44)"),
+      expect.stringContaining("stateStack=FUN_00a780f0()->FUN_00a6c520"),
+      expect.stringContaining("stencilCache=FUN_00a6f2b4")
+    ]));
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateWrapperSource
+    ).toContain("898307-898358");
+    expect(
+      root?.userData.placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus
+    ).toBe(
+      "source-backed-shadowvol-render-state-slot3-gl-cull-face-stack-and-stencil-cache-exposed-other-state-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeShaderUniformSemantics).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("transform=FUN_00a785d4(light-matrix-pointer)->FUN_00a6dda4()"),
+        expect.stringContaining("shaderBind=FUN_00a788b0(DAT_00d0247c)->FUN_00a74fd0"),
+        expect.stringContaining("uniformSlot1=FUN_00a78980(1,fVar2)->FUN_00a72764")
+      ])
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeShaderUniformSource).toContain(
+      "900852-900857 FUN_00a72764 writes scalar slot data"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeShaderUniformProofStatus).toBe(
+      "source-backed-shadowvol-shader-bind-transform-and-uniform-slot-writes-exposed-retail-pixel-parity-blocked"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeRenderPathSource).toContain(
+      "FUN_00a878f8"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeDrawWrapperSource).toContain(
+      "FUN_00a78128 wraps FUN_00a75e3c"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeLightProfileSource).toContain(
+      "shadowradius +0x60"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowVolumeRenderPathProofStatus).toBe(
+      "source-backed-shadowvol-shader-buckets-draw-wrapper-caster-reset-stencil-parity-blocked"
+    );
+    expect(volumeCasters[0]?.visible).toBe(false);
+    expect(projectionPreviews[0]?.visible).toBe(true);
+    expect(projectionPreviews[0]?.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(stencilBack[0]?.visible).toBe(true);
+    expect(stencilFront[0]?.visible).toBe(true);
+    expect(stencilZFailBack[0]?.visible).toBe(true);
+    expect(stencilZFailFront[0]?.visible).toBe(true);
+    expect(stencilReceivers[0]?.visible).toBe(true);
+    expect(stencilBack[0]?.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(stencilFront[0]?.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(stencilZFailBack[0]?.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(stencilZFailFront[0]?.material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(stencilReceivers[0]?.material).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect((stencilBack[0]?.material as THREE.Material | undefined)?.colorWrite).toBe(
+      false
+    );
+    expect((stencilBack[0]?.material as THREE.Material | undefined)?.stencilZPass).toBe(
+      THREE.DecrementStencilOp
+    );
+    expect(
+      (stencilZFailBack[0]?.material as THREE.Material | undefined)?.stencilZFail
+    ).toBe(THREE.IncrementStencilOp);
+    expect(
+      stencilZFailFront[0]?.userData.placeableTwoDaFastShadowVolumeStencilDepthPass
+    ).toBe("zfail");
+    expect(
+      stencilZFailFront[0]?.userData
+        .placeableTwoDaFastShadowVolumeStencilPassStateSamples
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "pass=front:zfail,side=FrontSide,colorWrite=false"
+        )
+      ])
+    );
+    expect(
+      (stencilReceivers[0]?.material as THREE.Material | undefined)?.stencilWrite
+    ).toBe(true);
+    expect(stencilReceivers[0]?.userData.placeableTwoDaFastShadowVolumeStencilProofStatus).toBe(
+      "source-backed-shadowvol-w-pair-stencil-pass-active-retail-face-op-mapped-pixel-parity-blocked"
+    );
+    expect(
+      projectionPreviews[0]?.userData.placeableTwoDaFastShadowVolumeProjectionPreviewSource
+    ).toContain("auroraShadowVolumeW=0");
+    expect(volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderShaderNames).toEqual([
+      "vs_shadowvol",
+      "fs_shadowvol"
+    ]);
+    expect(volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderBuckets).toEqual([
+      "0xd",
+      "0xe",
+      "0xb",
+      "0xc"
+    ]);
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderBucketPhases
+    ).toEqual([
+      "case=local_29_false;condition=current-light-branch-not-active;sequence=0xd:zpass->0xe:zfail",
+      "case=local_29_true;condition=param_1+0x34==DAT_00cc4350 and differs from scene +0x108/+0x68;sequence=0xd:zpass->0xb:zpass->0xe:zfail->0xc:zfail"
+    ]);
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderStateCallSequence
+    ).toEqual(expect.arrayContaining([expect.stringContaining("draw=FUN_00a78128")]));
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderStateWrapperSemantics
+    ).toEqual(expect.arrayContaining([
+      expect.stringContaining("slot3Restore=FUN_00a7816c(3)->FUN_00a6ef90(3)->glEnable(GL_CULL_FACE/0x0b44)")
+    ]));
+    expect(
+      volumeCasters[0]?.userData
+        .placeableTwoDaFastShadowVolumeRenderStateWrapperProofStatus
+    ).toBe(
+      "source-backed-shadowvol-render-state-slot3-gl-cull-face-stack-and-stencil-cache-exposed-other-state-parity-blocked"
+    );
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeShaderUniformSemantics
+    ).toEqual(expect.arrayContaining([
+      expect.stringContaining("uniformSlot0=FUN_00a78994(0)->FUN_00a7278c")
+    ]));
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeShaderUniformProofStatus
+    ).toBe(
+      "source-backed-shadowvol-shader-bind-transform-and-uniform-slot-writes-exposed-retail-pixel-parity-blocked"
+    );
+    expect(volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeRenderPathProofStatus).toBe(
+      "source-backed-shadowvol-shader-buckets-draw-wrapper-caster-reset-stencil-parity-blocked"
+    );
+    expect(volumeCasters[0]?.geometry.getAttribute("auroraShadowVolumeW").count).toBe(10);
+    expect(volumeCasters[0]?.geometry.index?.count).toBe(24);
+    expect(
+      volumeCasters[0]?.userData.placeableTwoDaFastShadowVolumeCasterSourceQuadSize
+    ).toBeCloseTo(1.6, 5);
+    expect(fastShadows[0]?.userData.placeableTwoDaFastShadowModelFileName).toBe(
+      "fx_shadow_m.mdl"
+    );
+  });
+
+  it("keeps missing placeables.2da ShadowSize as missing shadow provenance", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_shadow_missing",
+      kind: "placeables",
+      name: "Lamp Post Shadow Missing",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_SHADOW_MISSING",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({ includeShadowSize: false })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const fastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(fastShadows).toHaveLength(0);
+    expect(root?.userData.placeableTwoDaShadowSize).toBeUndefined();
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "missing-no-placeables-2da-shadowsize"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowStatus).toBe("missing");
+    expect(root?.userData.placeableTwoDaFastShadowProofStatus).toBe(
+      "missing-no-positive-placeables-2da-shadowsize"
+    );
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSize).toBeUndefined();
+    expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "missing-no-placeables-2da-shadowsize"
+    );
+    expect(pointLights[0]?.distance).toBeCloseTo(5, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistanceUsesShadowSize).toBe(false);
+  });
+
+  it("does not render a placeables.2da light when runtime LightState is off", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_off",
+      kind: "placeables",
+      name: "Lamp Post Off",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_OFF",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createPlaceablesTwoDaLightPayload({ lightState: 0 });
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(0);
+    expect(root?.userData.placeableTwoDaLightPreviewStatus).toBe("off-by-lightstate");
+    expect(root?.userData.placeableTwoDaLightDisabledReason).toBe("LightState=0");
+    expect(root?.userData.placeableTwoDaLightState).toBe(0);
+    expect(root?.userData.placeableTwoDaLightStateSource).toBe(
+      "placeableRuntime.state.lightState parsed from placed instance"
+    );
+    expect(root?.userData.placeableTwoDaLightStateProofStatus).toBe(
+      "source-backed-lightstate"
+    );
+    expect(root?.userData.placeableTwoDaLightColorSource).toBe("lightcolor.2da.RGB");
+    expect(root?.userData.placeableTwoDaLightColorProofStatus).toBe(
+      "source-backed-lightcolor-2da"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingToggleSource).toBe(
+      "nwscript.nss SetPlaceableIllumination/GetPlaceableIllumination plus RecomputeStaticLighting"
+    );
+    expect(root?.userData.placeableTwoDaStaticLightingToggleProofStatus).toBe(
+      "source-backed-nwscript-static-lighting-recompute"
+    );
+
+    const diagnostics = writePlaceableTwoDaLightRenderDiagnostics(runtime);
+    expect(diagnostics.status).toBe("disabled");
+    expect(diagnostics.sourceGroups).toBe(0);
+    expect(diagnostics.pointLights).toBe(0);
+    expect(diagnostics.disabledByLightState).toBe(1);
+    expect(runtime.container.dataset.placeableTwoDaLightDisabledCount).toBe("1");
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "status=off-by-lightstate"
+    );
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "toggleProof=source-backed-nwscript-static-lighting-recompute"
+    );
+  });
+
+  it("keeps placeables.2da PointLight while hiding fast-shadow proxy when Display Shadows is off", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_no_shadow",
+      kind: "placeables",
+      name: "Lamp Post No Shadow",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_NO_SHADOW",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      {
+        ...createDebugState(),
+        displayShadows: false
+      },
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload()
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const fastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        fastShadows.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(1);
+    expect(fastShadows).toHaveLength(0);
+    expect(root?.userData.placeableTwoDaFastShadowStatus).toBe(
+      "hidden-by-display-shadows-toggle"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowProofStatus).toBe(
+      "hidden-by-display-shadows-toggle"
+    );
+    expect(root?.userData.placeableTwoDaFastShadowDisabledReason).toBe(
+      "Display Shadows=false"
+    );
+    expect(root?.userData.placeableTwoDaShadowSize).toBe(2);
+    expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
+      "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
+    );
+
+    const diagnostics = writePlaceableTwoDaLightRenderDiagnostics(runtime);
+    expect(diagnostics.status).toBe("active");
+    expect(diagnostics.pointLights).toBe(1);
+    expect(diagnostics.fastShadows).toBe(0);
+    expect(runtime.container.dataset.placeableTwoDaLightSamples).toContain(
+      "fastShadowProof=hidden-by-display-shadows-toggle"
+    );
+  });
+
+  it("refreshes static lighting preview when placeable LightState changes", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_lamppost_toggle",
+      kind: "placeables",
+      name: "Lamp Post Toggle",
+      resRef: "plc_lamppost",
+      tag: "PLC_LAMPPOST_TOGGLE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({ lightState: 1 })
+      }
+    );
+
+    let root = runtime.objectMeshById.get(object.id);
+    const initialPointLights: THREE.PointLight[] = [];
+    const initialFastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        initialPointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        initialFastShadows.push(node);
+      }
+    });
+    expect(initialPointLights).toHaveLength(1);
+    expect(initialFastShadows).toHaveLength(1);
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createPlaceablesTwoDaLightPayload({ lightState: 0 })
+      }
+    );
+
+    root = runtime.objectMeshById.get(object.id);
+    const refreshedPointLights: THREE.PointLight[] = [];
+    const refreshedFastShadows: THREE.Mesh[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        refreshedPointLights.push(node);
+      }
+      if (node instanceof THREE.Mesh && node.name === "placeable_2da_light_fast_shadow") {
+        refreshedFastShadows.push(node);
+      }
+    });
+
+    expect(refreshedPointLights).toHaveLength(0);
+    expect(refreshedFastShadows).toHaveLength(0);
+    expect(root?.userData.placeableTwoDaStaticLightingRecomputeToken).toBe(
+      "0:7:1.9:1.7:0.06:0.25:-0.5:1.75:2"
+    );
+  });
+
+  it("caps placeable source MDL light previews by recovered LightManager score before creating PointLights", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_many_lights",
+      kind: "placeables",
+      name: "VFX: Many Lights*",
+      resRef: "plc_many_lights",
+      tag: "PLC_MANY_LIGHTS",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createVfxPayloadWithReadyModel({
+      templateId: "plc_many_lights",
+      resref: "plc_many_lights",
+      placeableName: "VFX: Many Lights*",
+      auroraLight: {
+        source: "source-mdl",
+        diagnostics: [],
+        lights: Array.from({ length: 130 }, (_, index) => ({
+          source: "aurora-mdl-ascii",
+          sourceModelAssetId: "source-model-many-lights",
+          sourceModelFileName: "plc_many_lights.mdl",
+          sourceModelObjectKey: "modules/current/models/plc_many_lights.mdl",
+          nodeName: `light_${index.toString().padStart(3, "0")}`,
+          transform: {
+            position: [0, 0, 1 + index * 0.01]
+          },
+          radius: 3,
+          multiplier: 1,
+          color: [1, 0.85, 0.15],
+          ambientOnly: false,
+          dynamicType: 1,
+          affectDynamic: true,
+          shadow: index === 129,
+          lightPriority: index === 129 ? 20 : index === 0 ? -10 : 0
+        }))
+      }
+    });
+    if (payload.renderPackage) {
+      delete payload.renderPackage.glbUrl;
+      payload.renderPackage.assetRefs = {};
+      delete payload.renderPackage.auroraEmitter;
+    }
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const lightNodes: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.userData?.vfxPreviewRole === "aurora-light-node") {
+        lightNodes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(128);
+    expect(root?.userData.vfxLightCount).toBe(128);
+    expect(root?.userData.auroraLightSourceNodeCount).toBe(130);
+    expect(root?.userData.auroraLightAcceptedNodeCount).toBe(128);
+    expect(root?.userData.auroraLightDroppedNodeCount).toBe(2);
+    expect(root?.userData.auroraLightBudgetCap).toBe(128);
+    expect(root?.userData.auroraLightBudgetCapSource).toBe(
+      "C:/Projects/New Folder/export/decompiled_all.c:866086-866096 FUN_00a41e30 caps light slots at 0x80 unless runtime max-lights is lower"
+    );
+    expect(root?.userData.auroraLightBudgetCapProofStatus).toBe(
+      "source-backed-mdl-light-slot-cap-max-128"
+    );
+    expect(root?.userData.auroraLightBudgetStrategy).toBe(
+      "source-backed-retail-score-ascending-global-budget-preview-camera-fallback"
+    );
+    expect(root?.userData.auroraLightBudgetStrategySource).toContain(
+      "FUN_00a41850"
+    );
+    expect(root?.userData.auroraLightBudgetStrategyProofStatus).toBe(
+      "source-backed-retail-score-sort-slot-cap-preview-camera-field-fallback"
+    );
+    expect(root?.userData.auroraLightDroppedNodes).toEqual(["light_128", "light_129"]);
+    expect(lightNodes[0]?.userData).toMatchObject({
+      auroraLightNodeName: "light_000",
+      auroraLightBudgetRank: 1,
+      auroraLightBudgetAccepted: true,
+      auroraLightPriority: -10,
+      auroraLightRetailScoreProofStatus:
+        "source-backed-retail-lightmanager-score-preview-input-fallback",
+      auroraLightRetailScoreSortDirection: "ascending-score-field-0x84-preview",
+      auroraLightBudgetCapSource:
+        "C:/Projects/New Folder/export/decompiled_all.c:866086-866096 FUN_00a41e30 caps light slots at 0x80 unless runtime max-lights is lower",
+      auroraLightBudgetCapProofStatus: "source-backed-mdl-light-slot-cap-max-128"
+    });
+  });
+
+  it("respects a lower configured runtime cap for placeable source MDL light previews", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    (runtime as unknown as { scene: THREE.Scene }).scene = new THREE.Scene();
+    runtime.scene.userData.auroraLightConfiguredMaxLights = 16;
+
+    const object = {
+      id: "preview:plc_configured_light_cap",
+      kind: "placeables",
+      name: "VFX: Configured Light Cap*",
+      resRef: "plc_configured_light_cap",
+      tag: "PLC_CONFIGURED_LIGHT_CAP",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createVfxPayloadWithReadyModel({
+      templateId: "plc_configured_light_cap",
+      resref: "plc_configured_light_cap",
+      placeableName: "VFX: Configured Light Cap*",
+      auroraLight: {
+        source: "source-mdl",
+        diagnostics: [],
+        lights: Array.from({ length: 30 }, (_, index) => ({
+          source: "aurora-mdl-ascii",
+          sourceModelAssetId: "source-model-configured-light-cap",
+          sourceModelFileName: "plc_configured_light_cap.mdl",
+          sourceModelObjectKey:
+            "modules/current/models/plc_configured_light_cap.mdl",
+          nodeName: `configured_light_${index.toString().padStart(3, "0")}`,
+          transform: {
+            position: [0, 0, 1 + index * 0.01]
+          },
+          radius: 3,
+          multiplier: 1,
+          color: [1, 0.85, 0.15],
+          ambientOnly: false,
+          dynamicType: 1,
+          affectDynamic: true,
+          shadow: false,
+          lightPriority: index === 29 ? 20 : index === 0 ? -10 : 0
+        }))
+      }
+    });
+    if (payload.renderPackage) {
+      delete payload.renderPackage.glbUrl;
+      payload.renderPackage.assetRefs = {};
+      delete payload.renderPackage.auroraEmitter;
+    }
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const pointLights: THREE.PointLight[] = [];
+    const lightNodes: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+      if (node.userData?.vfxPreviewRole === "aurora-light-node") {
+        lightNodes.push(node);
+      }
+    });
+
+    expect(pointLights).toHaveLength(16);
+    expect(root?.userData.vfxLightCount).toBe(16);
+    expect(root?.userData.auroraLightSourceNodeCount).toBe(30);
+    expect(root?.userData.auroraLightAcceptedNodeCount).toBe(16);
+    expect(root?.userData.auroraLightDroppedNodeCount).toBe(14);
+    expect(root?.userData.auroraLightBudgetCap).toBe(16);
+    expect(root?.userData.auroraLightBudgetHardCap).toBe(128);
+    expect(root?.userData.auroraLightConfiguredMaxLights).toBe(16);
+    expect(lightNodes[0]?.userData).toMatchObject({
+      auroraLightNodeName: "configured_light_000",
+      auroraLightBudgetRank: 1,
+      auroraLightBudgetAccepted: true,
+      auroraLightBudgetCap: 16,
+      auroraLightBudgetHardCap: 128,
+      auroraLightConfiguredMaxLights: 16
+    });
   });
 
   it("shows source MDL light-node diagnostic gizmos only in non-render debug mode", () => {
@@ -1363,12 +4814,12 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
 
     const loadingRoot = runtime.objectMeshById.get(object.id);
     expect(loadingRoot?.userData.renderPackageModelUrl).toBe(
-      "http://localhost:3000/assets/cot_fx01.glb"
+      "http://127.0.0.1:3000/assets/cot_fx01.glb"
     );
     expect(loadingRoot?.userData.auroraVfxPreviewMode).toBe("static_model_preview");
     expect(loadingRoot?.userData.vfxPreviewRole).not.toBe("aurora-emitter-missing");
     expect(load).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/cot_fx01.glb",
+      "http://127.0.0.1:3000/assets/cot_fx01.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -1404,7 +4855,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cache-vfx/assets/texture-1.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache-vfx/assets/texture-1.tga";
     const objectUrl = "blob:http://localhost/authorized-vfx-texture";
     let resolveTexture: ((texture: THREE.Texture) => void) | null = null;
     const textureFetch = vi.fn(async () => ({
@@ -1496,9 +4947,13 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
         setTimeout(resolve, 0);
       });
 
-      expect(textureFetch).toHaveBeenCalledWith(textureUrl, {
-        headers: { Authorization: "Bearer token-vfx" }
-      });
+      expect(textureFetch).toHaveBeenCalledWith(
+        textureUrl,
+        expect.objectContaining({
+          headers: { Authorization: "Bearer token-vfx" },
+          signal: expect.any(Object)
+        })
+      );
       expect(tgaLoader).toHaveBeenCalledWith(
         objectUrl,
         expect.any(Function),
@@ -1590,7 +5045,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
 
     expect(load).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/cot_fx01.glb",
+      "http://127.0.0.1:3000/assets/cot_fx01.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -1637,7 +5092,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(alphaOnlyPixels, 2, 2, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_smoke_red.dds",
+      "http://127.0.0.1:3000/assets/fx_smoke_red.dds",
       particleTexture
     );
 
@@ -1681,7 +5136,6 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       }
     );
 
-    expect(load).not.toHaveBeenCalled();
     const root = runtime.objectMeshById.get(object.id);
     expect(root?.userData.auroraVfxCanonicalStatus).toBe("preview_only");
     expect(root?.userData.auroraVfxPreviewMode).toBe("aurora_emitter_particle_preview");
@@ -1696,12 +5150,1116 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(mappedParticleCount).toBe(particles.length);
   });
 
+  it("keeps source-MDL emitter render state intact with ordinary placeable debug overlays", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const particleTexture = new THREE.Texture();
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_magic_mouth",
+      resref: "plc_magic_mouth",
+      placeableName: "Magic Mouth",
+      textureFileName: "fxpa_flare.tga",
+      textureDeliveryUrl: "/assets/fxpa_flare.tga",
+      auroraEmitter: createSingleTextureAuroraEmitter({
+        texture: "fxpa_flare",
+        renderMode: "Normal",
+        blendMode: "Lighten",
+        sourceModelFileName: "plc_magic_mouth.mdl",
+        nodeName: "glow"
+      })
+    });
+    payload.placeable.category = "props";
+    payload.placeable.placeableSubtype = "generic";
+    payload.placeable.render = {
+      backendType: "model",
+      frontendType: "model",
+      rendererPreset: "placeable-model",
+      isDoor: false,
+      isVfx: false
+    } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+
+    const textureUrl = resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fxpa_flare");
+    expect(textureUrl).toBeTruthy();
+    runtime.placeableTextureCacheByUrl.set(textureUrl!, particleTexture);
+
+    const object = {
+      id: "area:plc_magic_mouth",
+      kind: "placeables",
+      name: "Magic Mouth",
+      resRef: "plc_magic_mouth",
+      tag: "PLC_MAGIC_MOUTH",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    const debugState = createDebugState();
+    debugState.showNonRenderMeshes = true;
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      debugState,
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root?.userData.auroraVfxCanonicalStatus).toBeUndefined();
+    expect(root?.userData.sourceMdlEmitterPreviewStatus).toBe("active");
+    expect(root?.userData.sourceMdlEmitterPreviewMode).toBe(
+      "placeable-source-mdl-emitter-overlay"
+    );
+    expect(root?.userData.sourceMdlEmitterPreviewVisibilityMode).toBe(
+      "source-mdl-emitter-default-visibility"
+    );
+    expect(root?.userData.sourceMdlEmitterPreviewTextureStatus).toBe("applied");
+    expect(root?.userData.auroraEmitterNode).toBe("glow");
+    expect(root?.userData.auroraEmitterBlendMode).toBe("Lighten");
+
+    const emitterRoot = root?.children.find((child) => child.userData?.auroraEmitterNode === "glow");
+    expect(emitterRoot?.userData.auroraEmitterPackageSource).toBe("source-mdl");
+    expect(emitterRoot?.userData.auroraSourceMdlEmitterVisibilityProofMode).toBeUndefined();
+    expect(emitterRoot?.userData.auroraEmitterSourceModelFileName).toBe(
+      "plc_magic_mouth.mdl"
+    );
+    expect(emitterRoot?.userData.vfxTextureStatus).toBe("applied");
+    const particles = collectCameraBillboardParticles(emitterRoot);
+    expect(particles.length).toBeGreaterThan(0);
+    particles.forEach(({ mesh, material }) => {
+      expectAuroraCameraBillboardQuad(mesh);
+      expect(material.map).toBeTruthy();
+      expect(material.depthTest).toBe(true);
+      expect(material.userData.auroraVfxParticleOpacityFloor).toBeUndefined();
+    });
+  });
+
+  it("renders source-MDL emitter overlays on Aurora Area source objects", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const particleTexture = new THREE.Texture();
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_magic_mouth",
+      resref: "plc_magic_mouth",
+      placeableName: "Magic Mouth",
+      textureFileName: "fxpa_flare.tga",
+      textureDeliveryUrl: "/assets/fxpa_flare.tga",
+      auroraEmitter: createSingleTextureAuroraEmitter({
+        texture: "fxpa_flare",
+        renderMode: "Normal",
+        blendMode: "Lighten",
+        sourceModelFileName: "plc_magic_mouth.mdl",
+        nodeName: "glow"
+      })
+    });
+    payload.placeable.category = "props";
+    payload.placeable.placeableSubtype = "generic";
+    payload.placeable.render = {
+      backendType: "model",
+      frontendType: "model",
+      rendererPreset: "placeable-model",
+      isDoor: false,
+      isVfx: false
+    } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+
+    const textureUrl = resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fxpa_flare");
+    expect(textureUrl).toBeTruthy();
+    runtime.placeableTextureCacheByUrl.set(textureUrl!, particleTexture);
+
+    const object = {
+      id: "area_enon_bakery:obj_plc_magic_mouth",
+      kind: "placeables",
+      name: "Magic Mouth",
+      resRef: "plc_magic_mouth",
+      tag: "PLC_MAGIC_MOUTH",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      },
+      source: {
+        type: "aurora_git",
+        areaId: "area_enon_bakery",
+        sourceObjectId: "obj_plc_magic_mouth",
+        sourceKind: "placeable",
+        templateId: "plc_magic_mouth"
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root).toBeTruthy();
+    expect(root?.userData.sourceMdlEmitterPreviewStatus).toBe("active");
+    expect(root?.userData.sourceMdlEmitterPreviewMode).toBe(
+      "placeable-source-mdl-emitter-overlay"
+    );
+    expect(root?.userData.sourceMdlEmitterPreviewTextureStatus).toBe("applied");
+    expect(root?.children.some((child) => child.userData?.auroraEmitterNode === "glow")).toBe(
+      true
+    );
+    expect(collectCameraBillboardParticles(root).length).toBeGreaterThan(0);
+  });
+
+  it("does not render animation-only source-MDL emitter shells when textured emitters are present", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const particleTexture = new THREE.Texture();
+    const smokeTexture = new THREE.Texture();
+    const cloudTexture = new THREE.Texture();
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_plc_i06",
+      resref: "plc_i06",
+      placeableName: "Fire: Campfire 1",
+      textureFileName: "fxpa_flame00.tga",
+      textureDeliveryUrl: "/assets/fxpa_flame00.tga",
+      metadata: {
+        modelResRef: "plc_i06",
+        lookupModelResRef: "plc_i06"
+      },
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [],
+        emitters: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "OmenEmitter250",
+            texture: "fxpa_flame00",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten",
+            simulation: {
+              birthrate: 6,
+              lifeExp: 2,
+              velocity: 0.1,
+              randvel: 0,
+              spread: 0.35,
+              sizeStart: 0.5,
+              sizeEnd: 1,
+              alphaStart: 0.73,
+              alphaEnd: 0.1,
+              colorStart: [0.25, 0.25, 0.25],
+              colorEnd: [1, 1, 1]
+            },
+            transform: {
+              position: [-0.06359, -0.07569, 0.21096]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "fire!52",
+            texture: "fxpa_smoke01",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              xSize: 10,
+              ySize: 10,
+              birthrate: 20,
+              lifeExp: 3,
+              velocity: 1,
+              randvel: 0.2,
+              spread: 0.17,
+              sizeStart: 0.5,
+              sizeEnd: 1,
+              alphaStart: 0.1,
+              alphaEnd: 0,
+              colorStart: [0.33, 0.33, 0.33],
+              colorEnd: [0.13, 0.13, 0.13]
+            },
+            transform: {
+              position: [-0.07599, -0.10031, 0.75086]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "ChunkyWood88",
+            texture: "fxpa_cloud02",
+            emitterType: "Explosion",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              xSize: 89,
+              ySize: 40,
+              birthrate: 1,
+              lifeExp: 0.75,
+              velocity: 8,
+              randvel: 0.3,
+              spread: 1.22,
+              sizeStart: 0.1,
+              sizeEnd: 0.1,
+              alphaStart: 1,
+              alphaEnd: 1
+            },
+            transform: {
+              position: [0.01201, -0.10125, 0.45065]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "ChunkyWood89",
+            texture: "fxpa_cloud02",
+            emitterType: "Explosion",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              xSize: 89,
+              ySize: 40,
+              birthrate: 2,
+              lifeExp: 0.75,
+              velocity: 8,
+              randvel: 0.3,
+              spread: 1.22,
+              sizeStart: 0.1,
+              sizeEnd: 0.1,
+              alphaStart: 1,
+              alphaEnd: 1
+            },
+            transform: {
+              position: [0.01201, -0.10125, 0.34443]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "fire!55",
+            texture: "fxpa_smoke01",
+            emitterType: "Explosion",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              xSize: 100,
+              ySize: 99,
+              birthrate: 10,
+              lifeExp: 2.5,
+              velocity: 2,
+              randvel: 0.5,
+              spread: 2.97,
+              sizeStart: 4,
+              sizeEnd: 1,
+              alphaStart: 1,
+              alphaEnd: 0
+            },
+            transform: {
+              position: [0.01201, -0.10125, 0.27039]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "OmenEmitter250",
+            simulation: {
+              birthrate: 6
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "fire!52",
+            simulation: {
+              birthrate: 20
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "ChunkyWood88"
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "ChunkyWood89"
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_i06.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_i06.mdl",
+            nodeName: "fire!55"
+          }
+        ]
+      }
+    });
+    payload.placeable.category = "lights";
+    payload.placeable.placeableSubtype = "light_source";
+    payload.placeable.render = {
+      backendType: "light_source",
+      frontendType: "placeable",
+      rendererPreset: "placeable-light",
+      isDoor: false,
+      isVfx: false
+    } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+    (
+      payload.placeable.assetManifest.assets as Array<{
+        assetId: string;
+        role: string;
+        fileName: string;
+      }>
+    ).push(
+      { assetId: "texture-smoke", role: "texture", fileName: "fxpa_smoke01.tga" },
+      { assetId: "texture-cloud", role: "texture", fileName: "fxpa_cloud02.tga" }
+    );
+    (
+      payload.assetContracts.assets as Array<{
+        assetId: string;
+        deliveryUrl: string;
+      }>
+    ).push(
+      { assetId: "texture-smoke", deliveryUrl: "/assets/fxpa_smoke01.tga" },
+      { assetId: "texture-cloud", deliveryUrl: "/assets/fxpa_cloud02.tga" }
+    );
+
+    const textureUrls = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+    [
+      ["fxpa_flame00", particleTexture],
+      ["fxpa_smoke01", smokeTexture],
+      ["fxpa_cloud02", cloudTexture]
+    ].forEach(([reference, texture]) => {
+      const textureUrl = textureUrls.get(reference as string);
+      expect(textureUrl).toBeTruthy();
+      runtime.placeableTextureCacheByUrl.set(textureUrl!, texture as THREE.Texture);
+    });
+
+    const object = {
+      id: "area:plc_i06",
+      kind: "placeables",
+      name: "Fire: Campfire 1",
+      resRef: "plc_i06",
+      tag: "PLC_I06",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root).toBeDefined();
+    expect(root?.userData).toMatchObject({
+      sourceMdlEmitterPreviewStatus: "active"
+    });
+    expect(root?.userData.vfxPreviewRole).toBe("aurora-multi-emitter");
+    expect(root?.userData.vfxEmitterCount).toBe(5);
+    expect(root?.userData.auroraEmitterNodes).toEqual([
+      "OmenEmitter250",
+      "fire!52",
+      "ChunkyWood88",
+      "ChunkyWood89",
+      "fire!55"
+    ]);
+    expect(root?.userData.auroraEmitterTextures).toEqual([
+      "fxpa_flame00",
+      "fxpa_smoke01",
+      "fxpa_cloud02",
+      "fxpa_cloud02",
+      "fxpa_smoke01"
+    ]);
+    const emitterGroups: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node !== root && node.userData?.auroraEmitterNode) {
+        emitterGroups.push(node);
+      }
+    });
+    expect(emitterGroups).toHaveLength(5);
+    const flameGroup = emitterGroups?.find(
+      (child) => child.userData?.auroraEmitterNode === "OmenEmitter250"
+    );
+    expect(flameGroup?.userData.vfxPreviewKind).toBe("spark");
+    expect(flameGroup?.userData.auroraEmitterParticleCountSource).toBe(12);
+    expect(flameGroup?.userData.auroraEmitterParticleCount).toBe(12);
+    expect(flameGroup?.userData.auroraEmitterParticleCountPreviewMode).toBe(
+      "birthrate-lifetime-source-count"
+    );
+    expect(flameGroup?.userData.auroraParticleDrawActiveCount).toBe(12);
+    expect(flameGroup?.userData.auroraParticleBatchSlotCount).toBe(12);
+    expect(flameGroup?.userData.auroraEmitterFlameLike).toBe(true);
+    expect(flameGroup?.userData.auroraEmitterCampfireSourceEmitterPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterFlameColumnPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterFlameIntensityPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterSourceModelUnitScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterSourceModelUnitScalePreviewMode).toBe(
+      "source-mdl-gltf-position-unit-scale"
+    );
+    expect(flameGroup?.userData.auroraEmitterParticleAlphaPreviewClamp).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterParticleAlphaPreviewClampMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterSourceMdlPreviewKind).toBe("flame");
+    expect(flameGroup?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-flame-fountain"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlMotionPolicy).toBe(
+      "source-mdl-model-unit-motion"
+    );
+    expect(flameGroup?.userData.auroraEmitterMotionUnitScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterTransformUnitScalePreviewMode).toBe(
+      "source-mdl-model-space-position"
+    );
+    expect(flameGroup?.position.y ?? 0).toBeCloseTo(0.21096, 4);
+    expect(flameGroup?.position.z ?? 0).toBeCloseTo(-0.07569, 4);
+    const particles = collectCameraBillboardParticles(root);
+    expect(particles.length).toBeGreaterThan(0);
+    const activeParticleTextureRefs = new Set(
+      particles.map(({ material }) => material.userData.auroraEmitterTexture)
+    );
+    expect(activeParticleTextureRefs.has("fxpa_flame00")).toBe(true);
+    expect(activeParticleTextureRefs.has("fxpa_smoke01")).toBe(true);
+    expect(
+      particles.filter(({ material }) => material.userData.auroraEmitterTexture === "fxpa_flame00")
+    ).toHaveLength(12);
+    const flameParticle = particles.find(
+      ({ material }) => material.userData.auroraEmitterTexture === "fxpa_flame00"
+    );
+    expect(flameParticle).toBeDefined();
+    expect(flameParticle?.material.userData.auroraEmitterFlameLike).toBe(true);
+    expect(flameParticle?.material.userData.auroraEmitterLightenAlphaRgbScalePreviewMode).toBe(
+      "flame-lighten-rgb-preserved-alpha-only"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterFlameLightenDepthPreviewMode).toBe(
+      "source-mdl-mode-2-depth-state-from-renderer-record"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterFlameLightenDepthDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_FLAME_DEPTH_OVERRIDE_NOT_SUBSTITUTED"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterLightenAlphaTestPreviewMode).toBeUndefined();
+    expect(flameParticle?.material.userData.auroraEmitterLightenToneMappedPreviewMode).toBeUndefined();
+    expect(flameParticle?.material.alphaTest).toBe(0);
+    expect(flameParticle?.material.depthTest).toBe(true);
+    expect(flameParticle?.material.depthWrite).toBe(false);
+    expect(flameParticle?.material.toneMapped).toBe(true);
+    expect(flameParticle?.mesh.userData.auroraEmitterFlameLightenRenderLayer).toBeUndefined();
+    let flameBatchMaterial: THREE.Material | null = null;
+    flameGroup?.traverse((node) => {
+      if (
+        !flameBatchMaterial &&
+        node instanceof THREE.Mesh &&
+        node.userData?.vfxPreviewRole === "camera-billboard-batch"
+      ) {
+        flameBatchMaterial = Array.isArray(node.material) ? node.material[0] : node.material;
+      }
+    });
+    expect(flameBatchMaterial).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.userData.auroraEmitterLightenAlphaTestPreviewMode).toBeUndefined();
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.userData.auroraEmitterLightenToneMappedPreviewMode).toBeUndefined();
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.alphaTest).toBe(0);
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.depthTest).toBe(true);
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.depthWrite).toBe(false);
+    expect((flameBatchMaterial as THREE.MeshBasicMaterial | null)?.toneMapped).toBe(true);
+    expect(flameParticle!.mesh.geometry.userData.auroraVfxLightenAlphaRgbPreviewMode).toBeUndefined();
+    expect(flameParticle!.mesh.geometry.userData.auroraVfxParticleVertexColorPreviewMode).toBe(
+      "aurora-particle-vertex-color"
+    );
+    expect(flameParticle!.material.opacity).toBeLessThanOrEqual(0.73);
+  });
+
+  it("uses source-MDL flame and smoke fountain previews for tm_pl_lightred VFX placeables", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const flameTexture = new THREE.Texture();
+    const smokeTexture = new THREE.Texture();
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_tm_pl_lightred",
+      resref: "tm_pl_lightred",
+      placeableName: "VFX: Flame, Large 1",
+      textureFileName: "fxpa_flame00.tga",
+      textureDeliveryUrl: "/assets/fxpa_flame00.tga",
+      metadata: {
+        modelResRef: "plc_t04",
+        lookupModelResRef: "plc_t04"
+      },
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [],
+        emitters: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_t04.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_t04.mdl",
+            nodeName: "OmenEmitter240",
+            texture: "fxpa_flame00",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten",
+            sourceState: {
+              renderOrder: 0,
+              twoSidedTexture: false,
+              loop: false,
+              isTinted: false,
+              splat: false
+            },
+            atlas: {
+              xGridRaw: 4,
+              yGridRaw: 4,
+              effectiveXGrid: 4,
+              effectiveYGrid: 4,
+              fps: 24,
+              frameStart: 0,
+              frameEnd: 15,
+              random: true
+            },
+            simulation: {
+              xSize: 40,
+              ySize: 40,
+              birthrate: 6,
+              lifeExp: 2,
+              velocity: 0.1,
+              randvel: 0,
+              spread: 0.34906598925590515,
+              sizeStart: 2,
+              sizeEnd: 4,
+              alphaStart: 0.75,
+              alphaEnd: 0.1,
+              colorStart: [0.2549020051956177, 0.2549020051956177, 0.2549020051956177],
+              colorEnd: [1, 1, 1]
+            },
+            transform: {
+              position: [-0.021879099309444427, -0.013056599535048008, 0.1125670000910759]
+            }
+          },
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_t04.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_t04.mdl",
+            nodeName: "fire!02",
+            texture: "fxpa_smoke01",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            sourceState: {
+              renderOrder: 0,
+              twoSidedTexture: false,
+              loop: false,
+              isTinted: false,
+              splat: false
+            },
+            atlas: {
+              xGridRaw: 4,
+              yGridRaw: 4,
+              effectiveXGrid: 4,
+              effectiveYGrid: 4,
+              fps: 10,
+              frameStart: 0,
+              frameEnd: 24,
+              random: false
+            },
+            simulation: {
+              xSize: 40,
+              ySize: 40,
+              birthrate: 5,
+              lifeExp: 2,
+              mass: 0.014999999664723873,
+              velocity: 2,
+              randvel: 0.20000000298023224,
+              spread: 0.17453299462795258,
+              particleRot: 0.5,
+              sizeStart: 2,
+              sizeEnd: 4,
+              alphaStart: 0.10000000149011612,
+              alphaEnd: 0,
+              colorStart: [0, 0, 0],
+              colorEnd: [0, 0, 0],
+              affectedByWind: true
+            },
+            transform: {
+              position: [-0.034283701330423355, -0.03768249973654747, 1.721690058708191]
+            }
+          }
+        ]
+      }
+    });
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fxpa_flame00",
+          assetId: "texture-1",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_flame00.tga",
+          deliveryUrl: "/assets/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_smoke01",
+          assetId: "texture-smoke",
+          fileName: "fxpa_smoke01.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_smoke01.tga",
+          deliveryUrl: "/assets/fxpa_smoke01.tga"
+        }
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+
+    const textureUrls = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+    const flameTextureUrl = textureUrls.get("fxpa_flame00");
+    const smokeTextureUrl = textureUrls.get("fxpa_smoke01");
+    expect(flameTextureUrl).toBeTruthy();
+    expect(smokeTextureUrl).toBeTruthy();
+    runtime.placeableTextureCacheByUrl.set(flameTextureUrl!, flameTexture);
+    runtime.placeableTextureCacheByUrl.set(smokeTextureUrl!, smokeTexture);
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      diagnostics: [
+        {
+          code: "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL",
+          severity: "warn",
+          message: "Source MDL emitter payload is preview-only."
+        }
+      ],
+      assetRefs: {},
+      glbUrl: ""
+    } as PlaceableViewportRenderPayload["renderPackage"];
+
+    const object = {
+      id: "area_enon_bakery:obj_plc_vfxflamelarge1",
+      kind: "placeables",
+      name: "VFX: Flame, Large 1",
+      resRef: "tm_pl_lightred",
+      tag: "VFXFlameLarge1",
+      x: 2.557,
+      y: 2.52,
+      z: 0.05,
+      bearing: 12.7025,
+      isStatic: false,
+      source: {
+        type: "aurora_git",
+        areaId: "enon_bakery",
+        sourceObjectId: "obj_plc_vfxflamelarge1",
+        sourceKind: "placeable",
+        templateId: "tm_pl_lightred",
+        appearanceType: 332
+      },
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      4,
+      4,
+      1,
+      true,
+      10,
+      [],
+      false,
+      {
+        [object.id]: payload
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root).toBeDefined();
+    expect(root?.userData.vfxTextureStatus).toBe("applied");
+    expect(root?.position.x).toBeCloseTo(object.x);
+    expect(root?.position.y).toBeCloseTo(object.z);
+    expect(root?.position.z).toBeCloseTo(object.y);
+    expect(root?.scale.x).toBeCloseTo(1);
+    expect(root?.scale.y).toBeCloseTo(1);
+    expect(root?.scale.z).toBeCloseTo(1);
+    expect(root?.userData.sourceMdlEmitterAreaModelSpaceHost).toBe(true);
+    expect(root?.userData.sourceMdlEmitterAreaModelSpaceScale).toBeCloseTo(0.1);
+    const sourceMdlHost = root?.children.find(
+      (child) => child.userData?.sourceMdlEmitterAreaModelSpaceHost === true
+    );
+    expect(sourceMdlHost?.scale.x).toBeCloseTo(0.1);
+
+    const sourceEmitterGroups: THREE.Object3D[] = [];
+    root?.traverse((node) => {
+      if (node.userData?.auroraEmitterNode) {
+        sourceEmitterGroups.push(node);
+      }
+    });
+    const flameGroup = sourceEmitterGroups.find(
+      (child) => child.userData?.auroraEmitterNode === "OmenEmitter240"
+    );
+    expect(flameGroup?.userData.auroraEmitterCampfireSourceEmitterPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterSourceMdlPreviewKind).toBe("flame");
+    expect(flameGroup?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-flame-fountain"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlTransformPositionPolicy).toBe(
+      "source-mdl-model-space-position"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlMotionPolicy).toBe(
+      "source-mdl-model-unit-motion"
+    );
+    expect(flameGroup?.userData.auroraEmitterParticleSizeTimelineScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterMotionUnitScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterParticleVelocity).toBeCloseTo(0.1);
+    expect(flameGroup?.userData.auroraEmitterSourceMdlParticleSizeScaleSource).toContain(
+      "sizeStart/sizeEnd directly"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlParticleSizeScaleSource).toContain(
+      "same model-space host"
+    );
+    expect(flameGroup?.userData.auroraEmitterSourceMdlMotionScaleSource).toContain(
+      "same area model scale"
+    );
+    expect(flameGroup?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "source-mdl-flame-fountain-atlas-size-curve"
+    );
+    expect(flameGroup?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "flame-atlas-campfire-visibility-floor"
+    );
+    expect(flameGroup?.userData.auroraEmitterParticleSizeVisibilityFloorPreviewMode).not.toBe(
+      "surface-emitter-catalog-visibility-floor"
+    );
+    expect(flameGroup?.userData.auroraEmitterFlameColumnPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterFlameAxisPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterFlameIntensityPreviewMode).toBeUndefined();
+    expect(flameGroup?.userData.auroraEmitterParticleCount).toBe(12);
+    expect(flameGroup?.userData.auroraParticleDrawActiveCount).toBe(12);
+    expect(flameGroup?.userData.auroraEmitterSourceModelUnitScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterTransformUnitScale).toBe(1);
+    expect(flameGroup?.userData.auroraEmitterParticleSizeStart).toBeCloseTo(2);
+    expect(flameGroup?.userData.auroraEmitterParticleSizeEnd).toBeGreaterThan(
+      flameGroup?.userData.auroraEmitterParticleSizeStart ?? 0
+    );
+    expect(flameGroup?.userData.auroraEmitterTransformMappedPosition).toEqual([
+      -0.021879099309444427,
+      0.1125670000910759,
+      -0.013056599535048008
+    ]);
+
+    const particles = collectCameraBillboardParticles(root);
+    expect(
+      particles.filter(({ material }) => material.userData.auroraEmitterTexture === "fxpa_flame00")
+    ).toHaveLength(12);
+    const flameParticle = particles.find(
+      ({ material }) => material.userData.auroraEmitterTexture === "fxpa_flame00"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterFlameLike).toBe(true);
+    expect(flameParticle?.material.depthTest).toBe(true);
+    expect(flameParticle?.material.userData.auroraEmitterFlameLightenDepthPreviewMode).toBe(
+      "source-mdl-mode-2-depth-state-from-renderer-record"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterFlameLightenDepthDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_FLAME_DEPTH_OVERRIDE_NOT_SUBSTITUTED"
+    );
+    expect(flameParticle?.material.userData.auroraEmitterBlendBucket).toBe("fallback_mode_2");
+    expect(flameParticle?.material.userData.auroraEmitterBlendRuntimeMode).toBe(2);
+    expect(flameParticle?.material.userData.auroraParticleBlendFuncFactorsCaptured).toBe(true);
+    expect(flameParticle?.material.userData.auroraParticleBlendFuncSourceFactor).toBe(
+      "GL_SRC_ALPHA"
+    );
+    expect(flameParticle?.material.userData.auroraParticleBlendFuncDestinationFactor).toBe(
+      "GL_ONE"
+    );
+    expect(flameParticle?.material.userData.auroraParticleBlendFuncSourceFactorEnum).toBe(0x0302);
+    expect(flameParticle?.material.userData.auroraParticleBlendFuncDestinationFactorEnum).toBe(
+      0x0001
+    );
+    expect(flameParticle?.material.blending).toBe(THREE.CustomBlending);
+    expect(flameParticle?.material.blendSrc).toBe(THREE.SrcAlphaFactor);
+    expect(flameParticle?.material.blendDst).toBe(THREE.OneFactor);
+    expect(flameParticle?.material.depthWrite).toBe(false);
+    expect(flameParticle?.material.userData.auroraPrimaryTextureReference).toBe("fxpa_flame00");
+    expect(flameParticle?.material.map?.userData.auroraTextureReference).toBe("fxpa_flame00");
+    expect(flameParticle?.material.userData.auroraVfxParticleColorPreviewMode).toBe(
+      "aurora-particle-color-ambient-tint-disabled"
+    );
+    expectAuroraVertexColorHex(flameParticle!.mesh, "414141");
+
+    const smokeGroup = sourceEmitterGroups.find(
+      (child) => child.userData?.auroraEmitterNode === "fire!02"
+    );
+    expect(smokeGroup?.userData.auroraEmitterSourceMdlPreviewKind).toBe("smoke");
+    expect(smokeGroup?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-smoke-fountain"
+    );
+    expect(smokeGroup?.userData.auroraEmitterSourceMdlTransformPositionPolicy).toBe(
+      "source-mdl-model-space-position"
+    );
+    expect(smokeGroup?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(smokeGroup?.userData.auroraEmitterSourceMdlMotionPolicy).toBe(
+      "source-mdl-model-unit-motion"
+    );
+    expect(smokeGroup?.userData.auroraEmitterParticleSizeTimelineScale).toBe(1);
+    expect(smokeGroup?.userData.auroraEmitterMotionUnitScale).toBe(1);
+    expect(smokeGroup?.userData.auroraEmitterParticleVelocity).toBeCloseTo(2);
+    expect(smokeGroup?.userData.auroraEmitterParticleRandomVelocity).toBeCloseTo(0.2);
+    expect(smokeGroup?.userData.auroraEmitterTransformUnitScale).toBe(1);
+    expect(smokeGroup?.userData.auroraEmitterParticleSizeStart).toBeCloseTo(2);
+    expect(smokeGroup?.userData.auroraEmitterParticleSizeEnd).toBeGreaterThan(
+      smokeGroup?.userData.auroraEmitterParticleSizeStart ?? 0
+    );
+    expect(smokeGroup?.userData.auroraEmitterTransformMappedPosition).toEqual([
+      -0.034283701330423355,
+      1.721690058708191,
+      -0.03768249973654747
+    ]);
+    root?.updateMatrixWorld(true);
+    const flameWorldPosition = flameGroup?.getWorldPosition(new THREE.Vector3());
+    const smokeWorldPosition = smokeGroup?.getWorldPosition(new THREE.Vector3());
+    expect(flameWorldPosition?.y).toBeCloseTo(
+      object.z + 0.1 * 0.1125670000910759,
+      6
+    );
+    expect(smokeWorldPosition?.y).toBeCloseTo(
+      object.z + 0.1 * 1.721690058708191,
+      6
+    );
+    expect(smokeGroup?.userData.auroraEmitterParticleCount).toBe(10);
+    expect(
+      particles.filter(({ material }) => material.userData.auroraEmitterTexture === "fxpa_smoke01")
+    ).toHaveLength(10);
+    const smokeParticle = particles.find(
+      ({ material }) => material.userData.auroraEmitterTexture === "fxpa_smoke01"
+    );
+    expect(smokeParticle?.material.userData.auroraVfxParticleColorPreviewMode).toBe(
+      "aurora-particle-color-ambient-tint-disabled"
+    );
+    expect(smokeParticle?.material.userData.auroraParticleBlendFuncFactorsCaptured).toBe(true);
+    expect(smokeParticle?.material.userData.auroraParticleBlendFuncSourceFactor).toBe(
+      "GL_SRC_ALPHA"
+    );
+    expect(smokeParticle?.material.userData.auroraParticleBlendFuncDestinationFactor).toBe(
+      "GL_ONE_MINUS_SRC_ALPHA"
+    );
+    expect(smokeParticle?.material.blending).toBe(THREE.NormalBlending);
+    expect(smokeParticle?.material.depthWrite).toBe(false);
+    expectAuroraVertexColorHex(smokeParticle!.mesh, "000000");
+    expect(smokeParticle?.material.userData.auroraPrimaryTextureReference).toBe("fxpa_smoke01");
+    expect(smokeParticle?.material.map?.userData.auroraTextureReference).toBe("fxpa_smoke01");
+  });
+
+  it("classifies neutral source-MDL fountain emitters as generic from payload data", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const particleTexture = new THREE.Texture();
+    runtime.placeableTextureCacheByUrl.set(
+      "http://127.0.0.1:3000/assets/fxpa_arcane01.tga",
+      particleTexture
+    );
+
+    const object = {
+      id: "preview:plc_generic_source_emitter",
+      kind: "placeables",
+      name: "Generic Source Emitter",
+      resRef: "generic_source_emitter",
+      tag: "GENERIC_SOURCE_EMITTER",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createVfxPayloadWithReadyModel({
+          includeTextureContract: true,
+          templateId: "plc_generic_source_emitter",
+          resref: "generic_source_emitter",
+          placeableName: "Generic Source Emitter",
+          textureFileName: "fxpa_arcane01.tga",
+          textureDeliveryUrl: "/assets/fxpa_arcane01.tga",
+          metadata: {
+            lookupModelResRef: "generic_source_emitter"
+          },
+          auroraEmitter: {
+            source: "source-mdl",
+            diagnostics: [],
+            emitters: [
+              {
+                source: "aurora-mdl-binary",
+                sourceModelAssetId: "generic-source-model",
+                sourceModelFileName: "generic_source_emitter.mdl",
+                sourceModelObjectKey: "modules/current/models/generic_source_emitter.mdl",
+                nodeName: "genericEmitter",
+                texture: "fxpa_arcane01",
+                emitterType: "Fountain",
+                renderMode: "Normal",
+                blendMode: "Normal",
+                transform: {
+                  position: [0.25, -0.5, 1.25]
+                },
+                simulation: {
+                  birthrate: 3,
+                  lifeExp: 2,
+                  velocity: 1,
+                  randvel: 0.5,
+                  spread: 0.25,
+                  sizeStart: 0.8,
+                  sizeEnd: 1.2,
+                  alphaStart: 0.9,
+                  alphaEnd: 0.1,
+                  affectedByWind: false
+                }
+              }
+            ]
+          }
+        })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const emitterGroup =
+      root?.userData?.auroraEmitterNode === "genericEmitter"
+        ? root
+        : root?.children.find((child) => child.userData?.auroraEmitterNode === "genericEmitter");
+    expect(emitterGroup?.userData.auroraEmitterSourceMdlPreviewKind).toBe("generic");
+    expect(emitterGroup?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-generic-fountain"
+    );
+    expect(emitterGroup?.userData.auroraEmitterSourceMdlTransformPositionPolicy).toBe(
+      "source-mdl-model-space-position"
+    );
+    expect(emitterGroup?.userData.auroraEmitterSourceMdlParticleSizePolicy).toBe(
+      "source-mdl-authored-model-unit-size-curve"
+    );
+    expect(emitterGroup?.userData.auroraEmitterSourceMdlMotionPolicy).toBe(
+      "source-mdl-model-unit-motion"
+    );
+    expect(emitterGroup?.userData.auroraEmitterParticleSizeTimelineScale).toBe(1);
+    expect(emitterGroup?.userData.auroraEmitterMotionUnitScale).toBe(1);
+    expect(emitterGroup?.userData.auroraEmitterParticleVelocity).toBeCloseTo(1);
+    expect(emitterGroup?.userData.auroraEmitterParticleRandomVelocity).toBeCloseTo(0.5);
+    expect(emitterGroup?.userData.auroraEmitterTransformMappedPosition).toEqual([
+      0.25,
+      1.25,
+      -0.5
+    ]);
+    expect(emitterGroup?.userData.auroraEmitterFlameLike).toBeUndefined();
+    expect(emitterGroup?.userData.auroraEmitterCampfireSourceEmitterPreviewMode).toBeUndefined();
+    expect(emitterGroup?.userData.auroraEmitterParticleCount).toBe(6);
+    expect(
+      collectCameraBillboardParticles(root).filter(
+        ({ material }) => material.userData.auroraEmitterTexture === "fxpa_arcane01"
+      )
+    ).toHaveLength(6);
+  });
+
   it("renders simulation-only Aurora emitter payloads with delivered texture URLs", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_svetred.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_svetred.tga",
       particleTexture
     );
 
@@ -1778,7 +6336,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(root?.userData.auroraVfxCanonicalStatus).toBe("preview_only");
     expect(root?.userData.auroraVfxPreviewMode).toBe("aurora_emitter_particle_preview");
     expect(root?.userData.vfxTextureDeliveryUrl).toBe(
-      "http://localhost:3000/assets/phod_fx_svetred.tga"
+      "http://127.0.0.1:3000/assets/phod_fx_svetred.tga"
     );
     expect(root?.userData.vfxTextureStatus).toBe("applied");
     expect(root?.userData.auroraEmitterTexture).toBeUndefined();
@@ -1889,7 +6447,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(alphaOnlyPixels, 2, 2, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/gxpa_flava.tga",
+      "http://127.0.0.1:3000/assets/gxpa_flava.tga",
       particleTexture
     );
 
@@ -1979,7 +6537,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/gxpa_flava.tga",
+      "http://127.0.0.1:3000/assets/gxpa_flava.tga",
       particleTexture
     );
 
@@ -2128,7 +6686,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_cutout.tga",
+      "http://127.0.0.1:3000/assets/fx_cutout.tga",
       particleTexture
     );
 
@@ -2245,7 +6803,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_surface_key.tga",
+      "http://127.0.0.1:3000/assets/fx_surface_key.tga",
       particleTexture
     );
 
@@ -2372,7 +6930,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -2444,7 +7002,9 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(root?.userData.auroraEmitterRenderMode).toBe("Billboard_to_World_Z");
     expect(root?.userData.auroraEmitterTexture).toBe("phod_fx_pntgrm");
     expect(runtime.container.dataset.placeableModelStatus).toBe("loaded");
-    expect(runtime.container.dataset.placeableModelLoadPhase).toBe("vfx-texture");
+    expect(runtime.container.dataset.placeableModelLoadPhase).toBe(
+      "placeable-source-mdl-emitter-texture"
+    );
     expect(runtime.container.dataset.placeableModelTextureStatus).toBe("applied");
     let spriteCount = 0;
     let groundBillboardMeshCount = 0;
@@ -2489,7 +7049,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -2602,17 +7162,17 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(lightenMaterial?.userData.auroraEmitterBlendRuntimeMode).toBe(2);
     expect(lightenMaterial?.userData.auroraEmitterBlendAuthoringCandidate).toBe("Lighten");
     expect(lightenMaterial?.userData.auroraEmitterBlendDiagnostic).toBe(
-      "VFX_LIGHTEN_MODE2_EQUATION_CAPTURE_REQUIRED"
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED"
     );
     expect(lightenMaterial?.userData.auroraEmitterBlendStatePreviewMode).toBe(
-      "aurora-blend-lighten-additive-adapter"
+      "aurora-blend-lighten-mode-2-src-alpha-one"
     );
     expect(lightenMaterial?.blending).toBe(THREE.CustomBlending);
     expect(lightenMaterial?.blendEquation).toBe(THREE.AddEquation);
-    expect(lightenMaterial?.blendSrc).toBe(THREE.OneFactor);
+    expect(lightenMaterial?.blendSrc).toBe(THREE.SrcAlphaFactor);
     expect(lightenMaterial?.blendDst).toBe(THREE.OneFactor);
     expect(lightenMaterial?.blendEquationAlpha).toBe(THREE.AddEquation);
-    expect(lightenMaterial?.blendSrcAlpha).toBe(THREE.OneFactor);
+    expect(lightenMaterial?.blendSrcAlpha).toBe(THREE.SrcAlphaFactor);
     expect(lightenMaterial?.blendDstAlpha).toBe(THREE.OneFactor);
     expect(lightenMaterial?.depthWrite).toBe(false);
     expect(root?.userData.auroraParticleRenderStatePreviewMode).toBe(
@@ -2624,11 +7184,13 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(root?.userData.auroraParticleShaderVariantFlag).toBe("non-punch");
     expect(root?.userData.auroraParticleNonPunchVariantFlag).toBe(true);
     expect(root?.userData.auroraParticleBlendFuncWrapperInvoked).toBe(true);
-    expect(root?.userData.auroraParticleBlendFuncFactorsCaptured).toBe(false);
+    expect(root?.userData.auroraParticleBlendFuncFactorsCaptured).toBe(true);
+    expect(root?.userData.auroraParticleBlendFuncSourceFactor).toBe("GL_SRC_ALPHA");
+    expect(root?.userData.auroraParticleBlendFuncDestinationFactor).toBe("GL_ONE");
     expect(root?.userData.auroraParticleRenderStateDiagnostics).toEqual(
       expect.arrayContaining([
         "VFX_RENDER_STATE_CACHE_WRAPPER_REQUIRED",
-        "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED",
+        "VFX_BLEND_FUNC_SRC_ALPHA_ONE_CONFIRMED",
         "VFX_NONPUNCH_TRANSPARENT_DEPTHWRITE_OFF_REQUIRED"
       ])
     );
@@ -2642,7 +7204,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -2774,7 +7336,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_unknown_render.tga",
+      "http://127.0.0.1:3000/assets/fx_unknown_render.tga",
       particleTexture
     );
 
@@ -2864,7 +7426,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_mov.tga",
+      "http://127.0.0.1:3000/assets/fxpa_mov.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -3067,7 +7629,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_surface.tga",
+      "http://127.0.0.1:3000/assets/fx_surface.tga",
       particleTexture
     );
 
@@ -3274,7 +7836,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_cutout.tga",
+      "http://127.0.0.1:3000/assets/fx_cutout.tga",
       particleTexture
     );
 
@@ -3397,7 +7959,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_opaque.tga",
+      "http://127.0.0.1:3000/assets/fx_opaque.tga",
       particleTexture
     );
 
@@ -3519,7 +8081,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_unknown.tga",
+      "http://127.0.0.1:3000/assets/fx_unknown.tga",
       particleTexture
     );
 
@@ -3610,7 +8172,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(material?.userData.auroraEmitterBlendRuntimeMode).toBe(2);
     expect(material?.userData.auroraEmitterBlendAuthoringCandidate).toBeUndefined();
     expect(material?.userData.auroraEmitterBlendDiagnostic).toBe(
-      "VFX_UNKNOWN_BLEND_MODE2_RAW_TOKEN_PRESERVED"
+      "VFX_MODE2_SRC_ALPHA_ONE_CONFIRMED_RAW_TOKEN_PRESERVED"
     );
     expect(material?.userData.auroraParticleRenderState.runtimeBlendBucket).toBe(
       "fallback_mode_2"
@@ -3620,7 +8182,9 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     expect(material?.userData.auroraParticleTransparentLaneState0).toBe(true);
     expect(material?.userData.auroraParticleRequestedDepthWrite).toBe(false);
-    expect(material?.blending).toBe(THREE.NormalBlending);
+    expect(material?.blending).toBe(THREE.CustomBlending);
+    expect(material?.blendSrc).toBe(THREE.SrcAlphaFactor);
+    expect(material?.blendDst).toBe(THREE.OneFactor);
     expect(material?.depthWrite).toBe(false);
   });
 
@@ -3629,7 +8193,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -3755,7 +8319,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_bezier.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_bezier.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -3890,7 +8454,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_bezier_arc.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_bezier_arc.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4035,7 +8599,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_bezier_key_arc.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_bezier_key_arc.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4177,7 +8741,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_gravity.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_gravity.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4325,7 +8889,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_combinetime.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_combinetime.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4472,7 +9036,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_gravkey.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_gravkey.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4605,7 +9169,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p_thresholdkey.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p_thresholdkey.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -4756,7 +9320,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_localz.tga",
+      "http://127.0.0.1:3000/assets/fx_localz.tga",
       particleTexture
     );
 
@@ -4903,7 +9467,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_linked.tga",
+      "http://127.0.0.1:3000/assets/fx_linked.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -5140,7 +9704,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_elect.tga",
+      "http://127.0.0.1:3000/assets/fxpa_elect.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -5286,7 +9850,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_linked_single.tga",
+      "http://127.0.0.1:3000/assets/fx_linked_single.tga",
       particleTexture
     );
 
@@ -5381,7 +9945,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const chunkModelTemplate = new THREE.Group();
@@ -5392,7 +9956,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       )
     );
     runtime.placeableModelCacheByUrl.set(
-      "http://localhost:3000/assets/red_m_giblet.glb",
+      "http://127.0.0.1:3000/assets/red_m_giblet.glb",
       chunkModelTemplate
     );
 
@@ -5492,7 +10056,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       "modules/current/__aurora/derived/models/red_m_giblet.glb"
     );
     expect(root?.userData.auroraEmitterChunkModelDeliveryUrl).toBe(
-      "http://localhost:3000/assets/red_m_giblet.glb"
+      "http://127.0.0.1:3000/assets/red_m_giblet.glb"
     );
     expect(root?.userData.auroraEmitterChunkModelAssetStatus).toBe("applied");
     expect(root?.userData.auroraEmitterChunkResolverDiagnostic).toBe(
@@ -5628,7 +10192,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
 
     expect(load).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/red_m_giblet.glb",
+      "http://127.0.0.1:3000/assets/red_m_giblet.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -5682,7 +10246,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -5960,7 +10524,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.Texture();
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_keyed_birth.tga",
+      "http://127.0.0.1:3000/assets/fxpa_keyed_birth.tga",
       particleTexture
     );
 
@@ -6103,7 +10667,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -6237,7 +10801,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -6349,7 +10913,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -6503,7 +11067,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -6635,7 +11199,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_zero_fountain.tga",
+      "http://127.0.0.1:3000/assets/fxpa_zero_fountain.tga",
       particleTexture
     );
 
@@ -6790,7 +11354,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -7023,11 +11587,9 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(alignedSourceColor?.[0]).toBeCloseTo(1, 4);
     expect(alignedSourceColor?.[1]).toBeGreaterThan(0.1);
     expect(alignedSourceColor?.[2]).toBeCloseTo(0, 4);
-    expect(alignedMesh!.geometry.userData.auroraVfxLightenAlphaRgbPreviewMode).toBe(
-      "lighten-rgb-scaled-by-particle-alpha"
-    );
-    expect(readFirstAuroraVertexColor(alignedMesh!).r).toBeLessThan(alignedSourceColor?.[0] ?? 1);
-    expect(readFirstAuroraVertexColor(alignedMesh!).g).toBeLessThan(alignedSourceColor?.[1] ?? 0.4);
+    expect(alignedMesh!.geometry.userData.auroraVfxLightenAlphaRgbPreviewMode).toBeUndefined();
+    expect(readFirstAuroraVertexColor(alignedMesh!).r).toBeCloseTo(alignedSourceColor?.[0] ?? 1, 4);
+    expect(readFirstAuroraVertexColor(alignedMesh!).g).toBeCloseTo(alignedSourceColor?.[1] ?? 0.4, 4);
 
     groundMesh!.onBeforeRender(
       {} as THREE.WebGLRenderer,
@@ -7064,7 +11626,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_bar2blu.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_bar2blu.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -7207,7 +11769,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7290,12 +11852,15 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
 
     const root = runtime.objectMeshById.get(object.id);
-    const frontEmitterRoot = root?.children.find(
-      (child) => child.userData?.auroraEmitterNode === "normal_front_priority"
-    );
-    const backEmitterRoot = root?.children.find(
-      (child) => child.userData?.auroraEmitterNode === "lighten_back_priority"
-    );
+    let frontEmitterRoot: THREE.Object3D | undefined;
+    let backEmitterRoot: THREE.Object3D | undefined;
+    root?.traverse((child) => {
+      if (child.userData?.auroraEmitterNode === "normal_front_priority") {
+        frontEmitterRoot = child;
+      } else if (child.userData?.auroraEmitterNode === "lighten_back_priority") {
+        backEmitterRoot = child;
+      }
+    });
     expect(frontEmitterRoot?.userData.auroraEmitterBlendMode).toBe("Normal");
     expect(backEmitterRoot?.userData.auroraEmitterBlendMode).toBe("Lighten");
     expect(frontEmitterRoot?.userData.auroraEmitterRenderOrder).toBe(-4);
@@ -7334,7 +11899,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7507,7 +12072,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7650,7 +12215,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7874,7 +12439,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_splat.tga",
+      "http://127.0.0.1:3000/assets/fxpa_splat.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8119,7 +12684,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
 
     const root = runtime.objectMeshById.get(object.id);
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -8128,6 +12693,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     let texturedMaterialCount = 0;
     let blackKeyedMaterialCount = 0;
     let firstBlackKeyedMaterial: THREE.MeshBasicMaterial | null = null;
+    let firstBlackKeyedGeometry: THREE.BufferGeometry | null = null;
     root?.traverse((node) => {
       if (!(node instanceof THREE.Mesh)) {
         return;
@@ -8143,7 +12709,10 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
           material.alphaMap?.userData?.auroraConvertedBlackKeyAlphaMap === true
         ) {
           blackKeyedMaterialCount += 1;
-          firstBlackKeyedMaterial ??= material;
+          if (!firstBlackKeyedMaterial) {
+            firstBlackKeyedMaterial = material;
+            firstBlackKeyedGeometry = node.geometry;
+          }
         }
       });
     });
@@ -8156,12 +12725,19 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       "alpha-map-single-pass"
     );
     expect(firstBlackKeyedMaterial?.userData.auroraEmitterBlendStatePreviewMode).toBe(
-      "aurora-blend-lighten-alpha-additive-adapter"
+      "aurora-blend-lighten-mode-2-src-alpha-one"
+    );
+    expect(firstBlackKeyedMaterial?.userData.auroraEmitterBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED"
+    );
+    expect(firstBlackKeyedMaterial?.userData.auroraEmitterLightenTextureBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED_FROM_NWTOOLSET_DISASSEMBLY"
     );
     expect(firstBlackKeyedMaterial?.blendSrc).toBe(THREE.SrcAlphaFactor);
     expect(firstBlackKeyedMaterial?.blendDst).toBe(THREE.OneFactor);
-    expect(firstBlackKeyedMaterial?.blendSrcAlpha).toBe(THREE.OneFactor);
+    expect(firstBlackKeyedMaterial?.blendSrcAlpha).toBe(THREE.SrcAlphaFactor);
     expect(firstBlackKeyedMaterial?.blendDstAlpha).toBe(THREE.OneFactor);
+    expect(firstBlackKeyedGeometry?.userData.auroraVfxLightenAlphaRgbPreviewMode).toBeUndefined();
     const mapPixels = firstBlackKeyedMaterial?.map?.image?.data as Uint8Array | undefined;
     const alphaPixels = firstBlackKeyedMaterial?.alphaMap?.image?.data as Uint8Array | undefined;
     const glyphOffset = (Math.floor(textureSize / 2) * textureSize + 0) * 4;
@@ -8196,7 +12772,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -8305,7 +12881,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -8383,9 +12959,15 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(smokeMaterial).not.toBeNull();
     expect(smokeMaterial?.userData.auroraSoftAlphaMaskTexture).toBe(true);
     expect(smokeMaterial?.userData.auroraEmitterBlendStatePreviewMode).toBe(
-      "aurora-blend-lighten-soft-alpha-adapter"
+      "aurora-blend-lighten-mode-2-src-alpha-one"
     );
-    expect(smokeMaterial?.userData.auroraVfxSoftAlphaOpacityScale).toBeCloseTo(0.28, 5);
+    expect(smokeMaterial?.userData.auroraEmitterBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED"
+    );
+    expect(smokeMaterial?.userData.auroraEmitterLightenTextureBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED_FROM_NWTOOLSET_DISASSEMBLY"
+    );
+    expect(smokeMaterial?.userData.auroraVfxSoftAlphaOpacityScale).toBeUndefined();
     expect(smokeMaterial?.vertexColors).toBe(false);
     expect(smokeMaterial?.map?.userData.auroraConvertedWhiteAlphaMaskTexture).toBe(true);
     expect(smokeMaterial?.alphaMap?.userData.auroraConvertedWhiteAlphaMaskTexture).toBe(true);
@@ -8393,6 +12975,109 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const targetPixelOffset = (2 * textureSize + 2) * 4;
     expect(visibleMapPixels?.[targetPixelOffset]).toBe(Math.round(220 * 0.55));
     expect(visibleMapPixels?.[targetPixelOffset + 3]).toBe(220);
+  });
+
+  it("does not apply the soft-alpha Lighten preview cap to classified source-MDL emitters", () => {
+    const load = vi.fn();
+    const runtime = createRuntime(load);
+    const textureSize = 4;
+    const whiteAlphaPixels = new Uint8Array(textureSize * textureSize * 4);
+    for (let index = 0; index < textureSize * textureSize; index += 1) {
+      const offset = index * 4;
+      const x = index % textureSize;
+      const y = Math.floor(index / textureSize);
+      const alpha = x === 2 && y === 2 ? 220 : x === 0 && y === 0 ? 0 : 96;
+      whiteAlphaPixels[offset] = 255;
+      whiteAlphaPixels[offset + 1] = 255;
+      whiteAlphaPixels[offset + 2] = 255;
+      whiteAlphaPixels[offset + 3] = alpha;
+    }
+    const particleTexture = new THREE.DataTexture(
+      whiteAlphaPixels,
+      textureSize,
+      textureSize,
+      THREE.RGBAFormat
+    );
+    particleTexture.needsUpdate = true;
+    runtime.placeableTextureCacheByUrl.set(
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      particleTexture
+    );
+
+    const object = {
+      id: "preview:source_mdl_soft_alpha_lighten",
+      kind: "placeables",
+      name: "Source MDL Soft Alpha",
+      resRef: "vff_gasdispel",
+      tag: "SOURCE_MDL_SOFT_ALPHA",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [object.id]: createVfxPayloadWithReadyModel({
+          includeTextureContract: true,
+          placeableName: "Source MDL Soft Alpha",
+          templateId: "plc_vff_gasdispel",
+          resref: "vff_gasdispel",
+          textureFileName: "fxpa_smoke01.tga",
+          textureDeliveryUrl: "/assets/fxpa_smoke01.tga",
+          metadata: {
+            lookupModelResRef: "vff_gasdispel",
+            modelResRef: "vff_gasdispel"
+          },
+          auroraEmitter: createSingleTextureAuroraEmitter({
+            texture: "fxpa_smoke01",
+            blendMode: "Lighten",
+            renderMode: "Normal",
+            sourceModelFileName: "vff_gasdispel.mdl",
+            nodeName: "UPcloud"
+          })
+        })
+      }
+    );
+
+    const root = runtime.objectMeshById.get(object.id);
+    const particles = collectCameraBillboardParticles(root);
+    const firstParticleMaterial = particles[0]?.material;
+    expect(root?.userData.auroraEmitterSourceMdlPreviewMode).toBe(
+      "source-mdl-smoke-fountain"
+    );
+    expect(root?.userData.auroraEmitterParticleCountSource).toBe(8);
+    expect(root?.userData.auroraEmitterParticleCountPreviewMode).toBe(
+      "birthrate-lifetime-source-count"
+    );
+    expect(root?.userData.auroraEmitterParticleCount).toBe(8);
+    expect(root?.userData.auroraEmitterSoftAlphaParticleCountPreviewMode).toBeUndefined();
+    expect(particles).toHaveLength(8);
+    expect(firstParticleMaterial?.userData.auroraSoftAlphaMaskTexture).toBe(true);
+    expect(firstParticleMaterial?.userData.auroraEmitterSourceMdlRuntimeBlendStrict).toBe(true);
+    expect(firstParticleMaterial?.userData.auroraEmitterLightenTextureBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED_FROM_NWTOOLSET_DISASSEMBLY"
+    );
+    expect(firstParticleMaterial?.userData.auroraVfxSoftAlphaOpacityScale).toBeUndefined();
   });
 
   it("does not collapse small Lighten beam flares to the six-particle soft-alpha smoke cap", () => {
@@ -8415,7 +13100,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_flare.tga",
+      "http://127.0.0.1:3000/assets/fxpa_flare.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8539,7 +13224,13 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(batch.mesh.geometry.userData.auroraParticleBatchVertexCapacity).toBe(1536);
     expect(batch.mesh.geometry.getAttribute("position").count).toBe(1536);
     expect(batch.material.userData.auroraSoftAlphaMaskTexture).toBe(true);
-    expect(batch.material.userData.auroraVfxSoftAlphaOpacityScale).toBeCloseTo(0.28, 5);
+    expect(batch.material.userData.auroraEmitterBlendStatePreviewMode).toBe(
+      "aurora-blend-lighten-mode-2-src-alpha-one"
+    );
+    expect(batch.material.userData.auroraEmitterLightenTextureBlendDiagnostic).toBe(
+      "VFX_LIGHTEN_MODE2_SRC_ALPHA_ONE_CONFIRMED_FROM_NWTOOLSET_DISASSEMBLY"
+    );
+    expect(batch.material.userData.auroraVfxSoftAlphaOpacityScale).toBeUndefined();
 
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(3, 3, 3);
@@ -8572,7 +13263,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_rot_gate.tga",
+      "http://127.0.0.1:3000/assets/fxpa_rot_gate.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8703,7 +13394,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_rot_key_gate.tga",
+      "http://127.0.0.1:3000/assets/fxpa_rot_key_gate.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8875,11 +13566,11 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     baseTexture.needsUpdate = true;
     companionTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       baseTexture
     );
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01a.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01a.tga",
       companionTexture
     );
 
@@ -8996,17 +13687,16 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(smokeMaterial?.userData.auroraAlphaCompanionTexture).toBe(true);
     expect(smokeMaterial?.userData.auroraBlackKeyTexture).toBe(false);
     expect(smokeMaterial?.userData.auroraEmitterBlendStatePreviewMode).toBe(
-      "aurora-blend-lighten-soft-alpha-adapter"
+      "aurora-blend-lighten-mode-2-src-alpha-one"
     );
     expect(smokeMaterial?.vertexColors).toBe(false);
-    expect(smokeMaterial?.userData.auroraVfxSoftAlphaOpacityScale).toBeCloseTo(0.28, 5);
-    expect(smokeMaterial?.userData.auroraVfxParticleAlphaScale).toBeCloseTo(0.28, 5);
-    expect(smokeMaterial?.userData.auroraVfxLightenAlphaMaterialColorPreviewMode).toBe(
-      "lighten-material-rgb-scaled-by-particle-alpha"
-    );
+    expect(smokeMaterial?.userData.auroraVfxSoftAlphaOpacityScale).toBeUndefined();
+    expect(smokeMaterial?.userData.auroraVfxParticleAlphaScale).toBeUndefined();
+    expect(smokeMaterial?.userData.auroraVfxLightenAlphaMaterialColorPreviewMode).toBeUndefined();
     expect(smokeMaterial?.blendSrc).toBe(THREE.SrcAlphaFactor);
-    expect(smokeMaterial?.blendDst).toBe(THREE.OneMinusSrcAlphaFactor);
-    expect(smokeMaterial?.alphaTest).toBeGreaterThanOrEqual(0.01);
+    expect(smokeMaterial?.blendDst).toBe(THREE.OneFactor);
+    expect(smokeMaterial?.userData.auroraEmitterLightenAlphaTestPreviewMode).toBeUndefined();
+    expect(smokeMaterial?.alphaTest).toBe(0);
     expect(smokeMaterial?.map?.userData.auroraConvertedAlphaCompanionTexture).toBe(true);
     expect(smokeMaterial?.map?.userData.auroraAlphaCompanionColorApplication).toBe(
       "base-rgb-resampled-multiplied-by-alpha-companion"
@@ -9043,7 +13733,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
+      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -9175,7 +13865,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_blackkey_atlas.tga",
+      "http://127.0.0.1:3000/assets/fxpa_blackkey_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9359,7 +14049,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_random_atlas.tga",
+      "http://127.0.0.1:3000/assets/fxpa_random_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9494,7 +14184,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_fps_key_atlas.tga",
+      "http://127.0.0.1:3000/assets/fxpa_fps_key_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9628,7 +14318,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_frame_range_key_atlas.tga",
+      "http://127.0.0.1:3000/assets/fxpa_frame_range_key_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9770,7 +14460,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9916,7 +14606,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -10409,7 +15099,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_bounce_symbol.tga",
+      "http://127.0.0.1:3000/assets/fx_bounce_symbol.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -10534,7 +15224,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_bounce_key_symbol.tga",
+      "http://127.0.0.1:3000/assets/fx_bounce_key_symbol.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -10658,7 +15348,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fx_p2p.tga",
+      "http://127.0.0.1:3000/assets/fx_p2p.tga",
       particleTexture
     );
 
@@ -10754,7 +15444,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -10872,7 +15562,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -11002,7 +15692,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -11126,7 +15816,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -11255,7 +15945,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_trail.tga",
+      "http://127.0.0.1:3000/assets/fxpa_trail.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11386,7 +16076,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_phod01w.tga",
+      "http://127.0.0.1:3000/assets/fxpa_phod01w.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11665,7 +16355,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_motion_blur_key.tga",
+      "http://127.0.0.1:3000/assets/fxpa_motion_blur_key.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11813,7 +16503,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_motion_zero.tga",
+      "http://127.0.0.1:3000/assets/fxpa_motion_zero.tga",
       particleTexture
     );
 
@@ -11911,7 +16601,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_deadspace.tga",
+      "http://127.0.0.1:3000/assets/fxpa_deadspace.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -12050,7 +16740,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_inheritpart.tga",
+      "http://127.0.0.1:3000/assets/fxpa_inheritpart.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(500);
@@ -12233,12 +16923,12 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     performanceNow.mockRestore();
   });
 
-  it("uses inherit_local to keep velocity in emitter-local space under node orientation", () => {
+  it("uses source emitter node orientation for fountain velocity", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_inheritlocal.tga",
+      "http://127.0.0.1:3000/assets/fxpa_inheritlocal.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -12330,9 +17020,11 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
 
     const worldRoot = runtime.objectMeshById.get(worldObject.id);
     const localRoot = runtime.objectMeshById.get(localObject.id);
-    expect(worldRoot?.userData.auroraEmitterParticleKinematicCoordinateSpace).toBe("world");
+    expect(worldRoot?.userData.auroraEmitterParticleKinematicCoordinateSpace).toBe(
+      "emitter-local"
+    );
     expect(worldRoot?.userData.auroraEmitterParticleKinematicCoordinateSpacePreviewMode).toBe(
-      "source-no-inherit-world-space"
+      "source-node-local-emitter-axis"
     );
     expect(localRoot?.userData.auroraEmitterParticleKinematicCoordinateSpace).toBe(
       "emitter-local"
@@ -12377,8 +17069,8 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const worldDelta = worldPosition.sub(initialWorldPosition);
     const localDelta = localPosition.sub(initialLocalPosition);
 
-    expect(worldDelta.y).toBeGreaterThan(0.8);
-    expect(Math.abs(worldDelta.z)).toBeLessThan(0.05);
+    expect(worldDelta.z).toBeGreaterThan(0.8);
+    expect(Math.abs(worldDelta.y)).toBeLessThan(0.05);
     expect(localDelta.z).toBeGreaterThan(0.8);
     expect(Math.abs(localDelta.y)).toBeLessThan(0.05);
     performanceNow.mockRestore();
@@ -12389,7 +17081,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_smoke01.tga",
+      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -12517,10 +17209,91 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
-    runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/_aurora/v1/catalog/placeables/cache/f4d8e6f56415481f5d731cfa2322d65abdffab60627eae2ce472815095359ace/assets/dcfa77a7b50e8287f591d07e.tga",
-      particleTexture
-    );
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_zlc_o45",
+      resref: "zlc_o45",
+      placeableName: "VFX: Magic Mouth, Flat Anim P* (dobervich)",
+      textureFileName: "fxpa_flare.tga",
+      textureDeliveryUrl:
+        "/api/v1/catalog/placeables/cache/f4d8e6f56415481f5d731cfa2322d65abdffab60627eae2ce472815095359ace/assets/dcfa77a7b50e8287f591d07e.tga",
+      metadata: {
+        source2daRow: 2793,
+        lookupModelResRef: "zlc_o45"
+      },
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [
+          {
+            code: "VFX_AURORA_MDL_EMITTER_PAYLOAD_READY",
+            severity: "info",
+            message: "Source MDL emitter payload ready"
+          }
+        ],
+        emitters: [
+          {
+            source: "aurora-mdl-binary",
+            sourceModelAssetId: "68478b895ea83e814c3f0b11",
+            sourceModelFileName: "zlc_o45.mdl",
+            sourceModelObjectKey: "modules/current/__aurora/sources/hak/cep3_core2/zlc_o45.mdl",
+            nodeName: "glow",
+            texture: "fxpa_flare",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten",
+            atlas: {
+              xGridRaw: 1,
+              yGridRaw: 1,
+              effectiveXGrid: 1,
+              effectiveYGrid: 1,
+              fps: 1,
+              frameStart: 0,
+              frameEnd: 15,
+              random: false
+            },
+            simulation: {
+              xSize: 80,
+              ySize: 40,
+              spawnType: 0,
+              birthrate: 20,
+              lifeExp: 0.5,
+              mass: 0,
+              velocity: 0.10000000149011612,
+              randvel: 0,
+              spread: 6.28318977355957,
+              particleRot: 0,
+              blurLength: 50,
+              sizeStart: 0.05000000074505806,
+              sizeEnd: 0.15000000596046448,
+              sizeStartY: 0.05000000074505806,
+              sizeEndY: 0.15000000596046448,
+              alphaStart: 0.30000001192092896,
+              alphaEnd: 0,
+              affectedByWind: false,
+              colorStart: [0.9294120073318481, 0.2588239908218384, 0],
+              colorEnd: [1, 1, 0]
+            },
+            transform: {
+              position: [0, 0, 1.5],
+              orientation: {
+                axis: [0, -0.7071067690849304, 0.7071067690849304],
+                angle: 3.1415927410125732
+              }
+            },
+            sourceState: {
+              renderOrder: 0,
+              twoSidedTexture: false,
+              loop: false,
+              isTinted: false,
+              splat: false
+            }
+          }
+        ]
+      }
+    });
+    const zlcTextureUrl = resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fxpa_flare");
+    expect(zlcTextureUrl).toBeTruthy();
+    runtime.placeableTextureCacheByUrl.set(zlcTextureUrl!, particleTexture);
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
 
     const object = {
@@ -12556,88 +17329,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
       [],
       false,
       {
-        [object.id]: createVfxPayloadWithReadyModel({
-          includeTextureContract: true,
-          templateId: "plc_zlc_o45",
-          resref: "zlc_o45",
-          placeableName: "VFX: Magic Mouth, Flat Anim P* (dobervich)",
-          textureFileName: "fxpa_flare.tga",
-          textureDeliveryUrl:
-            "/api/v1/catalog/placeables/cache/f4d8e6f56415481f5d731cfa2322d65abdffab60627eae2ce472815095359ace/assets/dcfa77a7b50e8287f591d07e.tga",
-          metadata: {
-            source2daRow: 2793,
-            lookupModelResRef: "zlc_o45"
-          },
-          auroraEmitter: {
-            source: "source-mdl",
-            diagnostics: [
-              {
-                code: "VFX_AURORA_MDL_EMITTER_PAYLOAD_READY",
-                severity: "info",
-                message: "Source MDL emitter payload ready"
-              }
-            ],
-            emitters: [
-              {
-                source: "aurora-mdl-binary",
-                sourceModelAssetId: "68478b895ea83e814c3f0b11",
-                sourceModelFileName: "zlc_o45.mdl",
-                sourceModelObjectKey: "modules/current/__aurora/sources/hak/cep3_core2/zlc_o45.mdl",
-                nodeName: "glow",
-                texture: "fxpa_flare",
-                emitterType: "Fountain",
-                renderMode: "Normal",
-                blendMode: "Lighten",
-                atlas: {
-                  xGridRaw: 1,
-                  yGridRaw: 1,
-                  effectiveXGrid: 1,
-                  effectiveYGrid: 1,
-                  fps: 1,
-                  frameStart: 0,
-                  frameEnd: 15,
-                  random: false
-                },
-                simulation: {
-                  xSize: 80,
-                  ySize: 40,
-                  spawnType: 0,
-                  birthrate: 20,
-                  lifeExp: 0.5,
-                  mass: 0,
-                  velocity: 0.10000000149011612,
-                  randvel: 0,
-                  spread: 6.28318977355957,
-                  particleRot: 0,
-                  blurLength: 50,
-                  sizeStart: 0.05000000074505806,
-                  sizeEnd: 0.15000000596046448,
-                  sizeStartY: 0.05000000074505806,
-                  sizeEndY: 0.15000000596046448,
-                  alphaStart: 0.30000001192092896,
-                  alphaEnd: 0,
-                  affectedByWind: false,
-                  colorStart: [0.9294120073318481, 0.2588239908218384, 0],
-                  colorEnd: [1, 1, 0]
-                },
-                transform: {
-                  position: [0, 0, 1.5],
-                  orientation: {
-                    axis: [0, -0.7071067690849304, 0.7071067690849304],
-                    angle: 3.1415927410125732
-                  }
-                },
-                sourceState: {
-                  renderOrder: 0,
-                  twoSidedTexture: false,
-                  loop: false,
-                  isTinted: false,
-                  splat: false
-                }
-              }
-            ]
-          }
-        })
+        [object.id]: payload
       }
     );
 
@@ -12696,7 +17388,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const particleTexture = new THREE.Texture();
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_keyed_birth.tga",
+      "http://127.0.0.1:3000/assets/fxpa_keyed_birth.tga",
       particleTexture
     );
 
@@ -12920,7 +17612,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_mid_curve.tga",
+      "http://127.0.0.1:3000/assets/fxpa_mid_curve.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13019,7 +17711,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(particle.material.opacity).toBeCloseTo(0, 4);
     expect(readFirstAuroraVertexAlpha(particle.mesh)).toBeCloseTo(0, 4);
     expect(readAuroraVertexColorSource(particle.mesh)?.[0]).toBeGreaterThan(0.9);
-    expect(readFirstAuroraVertexColor(particle.mesh).r).toBeCloseTo(0, 4);
+    expect(readFirstAuroraVertexColor(particle.mesh).r).toBeGreaterThan(0.9);
 
     performanceNow.mockReturnValue(3000);
     const camera = new THREE.PerspectiveCamera();
@@ -13050,7 +17742,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_ring02.tga",
+      "http://127.0.0.1:3000/assets/fxpa_ring02.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13170,15 +17862,11 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     expect(portalMesh!.geometry.userData.auroraVfxParticleVertexColorHdrPreviewMode).toBe(
       "aurora-hdr-color-vector-preserved"
     );
-    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbPreviewMode).toBe(
-      "lighten-rgb-scaled-by-particle-alpha"
-    );
-    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbIntensity).toBeGreaterThan(1);
-    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbHdrPreviewMode).toBe(
-      "aurora-hdr-color-vector-preserved"
-    );
+    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbPreviewMode).toBeUndefined();
+    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbIntensity).toBeUndefined();
+    expect(portalMesh!.geometry.userData.auroraVfxLightenAlphaRgbHdrPreviewMode).toBeUndefined();
     expect(readFirstAuroraVertexColor(portalMesh!).g).toBeGreaterThan(1);
-    expect(readFirstAuroraVertexColor(portalMesh!).g).toBeCloseTo(1.2, 4);
+    expect(readFirstAuroraVertexColor(portalMesh!).g).toBeCloseTo(6, 4);
     expect(portalMesh!.geometry.userData.auroraVfxParticleVertexColorPackedPreview).toEqual([
       0,
       255,
@@ -13207,7 +17895,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_update_modes.tga",
+      "http://127.0.0.1:3000/assets/fxpa_update_modes.tga",
       particleTexture
     );
     const object = {
@@ -13325,7 +18013,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_zero_burst.tga",
+      "http://127.0.0.1:3000/assets/fxpa_zero_burst.tga",
       particleTexture
     );
     const object = {
@@ -13433,7 +18121,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_detonate_key.tga",
+      "http://127.0.0.1:3000/assets/fxpa_detonate_key.tga",
       particleTexture
     );
     const detonateTimeline = [
@@ -13549,7 +18237,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_detonate_direct.tga",
+      "http://127.0.0.1:3000/assets/fxpa_detonate_direct.tga",
       particleTexture
     );
     const object = {
@@ -13657,7 +18345,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_update_modes.tga",
+      "http://127.0.0.1:3000/assets/fxpa_update_modes.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13939,7 +18627,7 @@ describe("workspaceObjectMeshLayer VFX render mode", () => {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://localhost:3000/assets/fxpa_lightning_key.tga",
+      "http://127.0.0.1:3000/assets/fxpa_lightning_key.tga",
       particleTexture
     );
     const object = {

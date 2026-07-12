@@ -38,6 +38,11 @@ describe("sceneViewportPort", () => {
         adjustObjectsHeightByIds: vi.fn(() => nextScene),
         rotateObjectsBearingByIds: vi.fn(() => nextScene),
         updateTileTerrain: vi.fn(() => nextScene),
+        applyAuroraAreaTerrainBrush: vi.fn(() => nextScene),
+        placeAuroraAreaGroup: vi.fn(() => nextScene),
+        removeAuroraAreaGroup: vi.fn(() => nextScene),
+        rotateAuroraAreaGroup: vi.fn(() => nextScene),
+        changeAuroraAreaGroupHeight: vi.fn(() => nextScene),
         resetObjectTransform: vi.fn(() => nextScene)
       },
       authoring: {
@@ -92,6 +97,11 @@ describe("sceneViewportPort", () => {
     const adjustedHeight = port.adjustObjectsHeightByIds(seed, [seed.objects[0].id], 0.4);
     const rotatedBearing = port.rotateObjectsBearingByIds(seed, [seed.objects[0].id], 0.2);
     const retiled = port.updateTileTerrain(seed, seed.tiles[0].id, "wall");
+    const terrainBrushed = port.applyAuroraAreaTerrainBrush(seed, seed.tiles[0].id, "water");
+    const groupPlaced = port.placeAuroraAreaGroup(seed, seed.tiles[0].id, "group0", 0);
+    const groupRemoved = port.removeAuroraAreaGroup(seed, seed.tiles[0].id);
+    const groupRotated = port.rotateAuroraAreaGroup(seed, seed.tiles[0].id, 1);
+    const groupRaised = port.changeAuroraAreaGroupHeight(seed, seed.tiles[0].id, 1);
     const reset = port.resetObjectTransform(seed, seed.objects[0].id);
     const created = port.createObject("items", 1, 2, 7);
     const anchor = port.resolveCopyAnchor({
@@ -122,6 +132,11 @@ describe("sceneViewportPort", () => {
     expect(adjustedHeight).toBe(nextScene);
     expect(rotatedBearing).toBe(nextScene);
     expect(retiled).toBe(nextScene);
+    expect(terrainBrushed).toBe(nextScene);
+    expect(groupPlaced).toBe(nextScene);
+    expect(groupRemoved).toBe(nextScene);
+    expect(groupRotated).toBe(nextScene);
+    expect(groupRaised).toBe(nextScene);
     expect(reset).toBe(nextScene);
     expect(created).toBe(createdObject);
     expect(anchor).toEqual({ x: 1.1, y: 2.2 });
@@ -183,6 +198,24 @@ describe("sceneViewportPort", () => {
       0.2
     );
     expect(bundle.mutations.updateTileTerrain).toHaveBeenCalledWith(seed, seed.tiles[0].id, "wall");
+    expect(bundle.mutations.applyAuroraAreaTerrainBrush).toHaveBeenCalledWith(
+      seed,
+      seed.tiles[0].id,
+      "water"
+    );
+    expect(bundle.mutations.placeAuroraAreaGroup).toHaveBeenCalledWith(
+      seed,
+      seed.tiles[0].id,
+      "group0",
+      0
+    );
+    expect(bundle.mutations.removeAuroraAreaGroup).toHaveBeenCalledWith(seed, seed.tiles[0].id);
+    expect(bundle.mutations.rotateAuroraAreaGroup).toHaveBeenCalledWith(seed, seed.tiles[0].id, 1);
+    expect(bundle.mutations.changeAuroraAreaGroupHeight).toHaveBeenCalledWith(
+      seed,
+      seed.tiles[0].id,
+      1
+    );
     expect(bundle.mutations.resetObjectTransform).toHaveBeenCalledWith(seed, seed.objects[0].id);
     expect(bundle.authoring.createObject).toHaveBeenCalledWith("items", 1, 2, 7);
     expect(bundle.authoring.resolveCopyAnchor).toHaveBeenCalledWith({
@@ -224,6 +257,11 @@ describe("sceneViewportPort", () => {
         adjustObjectsHeightByIds: vi.fn(() => seed),
         rotateObjectsBearingByIds: vi.fn(() => seed),
         updateTileTerrain: vi.fn(() => seed),
+        applyAuroraAreaTerrainBrush: vi.fn(() => seed),
+        placeAuroraAreaGroup: vi.fn(() => seed),
+        removeAuroraAreaGroup: vi.fn(() => seed),
+        rotateAuroraAreaGroup: vi.fn(() => seed),
+        changeAuroraAreaGroupHeight: vi.fn(() => seed),
         resetObjectTransform: vi.fn(() => seed)
       },
       authoring: {

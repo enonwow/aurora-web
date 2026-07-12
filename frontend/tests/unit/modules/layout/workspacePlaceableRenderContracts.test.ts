@@ -3,9 +3,11 @@ import type { PlaceableViewportRenderPayload } from "../../../../src/modules/pla
 import type { SceneObject } from "../../../../src/modules/scene/contracts";
 import {
   isAreaSharedPlaceablesRendererSceneObject,
+  isAreaPreviewOnlyAuroraVfxPayload,
   resolveAreaPlaceablePlaceholderReason,
   resolvePlaceableRenderPayloadFromLookup,
   resolvePlaceableRenderPayloadLookup,
+  resolvePlaceableRenderContractState,
   resolvePublishedPlaceableRenderPayloadKeys,
   SHARED_PLACEABLES_RENDERER_PATH
 } from "../../../../src/modules/layout/application/workspacePlaceableRenderContracts";
@@ -105,15 +107,16 @@ describe("workspace placeable render contracts", () => {
     );
 
     expect(lookup).toMatchObject({
-      cacheKey: "area-instance-render-row:placeables:appearance:104:generic:none",
+      cacheKey: "area-instance-render-row:placeables:appearance:104:generic:none:tag:plc_area_table:label:none",
       processPayload: {
         templateId: "zep_tomest_001",
         resref: "zep_tomest_001",
+        tag: "PLC_AREA_TABLE",
         subtypeHint: "generic",
         appearanceType: 104
       },
       indexKeys: [
-        "area-instance-render-row:placeables:appearance:104:generic:none",
+        "area-instance-render-row:placeables:appearance:104:generic:none:tag:plc_area_table:label:none",
         "area_ikea:plc_001"
       ],
       publishTemplateAliases: false
@@ -139,10 +142,11 @@ describe("workspace placeable render contracts", () => {
     );
 
     expect(lookup).toMatchObject({
-      cacheKey: "area-instance-render-row:doors:appearance:7:generic:3",
+      cacheKey: "area-instance-render-row:doors:appearance:7:generic:3:tag:plc_area_table:label:none",
       processPayload: {
         templateId: "nw_door_ttr_11",
         resref: "nw_door_ttr_11",
+        tag: "PLC_AREA_TABLE",
         subtypeHint: "door",
         appearanceType: 7,
         genericType: 3
@@ -170,7 +174,8 @@ describe("workspace placeable render contracts", () => {
     expect(lookup.processPayload).toEqual({
       templateId: "zep_tomest_001",
       resref: "zep_tomest_001",
-      subtypeHint: "generic"
+      subtypeHint: "generic",
+      tag: "PLC_AREA_TABLE"
     });
     expect(lookup.indexKeys).toEqual([
       "zep_tomest_001",
@@ -195,6 +200,91 @@ describe("workspace placeable render contracts", () => {
       "plc_utp_tomestone",
       "plc_resolved_table"
     ]);
+  });
+
+  it("carries Aurora GIT tags into placeable process payloads", () => {
+    const lookup = resolvePlaceableRenderPayloadLookup(
+      buildAreaObject({
+        id: "area_bakery:plc_light_001",
+        resRef: "plc_campfr",
+        tag: "VALELightNodeOrange03m",
+        source: {
+          type: "aurora_git",
+          areaId: "area_bakery",
+          sourceObjectId: "plc_light_001",
+          sourceKind: "placeable",
+          templateId: "plc_campfr",
+          appearanceType: 26949
+        }
+      })
+    );
+
+    expect(lookup.cacheKey).toBe(
+      "area-instance-render-row:placeables:appearance:26949:generic:none:tag:valelightnodeorange03m:label:none"
+    );
+    expect(lookup.processPayload).toMatchObject({
+      templateId: "plc_campfr",
+      resref: "plc_campfr",
+      tag: "VALELightNodeOrange03m",
+      subtypeHint: "generic",
+      appearanceType: 26949
+    });
+  });
+
+  it("carries Aurora GIT localized text into placeable process payloads", () => {
+    const lookup = resolvePlaceableRenderPayloadLookup(
+      buildAreaObject({
+        id: "area_bakery:plc_qfoodbins",
+        resRef: "witcher290",
+        tag: "QFoodBins",
+        source: {
+          type: "aurora_git",
+          areaId: "area_bakery",
+          sourceObjectId: "plc_qfoodbins",
+          sourceKind: "placeable",
+          templateId: "witcher290",
+          appearanceType: 12285,
+          localizedName: "[W] Balustrada",
+          description: "[Q]Pallet, Empty"
+        }
+      })
+    );
+
+    expect(lookup.cacheKey).toContain(":label:");
+    expect(lookup.processPayload).toMatchObject({
+      templateId: "witcher290",
+      resref: "witcher290",
+      tag: "QFoodBins",
+      localizedName: "[W] Balustrada",
+      description: "[Q]Pallet, Empty",
+      subtypeHint: "generic",
+      appearanceType: 12285
+    });
+  });
+
+  it("does not force Aurora GIT VFX-like placeables through the generic lane", () => {
+    const lookup = resolvePlaceableRenderPayloadLookup(
+      buildAreaObject({
+        id: "area_bakery:plc_vfx_flame_001",
+        resRef: "tm_pl_lightred",
+        tag: "VFXFlameLarge1",
+        source: {
+          type: "aurora_git",
+          areaId: "area_bakery",
+          sourceObjectId: "plc_vfx_flame_001",
+          sourceKind: "placeable",
+          templateId: "tm_pl_lightred",
+          appearanceType: 332
+        }
+      })
+    );
+
+    expect(lookup.processPayload).toEqual({
+      templateId: "tm_pl_lightred",
+      resref: "tm_pl_lightred",
+      tag: "VFXFlameLarge1",
+      appearanceType: 332
+    });
   });
 
   it("classifies shared Area placeable placeholder reasons from payload state", () => {
@@ -230,6 +320,89 @@ describe("workspace placeable render contracts", () => {
     expect(
       resolveAreaPlaceablePlaceholderReason({ payload: payloadMissingModelUrl })
     ).toBe("payload-missing-model-url");
+    const payloadVfxEmitterWithoutModelUrl = buildPayload({
+      placeable: {
+        ...buildPayload().placeable,
+        placeableSubtype: "vfx",
+        render: {
+          backendType: "vfx",
+          frontendType: "vfx",
+          rendererPreset: "vfx-emitter",
+          isDoor: false,
+          isVfx: true
+        }
+      },
+      renderPackage: {
+        status: "ready",
+        auroraEmitter: {
+          source: "aurora-mdl-ascii",
+          emitters: [
+            {
+              emitterName: "flame",
+              texture: "fxpa_flame00",
+              simulation: {
+                birthrate: 12,
+                lifeExp: 0.8
+              }
+            }
+          ]
+        }
+      }
+    } as Partial<PlaceableViewportRenderPayload>);
+
+    expect(resolvePlaceableRenderContractState(payloadVfxEmitterWithoutModelUrl)).toMatchObject({
+      modelUrl: null,
+      renderableWithoutModel: true,
+      fallbackToPrimitive: false
+    });
+    expect(
+      resolveAreaPlaceablePlaceholderReason({
+        payload: payloadVfxEmitterWithoutModelUrl
+      })
+    ).toBe("none");
+    const payloadPreviewOnlyVfxEmitter = buildPayload({
+      placeable: {
+        ...buildPayload().placeable,
+        placeableSubtype: "vfx",
+        render: {
+          backendType: "vfx",
+          frontendType: "vfx",
+          rendererPreset: "vfx-emitter",
+          isDoor: false,
+          isVfx: true
+        }
+      },
+      renderPackage: {
+        status: "ready",
+        diagnostics: [
+          {
+            code: "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL",
+            severity: "warn",
+            message: "Source MDL emitter payload is preview-only."
+          }
+        ],
+        auroraEmitter: {
+          source: "source-mdl",
+          emitters: [
+            {
+              emitterName: "flame",
+              texture: "fxpa_flame00",
+              simulation: {
+                birthrate: 12,
+                lifeExp: 0.8
+              }
+            }
+          ]
+        }
+      }
+    } as Partial<PlaceableViewportRenderPayload>);
+
+    expect(isAreaPreviewOnlyAuroraVfxPayload(payloadPreviewOnlyVfxEmitter)).toBe(true);
+    expect(
+      resolveAreaPlaceablePlaceholderReason({
+        payload: payloadPreviewOnlyVfxEmitter
+      })
+    ).toBe("none");
     expect(
       resolveAreaPlaceablePlaceholderReason({
         payload: buildPayload({
@@ -246,5 +419,22 @@ describe("workspace placeable render contracts", () => {
         modelLoadFailed: true
       })
     ).toBe("model-load-failed");
+    expect(
+      resolveAreaPlaceablePlaceholderReason({
+        payload: buildPayload({
+          renderPackage: {
+            status: "unsupported",
+            diagnostics: [
+              {
+                code: "PLACEABLE_RENDER_AREA_INSTANCE_HELPER_NO_GEOMETRY",
+                severity: "warn",
+                message: "Area GIT light_node instance is an Aurora helper."
+              }
+            ],
+            assetRefs: {}
+          }
+        } as Partial<PlaceableViewportRenderPayload>)
+      })
+    ).toBe("not-applicable");
   });
 });

@@ -129,6 +129,48 @@ describe("WorkspaceTopbar facades injection", () => {
     );
   });
 
+  it("surfaces viewport fullscreen toggle when the workspace can expand the canvas", () => {
+    const chromeFacade = createChromeFacadeMock();
+    const onToggleViewportFullscreen = vi.fn();
+    const baseProps = {
+      isAuthenticated: true,
+      role: "builder" as const,
+      workspaceChromeFacade: chromeFacade,
+      workspaceTopbarActionStateFacade: createTopbarActionStateFacadeMock(),
+      toolbarState: createToolbarState(),
+      layoutTheme: DEFAULT_LAYOUT_THEME,
+      onLayoutThemeChange: () => undefined,
+      workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
+      onWorkspaceOptionsChange: () => undefined,
+      onAction: () => undefined,
+      showDebugPanel: false,
+      onToggleDebug: () => undefined,
+      onSignOut: () => undefined,
+      onToggleViewportFullscreen
+    };
+
+    const { rerender } = render(
+      <WorkspaceTopbar {...baseProps} isViewportFullscreen={false} />
+    );
+
+    const openButton = screen.getByRole("button", {
+      name: /open viewport fullscreen/i
+    });
+    expect(openButton).toHaveTextContent("Full View");
+    expect(openButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(openButton);
+    expect(onToggleViewportFullscreen).toHaveBeenCalledTimes(1);
+
+    rerender(<WorkspaceTopbar {...baseProps} isViewportFullscreen={true} />);
+
+    const exitButton = screen.getByRole("button", {
+      name: /exit viewport fullscreen/i
+    });
+    expect(exitButton).toHaveTextContent("Exit View");
+    expect(exitButton).toHaveAttribute("aria-pressed", "true");
+    expect(exitButton.className).toContain("is-active");
+  });
+
   it("keeps placeables mode topbar focused without area editor groups or options", () => {
     const groups: ToolbarGroup[] = [
       {
@@ -182,6 +224,43 @@ describe("WorkspaceTopbar facades injection", () => {
     expect(screen.queryByRole("group", { name: /viewport controls/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /snap and selection/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/grid step/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces the runtime max-lights workspace option for area editing", () => {
+    const chromeFacade = createChromeFacadeMock();
+    const onWorkspaceOptionsChange = vi.fn();
+
+    render(
+      <WorkspaceTopbar
+        isAuthenticated={true}
+        role="builder"
+        workspaceChromeFacade={chromeFacade}
+        workspaceTopbarActionStateFacade={createTopbarActionStateFacadeMock()}
+        workspaceModeId="areas_mode"
+        toolbarState={createToolbarState()}
+        layoutTheme={DEFAULT_LAYOUT_THEME}
+        onLayoutThemeChange={() => undefined}
+        workspaceOptions={{
+          ...DEFAULT_WORKSPACE_OPTION_SETTINGS,
+          runtimeMaxLights: 64
+        }}
+        onWorkspaceOptionsChange={onWorkspaceOptionsChange}
+        onAction={() => undefined}
+        showDebugPanel={false}
+        onToggleDebug={() => undefined}
+        onSignOut={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+
+    const maxLightsInput = screen.getByRole("spinbutton", { name: /max active lights/i });
+    expect(maxLightsInput).toHaveValue(64);
+    expect(screen.getByRole("group", { name: /^lighting$/i })).toBeInTheDocument();
+
+    fireEvent.change(maxLightsInput, { target: { value: "16" } });
+
+    expect(onWorkspaceOptionsChange).toHaveBeenCalledWith({ runtimeMaxLights: 16 });
   });
 
   it("surfaces Fit Area only for areas mode and keeps reorient for other modes", () => {

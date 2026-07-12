@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import {
+  applyWorkspaceRuntimeLightBudget,
   applyPlaceableAssetRequestHeaders,
   filterObjectsByRenderObjectIds,
   formatAreaSharedRendererIssueSummary,
@@ -10,13 +11,19 @@ import {
   AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT,
   limitAreaRuntimeIdList,
   readPlaceablesVfxPreviewDrawMetrics,
+  refreshAreaSharedRendererRuntimeSnapshotFromObjectEvidenceForTests,
+  resolveAreaRenderFrameMirrorSnapshotForTests,
+  normalizeWorkspaceRuntimeMaxLights,
   resolveAreaObjectRuntimeEvidenceDatasetLimit,
+  resolveAreaOracleRenderPriorityObjectIdsForTests,
   resolveRenderObjectIdsSet,
   resolveSceneGridVisibility,
   resolveSceneObjectRenderScale,
+  shouldConsumeCanvasWheelForCamera,
   shouldRenderAreaGeometry
 } from "../../../../src/modules/layout/components/WorkspaceCanvasViewport";
 import {
+  AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT,
   rebuildObjectMeshes,
   resolveSceneObjectRenderBaseY,
   resolveSoundRenderDiagnostics,
@@ -71,6 +78,7 @@ import {
   PLACEABLE_MODEL_LOAD_CONCURRENCY_LIMIT,
   PLACEABLE_MODEL_LOAD_QUEUE_PROGRESS_EVENT,
   PLACEABLE_MODEL_LOAD_STARTS_PER_FRAME_LIMIT,
+  PLACEABLE_MODEL_LOAD_TIMEOUT_MS,
   type PlaceableModelLoadQueueProgressDetail
 } from "../../../../src/modules/placeables/adapters/three/placeableThreeAssetLoader";
 import type { PlaceableViewportRenderPayload } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
@@ -162,6 +170,29 @@ function firstMeshMaterial(model: THREE.Object3D): THREE.Material {
   return material;
 }
 
+function createWheelCameraRuntime(
+  options: {
+    distance?: number;
+    minDistance?: number;
+    maxDistance?: number;
+    enabled?: boolean;
+    enableZoom?: boolean;
+  } = {}
+): Parameters<typeof shouldConsumeCanvasWheelForCamera>[0] {
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(options.distance ?? 5, 0, 0);
+  return {
+    camera,
+    controls: {
+      enabled: options.enabled ?? true,
+      enableZoom: options.enableZoom ?? true,
+      minDistance: options.minDistance ?? 1,
+      maxDistance: options.maxDistance ?? 10,
+      target: new THREE.Vector3()
+    }
+  } as unknown as Parameters<typeof shouldConsumeCanvasWheelForCamera>[0];
+}
+
 describe("readPlaceablesVfxPreviewDrawMetrics", () => {
   it("counts visible app VFX preview particles, vertices, and Aurora source draw lanes", () => {
     const root = new THREE.Group();
@@ -190,8 +221,109 @@ describe("readPlaceablesVfxPreviewDrawMetrics", () => {
     expect(readPlaceablesVfxPreviewDrawMetrics(root)).toEqual({
       drawParticles: 1,
       renderedVertices: 6,
-      drawLanes: ["source-mdl", "Fountain", "Lighten", "Normal"]
+      drawLanes: ["source-mdl", "Fountain", "Lighten", "Normal"],
+      auroraLightNodes: [],
+      auroraLightSourceNodeCount: 0,
+      auroraLightAcceptedNodeCount: 0,
+      auroraLightFlarePayloadNodeCount: 0,
+      auroraLightFlareRadiusWriteUnverified: false,
+      auroraLightBudgetStrategy: null,
+      auroraLightBudgetStrategySource: null,
+      auroraLightBudgetStrategyProofStatus: null,
+      auroraLightPreviewMode: null
     });
+  });
+
+  it("exposes source MDL light-node preview diagnostics", () => {
+    const root = new THREE.Group();
+    root.userData.auroraLightNodes = ["pulsing_light03"];
+    root.userData.auroraLightSourceNodeCount = 1;
+    root.userData.auroraLightAcceptedNodeCount = 1;
+    root.userData.auroraLightFlarePayloadNodeCount = 1;
+    root.userData.auroraLightFlareRadiusWriteUnverified = true;
+    root.userData.auroraLightBudgetStrategy =
+      "source-backed-retail-score-ascending-global-budget-preview-camera-fallback";
+    root.userData.auroraLightBudgetStrategySource =
+      "C:/Projects/New Folder/export/decompiled_all.c:865838-865929 FUN_00a41850 computes retail MDL light score at +0x84";
+    root.userData.auroraLightBudgetStrategyProofStatus =
+      "source-backed-retail-score-sort-slot-cap-preview-camera-field-fallback";
+    root.userData.auroraLightPreviewMode = "source-mdl-light-node-preview";
+
+    const lightCore = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    lightCore.userData.auroraLightNodeName = "pulsing_light03";
+    root.add(lightCore);
+
+    expect(readPlaceablesVfxPreviewDrawMetrics(root)).toEqual({
+      drawParticles: 1,
+      renderedVertices: 24,
+      drawLanes: [],
+      auroraLightNodes: ["pulsing_light03"],
+      auroraLightSourceNodeCount: 1,
+      auroraLightAcceptedNodeCount: 1,
+      auroraLightFlarePayloadNodeCount: 1,
+      auroraLightFlareRadiusWriteUnverified: true,
+      auroraLightBudgetStrategy: "source-backed-retail-score-ascending-global-budget-preview-camera-fallback",
+      auroraLightBudgetStrategySource:
+        "C:/Projects/New Folder/export/decompiled_all.c:865838-865929 FUN_00a41850 computes retail MDL light score at +0x84",
+      auroraLightBudgetStrategyProofStatus:
+        "source-backed-retail-score-sort-slot-cap-preview-camera-field-fallback",
+      auroraLightPreviewMode: "source-mdl-light-node-preview"
+    });
+  });
+});
+
+describe("shouldConsumeCanvasWheelForCamera", () => {
+  it("consumes wheel only while zoom can still move the camera", () => {
+    const runtime = createWheelCameraRuntime({ distance: 5, minDistance: 1, maxDistance: 10 });
+
+    expect(shouldConsumeCanvasWheelForCamera(runtime, -120)).toBe(true);
+    expect(shouldConsumeCanvasWheelForCamera(runtime, 120)).toBe(true);
+    expect(
+      shouldConsumeCanvasWheelForCamera(
+        createWheelCameraRuntime({ distance: 1, minDistance: 1, maxDistance: 10 }),
+        -120
+      )
+    ).toBe(false);
+    expect(
+      shouldConsumeCanvasWheelForCamera(
+        createWheelCameraRuntime({ distance: 10, minDistance: 1, maxDistance: 10 }),
+        120
+      )
+    ).toBe(false);
+  });
+
+  it("passes wheel through when camera controls cannot handle it", () => {
+    expect(
+      shouldConsumeCanvasWheelForCamera(createWheelCameraRuntime({ enabled: false }), 120)
+    ).toBe(false);
+    expect(
+      shouldConsumeCanvasWheelForCamera(createWheelCameraRuntime({ enableZoom: false }), 120)
+    ).toBe(false);
+    expect(
+      shouldConsumeCanvasWheelForCamera(createWheelCameraRuntime(), 120, { loading: true })
+    ).toBe(false);
+  });
+});
+
+describe("applyWorkspaceRuntimeLightBudget", () => {
+  it("writes the workspace max-lights cap to object and tile light runtime channels", () => {
+    const runtime = { scene: new THREE.Scene() };
+
+    expect(normalizeWorkspaceRuntimeMaxLights(999)).toBe(128);
+    expect(normalizeWorkspaceRuntimeMaxLights(-4)).toBe(0);
+    expect(normalizeWorkspaceRuntimeMaxLights(16.8)).toBe(16);
+
+    const normalized = applyWorkspaceRuntimeLightBudget(runtime, 16.8);
+
+    expect(normalized).toBe(16);
+    expect(runtime.scene.userData.auroraLightConfiguredMaxLights).toBe(16);
+    expect(runtime.scene.userData.auroraTerrainTileLightConfiguredMaxLights).toBe(16);
+    expect(runtime.scene.userData.auroraLightConfiguredMaxLightsSource).toBe(
+      "workspace-options-runtime-max-lights"
+    );
+    expect(runtime.scene.userData.auroraTerrainTileLightConfiguredMaxLightsSource).toBe(
+      "workspace-options-runtime-max-lights"
+    );
   });
 });
 
@@ -216,8 +348,8 @@ describe("WorkspaceCanvasViewport loading evidence labels", () => {
     const diagnostics = {
       total: 1136,
       primitiveFallbackCount: 1136,
-      primitiveFallbackRenderLimit: 96,
-      primitiveFallbackSuppressedCount: 1040,
+      primitiveFallbackRenderLimit: 256,
+      primitiveFallbackSuppressedCount: 880,
       missingPayloadIds: "plc_a|plc_b|plc_c"
     } as Parameters<typeof formatAreaSharedRendererIssueSummary>[0];
 
@@ -225,7 +357,7 @@ describe("WorkspaceCanvasViewport loading evidence labels", () => {
       formatAreaSharedRendererIssueSummary(diagnostics, {
         payloadRequestsInFlight: true
       })
-    ).toBe("1136/1136 primitive fallback / render capped 96, skipped 1040 / payloads pending/in flight 3");
+    ).toBe("1136/1136 primitive fallback / render capped 256, skipped 880 / payloads pending/in flight 3");
     expect(formatAreaSharedRendererIssueSummary(diagnostics)).toContain("missing payloads 3");
   });
 });
@@ -257,6 +389,202 @@ describe("WorkspaceCanvasViewport runtime evidence datasets", () => {
     expect(ids).toHaveLength(AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT + 2);
     expect(capped).toHaveLength(AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT);
     expect(capped.at(-1)).toBe(`plc_${AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT - 1}`);
+  });
+
+  it("normalizes clean-canvas render priority object ids", () => {
+    expect(
+      resolveAreaOracleRenderPriorityObjectIdsForTests(
+        "area_enon_bakery:obj_a|obj_b,obj_b; obj_c "
+      )
+    ).toEqual(["area_enon_bakery:obj_a", "obj_b", "obj_c"]);
+    expect(resolveAreaOracleRenderPriorityObjectIdsForTests(["obj_a", " obj_a ", "obj_b"])).toEqual([
+      "obj_a",
+      "obj_b"
+    ]);
+  });
+
+  it("keeps VisualTransform root evidence even when fallback proxies have no model bounds", () => {
+    const container = document.createElement("div");
+    const objectId = "area_enon_bakery:obj_plc_q_floorwooden_1";
+    const sourceId = "obj_plc_q_floorwooden_1";
+    const placeholderReasons = [
+      "none",
+      "missing-payload",
+      "payload-missing-model-url",
+      "asset-contract-blocked",
+      "model-load-failed",
+      "still-loading",
+      "not-applicable"
+    ];
+    const placeholderReasonCounts = Object.fromEntries(
+      placeholderReasons.map((reason) => [reason, reason === "missing-payload" ? 1 : 0])
+    );
+    const placeholderReasonIds = Object.fromEntries(
+      placeholderReasons.map((reason) => [reason, reason === "missing-payload" ? [objectId] : []])
+    );
+    container.dataset.areaObjectSharedRendererSnapshot = JSON.stringify({
+      version: "aurora-areas-shared-renderer-runtime/v1",
+      path: "shared-placeables-renderer",
+      status: "blocked",
+      placeholderStatus: "blocked",
+      total: 1,
+      payloadBoundCount: 0,
+      modelReadyCount: 0,
+      uniqueModelUrlCount: 0,
+      uniqueModelCacheKeyCount: 0,
+      modelUrlSample: [],
+      modelCacheKeySample: [],
+      primitiveFallbackCount: 1,
+      primitiveFallbackRenderLimit: AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT,
+      primitiveFallbackSuppressedCount: 0,
+      placeholderReasonCounts,
+      placeholderReasonIds,
+      missingPayloadIds: [objectId],
+      payloadMissingModelUrlIds: [],
+      assetContractBlockedIds: [],
+      modelLoadFailedIds: [],
+      modelLoadFailedModelUrls: [],
+      modelLoadFailedModelCacheKeys: [],
+      stillLoadingIds: [],
+      primitiveFallbackIds: [objectId],
+      textureStatusCounts: {},
+      texturePendingIds: [],
+      textureIssueIds: [],
+      textureMissingIds: [],
+      textureFallbackIds: [],
+      textureSkippedIds: [],
+      toolsetPhysicalHiddenIds: [],
+      toolsetPhysicalHiddenReasons: [],
+      blockedIds: [objectId],
+      areaRenderFrameMirror: {
+        status: "disabled",
+        enabled: false,
+        objectLayer: { mirror: null, mirrorWidth: null, positionX: 0, scaleX: 1 },
+        boundsLayer: { mirror: null, mirrorWidth: null, positionX: 0, scaleX: 1 }
+      },
+      visualTransformSample: [],
+      objectVisualTransformRootCount: 0,
+      objectVisualTransformAppliedCount: 0,
+      objectVisualTransformAppliedIds: [],
+      objectVisualTransformSample: [],
+      modelBoundsSample: []
+    });
+    const root = new THREE.Object3D();
+    root.position.set(1, 0.5, 2);
+    root.rotation.set(0, Math.PI / 2, 0);
+    root.scale.set(0.5, 0.5, 0.5);
+    root.userData = {
+      auroraAreaObjectSharedRendererRuntimeMarker: "shared-placeables-renderer",
+      objectId,
+      objectKind: "placeables",
+      auroraAreaObjectSourceId: sourceId,
+      auroraAreaObjectTemplateId: "plc_q_floorwooden_1",
+      auroraAreaObjectSharedRendererPayloadStatus: "missing-payload",
+      auroraAreaObjectSharedRendererGeometryStatus: "primitive-fallback",
+      auroraAreaObjectSharedRendererPlaceholderReason: "missing-payload",
+      auroraAreaObjectVisualTransform:
+        "scale=0.5,scaleX=0.5,scaleY=0.5,scaleZ=0.5,offsetX=0,offsetY=0,offsetZ=0,pitch=0,yaw=1.570796,roll=0",
+      auroraAreaObjectEffectiveVisualTransform:
+        "scale=0.5,scaleX=0.5,scaleY=0.5,scaleZ=0.5,offsetX=0,offsetY=0,offsetZ=0,pitch=0,yaw=1.570796,roll=0",
+      auroraAreaObjectVisualTransformApplied: true,
+      auroraAreaObjectRenderTransformSourceBearing: 0,
+      auroraAreaObjectRenderTransformSourceYaw: Math.PI / 2,
+      auroraAreaObjectRenderTransformRenderYaw: -Math.PI / 2,
+      auroraAreaObjectRenderTransformScaleX: 0.5,
+      auroraAreaObjectRenderTransformScaleY: 0.5,
+      auroraAreaObjectRenderTransformScaleZ: 0.5,
+      auroraAreaObjectRenderTransformYawComposition:
+        "placementMatrix * visualTransformMatrix"
+    };
+    const soundObjectId = "area_enon_bakery:obj_snd_fireplace";
+    const soundRoot = new THREE.Object3D();
+    soundRoot.position.set(3, 0.1, 4);
+    soundRoot.scale.set(1.2, 1.2, 1.2);
+    soundRoot.userData = {
+      objectId: soundObjectId,
+      objectKind: "sounds",
+      auroraAreaObjectSourceId: "obj_snd_fireplace",
+      auroraAreaObjectTemplateId: "snd_fireplace",
+      auroraAreaObjectPayloadStatus: "object-layer",
+      auroraAreaObjectVisualTransform:
+        "scale=1.2,scaleX=1.2,scaleY=1.2,scaleZ=1.2,offsetX=0,offsetY=0,offsetZ=0,pitch=0,yaw=0,roll=0",
+      auroraAreaObjectEffectiveVisualTransform:
+        "scale=1.2,scaleX=1.2,scaleY=1.2,scaleZ=1.2,offsetX=0,offsetY=0,offsetZ=0,pitch=0,yaw=0,roll=0",
+      auroraAreaObjectVisualTransformApplied: true,
+      auroraAreaObjectRenderTransformScaleX: 1.2,
+      auroraAreaObjectRenderTransformScaleY: 1.2,
+      auroraAreaObjectRenderTransformScaleZ: 1.2
+    };
+    const runtime = {
+      container,
+      objectLayer: new THREE.Group(),
+      boundsLayer: new THREE.Group(),
+      objectMeshById: new Map([
+        [objectId, root],
+        [soundObjectId, soundRoot]
+      ])
+    } as unknown as Parameters<
+      typeof refreshAreaSharedRendererRuntimeSnapshotFromObjectEvidenceForTests
+    >[0];
+
+    refreshAreaSharedRendererRuntimeSnapshotFromObjectEvidenceForTests(runtime);
+
+    const snapshot = JSON.parse(
+      container.dataset.areaObjectSharedRendererSnapshot ?? "{}"
+    );
+    expect(snapshot.modelBoundsSample).toEqual([]);
+    expect(snapshot.visualTransformSample).toHaveLength(1);
+    expect(snapshot.objectVisualTransformSample).toHaveLength(2);
+    expect(snapshot.objectVisualTransformRootCount).toBe(2);
+    expect(snapshot.objectVisualTransformAppliedCount).toBe(2);
+    expect(snapshot.visualTransformSample[0]).toMatchObject({
+      objectId,
+      objectKind: "placeables",
+      rendererPath: "shared-placeables-renderer",
+      sourceId,
+      placeholderReason: "missing-payload",
+      geometryStatus: "primitive-fallback",
+      visualTransformApplied: true
+    });
+    expect(container.dataset.areaObjectSharedRendererVisualTransformSampleCount).toBe("1");
+    expect(container.dataset.areaObjectVisualTransformSampleCount).toBe("2");
+    expect(container.dataset.areaObjectVisualTransformRootCount).toBe("2");
+    expect(container.dataset.areaObjectVisualTransformAppliedCount).toBe("2");
+  });
+
+  it("reports Area object-layer X mirror evidence for runtime captures", () => {
+    const objectLayer = new THREE.Group();
+    const boundsLayer = new THREE.Group();
+    objectLayer.position.x = 4;
+    objectLayer.scale.x = -1;
+    objectLayer.userData.auroraAreaRenderFrameMirror = "coordinate-x";
+    objectLayer.userData.auroraAreaRenderFrameMirrorWidth = 4;
+    boundsLayer.position.x = 4;
+    boundsLayer.scale.x = -1;
+    boundsLayer.userData.auroraAreaRenderFrameMirror = "coordinate-x";
+    boundsLayer.userData.auroraAreaRenderFrameMirrorWidth = 4;
+
+    const snapshot = resolveAreaRenderFrameMirrorSnapshotForTests({
+      objectLayer,
+      boundsLayer
+    } as never);
+
+    expect(snapshot).toMatchObject({
+      status: "coordinate-x",
+      enabled: true,
+      objectLayer: {
+        mirror: "coordinate-x",
+        mirrorWidth: 4,
+        positionX: 4,
+        scaleX: -1
+      },
+      boundsLayer: {
+        mirror: "coordinate-x",
+        mirrorWidth: 4,
+        positionX: 4,
+        scaleX: -1
+      }
+    });
   });
 });
 
@@ -460,6 +788,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
   it("hides area geometry when renderObjectIds select explicit preview objects", () => {
     expect(shouldRenderAreaGeometry(["preview:plc_barrel_01"])).toBe(false);
     expect(shouldRenderAreaGeometry(["__placeables_mode_render_none__"])).toBe(false);
+    expect(shouldRenderAreaGeometry(["__creatures_mode_render_none__"])).toBe(false);
     expect(shouldRenderAreaGeometry([" one ", " two "])).toBe(false);
   });
 
@@ -616,7 +945,26 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     ).toBe("http://backend.internal:3000");
   });
 
-  it("routes dev model delivery directly to the backend instead of the Vite proxy", () => {
+  it("resolves relative backend delivery config against the current frontend origin", () => {
+    const originalLocation = globalThis.location;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("http://127.0.0.1:5175/app")
+    });
+
+    try {
+      expect(resolveBackendDeliveryOriginFromConfig("/_aurora/v1", "http://localhost:3000")).toBe(
+        "http://127.0.0.1:5175"
+      );
+    } finally {
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: originalLocation
+      });
+    }
+  });
+
+  it("routes dev model delivery through the Vite proxy when that origin is selected", () => {
     const originalLocation = globalThis.location;
     Object.defineProperty(globalThis, "location", {
       configurable: true,
@@ -628,11 +976,12 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
         createPlaceableViewportPayload({
           status: "ready",
           glbUrl: "/api/v1/catalog/placeables/cache/cache_001/assets/model_001.glb"
-        })
+        }),
+        "http://127.0.0.1:5173"
       );
 
       expect(resolution.modelUrl).toBe(
-        "http://localhost:3000/api/v1/catalog/placeables/cache/cache_001/assets/model_001.glb"
+        "http://127.0.0.1:5173/_aurora/v1/catalog/placeables/cache/cache_001/assets/model_001.glb"
       );
     } finally {
       Object.defineProperty(globalThis, "location", {
@@ -649,9 +998,20 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
         modelUrl: "/assets/fallback.gltf"
       })
     );
-    expect(resolution.modelUrl).toBe("http://localhost:3000/assets/placeable.glb");
+    expect(resolution.modelUrl).toBe("http://127.0.0.1:3000/assets/placeable.glb");
     expect(resolution.ready).toBe(true);
     expect(resolution.fallbackReason).toBeNull();
+  });
+
+  it("uses the selected direct loopback backend identity for absolute delivery URLs", () => {
+    const resolution = resolvePlaceableModelResolution(
+      createPlaceableViewportPayload({
+        glbUrl: "http://localhost:3000/assets/placeable.glb"
+      }),
+      "http://127.0.0.1:3000"
+    );
+
+    expect(resolution.modelUrl).toBe("http://127.0.0.1:3000/assets/placeable.glb");
   });
 
   it("falls back when renderPackage model URL is unsupported", () => {
@@ -681,10 +1041,50 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     });
     payload.assetContracts.assets = [createAssetContract("derived-model-1", "/assets/derived.glb")];
 
-    const resolution = resolvePlaceableModelResolution(payload);
+      const resolution = resolvePlaceableModelResolution(payload, "http://127.0.0.1:3000");
     expect(resolution.ready).toBe(true);
-    expect(resolution.modelUrl).toBe("http://localhost:3000/assets/derived.glb");
+    expect(resolution.modelUrl).toBe("http://127.0.0.1:3000/assets/derived.glb");
     expect(resolution.fallbackReason).toBeNull();
+  });
+
+  it("prefers the browser-safe backend path over direct SeaweedFS model delivery", () => {
+    const originalLocation = globalThis.location;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("http://127.0.0.1:5324/app")
+    });
+
+    try {
+      const payload = createPlaceableViewportPayload({
+        status: "ready",
+        assetRefs: {
+          derivedModelAssetIds: ["derived-model-1"]
+        }
+      });
+      payload.assetContracts.assets = [
+        {
+          ...createAssetContract(
+            "derived-model-1",
+            "http://127.0.0.1:8888/buckets/aurora-module-assets/modules/current/derived.glb"
+          ),
+          deliveryPath:
+            "/api/v1/catalog/placeables/cache/cache-key/assets/derived-model-1.glb"
+        }
+      ];
+
+      const resolution = resolvePlaceableModelResolution(payload, "http://127.0.0.1:3000");
+
+      expect(resolution.ready).toBe(true);
+      expect(resolution.modelUrl).toBe(
+        "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache-key/assets/derived-model-1.glb"
+      );
+      expect(resolution.modelCacheKey).toBe("objectKey:objects/derived-model-1");
+    } finally {
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: originalLocation
+      });
+    }
   });
 
   it("uses derived model asset contract when renderPackage status is stale non-ready", () => {
@@ -696,10 +1096,10 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     });
     payload.assetContracts.assets = [createAssetContract("derived-model-1", "/assets/derived.glb")];
 
-    const resolution = resolvePlaceableModelResolution(payload);
+      const resolution = resolvePlaceableModelResolution(payload, "http://127.0.0.1:3000");
     expect(resolution.ready).toBe(true);
     expect(resolution.status).toBe("missing_derived");
-    expect(resolution.modelUrl).toBe("http://localhost:3000/assets/derived.glb");
+    expect(resolution.modelUrl).toBe("http://127.0.0.1:3000/assets/derived.glb");
     expect(resolution.fallbackReason).toBeNull();
   });
 
@@ -743,6 +1143,31 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const textureUrl = resolvePlaceableTextureDeliveryUrl(payload);
 
     expect(textureUrl).toBe("http://localhost:3000/assets/contract.dds");
+  });
+
+  it("prefers diffuse texture contracts over normal and roughness maps for fallback material binding", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("normal-texture", "texture", "tex_core_0106_n.dds"),
+          createAssetManifestEntry("roughness-texture", "texture", "tex_core_0106_r.dds"),
+          createAssetManifestEntry("diffuse-texture", "texture", "tex_core_0106_d.dds")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("normal-texture", "/assets/tex_core_0106_n.dds"),
+        createAssetContract("roughness-texture", "/assets/tex_core_0106_r.dds"),
+        createAssetContract("diffuse-texture", "/assets/tex_core_0106_d.dds")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const textureUrl = resolvePlaceableTextureDeliveryUrl(payload);
+
+    expect(textureUrl).toBe("http://localhost:3000/assets/tex_core_0106_d.dds");
   });
 
   it("falls back to renderPackage.textureUrls when texture role contract is missing", () => {
@@ -792,6 +1217,453 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     ]);
   });
 
+  it("omits non-color texture maps from runtime texture reference loading", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("diffuse-texture", "texture", "tex_core_0234_d.dds"),
+          createAssetManifestEntry("normal-texture", "texture", "tex_core_0234_n.dds"),
+          createAssetManifestEntry("roughness-texture", "texture", "tex_core_0234_r.dds"),
+          createAssetManifestEntry("stain-texture", "texture", "waterstain.dds")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureUrls: [
+        "/assets/tex_core_0235_s.dds",
+        "/assets/tex_core_0235_d.dds",
+        "/assets/tex_core_0235_n.dds"
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("diffuse-texture", "/assets/tex_core_0234_d.dds"),
+        createAssetContract("normal-texture", "/assets/tex_core_0234_n.dds"),
+        createAssetContract("roughness-texture", "/assets/tex_core_0234_r.dds"),
+        createAssetContract("stain-texture", "/assets/waterstain.dds")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect([...urlsByReference.entries()]).toEqual([
+      ["tex_core_0234_d", "http://localhost:3000/assets/tex_core_0234_d.dds"],
+      ["waterstain", "http://localhost:3000/assets/waterstain.dds"],
+      ["tex_core_0235_d", "http://localhost:3000/assets/tex_core_0235_d.dds"]
+    ]);
+  });
+
+  it("does not infer _b material texture references from legacy texture assets", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("witcher-rug-base", "texture", "wit2_0004_b.dds"),
+          createAssetManifestEntry("witcher-rug-base-alt", "texture", "wit2_0004b_b.dds"),
+          createAssetManifestEntry("witcher-rug-normal", "texture", "wit2_0004_n.tga"),
+          createAssetManifestEntry("witcher-rug-specular", "texture", "wit2_0004_s.dds")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("witcher-rug-base", "/assets/wit2_0004_b.dds"),
+        createAssetContract("witcher-rug-base-alt", "/assets/wit2_0004b_b.dds"),
+        createAssetContract("witcher-rug-normal", "/assets/wit2_0004_n.tga"),
+        createAssetContract("witcher-rug-specular", "/assets/wit2_0004_s.dds")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect([...urlsByReference.entries()]).toEqual([]);
+  });
+
+  it("uses backend textureBindings as authoritative material reference contracts", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "wit2_0004_b",
+          assetId: "texture-binding-1",
+          fileName: "wit2_0004_b.dds",
+          objectKey: "modules/current/__aurora/sources/hak/witcher2/wit2_0004_b.dds",
+          deliveryUrl: "/assets/backend-contract/wit2_0004_b.dds"
+        }
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("wrong-fallback", "texture", "fxpa_smoke01.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("wrong-fallback", "/assets/wrong/fxpa_smoke01.tga")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect(urlsByReference.get("wit2_0004_b")).toBe(
+      "http://localhost:3000/assets/backend-contract/wit2_0004_b.dds"
+    );
+    expect(urlsByReference.get("fxpa_smoke01")).toBe(
+      "http://localhost:3000/assets/wrong/fxpa_smoke01.tga"
+    );
+  });
+
+  it("keeps the first backend texture binding for source-MDL emitters with duplicate flame textures", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.templateId = "plc_plc_i06";
+    payload.placeable = {
+      ...payload.placeable,
+      templateId: "plc_plc_i06",
+      resref: "plc_i06",
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("hak-flame", "texture", "fxpa_flame00.tga"),
+          createAssetManifestEntry("vanilla-flame", "texture", "fxpa_flame00.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fxpa_flame00",
+          assetId: "hak-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/hak/cep3_vfx/fxpa_flame00.tga",
+          deliveryUrl: "/assets/hak/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_flame00",
+          assetId: "vanilla-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_flame00.tga",
+          deliveryUrl: "/assets/vanilla/fxpa_flame00.tga"
+        }
+      ],
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [],
+        emitters: [
+          {
+            sourceModelFileName: "plc_i06.mdl",
+            nodeName: "OmenEmitter250",
+            texture: "fxpa_flame00",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten",
+            simulation: {
+              birthrate: 8,
+              lifeExp: 1.5,
+              sizeStart: 0.5,
+              sizeEnd: 1,
+              alphaStart: 0.8,
+              alphaEnd: 0.1
+            }
+          }
+        ]
+      }
+    } as unknown as PlaceableViewportRenderPayload["renderPackage"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("hak-flame", "/assets/hak/fxpa_flame00.tga"),
+        createAssetContract("vanilla-flame", "/assets/vanilla/fxpa_flame00.tga")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect(urlsByReference.get("fxpa_flame00")).toBe(
+      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+    );
+  });
+
+  it("keeps backend source texture bindings for data-classified source-MDL emitters", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.templateId = "plc_custom_fire";
+    payload.placeable = {
+      ...payload.placeable,
+      templateId: "plc_custom_fire",
+      resref: "custom_fire",
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("hak-flame", "texture", "fxpa_flame00.tga"),
+          createAssetManifestEntry("vanilla-flame", "texture", "fxpa_flame00.tga"),
+          createAssetManifestEntry("vanilla-smoke", "texture", "fxpa_smoke01.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fxpa_flame00",
+          assetId: "hak-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/hak/cep3_vfx/fxpa_flame00.tga",
+          deliveryUrl: "/assets/hak/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_flame00",
+          assetId: "vanilla-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_flame00.tga",
+          deliveryUrl: "/assets/vanilla/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_smoke01",
+          assetId: "vanilla-smoke",
+          fileName: "fxpa_smoke01.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_smoke01.tga",
+          deliveryUrl: "/assets/vanilla/fxpa_smoke01.tga"
+        }
+      ],
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [],
+        emitters: [
+          {
+            sourceModelFileName: "custom_fire_holder.mdl",
+            sourceModelAssetId: "custom-fire-model",
+            sourceModelObjectKey: "modules/current/models/custom_fire_holder.mdl",
+            nodeName: "sourceFireA",
+            texture: "fxpa_flame00",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten",
+            simulation: {
+              birthrate: 6,
+              lifeExp: 2,
+              sizeStart: 2,
+              sizeEnd: 4,
+              alphaStart: 0.75,
+              alphaEnd: 0.1
+            },
+            transform: {
+              position: [0, 0, 0.2]
+            }
+          },
+          {
+            sourceModelFileName: "custom_fire_holder.mdl",
+            sourceModelAssetId: "custom-fire-model",
+            sourceModelObjectKey: "modules/current/models/custom_fire_holder.mdl",
+            nodeName: "sourceSmokeA",
+            texture: "fxpa_smoke01",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              birthrate: 5,
+              lifeExp: 2,
+              sizeStart: 2,
+              sizeEnd: 4,
+              alphaStart: 0.1,
+              alphaEnd: 0
+            },
+            transform: {
+              position: [0, 0, 1.7]
+            }
+          }
+        ]
+      }
+    } as unknown as PlaceableViewportRenderPayload["renderPackage"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("hak-flame", "/assets/hak/fxpa_flame00.tga"),
+        createAssetContract("vanilla-flame", "/assets/vanilla/fxpa_flame00.tga"),
+        createAssetContract("vanilla-smoke", "/assets/vanilla/fxpa_smoke01.tga")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect(urlsByReference.get("fxpa_flame00")).toBe(
+      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+    );
+    expect(urlsByReference.get("fxpa_smoke01")).toBe(
+      "http://localhost:3000/assets/vanilla/fxpa_smoke01.tga"
+    );
+  });
+
+  it("exposes neutral source-MDL emitter texture URLs from backend bindings", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.templateId = "plc_generic_source_emitter";
+    payload.placeable = {
+      ...payload.placeable,
+      templateId: "plc_generic_source_emitter",
+      resref: "generic_source_emitter",
+      metadata: {
+        lookupModelResRef: "generic_source_emitter"
+      },
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("neutral-texture", "texture", "fxpa_arcane01.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fxpa_arcane01",
+          assetId: "neutral-texture",
+          fileName: "fxpa_arcane01.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_arcane01.tga",
+          deliveryUrl: "/assets/vanilla/fxpa_arcane01.tga"
+        }
+      ],
+      auroraEmitter: {
+        source: "source-mdl",
+        diagnostics: [],
+        emitters: [
+          {
+            sourceModelFileName: "generic_source_emitter.mdl",
+            sourceModelAssetId: "generic-source-model",
+            sourceModelObjectKey: "modules/current/models/generic_source_emitter.mdl",
+            nodeName: "genericEmitter",
+            texture: "fxpa_arcane01",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Normal",
+            simulation: {
+              birthrate: 3,
+              lifeExp: 2,
+              sizeStart: 0.8,
+              sizeEnd: 1.2,
+              alphaStart: 0.9,
+              alphaEnd: 0.1
+            },
+            transform: {
+              position: [0.25, -0.5, 1.25]
+            }
+          }
+        ]
+      }
+    } as unknown as PlaceableViewportRenderPayload["renderPackage"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("neutral-texture", "/assets/vanilla/fxpa_arcane01.tga")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect(urlsByReference.get("fxpa_arcane01")).toBe(
+      "http://localhost:3000/assets/vanilla/fxpa_arcane01.tga"
+    );
+  });
+
+  it("keeps first texture binding for duplicate fxpa_flame00 resources", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("hak-flame", "texture", "fxpa_flame00.tga"),
+          createAssetManifestEntry("vanilla-flame", "texture", "fxpa_flame00.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fxpa_flame00",
+          assetId: "hak-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/hak/cep3_vfx/fxpa_flame00.tga",
+          deliveryUrl: "/assets/hak/fxpa_flame00.tga"
+        },
+        {
+          reference: "fxpa_flame00",
+          assetId: "vanilla-flame",
+          fileName: "fxpa_flame00.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/fxpa_flame00.tga",
+          deliveryUrl: "/assets/vanilla/fxpa_flame00.tga"
+        }
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract("hak-flame", "/assets/hak/fxpa_flame00.tga"),
+        createAssetContract("vanilla-flame", "/assets/vanilla/fxpa_flame00.tga")
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+    expect(urlsByReference.get("fxpa_flame00")).toBe(
+      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+    );
+  });
+
+  it("uses asset delivery paths for bucket-backed texture bindings so TPC fetch can decode", () => {
+    const originalLocation = globalThis.location;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("http://127.0.0.1:5173/app")
+    });
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "qp_barrel_02",
+          assetId: "barrel-texture",
+          fileName: "qp_barrel_02.dds",
+          objectKey: "modules/current/__aurora/sources/hak/q_placeables/qp_barrel_02.dds",
+          deliveryUrl:
+            "http://127.0.0.1:8888/buckets/aurora-module-assets/modules/current/__aurora/sources/hak/q_placeables/qp_barrel_02.dds"
+        }
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("barrel-texture", "texture", "qp_barrel_02.dds")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.assetContracts = {
+      assets: [
+        {
+          ...createAssetContract(
+            "barrel-texture",
+            "http://127.0.0.1:8888/buckets/aurora-module-assets/modules/current/__aurora/sources/hak/q_placeables/qp_barrel_02.dds"
+          ),
+          deliveryPath:
+            "/api/v1/catalog/placeables/cache/cache_key/assets/barrel-texture.dds"
+        }
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    try {
+      const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
+
+      expect(urlsByReference.get("qp_barrel_02")).toBe(
+        "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache_key/assets/barrel-texture.dds"
+      );
+    } finally {
+      Object.defineProperty(globalThis, "location", {
+        configurable: true,
+        value: originalLocation
+      });
+    }
+  });
+
   it("maps renderPackage textureUrls to Aurora texture references when contracts omit textures", () => {
     const payload = createPlaceableViewportPayload({ status: "ready" });
     payload.renderPackage = {
@@ -808,6 +1680,31 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
       ["u_grim", "http://localhost:3000/assets/u_grim.dds?cache=1"],
       ["u_metal", "http://localhost:3000/assets/u_metal.tga"]
     ]);
+  });
+
+  it("exposes fxpa_dot01 by reference without selecting it as the model diffuse fallback", () => {
+    const payload = createPlaceableViewportPayload({ status: "ready" });
+    payload.placeable = {
+      ...payload.placeable,
+      assetManifest: {
+        assets: [
+          createAssetManifestEntry("shadow-texture", "texture", "fxpa_dot01.tga")
+        ]
+      }
+    } as PlaceableViewportRenderPayload["placeable"];
+    payload.assetContracts = {
+      assets: [
+        createAssetContract(
+          "shadow-texture",
+          "/api/v1/catalog/placeables/cache/cache_key/assets/shadow-texture.tga"
+        )
+      ]
+    } as PlaceableViewportRenderPayload["assetContracts"];
+
+    expect(resolvePlaceableTextureDeliveryUrl(payload)).toBeNull();
+    expect(resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fxpa_dot01")).toBe(
+      "http://localhost:3000/api/v1/catalog/placeables/cache/cache_key/assets/shadow-texture.tga"
+    );
   });
 
   it("returns null when no texture URL can be resolved from contract or renderPackage", () => {
@@ -941,12 +1838,73 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     return bytes;
   }
 
+  function writeFourCc(bytes: Uint8Array, offset: number, fourCc: string): void {
+    fourCc.split("").forEach((character, index) => {
+      bytes[offset + index] = character.charCodeAt(0);
+    });
+  }
+
+  function buildStandardDdsAti1Fixture(): ArrayBuffer {
+    const bytes = new Uint8Array(128 + 8);
+    const view = new DataView(bytes.buffer);
+    writeFourCc(bytes, 0, "DDS ");
+    view.setUint32(4, 124, true);
+    view.setUint32(12, 4, true);
+    view.setUint32(16, 4, true);
+    view.setUint32(76, 32, true);
+    view.setUint32(80, 4, true);
+    writeFourCc(bytes, 84, "ATI1");
+    bytes[128] = 96;
+    bytes[129] = 0;
+    return bytes.buffer;
+  }
+
+  function buildStandardDdsAti2Fixture(): ArrayBuffer {
+    const bytes = new Uint8Array(128 + 16);
+    const view = new DataView(bytes.buffer);
+    writeFourCc(bytes, 0, "DDS ");
+    view.setUint32(4, 124, true);
+    view.setUint32(12, 4, true);
+    view.setUint32(16, 4, true);
+    view.setUint32(76, 32, true);
+    view.setUint32(80, 4, true);
+    writeFourCc(bytes, 84, "ATI2");
+    bytes[128] = 128;
+    bytes[129] = 0;
+    bytes[136] = 128;
+    bytes[137] = 0;
+    return bytes.buffer;
+  }
+
+  function buildStandardDdsDxt3Fixture(): ArrayBuffer {
+    const bytes = new Uint8Array(128 + 16);
+    const view = new DataView(bytes.buffer);
+    writeFourCc(bytes, 0, "DDS ");
+    view.setUint32(4, 124, true);
+    view.setUint32(12, 4, true);
+    view.setUint32(16, 4, true);
+    view.setUint32(76, 32, true);
+    view.setUint32(80, 4, true);
+    writeFourCc(bytes, 84, "DXT3");
+    bytes[128] = 0xf8;
+    for (let index = 129; index < 136; index += 1) {
+      bytes[index] = 0xff;
+    }
+    view.setUint16(136, 0xf800, true);
+    view.setUint16(138, 0x07e0, true);
+    view.setUint32(140, 0, true);
+    return bytes.buffer;
+  }
+
   it("decodes Aurora TPC DXT1 bytes exposed through DDS asset contracts", () => {
     const decodedTexture = decodeAuroraTpcTexture(buildTpcDxt1Fixture());
 
     expect(decodedTexture?.sourceFormat).toBe("tpc-dxt1");
     expect(decodedTexture?.width).toBe(4);
     expect(decodedTexture?.height).toBe(4);
+    expect(decodedTexture?.hasAlpha).toBe(false);
+    expect(decodedTexture?.isBimodal).toBe(true);
+    expect(decodedTexture?.softAlphaPixelRatio).toBe(0);
     expect(Array.from(decodedTexture?.data.slice(0, 16) ?? [])).toEqual([
       255,
       0,
@@ -973,7 +1931,33 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     expect(decodedTexture?.sourceFormat).toBe("tpc-dxt5");
     expect(decodedTexture?.width).toBe(4);
     expect(decodedTexture?.height).toBe(4);
+    expect(decodedTexture?.hasAlpha).toBe(true);
+    expect(decodedTexture?.isBimodal).toBe(false);
+    expect(decodedTexture?.softAlphaPixelRatio).toBeCloseTo(1 / 16);
     expect(Array.from(decodedTexture?.data.slice(0, 4) ?? [])).toEqual([255, 0, 0, 219]);
+  });
+
+  it("decodes standard DDS ATI1 and ATI2 blocks exposed through DDS asset contracts", () => {
+    const specularTexture = decodeAuroraTpcTexture(buildStandardDdsAti1Fixture());
+    const normalTexture = decodeAuroraTpcTexture(buildStandardDdsAti2Fixture());
+
+    expect(specularTexture?.sourceFormat).toBe("dds-bc4");
+    expect(specularTexture?.isNormalMap).toBe(false);
+    expect(Array.from(specularTexture?.data.slice(0, 4) ?? [])).toEqual([96, 96, 96, 255]);
+    expect(normalTexture?.sourceFormat).toBe("dds-bc5");
+    expect(normalTexture?.isNormalMap).toBe(true);
+    expect(Array.from(normalTexture?.data.slice(0, 4) ?? [])).toEqual([128, 128, 255, 255]);
+  });
+
+  it("decodes standard DDS DXT3 alpha blocks with webviewer-style alpha profile", () => {
+    const decodedTexture = decodeAuroraTpcTexture(buildStandardDdsDxt3Fixture());
+
+    expect(decodedTexture?.sourceFormat).toBe("dds-dxt3");
+    expect(decodedTexture?.hasAlpha).toBe(true);
+    expect(decodedTexture?.isBimodal).toBe(false);
+    expect(decodedTexture?.softAlphaPixelRatio).toBeCloseTo(1 / 16);
+    expect(decodedTexture?.isNormalMap).toBe(false);
+    expect(Array.from(decodedTexture?.data.slice(0, 4) ?? [])).toEqual([255, 0, 0, 136]);
   });
 
   it("selects DDS and TGA loaders by URL extension", async () => {
@@ -1028,6 +2012,9 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
 
     expect(texture).toBeInstanceOf(THREE.DataTexture);
     expect(texture?.userData.auroraSourceFormat).toBe("tpc-dxt5");
+    expect(texture?.userData.auroraTextureHasAlpha).toBe(true);
+    expect(texture?.userData.auroraTextureIsBimodal).toBe(false);
+    expect(texture?.userData.auroraTextureSoftAlphaPixelRatio).toBeCloseTo(1 / 16);
     expect(textureFetch).toHaveBeenCalledWith("/assets/ad_watpud03.dds", {
       headers: { Authorization: "Bearer token-456" }
     });
@@ -1595,6 +2582,41 @@ describe("WorkspaceCanvasViewport placeable model loader cache", () => {
     ).resolves.toBeNull();
     expect(load).toHaveBeenCalledTimes(1);
   });
+
+  it("times out stalled GLTF loader requests so the queue can settle", async () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    const load = vi.fn();
+    const runtime = {
+      container,
+      placeableModelLoader: { load },
+      placeableModelCacheByUrl: new Map<string, THREE.Object3D>(),
+      placeableModelPendingByUrl: new Map<string, Promise<THREE.Object3D | null>>(),
+      placeableNormalizedModelCacheByKey: new Map<string, THREE.Object3D>(),
+      placeableNormalizedModelPendingByKey: new Map<string, Promise<THREE.Object3D | null>>()
+    };
+
+    try {
+      const modelPromise = ensurePlaceableModel(
+        runtime,
+        "http://localhost:3000/assets/stalled.glb"
+      );
+
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(container.dataset.placeableModelLoadQueueActiveCount).toBe("1");
+
+      await vi.advanceTimersByTimeAsync(PLACEABLE_MODEL_LOAD_TIMEOUT_MS * 3 + 1_000);
+
+      await expect(modelPromise).resolves.toBeNull();
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(container.dataset.placeableModelLoadQueueActiveCount).toBe("0");
+      expect(container.dataset.placeableModelLoadQueuePendingCount).toBe("0");
+      expect(container.dataset.placeableModelLoadQueueTotalCount).toBe("0");
+    } finally {
+      clearPlaceableModelLoadQueue(runtime);
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
@@ -1779,6 +2801,63 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     await Promise.resolve();
   }
 
+  it("renders Area placeable GLB models with Aurora unit scale instead of preview-normalizing them", async () => {
+    const { runtime, load } = createRuntimeForObjectMeshTests((onLoad) => {
+      const loadedScene = new THREE.Group();
+      loadedScene.add(
+        new THREE.Mesh(
+          new THREE.BoxGeometry(2, 1, 1),
+          new THREE.MeshStandardMaterial()
+        )
+      );
+      onLoad({ scene: loadedScene });
+    });
+    const object = {
+      ...createSimpleFallbackPlaceableObject("plc_bakery_table", 1, 1),
+      source: {
+        type: "aurora_git",
+        sourceObjectId: "GIT#0001",
+        sourceKind: "placeables",
+        templateId: "plc_bakery_table"
+      }
+    };
+    const payload = createPlaceablePayloadWithModelUrl("/assets/bakery-table.glb");
+
+    rebuildObjectMeshes(
+      runtime,
+      [object as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]],
+      [],
+      createDebugState(),
+      4,
+      4,
+      1,
+      true,
+      10,
+      [],
+      false,
+      {
+        plc_bakery_table: payload
+      }
+    );
+    await flushAsyncEffects();
+
+    const root = runtime.objectMeshById.get("plc_bakery_table");
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(root).toBeInstanceOf(THREE.Object3D);
+    const bounds = new THREE.Box3().setFromObject(root!);
+    const size = new THREE.Vector3();
+    bounds.getSize(size);
+    expect(size.x).toBeCloseTo(0.2, 5);
+    expect(root!.userData.auroraAreaObjectSharedRendererModelBounds).toBe(
+      "0.200x0.100x0.100"
+    );
+    expect(root!.userData.auroraAreaObjectSharedRendererModelMaxAxis).toBeCloseTo(
+      0.2,
+      5
+    );
+    expect(root!.userData.auroraAreaObjectSharedRendererModelMeshCount).toBe(1);
+  });
+
   it("batches simple fallback placeables into one instanced mesh with per-object proxies", () => {
     const { runtime } = createRuntimeForObjectMeshTests((_onLoad, onError) => {
       onError();
@@ -1822,6 +2901,57 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
       objectInstancedMesh
     );
     expect(runtime.objectMeshById.get("plc_b")?.position.x).toBe(3);
+  });
+
+  it("keeps proof-priority Area fallback placeables visible beyond the mass fallback cap", () => {
+    const { runtime } = createRuntimeForObjectMeshTests((_onLoad, onError) => {
+      onError();
+    });
+    const objects = Array.from(
+      { length: AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT + 2 },
+      (_, index) => ({
+        ...createSimpleFallbackPlaceableObject(
+          `area_enon_bakery:obj_plc_priority_${index}`,
+          index % 8,
+          Math.floor(index / 8)
+        ),
+        source: {
+          type: "aurora_git",
+          areaId: "area_enon_bakery",
+          sourceObjectId: `obj_plc_priority_${index}`,
+          sourceKind: "placeable",
+          templateId: "plc_priority",
+          appearanceType: 26474
+        }
+      })
+    ) as unknown as Parameters<typeof rebuildObjectMeshes>[1];
+    const priorityObjectId = objects[objects.length - 1]!.id;
+
+    rebuildObjectMeshes(
+      runtime,
+      objects,
+      [priorityObjectId],
+      createDebugState(),
+      4,
+      4,
+      1,
+      true,
+      10,
+      [],
+      false,
+      null
+    );
+
+    const suppressionSnapshot = JSON.parse(
+      runtime.container.dataset.areaPrimitiveFallbackRenderSuppressionSnapshot ?? "{}"
+    );
+
+    expect(runtime.objectMeshById.get(priorityObjectId)).toBeDefined();
+    expect(suppressionSnapshot.candidateCount).toBe(AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT + 2);
+    expect(suppressionSnapshot.renderedCount).toBe(AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT + 1);
+    expect(suppressionSnapshot.suppressedCount).toBe(1);
+    expect(suppressionSnapshot.selectedBypassCount).toBe(1);
+    expect(suppressionSnapshot.suppressedIds).not.toContain(priorityObjectId);
   });
 
   it("updates fallback placeable selection state without rebuilding object meshes", () => {
@@ -1887,6 +3017,68 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     expect(
       runtime.objectLayer.children.filter((child) => child instanceof THREE.InstancedMesh)
     ).toHaveLength(3);
+  });
+
+  it("suppresses no-geometry helper placeable fallbacks outside non-render diagnostics", () => {
+    const { runtime } = createRuntimeForObjectMeshTests((_onLoad, onError) => {
+      onError();
+    });
+    const object = createSimpleFallbackPlaceableObject("plc_helper", 1, 2);
+    const payload = createPlaceableViewportPayload({
+      status: "unsupported",
+      diagnostics: [
+        {
+          code: "PLACEABLE_RENDER_SOURCE_MODEL_NO_GEOMETRY",
+          severity: "warn",
+          message:
+            "Source model assets were found, but conversion reported no renderable mesh geometry."
+        }
+      ],
+      assetRefs: {
+        otherAssetIds: ["helper-mdl"]
+      }
+    });
+    const objects = [object as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]];
+
+    rebuildObjectMeshes(
+      runtime,
+      objects,
+      [],
+      createDebugState(),
+      1,
+      true,
+      10,
+      [],
+      false,
+      { [object.id]: payload }
+    );
+
+    expect(runtime.objectMeshById.has(object.id)).toBe(false);
+    expect(
+      runtime.objectLayer.children.some(
+        (child) => child.userData?.role === "instanced-fallback-placeable"
+      )
+    ).toBe(false);
+
+    rebuildObjectMeshes(
+      runtime,
+      objects,
+      [],
+      {
+        ...createDebugState(),
+        showNonRenderMeshes: true
+      },
+      1,
+      true,
+      10,
+      [],
+      false,
+      { [object.id]: payload }
+    );
+
+    const proxy = runtime.objectMeshById.get(object.id);
+    expect(proxy).toBeDefined();
+    expect(proxy?.userData.objectId).toBe(object.id);
   });
 
   it("keeps primitive fallback visible when model loading fails", async () => {
@@ -1993,6 +3185,66 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     expect((firstMeshMaterial(root!) as THREE.MeshStandardMaterial).map).toBe(primaryTexture);
     expect(runtime.container.dataset.placeableModelTextureStatus).toBe("applied");
     expect(runtime.container.dataset.placeableModelTextureCount).toBe("2");
+  });
+
+  it("shares textured model materials for repeated placeables with identical texture signatures", async () => {
+    const loadedScene = new THREE.Group();
+    loadedScene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
+    const { runtime } = createRuntimeForObjectMeshTests((onLoad) => {
+      onLoad({ scene: loadedScene });
+    });
+    const primaryTexture = new THREE.Texture();
+    const detailTexture = new THREE.Texture();
+    runtime.placeableTextureCacheByUrl.set(
+      "http://localhost:3000/assets/shared_main.dds",
+      primaryTexture
+    );
+    runtime.placeableTextureCacheByUrl.set(
+      "http://localhost:3000/assets/shared_detail.tga",
+      detailTexture
+    );
+
+    const first = createPreviewPlaceableObject();
+    const second = {
+      ...createPreviewPlaceableObject(),
+      id: "preview:plc_shared_b",
+      x: 2
+    };
+    const payload = createPlaceableViewportPayload({
+      status: "ready",
+      glbUrl: "/assets/shared.glb",
+      textureUrls: ["/assets/shared_main.dds", "/assets/shared_detail.tga"]
+    });
+
+    rebuildObjectMeshes(
+      runtime,
+      [
+        first as unknown as Parameters<typeof rebuildObjectMeshes>[1][number],
+        second as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]
+      ],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      {
+        [first.id]: payload,
+        [second.id]: payload
+      }
+    );
+
+    await flushAsyncEffects();
+
+    const firstRoot = runtime.objectMeshById.get(first.id);
+    const secondRoot = runtime.objectMeshById.get(second.id);
+    expect(firstRoot).toBeDefined();
+    expect(secondRoot).toBeDefined();
+    const firstMaterial = firstMeshMaterial(firstRoot!) as THREE.MeshStandardMaterial;
+    const secondMaterial = firstMeshMaterial(secondRoot!) as THREE.MeshStandardMaterial;
+    expect(firstMaterial).toBe(secondMaterial);
+    expect(firstMaterial.map).toBe(primaryTexture);
   });
 
   it("keeps backend sound marker while suppressing editor guide overlays for locked sound layers", () => {
