@@ -45,8 +45,12 @@ describe("aurora-gff-area-parser internals", () => {
   it("derives and normalizes bearing correctly", () => {
     expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(undefined, 1)).toBeUndefined();
     expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(0, 0)).toBeUndefined();
-    expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(0, 1)).toBe(90);
-    expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(-1, 0)).toBe(180);
+    expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(0, 1)).toBe(-90);
+    expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(0, -1)).toBe(90);
+    expect(__auroraGffAreaParserInternals.deriveBearingFromOrientation(-1, 0)).toBe(-180);
+    expect(__auroraGffAreaParserInternals.deriveBearingFromRadians(Math.PI / 2)).toBe(90);
+    expect(__auroraGffAreaParserInternals.deriveBearingFromRadians(-Math.PI / 2)).toBe(-90);
+    expect(__auroraGffAreaParserInternals.radiansToDegrees(Math.PI / 2)).toBe(90);
     expect(__auroraGffAreaParserInternals.normalizeBearing(-90)).toBe(270);
     expect(__auroraGffAreaParserInternals.normalizeBearing(450)).toBe(90);
   });

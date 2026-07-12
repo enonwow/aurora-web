@@ -31,7 +31,146 @@ const checks = [
   {
     id: "process-placeable-uses-area-instance-contract",
     file: "backend/src/modules/catalog/application/catalog.application.service.ts",
-    required: ["resolveAreaInstancePlaceableRenderMetadata", "buildAreaInstanceRenderFingerprint", "areaInstanceModelLookupStatus", "lookupModelResRef"],
+    required: ["resolveAreaInstancePlaceableRenderMetadata", "buildAreaInstanceRenderFingerprint", "buildAreaInstanceRenderCacheIdentity", "areaInstanceModelLookupStatus", "lookupModelResRef"],
+  },
+  {
+    id: "backend-area-instance-cache-uses-render-facts-not-source-instance",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "buildAreaInstanceRenderFactsKey",
+      "area-instance-render-facts/v2-placeable-instance-lookup",
+      "buildAreaInstanceRenderModelFactsKey",
+      "area-instance-render-model/v2-placeable-instance-lookup",
+      "areaInstanceRenderCacheIdentity",
+      "identityKind: \"model\"",
+      "cacheTemplateId",
+      "cacheResRef",
+      "cacheFingerprint",
+      "areaInstanceLegacyCacheKeys",
+      "buildAreaInstanceRenderFactsCacheIdentity",
+      "this.placeableCache.get<PlaceableProcessingResult>(",
+      "this.placeableCache.set<PlaceableProcessingResult>(cacheKey,",
+    ],
+  },
+  {
+    id: "backend-area-instance-batch-dedupes-by-render-facts",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "buildPlaceableBatchRenderFactsKey",
+      "const areaInstanceRenderFactsKey = buildAreaInstanceRenderFactsKey(query)",
+      "placeable-process-batch/v1",
+      "areaInstanceRenderFactsKey",
+    ],
+  },
+  {
+    id: "backend-area-instance-batch-dedupes-by-resolved-model",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "resolvePlaceableBatchRenderFactsKey",
+      "resolveAreaInstanceBatchRenderModelKey",
+      "resolvePlaceableAppearanceModel",
+      "resolveDoorAppearanceModel",
+      "buildAreaInstanceRenderModelFactsKey",
+    ],
+  },
+  {
+    id: "backend-render-payload-batch-dedupes-asset-contract-lookups",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "assetContractQueriesByCacheKey",
+      "assetContractQueriesByCacheKey.has(cacheKey)",
+      "assetContractQueriesByCacheKey.set(cacheKey, { cacheKey })",
+      "[...assetContractQueriesByCacheKey.values()]",
+    ],
+  },
+  {
+    id: "backend-render-payload-primes-only-critical-model-blobs",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "PLACEABLE_ASSET_BLOB_CACHE_PRIME_CONCURRENCY = 6",
+      "isCriticalPlaceableViewportPrimeAsset",
+      "contentType === \"model/gltf-binary\"",
+      "objectKey.endsWith(\".glb\")",
+      "deliveryPath.endsWith(\".glb\")",
+      ".filter(isCriticalPlaceableViewportPrimeAsset)",
+    ],
+  },
+  {
+    id: "backend-placeable-cache-invalidates-derived-model-converter-contract",
+    file: "backend/src/modules/catalog/domain/cache-key.builders.ts",
+    required: ["placeable-process/v7"],
+  },
+  {
+    id: "backend-derived-placeable-models-reject-stale-glb-converter-output",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "AURORA_MDL_TO_GLB_CONVERTER_VERSION",
+      "selectSourceModelAssetsWithStaleDerivedModels",
+      "isDerivedPlaceableModelConverterCurrent",
+      "resolveDerivedModelConverterVersion",
+      "converterVersion",
+      "placeable-derived-generation/v2",
+    ],
+  },
+  {
+    id: "backend-aurora-mdl-glb-converter-stamps-material-scoped-version",
+    file: "backend/src/modules/runtime-settings/adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter.ts",
+    required: [
+      "AURORA_MDL_TO_GLB_CONVERTER_VERSION",
+      "converterVersion: AURORA_MDL_TO_GLB_CONVERTER_VERSION",
+      "aurora-mdl-to-glb ${AURORA_MDL_TO_GLB_CONVERTER_VERSION}",
+    ],
+  },
+  {
+    id: "backend-render-payload-exposes-local-seaweed-filer-delivery",
+    file: "backend/src/modules/catalog/application/catalog.application.service.ts",
+    required: [
+      "buildBrowserDirectBlobObjectDeliveryUrl",
+      "hostname !== \"seaweedfs\"",
+      "http://127.0.0.1:8888/buckets/",
+      "deliveryUrl: directDeliveryUrl ?? deliveryPath",
+    ],
+  },
+  {
+    id: "frontend-placeable-model-resolution-prefers-asset-contract-delivery",
+    file: "frontend/src/modules/placeables/application/placeableRenderAssetResolver.ts",
+    required: [
+      "const modelCandidate = derivedModelDelivery?.deliveryUrl ?? modelCandidateFromRenderPackage ?? null",
+      "derivedModelDelivery?.deliveryUrl === modelCandidate",
+      "derivedModelDelivery.modelCacheKey",
+      "resolveModelCacheKeyFromAssetContracts(payload, modelCandidate)",
+    ],
+  },
+  {
+    id: "backend-placeables-2da-aurora-source-order-overrides-earlier-rows",
+    file: "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+    required: [
+      "function resolveTwoDaSourcePriority",
+      "buildPlaceableTwoDaHakOrder",
+      "extractHakSourceName",
+      "existingAliasEntry?.resolutionPath !== \"direct\"",
+      "normalized.includes(\"/__aurora/sources/vanilla/\")",
+      "normalized.includes(\"/__aurora/sources/hak/\")",
+      "lookup.set(row.rowId",
+      "lookup.set(aliasRowId",
+      "isPlaceablesTwoDaMinus100Alias(row, aliasRow)",
+    ],
+  },
+  {
+    id: "backend-placeables-2da-bakery-appearance-override-is-regressed-by-test",
+    file: "backend/test/unit/module-snapshot-template-catalog.repository.spec.ts",
+    required: [
+      "uses the highest-priority placeables.2da as a whole for Aurora appearance lookup",
+      "does not merge later HAK placeables.2da alias rows into the selected table",
+      "keeps direct placeables.2da rows when later HAK rows only supply USER aliases",
+      "pms_z21",
+      "plc_wt302",
+      "plc_wt999",
+      "plc_vanilla",
+      "plc_wit98",
+      "zlc_flr_steam_x4",
+      "lc_2da.hak",
+    ],
   },
   {
     id: "area-instance-cache-cannot-poison-placeables-mode",
@@ -45,7 +184,7 @@ const checks = [
   },
   {
     id: "areas-batch-dedupes-git-render-payload-lookups",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["lookupByCacheKey.has(lookup.cacheKey)", "lookupByCacheKey.set(lookup.cacheKey, lookup)"],
   },
   {
@@ -81,12 +220,18 @@ const checks = [
   {
     id: "aurora-git-world-units-map-to-area-tile-space",
     file: "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
-    required: ["AURORA_GIT_UNITS_PER_TILE = 10", "toAreaSceneTileCoordinate", "x: clampCoordinate(toAreaSceneTileCoordinate(placement.x))", "y: clampCoordinate(toAreaSceneTileCoordinate(placement.y))"],
+    required: [
+      "AURORA_GIT_UNITS_PER_TILE = 10",
+      "toAreaSceneTileCoordinate",
+      "x: clampCoordinate(toAreaSceneTileCoordinate(placement.x))",
+      "y: clampCoordinate(toAreaSceneTileCoordinate(placement.y))",
+      "z: clampCoordinate(toAreaSceneTileCoordinate(placement.z))",
+    ],
   },
   {
     id: "area-process-cache-invalidates-coordinate-contract",
     file: "backend/src/modules/areas/domain/area-processing.builders.ts",
-    required: ["area-process/v8", "object.resRef ?? \"\"", "tile.modelResRef ?? \"\"", "tile.tileId ?? \"\""],
+    required: ["area-process/v13-tile-light-colors", "object.resRef ?? \"\"", "tile.modelResRef ?? \"\"", "tile.tileId ?? \"\""],
   },
   {
     id: "backend-areas-auto-syncs-missing-vanilla-tileset-set-sources",
@@ -116,12 +261,24 @@ const checks = [
   {
     id: "runtime-defaults-map-lc-tiles-profile-to-real-tcm01-source",
     file: "backend/src/modules/runtime-settings/domain/runtime-settings.defaults.ts",
-    required: ["lc_tiles: [\"medieval.hak\"]"],
+    required: ["lc_tiles: [\"medieval.hak\", \"+sic11.hak\"]"],
   },
   {
     id: "areas-preserve-raw-git-template-resref-for-placeable-fetch",
     file: "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
     required: ["buildAreaObjectTemplateId", "resRef: templateResRef", "prefixedPattern.test(templateResRef)"],
+  },
+  {
+    id: "backend-area-parser-converts-git-bearing-radians-like-aurora",
+    file: "backend/src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts",
+    required: [
+      "explicitBearingRadians",
+      "deriveBearingFromRadians(explicitBearingRadians)",
+      "radiansToDegrees(-value)",
+      "deriveBearingFromOrientation(xOrientation, yOrientation)",
+      "Math.atan2(-(yOrientation ?? 0), xOrientation ?? 0)",
+      "normalizeBearing(derivedBearing)",
+    ],
   },
   {
     id: "frontend-area-uses-raw-git-resref-for-placeable-render-fetch",
@@ -132,6 +289,71 @@ const checks = [
     id: "frontend-area-http-adapter-preserves-raw-git-resref",
     file: "frontend/src/modules/areas/adapters/httpAreaApiPort.ts",
     required: ["resRef: z.string().min(1).optional()", "resRef: input.resRef"],
+  },
+  {
+    id: "frontend-area-maps-git-bearing-degrees-to-scene-radians",
+    file: "frontend/src/modules/areas/application/areaSceneMapper.ts",
+    required: [
+      "RADIANS_PER_DEGREE",
+      "toSceneBearingRadians",
+      "bearing: toSceneBearingRadians(entry.bearing)",
+    ],
+  },
+  {
+    id: "frontend-area-scene-mapper-preserves-template-visual-transform",
+    file: "frontend/src/modules/areas/application/areaSceneMapper.ts",
+    required: [
+      "objectTemplateObjects?: readonly SceneObject[]",
+      "buildAreaObjectTemplateLookup(options.objectTemplateObjects)",
+      "resolveAreaObjectTemplateObject(",
+      "entry.visualTransform ?? templateObject?.visualTransform",
+    ],
+  },
+  {
+    id: "frontend-area-renders-bakery-oracle-toolset-source-tile-yaw-contract",
+    file: "frontend/src/modules/layout/adapters/three/workspaceAreaRenderCoordinates.ts",
+    required: [
+      "resolveAuroraAreaRenderX",
+      "return areaWidth - sourceX",
+      "return -sourceOffsetX",
+      "resolveAuroraAreaRenderYaw",
+      "return -sourceYaw",
+      "return tileCol + 0.5",
+      "return tileRow + 0.5",
+      "void tilesetOrientation",
+      "normalizeTileOrientation(-sourceOrientation)",
+    ],
+  },
+  {
+    id: "frontend-area-terrain-model-scale-matches-aurora-tile-space",
+    file: "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+    required: [
+      "TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE = 0.1",
+      "model.scale.multiplyScalar(TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE)",
+      "TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE",
+    ],
+  },
+  {
+    id: "frontend-area-runtime-exposes-top-down-oracle-camera-for-screen-comparison",
+    file: "frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts",
+    required: [
+      "setTopDownOracleCameraForScene",
+      "applyTopDownOracleCameraLock",
+      "runtime.container.dataset.areaCameraFrameMode !== \"top_down_oracle\"",
+      "setRuntimeCameraUp(runtime, 0, 0, 1)",
+      "mode: \"top_down_oracle\"",
+    ],
+  },
+  {
+    id: "frontend-area-canvas-accepts-oracle-top-down-and-terrain-only-capture-controls",
+    file: "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+    required: [
+      "AREA_ORACLE_TOP_DOWN_CAMERA_EVENT",
+      "AREA_ORACLE_RENDER_VISIBILITY_EVENT",
+      "applyTopDownOracleCameraLock(runtime)",
+      "areaOracleRenderVisibility",
+      "areaOracleObjectLayerVisible",
+    ],
   },
   {
     id: "aurora-tile-list-renders-even-when-model-metadata-is-incomplete",
@@ -145,31 +367,37 @@ const checks = [
   },
   {
     id: "areas-render-payload-requests-are-queued",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["AREAS_RENDER_PAYLOAD_QUEUE_CONCURRENCY", "AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS", "const runWorker = async ()", "Math.min(AREAS_RENDER_PAYLOAD_QUEUE_CONCURRENCY, lookups.length)"],
   },
   {
     id: "areas-render-payload-requests-use-batch-fast-path",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["AREAS_RENDER_PAYLOAD_BATCH_SIZE", "fetchPlaceableViewportRenderPayloadBatch", "placeableApiPort.processPlaceables", "runBatchQueue", "render_payload_batch_loaded", "render_payload_batch_failed"],
   },
   {
     id: "areas-render-payload-batch-queue-runs-concurrent-workers",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["const runBatchWorker = async ()", "AREAS_RENDER_PAYLOAD_BATCH_QUEUE_CONCURRENCY", "Promise.all(Array.from({ length: workerCount }, () => runBatchWorker()))", "snapshot.batchSize * AREAS_RENDER_PAYLOAD_BATCH_QUEUE_CONCURRENCY"],
   },
   {
     id: "areas-ikea-hot-render-payload-batch-window-is-pinned",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: [
-      "const AREAS_RENDER_PAYLOAD_BATCH_QUEUE_CONCURRENCY = 2;",
-      "const AREAS_RENDER_PAYLOAD_BATCH_SIZE = 128;",
+      "const AREAS_RENDER_PAYLOAD_BATCH_QUEUE_CONCURRENCY = 6;",
+      "const AREAS_RENDER_PAYLOAD_BATCH_SIZE = 192;",
     ],
   },
   {
     id: "backend-placeables-exposes-render-payload-batch-process",
     file: "backend/src/modules/catalog/adapters/inbound/http/placeables.controller.ts",
-    required: ["@Post(\"process/batch\")", "parsePlaceableProcessBatchPayload", "processPlaceablesBatch"],
+    required: [
+      "@Post(\"process/batch\")",
+      "@Post(\"render-payloads/batch\")",
+      "parsePlaceableProcessBatchPayload",
+      "processPlaceablesBatch",
+      "getPlaceableViewportRenderPayloadBatch",
+    ],
   },
   {
     id: "backend-placeables-exposes-asset-contract-batch-process",
@@ -179,17 +407,43 @@ const checks = [
   {
     id: "frontend-placeables-port-exposes-optional-process-batch",
     file: "frontend/src/modules/placeables/ports/placeableApiPort.ts",
-    required: ["processPlaceables?", "getPlaceableAssetContractsBatch?", "PlaceableApiProcessBatchResult", "PlaceableApiAssetContractsBatchRequestItem", "PlaceableApiProcessPayload[]"],
+    required: [
+      "processPlaceables?",
+      "getPlaceableAssetContractsBatch?",
+      "getPlaceableViewportRenderPayloadBatch?",
+      "PlaceableApiProcessBatchResult",
+      "PlaceableApiAssetContractsBatchRequestItem",
+      "PlaceableApiProcessPayload[]",
+    ],
   },
   {
     id: "frontend-placeables-http-adapter-posts-process-batch",
     file: "frontend/src/modules/placeables/adapters/httpPlaceableApiPort.ts",
-    required: ["placeableProcessBatchEnvelopeSchema", "placeableAssetContractsBatchEnvelopeSchema", "/catalog/placeables/process/batch", "/catalog/placeables/cache/assets/contracts/batch", "processPlaceables", "getPlaceableAssetContractsBatch", "JSON.stringify({ items: requestPayloads })"],
+    required: [
+      "placeableProcessBatchEnvelopeSchema",
+      "placeableAssetContractsBatchEnvelopeSchema",
+      "placeableViewportRenderPayloadEnvelopeSchema",
+      "/catalog/placeables/process/batch",
+      "/catalog/placeables/cache/assets/contracts/batch",
+      "/catalog/placeables/render-payloads/batch",
+      "processPlaceables",
+      "getPlaceableAssetContractsBatch",
+      "getPlaceableViewportRenderPayloadBatch",
+      "mapViewportRenderPayload",
+      "JSON.stringify({ items: requestPayloads })",
+    ],
   },
   {
     id: "frontend-render-payload-batch-resolves-asset-contracts-in-batch",
     file: "frontend/src/modules/placeables/application/placeableRenderPayloadResolver.ts",
-    required: ["resolveViewportRenderPayloadsFromProcessResultsBatch", "getPlaceableAssetContractsBatch", "PlaceableApiAssetContractsBatchRequestItem", "initialContractRequests", "retryRequests"],
+    required: [
+      "placeableApiPort.getPlaceableViewportRenderPayloadBatch",
+      "resolveViewportRenderPayloadsFromProcessResultsBatch",
+      "getPlaceableAssetContractsBatch",
+      "PlaceableApiAssetContractsBatchRequestItem",
+      "initialContractRequests",
+      "retryRequests",
+    ],
   },
   {
     id: "frontend-render-payload-batch-splits-failed-process-batches",
@@ -218,7 +472,7 @@ const checks = [
   },
   {
     id: "areas-bind-render-payloads-by-scene-object-id",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["payloadByObjectId[object.id] = payload", "placeableRenderPayloadByObjectId={placeableRenderPayloadByObjectId}"],
   },
   {
@@ -258,7 +512,7 @@ const checks = [
   },
   {
     id: "areas-tile-process-readiness-flows-to-canvas-runtime",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: ["AreaTileProcessContractReadiness", "areaTileProcessReadiness", "setAreaTileProcessReadiness", "onTileProcessReadinessChange={setAreaTileProcessReadiness}", "areaTileProcessReadiness={areaTileProcessReadiness}"],
   },
   {
@@ -274,7 +528,7 @@ const checks = [
   {
     id: "backend-tile-process-cache-invalidates-derived-model-contract",
     file: "backend/src/modules/tiles/domain/tile-processing.builders.ts",
-    required: ["tile-process/v4", "tile.renderModelObjectKey", "tile.renderModelExtension", "tile.renderModelSizeBytes", "tile.renderModelEtag"],
+    required: ["tile-process/v12", "tile.renderModelObjectKey", "tile.renderModelExtension", "tile.renderModelSizeBytes", "tile.renderModelEtag"],
   },
   {
     id: "backend-tile-process-bypass-refreshes-module-snapshot-index",
@@ -452,9 +706,17 @@ const checks = [
     required: ["textureMaterialBlockerSummary", "texture=", "material=", "isAreaTileMaterialBindingBlocked(entry.materialReadinessStatus)", "blocked_tile_texture_contract_derived_model_only"],
   },
   {
-    id: "frontend-tile-readiness-does-not-mark-material-blocked-tiles-ready",
+    id: "frontend-tile-readiness-keeps-geometry-ready-when-only-material-binding-is-blocked",
     file: "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
-    required: ["resolveAreaTileProcessEntryStatus", "isAreaTileMaterialBindingBlocked(input.materialReadinessStatus)", "formatTileContractEntryBlocker", "mdlGlbMaterialBlockers"],
+    required: [
+      "resolveAreaTileProcessEntryStatus",
+      "input.glbGeometryStatus !== \"ready\"",
+      "input.renderLoaderHandoffStatus.startsWith(\"blocked_\")",
+      "input.materialReadinessStatus === \"blocked_tile_texture_delivery_contract_missing\"",
+      "input.materialReadinessStatus === \"blocked_tile_texture_contract_derived_model_only\"",
+      "formatTileContractEntryBlocker",
+      "mdlGlbMaterialBlockers",
+    ],
   },
   {
     id: "frontend-area-tile-readiness-preserves-process-failure-blockers",
@@ -505,6 +767,21 @@ const checks = [
     id: "frontend-terrain-tile-model-runtime-snapshot-is-browser-readable",
     file: "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
     required: ["AREA_TERRAIN_TILE_MODEL_RUNTIME_SNAPSHOT_EVENT", "aurora:areas:terrain-tile-model-runtime-snapshot", "AreaTerrainTileModelRuntimeSnapshot", "aurora-areas-terrain-tile-model-runtime/v1", "areaTerrainTileModelRuntimeSnapshot", "runtime.scene.userData.auroraTerrainTileModelRuntimeSnapshot", "new CustomEvent<AreaTerrainTileModelRuntimeSnapshot>"],
+  },
+  {
+    id: "frontend-terrain-ceiling-filter-preserves-ground-surface-tiles",
+    file: "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+    required: [
+      "hasTerrainGroundSurfaceToken",
+      "normalized.includes(token)",
+      "cobble",
+      "ground",
+      "areaTerrainTileModelVisibleMeshCount",
+      "areaTerrainTileModelMaterialMapCount",
+      "areaTerrainTileCeilingMeshMatchedCount",
+      "areaTerrainTileCeilingMeshHiddenCount",
+      "failed_no_material_map",
+    ],
   },
   {
     id: "frontend-terrain-tile-model-loader-failures-are-exact",
@@ -566,23 +843,6 @@ const checks = [
     ],
   },
   {
-    id: "areas-ikea-retail-toolset-oracle-manifest-is-source-backed",
-    file: "backend/backend/docs/aurora-reverse/artifacts/areas-runtime-capture/aurora-toolset-ikea-oracle-manifest.json",
-    required: [
-      "aurora-areas-retail-toolset-oracle/v1",
-      "the_last_city \\u2014 codex.mod",
-      "\"areaResRef\": \"_ikea\"",
-      "retail_toolset_ikea_opened",
-      "\"canonicalParityPromoted\": false",
-      "toolset-reset-controls-extract.json",
-      "actFindStartExecute",
-      "toolset-display2-after-correct-window-resize-20260617-194750.png",
-      "toolset-ikea-controlled-zoom-in-20260617-195807.png",
-      "toolset-ikea-camera-rotate-clockwise-20260617-200951.png",
-      "bGobRotateClockwise",
-    ],
-  },
-  {
     id: "areas-ikea-readiness-classifies-plc-dor-renderer-blockers",
     file: "backend/scripts/check-areas-ikea-readiness.mjs",
     required: [
@@ -640,6 +900,24 @@ const checks = [
     required: ["aurora-areas-runtime-cdp-capture/v1", "areas_mode", "Open Selected Area", "data-area-terrain-tile-model-runtime-snapshot", "areaTerrainTileModelRuntimeSnapshot", "aurora-areas-terrain-tile-model-runtime/v1", "Page.captureScreenshot", "canonicalParityPromoted: false", "localOnlyNotRetailEvidence: true"],
   },
   {
+    id: "areas-runtime-cdp-capture-supports-top-down-terrain-only-oracle-screens",
+    file: "backend/scripts/capture-areas-runtime-cdp.mjs",
+    required: ["--view top-down", "--visibility terrain-only", "applyCaptureView", "applyCaptureVisibility", "areas_capture_terrain_only_visibility_not_applied", "captureVisibility", "aurora-areas-runtime-capture-terrain-only-style", ".canvas-area-runtime-alert"],
+  },
+  {
+    id: "areas-runtime-cdp-capture-recovers-auth-when-seeded-storage-route-guard-falls-back-to-login",
+    file: "backend/scripts/capture-areas-runtime-cdp.mjs",
+    required: [
+      "authenticateBrowserForCapture",
+      "frontend_auth_seed_route_guard_blocked",
+      "submitLoginForm",
+      "frontend_login_fallback_did_not_reach_app",
+      "frontend_login_form_fallback_failed",
+      "hasStoredAuth",
+      "storedWorkspaceMode",
+    ],
+  },
+  {
     id: "areas-runtime-cdp-capture-records-ikea-tile-process-snapshot",
     file: "backend/scripts/capture-areas-runtime-cdp.mjs",
     required: ["--target ikea", "resolveCaptureTargetAreaQuery", "return \"_ikea\"", "data-area-tile-process-runtime-snapshot", "areaTileProcessRuntimeSnapshot", "tileProcessRuntimeSnapshot", "tileProcessRuntimeDataset", "renderAssetContractBlockers", "mdlGlbMaterialBlockers"],
@@ -647,7 +925,16 @@ const checks = [
   {
     id: "areas-runtime-cdp-capture-rejects-stale-ikea-snapshots",
     file: "backend/scripts/capture-areas-runtime-cdp.mjs",
-    required: ["areaExpectation", "isExpectedAreaRuntimeSnapshot", "Expected Area runtime snapshot did not settle", "extentFootprintSize", "tileProcessSnapshot.status === \"not_checked\"", "captureWaitElapsedMs"],
+    required: [
+      "areaExpectation",
+      "isExpectedAreaRuntimeSnapshot",
+      "Expected Area runtime snapshot did not settle",
+      "extentFootprintSize",
+      "tileProcessSnapshot.status === \"not_checked\"",
+      "captureWaitElapsedMs",
+      "AREA_RUNTIME_SNAPSHOT_WAIT_ATTEMPTS = 600",
+      "AREA_RUNTIME_SNAPSHOT_WAIT_INTERVAL_MS = 100",
+    ],
   },
   {
     id: "areas-runtime-cdp-capture-preserves-clear-marker-across-canvas-remount",
@@ -662,7 +949,7 @@ const checks = [
   },
   {
     id: "areas-canvas-remounts-when-external-area-scene-changes",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: [
       "externalSceneSeedKey",
       "externalSceneSeed.sceneId",
@@ -687,7 +974,7 @@ const checks = [
   },
   {
     id: "areas-mode-persists-selected-aurora-scene-across-reload",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: [
       "AREAS_MODE_SELECTED_SCENE_STORAGE_KEY",
       "loadPersistedAreaSceneSeed",
@@ -698,11 +985,12 @@ const checks = [
   },
   {
     id: "areas-mode-restores-tile-process-readiness-after-scene-restore",
-    file: "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+    file: "frontend/src/modules/layout/components/WorkspaceLayout.tsx",
     required: [
       "resolveAreaTileProcessContractReadiness",
-      "restoredAreaTileProcessReadinessSignatureRef",
-      "buildAreaSceneTileProcessReadinessSignature",
+      "areaTileProcessReadiness?.areaId === areaSceneSeed.sceneId",
+      "getAreaById(backendAccessToken, areaSceneSeed.sceneId)",
+      "Restoring terrain for",
       "ui.workspace.areas.restore_tile_process_readiness_failed",
     ],
   },
@@ -726,6 +1014,8 @@ const checks = [
       "areaObjectSharedRendererUniqueModelCacheKeyCount",
       "modelUrlSample",
       "modelCacheKeySample",
+      "modelBoundsSample",
+      "areaObjectSharedRendererModelBoundsSample",
     ],
   },
   {
@@ -736,6 +1026,7 @@ const checks = [
       "sharedRendererUniqueModelCacheKeyCount",
       "sharedRendererModelUrlSample",
       "sharedRendererModelCacheKeySample",
+      "sharedRendererModelBoundsSample",
     ],
   },
   {
@@ -802,6 +1093,7 @@ const checks = [
       "payloadResponseCounts",
       "firstErrorReason",
       "Network.requestWillBeSent",
+      "placeableRenderPayloadBatch",
       "placeableProcessBatch",
       "placeableAssetContractsBatch",
       "buildConsoleSummary",
@@ -832,6 +1124,15 @@ const checks = [
     required: ["AREA_PRIMITIVE_FALLBACK_RENDER_LIMIT", "AREA_PRIMITIVE_FALLBACK_RENDER_SUPPRESSION_EVENT", "AREA_PRIMITIVE_FALLBACK_RENDER_SUPPRESSION_REASON", "areaPrimitiveFallbackSuppressedCount", "areaPrimitiveFallbackRenderSuppressionSnapshot", "area-mass-primitive-fallback-render-suppressed", "aurora-areas-primitive-fallback-render-suppression/v1"],
   },
   {
+    id: "areas-shared-renderer-does-not-show-primitive-while-model-loads",
+    file: "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
+    required: [
+      "shouldAttachPrimitiveFallbackDuringModelLoad",
+      "shouldUsePlaceableModel && !sharedRendererTarget",
+      "shouldAttachPrimitiveFallbackDuringModelLoad && primitiveFallbackMesh",
+    ],
+  },
+  {
     id: "areas-ikea-reuses-normalized-placeable-model-prototypes",
     file: "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
     required: ["ensureNormalizedPlaceableModel", "buildNormalizedPlaceableModelCacheKey", "placeableNormalizedModelCacheByKey", "placeableNormalizedModelPendingByKey", "normalizePlaceableModelToObjectRadius(objectRadius, resolvedModel, options)", "PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG", "PLACEABLE_NORMALIZED_MODEL_PRESENTATION_METRICS_KEY", "resolvePlaceableNormalizedModelPresentationMetrics(resolvedModel)"],
@@ -843,14 +1144,75 @@ const checks = [
       "PLACEABLE_MODEL_BULK_LOAD_QUEUE_THRESHOLD",
       "PLACEABLE_MODEL_BULK_LOAD_CONCURRENCY_LIMIT",
       "PLACEABLE_MODEL_BULK_LOAD_STARTS_PER_FRAME_LIMIT",
-      "PLACEABLE_MODEL_BULK_LOAD_QUEUE_THRESHOLD = 96",
-      "PLACEABLE_MODEL_BULK_LOAD_CONCURRENCY_LIMIT = 32",
-      "PLACEABLE_MODEL_BULK_LOAD_STARTS_PER_FRAME_LIMIT = 8",
+      "PLACEABLE_MODEL_BULK_LOAD_QUEUE_THRESHOLD = 48",
+      "PLACEABLE_MODEL_BULK_LOAD_CONCURRENCY_LIMIT = 128",
+      "PLACEABLE_MODEL_BULK_LOAD_STARTS_PER_FRAME_LIMIT = 24",
       "isBulkPlaceableModelLoadQueue",
       "resolvePlaceableModelLoadConcurrencyLimit",
       "resolvePlaceableModelLoadStartsPerFrameLimit",
       "placeableModelLoadConcurrencyLimit",
       "placeableModelLoadStartsPerFrameLimit",
+    ],
+  },
+  {
+    id: "shared-placeables-model-loader-prioritizes-terrain-requests-before-bulk-placeables",
+    file: "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
+    required: [
+      "PLACEABLE_MODEL_LOAD_PRIORITY_HIGH",
+      "PLACEABLE_MODEL_LOAD_PRIORITY_NORMAL",
+      "type PlaceableModelLoadPriority",
+      "priority: PlaceableModelLoadPriority",
+      "options: { priority?: PlaceableModelLoadPriority } = {}",
+      "firstNormalIndex",
+      "state.queue.splice(firstNormalIndex, 0, entry)",
+      "priority: options.priority ?? PLACEABLE_MODEL_LOAD_PRIORITY_NORMAL",
+    ],
+  },
+  {
+    id: "shared-placeables-model-loader-requeues-retries-without-inflating-request-totals",
+    file: "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
+    required: [
+      "PLACEABLE_MODEL_LOAD_RETRY_QUEUE_PRESSURE_DELAY_CAP_MS",
+      "beginTrackedPlaceableModelLoadRequest(runtime)",
+      "completeTrackedPlaceableModelLoadRequest(runtime)",
+      "resolvePlaceableModelRetryDelayMs(runtime, attempt)",
+      "schedulePlaceableModelLoad(",
+      "state.currentLoadTotal += 1",
+      "state.currentLoadCompleted + 1",
+      "state.queue.length * 2",
+    ],
+  },
+  {
+    id: "shared-placeables-model-loader-prefers-fetch-parse-for-cacheable-glb-delivery",
+    file: "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
+    required: [
+      "type PlaceableModelFetch",
+      "placeableModelFetch?: PlaceableModelFetch",
+      "placeableModelRequestHeader?: Record<string, string>",
+      "loadPlaceableModelFromArrayBuffer",
+      "parsePlaceableModelArrayBuffer",
+      "runtime.placeableModelLoader.parse(",
+      "resolvePlaceableModelResourcePath(modelUrl)",
+    ],
+  },
+  {
+    id: "workspace-runtime-exposes-shared-placeable-model-fetch-contract",
+    file: "frontend/src/modules/layout/adapters/three/workspaceThreeRuntime.ts",
+    required: [
+      "type PlaceableModelFetch",
+      "placeableModelFetch: PlaceableModelFetch",
+      "placeableModelRequestHeader: Record<string, string>",
+      "placeableModelFetch: window.fetch.bind(window)",
+      "placeableModelRequestHeader = requestHeader",
+    ],
+  },
+  {
+    id: "areas-terrain-models-use-shared-placeables-loader-with-high-priority",
+    file: "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+    required: [
+      "TILE_MODEL_LOADER_PATH",
+      "ensurePlaceableModel(runtime, contract.deliveryUrl, {",
+      "priority: PLACEABLE_MODEL_LOAD_PRIORITY_HIGH",
     ],
   },
   {
@@ -882,9 +1244,37 @@ const checks = [
     required: ["PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG", "node.geometry.userData?.[PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG] !== true", "node.geometry.dispose()"],
   },
   {
-    id: "areas-object-renderer-uses-normalized-placeable-model-cache",
+    id: "areas-object-renderer-uses-aurora-unit-scale-for-area-placeables",
     file: "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
-    required: ["ensureNormalizedPlaceableModel", "objectRenderPackageModelUrl", "objectRadius", "targetMaxAxisFactor: placeableModelTargetMaxAxisFactor", "resolvePlaceableNormalizedModelPresentationMetrics(resolvedModel)", "modelMetrics.boundsLabel"],
+    required: ["area-aurora-unit-scale", "PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE", "renderAreaGeometry", "ensurePlaceableModel(runtime, objectRenderPackageModelUrl", "resolvedModel.scale.multiplyScalar", "ensureNormalizedPlaceableModel", "targetMaxAxisFactor: placeableModelTargetMaxAxisFactor", "resolvePlaceableNormalizedModelPresentationMetrics(resolvedModel)", "modelMetrics.boundsLabel", "auroraAreaObjectSharedRendererModelBounds", "auroraAreaObjectSharedRendererModelMaxAxis", "auroraAreaObjectSharedRendererModelMeshCount"],
+  },
+  {
+    id: "areas-placeables-keep-world-fit-separate-from-preview-fit",
+    file: "frontend/src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts",
+    required: [
+      "PLACEABLE_AREA_MODEL_TARGET_MAX_AXIS_FACTOR = 1.35",
+      "PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE = 0.1",
+      "PLACEABLE_PREVIEW_MODEL_TARGET_MAX_AXIS_FACTOR = 4",
+    ],
+  },
+  {
+    id: "areas-placeables-world-fit-separation-test",
+    file: "frontend/tests/unit/modules/placeables/placeableThreeAssetLoader.areaScaleReuse.test.ts",
+    required: [
+      "PLACEABLE_AREA_MODEL_TARGET_MAX_AXIS_FACTOR",
+      "PLACEABLE_PREVIEW_MODEL_TARGET_MAX_AXIS_FACTOR",
+      "keeps Areas world-fit separate from Placeables preview thumbnail-fit",
+    ],
+  },
+  {
+    id: "areas-runtime-applies-aurora-unit-scale-to-placeable-glb-test",
+    file: "frontend/tests/unit/modules/layout/WorkspaceCanvasViewport.renderFilter.test.ts",
+    required: [
+      "renders Area placeable GLB models with Aurora unit scale instead of preview-normalizing them",
+      "rebuildObjectMeshes(",
+      "new THREE.BoxGeometry(2, 1, 1)",
+      "expect(size.x).toBeCloseTo(0.2, 5)",
+    ],
   },
   {
     id: "areas-runtime-snapshot-discloses-primitive-placeholder-render-cap",
@@ -900,6 +1290,11 @@ const checks = [
     id: "areas-canvas-orbit-controls-disabled-during-asset-loading",
     file: "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
     required: ["runtime.controls.enabled = !effectivePlaceableLoadOverlay.visible", "areaCanvasInteractionBlocked", "asset-loading", "areaCanvasInteractionBlockedSource", "runtime.renderer.domElement.style.cursor = effectivePlaceableLoadOverlay.visible"],
+  },
+  {
+    id: "areas-default-view-keeps-ceiling-hidden-for-interior-proof",
+    file: "frontend/src/modules/layout/roleTopbarPolicy.ts",
+    required: ["ceilingMeshes: false", "debug_ceiling_meshes", "Ceiling"],
   },
   {
     id: "areas-placeable-model-overlay-clears-after-model-queue-settles",
@@ -923,8 +1318,52 @@ const checks = [
 const runtimeEvidenceChecks = [
   {
     id: "areas-ikea-runtime-cdp-evidence-is-structured",
-    file: "backend/backend/docs/aurora-reverse/artifacts/areas-runtime-capture/ikea-texture-applied-wait.frame.json",
+    file: "backend/docs/aurora-reverse/artifacts/areas-runtime-capture/ikea-area-instance-reuse-model54-start7-retry2-cold-retry.frame.json",
+    expectedAreaQuery: "_ikea",
+    expectedAreaId: "area__ikea",
+    expectedWidth: 16,
+    expectedHeight: 16,
     minimumScreenshotBytes: 100000,
+    maximumCaptureWaitElapsedMs: 60000,
+    minimumTileCount: 256,
+    minimumLoadedTileCount: 256,
+    minimumBackendPayloadCount: 1136,
+    minimumBackendModelUrlCount: 1136,
+    minimumPayloadBoundCount: 1136,
+    minimumRenderedModelUrlCount: 1136,
+    maximumPrimitiveFallbackCount: 0,
+  },
+  {
+    id: "areas-bakery-runtime-cdp-evidence-uses-top-down-toolset-x-mirror-full-frame",
+    file: "backend/docs/aurora-reverse/artifacts/areas-runtime-capture/web-enon-bakery-top-down-full-mirror-x-yaw-neg-20260627-02.frame.json",
+    expectedAreaQuery: "enon_bakery",
+    expectedAreaId: "area_enon_bakery",
+    expectedWidth: 4,
+    expectedHeight: 4,
+    minimumScreenshotBytes: 100000,
+    maximumCaptureWaitElapsedMs: 60000,
+    minimumTileCount: 16,
+    minimumLoadedTileCount: 16,
+    minimumBackendPayloadCount: 197,
+    minimumBackendModelUrlCount: 190,
+    minimumPayloadBoundCount: 197,
+    minimumRenderedModelUrlCount: 190,
+    maximumPrimitiveFallbackCount: 0,
+    expectedCaptureView: { requested: "top-down", applied: true, mode: "top_down_oracle" },
+  },
+  {
+    id: "areas-bakery-runtime-cdp-evidence-isolates-top-down-terrain-only-frame",
+    file: "backend/docs/aurora-reverse/artifacts/areas-runtime-capture/web-enon-bakery-top-down-terrain-mirror-x-yaw-neg-20260627-01.frame.json",
+    expectedAreaQuery: "enon_bakery",
+    expectedAreaId: "area_enon_bakery",
+    expectedWidth: 4,
+    expectedHeight: 4,
+    minimumScreenshotBytes: 100000,
+    maximumCaptureWaitElapsedMs: 60000,
+    minimumTileCount: 16,
+    minimumLoadedTileCount: 16,
+    expectedCaptureView: { requested: "top-down", applied: true, mode: "top_down_oracle" },
+    expectedCaptureVisibility: { requested: "terrain-only", applied: true, mode: "terrain_only", objectLayerVisible: "false" },
   },
 ];
 
@@ -958,7 +1397,7 @@ for (const check of checks) {
 }
 
 for (const check of runtimeEvidenceChecks) {
-  validateIkeaRuntimeEvidence(check);
+  validateAreaRuntimeEvidence(check);
 }
 
 if (failures.length > 0) {
@@ -981,7 +1420,7 @@ console.log(
   ),
 );
 
-function validateIkeaRuntimeEvidence(check) {
+function validateAreaRuntimeEvidence(check) {
   const absolutePath = resolve(repoRoot, check.file);
   if (!existsSync(absolutePath)) {
     failures.push({ id: check.id, file: check.file, missing: ["runtime_evidence_frame"] });
@@ -1008,29 +1447,69 @@ function validateIkeaRuntimeEvidence(check) {
   const screenshotPath = typeof frame.screenshotPath === "string" ? resolve(repoRoot, frame.screenshotPath) : null;
 
   expectEqual(missing, "version", frame.version, "aurora-areas-runtime-cdp-capture/v1");
-  expectEqual(missing, "areaQuery", frame.areaQuery, "_ikea");
+  expectEqual(missing, "areaQuery", frame.areaQuery, check.expectedAreaQuery);
   expectEqual(missing, "openedArea.ok", frame.openedArea?.ok, true);
-  expectEqual(missing, "openedArea.query", frame.openedArea?.query, "_ikea");
-  expectEqual(missing, "openedArea.areaExpectation.width", frame.openedArea?.areaExpectation?.width, 16);
-  expectEqual(missing, "openedArea.areaExpectation.height", frame.openedArea?.areaExpectation?.height, 16);
+  expectEqual(missing, "openedArea.query", frame.openedArea?.query, check.expectedAreaQuery);
+  expectEqual(
+    missing,
+    "openedArea.areaExpectation.width",
+    frame.openedArea?.areaExpectation?.width,
+    check.expectedWidth
+  );
+  expectEqual(
+    missing,
+    "openedArea.areaExpectation.height",
+    frame.openedArea?.areaExpectation?.height,
+    check.expectedHeight
+  );
   expectAtLeast(missing, "openedArea.areaExpectation.objectCount", frame.openedArea?.areaExpectation?.objectCount, 1);
+  const captureOrTotalElapsedMs = frame.timings?.captureWaitElapsedMs ?? frame.timings?.totalElapsedMs;
+  expectAtMost(
+    missing,
+    "timings.captureWaitOrTotalElapsedMs",
+    captureOrTotalElapsedMs,
+    check.maximumCaptureWaitElapsedMs
+  );
+  if (check.expectedCaptureView) {
+    expectEqual(missing, "captureView.requested", frame.captureView?.requested, check.expectedCaptureView.requested);
+    expectEqual(missing, "captureView.applied", frame.captureView?.applied, check.expectedCaptureView.applied);
+    expectEqual(missing, "captureView.mode", frame.captureView?.mode, check.expectedCaptureView.mode);
+  }
+  if (check.expectedCaptureVisibility) {
+    expectEqual(missing, "captureVisibility.requested", frame.captureVisibility?.requested, check.expectedCaptureVisibility.requested);
+    expectEqual(missing, "captureVisibility.applied", frame.captureVisibility?.applied, check.expectedCaptureVisibility.applied);
+    expectEqual(missing, "captureVisibility.mode", frame.captureVisibility?.mode, check.expectedCaptureVisibility.mode);
+    if (Object.hasOwn(check.expectedCaptureVisibility, "objectLayerVisible")) {
+      expectEqual(
+        missing,
+        "captureVisibility.objectLayerVisible",
+        frame.captureVisibility?.objectLayerVisible,
+        check.expectedCaptureVisibility.objectLayerVisible
+      );
+    }
+  }
   expectEqual(missing, "domStatus.workspaceMode", frame.domStatus?.workspaceMode, "areas_mode");
   expectEqual(missing, "domStatus.canvasPresent", frame.domStatus?.canvasPresent, true);
   expectAtLeast(missing, "domStatus.canvasRect.width", canvasRect?.width, 600);
   expectAtLeast(missing, "domStatus.canvasRect.height", canvasRect?.height, 400);
 
   expectEqual(missing, "terrainTileModelSnapshot.version", terrainSnapshot?.version, "aurora-areas-terrain-tile-model-runtime/v1");
-  expectEqual(missing, "terrainTileModelSnapshot.areaId", terrainSnapshot?.areaId, "area__ikea");
+  expectEqual(missing, "terrainTileModelSnapshot.areaId", terrainSnapshot?.areaId, check.expectedAreaId);
   expectEqual(missing, "terrainTileModelSnapshot.status", terrainSnapshot?.status, "ready");
   expectEqual(missing, "terrainTileModelSnapshot.layerName", terrainSnapshot?.layerName, "terrain-backend-tile-models");
   expectEqual(missing, "terrainTileModelSnapshot.renderStatus", terrainSnapshot?.renderStatus, "source_backed_tile_model_bridge");
-  expectAtLeast(missing, "terrainTileModelSnapshot.tileCount", terrainSnapshot?.tileCount, 256);
-  expectAtLeast(missing, "terrainTileModelSnapshot.loadedTileCount", terrainSnapshot?.loadedTileCount, 256);
+  expectAtLeast(missing, "terrainTileModelSnapshot.tileCount", terrainSnapshot?.tileCount, check.minimumTileCount);
+  expectAtLeast(
+    missing,
+    "terrainTileModelSnapshot.loadedTileCount",
+    terrainSnapshot?.loadedTileCount,
+    check.minimumLoadedTileCount
+  );
   expectEqual(missing, "terrainTileModelSnapshot.failedTileCount", terrainSnapshot?.failedTileCount, 0);
   expectAtLeast(missing, "terrainTileModelSnapshot.materialTextureAppliedTileCount", terrainSnapshot?.materialTextureAppliedTileCount, 1);
 
   expectEqual(missing, "tileProcessRuntimeSnapshot.version", tileProcessSnapshot?.version, "aurora-areas-tile-process-runtime/v1");
-  expectEqual(missing, "tileProcessRuntimeSnapshot.areaId", tileProcessSnapshot?.areaId, "area__ikea");
+  expectEqual(missing, "tileProcessRuntimeSnapshot.areaId", tileProcessSnapshot?.areaId, check.expectedAreaId);
   expectEqual(missing, "tileProcessRuntimeSnapshot.status", tileProcessSnapshot?.status, "ready");
   expectAtLeast(missing, "tileProcessRuntimeSnapshot.checkedCandidateCount", tileProcessSnapshot?.checkedCandidateCount, 1);
   expectAtLeast(missing, "tileProcessRuntimeSnapshot.readyCandidateCount", tileProcessSnapshot?.readyCandidateCount, 1);
@@ -1038,6 +1517,36 @@ function validateIkeaRuntimeEvidence(check) {
   expectAtLeast(missing, "tileProcessRuntimeSnapshot.renderLoaderReadyCount", tileProcessSnapshot?.renderLoaderReadyCount, 1);
   expectEqual(missing, "tileProcessRuntimeSnapshot.materialBindingBlockedCount", tileProcessSnapshot?.materialBindingBlockedCount, 0);
   expectEqual(missing, "tileProcessRuntimeSnapshot.blockerSummary", tileProcessSnapshot?.blockerSummary, "none");
+  expectAtLeast(
+    missing,
+    "runtimeActionabilitySummary.sharedRenderer.backendRenderPayloadReadyCount",
+    frame.runtimeActionabilitySummary?.sharedRenderer?.backendRenderPayloadReadyCount,
+    check.minimumBackendPayloadCount
+  );
+  expectAtLeast(
+    missing,
+    "runtimeActionabilitySummary.sharedRenderer.backendRenderModelUrlReadyCount",
+    frame.runtimeActionabilitySummary?.sharedRenderer?.backendRenderModelUrlReadyCount,
+    check.minimumBackendModelUrlCount
+  );
+  expectAtLeast(
+    missing,
+    "runtimeActionabilitySummary.sharedRenderer.payloadBoundCount",
+    frame.runtimeActionabilitySummary?.sharedRenderer?.payloadBoundCount,
+    check.minimumPayloadBoundCount
+  );
+  expectAtLeast(
+    missing,
+    "runtimeActionabilitySummary.sharedRenderer.renderedModelUrlCount",
+    frame.runtimeActionabilitySummary?.sharedRenderer?.renderedModelUrlCount,
+    check.minimumRenderedModelUrlCount
+  );
+  expectAtMost(
+    missing,
+    "runtimeActionabilitySummary.sharedRenderer.primitiveFallbackCount",
+    frame.runtimeActionabilitySummary?.sharedRenderer?.primitiveFallbackCount,
+    check.maximumPrimitiveFallbackCount
+  );
   expectIncludes(missing, "captureMethod", frame.captureMethod, "Page.captureScreenshot");
   expectEqual(missing, "canonicalParityPromoted", frame.canonicalParityPromoted, false);
   expectEqual(missing, "localOnlyNotRetailEvidence", frame.localOnlyNotRetailEvidence, true);
@@ -1072,6 +1581,15 @@ function expectEqual(missing, label, actual, expected) {
 function expectAtLeast(missing, label, actual, minimum) {
   if (!Number.isFinite(actual) || actual < minimum) {
     missing.push(`${label}:>=${minimum}`);
+  }
+}
+
+function expectAtMost(missing, label, actual, maximum) {
+  if (typeof maximum !== "number") {
+    return;
+  }
+  if (!Number.isFinite(actual) || actual > maximum) {
+    missing.push(`${label}:<=${maximum}`);
   }
 }
 

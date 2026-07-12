@@ -197,6 +197,27 @@ describe("module-snapshot-area.repository internals", () => {
     expect(derived.height).toBeGreaterThanOrEqual(8);
   });
 
+  it("keeps SET ImageMap2D on parsed tile blueprints", () => {
+    const tiles = __moduleSnapshotAreaRepositoryInternals.parseAuroraSetTiles(
+      Buffer.from(
+        [
+          "[TILE231]",
+          "Model=sic11_a01_12",
+          "Orientation=90",
+          "ImageMap2D=mi_sic11_a01_12"
+        ].join("\n"),
+        "utf-8"
+      )
+    );
+
+    expect(tiles.get(231)).toMatchObject({
+      tileId: 231,
+      modelResRef: "sic11_a01_12",
+      orientation: 1,
+      imageMap2D: "mi_sic11_a01_12"
+    });
+  });
+
   it("processes all values in mapWithConcurrency", async () => {
     const input = [1, 2, 3, 4, 5, 6];
     const output: number[] = [];

@@ -76,6 +76,77 @@ describe("VfxApplicationService", () => {
     expect(first.vfx.dependencyGraph.edges.some((edge) => edge.resolveStatus === "unresolved")).toBe(true);
   });
 
+  it("threads ProgFX Type 4 light owner-phase evidence into runtime render contracts", async () => {
+    const service = buildService();
+    const visualEffectsTable = [
+      "2DA V2.0",
+      "",
+      "Label Type_FD ProgFX_Duration",
+      "153 VFX_DUR_LIGHT_BLUE_5 D 304"
+    ].join("\n");
+    const progFxTable = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "304 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****"
+    ].join("\n");
+
+    const response = await service.processVfxPackage({
+      packageKind: "runtime_package",
+      sourceTableText: visualEffectsTable,
+      progFxTableText: progFxTable,
+      sourceObjectKey: "modules/current/vfx/visualeffects.2da",
+      sourceLayer: "external_fixture",
+      sourceRowId: 153,
+      effectInstance: {
+        constructorKind: "EffectVisualEffect",
+        sourceRowId: 153,
+        applicationMode: "object",
+        durationType: "temporary",
+        durationSeconds: 6,
+        targetRef: "object:target"
+      },
+      sourceEmitter: buildEmitter(),
+      runtime: {
+        dtSeconds: 0.5,
+        particleLimit: 16,
+        seed: 1234
+      },
+      bypassCache: true,
+      includeBenchmarkMetadata: false
+    });
+
+    expect(response.vfx.progFxRows?.[0]).toMatchObject({
+      rowId: 304,
+      type: 4,
+      type4Light: {
+        animation: "Blue_5m",
+        animationTokenRadiusMeters: 5,
+        sourceMdlRadiusMeters: 13.3,
+        sourceMdlColor: { r: 0.5, g: 0.5, b: 1 }
+      }
+    });
+    expect(response.vfx.phaseSchedule?.status).toBe("ready");
+    expect(response.vfx.renderContract?.progFxType4Light).toMatchObject({
+      rowId: 304,
+      ownerVisualEffectRowId: 153,
+      ownerPhase: "duration",
+      ownerProgFxRef: "304",
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light"
+    });
+    expect(response.vfx.diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining([
+        "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY",
+        "VFX_PROGFX_TYPE4_RENDER_CONTRACT_NO_POINTLIGHT",
+        "VFX_PROGFX_TYPE4_RETAIL_SCHEDULING_REQUIRED"
+      ])
+    );
+  });
+
   it("rejects unsafe VFX source paths without fallback", async () => {
     const service = buildService();
 

@@ -348,6 +348,62 @@ describe("SoundsApplicationService", () => {
     expect(result.payload.bytes.readInt16LE(44)).toBe(1000);
   });
 
+  it("returns browser-friendly PCM WAV payload for stereo IMA ADPCM WAV", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new SoundsApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const imaWav = buildStereoImaAdpcmWavFixture();
+    const cached: SoundProcessingResult = {
+      ...buildProcessedSoundResult("sound_ambient_city_market_001"),
+      audio: {
+        ...buildProcessedSoundResult("sound_ambient_city_market_001").audio,
+        objectKey: "modules/current/__aurora/sources/vanilla/audio/files/amb/al_cv_caveamb1.wav",
+        contentType: "audio/wav",
+        sizeBytes: imaWav.length,
+        etag: "source-stereo-ima-etag",
+        format: "wav",
+        sampleRateHz: 8000,
+        channels: 2
+      }
+    };
+
+    processingCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      value: cached,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 3
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: cached.audio.objectKey,
+      size: imaWav.length,
+      contentType: "audio/wav",
+      etag: "source-stereo-ima-etag",
+      bytes: imaWav
+    });
+
+    const result = await serviceWithBlob.getProcessedSoundAudio("a".repeat(64));
+
+    expect(result.audio.objectKey).toBe("modules/current/__aurora/sources/vanilla/audio/files/amb/al_cv_caveamb1.wav");
+    expect(result.audio.sizeBytes).toBe(imaWav.length);
+    expect(result.payload.contentType).toBe("audio/wav");
+    expect(result.payload.etag).not.toBe("source-stereo-ima-etag");
+    expect(result.payload.bytes.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(result.payload.bytes.toString("ascii", 8, 12)).toBe("WAVE");
+    expect(result.payload.bytes.readUInt16LE(20)).toBe(1);
+    expect(result.payload.bytes.readUInt16LE(22)).toBe(2);
+    expect(result.payload.bytes.readUInt32LE(24)).toBe(8000);
+    expect(result.payload.bytes.readUInt16LE(34)).toBe(16);
+    expect(result.payload.bytes.readUInt32LE(40)).toBe(36);
+    expect(result.payload.bytes.readInt16LE(44)).toBe(1000);
+    expect(result.payload.bytes.readInt16LE(46)).toBe(-1000);
+  });
+
   it("builds proxy delivery contract for cached sound", async () => {
     const runtimeSettingsRepository = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();
@@ -860,6 +916,43 @@ function buildMonoImaAdpcmWavFixture(): Buffer {
   output.writeUInt8(0, 62);
   output.writeUInt8(0, 63);
   output.fill(0, 64);
+
+  return output;
+}
+
+function buildStereoImaAdpcmWavFixture(): Buffer {
+  const sampleRate = 8000;
+  const channels = 2;
+  const blockAlign = 16;
+  const samplesPerBlock = 9;
+  const dataSize = blockAlign;
+  const output = Buffer.alloc(60 + dataSize);
+
+  output.write("RIFF", 0, "ascii");
+  output.writeUInt32LE(output.length - 8, 4);
+  output.write("WAVE", 8, "ascii");
+  output.write("fmt ", 12, "ascii");
+  output.writeUInt32LE(20, 16);
+  output.writeUInt16LE(17, 20);
+  output.writeUInt16LE(channels, 22);
+  output.writeUInt32LE(sampleRate, 24);
+  output.writeUInt32LE(Math.floor((sampleRate * blockAlign) / samplesPerBlock), 28);
+  output.writeUInt16LE(blockAlign, 32);
+  output.writeUInt16LE(4, 34);
+  output.writeUInt16LE(2, 36);
+  output.writeUInt16LE(samplesPerBlock, 38);
+  output.write("fact", 40, "ascii");
+  output.writeUInt32LE(4, 44);
+  output.writeUInt32LE(samplesPerBlock, 48);
+  output.write("data", 52, "ascii");
+  output.writeUInt32LE(dataSize, 56);
+  output.writeInt16LE(1000, 60);
+  output.writeUInt8(0, 62);
+  output.writeUInt8(0, 63);
+  output.writeInt16LE(-1000, 64);
+  output.writeUInt8(0, 66);
+  output.writeUInt8(0, 67);
+  output.fill(0, 68);
 
   return output;
 }

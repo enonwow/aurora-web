@@ -191,7 +191,7 @@ function Get-MatchingChildWindows {
   param([IntPtr]$ParentHandle)
 
   $script:auroraToolsetChildCount = 0
-  $script:auroraToolsetMatchingChildren = New-Object System.Collections.Generic.List[object]
+  $script:auroraToolsetMatchingChildren = @()
   $childCallback = [AuroraToolsetWindowProbe+EnumWindowsProc]{
     param([IntPtr]$childHandle, [IntPtr]$lParam)
     $script:auroraToolsetChildCount += 1
@@ -199,7 +199,7 @@ function Get-MatchingChildWindows {
     $matchesAreaTitle = $childInfo.title -like '*_ikea*'
     $matchesAreaClass = @('TfrmViewerArea', 'TScrollBox', 'TTabSheet') -contains $childInfo.className
     if ($matchesAreaTitle -or $matchesAreaClass) {
-      [void]$script:auroraToolsetMatchingChildren.Add($childInfo)
+      $script:auroraToolsetMatchingChildren += $childInfo
     }
     return $true
   }

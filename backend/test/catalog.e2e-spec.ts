@@ -237,6 +237,10 @@ describe("Catalog API v1 (e2e)", () => {
     expect(response.body.data.cache.key).toEqual(expect.any(String));
     expect(response.body.data.creature.kind).toBe("creature");
     expect(response.body.data.creature.render.frontendType).toBe("creature");
+    expect(response.body.data.creature.creatureRenderPackage).toEqual(expect.any(Object));
+    expect(response.body.data.creature.creatureRenderPackage.rendererPreset).toBe(
+      "creature-standard"
+    );
     expect(response.body.data.creature.creatureRuntime).toEqual(expect.any(Object));
     expect(Array.isArray(response.body.data.creature.creatureValidationIssues)).toBe(true);
   });

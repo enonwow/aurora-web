@@ -6,6 +6,7 @@ import { AreasApplicationService } from "../../src/modules/areas/application/are
 import { AuthController } from "../../src/modules/auth/adapters/inbound/http/auth.controller";
 import { AuthApplicationService } from "../../src/modules/auth/application/auth.application.service";
 import { CreaturesController } from "../../src/modules/catalog/adapters/inbound/http/creatures.controller";
+import { EncountersController } from "../../src/modules/catalog/adapters/inbound/http/encounters.controller";
 import { ItemsController } from "../../src/modules/catalog/adapters/inbound/http/items.controller";
 import { PlaceablesController } from "../../src/modules/catalog/adapters/inbound/http/placeables.controller";
 import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
@@ -31,6 +32,86 @@ describe("HTTP controllers", () => {
   it("delegates area controller calls", async () => {
     const service = {
       listAreas: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+      getAreaLightingEvidence: jest.fn().mockResolvedValue({
+        summary: {
+          areasScanned: 0,
+          tileLightTiles: 0,
+          tileLightReferences: 0,
+          tileLightAreas: 0,
+          areaGlobalLightingAreas: 0,
+          areaGlobalLightingFields: 0,
+          areaShadowOpacityAreas: 0,
+          placeableNameCandidates: 0,
+          placeableNameCandidateAreas: 0,
+          catalogLightSourceTemplates: 0,
+          catalogLightColorTemplates: 0,
+          catalogLightStateTemplates: 0,
+          processedMdlLightTemplatesScanned: 0,
+          processedMdlLightSourceTemplates: 0,
+          processedMdlLightNodes: 0,
+          processedMdlLightScanLimit: 0,
+          auroraActiveLightSlotCap: 128,
+          rendererCandidateLights: 0,
+          rendererAcceptedLights: 0,
+          rendererDroppedLights: 0,
+          shadowDiagnosticEntries: 0,
+          shadowMdlLightNodes: 0,
+          shadowCatalogShadowSizeTemplates: 0,
+          auditCoverageEntries: 0,
+          auditCoverageSourceBacked: 0,
+          auditCoveragePreviewOnly: 0,
+          auditCoverageBlocked: 0,
+          auditCoverageNotObserved: 0,
+          auditGaps: 0
+        },
+        tileLights: [],
+        areaGlobalLighting: [],
+        placeableNameCandidates: [],
+        catalogLightSources: [],
+        processedMdlLightSources: [],
+        rendererLightBudget: {
+          activeLightSlotCap: 128,
+          candidateLights: 0,
+          acceptedLights: 0,
+          droppedLights: 0,
+          sampledCandidateLights: 0,
+          omittedCandidateLights: 0,
+          priorityStrategy:
+            "source-backed-mdl-lightmanager-score-then-diagnostic-lane-fallback",
+          priorityStrategyProofStatus:
+            "source-backed-mdl-lightmanager-score-diagnostic-cross-lane-fallback",
+          retailMdlLightScoreSource:
+            "C:/Projects/New Folder/export/decompiled_all.c:865838-865911 FUN_00a41850 writes per-light score at +0x84 from distance/radius/multiplier/priority fields",
+          retailMdlLightSortSource:
+            "C:/Projects/New Folder/export/decompiled_all.c:865710-865782 FUN_00a4165c/FUN_00a417bc sort active/shadow light lists with FUN_00a41694 comparator on +0x84",
+          retailActiveLightSortScoreSource:
+            "C:/Projects/New Folder/export/decompiled_all.c:865731-865735 FUN_00a41694 compares active-light score field +0x84 with '<'",
+          retailActiveLightSortScoreFormula:
+            "ascending +0x84 score; invalid radius/multiplier/extent -> 100000",
+          retailActiveLightSortDirection: "ascending-score-field-0x84",
+          retailActiveLightSortScoreProofStatus:
+            "source-backed-retail-active-light-score-sort-known-cross-lane-insertion-blocked",
+          retailActiveLightUploadSource:
+            "C:/Projects/New Folder/export/decompiled_all.c:866101-866201 FUN_00a41e50 applies min(configured,0x80)",
+          retailOrderingStatus: "blocked-no-recovered-retail-cross-lane-active-light-ordering",
+          candidates: []
+        },
+        shadowDiagnostic: {
+          entries: [],
+          shadowRelevantEntries: 0,
+          sampledEntries: 0,
+          omittedEntries: 0,
+          globalShadowFields: 0,
+          areaShadowOpacityFields: 0,
+          areaSunShadowFields: 0,
+          areaMoonShadowFields: 0,
+          mdlShadowLightNodes: 0,
+          mdlExplicitNonShadowLightNodes: 0,
+          catalogShadowSizeTemplates: 0
+        },
+        auditCoverage: [],
+        auditGaps: []
+      }),
       getArea: jest.fn().mockResolvedValue({ areaId: "area-1" }),
       getAreaPreview: jest.fn().mockResolvedValue({ areaId: "area-1" }),
       getAreaThumbnail: jest.fn().mockResolvedValue({
@@ -78,6 +159,7 @@ describe("HTTP controllers", () => {
     await expect(controller.list(request, {})).resolves.toMatchObject({
       contractVersion: "1.0.0"
     });
+    await controller.lightingEvidence(request);
     await controller.getById(request, "area-1");
     await controller.preview(request, "area-1");
     await controller.process(request, "area-1", { bypassCache: true });
@@ -90,6 +172,7 @@ describe("HTTP controllers", () => {
       limit: 20,
       offset: 0
     });
+    expect(service.getAreaLightingEvidence).toHaveBeenCalled();
     expect(service.getArea).toHaveBeenCalledWith("area-1");
     expect(service.getAreaPreview).toHaveBeenCalledWith("area-1");
     expect(service.getAreaThumbnail).toHaveBeenCalledWith("area-1");
@@ -618,6 +701,7 @@ describe("HTTP controllers", () => {
     } as unknown as jest.Mocked<CatalogApplicationService>;
     const request = appRequest();
     const creaturesController = new CreaturesController(service, config);
+    const encountersController = new EncountersController(service, config);
     const itemsController = new ItemsController(service, config);
     const placeablesController = new PlaceablesController(service, config);
     const response = createReply();
@@ -627,6 +711,11 @@ describe("HTTP controllers", () => {
     await creaturesController.preview(request, "template-1");
     await creaturesController.process(request, { resref: "cre_guard_human" });
     await creaturesController.getCached(request, "d".repeat(16));
+
+    await encountersController.list(request, {});
+    await encountersController.preview(request, "template-enc");
+    await encountersController.process(request, { templateId: "enc_forest_ambush" });
+    await encountersController.getCached(request, "d".repeat(16));
 
     await itemsController.list(request, {});
     await itemsController.preview(request, "template-2");
@@ -663,7 +752,11 @@ describe("HTTP controllers", () => {
       "item",
       expect.objectContaining({ limit: 20, offset: 0 })
     );
-    expect(service.processTemplateKind).toHaveBeenCalledTimes(2);
+    expect(service.listTemplateKind).toHaveBeenCalledWith(
+      "encounter",
+      expect.objectContaining({ limit: 20, offset: 0 })
+    );
+    expect(service.processTemplateKind).toHaveBeenCalledTimes(3);
     expect(service.listPlaceables).toHaveBeenCalledTimes(1);
     expect(service.getPlaceableThumbnail).toHaveBeenCalledWith("plc_market_stall_001");
     expect(service.processPlaceable).toHaveBeenCalledWith({

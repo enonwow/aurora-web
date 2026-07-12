@@ -1,6 +1,6 @@
 import { S3Client, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { readFileSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, resolve } from "node:path";
 import { NwnErfPackedModuleExtractorService } from "../src/modules/runtime-settings/adapters/outbound/nwn/nwn-erf-packed-module-extractor.service";
 import {
@@ -124,6 +124,7 @@ async function syncConfiguredSoundHaks(input: {
     enabled: boolean;
     keyPath: string | null;
     resources: Array<{ extension: string; resourceType: number; count: number }>;
+    directFiles: number;
     uploadedFiles: number;
     dryRunManifest: VanillaAudioDryRunManifest | null;
     blocker: string | null;
@@ -219,6 +220,8 @@ interface VanillaAudioManifestSource {
   extension: string;
   resourceType: number;
   sizeBytes: number;
+  objectKey?: string;
+  contentType?: string;
 }
 
 interface VanillaAudioUploadSource extends VanillaAudioManifestSource {
@@ -264,8 +267,8 @@ export function buildVanillaAudioDryRunManifest(
       extension,
       resourceType: candidate.resourceType,
       sizeBytes: candidate.sizeBytes,
-      objectKey: buildVanillaAudioObjectKey(candidate.resref, extension),
-      contentType: inferAudioContentType(extension)
+      objectKey: candidate.objectKey ?? buildVanillaAudioObjectKey(candidate.resref, extension),
+      contentType: candidate.contentType ?? inferAudioContentType(extension)
     });
     totalBytes += candidate.sizeBytes;
   }
@@ -300,6 +303,7 @@ async function discoverVanillaSoundResources(
   keyPath: string | null;
   resources: Array<{ extension: string; resourceType: number; count: number }>;
   uploadedFiles: number;
+  directFiles: number;
   dryRunManifest: VanillaAudioDryRunManifest | null;
   blocker: string | null;
 }> {
@@ -309,6 +313,7 @@ async function discoverVanillaSoundResources(
       enabled: false,
       keyPath: null,
       resources: [],
+      directFiles: 0,
       uploadedFiles: 0,
       dryRunManifest: null,
       blocker: null
@@ -322,6 +327,7 @@ async function discoverVanillaSoundResources(
       enabled: true,
       keyPath: null,
       resources: [],
+      directFiles: 0,
       uploadedFiles: 0,
       dryRunManifest: null,
       blocker: "Vanilla sound discovery is enabled, but no supported vanilla KEY file was found."
@@ -334,13 +340,18 @@ async function discoverVanillaSoundResources(
     resourceType: candidate.resourceType,
     count: reader.list(candidate.resourceType).length
   }));
-  const manifestSources = await readVanillaManifestSources(reader, manifestLimits.candidateLimit);
+  const directSources = await readDirectVanillaAudioSources(settings.paths.vanillaDataPath.trim());
+  const keyBifSources = await readVanillaManifestSources(
+    reader,
+    Math.max(0, manifestLimits.candidateLimit - directSources.length)
+  );
+  const manifestSources = [...directSources, ...keyBifSources];
   const dryRunManifest = buildVanillaAudioDryRunManifest(manifestSources, manifestLimits);
   let uploadedFiles = 0;
   if (input.write && input.includeVanilla) {
     const sourceByObjectKey = new Map(
       manifestSources.map((source) => [
-        buildVanillaAudioObjectKey(source.resref, source.extension),
+        source.objectKey ?? buildVanillaAudioObjectKey(source.resref, source.extension),
         source
       ])
     );
@@ -364,12 +375,54 @@ async function discoverVanillaSoundResources(
     keyPath,
     resources,
     uploadedFiles,
+    directFiles: directSources.length,
     dryRunManifest,
     blocker:
       input.write && input.includeVanilla
         ? null
         : "Vanilla audio discovery is read-only unless --write and --include-vanilla are both provided."
   };
+}
+
+async function readDirectVanillaAudioSources(
+  vanillaRoot: string
+): Promise<VanillaAudioUploadSource[]> {
+  const root = resolve(vanillaRoot);
+  return readDirectVanillaAudioSourcesFromDirectory(root, root);
+}
+
+async function readDirectVanillaAudioSourcesFromDirectory(
+  rootPath: string,
+  currentPath: string
+): Promise<VanillaAudioUploadSource[]> {
+  const output: VanillaAudioUploadSource[] = [];
+  const entries = await readdir(currentPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const absolutePath = resolve(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      output.push(...(await readDirectVanillaAudioSourcesFromDirectory(rootPath, absolutePath)));
+      continue;
+    }
+    if (!entry.isFile() || !isSupportedSoundAssetName(entry.name)) {
+      continue;
+    }
+
+    const extension = extname(entry.name).replace(/^\./u, "").toLowerCase();
+    const bytes = await readFile(absolutePath);
+    const relativePath = normalizeRelativePath(
+      absolutePath.slice(rootPath.length).replace(/^[/\\]+/u, "")
+    );
+    output.push({
+      resref: basename(entry.name, extname(entry.name)),
+      extension,
+      resourceType: getSoundResourceType(extension),
+      sizeBytes: bytes.length,
+      bytes,
+      objectKey: `__aurora/sources/vanilla/audio/files/${relativePath}`,
+      contentType: inferAudioContentType(extension)
+    });
+  }
+  return output;
 }
 
 async function readVanillaManifestSources(
@@ -521,6 +574,19 @@ function inferAudioContentType(extension: string): string {
     return "audio/mpeg";
   }
   return "audio/ogg";
+}
+
+function getSoundResourceType(extension: string): number {
+  if (extension === "wav") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.WAV;
+  }
+  if (extension === "bmu") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.BMU;
+  }
+  if (extension === "mp3") {
+    return NWN_KEY_BIF_RESOURCE_TYPES.MP3;
+  }
+  return 0;
 }
 
 function normalizeVanillaResref(value: string): string {

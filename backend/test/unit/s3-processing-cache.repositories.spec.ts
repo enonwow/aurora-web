@@ -1,8 +1,12 @@
 import { S3Client } from "@aws-sdk/client-s3";
 import { PassThrough } from "node:stream";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
+import type { AppConfigService } from "../../src/common/config/app-config.service";
 import { S3AreaProcessingCacheRepository } from "../../src/modules/areas/adapters/outbound/blob/s3-area-processing-cache.repository";
-import { S3PlaceableProcessingCacheRepository } from "../../src/modules/catalog/adapters/outbound/blob/s3-placeable-processing-cache.repository";
+import {
+  buildPlaceableLogicalId,
+  S3PlaceableProcessingCacheRepository
+} from "../../src/modules/catalog/adapters/outbound/blob/s3-placeable-processing-cache.repository";
 import { S3SoundProcessingCacheRepository } from "../../src/modules/sounds/adapters/outbound/blob/s3-sound-processing-cache.repository";
 import { S3TileProcessingCacheRepository } from "../../src/modules/tiles/adapters/outbound/blob/s3-tile-processing-cache.repository";
 
@@ -344,5 +348,102 @@ describe.each(CASES)("S3 processing cache repository (%s)", ({ suffix, Ctor, sam
 
     repository.onModuleDestroy();
     expect(destroySpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("S3 area processing cache timeout", () => {
+  it("treats an aborted L2 read as a cache miss", async () => {
+    const sendSpy = jest
+      .spyOn(S3Client.prototype as any, "send")
+      .mockImplementation(() => new Promise(() => undefined));
+    jest.spyOn(S3Client.prototype as any, "destroy").mockImplementation(() => undefined);
+    const runtimeSettingsRepository = {
+      get: jest.fn().mockResolvedValue({
+        blobStorage: {
+          endpoint: "http://seaweedfs:8333",
+          region: "us-east-1",
+          bucket: "aurora-module-assets",
+          modulePrefix: "modules/current",
+          accessKeyId: "seaweedfs",
+          secretAccessKey: "secret",
+          forcePathStyle: true
+        }
+      })
+    } as unknown as jest.Mocked<RuntimeSettingsRepositoryPort>;
+    const repository = new S3AreaProcessingCacheRepository(runtimeSettingsRepository, {
+      processingCacheL2AreaTimeoutMs: 5
+    } as AppConfigService);
+
+    await expect(repository.get("slow-area-cache")).resolves.toBeNull();
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    repository.onModuleDestroy();
+    jest.restoreAllMocks();
+  });
+
+  it("treats an aborted tile L2 read as a cache miss", async () => {
+    const sendSpy = jest
+      .spyOn(S3Client.prototype as any, "send")
+      .mockImplementation(() => new Promise(() => undefined));
+    jest.spyOn(S3Client.prototype as any, "destroy").mockImplementation(() => undefined);
+    const runtimeSettingsRepository = {
+      get: jest.fn().mockResolvedValue({
+        blobStorage: {
+          endpoint: "http://seaweedfs:8333",
+          region: "us-east-1",
+          bucket: "aurora-module-assets",
+          modulePrefix: "modules/current",
+          accessKeyId: "seaweedfs",
+          secretAccessKey: "secret",
+          forcePathStyle: true
+        }
+      })
+    } as unknown as jest.Mocked<RuntimeSettingsRepositoryPort>;
+    const repository = new S3TileProcessingCacheRepository(runtimeSettingsRepository, {
+      processingCacheL2TileTimeoutMs: 5
+    } as AppConfigService);
+
+    await expect(repository.get("slow-tile-cache")).resolves.toBeNull();
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    repository.onModuleDestroy();
+    jest.restoreAllMocks();
+  });
+});
+
+describe("S3 placeable processing cache logical ids", () => {
+  it("keeps Area GIT cache pointers separate for shared templates with different models", () => {
+    const first = buildPlaceableLogicalId({
+      templateId: "plc_witcher290",
+      placeableSubtype: "generic",
+      metadata: {
+        areaInstanceRenderSource: "git",
+        areaInstanceModelLookupStatus: "ready",
+        areaInstanceAppearanceType: 6339,
+        lookupModelResRef: "plc_wt339"
+      }
+    });
+    const second = buildPlaceableLogicalId({
+      templateId: "plc_witcher290",
+      placeableSubtype: "generic",
+      metadata: {
+        areaInstanceRenderSource: "git",
+        areaInstanceModelLookupStatus: "ready",
+        areaInstanceAppearanceType: 6305,
+        lookupModelResRef: "plc_wt305"
+      }
+    });
+
+    expect(first).toBe("placeable-area-instance:generic:model:plc_wt339");
+    expect(second).toBe("placeable-area-instance:generic:model:plc_wt305");
+    expect(second).not.toBe(first);
+  });
+
+  it("keeps blueprint placeable cache pointers template scoped", () => {
+    expect(
+      buildPlaceableLogicalId({
+        templateId: "plc_barrel_001",
+        placeableSubtype: "generic",
+        metadata: {}
+      })
+    ).toBe("placeable:plc_barrel_001:generic");
   });
 });

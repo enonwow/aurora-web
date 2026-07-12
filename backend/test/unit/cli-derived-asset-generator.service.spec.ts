@@ -1,12 +1,55 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CliDerivedAssetGeneratorService } from "../../src/modules/runtime-settings/adapters/outbound/derived/cli-derived-asset-generator.service";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
 
 describe("CliDerivedAssetGeneratorService", () => {
-  it("skips conversion when no converter command is configured", async () => {
+  it("uses the in-process Aurora MDL converter when no converter command is configured", async () => {
     const service = new CliDerivedAssetGeneratorService(buildConfig({ command: "" }));
+
+    const result = await service.generateDerivedAssets({
+      settingsRevision: 1,
+      modulePrefix: "modules/current",
+      sourceFiles: [
+        file(
+          "models/plc_city_gate.mdl",
+          [
+            "newmodel plc_city_gate",
+            "beginmodelgeom plc_city_gate",
+            "node trimesh mesh01",
+            "  verts 3",
+            "    0 0 0",
+            "    1 0 0",
+            "    0 1 0",
+            "  faces 1",
+            "    0 1 2",
+            "endnode",
+            "endmodelgeom plc_city_gate"
+          ].join("\n")
+        )
+      ]
+    });
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]).toMatchObject({
+      fileName: "__aurora/derived/models/plc_city_gate.glb",
+      resourceType: 0
+    });
+    expect(result.files[0]!.bytes.readUInt32LE(0)).toBe(0x46546c67);
+    expect(result.summary).toMatchObject({
+      generator: "in-process-aurora-mdl",
+      generatedFiles: 1,
+      candidateModels: 1,
+      convertedModels: 1,
+      failedModels: 0
+    });
+  });
+
+  it("skips conversion when no converter command can produce the configured output", async () => {
+    const service = new CliDerivedAssetGeneratorService(
+      buildConfig({ command: "", outputExtension: "gltf" })
+    );
 
     const result = await service.generateDerivedAssets({
       settingsRevision: 1,
@@ -166,6 +209,52 @@ describe("CliDerivedAssetGeneratorService", () => {
         failedModels: 1,
         skippedReason: "conversion_failed"
       });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses deterministic no-renderable-geometry failures without rerunning the converter", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-cli-derived-negative-cache-test-"));
+    const scriptPath = join(tempRoot, "no-geometry-converter.cjs");
+    const counterPath = join(tempRoot, "calls.txt");
+    await writeFile(
+      scriptPath,
+      [
+        "const fs = require('fs');",
+        `fs.appendFileSync(${JSON.stringify(counterPath)}, 'x');`,
+        "process.stderr.write('Binary Aurora MDL contains no renderable mesh geometry.');",
+        "process.exit(1);"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    try {
+      const service = new CliDerivedAssetGeneratorService(
+        buildConfig({
+          command: process.execPath,
+          args: JSON.stringify([scriptPath, "--input", "{source}", "--output", "{output}"])
+        })
+      );
+      const input = {
+        settingsRevision: 1,
+        modulePrefix: "modules/current",
+        sourceFiles: [file("models/pmh0.mdl", "dummy skeleton")]
+      };
+
+      const first = await service.generateDerivedAssets(input);
+      const second = await service.generateDerivedAssets(input);
+
+      expect(first.summary).toMatchObject({
+        failedModels: 1,
+        skippedReason: "conversion_failed"
+      });
+      expect(second.summary).toMatchObject({
+        failedModels: 1,
+        skippedReason: "conversion_failed"
+      });
+      expect(second.summary.failureReasons?.[0]).toContain("no renderable mesh geometry");
+      await expect(readFile(counterPath, "utf-8")).resolves.toBe("x");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

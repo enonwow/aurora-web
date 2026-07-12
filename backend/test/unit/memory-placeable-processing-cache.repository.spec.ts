@@ -62,16 +62,34 @@ describe("MemoryPlaceableProcessingCacheRepository", () => {
 
     expect(await repository.get("big-key")).toBeNull();
   });
+
+  it("keeps large entries when memory infrastructure is the authoritative cache", async () => {
+    const repository = new MemoryPlaceableProcessingCacheRepository(
+      createConfig(2000, 900, 32, true)
+    );
+
+    await repository.set("large-creature-key", {
+      value: "x".repeat(512)
+    });
+
+    expect(await repository.get("large-creature-key")).toMatchObject({
+      value: {
+        value: expect.stringMatching(/^x+$/u)
+      }
+    });
+  });
 });
 
 function createConfig(
   processingCacheL1MaxEntries: number,
   processingCacheL1TtlSeconds: number,
-  processingCacheL1CatalogMaxEntryBytes: number
+  processingCacheL1CatalogMaxEntryBytes: number,
+  useMemoryInfrastructure = false
 ): AppConfigService {
   return {
     processingCacheL1CatalogMaxEntries: processingCacheL1MaxEntries,
     processingCacheL1TtlSeconds,
-    processingCacheL1CatalogMaxEntryBytes
+    processingCacheL1CatalogMaxEntryBytes,
+    useMemoryInfrastructure
   } as AppConfigService;
 }

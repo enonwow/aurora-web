@@ -21,6 +21,16 @@ describe("placeables.schemas", () => {
     expect(parsedVvxy.subtypeHint).toBe("vvxy");
   });
 
+  it("accepts Aurora GIT tags in process payload", () => {
+    const parsed = parsePlaceableProcessPayload({
+      templateId: "plc_campfr",
+      tag: " VALELightNodeOrange03m ",
+      appearanceType: 26949
+    });
+
+    expect(parsed.tag).toBe("VALELightNodeOrange03m");
+  });
+
   it("rejects corpse as a non-Aurora subtype hint in process payload", () => {
     expect(() =>
       parsePlaceableProcessPayload({

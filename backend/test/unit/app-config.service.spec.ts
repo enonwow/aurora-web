@@ -33,6 +33,8 @@ describe("AppConfigService", () => {
       PROCESSING_CACHE_L1_AREA_MAX_ENTRY_BYTES: "666",
       PROCESSING_CACHE_L1_ADMISSION_HITS: "3",
       PROCESSING_CACHE_L1_ADMISSION_WINDOW_SECONDS: "60",
+      PROCESSING_CACHE_L2_AREA_TIMEOUT_MS: "5000",
+      PROCESSING_CACHE_L2_TILE_TIMEOUT_MS: "5000",
       RUNTIME_SETTINGS_FILE: "./tmp/runtime-settings.json",
       PROCESSING_GRAPH_SNAPSHOT_FILE: "./tmp/graph-snapshot.json"
     };
@@ -72,6 +74,8 @@ describe("AppConfigService", () => {
     expect(config.processingCacheL1AreaMaxEntryBytes).toBe(666);
     expect(config.processingCacheL1AdmissionHits).toBe(3);
     expect(config.processingCacheL1AdmissionWindowSeconds).toBe(60);
+    expect(config.processingCacheL2AreaTimeoutMs).toBe(5000);
+    expect(config.processingCacheL2TileTimeoutMs).toBe(5000);
     expect(config.runtimeSettingsFile).toBe("./tmp/runtime-settings.json");
     expect(config.processingGraphSnapshotFile).toBe("./tmp/graph-snapshot.json");
   });
@@ -86,6 +90,21 @@ describe("AppConfigService", () => {
     const config = new AppConfigService();
     expect(config.swaggerEnabled).toBe(true);
     expect(config.enableBlobAssetLookupInTest).toBe(false);
+  });
+
+  it("uses memory infrastructure when the auth repository is memory-backed", () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: "development",
+      AURORA_HOST_LOCAL_RUNTIME: "false",
+      AUTH_REPOSITORY_DRIVER: "memory"
+    };
+
+    const config = new AppConfigService();
+    expect(config.isTest).toBe(false);
+    expect(config.hostLocalRuntime).toBe(false);
+    expect(config.authRepositoryDriver).toBe("memory");
+    expect(config.useMemoryInfrastructure).toBe(true);
   });
 
   it("uses localhost and 127.0.0.1 as default CORS origins", () => {

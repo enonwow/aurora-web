@@ -1,21 +1,28 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppException } from "../../src/common/http/app-exception";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
 import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
 import type {
-  PlaceableProcessingCachePort
+  PlaceableProcessingCachePort,
+  PlaceableProcessingResult
 } from "../../src/modules/catalog/application/ports/placeable-processing-cache.port";
 import type { TemplateCatalogRepositoryPort } from "../../src/modules/catalog/application/ports/template-catalog-repository.port";
 import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { DerivedAssetGeneratorPort } from "../../src/modules/runtime-settings/application/ports/derived-asset-generator.port";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { RuntimeSettingsRecord } from "../../src/modules/runtime-settings/domain/runtime-settings.types";
+import { NWN_KEY_BIF_RESOURCE_TYPES } from "../../src/modules/runtime-settings/application/nwn-key-bif-resource-reader";
 import { convertAuroraAsciiMdlToGlb } from "../../src/modules/runtime-settings/adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
+import { parseTemplateBlueprintFromGff } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-template-parser";
+import { serializeCreatureBlueprintToUtcGff } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-utc-writer";
+import { parseAuroraItpPalette } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-itp-palette-parser";
 import type {
   PlaceableRenderPackage,
   TemplateListResult,
+  TemplateProcessingResult,
   TemplateRecord
 } from "../../src/modules/catalog/domain/template.types";
 
@@ -52,6 +59,8 @@ node trimesh mesh_metal
 endnode
 endmodelgeom plc_multi
 `;
+const RETAIL_ITEMPALSTD_ITP_PATH =
+  "C:/Projects/New Folder/item-retail-extract/itp/itempalstd.itp";
 
 describe("CatalogApplicationService", () => {
   let repository: jest.Mocked<TemplateCatalogRepositoryPort>;
@@ -69,6 +78,1233 @@ describe("CatalogApplicationService", () => {
       set: jest.fn()
     };
     service = new CatalogApplicationService(repository, placeableCache);
+  });
+
+  it("resolves item palette folder labels through the base TLK", async () => {
+    let itempalstdBytes: Buffer;
+    try {
+      itempalstdBytes = await readFile(RETAIL_ITEMPALSTD_ITP_PATH);
+    } catch {
+      return;
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), "aurora-item-palette-tlk-"));
+    try {
+      const tlkPath = join(tempDir, "dialog.tlk");
+      await writeFile(tlkPath, buildItemPaletteTestTlkBuffer({ 335: "Resolved Palette Root" }));
+      const runtimeSettings = buildRuntimeSettingsRecord();
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue({
+          ...runtimeSettings,
+          paths: {
+            ...runtimeSettings.paths,
+            tlkBasePath: tlkPath
+          }
+        }),
+        save: jest.fn()
+      };
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(async (_settings, key) =>
+          key.endsWith("itempalstd.itp")
+            ? {
+                key,
+                size: itempalstdBytes.length,
+                contentType: "application/octet-stream",
+                bytes: itempalstdBytes
+              }
+            : null
+        )
+      };
+      const serviceWithPaletteSource = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage
+      );
+
+      const result = await serviceWithPaletteSource.getItemPaletteTree();
+
+      expect(result.activeSource).toBe("itempalstd");
+      expect(result.roots[0]).toMatchObject({
+        strRef: 335,
+        label: "Resolved Palette Root"
+      });
+      expect(result.roots[0]?.children[0]?.children[0]).toMatchObject({
+        kind: "leaf",
+        resRef: "nw_cloth027"
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes module-backed itempalcus.itp custom item palettes", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleObjects = new Map<string, Buffer>();
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(async (_settings, key) => {
+        const bytes = moduleObjects.get(key);
+        return bytes
+          ? {
+              key,
+              size: bytes.length,
+              contentType: "application/octet-stream",
+              etag: `etag-${key}`,
+              bytes
+            }
+          : null;
+      }),
+      putModuleObject: jest.fn(async (settings, file) => {
+        const key = `${settings.modulePrefix}/${file.fileName}`;
+        moduleObjects.set(key, file.bytes);
+        return {
+          key,
+          size: file.bytes.length,
+          etag: `etag-${file.fileName}`
+        };
+      })
+    };
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithStorage.writeCustomItemPalette({
+      roots: [
+        {
+          label: "Custom Weapons",
+          children: [
+            {
+              label: "Bronze Dagger",
+              resRef: "CNR_B_DAGGER",
+              id: 11
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "itempalcus.itp",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.ITP,
+        bytes: expect.any(Buffer)
+      })
+    );
+    expect(result).toMatchObject({
+      palette: {
+        resref: "itempalcus",
+        objectKey: "modules/current/itempalcus.itp",
+        sourceFileType: "ITP ",
+        sourceFileVersion: "V3.2",
+        rootCount: 1,
+        leafCount: 1,
+        folderCount: 1
+      },
+      tree: {
+        activeSource: "itempalcus",
+        leafCount: 1,
+        roots: [
+          {
+            kind: "folder",
+            label: "Custom Weapons",
+            children: [
+              {
+                kind: "leaf",
+                label: "Bronze Dagger",
+                resRef: "cnr_b_dagger"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    const written = (moduleBlobStorage.putModuleObject as jest.Mock).mock.calls[0]?.[1]
+      .bytes as Buffer;
+    expect(parseAuroraItpPalette(written)).toMatchObject({
+      sourceFileType: "ITP ",
+      leafCount: 1,
+      roots: [
+        {
+          label: "Custom Weapons",
+          children: [{ resRef: "cnr_b_dagger" }]
+        }
+      ]
+    });
+
+    const treeAfterWrite = await serviceWithStorage.getItemPaletteTree();
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/itempalcus.itp"
+    );
+    expect(treeAfterWrite).toMatchObject({
+      activeSource: "itempalcus",
+      leafCount: 1
+    });
+    expect(treeAfterWrite.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resref: "itempalcus",
+          selected: true
+        })
+      ])
+    );
+  });
+
+  it("loads baseitems.2da rows for item type selection", async () => {
+    const result = await service.getItemBaseItems();
+    if (result.count === 0) {
+      return;
+    }
+
+    expect(result.count).toBeGreaterThanOrEqual(100);
+    expect(result.items).toHaveLength(result.count);
+    expect(result.items[0]).toMatchObject({
+      baseItem: 0,
+      label: "shortsword",
+      itemClass: "wswss",
+      modelType: "wswss",
+      defaultIcon: "iwswss",
+      invSlotWidth: 1,
+      invSlotHeight: 2,
+      equipableSlots: "0x1C030",
+      baseCost: 10,
+      storePanel: 1,
+      storePanelSort: 19,
+      reqFeats: [45, 50]
+    });
+  });
+
+  it("updates and deletes module-backed item UTI blueprints", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-blueprint-lifecycle",
+        totalFiles: 0,
+        totalBytes: 0,
+        objects: [],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn().mockResolvedValue({
+        key: "modules/current/test_item.uti",
+        size: 32,
+        contentType: "application/octet-stream",
+        etag: "existing-item",
+        bytes: Buffer.from("existing")
+      }),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn().mockResolvedValue(true)
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-06-30T10:21:00.000Z",
+      hits: 0
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const updated = await serviceWithStorage.updateItemBlueprint("TEST_ITEM", {
+      templateResRef: "ignored_body_resref",
+      name: "Updated Item",
+      localizedNameStrRef: 12840,
+      tag: "UPDATED_ITEM",
+      description: "Updated description",
+      descriptionStrRef: 2001,
+      identifiedDescription: "Updated identified description",
+      identifiedDescriptionStrRef: 2002,
+      baseItem: 22,
+      modelPart1: 11,
+      modelPart2: 13,
+      modelPart3: 63,
+      stackSize: 1,
+      identified: true,
+      armorContext: {
+        modelPrefix: "pfh2_",
+        label: "human-female-phenotype2",
+        gender: 1,
+        phenotype: 2,
+        raceModel: "human"
+      },
+      materialColors: {
+        metal1: 8
+      },
+      propertyList: [
+        {
+          propertyName: 15,
+          subtype: 66,
+          costTable: 3,
+          costValue: 1,
+          chanceAppear: 100
+        }
+      ],
+      scripts: {
+        onused: "test_use",
+        onheartbeat: "test_hb",
+        oninventorydisturbed: "test_inv"
+      },
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_item.uti"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_item.uti",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI
+      })
+    );
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    const parsed = parseTemplateBlueprintFromGff(written as Buffer);
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTI ",
+      templateResRef: "test_item",
+      localizedName: "Updated Item",
+      localizedNameStrRef: 12840,
+      tag: "UPDATED_ITEM",
+      description: "Updated description",
+      descriptionStrRef: 2001,
+      identifiedDescription: "Updated identified description",
+      identifiedDescriptionStrRef: 2002,
+      baseItem: 22,
+      modelPart1: 11,
+      modelPart2: 13,
+      modelPart3: 63,
+      stackSize: 1,
+      metal1Color: 8,
+      scripts: {
+        onused: "test_use",
+        onheartbeat: "test_hb",
+        oninvdisturbed: "test_inv"
+      }
+    });
+    expect(updated).toMatchObject({
+      blueprint: {
+        templateId: "itm_test_item",
+        resref: "test_item",
+        name: "Updated Item",
+        objectKey: "modules/current/test_item.uti",
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2"
+      },
+      item: {
+        templateId: "itm_test_item",
+        resref: "test_item",
+        metadata: expect.objectContaining({
+          itemArmorPreviewModelPrefix: "pfh2_",
+          itemArmorPreviewContextLabel: "human-female-phenotype2",
+          itemArmorPreviewGender: 1,
+          itemArmorPreviewPhenotype: 2,
+          itemArmorPreviewRaceModel: "human",
+          "script.onused": "test_use",
+          "script.onheartbeat": "test_hb",
+          "script.oninvdisturbed": "test_inv"
+        }),
+        itemRuntime: expect.objectContaining({
+          visual: expect.objectContaining({
+            armorPreviewContext: {
+              modelPrefix: "pfh2_",
+              sourceKey: "item-armor-preview.human-female-phenotype2.ArmorPart",
+              label: "human-female-phenotype2",
+              gender: 1,
+              phenotype: 2,
+              raceModel: "human"
+            }
+          })
+        })
+      }
+    });
+
+    const deleted = await serviceWithStorage.deleteItemBlueprint("TEST_ITEM");
+
+    expect(moduleBlobStorage.deleteModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_item.uti"
+    );
+    expect(deleted).toEqual({
+      resref: "test_item",
+      objectKey: "modules/current/test_item.uti",
+      deleted: true
+    });
+  });
+
+  it("updates and deletes module-backed creature UTC blueprints", async () => {
+    const existingCreatureBytes = serializeCreatureBlueprintToUtcGff({
+      templateResRef: "test_creature",
+      firstName: "Before",
+      tag: "TEST_CREATURE"
+    });
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-creature-blueprint-lifecycle",
+        totalFiles: 0,
+        totalBytes: 0,
+        objects: [],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn().mockResolvedValue({
+        key: "modules/current/test_creature.utc",
+        size: existingCreatureBytes.length,
+        contentType: "application/octet-stream",
+        etag: "existing-creature",
+        bytes: existingCreatureBytes
+      }),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn().mockResolvedValue(true)
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-10T09:30:00.000Z",
+      hits: 0
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const updated = await serviceWithStorage.updateCreatureBlueprint("TEST_CREATURE", {
+      templateResRef: "ignored_body_resref",
+      name: "Test Creature",
+      blueprint: {
+        firstName: "Test",
+        lastName: "Creature",
+        tag: "TEST_CREATURE",
+        appearanceId: 6,
+        gender: 1,
+        race: 6,
+        phenotype: 2,
+        challengeRating: 2.5,
+        strength: 16,
+        classListEntries: [
+          {
+            classId: 1,
+            level: 3,
+            knownSpells: [{ spellId: 7, spellLevel: 1 }]
+          }
+        ],
+        inventoryItemListEntries: [
+          {
+            resRef: "nw_it_mpotion001",
+            x: 2,
+            y: 3,
+            dropable: true
+          }
+        ],
+        scripts: {
+          onHeartbeat: "test_hb"
+        }
+      },
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_creature.utc"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_creature.utc",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTC
+      })
+    );
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    expect(parseTemplateBlueprintFromGff(written as Buffer)).toMatchObject({
+      sourceFileType: "UTC ",
+      templateResRef: "test_creature",
+      firstName: "Test",
+      lastName: "Creature",
+      appearanceId: 6,
+      challengeRating: 2.5,
+      scripts: {
+        scriptheartbeat: "test_hb"
+      },
+      inventoryItemListCount: 1
+    });
+    expect(updated).toMatchObject({
+      blueprint: {
+        templateId: "cre_test_creature",
+        resref: "test_creature",
+        objectKey: "modules/current/test_creature.utc",
+        sourceFileType: "UTC ",
+        sourceFileVersion: "V3.2"
+      },
+      creature: {
+        templateId: "cre_test_creature",
+        resref: "test_creature"
+      }
+    });
+
+    const deleted = await serviceWithStorage.deleteCreatureBlueprint("TEST_CREATURE");
+
+    expect(moduleBlobStorage.deleteModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_creature.utc"
+    );
+    expect(deleted).toEqual({
+      resref: "test_creature",
+      objectKey: "modules/current/test_creature.utc",
+      deleted: true
+    });
+  });
+
+  it("renames a creature UTC without dropping preserved fields", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const existingBytes = serializeCreatureBlueprintToUtcGff({
+      templateResRef: "old_guard",
+      firstName: "Old Guard",
+      tag: "OLD_GUARD",
+      conversation: "guard_talk",
+      scripts: { onHeartbeat: "guard_heartbeat" },
+      variableListEntries: [{ name: "patrol_count", type: "int", value: 4 }]
+    });
+    const moduleObjects = new Map<string, Buffer>([
+      ["modules/current/old_guard.utc", existingBytes]
+    ]);
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        totalFiles: 1,
+        totalBytes: existingBytes.length,
+        objects: [],
+        truncated: false
+      }),
+      getModuleObject: jest.fn(async (_settings, key) => {
+        const bytes = moduleObjects.get(key);
+        return bytes
+          ? {
+              key,
+              size: bytes.length,
+              contentType: "application/octet-stream",
+              etag: `etag-${key}`,
+              bytes
+            }
+          : null;
+      }),
+      putModuleObject: jest.fn(async (settings, file) => {
+        const key = `${settings.modulePrefix}/${file.fileName}`;
+        moduleObjects.set(key, file.bytes);
+        return { key, size: file.bytes.length, etag: `etag-${file.fileName}` };
+      }),
+      deleteModuleObject: jest.fn(async (_settings, key) => moduleObjects.delete(key))
+    };
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-10T10:00:00.000Z",
+      hits: 0
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithStorage.renameCreatureBlueprint("old_guard", "new_guard");
+
+    expect(moduleObjects.has("modules/current/old_guard.utc")).toBe(false);
+    const renamedBytes = moduleObjects.get("modules/current/new_guard.utc");
+    expect(parseTemplateBlueprintFromGff(renamedBytes as Buffer)).toMatchObject({
+      templateResRef: "new_guard",
+      firstName: "Old Guard",
+      tag: "OLD_GUARD",
+      conversation: "guard_talk",
+      scripts: { scriptheartbeat: "guard_heartbeat" },
+      variableListEntries: [{ name: "patrol_count", type: "int", value: 4 }]
+    });
+    expect(result).toMatchObject({
+      previousResRef: "old_guard",
+      previousObjectKey: "modules/current/old_guard.utc",
+      blueprint: {
+        resref: "new_guard",
+        objectKey: "modules/current/new_guard.utc"
+      }
+    });
+  });
+
+  it("rolls back the new creature UTC when the previous resource cannot be deleted", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const existingBytes = serializeCreatureBlueprintToUtcGff({
+      templateResRef: "old_guard",
+      firstName: "Old Guard",
+      tag: "OLD_GUARD"
+    });
+    const moduleObjects = new Map<string, Buffer>([
+      ["modules/current/old_guard.utc", existingBytes]
+    ]);
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(async (_settings, key) => {
+        const bytes = moduleObjects.get(key);
+        return bytes
+          ? { key, size: bytes.length, contentType: "application/octet-stream", bytes }
+          : null;
+      }),
+      putModuleObject: jest.fn(async (settings, file) => {
+        const key = `${settings.modulePrefix}/${file.fileName}`;
+        moduleObjects.set(key, file.bytes);
+        return { key, size: file.bytes.length };
+      }),
+      deleteModuleObject: jest.fn(async (_settings, key) => {
+        if (key.endsWith("old_guard.utc")) {
+          return false;
+        }
+        return moduleObjects.delete(key);
+      })
+    };
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    await expect(serviceWithStorage.renameCreatureBlueprint("old_guard", "new_guard")).rejects.toMatchObject({
+      code: "CREATURE_BLUEPRINT_RENAME_ROLLED_BACK"
+    });
+    expect(moduleObjects.has("modules/current/old_guard.utc")).toBe(true);
+    expect(moduleObjects.has("modules/current/new_guard.utc")).toBe(false);
+  });
+
+  it("lists validated Creature resource options from the module snapshot", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const soundSetBytes = Buffer.from(
+      "2DA V2.0\nDEFAULT: ****\nRESREF LABEL\n0 ss_guard Guard\n1 ss_orc Orc\n",
+      "utf8"
+    );
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        totalFiles: 5,
+        totalBytes: soundSetBytes.length,
+        objects: [
+          { key: "modules/current/dialogs/guard_talk.dlg", size: 120 },
+          { key: "modules/current/scripts/guard_heartbeat.ncs", size: 80 },
+          { key: "modules/current/portraits/po_hm_guard.tga", size: 40 },
+          { key: "modules/current/portraits/portrait_note.tga", size: 40 },
+          { key: "modules/current/tables/soundset.2da", size: soundSetBytes.length }
+        ],
+        truncated: false
+      }),
+      getModuleObject: jest.fn(async (_settings, key) =>
+        key.endsWith("soundset.2da")
+          ? {
+              key,
+              size: soundSetBytes.length,
+              contentType: "text/plain",
+              bytes: soundSetBytes
+            }
+          : null
+      )
+    };
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    await expect(
+      serviceWithStorage.listCreatureResourceOptions({ kind: "conversation", limit: 20 })
+    ).resolves.toEqual({
+      kind: "conversation",
+      total: 1,
+      items: [{ resRef: "guard_talk", label: "guard_talk" }]
+    });
+    await expect(
+      serviceWithStorage.listCreatureResourceOptions({ kind: "script", limit: 20 })
+    ).resolves.toEqual({
+      kind: "script",
+      total: 1,
+      items: [{ resRef: "guard_heartbeat", label: "guard_heartbeat" }]
+    });
+    await expect(
+      serviceWithStorage.listCreatureResourceOptions({ kind: "portrait", limit: 20 })
+    ).resolves.toEqual({
+      kind: "portrait",
+      total: 1,
+      items: [{ resRef: "po_hm_guard", label: "po_hm_guard" }]
+    });
+    await expect(
+      serviceWithStorage.listCreatureResourceOptions({ kind: "soundset", limit: 20 })
+    ).resolves.toEqual({
+      kind: "soundset",
+      total: 2,
+      items: [
+        { resRef: "ss_guard", label: "Guard", soundSetFile: 0 },
+        { resRef: "ss_orc", label: "Orc", soundSetFile: 1 }
+      ]
+    });
+  });
+
+  it("creates module-backed store UTM blueprints", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue(null),
+      putModuleObject: jest.fn()
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithStorage.createStoreBlueprint({
+      resRef: "Test_Store",
+      name: "Test Store",
+      tag: "TEST_STORE",
+      comments: "Store wizard test",
+      markUp: 145,
+      markDown: 35,
+      blackMarket: true,
+      bmMarkDown: 20,
+      onOpenStore: "open_test_store",
+      storeId: 7,
+      storeListEntries: [
+        {
+          itemListEntries: [
+            {
+              resRef: "nw_it_mpotion021",
+              x: 2,
+              y: 3,
+              infinite: true
+            },
+            {
+              embeddedItem: {
+                sourceStructTypeId: 0xffffffff,
+                templateResRef: "emb_ring",
+                localizedName: "Embedded Ring",
+                tag: "EMB_RING",
+                baseItem: 52
+              },
+              x: 4,
+              y: 5,
+              infinite: false
+            }
+          ]
+        }
+      ],
+      willNotBuyBaseItems: [16],
+      willOnlyBuyBaseItems: [22],
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_store.utm"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_store.utm",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTM,
+        bytes: expect.any(Buffer)
+      })
+    );
+
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    expect(written).toBeInstanceOf(Buffer);
+    const parsed = parseTemplateBlueprintFromGff(written as Buffer);
+
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTM ",
+      templateResRef: "test_store",
+      localizedName: "Test Store",
+      tag: "TEST_STORE",
+      markUp: 145,
+      markDown: 35,
+      blackMarket: true,
+      bmMarkDown: 20,
+      onOpenStore: "open_test_store",
+      storeId: 7,
+      storeListCount: 5,
+      storeItemListTotal: 2,
+      willNotBuyBaseItems: [16],
+      willOnlyBuyBaseItems: [22]
+    });
+    expect(parsed?.storeListEntries?.[0]?.itemListEntries).toEqual([
+      {
+        resRef: "nw_it_mpotion021",
+        x: 2,
+        y: 3,
+        infinite: true
+      },
+      {
+        embeddedItem: {
+          sourceStructTypeId: 0xffffffff,
+          templateResRef: "emb_ring",
+          tag: "EMB_RING",
+          localizedName: "Embedded Ring",
+          baseItem: 52,
+          itemPropertyListCount: undefined,
+          fieldCount: 4
+        },
+        x: 4,
+        y: 5,
+        infinite: false
+      }
+    ]);
+    expect(result).toMatchObject({
+      blueprint: {
+        templateId: "str_test_store",
+        resref: "test_store",
+        name: "Test Store",
+        objectKey: "modules/current/test_store.utm",
+        sourceFileType: "UTM ",
+        sourceFileVersion: "V3.2"
+      },
+      store: {
+        templateId: "str_test_store",
+        kind: "store",
+        resref: "test_store",
+        metadata: {
+          sourceGeneratedBy: "aurora-web-store-wizard",
+          storeListCount: 5,
+          storeItemListTotal: 2,
+          willNotBuyCount: 1,
+          willOnlyBuyCount: 1
+        }
+      }
+    });
+  });
+
+  it("updates and deletes module-backed store UTM blueprints", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue({
+        key: "modules/current/test_store.utm",
+        size: 32,
+        contentType: "application/octet-stream",
+        etag: "existing-store",
+        bytes: Buffer.from("existing")
+      }),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn().mockResolvedValue(true)
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const updated = await serviceWithStorage.updateStoreBlueprint("TEST_STORE", {
+      resRef: "ignored_body_resref",
+      name: "Updated Store",
+      tag: "UPDATED_STORE",
+      markUp: 175,
+      markDown: 40,
+      storeListEntries: [
+        {
+          bucketTypeId: 0,
+          itemListEntries: [{ resRef: "nw_it_mpotion022", x: 1, y: 2 }]
+        }
+      ],
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_store.utm"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_store.utm",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTM
+      })
+    );
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    const parsed = parseTemplateBlueprintFromGff(written as Buffer);
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTM ",
+      templateResRef: "test_store",
+      localizedName: "Updated Store",
+      tag: "UPDATED_STORE",
+      markUp: 175,
+      markDown: 40,
+      storeItemListTotal: 1
+    });
+    expect(updated.blueprint).toMatchObject({
+      templateId: "str_test_store",
+      resref: "test_store",
+      name: "Updated Store"
+    });
+
+    const deleted = await serviceWithStorage.deleteStoreBlueprint("TEST_STORE");
+
+    expect(moduleBlobStorage.deleteModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_store.utm"
+    );
+    expect(deleted).toEqual({
+      resref: "test_store",
+      objectKey: "modules/current/test_store.utm",
+      deleted: true
+    });
+  });
+
+  it("creates module-backed placeable UTP blueprints with inventory ItemList", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue(null),
+      putModuleObject: jest.fn()
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithStorage.createPlaceableBlueprint({
+      templateResRef: "Test_Chest",
+      name: "Test Chest",
+      tag: "TEST_CHEST",
+      comments: "Placeable wizard test",
+      plot: true,
+      useable: true,
+      hasInventory: true,
+      appearanceId: 204,
+      inventoryItemListEntries: [
+        {
+          resRef: "nw_it_mpotion021",
+          x: 2,
+          y: 3,
+          dropable: true,
+          pickpocketable: false,
+          infinite: true
+        },
+        {
+          embeddedItem: {
+            sourceStructTypeId: 0xffffffff,
+            templateResRef: "emb_gem",
+            localizedName: "Embedded Gem",
+            tag: "EMB_GEM",
+            baseItem: 21
+          },
+          x: 4,
+          y: 5,
+          dropable: true,
+          pickpocketable: false,
+          infinite: false
+        }
+      ],
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_chest.utp"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_chest.utp",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP,
+        bytes: expect.any(Buffer)
+      })
+    );
+
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    const parsed = parseTemplateBlueprintFromGff(written as Buffer);
+
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTP ",
+      templateResRef: "test_chest",
+      localizedName: "Test Chest",
+      tag: "TEST_CHEST",
+      comments: "Placeable wizard test",
+      plot: true,
+      useable: true,
+      hasInventory: true,
+      appearanceId: 204,
+      inventoryItemListCount: 2,
+      inventoryItemListEntries: [
+        {
+          resRef: "nw_it_mpotion021",
+          x: 2,
+          y: 3,
+          dropable: true,
+          pickpocketable: false,
+          infinite: true
+        },
+        {
+          embeddedItem: {
+            sourceStructTypeId: 0xffffffff,
+            templateResRef: "emb_gem",
+            tag: "EMB_GEM",
+            localizedName: "Embedded Gem",
+            baseItem: 21,
+            itemPropertyListCount: undefined,
+            fieldCount: 4
+          },
+          x: 4,
+          y: 5,
+          dropable: true,
+          pickpocketable: false,
+          infinite: false
+        }
+      ]
+    });
+    expect(result).toMatchObject({
+      blueprint: {
+        templateId: "plc_test_chest",
+        resref: "test_chest",
+        name: "Test Chest",
+        objectKey: "modules/current/test_chest.utp",
+        sourceFileType: "UTP ",
+        sourceFileVersion: "V3.2"
+      },
+      placeable: {
+        templateId: "plc_test_chest",
+        kind: "placeable",
+        resref: "test_chest",
+        tags: expect.arrayContaining(["container"]),
+        metadata: {
+          sourceGeneratedBy: "aurora-web-placeable-wizard",
+          inventoryItemListCount: 2,
+          hasInventory: true
+        }
+      }
+    });
+  });
+
+  it("updates and deletes module-backed placeable UTP blueprints", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue({
+        key: "modules/current/test_chest.utp",
+        size: 32,
+        contentType: "application/octet-stream",
+        etag: "existing-placeable",
+        bytes: Buffer.from("existing")
+      }),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn().mockResolvedValue(true)
+    };
+    const putModuleObject =
+      moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+    putModuleObject.mockImplementation(async (settings, file) => ({
+      key: `${settings.modulePrefix}/${file.fileName}`,
+      size: file.bytes.length,
+      etag: `etag-${file.fileName}`
+    }));
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const updated = await serviceWithStorage.updatePlaceableBlueprint("TEST_CHEST", {
+      templateResRef: "ignored_body_resref",
+      name: "Updated Chest",
+      tag: "UPDATED_CHEST",
+      useable: true,
+      hasInventory: true,
+      appearanceId: 205,
+      inventoryItemListEntries: [
+        {
+          randomResRef: "nw_it_random001",
+          x: 1,
+          y: 2,
+          infinite: false
+        }
+      ],
+      overwrite: false
+    });
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_chest.utp"
+    );
+    expect(putModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      expect.objectContaining({
+        fileName: "test_chest.utp",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP
+      })
+    );
+    const written = putModuleObject.mock.calls[0]?.[1].bytes;
+    const parsed = parseTemplateBlueprintFromGff(written as Buffer);
+    expect(parsed).toMatchObject({
+      sourceFileType: "UTP ",
+      templateResRef: "test_chest",
+      localizedName: "Updated Chest",
+      tag: "UPDATED_CHEST",
+      hasInventory: true,
+      appearanceId: 205,
+      inventoryItemListEntries: [
+        {
+          randomResRef: "nw_it_random001",
+          x: 1,
+          y: 2,
+          infinite: false
+        }
+      ]
+    });
+    expect(updated.blueprint).toMatchObject({
+      templateId: "plc_test_chest",
+      resref: "test_chest",
+      name: "Updated Chest"
+    });
+
+    const deleted = await serviceWithStorage.deletePlaceableBlueprint("TEST_CHEST");
+
+    expect(moduleBlobStorage.deleteModuleObject).toHaveBeenCalledWith(
+      runtimeSettings.blobStorage,
+      "modules/current/test_chest.utp"
+    );
+    expect(deleted).toEqual({
+      resref: "test_chest",
+      objectKey: "modules/current/test_chest.utp",
+      deleted: true
+    });
   });
 
   it("lists placeables through repository", async () => {
@@ -215,6 +1451,141 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("deduplicates Area GIT batch work by resolved model while keeping instance identities", async () => {
+    repository.resolvePlaceableAppearanceModel = jest.fn().mockResolvedValue({
+      source2da: "placeables.2da",
+      rowId: 12,
+      requestedRowId: 12,
+      modelResRef: "plc_shared_model"
+    });
+    const processSpy = jest
+      .spyOn(service, "processPlaceable")
+      .mockImplementation(async (query) => ({
+        cache: {
+          key: `${query.templateId ?? "template"}-${query.tag ?? "tag"}`.padEnd(64, "0"),
+          hit: false,
+          storedAt: "2026-06-26T10:15:00.000Z",
+          hits: 0
+        },
+        placeable: {
+          ...buildTemplate("placeable", query.templateId ?? "plc_area_instance"),
+          templateId: query.templateId ?? "plc_area_instance",
+          resref: query.resref ?? "area_instance",
+          render: {
+            backendType: "generic",
+            frontendType: "placeable",
+            rendererPreset: "placeable-generic",
+            isDoor: false,
+            isVfx: false
+          },
+          benchmarkCandidate: false,
+          metadata: {
+            tag: query.tag ?? "",
+            appearanceId: query.appearanceType ?? -1
+          },
+          placeableRuntime: {
+            source: {},
+            identity: {},
+            interaction: {},
+            locking: {},
+            trap: {},
+            state: {},
+            scripts: {}
+          },
+          placeableValidationIssues: [],
+          assetManifest: buildEmptyManifest(),
+          classification: {
+            source: "template",
+            normalizedSubtype: "generic",
+            mismatchWithTemplate: false
+          },
+          processedAt: "2026-06-26T10:15:00.000Z"
+        }
+      } as Awaited<ReturnType<CatalogApplicationService["processPlaceable"]>>));
+
+    const first = {
+      templateId: "plc_area_a",
+      resref: "area_a",
+      tag: "area_a_tag",
+      appearanceType: 12,
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    };
+    const second = {
+      templateId: "plc_area_b",
+      resref: "area_b",
+      tag: "area_b_tag",
+      appearanceType: 12,
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    };
+
+    const result = await service.processPlaceablesBatch([first, second]);
+
+    expect(repository.resolvePlaceableAppearanceModel).toHaveBeenCalledWith(12, {
+      tag: "area_a_tag",
+      templateId: "plc_area_a",
+      resref: "area_a"
+    });
+    expect(processSpy).toHaveBeenCalledTimes(1);
+    expect(result.items[0].placeable.templateId).toBe("plc_area_a");
+    expect(result.items[1].placeable.templateId).toBe("plc_area_b");
+  });
+
+  it("keys Area GIT processing cache by the resolved appearance model", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.findByKindAndResref.mockResolvedValue(null);
+    repository.resolvePlaceableAppearanceModel = jest
+      .fn()
+      .mockResolvedValueOnce({
+        source2da: "placeables.2da",
+        rowId: 12301,
+        requestedRowId: 12301,
+        modelResRef: "pms_z21",
+        resolutionPath: "placeables-direct-row"
+      })
+      .mockResolvedValueOnce({
+        source2da: "placeables.2da",
+        rowId: 12201,
+        requestedRowId: 12301,
+        modelResRef: "pms_z12",
+        resolutionPath: "placeables-instance-row-minus-100"
+      });
+    placeableCache.get.mockResolvedValue(null);
+    const storedKeys: string[] = [];
+    placeableCache.set.mockImplementation(async (key, value) => {
+      storedKeys.push(key);
+      return {
+        key,
+        value,
+        storedAt: "2026-06-27T10:00:00.000Z",
+        hits: 0
+      };
+    });
+
+    const query = {
+      templateId: "q_060",
+      resref: "q_060",
+      tag: "q_bowl_3",
+      appearanceType: 12301,
+      subtypeHint: "generic" as const,
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    };
+
+    const directRow = await service.processPlaceable(query);
+    const correctedRow = await service.processPlaceable(query);
+
+    expect(repository.resolvePlaceableAppearanceModel).toHaveBeenCalledTimes(2);
+    expect(storedKeys).toHaveLength(2);
+    expect(storedKeys[1]).not.toBe(storedKeys[0]);
+    expect(directRow.placeable.metadata?.lookupModelResRef).toBe("pms_z21");
+    expect(correctedRow.placeable.metadata?.lookupModelResRef).toBe("pms_z12");
+    expect(correctedRow.placeable.metadata?.lookupResolutionPath).toBe(
+      "placeables-instance-row-minus-100"
+    );
+  });
+
   it("passes placeable subtype filter to repository", async () => {
     repository.listByKind.mockResolvedValue({
       items: [],
@@ -284,6 +1655,849 @@ describe("CatalogApplicationService", () => {
     await service.listItems({ limit: 20, offset: 0 });
 
     expect(repository.listByKind).toHaveBeenCalledWith("item", {
+      limit: 20,
+      offset: 0
+    });
+  });
+
+  it("reports item generator support as ready for GFF-style UTG headers", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const utgBytes = Buffer.from("UTG V3.2\0generator-candidate", "ascii");
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-generator",
+        totalFiles: 1,
+        totalBytes: utgBytes.length,
+        objects: [
+          {
+            key: "modules/current/generators/loot.utg",
+            size: utgBytes.length,
+            etag: "utg-etag"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn(async (_settings, key) =>
+        key === "modules/current/generators/loot.utg"
+          ? {
+              key,
+              size: utgBytes.length,
+              contentType: "application/octet-stream",
+              etag: "utg-etag",
+              bytes: utgBytes
+            }
+          : null
+      )
+    };
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.getItemGeneratorSupport();
+
+    expect(result).toMatchObject({
+      supported: false,
+      status: "unsupported",
+      parserImplemented: false,
+      parseableGffCount: 0
+    });
+    expect(result.gffCandidateCount).toBeGreaterThanOrEqual(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "loot.utg",
+          header: "UTG V3.2",
+          classification: "gff-candidate",
+          supported: false,
+          parseable: false
+        })
+      ])
+    );
+  });
+
+  it("lists items with derived model part resref metadata", async () => {
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_cnr_b_dagger"),
+      resref: "cnr_b_dagger",
+      metadata: {
+        ...buildTemplate("item", "item_cnr_b_dagger").metadata,
+        baseItem: 22,
+        baseItemModelType: "wswdg",
+        modelPart1: 11,
+        modelPart2: 13,
+        modelPart3: 63
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await service.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      baseItemModelType: "wswdg",
+      modelPartResRef1: "wswdg_b_011",
+      modelPartResRef2: "wswdg_m_013",
+      modelPartResRef3: "wswdg_t_063",
+      modelPartResRefRole1: "blade",
+      modelPartResRefRole2: "middle",
+      modelPartResRefRole3: "top",
+      itemModelRefs: "wswdg_b_011|wswdg_m_013|wswdg_t_063"
+    });
+  });
+
+  it("lists item icon candidates through a materialized cache entry", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const iconBytes = Buffer.from([
+      0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8, 255, 128, 64, 255
+    ]);
+    const iconObjectKey = "modules/current/__aurora/sources/vanilla/textures/iwswdg.tga";
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-icon-list",
+        totalFiles: 1,
+        totalBytes: iconBytes.length,
+        objects: [
+          {
+            key: iconObjectKey,
+            size: iconBytes.length,
+            etag: "icon-etag"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn(async (_settings, key) =>
+        key === iconObjectKey
+          ? {
+              key,
+              size: iconBytes.length,
+              contentType: "image/x-tga",
+              etag: "icon-etag",
+              bytes: iconBytes
+            }
+          : null
+      )
+    };
+    const cacheStore = new Map<string, unknown>();
+    placeableCache.get.mockImplementation(async (key) => {
+      const value = cacheStore.get(key);
+      return value
+        ? {
+            key,
+            value,
+            storedAt: "2026-07-02T18:40:00.000Z",
+            hits: 1
+          }
+        : null;
+    });
+    placeableCache.set.mockImplementation(async (key, value) => {
+      cacheStore.set(key, value);
+      return {
+        key,
+        value,
+        storedAt: "2026-07-02T18:40:00.000Z",
+        hits: 0
+      };
+    });
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_cnr_b_dagger"),
+      resref: "cnr_b_dagger",
+      metadata: {
+        ...buildTemplate("item", "item_cnr_b_dagger").metadata,
+        baseItem: 22,
+        baseItemDefaultIcon: "iwswdg",
+        baseItemModelType: "wswdg",
+        modelPart1: 11,
+        modelPart2: 13,
+        modelPart3: 63
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await serviceWithBlob.listItems({ limit: 20, offset: 0 });
+
+    const candidates = JSON.parse(
+      String(response.items[0].metadata.modelAssetCandidates)
+    ) as Array<{ assetId: string; reference: string; assetUrl: string }>;
+    expect(candidates[0]).toMatchObject({
+      reference: "iwswdg",
+      assetUrl: expect.stringContaining("/api/v1/catalog/placeables/cache/")
+    });
+    const urlMatch = candidates[0].assetUrl.match(/\/cache\/([^/]+)\/assets\/([^/.]+)\.tga$/u);
+    expect(urlMatch).not.toBeNull();
+    const iconCacheKey = urlMatch?.[1] ?? "";
+    const iconAssetId = urlMatch?.[2] ?? "";
+    expect(placeableCache.set).toHaveBeenCalledWith(
+      iconCacheKey,
+      expect.objectContaining({
+        kind: "item",
+        assetManifest: expect.objectContaining({
+          moduleHash: "hash-item-icon-list"
+        })
+      })
+    );
+
+    const asset = await serviceWithBlob.getProcessedPlaceableAsset(iconCacheKey, iconAssetId);
+
+    expect(asset.asset.objectKey).toBe(iconObjectKey);
+    expect(asset.payload.bytes).toEqual(iconBytes);
+  });
+
+  it("lists potion default model candidates through the item list asset manifest", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const itemObjects = [
+      "modules/current/__aurora/sources/vanilla/models/it_potion_000.glb",
+      "modules/current/__aurora/sources/vanilla/textures/iit_potion.tga"
+    ].map((key) => ({
+      key,
+      size: 4096,
+      etag: `${key}-etag`
+    }));
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-potion-list-assets",
+        totalFiles: itemObjects.length,
+        totalBytes: itemObjects.reduce((sum, entry) => sum + entry.size, 0),
+        objects: itemObjects,
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn()
+    };
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-06T18:30:00.000Z",
+      hits: 0
+    }));
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_it_mpotion002"),
+      resref: "nw_it_mpotion002",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_it_mpotion002").metadata,
+        baseItem: 49,
+        baseItemDefaultIcon: "iit_potion",
+        baseItemModelType: "it_potion",
+        modelPart1: 41,
+        modelPart2: 13,
+        modelPart3: 33
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await serviceWithBlob.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      modelPartResRef1: "it_potion_000",
+      modelPartResRefRole1: "default",
+      itemModelRefs: "it_potion_000",
+      itemIconRefs: "iit_potion"
+    });
+    const candidates = JSON.parse(
+      String(response.items[0].metadata.modelAssetCandidates)
+    ) as Array<{ role: string; reference: string; assetUrl: string }>;
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "model", reference: "it_potion_000" }),
+        expect.objectContaining({ role: "texture", reference: "iit_potion" })
+      ])
+    );
+    expect(placeableCache.set).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        kind: "item",
+        metadata: expect.objectContaining({
+          itemModelRefs: "it_potion_000",
+          itemIconRefs: "iit_potion"
+        }),
+        assetManifest: expect.objectContaining({
+          moduleHash: "hash-item-potion-list-assets"
+        })
+      })
+    );
+  });
+
+  it("generates all multipart weapon model candidates before falling back to the inventory icon", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-item-model-hak-"));
+    const hakPath = join(tempRoot, "items.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "wswdg_b_011",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: Buffer.from("newmodel wswdg_b_011", "utf-8")
+        },
+        {
+          resref: "wswdg_m_013",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: Buffer.from("newmodel wswdg_m_013", "utf-8")
+        },
+        {
+          resref: "wswdg_t_063",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: Buffer.from("newmodel wswdg_t_063", "utf-8")
+        }
+      ])
+    );
+
+    try {
+      const runtimeSettings = buildRuntimeSettingsRecord();
+      runtimeSettings.paths.hakDirectoryPath = tempRoot;
+      runtimeSettings.paths.moduleDecompiledPath = "";
+      runtimeSettings.sources.item = {
+        ...(runtimeSettings.sources.item ?? {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: false,
+          includeVanilla: false,
+          hakProfileId: "",
+          hakPriorityList: []
+        }),
+        includeHaks: true,
+        includeVanilla: false,
+        hakProfileId: "lc_items"
+      };
+      runtimeSettings.hakProfiles.lc_items = ["items.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(runtimeSettings),
+        save: jest.fn()
+      };
+      const storedObjects = new Map<
+        string,
+        { bytes: Buffer; contentType: string; etag: string }
+      >();
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-potion-on-demand-models",
+        totalFiles: 0,
+        totalBytes: 0,
+        objects: [],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+        const stored = storedObjects.get(key);
+        return stored
+          ? {
+              key,
+              size: stored.bytes.length,
+              contentType: stored.contentType,
+              etag: stored.etag,
+              bytes: stored.bytes
+            }
+          : null;
+      });
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      putModuleObject.mockImplementation(async (_settings, file) => {
+        const normalizedFileName = file.fileName.replace(/\\/gu, "/").replace(/^\/+/u, "");
+        const key = `modules/current/${normalizedFileName}`;
+        const bytes = Buffer.from(file.bytes);
+        const etag = `etag-${storedObjects.size + 1}`;
+        storedObjects.set(key, {
+          bytes,
+          contentType: "application/octet-stream",
+          etag
+        });
+        return { key, size: bytes.length, etag };
+      });
+      const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+        generateDerivedAssets: jest.fn(
+          async (input: Parameters<DerivedAssetGeneratorPort["generateDerivedAssets"]>[0]) => ({
+            files: input.sourceFiles.map((sourceFile) => {
+              const fileName = sourceFile.fileName.replace(/\\/gu, "/").split("/").pop() ?? "";
+              const resref = fileName.replace(/\.[^.]+$/u, "");
+              return {
+                fileName: `__aurora/derived/models/${resref}.glb`,
+                resourceType: 0,
+                bytes: Buffer.from(`glb:${resref}`, "utf-8")
+              };
+            }),
+            summary: {
+              generator: "test-generator",
+              generatedFiles: input.sourceFiles.length,
+              generatedBytes: input.sourceFiles.length
+            }
+          })
+        )
+      };
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage,
+        derivedAssetGenerator
+      );
+      const itemTemplate: TemplateRecord = {
+        ...buildTemplate("item", "item_cnr_b_dagger"),
+        resref: "cnr_b_dagger",
+        metadata: {
+          ...buildTemplate("item", "item_cnr_b_dagger").metadata,
+          baseItem: 22,
+          baseItemDefaultIcon: "iwswdg",
+          baseItemModelType: "wswdg",
+          modelPart1: 11,
+          modelPart2: 13,
+          modelPart3: 63
+        }
+      };
+      repository.listByKind.mockResolvedValue({
+        items: [itemTemplate],
+        total: 1,
+        limit: 20,
+        offset: 0
+      });
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-07-06T19:05:00.000Z",
+        hits: 0
+      }));
+
+      const response = await serviceWithBlob.listItems({ limit: 20, offset: 0 });
+
+      expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledWith({
+        settingsRevision: runtimeSettings.revision,
+        modulePrefix: runtimeSettings.blobStorage.modulePrefix,
+        sourceFiles: expect.arrayContaining([
+          expect.objectContaining({ fileName: expect.stringContaining("wswdg_b_011.mdl") }),
+          expect.objectContaining({ fileName: expect.stringContaining("wswdg_m_013.mdl") }),
+          expect.objectContaining({ fileName: expect.stringContaining("wswdg_t_063.mdl") })
+        ])
+      });
+      const candidates = JSON.parse(
+        String(response.items[0].metadata.modelAssetCandidates)
+      ) as Array<{ role: string; extension: string; reference: string }>;
+      expect(candidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "model",
+            extension: "glb",
+            reference: "wswdg_b_011"
+          }),
+          expect.objectContaining({
+            role: "model",
+            extension: "glb",
+            reference: "wswdg_m_013"
+          }),
+          expect.objectContaining({
+            role: "model",
+            extension: "glb",
+            reference: "wswdg_t_063"
+          })
+        ])
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds stale item list icon cache entries when model assets are required", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const itemObjects = [
+      "modules/current/__aurora/sources/vanilla/models/it_potion_000.glb",
+      "modules/current/__aurora/sources/vanilla/textures/iit_potion.tga"
+    ].map((key) => ({
+      key,
+      size: 4096,
+      etag: `${key}-etag`
+    }));
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-potion-list-assets-rebuild",
+        totalFiles: itemObjects.length,
+        totalBytes: itemObjects.reduce((sum, entry) => sum + entry.size, 0),
+        objects: itemObjects,
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn()
+    };
+    const staleManifest = {
+      version: "placeable-asset-manifest/v1" as const,
+      source: "module-blob-snapshot" as const,
+      generatedAt: "2026-07-06T18:40:00.000Z",
+      moduleHash: "stale-icon-only",
+      assetCount: 1,
+      candidatesScanned: 1,
+      assets: [
+        {
+          assetId: "stale-icon",
+          role: "texture",
+          fileName: "iit_potion.tga",
+          objectKey: "modules/current/__aurora/sources/vanilla/textures/iit_potion.tga",
+          extension: "tga",
+          sizeBytes: 128,
+          contentType: "image/x-tga"
+        }
+      ]
+    };
+    let getCount = 0;
+    placeableCache.get.mockImplementation(async (key) => {
+      getCount += 1;
+      if (getCount === 1) {
+        return {
+          key,
+          value: {
+            templateId: "itm_nw_it_mpotion002",
+            kind: "item",
+            resref: "nw_it_mpotion002",
+            name: "Potion",
+            category: "test",
+            benchmarkCandidate: false,
+            metadata: {},
+            render: buildTemplate("item", "itm_nw_it_mpotion002").metadata,
+            assetManifest: staleManifest,
+            processedAt: "2026-07-06T18:40:00.000Z"
+          },
+          storedAt: "2026-07-06T18:40:00.000Z",
+          hits: 1
+        };
+      }
+      return null;
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-06T19:10:00.000Z",
+      hits: 0
+    }));
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_it_mpotion002"),
+      resref: "nw_it_mpotion002",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_it_mpotion002").metadata,
+        baseItem: 49,
+        baseItemDefaultIcon: "iit_potion",
+        baseItemModelType: "it_potion",
+        baseItemDefaultModel: "it_potion_000",
+        modelPart1: 41,
+        modelPart2: 13,
+        modelPart3: 33
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await serviceWithBlob.listItems({ limit: 20, offset: 0 });
+
+    const candidates = JSON.parse(
+      String(response.items[0].metadata.modelAssetCandidates)
+    ) as Array<{ role: string; extension: string; reference: string }>;
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "model", extension: "glb", reference: "it_potion_000" })
+      ])
+    );
+    expect(placeableCache.set).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        assetManifest: expect.objectContaining({
+          moduleHash: "hash-item-potion-list-assets-rebuild"
+        })
+      })
+    );
+  });
+
+  it("lists shield items as single-piece model refs", async () => {
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_tower_shield"),
+      resref: "tower_shield",
+      metadata: {
+        ...buildTemplate("item", "item_tower_shield").metadata,
+        baseItem: 57,
+        baseItemModelType: "AShTo",
+        modelPart1: 95
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await service.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      baseItemModelType: "AShTo",
+      modelPartResRef1: "ashto_095",
+      modelPartResRefRole1: "blade",
+      itemModelRefs: "ashto_095"
+    });
+  });
+
+  it("lists creature fist items as single-piece model refs", async () => {
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_boxer_gloves"),
+      resref: "boxer_gloves",
+      metadata: {
+        ...buildTemplate("item", "item_boxer_gloves").metadata,
+        baseItem: 510,
+        baseItemModelType: "wlcfg",
+        modelPart1: 49
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await service.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      baseItemModelType: "wlcfg",
+      modelPartResRef1: "wlcfg_049",
+      modelPartResRefRole1: "blade",
+      itemModelRefs: "wlcfg_049"
+    });
+  });
+
+  it("lists misc item classes as single-piece model refs", async () => {
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_chest"),
+      resref: "chest_item",
+      metadata: {
+        ...buildTemplate("item", "item_chest").metadata,
+        baseItem: 406,
+        baseItemModelType: "it_misc",
+        modelPart1: 206
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await service.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      baseItemModelType: "it_misc",
+      modelPartResRef1: "it_misc_206",
+      modelPartResRefRole1: "blade",
+      itemModelRefs: "it_misc_206"
+    });
+  });
+
+  it("lists custom small misc item classes as single-piece model refs", async () => {
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_l_shards"),
+      resref: "l_shards",
+      metadata: {
+        ...buildTemplate("item", "item_l_shards").metadata,
+        baseItem: 407,
+        baseItemModelType: "it_smlmis3",
+        modelPart1: 166
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await service.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      baseItemModelType: "it_smlmis3",
+      modelPartResRef1: "it_smlmis3_166",
+      modelPartResRefRole1: "blade",
+      itemModelRefs: "it_smlmis3_166"
+    });
+  });
+
+  it("lists cloak items with cloakmodel.2da model texture and icon refs", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
+      save: jest.fn()
+    };
+    const serviceWithRuntime = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository
+    );
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_cloak_arcane"),
+      resref: "cloak_arcane",
+      metadata: {
+        ...buildTemplate("item", "item_cloak_arcane").metadata,
+        baseItem: 80,
+        baseItemModelType: "cloak",
+        baseItemDefaultIcon: "icloak_m_001",
+        modelPart1: 2
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await serviceWithRuntime.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      cloakModelRow: 2,
+      cloakModel: 1,
+      cloakTexture: 10,
+      cloakIcon: 2,
+      cloakModelResRef: "pmh0_cloak_001",
+      cloakTextureResRef: "pmh0_cloak_010",
+      cloakIconResRef: "icloak_m_002",
+      cloakHiddenSlots: "wing|rShoul",
+      modelPartResRef1: "pmh0_cloak_001",
+      modelPartResRefRole1: "cloak",
+      itemModelRefs: "pmh0_cloak_001",
+      itemTextureRefs: "pmh0_cloak_010",
+      itemIconRefs: "icloak_m_001|icloak_m_002"
+    });
+  });
+
+  it("lists robe armor with parts_robe hide mask applied to model refs", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
+      save: jest.fn()
+    };
+    const serviceWithRuntime = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository
+    );
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "item_robe_armor"),
+      resref: "robe_armor",
+      metadata: {
+        ...buildTemplate("item", "item_robe_armor").metadata,
+        baseItem: 16,
+        bodyPartRFoot: 4,
+        bodyPartRShin: 13,
+        bodyPartRThigh: 3,
+        bodyPartPelvis: 8,
+        bodyPartTorso: 43,
+        bodyPartBelt: 5,
+        bodyPartRobe: 5
+      }
+    };
+    repository.listByKind.mockResolvedValue({
+      items: [itemTemplate],
+      total: 1,
+      limit: 20,
+      offset: 0
+    });
+
+    const response = await serviceWithRuntime.listItems({ limit: 20, offset: 0 });
+
+    expect(response.items[0].metadata).toMatchObject({
+      armorRobeHiddenSlots: "rShin|lShin|rThigh|lThigh|pelvis|torso|belt|rShoul|lShoul",
+      armorRobeHiddenSlotCount: 9,
+      armorRobeHideSource2daRow: 5,
+      itemModelRefs: "pmh0_footr004|pmh0_robe005"
+    });
+  });
+
+  it("lists encounters through repository", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0
+    });
+
+    await service.listEncounters({ limit: 20, offset: 0 });
+
+    expect(repository.listByKind).toHaveBeenCalledWith("encounter", {
       limit: 20,
       offset: 0
     });
@@ -452,7 +2666,7 @@ describe("CatalogApplicationService", () => {
 
   it("returns missing_derived render package when only raw model assets are discovered", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
-      get: jest.fn(),
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
       save: jest.fn()
     };
     const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
@@ -634,6 +2848,142 @@ describe("CatalogApplicationService", () => {
     expect(result.placeable.renderPackage?.glbUrl).toMatch(
       /^\/api\/v1\/catalog\/placeables\/cache\/.+\/assets\/.+\.glb$/u
     );
+  });
+
+  it("keeps non-generating batch cache entries separate from full placeable processing", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-batch-cache-raw-model",
+      totalFiles: 1,
+      totalBytes: 12,
+      objects: [
+        {
+          key: "modules/current/models/plc_raw.mdl",
+          size: 12,
+          etag: "model-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === "modules/current/models/plc_raw.mdl") {
+        return {
+          key,
+          size: 12,
+          contentType: "application/octet-stream",
+          etag: "model-hash",
+          bytes: Buffer.from("mdl")
+        };
+      }
+      if (key === "modules/current/__aurora/derived/models/plc_raw.glb") {
+        return {
+          key,
+          size: 3,
+          contentType: "model/gltf-binary",
+          etag: "derived-hash",
+          bytes: Buffer.from("glb")
+        };
+      }
+      return null;
+    });
+    (moduleBlobStorage.putModuleObject as jest.Mock).mockResolvedValue({
+      key: "modules/current/__aurora/derived/models/plc_raw.glb",
+      size: 3,
+      etag: "derived-hash"
+    });
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn(
+        async (_input: Parameters<DerivedAssetGeneratorPort["generateDerivedAssets"]>[0]) => ({
+        files: [
+          {
+            fileName: "__aurora/derived/models/plc_raw.glb",
+            resourceType: 0,
+            bytes: Buffer.from("glb")
+          }
+        ],
+        summary: {
+          generator: "test-generator",
+          generatedFiles: 1,
+          generatedBytes: 3
+        }
+      }))
+    };
+
+    const template: TemplateRecord = {
+      ...buildTemplate("placeable", "plc_raw_001"),
+      resref: "plc_raw",
+      placeableSubtype: "generic"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    const cachedEntries = new Map<string, { value: PlaceableProcessingResult; storedAt: string; hits: number }>();
+    placeableCache.get.mockImplementation(async (key) => {
+      const cached = cachedEntries.get(key);
+      if (!cached) {
+        return null;
+      }
+      cached.hits += 1;
+      return {
+        key,
+        value: cached.value,
+        storedAt: cached.storedAt,
+        hits: cached.hits
+      };
+    });
+    placeableCache.set.mockImplementation(async (key, value) => {
+      const storedAt = "2026-05-24T10:10:00.000Z";
+      const typedValue = value as PlaceableProcessingResult;
+      cachedEntries.set(key, { value: typedValue, storedAt, hits: 0 });
+      return {
+        key,
+        value: typedValue,
+        storedAt,
+        hits: 0
+      };
+    });
+
+    const serviceWithDerived = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const batch = await serviceWithDerived.processPlaceablesBatch([
+      {
+        templateId: "plc_raw_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      }
+    ]);
+
+    expect(batch.items[0].placeable.renderPackage?.status).toBe("missing_derived");
+    expect(derivedAssetGenerator.generateDerivedAssets).not.toHaveBeenCalled();
+
+    const full = await serviceWithDerived.processPlaceable({
+      templateId: "plc_raw_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(full.cache.hit).toBe(false);
+    expect(full.placeable.renderPackage?.status).toBe("ready");
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledTimes(1);
+    expect(new Set([...cachedEntries.keys()]).size).toBe(2);
   });
 
   it("returns ready render package with delivery urls when derived glb is discovered", async () => {
@@ -893,6 +3243,149 @@ describe("CatalogApplicationService", () => {
     );
   });
 
+  it("adds fxpa_dot01 as a fast-shadow texture asset when placeables.2da ShadowSize is present", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-placeable-shadow-texture-"));
+    const hakPath = join(tempRoot, "shadow_textures.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "fxpa_dot01",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TGA,
+          bytes: Buffer.from([
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8,
+            255, 255, 255, 255
+          ])
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "shadow_textures";
+      settings.hakProfiles.shadow_textures = ["shadow_textures.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const storedObjects = new Map<
+        string,
+        { bytes: Buffer; contentType: string; etag: string }
+      >();
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      const derivedKey = "modules/current/__aurora/derived/models/plc_shadow.glb";
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-shadow-texture",
+        totalFiles: 1,
+        totalBytes: 120,
+        objects: [{ key: derivedKey, size: 120, etag: "derived-hash" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+        if (key === derivedKey) {
+          const bytes = buildGlbWithTextureReferences([]);
+          return {
+            key,
+            size: bytes.length,
+            contentType: "model/gltf-binary",
+            bytes
+          };
+        }
+        const stored = storedObjects.get(key);
+        return stored
+          ? {
+              key,
+              size: stored.bytes.length,
+              contentType: stored.contentType,
+              etag: stored.etag,
+              bytes: stored.bytes
+            }
+          : null;
+      });
+      putModuleObject.mockImplementation(async (_settings, file) => {
+        const normalizedFileName = file.fileName.replace(/\\/gu, "/").replace(/^\/+/u, "");
+        const key = `modules/current/${normalizedFileName}`;
+        const bytes = Buffer.from(file.bytes);
+        const etag = `etag-${storedObjects.size + 1}`;
+        storedObjects.set(key, {
+          bytes,
+          contentType: "application/octet-stream",
+          etag
+        });
+        return { key, size: bytes.length, etag };
+      });
+
+      repository.findByKindAndId.mockResolvedValue({
+        ...buildTemplate("placeable", "plc_shadow_001"),
+        resref: "plc_shadow",
+        placeableSubtype: "generic",
+        metadata: {
+          lookupModelResRef: "plc_shadow",
+          source2daShadowSize: 1
+        }
+      });
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:10:00.000Z",
+        hits: 0
+      }));
+
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage
+      );
+
+      const result = await serviceWithBlob.processPlaceable({
+        templateId: "plc_shadow_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      const textureAsset = result.placeable.assetManifest.assets.find(
+        (asset) => asset.fileName === "fxpa_dot01.tga"
+      );
+      expect(textureAsset).toMatchObject({
+        role: "texture",
+        extension: "tga",
+        contentType: "image/x-tga"
+      });
+      expect(result.placeable.renderPackage?.assetRefs.textureAssetIds).toContain(
+        textureAsset?.assetId
+      );
+      expect(result.placeable.renderPackage?.textureBindings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            reference: "fxpa_dot01",
+            fileName: "fxpa_dot01.tga"
+          })
+        ])
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("resolves on-demand material assets before collecting material texture maps", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "aurora-placeable-material-hak-"));
     const hakPath = join(tempRoot, "materials.hak");
@@ -903,13 +3396,13 @@ describe("CatalogApplicationService", () => {
           resref: "mat_ref",
           restype: 2072,
           bytes: Buffer.from(
-            ["renderhint NormalAndSpecMapped", "texture0 mat_ref_d", "texture1 mat_ref_n"].join(
+            ["renderhint NormalAndSpecMapped", "texture0 mat_ref", "texture1 mat_ref_n"].join(
               "\n"
             ),
             "utf-8"
           )
         },
-        { resref: "mat_ref_d", restype: 2033, bytes: Buffer.from([1, 2, 3]) },
+        { resref: "mat_ref", restype: 2033, bytes: Buffer.from([1, 2, 3]) },
         { resref: "mat_ref_n", restype: 2033, bytes: Buffer.from([4, 5, 6]) }
       ])
     );
@@ -1024,7 +3517,7 @@ describe("CatalogApplicationService", () => {
           }),
           expect.objectContaining({
             role: "texture",
-            fileName: "mat_ref_d.dds"
+            fileName: "mat_ref.dds"
           }),
           expect.objectContaining({
             role: "texture",
@@ -1036,7 +3529,7 @@ describe("CatalogApplicationService", () => {
         (asset) => asset.role === "texture"
       );
       expect(textureAssets.map((asset) => asset.fileName).sort()).toEqual([
-        "mat_ref_d.dds",
+        "mat_ref.dds",
         "mat_ref_n.dds"
       ]);
       expect(result.placeable.renderPackage?.textureUrls).toEqual(
@@ -1046,6 +3539,317 @@ describe("CatalogApplicationService", () => {
         )
       );
     } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers DDS texture variants over earlier HAK TGA assets for material diffuse maps", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-placeable-dds-priority-"));
+    const oldHakPath = join(tempRoot, "core_textures.hak");
+    const reforgeHakPath = join(tempRoot, "reforge_materials.hak");
+    await writeFile(
+      oldHakPath,
+      buildHakV10File([
+        { resref: "mat_ref", restype: NWN_KEY_BIF_RESOURCE_TYPES.TGA, bytes: Buffer.from([9, 9, 9]) }
+      ])
+    );
+    await writeFile(
+      reforgeHakPath,
+      buildHakV10File([
+        {
+          resref: "mat_ref",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MTR,
+          bytes: Buffer.from(
+            ["renderhint NormalAndSpecMapped", "texture0 mat_ref", "texture1 mat_ref_n"].join(
+              "\n"
+            ),
+            "utf-8"
+          )
+        },
+        {
+          resref: "mat_ref",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+          bytes: buildNwnRawDxtTextureBytes({ width: 4, height: 4, encoding: 4 })
+        },
+        {
+          resref: "mat_ref_n",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+          bytes: buildNwnRawDxtTextureBytes({ width: 4, height: 4, encoding: 3 })
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "dds_priority";
+      settings.hakProfiles.dds_priority = ["core_textures.hak", "reforge_materials.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const storedObjects = new Map<
+        string,
+        { bytes: Buffer; contentType: string; etag: string }
+      >();
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      const derivedKey = "modules/current/__aurora/derived/models/plc_material.glb";
+      const tgaSnapshotKey =
+        "modules/current/__aurora/sources/hak/core_textures/textures/mat_ref.tga";
+      const rawDdsSnapshotKey =
+        "modules/current/__aurora/sources/hak/reforge_materials/mat_ref.dds";
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-dds-priority",
+        totalFiles: 3,
+        totalBytes: 145,
+        objects: [
+          { key: derivedKey, size: 120, etag: "derived-hash" },
+          { key: tgaSnapshotKey, size: 9, etag: "old-tga" },
+          { key: rawDdsSnapshotKey, size: 16, etag: "raw-dds" }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+        if (key === derivedKey) {
+          const bytes = buildGlbWithTextureReferences(["mat_ref"]);
+          return {
+            key,
+            size: bytes.length,
+            contentType: "model/gltf-binary",
+            bytes
+          };
+        }
+        const stored = storedObjects.get(key);
+        return stored
+          ? {
+              key,
+              size: stored.bytes.length,
+              contentType: stored.contentType,
+              etag: stored.etag,
+              bytes: stored.bytes
+            }
+          : null;
+      });
+      putModuleObject.mockImplementation(async (_settings, file) => {
+        const normalizedFileName = file.fileName.replace(/\\/gu, "/").replace(/^\/+/u, "");
+        const key = `modules/current/${normalizedFileName}`;
+        const bytes = Buffer.from(file.bytes);
+        const etag = `etag-${storedObjects.size + 1}`;
+        storedObjects.set(key, {
+          bytes,
+          contentType: "application/octet-stream",
+          etag
+        });
+        return { key, size: bytes.length, etag };
+      });
+
+      repository.findByKindAndId.mockResolvedValue({
+        ...buildTemplate("placeable", "plc_material_001"),
+        resref: "plc_material",
+        placeableSubtype: "generic",
+        metadata: {
+          lookupModelResRef: "plc_material"
+        }
+      });
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:10:00.000Z",
+        hits: 0
+      }));
+
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage
+      );
+
+      const result = await serviceWithBlob.processPlaceable({
+        templateId: "plc_material_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledTimes(3);
+      expect(result.placeable.assetManifest.assets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "material",
+            fileName: "mat_ref.mtr"
+          }),
+          expect.objectContaining({
+            role: "texture",
+            fileName: "mat_ref.dds"
+          }),
+          expect.objectContaining({
+            role: "texture",
+            fileName: "mat_ref_n.dds"
+          })
+        ])
+      );
+      const textureAssets = result.placeable.assetManifest.assets.filter(
+        (asset) => asset.role === "texture"
+      );
+      expect(
+        storedObjects
+          .get("modules/current/__aurora/sources/hak/reforge_materials/mat_ref.dds")
+          ?.bytes.subarray(0, 4)
+          .toString("ascii")
+      ).toBe("DDS ");
+      expect(textureAssets.map((asset) => asset.fileName).sort()).toEqual([
+        "mat_ref.dds",
+        "mat_ref_n.dds"
+      ]);
+      expect(result.placeable.renderPackage?.textureUrls).toEqual(
+        textureAssets.map(
+          (asset) =>
+            `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/${asset.assetId}.dds`
+        )
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves host-local vanilla texture assets through /host/nwn-game mounts", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-placeable-host-vanilla-"));
+    const gameDataRoot = join(tempRoot, "game", "data");
+    const previousHostRuntime = process.env.AURORA_HOST_LOCAL_RUNTIME;
+    const previousGameRoot = process.env.AURORA_HOST_NWN_GAME_ROOT;
+
+    try {
+      await mkdir(gameDataRoot, { recursive: true });
+      await writeFakeKeyBif(gameDataRoot, [
+        {
+          resref: "tin01_sac",
+          resourceType: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+          bytes: Buffer.from("DDS_SACK", "utf-8")
+        }
+      ]);
+
+      process.env.AURORA_HOST_LOCAL_RUNTIME = "1";
+      process.env.AURORA_HOST_NWN_GAME_ROOT = join(tempRoot, "game");
+
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.vanillaDataPath = "/host/nwn-game/data";
+      settings.sources.placeable.includeVanilla = true;
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      const derivedKey = "modules/current/__aurora/derived/models/plc_hangbag.glb";
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-host-local-vanilla-texture",
+        totalFiles: 1,
+        totalBytes: 120,
+        objects: [{ key: derivedKey, size: 120, etag: "derived-hash" }],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) =>
+        key === derivedKey
+          ? {
+              key,
+              size: 120,
+              contentType: "model/gltf-binary",
+              etag: "derived-hash",
+              bytes: buildGlbWithTextureReferences(["tin01_sac"])
+            }
+          : null
+      );
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length,
+        etag: `etag-${file.fileName}`
+      }));
+
+      repository.findByKindAndId.mockResolvedValue({
+        ...buildTemplate("placeable", "plc_hangbag_001"),
+        resref: "plc_hangbag",
+        placeableSubtype: "generic",
+        metadata: {
+          lookupModelResRef: "plc_hangbag"
+        }
+      });
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:10:00.000Z",
+        hits: 0
+      }));
+
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage
+      );
+
+      const result = await serviceWithBlob.processPlaceable({
+        templateId: "plc_hangbag_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      expect(putModuleObject).toHaveBeenCalledWith(
+        settings.blobStorage,
+        expect.objectContaining({
+          fileName: "__aurora/sources/vanilla/textures/tin01_sac.dds",
+          resourceType: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+          bytes: Buffer.from("DDS_SACK", "utf-8")
+        })
+      );
+      expect(result.placeable.renderPackage?.textureBindings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            reference: "tin01_sac",
+            assetId: expect.any(String)
+          })
+        ])
+      );
+    } finally {
+      if (previousHostRuntime === undefined) {
+        delete process.env.AURORA_HOST_LOCAL_RUNTIME;
+      } else {
+        process.env.AURORA_HOST_LOCAL_RUNTIME = previousHostRuntime;
+      }
+      if (previousGameRoot === undefined) {
+        delete process.env.AURORA_HOST_NWN_GAME_ROOT;
+      } else {
+        process.env.AURORA_HOST_NWN_GAME_ROOT = previousGameRoot;
+      }
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
@@ -1764,11 +4568,30 @@ describe("CatalogApplicationService", () => {
       const sourceByKey = new Map([
         [
           "modules/current/materials/fx_add.mtr",
-          ["blending additive", "decal 0"].join("\n")
+          [
+            "blending additive",
+            "decal 0",
+            "transparency 0",
+            "twosided 0",
+            "renderhint NormalTangents",
+            "texture0 fx_add_d",
+            "texture1 fx_add_n"
+          ].join("\n")
         ],
         [
           "modules/current/materials/fx_punch.mtr",
-          ["blending punchthrough", "decal 1"].join("\n")
+          [
+            "blending punchthrough",
+            "decal 1",
+            "transparency 1",
+            "twosided 1",
+            "renderhint NormalAndSpecMapped",
+            "bitmap fx_punch_bitmap",
+            "texture0 fx_punch_d",
+            "texture2 fx_punch_s",
+            "parameter float Roughness 0.62",
+            "parameter float Specularity 0.45"
+          ].join("\n")
         ],
         [
           "modules/current/materials/fx_unknown.mtr",
@@ -1798,19 +4621,22 @@ describe("CatalogApplicationService", () => {
         assetId: "asset_material_add",
         role: "material",
         fileName: "fx_add.mtr",
-        objectKey: "modules/current/materials/fx_add.mtr"
+        objectKey: "modules/current/materials/fx_add.mtr",
+        extension: "mtr"
       },
       {
         assetId: "asset_material_punch",
         role: "material",
         fileName: "fx_punch.mtr",
-        objectKey: "modules/current/materials/fx_punch.mtr"
+        objectKey: "modules/current/materials/fx_punch.mtr",
+        extension: "mtr"
       },
       {
         assetId: "asset_material_unknown",
         role: "material",
         fileName: "fx_unknown.mtr",
-        objectKey: "modules/current/materials/fx_unknown.mtr"
+        objectKey: "modules/current/materials/fx_unknown.mtr",
+        extension: "mtr"
       }
     ];
 
@@ -1822,6 +4648,7 @@ describe("CatalogApplicationService", () => {
             role: string;
             fileName: string;
             objectKey: string;
+            extension: string;
           }>
         ) => Promise<PlaceableRenderPackage["auroraMaterial"] | undefined>;
       }
@@ -1839,7 +4666,22 @@ describe("CatalogApplicationService", () => {
             blending: "additive",
             auroraBlendField48: 0,
             auroraBlendField4c: 2,
-            decal: false
+            decal: false,
+            transparency: false,
+            twoSided: false,
+            renderHint: "NormalTangents",
+            textureSlots: [
+              {
+                slot: 0,
+                role: "diffuse",
+                reference: "fx_add_d"
+              },
+              {
+                slot: 1,
+                role: "normal",
+                reference: "fx_add_n"
+              }
+            ]
           }
         },
         {
@@ -1851,7 +4693,24 @@ describe("CatalogApplicationService", () => {
             blending: "punchthrough",
             auroraBlendField48: 2,
             auroraBlendField4c: 3,
-            decal: true
+            decal: true,
+            transparency: true,
+            twoSided: true,
+            renderHint: "NormalAndSpecMapped",
+            roughness: 0.62,
+            specularity: 0.45,
+            textureSlots: [
+              {
+                slot: 0,
+                role: "diffuse",
+                reference: "fx_punch_d"
+              },
+              {
+                slot: 2,
+                role: "specular",
+                reference: "fx_punch_s"
+              }
+            ]
           }
         }
       ],
@@ -1883,10 +4742,112 @@ describe("CatalogApplicationService", () => {
     expect(decorated.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          code: "VFX_AURORA_MTR_MATERIAL_STATE_PRESERVED"
+          code: "PLACEABLE_AURORA_MTR_MATERIAL_STATE_PRESERVED"
         })
       ])
     );
+  });
+
+  it("attaches Aurora TXI texture state to render package texture bindings", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key !== "modules/current/materials/phod_fx_pntgrm.txi") {
+        return null;
+      }
+      const source = [
+        "decal 1",
+        "clamp 3",
+        "blending additive",
+        "mipmap 0",
+        "filter 0",
+        "bumpmaptexture phod_fx_pntgrm_b",
+        "envmaptexture phod_fx_pntgrm_e",
+        "proceduretype cycle",
+        "numx 4",
+        "numy 2",
+        "fps 12"
+      ].join("\n");
+      return {
+        key,
+        size: source.length,
+        contentType: "text/plain",
+        bytes: Buffer.from(source, "latin1")
+      };
+    });
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const assets = [
+      {
+        assetId: "asset_texture_pentagram",
+        role: "texture",
+        fileName: "phod_fx_pntgrm.tga",
+        objectKey: "modules/current/textures/phod_fx_pntgrm.tga",
+        extension: "tga"
+      },
+      {
+        assetId: "asset_txi_pentagram",
+        role: "material",
+        fileName: "phod_fx_pntgrm.txi",
+        objectKey: "modules/current/materials/phod_fx_pntgrm.txi",
+        extension: "txi"
+      }
+    ];
+
+    const decorated = await (
+      serviceWithBlob as unknown as {
+        decorateRenderPackageWithAuroraTextureState: (
+          assetManifest: { assets: typeof assets },
+          renderPackage: PlaceableRenderPackage
+        ) => Promise<PlaceableRenderPackage>;
+      }
+    ).decorateRenderPackageWithAuroraTextureState(
+      { assets },
+      {
+        status: "ready",
+        diagnostics: [],
+        assetRefs: {
+          textureAssetIds: ["asset_texture_pentagram"],
+          materialAssetIds: ["asset_txi_pentagram"]
+        },
+        textureBindings: [
+          {
+            reference: "phod_fx_pntgrm",
+            assetId: "asset_texture_pentagram",
+            fileName: "phod_fx_pntgrm.tga",
+            objectKey: "modules/current/textures/phod_fx_pntgrm.tga",
+            deliveryUrl: "/api/v1/catalog/placeables/cache/cache/assets/asset_texture_pentagram"
+          }
+        ]
+      }
+    );
+
+    expect(decorated.textureBindings?.[0]?.txi).toEqual({
+      decal: true,
+      clamp: 3,
+      blending: "additive",
+      mipmap: false,
+      filter: false,
+      bumpmaptexture: "phod_fx_pntgrm_b",
+      envmaptexture: "phod_fx_pntgrm_e",
+      proceduretype: "cycle",
+      numx: 4,
+      numy: 2,
+      fps: 12
+    });
   });
 
   it("extracts emitter texture references from binary source MDL when derived model is missing", async () => {
@@ -2211,6 +5172,151 @@ describe("CatalogApplicationService", () => {
         }
       }
     });
+  });
+
+  it("attaches source MDL emitter payloads to ordinary placeables without reclassifying them as VFX", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    derivedAssetGenerator.generateDerivedAssets.mockResolvedValue({
+      files: [],
+      summary: {
+        generator: "test-generator",
+        generatedFiles: 0,
+        generatedBytes: 0,
+        failureReasons: ["no renderable geometry"]
+      }
+    });
+
+    const sourceModelBytes = buildEmitterOnlyBinaryMdl("fxpa_flare", {
+      emitterType: "Fountain",
+      renderMode: "Normal",
+      blendMode: "Lighten",
+      simulation: {
+        birthrate: 12,
+        lifeExp: 0.5,
+        sizeStart: 0.1,
+        sizeEnd: 0.25,
+        alphaStart: 0.75,
+        alphaEnd: 0
+      },
+      transform: {
+        position: [0, 0, 1.5]
+      }
+    });
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-generic-emitter",
+      totalFiles: 2,
+      totalBytes: sourceModelBytes.length + 16,
+      objects: [
+        {
+          key: "modules/current/models/plc_magic_mouth.mdl",
+          size: sourceModelBytes.length,
+          etag: "source-model"
+        },
+        {
+          key: "modules/current/textures/fxpa_flare.tga",
+          size: 16,
+          etag: "source-texture"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === "modules/current/models/plc_magic_mouth.mdl") {
+        return {
+          key,
+          size: sourceModelBytes.length,
+          contentType: "application/octet-stream",
+          bytes: sourceModelBytes
+        };
+      }
+      return null;
+    });
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "plc_magic_mouth"),
+      resref: "plc_magic_mouth",
+      name: "Magic Mouth",
+      category: "props",
+      placeableSubtype: "generic",
+      metadata: {
+        lookupModelResRef: "plc_magic_mouth"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithBlob.processPlaceable({
+      templateId: "plc_magic_mouth",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.placeable.placeableSubtype).toBe("generic");
+    expect(result.placeable.render.isVfx).toBe(false);
+    expect(result.placeable.render.backendType).toBe("generic");
+    expect(result.placeable.renderPackage?.status).toBe("ready");
+    expect(result.placeable.renderPackage?.glbUrl).toBeUndefined();
+    expect(result.placeable.renderPackage?.textureUrls?.[0]).toContain(".tga");
+    expect(result.placeable.renderPackage?.auroraEmitter?.emitters[0]).toMatchObject({
+      source: "aurora-mdl-binary",
+      sourceModelFileName: "plc_magic_mouth.mdl",
+      sourceModelObjectKey: "modules/current/models/plc_magic_mouth.mdl",
+      texture: "fxpa_flare",
+      emitterType: "Fountain",
+      renderMode: "Normal",
+      blendMode: "Lighten",
+      transform: {
+        position: [0, 0, 1.5]
+      },
+      simulation: {
+        birthrate: 12,
+        lifeExp: 0.5,
+        sizeStart: expect.closeTo(0.1, 6),
+        sizeEnd: expect.closeTo(0.25, 6),
+        alphaStart: expect.closeTo(0.75, 6),
+        alphaEnd: 0
+      }
+    });
+    expect(result.placeable.renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "PLACEABLE_RENDER_READY",
+        "PLACEABLE_AURORA_MDL_EMITTER_PAYLOAD_READY",
+        "VFX_AURORA_MDL_EMITTER_PAYLOAD_READY",
+        "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL"
+      ])
+    );
+    expect(result.placeable.renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "VFX_AURORA_MDL_EMITTER_PAYLOAD_MISSING"
+    );
   });
 
   it("refreshes cached VFX manifests when chunkName model resolution was missing", async () => {
@@ -2707,15 +5813,50 @@ describe("CatalogApplicationService", () => {
         "  parent dlp_light_08",
         "  position 0.0 0.0 2.5",
         "  radius 3.0",
+        "  shadowradius 1.25",
+        "  verticaldisplacement 0.35",
         "  multiplier 3.0",
         "  color 0.0 0.592157 0.141176",
         "  ambientonly 0",
-        "  nDynamicType 1",
+        "  isdynamic 1",
         "  affectDynamic 1",
         "  shadow 1",
         "  lightpriority 2",
-        "  lensflares 0",
+        "  generateflare 1",
+        "  texturenames 2",
+        "    fx_flare_core",
+        "    fx_flare_ring",
+        "  endlist",
+        "  flaresizes 2",
+        "    0.25",
+        "    0.5",
+        "  endlist",
+        "  flarepositions 2",
+        "    0.1",
+        "    0.9",
+        "  endlist",
+        "  flarecolorshifts 2",
+        "    1.0 0.8 0.4",
+        "    0.4 0.8 1.0",
+        "  endlist",
+        "  flareradius 12",
+        "  lensflares 1",
         "  fadingLight 0",
+        "endnode",
+        "node light inverted_light",
+        "  parent dlp_light_08",
+        "  position 0.0 0.0 1.0",
+        "  radius -1.5",
+        "  multiplier -0.25",
+        "  color -0.1 0.5 1.2",
+        "  shadow 0",
+        "endnode",
+        "node placeablelight placeable_light_marker",
+        "  parent dlp_light_08",
+        "  position 0.25 0.0 1.5",
+        "  radius 2.5",
+        "  multiplier 1.5",
+        "  color 0.59 0.56 0.37",
         "endnode",
         "endmodelgeom dlp_light_08",
         "newanim default dlp_light_08",
@@ -2736,6 +5877,21 @@ describe("CatalogApplicationService", () => {
         "    radiuskey",
         "      0.0   3.0",
         "      2.33333   10.0",
+        "      4.66667   3.0",
+        "    endlist",
+        "    shadowradiusbezierkey",
+        "      0.0   1.25",
+        "      2.33333   2.5",
+        "      4.66667   1.25",
+        "    endlist",
+        "    verticaldisplacementkey",
+        "      0.0   0.35",
+        "      2.33333   0.75",
+        "      4.66667   0.35",
+        "    endlist",
+        "    multiplierkey",
+        "      0.0   3.0",
+        "      2.33333   7.0",
         "      4.66667   3.0",
         "    endlist",
         "endnode",
@@ -2770,14 +5926,28 @@ describe("CatalogApplicationService", () => {
       }
       return null;
     });
-    repository.findByKindAndId.mockResolvedValue({
-      ...buildTemplate("placeable", "plc_dlp_light_08"),
-      resref: "dlp_light_08",
-      name: "VFX: Pulse Light, Green*",
-      placeableSubtype: "vfx",
-      metadata: {
-        lookupModelResRef: "dlp_light_08"
+    repository.findByKindAndId.mockImplementation(async (_kind, templateId) => {
+      if (templateId === "plc_dlp_light_08_source") {
+        return {
+          ...buildTemplate("placeable", "plc_dlp_light_08_source"),
+          resref: "dlp_light_08",
+          name: "Light: Pulse Light, Green*",
+          placeableSubtype: "light_source",
+          metadata: {
+            lookupModelResRef: "dlp_light_08"
+          }
+        };
       }
+
+      return {
+        ...buildTemplate("placeable", "plc_dlp_light_08"),
+        resref: "dlp_light_08",
+        name: "VFX: Pulse Light, Green*",
+        placeableSubtype: "vfx",
+        metadata: {
+          lookupModelResRef: "dlp_light_08"
+        }
+      };
     });
     placeableCache.get.mockResolvedValue(null);
     placeableCache.set.mockImplementation(async (key, value) => ({
@@ -2809,7 +5979,9 @@ describe("CatalogApplicationService", () => {
       expect.arrayContaining([
         "PLACEABLE_RENDER_READY",
         "VFX_AURORA_MDL_LIGHT_PAYLOAD_READY",
-        "VFX_AURORA_MDL_LIGHT_PREVIEW_NON_CANONICAL"
+        "VFX_AURORA_MDL_LIGHT_PREVIEW_NON_CANONICAL",
+        "VFX_MDL_LIGHT_FLARE_PAYLOAD_PRESERVED",
+        "VFX_MDL_LIGHT_FLARERADIUS_WRITE_UNVERIFIED"
       ])
     );
     expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
@@ -2824,15 +5996,28 @@ describe("CatalogApplicationService", () => {
       source: "aurora-mdl-ascii",
       sourceModelFileName: "dlp_light_08.mdl",
       nodeName: "pulsing_light03",
+      sourceNodeKind: "light",
       parentNodeName: "dlp_light_08",
       radius: 3,
+      shadowRadius: 1.25,
+      verticalDisplacement: 0.35,
       multiplier: 3,
       color: [0, expect.closeTo(0.592157, 6), expect.closeTo(0.141176, 6)],
       ambientOnly: false,
       dynamicType: 1,
       affectDynamic: true,
       shadow: true,
-      lightPriority: 2
+      lightPriority: 2,
+      generateFlare: true,
+      textureNames: ["fx_flare_core", "fx_flare_ring"],
+      flareSizes: [0.25, 0.5],
+      flarePositions: [0.1, 0.9],
+      flareColorShifts: [
+        [1, 0.8, 0.4],
+        [0.4, 0.8, 1]
+      ],
+      flareRadius: 12,
+      lensFlares: true
     });
     expect(light?.transform?.position).toEqual([0, 0, 2.5]);
     expect(light?.animations?.[0]).toMatchObject({
@@ -2855,7 +6040,66 @@ describe("CatalogApplicationService", () => {
         { time: 0, value: 3 },
         { time: expect.closeTo(2.33333, 6), value: 10 },
         { time: expect.closeTo(4.66667, 6), value: 3 }
+      ],
+      shadowRadiusTimeline: [
+        { time: 0, value: 1.25 },
+        { time: expect.closeTo(2.33333, 6), value: 2.5 },
+        { time: expect.closeTo(4.66667, 6), value: 1.25 }
+      ],
+      verticalDisplacementTimeline: [
+        { time: 0, value: 0.35 },
+        { time: expect.closeTo(2.33333, 6), value: 0.75 },
+        { time: expect.closeTo(4.66667, 6), value: 0.35 }
+      ],
+      multiplierTimeline: [
+        { time: 0, value: 3 },
+        { time: expect.closeTo(2.33333, 6), value: 7 },
+        { time: expect.closeTo(4.66667, 6), value: 3 }
       ]
+    });
+    const invertedLight = renderPackage?.auroraLight?.lights.find(
+      (candidate) => candidate.nodeName === "inverted_light"
+    );
+    expect(invertedLight).toMatchObject({
+      sourceNodeKind: "light",
+      radius: -1.5,
+      multiplier: -0.25,
+      color: [expect.closeTo(-0.1, 6), 0.5, 1.2],
+      shadow: false
+    });
+    const placeableLightMarker = renderPackage?.auroraLight?.lights.find(
+      (candidate) => candidate.nodeName === "placeable_light_marker"
+    );
+    expect(placeableLightMarker).toMatchObject({
+      sourceNodeKind: "placeablelight",
+      radius: 2.5,
+      multiplier: 1.5,
+      color: [0.59, 0.56, 0.37],
+      transform: {
+        position: [0.25, 0, 1.5]
+      }
+    });
+
+    const lightSourceResult = await serviceWithBlob.processPlaceable({
+      templateId: "plc_dlp_light_08_source",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    const lightSourceRenderPackage = lightSourceResult.placeable.renderPackage;
+    expect(lightSourceResult.placeable.placeableSubtype).toBe("light_source");
+    expect(lightSourceRenderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "PLACEABLE_AURORA_MDL_LIGHT_PAYLOAD_READY",
+        "VFX_AURORA_MDL_LIGHT_PAYLOAD_READY"
+      ])
+    );
+    expect(lightSourceRenderPackage?.auroraLight?.lights[0]).toMatchObject({
+      sourceModelFileName: "dlp_light_08.mdl",
+      nodeName: "pulsing_light03",
+      sourceNodeKind: "light",
+      radius: 3,
+      multiplier: 3,
+      color: [0, expect.closeTo(0.592157, 6), expect.closeTo(0.141176, 6)]
     });
   });
 
@@ -3941,6 +7185,70 @@ describe("CatalogApplicationService", () => {
     expect(placeableCache.set).not.toHaveBeenCalled();
   });
 
+  it("processPlaceable refreshes cached legacy LightState runtime provenance", async () => {
+    placeableCache.get.mockResolvedValue({
+      key: "a".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 4,
+      value: {
+        templateId: "plc_cached_lightstate_legacy",
+        resref: "plc_cached_lightstate_legacy",
+        name: "Cached Legacy LightState",
+        category: "benchmark",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        metadata: {
+          sourceFileType: "UTP ",
+          templateResRef: "plc_cached_lightstate_legacy"
+        },
+        assetManifest: buildEmptyManifest(),
+        placeableRuntime: {
+          state: {
+            lightState: 1
+          }
+        },
+        placeableValidationIssues: [],
+        renderPackage: {
+          status: "unsupported",
+          diagnostics: [],
+          assetRefs: {}
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-05-24T10:09:00.000Z"
+      } as unknown as PlaceableProcessingResult
+    });
+    repository.findByKindAndId.mockResolvedValue(
+      buildTemplate("placeable", "plc_cached_lightstate_legacy")
+    );
+
+    const result = await service.processPlaceable({
+      templateId: "plc_cached_lightstate_legacy",
+      bypassCache: false,
+      includeBenchmarkMetadata: false
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.placeable.placeableRuntime?.state).toMatchObject({
+      lightState: 1,
+      lightStateSource:
+        "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe .pdata function 0x1404484d0..0x14044a2ec contains LightState xref at 0x140448ed0 and mov [rbx+0x368],1 at 0x140448eb5 before the optional LightState read",
+      lightStateProofStatus:
+        "retail-binary-backed-nwserver-lightstate-default-on-xref",
+      lightStateDefaulted: true
+    });
+    expect(placeableCache.set).not.toHaveBeenCalled();
+  });
+
   it("refreshes cached generic manifests when source MDL assets have legacy unknown roles", async () => {
     const runtimeSettings = buildRuntimeSettingsRecord();
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
@@ -4213,6 +7521,560 @@ describe("CatalogApplicationService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: "PLACEABLE_RENDER_AREA_INSTANCE_MODEL_UNRESOLVED"
+        })
+      ])
+    );
+  });
+
+  it("does not expose prefix-matched scene variants as the primary model for exact placeable lookups", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-exact-placeable-model",
+      totalFiles: 1,
+      totalBytes: 120,
+      objects: [
+        {
+          key: "modules/current/__aurora/derived/models/dag_applescene.glb",
+          size: 120,
+          etag: "scene-derived-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "tm_pl_frutapple1"),
+      resref: "dag_apple",
+      placeableSubtype: "generic",
+      metadata: {
+        lookupModelResRef: "dag_apple"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:11:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processPlaceable({
+      templateId: "tm_pl_frutapple1",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.placeable.assetManifest.assets.map((asset) => asset.fileName)).toContain(
+      "dag_applescene.glb"
+    );
+    expect(result.placeable.renderPackage?.status).toBe("missing_assets");
+    expect(result.placeable.renderPackage?.assetRefs.derivedModelAssetIds).toBeUndefined();
+    expect(result.placeable.renderPackage?.glbUrl).toBeUndefined();
+  });
+
+  it("processPlaceable suppresses Area GIT light-node helper geometry instead of resolving it as a physical appearance model", async () => {
+    repository.resolvePlaceableAppearanceModel = jest.fn().mockResolvedValue({
+      source2da: "placeables.2da",
+      rowId: 26949,
+      requestedRowId: 26949,
+      modelResRef: "plc_core_0948",
+      sourceKey: "modules/current/__aurora/sources/hak/lc_2da/placeables.2da"
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:12:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processPlaceable({
+      templateId: "plc_campfr",
+      resref: "plc_campfr",
+      tag: "VALELightNodeOrange03m",
+      subtypeHint: "generic",
+      appearanceType: 26949,
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.resolvePlaceableAppearanceModel).not.toHaveBeenCalled();
+    expect(result.placeable.placeableSubtype).toBe("light_source");
+    expect(result.placeable.render.rendererPreset).toBe("placeable-light");
+    expect(result.placeable.metadata).toMatchObject({
+      areaInstanceTag: "VALELightNodeOrange03m",
+      areaInstanceHelperRenderSuppressed: true,
+      areaInstanceHelperKind: "light_node",
+      areaInstanceModelLookupStatus: "blocked"
+    });
+    expect(result.placeable.metadata.modelResRef).toBeUndefined();
+    expect(result.placeable.metadata.lookupModelResRef).toBeUndefined();
+    expect(result.placeable.renderPackage).toMatchObject({
+      status: "unsupported",
+      diagnostics: [
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_AREA_INSTANCE_HELPER_NO_GEOMETRY"
+        })
+      ],
+      assetRefs: {}
+    });
+  });
+
+  it("processPlaceable classifies Area GIT VFX-tagged instances as backend-owned VFX render contracts", async () => {
+    repository.resolvePlaceableAppearanceModel = jest.fn().mockResolvedValue({
+      source2da: "placeables.2da",
+      rowId: 332,
+      requestedRowId: 332,
+      modelResRef: "plc_t04",
+      sourceKey: "modules/current/__aurora/sources/base/placeables.2da"
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:12:30.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processPlaceable({
+      templateId: "tm_pl_lightred",
+      resref: "tm_pl_lightred",
+      tag: "VFXFlameLarge1",
+      appearanceType: 332,
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.resolvePlaceableAppearanceModel).toHaveBeenCalledWith(332, {
+      tag: "VFXFlameLarge1",
+      templateId: "tm_pl_lightred",
+      resref: "tm_pl_lightred"
+    });
+    expect(result.placeable.placeableSubtype).toBe("vfx");
+    expect(result.placeable.render).toMatchObject({
+      backendType: "vfx",
+      frontendType: "vfx",
+      rendererPreset: "vfx-emitter",
+      isVfx: true
+    });
+    expect(result.placeable.metadata).toMatchObject({
+      areaInstanceTag: "VFXFlameLarge1",
+      areaInstanceModelLookupStatus: "ready",
+      modelResRef: "plc_t04",
+      lookupModelResRef: "plc_t04"
+    });
+  });
+
+  it("processPlaceable rebinds shared Area GIT model cache hits to the requested instance identity", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.findByKindAndResref.mockResolvedValue(null);
+    repository.resolvePlaceableAppearanceModel = jest.fn().mockResolvedValue({
+      source2da: "placeables.2da",
+      rowId: 12304,
+      requestedRowId: 12304,
+      modelResRef: "plc_wt305",
+      sourceKey: "modules/current/__aurora/sources/hak/lc_2da/placeables.2da"
+    });
+    placeableCache.get.mockResolvedValue({
+      key: "950d837a".padEnd(64, "0"),
+      storedAt: "2026-06-26T10:16:00.000Z",
+      hits: 4,
+      value: {
+        templateId: "plc_witcher764",
+        resref: "witcher764",
+        name: "Cached Witcher Plant",
+        category: "Area GIT Placeables",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: {
+          areaInstanceRenderSource: "git",
+          areaInstanceModelLookupStatus: "ready",
+          areaInstanceTag: "witcher_plant_4",
+          appearanceId: 6305,
+          areaInstanceAppearanceType: 6305,
+          sourceKind: "2da",
+          source2da: "placeables.2da",
+          source2daRow: 6305,
+          modelResRef: "plc_wt305",
+          lookupModelResRef: "plc_wt305"
+        },
+        placeableRuntime: {
+          source: {},
+          identity: {},
+          interaction: {},
+          locking: {},
+          trap: {},
+          state: {},
+          scripts: {}
+        },
+        placeableValidationIssues: [],
+        assetManifest: buildEmptyManifest(),
+        renderPackage: {
+          status: "ready",
+          diagnostics: [],
+          assetRefs: {},
+          glbUrl: "/api/v1/catalog/placeables/cache/950d837a/assets/plc_wt305.glb"
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-06-26T10:10:00.000Z"
+      }
+    });
+
+    const result = await service.processPlaceable({
+      templateId: "plc_q_155",
+      resref: "q_155",
+      tag: "q_floorwooden_1",
+      appearanceType: 12304,
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.placeable.templateId).toBe("plc_q_155");
+    expect(result.placeable.resref).toBe("q_155");
+    expect(result.placeable.metadata).toMatchObject({
+      areaInstanceTag: "q_floorwooden_1",
+      appearanceId: 12304,
+      areaInstanceAppearanceType: 12304,
+      source2daRow: 12304,
+      modelResRef: "plc_wt305",
+      lookupModelResRef: "plc_wt305"
+    });
+    expect(result.placeable.renderPackage?.glbUrl).toContain("plc_wt305.glb");
+  });
+
+  it("processPlaceable refreshes rebound Area GIT cache hits when the cached render model differs from the resolved lookup", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
+      save: jest.fn()
+    };
+    const correctedGlbKey = "modules/current/__aurora/derived/models/plc_core_0374.glb";
+    const staleGlbKey = "modules/current/__aurora/derived/models/plc_core_0474.glb";
+    const correctedGlbBytes = buildGlbFromJson({ asset: { version: "2.0" } });
+    const staleGlbBytes = buildGlbFromJson({ asset: { version: "2.0" } });
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-area-mtt-model-refresh",
+        totalFiles: 2,
+        totalBytes: correctedGlbBytes.length + staleGlbBytes.length,
+        objects: [
+          {
+            key: correctedGlbKey,
+            size: correctedGlbBytes.length,
+            etag: "corrected-glb"
+          },
+          {
+            key: staleGlbKey,
+            size: staleGlbBytes.length,
+            etag: "stale-glb"
+          }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn(async (_settings, key) => {
+        if (key === correctedGlbKey) {
+          return {
+            key,
+            size: correctedGlbBytes.length,
+            contentType: "model/gltf-binary",
+            bytes: correctedGlbBytes
+          };
+        }
+        if (key === staleGlbKey) {
+          return {
+            key,
+            size: staleGlbBytes.length,
+            contentType: "model/gltf-binary",
+            bytes: staleGlbBytes
+          };
+        }
+        return null;
+      })
+    };
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "mtt_v2_060"),
+      resref: "mtt_v2_060",
+      placeableSubtype: "generic",
+      metadata: {
+        modelResRef: "plc_core_0474",
+        lookupModelResRef: "plc_core_0474"
+      }
+    });
+    repository.findByKindAndResref.mockResolvedValue(null);
+    repository.resolvePlaceableAppearanceModel = jest.fn().mockResolvedValue({
+      source2da: "placeables.2da",
+      rowId: 26374,
+      requestedRowId: 26474,
+      modelResRef: "plc_core_0374",
+      resolutionPath: "placeables-instance-row-minus-100"
+    });
+    placeableCache.get.mockResolvedValue({
+      key: "c".repeat(64),
+      storedAt: "2026-07-07T13:15:00.000Z",
+      hits: 3,
+      value: {
+        templateId: "mtt_v2_060",
+        resref: "mtt_v2_060",
+        name: "Cached stale MTT",
+        category: "Area GIT Placeables",
+        placeableSubtype: "generic",
+        render: {
+          backendType: "generic",
+          frontendType: "placeable",
+          rendererPreset: "placeable-generic",
+          isDoor: false,
+          isVfx: false
+        },
+        benchmarkCandidate: false,
+        metadata: {
+          areaInstanceRenderSource: "git",
+          areaInstanceModelLookupStatus: "ready",
+          areaInstanceTag: "mtt_v2_059",
+          appearanceId: 26474,
+          areaInstanceAppearanceType: 26474,
+          sourceKind: "2da",
+          source2da: "placeables.2da",
+          source2daRow: 26474,
+          lookupRequestedAppearanceType: 26474,
+          lookupResolutionPath: "placeables-direct-row",
+          modelResRef: "plc_core_0474",
+          lookupModelResRef: "plc_core_0474"
+        },
+        placeableRuntime: {
+          source: {},
+          identity: {},
+          interaction: {},
+          locking: {},
+          trap: {},
+          state: {},
+          scripts: {}
+        },
+        placeableValidationIssues: [],
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-07-07T13:14:00.000Z",
+          moduleHash: "hash-area-mtt-model-refresh",
+          assetCount: 1,
+          candidatesScanned: 1,
+          assets: [
+            {
+              assetId: "stale-0474-glb",
+              role: "model",
+              fileName: "plc_core_0474.glb",
+              objectKey: staleGlbKey,
+              extension: "glb",
+              sizeBytes: staleGlbBytes.length,
+              contentType: "model/gltf-binary",
+              etag: "stale-glb"
+            }
+          ]
+        },
+        renderPackage: {
+          status: "ready",
+          diagnostics: [],
+          assetRefs: {
+            derivedModelAssetIds: ["stale-0474-glb"],
+            otherAssetIds: ["stale-0474-glb"]
+          },
+          glbUrl: "/api/v1/catalog/placeables/cache/stale/assets/stale-0474-glb.glb"
+        },
+        classification: {
+          source: "template",
+          normalizedSubtype: "generic",
+          mismatchWithTemplate: false
+        },
+        processedAt: "2026-07-07T13:14:00.000Z"
+      } as PlaceableProcessingResult
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-07T13:16:00.000Z",
+      hits: 0
+    }));
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processPlaceable({
+      templateId: "mtt_v2_060",
+      resref: "mtt_v2_060",
+      tag: "mtt_v2_059",
+      localizedName: "[MTT] Beczka 1",
+      description: "A simple object of the sort you would find in a bathroom.",
+      appearanceType: 26474,
+      subtypeHint: "generic",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    const renderedModelAssetIds = result.placeable.renderPackage?.assetRefs.derivedModelAssetIds ?? [];
+    const renderedModelAssets = result.placeable.assetManifest.assets.filter((asset) =>
+      renderedModelAssetIds.includes(asset.assetId)
+    );
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.placeable.metadata).toMatchObject({
+      areaInstanceTag: "mtt_v2_059",
+      areaInstanceAppearanceType: 26474,
+      source2daRow: 26374,
+      lookupRequestedAppearanceType: 26474,
+      lookupResolutionPath: "placeables-instance-row-minus-100",
+      modelResRef: "plc_core_0374",
+      lookupModelResRef: "plc_core_0374"
+    });
+    expect(result.placeable.assetManifest.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "plc_core_0374.glb"
+        })
+      ])
+    );
+    expect(result.placeable.assetManifest.assets).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "plc_core_0474.glb"
+        })
+      ])
+    );
+    expect(renderedModelAssets).toEqual([
+      expect.objectContaining({
+        fileName: "plc_core_0374.glb"
+      })
+    ]);
+    expect(result.placeable.renderPackage?.glbUrl).toMatch(
+      /^\/api\/v1\/catalog\/placeables\/cache\/.+\/assets\/.+\.glb$/u
+    );
+  });
+
+  it("processPlaceable rehydrates cached Area GIT light-node helpers without missing-assets fallback packages", async () => {
+    const staleCachedHelper = {
+      templateId: "plc_campfr",
+      resref: "plc_campfr",
+      name: "plc_campfr",
+      category: "Area GIT Placeables",
+      placeableSubtype: "light_source",
+      render: {
+        backendType: "light_source",
+        frontendType: "placeable",
+        rendererPreset: "placeable-light",
+        isDoor: false,
+        isVfx: false
+      },
+      benchmarkCandidate: false,
+      metadata: {
+        areaInstanceTemplateSource: "git",
+        areaInstanceTemplateSynthesized: true,
+        templateResRef: "plc_campfr",
+        resref: "plc_campfr",
+        tag: "VALELightNodeOrange03m",
+        requestedTemplateId: "plc_campfr",
+        requestedResRef: "plc_campfr",
+        appearanceId: 26949,
+        areaInstanceRenderSource: "git",
+        areaInstanceModelLookupStatus: "blocked",
+        areaInstanceTag: "VALELightNodeOrange03m",
+        areaInstanceAppearanceType: 26949,
+        areaInstanceHelperRenderSuppressed: true,
+        areaInstanceHelperKind: "light_node"
+      },
+      placeableRuntime: {
+        source: {},
+        identity: {},
+        interaction: {},
+        locking: {},
+        trap: {},
+        state: {},
+        scripts: {}
+      },
+      placeableValidationIssues: [],
+      assetManifest: buildEmptyManifest(),
+      renderPackage: {
+        status: "missing_assets",
+        diagnostics: [
+          {
+            code: "PLACEABLE_RENDER_ASSETS_MISSING",
+            severity: "error",
+            message: "No model assets were discovered for this placeable."
+          }
+        ],
+        assetRefs: {}
+      },
+      processedAt: "2026-06-26T10:00:00.000Z"
+    };
+    placeableCache.get.mockResolvedValue({
+      key: "cached-helper",
+      value: staleCachedHelper as unknown as Parameters<typeof placeableCache.set>[1],
+      storedAt: "2026-06-26T10:00:00.000Z",
+      hits: 1
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-06-26T10:13:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processPlaceable({
+      templateId: "plc_campfr",
+      resref: "plc_campfr",
+      tag: "VALELightNodeOrange03m",
+      subtypeHint: "generic",
+      appearanceType: 26949,
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.placeable.renderPackage).toMatchObject({
+      status: "unsupported",
+      diagnostics: [
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_AREA_INSTANCE_HELPER_NO_GEOMETRY"
+        })
+      ],
+      assetRefs: {}
+    });
+    expect(result.placeable.renderPackage?.diagnostics).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "PLACEABLE_RENDER_ASSETS_MISSING"
         })
       ])
     );
@@ -5030,7 +8892,7 @@ describe("CatalogApplicationService", () => {
         bucket: "aurora-module-assets",
         modulePrefix: "modules/current"
       }),
-      { limit: 1000, continuationToken: undefined }
+      { limit: 50_000, continuationToken: undefined }
     );
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
     expect(
@@ -5289,7 +9151,7 @@ describe("CatalogApplicationService", () => {
         modulePrefix: "modules/current"
       }),
       {
-        limit: 1000,
+        limit: 50_000,
         continuationToken: undefined
       }
     );
@@ -5300,7 +9162,7 @@ describe("CatalogApplicationService", () => {
         modulePrefix: "modules/current"
       }),
       {
-        limit: 1000,
+        limit: 50_000,
         continuationToken: "page-2"
       }
     );
@@ -5372,6 +9234,9 @@ describe("CatalogApplicationService", () => {
         firstName: "City",
         lastName: "Guard",
         appearanceId: 17,
+        appearanceLabelSource2daRow: 17,
+        appearanceModelType: "P",
+        appearanceRaceModel: "P_HHM",
         appearanceHead: 22,
         colorSkin: 9
       }
@@ -5394,6 +9259,22 @@ describe("CatalogApplicationService", () => {
     expect(result.cache.hit).toBe(false);
     expect(result.creature.kind).toBe("creature");
     expect(result.creature.render.frontendType).toBe("creature");
+    expect(result.creature.creatureRenderPackage).toMatchObject({
+      status: "missing_derived",
+      rendererPreset: "creature-standard",
+      appearanceProfile: {
+        appearanceType: 17,
+        appearanceSource2daRow: 17,
+        modelType: "P"
+      },
+      sourceModelCandidates: [
+        expect.objectContaining({
+          role: "appearance-race-model",
+          source: "appearance.2da.RACE",
+          confidence: "assembly-prefix"
+        })
+      ]
+    });
     expect(result.creature.creatureRuntime).toBeDefined();
     expect(result.creature.creatureRuntime?.identity.firstName).toBe("City");
     expect(result.creature.creatureRuntime?.appearance.appearanceHead).toBe(22);
@@ -5401,6 +9282,3865 @@ describe("CatalogApplicationService", () => {
     expect(result.creature.creatureValidationIssues?.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(["CREATURE_COLORS_PARTIAL"])
     );
+  });
+
+  it("processCreature applies appearance overrides to part render candidates and cache key", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_nw_hen_dae_01"),
+      resref: "nw_hen_dae_01",
+      metadata: {
+        ...buildTemplate("creature", "cre_nw_hen_dae_01").metadata,
+        firstName: "Daelan",
+        appearanceId: 18,
+        appearanceLabelSource2daRow: 18,
+        appearanceModelType: "P",
+        appearanceRaceModel: "O",
+        phenotype: 0,
+        gender: 0,
+        genderLabel: "Male",
+        appearanceHead: 4,
+        bodyPartTorso: 1,
+        bodyPartRFoot: 1,
+        colorSkin: 41,
+        colorHair: 1,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "head",
+            partId: 4,
+            partModelName: "head",
+            modelPrefix: "pmo0_",
+            modelResRef: "pmo0_head004",
+            modelResRefPattern: "aurora-player-body-part",
+            modelResRefPatternFormat: "p%c%c%s_%s_%03d",
+            source: "utc.Appearance_Head",
+            sourceKey: "modules/current/blueprints/creatures/nw_hen_dae_01.utc"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    repository.resolveCreatureAppearanceProfile = jest.fn().mockResolvedValue({
+      appearanceType: 6,
+      appearanceLabel: "(Dynamic) Human",
+      appearanceSource2daRow: 6,
+      appearanceSourceKey: "modules/current/__aurora/sources/hak/lc_2da/appearance.2da",
+      modelType: "P",
+      raceModel: "H",
+      defaultPhenotype: "0",
+      sizeCategory: 3
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const baseResult = await service.processCreature({
+      templateId: "cre_nw_hen_dae_01",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    const variantResult = await service.processCreature({
+      templateId: "cre_nw_hen_dae_01",
+      bypassCache: false,
+      includeBenchmarkMetadata: true,
+      creatureAppearanceOverride: {
+        appearanceType: 6,
+        appearanceHead: 12,
+        bodyParts: {
+          torso: 2,
+          rFoot: 3
+        },
+        colors: {
+          skin: 30,
+          hair: 53
+        }
+      }
+    });
+
+    expect(variantResult.cache.key).not.toBe(baseResult.cache.key);
+    expect(repository.resolveCreatureAppearanceProfile).toHaveBeenCalledWith(6);
+    expect(variantResult.creature.creatureRuntime?.appearance.appearanceType).toBe(6);
+    expect(variantResult.creature.creatureRuntime?.appearance.appearanceRaceModel).toBe("H");
+    expect(variantResult.creature.creatureRuntime?.appearance.appearanceHead).toBe(12);
+    expect(variantResult.creature.creatureRuntime?.colors.skin).toBe(30);
+    expect(
+      variantResult.creature.creatureRenderPackage?.partModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        partId: candidate.partId,
+        modelResRef: candidate.modelResRef
+      }))
+    ).toEqual(
+      expect.arrayContaining([
+        { slot: "head", partId: 12, modelResRef: "pmh0_head012" },
+        { slot: "torso", partId: 2, modelResRef: "pmh0_chest002" },
+        { slot: "rFoot", partId: 3, modelResRef: "pmh0_footr003" }
+      ])
+    );
+    expect(
+      variantResult.creature.creatureRenderPackage?.partModelCandidates.map(
+        (candidate) => candidate.modelResRef
+      )
+    ).not.toContain("pmo0_head004");
+  });
+
+  it("hydrates creature equipped item templates into renderable equipment model candidates", async () => {
+    const creatureTemplate: TemplateRecord = {
+      ...buildTemplate("creature", "cre_guard_human_001"),
+      resref: "cre_guard_human_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_guard_human_001").metadata,
+        firstName: "City",
+        lastName: "Guard",
+        appearanceId: 17,
+        appearanceLabelSource2daRow: 17,
+        appearanceModelType: "P",
+        appearanceRaceModel: "P_HHM",
+        equipItemListCount: 1,
+        equipItemListEntries: JSON.stringify([
+          {
+            resRef: "nw_wswss001",
+            slotMask: 16
+          }
+        ])
+      }
+    };
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_wswss001"),
+      resref: "nw_wswss001",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_wswss001").metadata,
+        templateResRef: "nw_wswss001",
+        localizedName: "Short Sword",
+        baseItem: 7,
+        baseItemModelType: "wsw",
+        modelPart1: 2,
+        modelPart2: 1,
+        modelPart3: 3
+      }
+    };
+    repository.findByKindAndId.mockImplementation(async (kind, templateId) => {
+      if (kind === "creature" && templateId === creatureTemplate.templateId) {
+        return creatureTemplate;
+      }
+      if (kind === "item" && templateId === itemTemplate.templateId) {
+        return itemTemplate;
+      }
+      return null;
+    });
+    repository.findByKindAndResref.mockImplementation(async (kind, resref) => {
+      if (kind === "item" && resref === itemTemplate.resref) {
+        return itemTemplate;
+      }
+      return null;
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const equippedItem = result.creature.creatureRuntime?.lists.equippedItems?.[0];
+    expect(equippedItem).toMatchObject({
+      resRef: "nw_wswss001",
+      itemTemplateId: "itm_nw_wswss001",
+      itemResref: "nw_wswss001",
+      itemRuntime: expect.objectContaining({
+        identity: expect.objectContaining({
+          templateResRef: "nw_wswss001",
+          localizedName: "Short Sword"
+        }),
+        visual: expect.objectContaining({
+          baseItemModelType: "wsw",
+          modelPartResRefs: ["wswb_002", "wswm_001", "wswt_003"]
+        })
+      })
+    });
+    expect(result.creature.creatureRenderPackage?.equipmentModelCandidates[0]).toMatchObject({
+      resref: "nw_wswss001",
+      itemTemplateId: "itm_nw_wswss001",
+      itemResref: "nw_wswss001",
+      slotLabels: ["right hand"],
+      attachmentTargets: ["rhand_g"],
+      sourceModelStatus: "model-resrefs-ready",
+      itemModelType: "wsw",
+      itemModelParts: [2, 1, 3],
+      itemModelPartRoles: ["blade", "middle", "top"],
+      itemModelPartResRefs: ["wswb_002", "wswm_001", "wswt_003"],
+      itemModelPartCandidates: [
+        { resref: "wswb_002", role: "blade", partId: 2 },
+        { resref: "wswm_001", role: "middle", partId: 1 },
+        { resref: "wswt_003", role: "top", partId: 3 }
+      ]
+    });
+  });
+
+  it("hydrates missing repository item model types from baseitems.2da for creature equipment", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-creature-equipment-baseitems-"));
+    const hakPath = join(tempRoot, "lc_2da.hak");
+    const rows = Array.from({ length: 23 }, (_, index) =>
+      index === 22
+        ? "22 dagger 2 WSwDg **** iiw_dagger 1 2 0x10 3 1 1.0 8 0 Weapon 1 22 0 1 1 0 0"
+        : `${index} **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** **** ****`
+    );
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "baseitems",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "label ModelType ItemClass DefaultModel DefaultIcon InvSlotWidth InvSlotHeight EquipableSlots BaseCost Stacking ItemMultiplier MaxProps MinProps PropColumn StorePanel StorePanelSort ChargesStarting ILRStackSize WeaponMatType AmmunitionType ArcaneSpellFailure",
+              ...rows
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "itempropdef",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name SubTypeResRef CostTableResRef Param1ResRef GameStrRef Description",
+              "0 **** **** **** **** **** **** ****",
+              "15 CastSpell 1234 iprp_spells iprp_chargecost iprp_paramtable 4321 4322"
+            ].join("\n"),
+            "utf-8"
+          )
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "lc_models";
+      settings.hakProfiles.lc_models = ["lc_2da.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const serviceWithRuntimeSettings = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository
+      );
+      const creatureTemplate: TemplateRecord = {
+        ...buildTemplate("creature", "cre_guard_human_001"),
+        resref: "cre_guard_human_001",
+        metadata: {
+          ...buildTemplate("creature", "cre_guard_human_001").metadata,
+          firstName: "City",
+          lastName: "Guard",
+          appearanceId: 17,
+          appearanceLabelSource2daRow: 17,
+          appearanceModelType: "P",
+          appearanceRaceModel: "P_HHM",
+          equipItemListCount: 1,
+          equipItemListEntries: JSON.stringify([
+          {
+            resRef: "nw_dagger001",
+              slotMask: 16,
+              itemTemplateMetadata: {
+                templateResRef: "nw_dagger001",
+                localizedName: "Dagger",
+                baseItem: 22,
+                modelPart1: 11,
+                modelPart2: 11,
+                modelPart3: 11
+              }
+            }
+          ])
+        }
+      };
+      const itemTemplate: TemplateRecord = {
+        ...buildTemplate("item", "itm_nw_dagger001"),
+        resref: "nw_dagger001",
+        metadata: {
+          ...buildTemplate("item", "itm_nw_dagger001").metadata,
+          templateResRef: "nw_dagger001",
+          localizedName: "Dagger",
+          baseItem: 22,
+          modelPart1: 11,
+          modelPart2: 11,
+          modelPart3: 11,
+          itemPropertyListCount: 1,
+          itemPropertyListEntries: JSON.stringify([
+            {
+              propertyName: 15,
+              subtype: 66,
+              costTable: 3,
+              costValue: 1,
+              param1: 255,
+              param1Value: 0,
+              chanceAppear: 100
+            }
+          ])
+        }
+      };
+      repository.findByKindAndId.mockImplementation(async (kind, templateId) => {
+        if (kind === "creature" && templateId === creatureTemplate.templateId) {
+          return creatureTemplate;
+        }
+        if (kind === "item" && templateId === itemTemplate.templateId) {
+          return itemTemplate;
+        }
+        return null;
+      });
+      repository.findByKindAndResref.mockImplementation(async (kind, resref) => {
+        if (kind === "item" && resref === itemTemplate.resref) {
+          return itemTemplate;
+        }
+        return null;
+      });
+      repository.listByKind.mockImplementation(async (kind, query) => {
+        if (kind === "item") {
+          return {
+            items: [itemTemplate],
+            total: 1,
+            limit: query.limit,
+            offset: query.offset
+          };
+        }
+        return {
+          items: [],
+          total: 0,
+          limit: query.limit,
+          offset: query.offset
+        };
+      });
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:20:00.000Z",
+        hits: 0
+      }));
+
+      const result = await serviceWithRuntimeSettings.processCreature({
+        templateId: "cre_guard_human_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      const equippedItem = result.creature.creatureRuntime?.lists.equippedItems?.[0];
+      expect(equippedItem?.itemRuntime?.visual).toMatchObject({
+        baseItemModelType: "wswdg",
+        modelPartResRefs: ["wswdg_b_011", "wswdg_m_011", "wswdg_t_011"],
+        modelPartResRefRoles: ["blade", "middle", "top"]
+      });
+      expect(equippedItem?.itemRuntime?.classification).toMatchObject({
+        baseItem: 22,
+        baseItemLabel: "dagger",
+        itemClass: "wswdg",
+        defaultIcon: "iiw_dagger",
+        invSlotWidth: 1,
+        invSlotHeight: 2,
+        equipableSlots: "0x10",
+        baseCost: 3,
+        stacking: 1,
+        itemMultiplier: 1,
+        maxProps: 8,
+        minProps: 0,
+        propColumn: "Weapon",
+        storePanel: 1,
+        storePanelSort: 22
+      });
+      expect(result.creature.creatureRenderPackage?.equipmentModelCandidates[0]).toMatchObject({
+        resref: "nw_dagger001",
+        sourceModelStatus: "model-resrefs-ready",
+        itemModelType: "wswdg",
+        itemModelPartResRefs: ["wswdg_b_011", "wswdg_m_011", "wswdg_t_011"],
+        itemModelPartCandidates: [
+          { resref: "wswdg_b_011", role: "blade", partId: 11 },
+          { resref: "wswdg_m_011", role: "middle", partId: 11 },
+          { resref: "wswdg_t_011", role: "top", partId: 11 }
+        ]
+      });
+
+      const itemResult = await serviceWithRuntimeSettings.processItem({
+        templateId: "itm_nw_dagger001",
+        bypassCache: true,
+        includeBenchmarkMetadata: true
+      });
+      expect(itemResult.item.itemRuntime?.visual).toMatchObject({
+        baseItemModelType: "wswdg",
+        modelPartResRefs: ["wswdg_b_011", "wswdg_m_011", "wswdg_t_011"],
+        modelPartResRefRoles: ["blade", "middle", "top"]
+      });
+      expect(itemResult.item.metadata).toMatchObject({
+        baseItem2daLabel: "dagger",
+        baseItemDefaultIcon: "iiw_dagger",
+        baseItemInvSlotWidth: 1,
+        baseItemInvSlotHeight: 2,
+        baseItemStorePanel: 1,
+        baseItemStorePanelSort: 22
+      });
+      expect(JSON.parse(String(itemResult.item.metadata.itemPropertyListEntries))).toEqual([
+        expect.objectContaining({
+          propertyName: 15,
+          propertyLabel: "CastSpell",
+          propertyDefinitionSource2daRow: 15,
+          subTypeTable: "iprp_spells",
+          costTableDefinition: "iprp_chargecost",
+          param1Table: "iprp_paramtable",
+          nameStrRef: 1234,
+          gameStrRef: 4321,
+          descriptionStrRef: 4322
+        })
+      ]);
+      expect(itemResult.item.itemRuntime?.itemProperties[0]).toMatchObject({
+        propertyName: 15,
+        propertyLabel: "CastSpell",
+        subTypeTable: "iprp_spells",
+        costTableDefinition: "iprp_chargecost",
+        param1Table: "iprp_paramtable"
+      });
+
+      const listedItems = await serviceWithRuntimeSettings.listItems({
+        limit: 20,
+        offset: 0
+      });
+      expect(JSON.parse(String(listedItems.items[0].metadata.itemPropertyListEntries))).toEqual([
+        expect.objectContaining({
+          propertyName: 15,
+          propertyLabel: "CastSpell",
+          subTypeTable: "iprp_spells",
+          costTableDefinition: "iprp_chargecost",
+          param1Table: "iprp_paramtable"
+        })
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("exposes CastSpell caster level and usage flags from iprp_spells.2da", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-item-property-spells-"));
+    const hakPath = join(tempRoot, "lc_2da.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "itempropdef",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name SubTypeResRef Cost CostTableResRef Param1ResRef GameStrRef Description",
+              "15 CastSpell 668 iprp_spells **** 3 **** 5485 1078"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "iprp_spells",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name CasterLvl InnateLvl Cost SpellIndex PotionUse WandUse GeneralUse Icon",
+              "66 Cure_Light_Wounds 1170 2 1 750 32 1 1 1 iss_CurLgtW",
+              "67 No_Potion 1171 3 2 4500 33 0 1 0 iss_NoPotion"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "iprp_chargecost",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Name Label Cost PotionCost WandCost",
+              "1 1755 Single_Use 0.1334 1 1",
+              "2 1743 5_Charges/Use 0.45 0 1"
+            ].join("\n"),
+            "utf-8"
+          )
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "lc_models";
+      settings.hakProfiles.lc_models = ["lc_2da.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const serviceWithRuntimeSettings = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository
+      );
+
+      const dictionary = await serviceWithRuntimeSettings.getItemPropertyDictionary();
+      const castSpell = dictionary.properties.find((entry) => entry.propertyName === 15);
+
+      expect(castSpell).toMatchObject({
+        propertyName: 15,
+        propertyLabel: "CastSpell",
+        subTypeTable: "iprp_spells",
+        costTableIndex: 3,
+        costTableDefinition: "iprp_chargecost"
+      });
+      expect(castSpell?.subtypeOptions).toEqual([
+        expect.objectContaining({
+          rowId: 66,
+          label: "Cure_Light_Wounds",
+          cost: 750,
+          casterLevel: 2,
+          innateLevel: 1,
+          spellIndex: 32,
+          potionUse: true,
+          wandUse: true,
+          generalUse: true,
+          icon: "iss_curlgtw"
+        }),
+        expect.objectContaining({
+          rowId: 67,
+          casterLevel: 3,
+          innateLevel: 2,
+          potionUse: false,
+          wandUse: true,
+          generalUse: false
+        })
+      ]);
+      expect(castSpell?.costValueOptions).toEqual([
+        expect.objectContaining({
+          rowId: 1,
+          label: "Single_Use",
+          cost: 0.1334,
+          potionCost: 1,
+          wandCost: 1
+        }),
+        expect.objectContaining({
+          rowId: 2,
+          label: "5_Charges/Use",
+          cost: 0.45,
+          potionCost: 0,
+          wandCost: 1
+        })
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("maps item property cost table indexes beyond the original base set", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-item-property-extra-cost-"));
+    const hakPath = join(tempRoot, "lc_2da.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "itempropdef",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name SubTypeResRef Cost CostTableResRef Param1ResRef GameStrRef Description",
+              "70 Trap 9874 iprp_traps 0 17 **** 0 0",
+              "78 Immunity_To_Spell_By_Level 9921 **** 0 23 **** 0 0"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "iprp_trapcost",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name Cost",
+              "1 Spike 2258 78"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "iprp_spelllvlimm",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name Cost",
+              "9 level9 5603 450000"
+            ].join("\n"),
+            "utf-8"
+          )
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "lc_models";
+      settings.hakProfiles.lc_models = ["lc_2da.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const serviceWithRuntimeSettings = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository
+      );
+
+      const dictionary = await serviceWithRuntimeSettings.getItemPropertyDictionary();
+      const trap = dictionary.properties.find((entry) => entry.propertyName === 70);
+      const spellLevelImmunity = dictionary.properties.find((entry) => entry.propertyName === 78);
+
+      expect(trap).toMatchObject({
+        propertyName: 70,
+        costTableIndex: 17,
+        costTableDefinition: "iprp_trapcost"
+      });
+      expect(trap?.costValueOptions).toEqual([
+        expect.objectContaining({ rowId: 1, label: "Spike", cost: 78 })
+      ]);
+      expect(spellLevelImmunity).toMatchObject({
+        propertyName: 78,
+        costTableIndex: 23,
+        costTableDefinition: "iprp_spelllvlimm"
+      });
+      expect(spellLevelImmunity?.costValueOptions).toEqual([
+        expect.objectContaining({ rowId: 9, label: "level9", cost: 450000 })
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses local retail item property cost tables when runtime tables only expose zero costs", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-item-property-retail-fallback-"));
+    const hakPath = join(tempRoot, "lc_2da.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "itempropdef",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "Label Name SubTypeResRef Cost CostTableResRef Param1ResRef GameStrRef Description",
+              "6 Enhancement 1062 **** 0 2 **** 0 0"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "iprp_meleecost",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            ["2DA V2.0", "", "Name Label Cost", "1 One 1 0"].join("\n"),
+            "utf-8"
+          )
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "lc_models";
+      settings.hakProfiles.lc_models = ["lc_2da.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const serviceWithRuntimeSettings = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository
+      );
+      const serviceInternals = serviceWithRuntimeSettings as unknown as {
+        resolveLocalItemRetailItemPropDefTwoDa: jest.Mock;
+        resolveLocalItemRetailTwoDa: jest.Mock;
+      };
+      serviceInternals.resolveLocalItemRetailItemPropDefTwoDa = jest.fn().mockResolvedValue({
+        resref: "itempropdef",
+        fileName: "local-retail/itempropdef.2da",
+        extension: "2da",
+        bytes: Buffer.from(
+          [
+            "2DA V2.0",
+            "",
+            "Label Name SubTypeResRef Cost CostTableResRef Param1ResRef GameStrRef Description",
+            "6 Enhancement 1062 **** 1 2 **** 0 0"
+          ].join("\n"),
+          "utf-8"
+        )
+      });
+      serviceInternals.resolveLocalItemRetailTwoDa = jest
+        .fn()
+        .mockImplementation(async (resref: string) =>
+          resref === "iprp_meleecost"
+            ? {
+                resref: "iprp_meleecost",
+                fileName: "local-retail/iprp_meleecost.2da",
+                extension: "2da",
+                bytes: Buffer.from(
+                  ["2DA V2.0", "", "Name Label Cost", "1 One 1 0.9"].join("\n"),
+                  "utf-8"
+                )
+              }
+            : null
+        );
+
+      const dictionary = await serviceWithRuntimeSettings.getItemPropertyDictionary();
+      const enhancement = dictionary.properties.find((entry) => entry.propertyName === 6);
+
+      expect(enhancement).toMatchObject({
+        propertyName: 6,
+        propertyLabel: "Enhancement",
+        cost: 1,
+        costTableIndex: 2,
+        costTableDefinition: "iprp_meleecost"
+      });
+      expect(enhancement?.costValueOptions).toEqual([
+        expect.objectContaining({
+          rowId: 1,
+          label: "1",
+          cost: 0.9,
+          sourceKey: "local-retail/iprp_meleecost.2da"
+        })
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("derives armor base cost from armor.2da via torso ACBONUS", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-item-armor-cost-"));
+    const hakPath = join(tempRoot, "lc_2da.hak");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "parts_chest",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "COSTMODIFIER ACBONUS",
+              "0 0 ****",
+              "43 0 3.00"
+            ].join("\n"),
+            "utf-8"
+          )
+        },
+        {
+          resref: "armor",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+          bytes: Buffer.from(
+            [
+              "2DA V2.0",
+              "",
+              "ACBONUS DEXBONUS ACCHECK ARCANEFAILURE% WEIGHT COST DESCRIPTIONS BASEITEMSTATREF",
+              "3 3 4 -1 20 150 15 1730 5436"
+            ].join("\n"),
+            "utf-8"
+          )
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = true;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.placeable.hakProfileId = "lc_models";
+      settings.hakProfiles.lc_models = ["lc_2da.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const serviceWithRuntimeSettings = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository
+      );
+      const serviceInternals = serviceWithRuntimeSettings as unknown as {
+        ensureCreatureRuntimeItemArmorPartCostMetadata: (
+          metadata: TemplateRecord["metadata"]
+        ) => Promise<TemplateRecord["metadata"]>;
+      };
+
+      const metadata = await serviceInternals.ensureCreatureRuntimeItemArmorPartCostMetadata({
+        bodyPartTorso: 43
+      });
+
+      expect(metadata).toMatchObject({
+        baseItemBaseCost: 15,
+        armorBaseCost: 15,
+        armorBaseCostRow: 3,
+        armorBaseCostTorsoAcBonus: 3,
+        armorPartCostModifierTorso: 0,
+        armorPartCostModifierTotal: 0,
+        armorPartCostModifierResolvedCount: 1
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("processes direct-model creature into ready render package and cached asset delivery", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const directModelGlbBytes = convertAuroraAsciiMdlToGlb(
+      Buffer.from(
+        [
+          "newmodel n_bear",
+          "setsupermodel n_bear a_ba",
+          "beginmodelgeom n_bear",
+          "node dummy n_bear",
+          "endnode",
+          "endmodelgeom n_bear"
+        ].join("\n"),
+        "utf-8"
+      )
+    ).bytes;
+    const supermodelGlbBytes = convertAuroraAsciiMdlToGlb(
+      Buffer.from(
+        [
+          "newmodel a_ba",
+          "beginmodelgeom a_ba",
+          "node dummy a_ba",
+          "endnode",
+          "endmodelgeom a_ba",
+          "newanim walk a_ba",
+          "  length 1",
+          "  node dummy a_ba",
+          "    positionkey 1",
+          "      0 0 0 0",
+          "  endnode",
+          "doneanim walk a_ba"
+        ].join("\n"),
+        "utf-8"
+      )
+    ).bytes;
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-direct-model",
+      totalFiles: 2,
+      totalBytes: directModelGlbBytes.length + supermodelGlbBytes.length,
+      objects: [
+        {
+          key: "modules/current/models/n_bear.glb",
+          size: directModelGlbBytes.length,
+          etag: "bear-glb-hash"
+        },
+        {
+          key: "modules/current/models/A_BA.glb",
+          size: supermodelGlbBytes.length,
+          etag: "bear-supermodel-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === "modules/current/models/n_bear.glb") {
+        return {
+          key,
+          size: directModelGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "bear-glb-hash",
+          bytes: directModelGlbBytes
+        };
+      }
+      if (key === "modules/current/models/A_BA.glb") {
+        return {
+          key,
+          size: supermodelGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "bear-supermodel-glb-hash",
+          bytes: supermodelGlbBytes
+        };
+      }
+      return null;
+    });
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_bear_001"),
+      resref: "cre_bear_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_bear_001").metadata,
+        firstName: "Forest",
+        lastName: "Bear",
+        appearanceId: 23,
+        appearanceLabelSource2daRow: 23,
+        appearanceModelType: "S",
+        appearanceRaceModel: "n_bear"
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_bear_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.sourceModelCandidates).toEqual([
+      expect.objectContaining({
+        resref: "n_bear",
+        confidence: "direct-model",
+        assetId: expect.any(String),
+        glbUrl: expect.stringContaining(
+          `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+        ),
+        supermodelResRef: "a_ba",
+        supermodelAssetId: expect.any(String),
+        supermodelGlbUrl: expect.stringContaining(
+          `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+        )
+      })
+    ]);
+    const derivedAssetId = renderPackage?.assetRefs?.derivedModelAssetIds?.[0];
+    expect(derivedAssetId).toBeDefined();
+    expect(renderPackage?.glbUrl).toBe(
+      `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/${derivedAssetId}.glb`
+    );
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+      expect.objectContaining({
+        assetId: derivedAssetId,
+        fileName: "n_bear.glb",
+        role: "model"
+      }),
+      expect.objectContaining({
+        fileName: "A_BA.glb",
+        role: "model"
+      })
+      ])
+    );
+
+    const cachedValue = placeableCache.set.mock.calls[0]?.[1] as unknown as TemplateRecord;
+    placeableCache.get.mockResolvedValueOnce({
+      key: result.cache.key,
+      value: cachedValue,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 1
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValueOnce({
+      key: "modules/current/models/n_bear.glb",
+      size: directModelGlbBytes.length,
+      contentType: "model/gltf-binary",
+      etag: "bear-glb-hash",
+      bytes: directModelGlbBytes
+    });
+
+    const asset = await serviceWithBlob.getProcessedPlaceableAsset(
+      result.cache.key,
+      derivedAssetId!
+    );
+    expect(asset.asset.fileName).toBe("n_bear.glb");
+    expect(asset.payload.bytes).toEqual(directModelGlbBytes);
+  });
+
+  it("adds creature animation supermodels declared only by source MDL metadata even when the direct model has own clips", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const directSourceBytes = Buffer.from(
+      [
+        "newmodel c_skel_war02",
+        "setsupermodel c_skel_war02 c_skel_anims",
+        "beginmodelgeom c_skel_war02",
+        "node dummy c_skel_war02",
+        "endnode",
+        "endmodelgeom c_skel_war02",
+        "newanim pause1 c_skel_war02",
+        "  length 1",
+        "  node dummy c_skel_war02",
+        "    positionkey 1",
+        "      0 0 0 0",
+        "  endnode",
+        "doneanim pause1 c_skel_war02"
+      ].join("\n"),
+      "utf-8"
+    );
+    const staleDirectGlbBytes = convertAuroraAsciiMdlToGlb(
+      Buffer.from(
+        [
+          "newmodel c_skel_war02",
+          "beginmodelgeom c_skel_war02",
+          "node dummy c_skel_war02",
+          "endnode",
+          "endmodelgeom c_skel_war02"
+        ].join("\n"),
+        "utf-8"
+      )
+    ).bytes;
+    const supermodelGlbBytes = convertAuroraAsciiMdlToGlb(
+      Buffer.from(
+        [
+          "newmodel c_skel_anims",
+          "beginmodelgeom c_skel_anims",
+          "node dummy c_skel_anims",
+          "endnode",
+          "endmodelgeom c_skel_anims",
+          "newanim pause1 c_skel_anims",
+          "  length 1",
+          "  node dummy c_skel_anims",
+          "    positionkey 1",
+          "      0 0 0 0",
+          "  endnode",
+          "doneanim pause1 c_skel_anims"
+        ].join("\n"),
+        "utf-8"
+      )
+    ).bytes;
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-source-supermodel",
+      totalFiles: 3,
+      totalBytes:
+        directSourceBytes.length + staleDirectGlbBytes.length + supermodelGlbBytes.length,
+      objects: [
+        {
+          key: "modules/current/models/c_skel_war02.mdl",
+          size: directSourceBytes.length,
+          etag: "skel-war-source"
+        },
+        {
+          key: "modules/current/models/c_skel_war02.glb",
+          size: staleDirectGlbBytes.length,
+          etag: "skel-war-stale-glb"
+        },
+        {
+          key: "modules/current/models/c_skel_anims.glb",
+          size: supermodelGlbBytes.length,
+          etag: "skel-war-supermodel-glb"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === "modules/current/models/c_skel_war02.mdl") {
+        return {
+          key,
+          size: directSourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: "skel-war-source",
+          bytes: directSourceBytes
+        };
+      }
+      if (key === "modules/current/models/c_skel_war02.glb") {
+        return {
+          key,
+          size: staleDirectGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "skel-war-stale-glb",
+          bytes: staleDirectGlbBytes
+        };
+      }
+      if (key === "modules/current/models/c_skel_anims.glb") {
+        return {
+          key,
+          size: supermodelGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "skel-war-supermodel-glb",
+          bytes: supermodelGlbBytes
+        };
+      }
+      return null;
+    });
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "nw_skelwarr01"),
+      resref: "nw_skelwarr01",
+      metadata: {
+        ...buildTemplate("creature", "nw_skelwarr01").metadata,
+        firstName: "Skeleton",
+        lastName: "Warrior",
+        appearanceId: 999,
+        appearanceLabelSource2daRow: 999,
+        appearanceModelType: "S",
+        appearanceRaceModel: "c_skel_war02"
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "nw_skelwarr01",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.creature.assetManifest?.assets.map((asset) => asset.fileName).sort()).toEqual([
+      "c_skel_anims.glb",
+      "c_skel_war02.glb",
+      "c_skel_war02.mdl"
+    ]);
+    expect(result.creature.creatureRenderPackage?.sourceModelCandidates[0]).toMatchObject({
+      resref: "c_skel_war02",
+      supermodelResRef: "c_skel_anims",
+      supermodelAssetId: expect.any(String),
+      supermodelGlbUrl: expect.stringContaining("/assets/")
+    });
+  });
+
+  it("treats direct-model creature source emitters as ready when GLB derivation is unavailable", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const sourceModelBytes = Buffer.from(
+      [
+        "newmodel bf_grue_fire",
+        "beginmodelgeom bf_grue_fire",
+        "node dummy bf_grue_fire",
+        "endnode",
+        "node emitter fire_emit",
+        "  parent bf_grue_fire",
+        "  update Fountain",
+        "  render Billboard_to_World_Z",
+        "  blend Lighten",
+        "  texture fx_fire",
+        "  birthrate 12",
+        "  lifeexp 1",
+        "endnode",
+        "endmodelgeom bf_grue_fire"
+      ].join("\n"),
+      "utf-8"
+    );
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-emitter-only",
+      totalFiles: 3,
+      totalBytes: sourceModelBytes.length + 96,
+      objects: [
+        {
+          key: "modules/current/models/bf_grue_fire.mdl",
+          size: sourceModelBytes.length,
+          etag: "bf-grue-fire-mdl-hash"
+        },
+        {
+          key: "modules/current/textures/fx_fire.tga",
+          size: 64,
+          etag: "fx-fire-texture-hash"
+        },
+        {
+          key: "modules/current/portal_placehold.utc",
+          size: 32,
+          etag: "portal-utc-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === "modules/current/models/bf_grue_fire.mdl") {
+        return {
+          key,
+          size: sourceModelBytes.length,
+          contentType: "application/octet-stream",
+          etag: "bf-grue-fire-mdl-hash",
+          bytes: sourceModelBytes
+        };
+      }
+      return null;
+    });
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_portal_placehold"),
+      resref: "portal_placehold",
+      metadata: {
+        ...buildTemplate("creature", "cre_portal_placehold").metadata,
+        sourceObjectKey: "modules/current/portal_placehold.utc",
+        firstName: "portal placeholder",
+        appearanceId: 999,
+        appearanceLabelSource2daRow: 999,
+        appearanceModelType: "S",
+        appearanceRaceModel: "bf_grue_fire"
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_portal_placehold",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.creature.creatureRenderPackage?.status).toBe("ready");
+    expect(result.creature.creatureRenderPackage?.glbUrl).toBeUndefined();
+    expect(result.creature.creatureRenderPackage?.auroraEmitter?.emitters[0]).toMatchObject({
+      nodeName: "fire_emit",
+      texture: "fx_fire",
+      emitterType: "Fountain",
+      renderMode: "Billboard_to_World_Z",
+      blendMode: "Lighten",
+      simulation: {
+        birthrate: 12,
+        lifeExp: 1
+      }
+    });
+    expect(
+      result.creature.creatureRenderPackage?.diagnostics.map((diagnostic) => diagnostic.code)
+    ).toEqual(
+      expect.arrayContaining([
+        "CREATURE_AURORA_MDL_EMITTER_PAYLOAD_READY",
+        "CREATURE_RENDER_EMITTER_PREVIEW_READY"
+      ])
+    );
+    expect(
+      result.creature.creatureRenderPackage?.diagnostics.map((diagnostic) => diagnostic.code)
+    ).not.toContain("CREATURE_RENDER_DIRECT_MODEL_DERIVED_MISSING");
+  });
+
+  it("attaches source MDL scene graph and animation inspection to creature render packages", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const sourceKey = "modules/current/models/n_bear.mdl";
+    const sourceBytes = Buffer.from(
+      [
+        "newmodel n_bear",
+        "setsupermodel n_bear a_ba",
+        "setanimationscale 1.25",
+        "beginmodelgeom n_bear",
+        "node dummy n_bear",
+        "  position 0 0 0",
+        "  orientation 0 1 0 1.57079632679",
+        "endnode",
+        "node skin torso_skin",
+        "  parent n_bear",
+        "  bitmap n_bear_body",
+        "endnode",
+        "node emitter breath_emit",
+        "  parent n_bear",
+        "  texture fx_breath",
+        "endnode",
+        "endmodelgeom n_bear",
+        "newanim walk n_bear",
+        "  length 1.2",
+        "  transtime 0.25",
+        "  animroot n_bear",
+        "  event 0.6 footstep",
+        "  node dummy n_bear",
+        "    positionkey 1",
+        "      0 0 0 0",
+        "    orientationkey 1",
+        "      0 0 0 1 0",
+        "  endnode",
+        "doneanim walk n_bear"
+      ].join("\n"),
+      "utf-8"
+    );
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-source-inspection",
+      totalFiles: 2,
+      totalBytes: sourceBytes.length + 120,
+      objects: [
+        {
+          key: sourceKey,
+          size: sourceBytes.length,
+          etag: "bear-mdl-hash"
+        },
+        {
+          key: "modules/current/models/n_bear.glb",
+          size: 120,
+          etag: "bear-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === sourceKey) {
+        return {
+          key,
+          size: sourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: "bear-mdl-hash",
+          bytes: sourceBytes
+        };
+      }
+      return null;
+    });
+
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("creature", "cre_bear_001"),
+      resref: "cre_bear_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_bear_001").metadata,
+        firstName: "Forest",
+        lastName: "Bear",
+        appearanceId: 23,
+        appearanceLabelSource2daRow: 23,
+        appearanceModelType: "S",
+        appearanceRaceModel: "n_bear"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_bear_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "CREATURE_SOURCE_MDL_INSPECTION_READY"
+    );
+    expect(renderPackage?.sourceMdlInspection?.models[0]).toMatchObject({
+      source: "aurora-mdl-ascii",
+      sourceModelFileName: "n_bear.mdl",
+      modelName: "n_bear",
+      supermodel: "a_ba",
+      animationScale: 1.25,
+      nodeCount: 3,
+      rootNodeNames: ["n_bear"],
+      nodeTypeCounts: {
+        dummy: 1,
+        emitter: 1,
+        skin: 1
+      },
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          name: "n_bear",
+          orientation: [0, 1, 0, 1.57079632679]
+        })
+      ]),
+      animationCount: 1,
+      animationNames: ["walk"],
+      animations: [
+        expect.objectContaining({
+          name: "walk",
+          animRoot: "n_bear",
+          animationScale: 1.25,
+          lengthSeconds: 1.2,
+          transitionSeconds: 0.25,
+          events: [{ timeSeconds: 0.6, name: "footstep" }],
+          nodeCount: 1,
+          positionKeyCount: 1,
+          orientationKeyCount: 1
+        })
+      ],
+      textureReferences: ["fx_breath"]
+    });
+  });
+
+  it("replaces stale direct-model creature derived GLBs with freshly generated current converter output", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    const sourceKey = "modules/current/models/n_bear.mdl";
+    const staleKey = "modules/current/__aurora/derived/models/n_bear.glb";
+    const refreshedKey = "modules/current/__aurora/derived/models/n_bear.glb";
+    const sourceBytes = Buffer.from(
+      [
+        "newmodel n_bear",
+        "setsupermodel n_bear NULL",
+        "beginmodelgeom n_bear",
+        "node dummy n_bear",
+        "endnode",
+        "node trimesh bear_body",
+        "  parent n_bear",
+        "  texture0 bear_skin",
+        "  verts 3",
+        "    0 0 0",
+        "    1 0 0",
+        "    0 1 0",
+        "  tverts 3",
+        "    0 0",
+        "    1 0",
+        "    0 1",
+        "  faces 1",
+        "    0 1 2 1 0 1 2 1",
+        "endnode",
+        "endmodelgeom n_bear",
+        "newanim walk n_bear",
+        "  length 1.0",
+        "  transtime 0.25",
+        "  node dummy n_bear",
+        "    positionkey 1",
+        "      0 0 0 0",
+        "  endnode",
+        "doneanim walk n_bear"
+      ].join("\n"),
+      "utf-8"
+    );
+    const staleGlbBytes = buildGlbWithConverterVersion(
+      "aurora-mdl-to-glb/v6-ascii-axis-angle-node-orientation-binary-rotatetexture-vec4-tangents"
+    );
+    const refreshedGlbBytes = buildGlbWithConverterVersion(
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION
+    );
+    const staleAssetId = "stale-n-bear-glb";
+
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-stale-derived",
+      totalFiles: 2,
+      totalBytes: sourceBytes.length + staleGlbBytes.length,
+      objects: [
+        {
+          key: sourceKey,
+          size: sourceBytes.length,
+          etag: "bear-mdl-hash"
+        },
+        {
+          key: staleKey,
+          size: staleGlbBytes.length,
+          etag: staleAssetId
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === sourceKey) {
+        return {
+          key,
+          size: sourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: "bear-mdl-hash",
+          bytes: sourceBytes
+        };
+      }
+      if (key === staleKey) {
+        return {
+          key,
+          size: staleGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: staleAssetId,
+          bytes: staleGlbBytes
+        };
+      }
+      if (key === refreshedKey) {
+        return {
+          key,
+          size: refreshedGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "current-n-bear-glb",
+          bytes: refreshedGlbBytes
+        };
+      }
+      return null;
+    });
+    (moduleBlobStorage.putModuleObject as jest.Mock).mockResolvedValue({
+      key: refreshedKey,
+      etag: "current-n-bear-glb",
+      size: refreshedGlbBytes.length
+    });
+    derivedAssetGenerator.generateDerivedAssets.mockResolvedValue({
+      files: [
+        {
+          fileName: "__aurora/derived/models/n_bear.glb",
+          resourceType: 0,
+          bytes: refreshedGlbBytes
+        }
+      ],
+      summary: {
+        generator: "test-generator",
+        generatedFiles: 1,
+        generatedBytes: refreshedGlbBytes.length
+      }
+    });
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("creature", "cre_bear_001"),
+      resref: "cre_bear_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_bear_001").metadata,
+        firstName: "Forest",
+        lastName: "Bear",
+        appearanceId: 23,
+        appearanceLabelSource2daRow: 23,
+        appearanceModelType: "S",
+        appearanceRaceModel: "n_bear"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_bear_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    const assetRefs = renderPackage?.assetRefs;
+    const refreshedAssetId = assetRefs?.derivedModelAssetIds?.[0];
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledTimes(1);
+    expect(refreshedAssetId).toBeDefined();
+    expect(refreshedAssetId).not.toBe(staleAssetId);
+    expect(assetRefs?.derivedModelAssetIds).toEqual([refreshedAssetId]);
+    expect(renderPackage?.glbUrl).toBe(
+      `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/${refreshedAssetId}.glb`
+    );
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assetId: refreshedAssetId,
+          fileName: "n_bear.glb",
+          etag: "current-n-bear-glb"
+        })
+      ])
+    );
+    expect(
+      result.creature.assetManifest?.assets.some((asset) => asset.assetId === staleAssetId)
+    ).toBe(false);
+  });
+
+  it("prefers current converter direct-model creature GLB when historical blobs share a basename", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    const currentVersionSegment = AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+      /[^a-zA-Z0-9._-]+/gu,
+      "_"
+    );
+    const sourceKey = "modules/current/models/n_bear.mdl";
+    const staleKey =
+      "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v11-binary-skin-inverse-binds-modelbase/n_bear.glb";
+    const currentKey = `modules/current/__aurora/derived/models/${currentVersionSegment}/n_bear.glb`;
+    const legacyKey = "modules/current/__aurora/derived/models/n_bear.glb";
+    const sourceBytes = Buffer.from(
+      [
+        "newmodel n_bear",
+        "setsupermodel n_bear NULL",
+        "beginmodelgeom n_bear",
+        "node dummy n_bear",
+        "endnode",
+        "node trimesh bear_body",
+        "  parent n_bear",
+        "  texture0 bear_skin",
+        "  verts 3",
+        "    0 0 0",
+        "    1 0 0",
+        "    0 1 0",
+        "  tverts 3",
+        "    0 0",
+        "    1 0",
+        "    0 1",
+        "  faces 1",
+        "    0 1 2 1 0 1 2 1",
+        "endnode",
+        "endmodelgeom n_bear"
+      ].join("\n"),
+      "utf-8"
+    );
+    const staleGlbBytes = buildGlbWithConverterVersion(
+      "aurora-mdl-to-glb/v11-binary-skin-inverse-binds-modelbase"
+    );
+    const currentGlbBytes = buildGlbWithConverterVersion(
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION
+    );
+    const legacyGlbBytes = buildGlbWithConverterVersion("aurora-mdl-to-glb/v9-binary-skin-weights");
+
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-current-derived-priority",
+      totalFiles: 4,
+      totalBytes:
+        sourceBytes.length + staleGlbBytes.length + currentGlbBytes.length + legacyGlbBytes.length,
+      objects: [
+        { key: sourceKey, size: sourceBytes.length, etag: "bear-mdl-hash" },
+        { key: staleKey, size: staleGlbBytes.length, etag: "stale-v11-glb" },
+        { key: currentKey, size: currentGlbBytes.length, etag: "current-v12-glb" },
+        { key: legacyKey, size: legacyGlbBytes.length, etag: "legacy-v9-glb" }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === sourceKey) {
+        return {
+          key,
+          size: sourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: "bear-mdl-hash",
+          bytes: sourceBytes
+        };
+      }
+      if (key === staleKey) {
+        return {
+          key,
+          size: staleGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "stale-v11-glb",
+          bytes: staleGlbBytes
+        };
+      }
+      if (key === currentKey) {
+        return {
+          key,
+          size: currentGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "current-v12-glb",
+          bytes: currentGlbBytes
+        };
+      }
+      if (key === legacyKey) {
+        return {
+          key,
+          size: legacyGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "legacy-v9-glb",
+          bytes: legacyGlbBytes
+        };
+      }
+      return null;
+    });
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("creature", "cre_bear_001"),
+      resref: "cre_bear_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_bear_001").metadata,
+        firstName: "Forest",
+        lastName: "Bear",
+        appearanceId: 23,
+        appearanceLabelSource2daRow: 23,
+        appearanceModelType: "S",
+        appearanceRaceModel: "n_bear"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_bear_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const currentAsset = result.creature.assetManifest?.assets.find(
+      (asset) => asset.objectKey === currentKey
+    );
+    expect(currentAsset).toBeDefined();
+    expect(derivedAssetGenerator.generateDerivedAssets).not.toHaveBeenCalled();
+    expect(result.creature.creatureRenderPackage?.assetRefs?.derivedModelAssetIds).toEqual([
+      currentAsset!.assetId
+    ]);
+    expect(result.creature.creatureRenderPackage?.glbUrl).toBe(
+      `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/${currentAsset!.assetId}.glb`
+    );
+    expect(
+      result.creature.assetManifest?.assets.some(
+        (asset) => asset.objectKey === staleKey || asset.objectKey === legacyKey
+      )
+    ).toBe(false);
+  });
+
+  it("rehydrates cached creature projections when cached derived GLBs are stale", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    const sourceKey = "modules/current/models/n_bear.mdl";
+    const staleKey = "modules/current/__aurora/derived/models/n_bear.glb";
+    const refreshedKey = "modules/current/__aurora/derived/models/n_bear.glb";
+    const sourceBytes = Buffer.from(
+      [
+        "newmodel n_bear",
+        "setsupermodel n_bear NULL",
+        "beginmodelgeom n_bear",
+        "node dummy n_bear",
+        "endnode",
+        "node trimesh bear_body",
+        "  parent n_bear",
+        "  texture0 bear_skin",
+        "  verts 3",
+        "    0 0 0",
+        "    1 0 0",
+        "    0 1 0",
+        "  tverts 3",
+        "    0 0",
+        "    1 0",
+        "    0 1",
+        "  faces 1",
+        "    0 1 2 1 0 1 2 1",
+        "endnode",
+        "endmodelgeom n_bear"
+      ].join("\n"),
+      "utf-8"
+    );
+    const staleGlbBytes = buildGlbWithConverterVersion("aurora-mdl-to-glb/v9-binary-skin-weights");
+    const refreshedGlbBytes = buildGlbWithConverterVersion(
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION
+    );
+    const staleAssetId = "stale-cached-n-bear-glb";
+    const sourceAsset = {
+      assetId: "source-n-bear-mdl",
+      role: "model" as const,
+      fileName: "n_bear.mdl",
+      objectKey: sourceKey,
+      extension: "mdl",
+      sizeBytes: sourceBytes.length,
+      contentType: "application/octet-stream",
+      etag: "bear-mdl-hash"
+    };
+    const staleAsset = {
+      assetId: staleAssetId,
+      role: "model" as const,
+      fileName: "n_bear.glb",
+      objectKey: staleKey,
+      extension: "glb",
+      sizeBytes: staleGlbBytes.length,
+      contentType: "model/gltf-binary",
+      etag: staleAssetId
+    };
+
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-cached-stale-derived",
+      totalFiles: 2,
+      totalBytes: sourceBytes.length + staleGlbBytes.length,
+      objects: [
+        {
+          key: sourceKey,
+          size: sourceBytes.length,
+          etag: "bear-mdl-hash"
+        },
+        {
+          key: staleKey,
+          size: staleGlbBytes.length,
+          etag: staleAssetId
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key === sourceKey) {
+        return {
+          key,
+          size: sourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: "bear-mdl-hash",
+          bytes: sourceBytes
+        };
+      }
+      if (key === staleKey) {
+        return {
+          key,
+          size: staleGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: staleAssetId,
+          bytes: staleGlbBytes
+        };
+      }
+      if (key === refreshedKey) {
+        return {
+          key,
+          size: refreshedGlbBytes.length,
+          contentType: "model/gltf-binary",
+          etag: "current-cached-n-bear-glb",
+          bytes: refreshedGlbBytes
+        };
+      }
+      return null;
+    });
+    (moduleBlobStorage.putModuleObject as jest.Mock).mockResolvedValue({
+      key: refreshedKey,
+      etag: "current-cached-n-bear-glb",
+      size: refreshedGlbBytes.length
+    });
+    derivedAssetGenerator.generateDerivedAssets.mockResolvedValue({
+      files: [
+        {
+          fileName: "__aurora/derived/models/n_bear.glb",
+          resourceType: 0,
+          bytes: refreshedGlbBytes
+        }
+      ],
+      summary: {
+        generator: "test-generator",
+        generatedFiles: 1,
+        generatedBytes: refreshedGlbBytes.length
+      }
+    });
+    const template = {
+      ...buildTemplate("creature", "cre_bear_cached_001"),
+      resref: "cre_bear_cached_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_bear_cached_001").metadata,
+        firstName: "Cached",
+        lastName: "Bear",
+        appearanceId: 23,
+        appearanceLabelSource2daRow: 23,
+        appearanceModelType: "S",
+        appearanceRaceModel: "n_bear"
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue({
+      key: "f".repeat(64),
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 6,
+      value: {
+        templateId: template.templateId,
+        kind: "creature",
+        resref: template.resref,
+        name: "cached bear",
+        category: "npc",
+        benchmarkCandidate: false,
+        metadata: template.metadata,
+        render: {
+          backendType: "creature",
+          frontendType: "creature",
+          rendererPreset: "creature-standard"
+        },
+        assetManifest: {
+          version: "placeable-asset-manifest/v1",
+          source: "module-blob-snapshot",
+          generatedAt: "2026-05-24T10:09:00.000Z",
+          moduleHash: "hash-creature-cached-stale-derived",
+          assetCount: 2,
+          candidatesScanned: 2,
+          assets: [sourceAsset, staleAsset]
+        },
+        creatureRuntime: {
+          source: {},
+          identity: {},
+          appearance: {},
+          bodyParts: {},
+          colors: {},
+          partModelCandidates: [],
+          faction: {},
+          stats: {},
+          lists: {},
+          scripts: {}
+        },
+        creatureRenderPackage: {
+          status: "ready",
+          rendererPreset: "creature-standard",
+          diagnostics: [],
+          sourceModelCandidates: [
+            {
+              resref: "n_bear",
+              source: "appearance.2da",
+              confidence: "direct-model"
+            }
+          ],
+          skeletonModelCandidates: [],
+          partModelCandidates: [],
+          equipmentModelCandidates: [],
+          assetRefs: {
+            derivedModelAssetIds: [staleAssetId]
+          },
+          bodyParts: {},
+          colors: {}
+        },
+        creatureValidationIssues: [],
+        processedAt: "2026-05-24T10:09:00.000Z"
+      }
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_bear_cached_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const refreshedAssetIds =
+      result.creature.creatureRenderPackage?.assetRefs?.derivedModelAssetIds ?? [];
+    expect(result.cache.hit).toBe(true);
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledTimes(1);
+    expect(placeableCache.set).toHaveBeenCalledTimes(1);
+    expect(refreshedAssetIds).toHaveLength(1);
+    expect(refreshedAssetIds[0]).not.toBe(staleAssetId);
+    expect(
+      result.creature.assetManifest?.assets.some((asset) => asset.assetId === staleAssetId)
+    ).toBe(false);
+  });
+
+  it("uses the direct creature model URL when equipment models are present in the same manifest", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-direct-equipment",
+      totalFiles: 4,
+      totalBytes: 320,
+      objects: [
+        {
+          key: "modules/current/models/wswss_b_011.glb",
+          size: 64,
+          etag: "wswss-b-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswss_m_011.glb",
+          size: 64,
+          etag: "wswss-m-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswss_t_011.glb",
+          size: 64,
+          etag: "wswss-t-glb-hash"
+        },
+        {
+          key: "modules/current/models/zcp_horse_cart.glb",
+          size: 128,
+          etag: "zcp-horse-cart-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_caravan"),
+      resref: "caravan",
+      metadata: {
+        ...buildTemplate("creature", "cre_caravan").metadata,
+        firstName: "Karawana",
+        appearanceId: 900,
+        appearanceLabelSource2daRow: 900,
+        appearanceModelType: "S",
+        appearanceRaceModel: "zcp_horse_cart",
+        equipItemListCount: 1,
+        equipItemListEntries: JSON.stringify([
+          {
+            resRef: "nw_wswss001",
+            slotMask: 0x10
+          }
+        ])
+      }
+    };
+    const swordTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_wswss001"),
+      resref: "nw_wswss001",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_wswss001").metadata,
+        templateResRef: "nw_wswss001",
+        localizedName: "Short Sword",
+        baseItem: 7,
+        baseItemModelType: "wswss",
+        modelPart1: 11,
+        modelPart2: 11,
+        modelPart3: 11
+      }
+    };
+    repository.findByKindAndId.mockImplementation(async (kind, templateId) => {
+      if (kind === "creature" && templateId === template.templateId) {
+        return template;
+      }
+      if (kind === "item" && templateId === swordTemplate.templateId) {
+        return swordTemplate;
+      }
+      return null;
+    });
+    repository.findByKindAndResref.mockImplementation(async (kind, resref) => {
+      if (kind === "item" && resref === swordTemplate.resref) {
+        return swordTemplate;
+      }
+      return null;
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_caravan",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.sourceModelCandidates[0]).toMatchObject({
+      resref: "zcp_horse_cart",
+      confidence: "direct-model"
+    });
+    expect(renderPackage?.glbUrl).toBe(renderPackage?.sourceModelCandidates[0]?.glbUrl);
+    expect(renderPackage?.equipmentModelCandidates[0]).toMatchObject({
+      resref: "nw_wswss001",
+      itemModelType: "wswss",
+      sourceModelStatus: "model-resrefs-ready",
+      itemModelPartResRefs: ["wswss_b_011", "wswss_m_011", "wswss_t_011"]
+    });
+    const equipmentPartUrls =
+      renderPackage?.equipmentModelCandidates[0]?.itemModelPartCandidates
+        ?.map((candidate) => candidate.glbUrl)
+        .filter((url): url is string => typeof url === "string") ?? [];
+    expect(equipmentPartUrls).toHaveLength(3);
+    expect(equipmentPartUrls).not.toContain(renderPackage?.glbUrl);
+  });
+
+  it("processes part-based creature CAPart candidates into cached part model delivery URLs", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-part-model",
+      totalFiles: 6,
+      totalBytes: 416,
+      objects: [
+        {
+          key: "modules/current/models/pfh2.glb",
+          size: 64,
+          etag: "pfh2-glb-hash"
+        },
+        {
+          key: "modules/current/models/pfh2_rfoot004.glb",
+          size: 96,
+          etag: "rfoot-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswss_b_011.glb",
+          size: 64,
+          etag: "wswss-b-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswss_m_011.glb",
+          size: 64,
+          etag: "wswss-m-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswss_t_011.glb",
+          size: 64,
+          etag: "wswss-t-glb-hash"
+        },
+        {
+          key: "modules/current/models/wswls_t_211.glb",
+          size: 64,
+          etag: "wswls-t-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_guard_human_001"),
+      resref: "cre_guard_human_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_guard_human_001").metadata,
+        firstName: "City",
+        lastName: "Guard",
+        appearanceId: 17,
+        appearanceLabelSource2daRow: 17,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 2,
+        gender: 1,
+        genderLabel: "Female",
+        bodyPartRFoot: 4,
+        equipItemListCount: 4,
+        equipItemListEntries: JSON.stringify([
+          {
+            resRef: "nw_wswss001",
+            slotMask: 0x10
+          },
+          {
+            resRef: "d_und_a_w_sword",
+            slotMask: 0x10
+          },
+          {
+            resRef: "wnd_hiena_hood",
+            slotMask: 0x1
+          },
+          {
+            resRef: "nw_it_creitemunh",
+            slotMask: 0x20000
+          }
+        ]),
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "rFoot",
+            partId: 4,
+            partModelName: "rfoot",
+            nodeName: "rfoot_g",
+            modelPrefix: "pfh2_",
+            modelResRef: "pfh2_rfoot004",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 0,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+          }
+        ])
+      }
+    };
+    const itemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_wswss001"),
+      resref: "nw_wswss001",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_wswss001").metadata,
+        templateResRef: "nw_wswss001",
+        localizedName: "Short Sword",
+        baseItem: 7,
+        baseItemModelType: "wswss",
+        modelPart1: 11,
+        modelPart2: 11,
+        modelPart3: 11
+      }
+    };
+    const partialWeaponItemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_d_und_a_w_sword"),
+      resref: "d_und_a_w_sword",
+      metadata: {
+        ...buildTemplate("item", "itm_d_und_a_w_sword").metadata,
+        templateResRef: "d_und_a_w_sword",
+        localizedName: "Ancient Longsword",
+        baseItem: 6,
+        baseItemModelType: "wswls",
+        modelPart1: 211,
+        modelPart2: 211,
+        modelPart3: 211
+      }
+    };
+    const helmetItemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_wnd_hiena_hood"),
+      resref: "wnd_hiena_hood",
+      metadata: {
+        ...buildTemplate("item", "itm_wnd_hiena_hood").metadata,
+        templateResRef: "wnd_hiena_hood",
+        localizedName: "Hyena Hood",
+        baseItem: 75,
+        baseItemModelType: "helm",
+        modelPart1: 33
+      }
+    };
+    const creatureArmorItemTemplate: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_it_creitemunh"),
+      resref: "nw_it_creitemunh",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_it_creitemunh").metadata,
+        templateResRef: "nw_it_creitemunh",
+        localizedName: "Creature Armor",
+        baseItem: 77,
+        baseItemModelType: "it_cr_item",
+        modelPart1: 1
+      }
+    };
+    repository.findByKindAndId.mockImplementation(async (kind, templateId) => {
+      if (kind === "creature" && templateId === template.templateId) {
+        return template;
+      }
+      if (kind === "item" && templateId === itemTemplate.templateId) {
+        return itemTemplate;
+      }
+      if (kind === "item" && templateId === partialWeaponItemTemplate.templateId) {
+        return partialWeaponItemTemplate;
+      }
+      if (kind === "item" && templateId === helmetItemTemplate.templateId) {
+        return helmetItemTemplate;
+      }
+      if (kind === "item" && templateId === creatureArmorItemTemplate.templateId) {
+        return creatureArmorItemTemplate;
+      }
+      return null;
+    });
+    repository.findByKindAndResref.mockImplementation(async (kind, resref) => {
+      if (kind === "item" && resref === itemTemplate.resref) {
+        return itemTemplate;
+      }
+      if (kind === "item" && resref === partialWeaponItemTemplate.resref) {
+        return partialWeaponItemTemplate;
+      }
+      if (kind === "item" && resref === helmetItemTemplate.resref) {
+        return helmetItemTemplate;
+      }
+      if (kind === "item" && resref === creatureArmorItemTemplate.resref) {
+        return creatureArmorItemTemplate;
+      }
+      return null;
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "CREATURE_RENDER_BASE_SKELETON_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_EQUIPMENT_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_PART_MODEL_GROUP_READY",
+        "CREATURE_RENDER_SKINNED_GLB_ASSEMBLY_PENDING"
+      ])
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_EQUIPMENT_MODEL_ASSETS_PARTIAL"
+    );
+    const skeletonCandidate = renderPackage?.skeletonModelCandidates[0];
+    expect(skeletonCandidate).toMatchObject({
+      resref: "pfh2",
+      assetId: expect.any(String),
+      glbUrl: expect.stringContaining(
+        `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+      )
+    });
+    const partCandidate = renderPackage?.partModelCandidates[0];
+    expect(partCandidate).toMatchObject({
+      slot: "rFoot",
+      modelResRef: "pfh2_rfoot004",
+      assetId: expect.any(String),
+      glbUrl: expect.stringContaining(
+        `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+      )
+    });
+    expect(
+      renderPackage?.equipmentModelCandidates[0]?.itemModelPartCandidates?.map((candidate) => ({
+        resref: candidate.resref,
+        glbUrlReady: Boolean(candidate.glbUrl)
+      }))
+    ).toEqual([
+      { resref: "wswss_b_011", glbUrlReady: true },
+      { resref: "wswss_m_011", glbUrlReady: true },
+      { resref: "wswss_t_011", glbUrlReady: true }
+    ]);
+    expect(renderPackage?.equipmentModelCandidates[1]).toMatchObject({
+      resref: "d_und_a_w_sword",
+      slotLabels: ["right hand"],
+      itemModelType: "wswls",
+      sourceModelStatus: "model-resrefs-ready",
+      itemModelParts: [211],
+      itemModelPartRoles: ["top"],
+      itemModelPartResRefs: ["wswls_t_211"],
+      itemModelPartCandidates: [
+        expect.objectContaining({
+          resref: "wswls_t_211",
+          role: "top",
+          partId: 211,
+          glbUrl: expect.stringContaining(
+            `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+          )
+        })
+      ]
+    });
+    expect(renderPackage?.equipmentModelCandidates[2]).toMatchObject({
+      resref: "wnd_hiena_hood",
+      slotLabels: ["head"],
+      itemModelType: "helm",
+      sourceModelStatus: "metadata-only"
+    });
+    expect(renderPackage?.equipmentModelCandidates[2]?.itemModelPartCandidates).toBeUndefined();
+    expect(renderPackage?.equipmentModelCandidates[3]).toMatchObject({
+      resref: "nw_it_creitemunh",
+      slotLabels: ["creature armor"],
+      itemModelType: "it_cr_item",
+      sourceModelStatus: "metadata-only"
+    });
+    expect(renderPackage?.equipmentModelCandidates[3]?.itemModelPartCandidates).toBeUndefined();
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assetId: skeletonCandidate?.assetId,
+          fileName: "pfh2.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          assetId: partCandidate?.assetId,
+          fileName: "pfh2_rfoot004.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "wswss_b_011.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "wswss_m_011.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "wswss_t_011.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "wswls_t_211.glb",
+          role: "model"
+        })
+      ])
+    );
+  });
+
+  it("uses a phenotype-zero default head fallback when exact creature head part is unavailable", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-head-fallback",
+      totalFiles: 2,
+      totalBytes: 160,
+      objects: [
+        {
+          key: "modules/current/models/pmh9.glb",
+          size: 64,
+          etag: "pmh9-glb-hash"
+        },
+        {
+          key: "modules/current/models/pmh0_head001.glb",
+          size: 96,
+          etag: "pmh0-head001-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_npc_bimber2"),
+      resref: "npc_bimber2",
+      metadata: {
+        ...buildTemplate("creature", "cre_npc_bimber2").metadata,
+        sourceObjectKey: "modules/current/npc_bimber2.utc",
+        firstName: "Bimbrownik",
+        lastName: "Borys",
+        appearanceId: 6,
+        appearanceLabelSource2daRow: 6,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 9,
+        gender: 0,
+        appearanceHead: 148,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "head",
+            partId: 148,
+            partModelName: "head",
+            modelPrefix: "pmh9_",
+            modelResRef: "pmh9_head148",
+            modelResRefPattern: "aurora-player-body-part",
+            modelResRefPatternFormat: "p%c%c%s_%s_%03d",
+            source: "utc.Appearance_Head",
+            sourceKey: "modules/current/npc_bimber2.utc"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_npc_bimber2",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "CREATURE_RENDER_BASE_SKELETON_MODEL_ASSETS_PARTIAL",
+        "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_PART_MODEL_FALLBACK_READY",
+        "CREATURE_RENDER_PART_MODEL_GROUP_READY",
+        "CREATURE_RENDER_SKINNED_GLB_ASSEMBLY_PENDING"
+      ])
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_PART_MODEL_DERIVED_MISSING"
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_PARTIAL"
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_PART_MODEL_GROUP_PARTIAL_READY"
+    );
+    expect(
+      renderPackage?.partModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        partId: candidate.partId,
+        modelResRef: candidate.modelResRef,
+        glbUrlReady: Boolean(candidate.glbUrl)
+      }))
+    ).toEqual([
+      { slot: "head", partId: 1, modelResRef: "pmh0_head001", glbUrlReady: true }
+    ]);
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "pmh9.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pmh0_head001.glb",
+          role: "model"
+        })
+      ])
+    );
+  });
+
+  it("uses phenotype-zero body part fallbacks when exact creature body parts are unavailable", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-body-fallback",
+      totalFiles: 3,
+      totalBytes: 256,
+      objects: [
+        {
+          key: "modules/current/models/pmh9.glb",
+          size: 64,
+          etag: "pmh9-glb-hash"
+        },
+        {
+          key: "modules/current/models/pmh0_rfoot001.glb",
+          size: 96,
+          etag: "pmh0-rfoot001-glb-hash"
+        },
+        {
+          key: "modules/current/models/pmh0_lfoot001.glb",
+          size: 96,
+          etag: "pmh0-lfoot001-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_npc_bimber2"),
+      resref: "npc_bimber2",
+      metadata: {
+        ...buildTemplate("creature", "cre_npc_bimber2").metadata,
+        sourceObjectKey: "modules/current/npc_bimber2.utc",
+        firstName: "Bimbrownik",
+        lastName: "Borys",
+        appearanceId: 6,
+        appearanceLabelSource2daRow: 6,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 9,
+        gender: 0,
+        bodyPartRFoot: 1,
+        bodyPartLFoot: 1,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "rFoot",
+            partId: 1,
+            partModelName: "rfoot",
+            nodeName: "rfoot_g",
+            modelPrefix: "pmh9_",
+            modelResRef: "pmh9_rfoot001",
+            modelResRefPattern: "aurora-player-body-part",
+            modelResRefPatternFormat: "p%c%c%s_%s_%03d",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 0,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+          },
+          {
+            slot: "lFoot",
+            partId: 1,
+            partModelName: "lfoot",
+            nodeName: "lfoot_g",
+            modelPrefix: "pmh9_",
+            modelResRef: "pmh9_lfoot001",
+            modelResRefPattern: "aurora-player-body-part",
+            modelResRefPatternFormat: "p%c%c%s_%s_%03d",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 1,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_npc_bimber2",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "CREATURE_RENDER_BASE_SKELETON_MODEL_ASSETS_PARTIAL",
+        "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_PART_MODEL_FALLBACK_READY",
+        "CREATURE_RENDER_PART_MODEL_GROUP_READY",
+        "CREATURE_RENDER_SKINNED_GLB_ASSEMBLY_PENDING"
+      ])
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_PARTIAL"
+    );
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "CREATURE_RENDER_PART_MODEL_GROUP_PARTIAL_READY"
+    );
+    expect(
+      renderPackage?.partModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        partId: candidate.partId,
+        modelResRef: candidate.modelResRef,
+        glbUrlReady: Boolean(candidate.glbUrl)
+      }))
+    ).toEqual([
+      { slot: "rFoot", partId: 1, modelResRef: "pmh0_rfoot001", glbUrlReady: true },
+      { slot: "lFoot", partId: 1, modelResRef: "pmh0_lfoot001", glbUrlReady: true }
+    ]);
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "pmh9.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pmh0_rfoot001.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pmh0_lfoot001.glb",
+          role: "model"
+        })
+      ])
+    );
+  });
+
+  it("prefers same-part phenotype-zero fallbacks over generic body part fallbacks", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-preferred-body-fallback",
+      totalFiles: 3,
+      totalBytes: 256,
+      objects: [
+        {
+          key: "modules/current/models/pmh9.glb",
+          size: 64,
+          etag: "pmh9-glb-hash"
+        },
+        {
+          key: "modules/current/models/pmh0_footr160.glb",
+          size: 96,
+          etag: "pmh0-footr160-glb-hash"
+        },
+        {
+          key: "modules/current/models/pmh0_footr001.glb",
+          size: 96,
+          etag: "pmh0-footr001-glb-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_npc_bimber2"),
+      resref: "npc_bimber2",
+      metadata: {
+        ...buildTemplate("creature", "cre_npc_bimber2").metadata,
+        sourceObjectKey: "modules/current/npc_bimber2.utc",
+        firstName: "Bimbrownik",
+        lastName: "Borys",
+        appearanceId: 6,
+        appearanceLabelSource2daRow: 6,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 9,
+        gender: 0,
+        bodyPartRFoot: 160,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "rFoot",
+            partId: 160,
+            partModelName: "footr",
+            nodeName: "rfoot_g",
+            modelPrefix: "pmh9_",
+            modelResRef: "pmh9_footr160",
+            modelResRefPattern: "aurora-player-body-part",
+            modelResRefPatternFormat: "p%c%c%s_%s_%03d",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 0,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da",
+            materialColors: {
+              leather1: 103,
+              leather2: 11,
+              cloth1: 102,
+              cloth2: 8,
+              metal1: 156,
+              metal2: 157
+            }
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_npc_bimber2",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(
+      result.creature.creatureRenderPackage?.partModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        partId: candidate.partId,
+        modelResRef: candidate.modelResRef,
+        glbUrlReady: Boolean(candidate.glbUrl),
+        materialColors: candidate.materialColors
+      }))
+    ).toEqual([
+      {
+        slot: "rFoot",
+        partId: 160,
+        modelResRef: "pmh0_footr160",
+        glbUrlReady: true,
+        materialColors: {
+          leather1: 103,
+          leather2: 11,
+          cloth1: 102,
+          cloth2: 8,
+          metal1: 156,
+          metal2: 157
+        }
+      }
+    ]);
+  });
+
+  it("keeps part-based creature manifests from expanding short skeleton prefixes", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-exact-part-manifest",
+      totalFiles: 6,
+      totalBytes: 600,
+      objects: [
+        { key: "modules/current/models/pmh0.mdl", size: 100, etag: "skeleton" },
+        { key: "modules/current/models/pmh0_head001.mdl", size: 100, etag: "head-001" },
+        { key: "modules/current/models/pmh0_head006.mdl", size: 100, etag: "head-006" },
+        { key: "modules/current/models/pmh0_chest001.mdl", size: 100, etag: "chest-001" },
+        { key: "modules/current/textures/pmh0_head001.dds", size: 100, etag: "texture" },
+        { key: "modules/current/auctioneer.utc", size: 100, etag: "utc" }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_auctioneer"),
+      resref: "auctioneer",
+      metadata: {
+        ...buildTemplate("creature", "cre_auctioneer").metadata,
+        sourceObjectKey: "modules/current/auctioneer.utc",
+        firstName: "Auctioneer",
+        appearanceId: 6,
+        appearanceLabelSource2daRow: 6,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 0,
+        gender: 0,
+        appearanceHead: 1,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "head",
+            partId: 1,
+            partModelName: "head",
+            modelPrefix: "pmh0_",
+            modelResRef: "pmh0_head001",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "utc.Appearance_Head",
+            sourceKey: "modules/current/auctioneer.utc"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_auctioneer",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.creature.assetManifest?.assets.map((asset) => asset.fileName).sort()).toEqual([
+      "auctioneer.utc",
+      "pmh0.mdl",
+      "pmh0_head001.dds",
+      "pmh0_head001.mdl"
+    ]);
+    expect(
+      result.creature.creatureRenderPackage?.textureBindings?.map((binding) => binding.reference)
+    ).toContain("pmh0_head001");
+  });
+
+  it("adds an available player-body animation supermodel for part-based creature skeletons", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-skeleton-supermodel",
+      totalFiles: 5,
+      totalBytes: 500,
+      objects: [
+        { key: "modules/current/models/pmh0.mdl", size: 100, etag: "skeleton" },
+        { key: "modules/current/models/pmh0_head001.mdl", size: 100, etag: "head-001" },
+        { key: "modules/current/models/a_oldm.glb", size: 100, etag: "oldm-glb" },
+        { key: "modules/current/textures/pmh0_head001.dds", size: 100, etag: "texture" },
+        { key: "modules/current/auctioneer.utc", size: 100, etag: "utc" }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_auctioneer"),
+      resref: "auctioneer",
+      metadata: {
+        ...buildTemplate("creature", "cre_auctioneer").metadata,
+        sourceObjectKey: "modules/current/auctioneer.utc",
+        firstName: "Auctioneer",
+        appearanceId: 6,
+        appearanceLabelSource2daRow: 6,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 0,
+        gender: 0,
+        appearanceHead: 1,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "head",
+            partId: 1,
+            partModelName: "head",
+            modelPrefix: "pmh0_",
+            modelResRef: "pmh0_head001",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "utc.Appearance_Head",
+            sourceKey: "modules/current/auctioneer.utc"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_auctioneer",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.creature.assetManifest?.assets.map((asset) => asset.fileName).sort()).toEqual([
+      "a_oldm.glb",
+      "auctioneer.utc",
+      "pmh0.mdl",
+      "pmh0_head001.dds",
+      "pmh0_head001.mdl"
+    ]);
+    expect(result.creature.creatureRenderPackage?.skeletonModelCandidates[0]).toMatchObject({
+      resref: "pmh0",
+      supermodelResRef: "a_oldm",
+      supermodelAssetId: expect.any(String),
+      supermodelGlbUrl: expect.stringContaining("/assets/")
+    });
+  });
+
+  it("hydrates missing exact creature part PLT textures from vanilla KEY/BIF", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-creature-head-texture-"));
+    try {
+      await writeFakeKeyBif(tempRoot, [
+        {
+          resref: "pmh0_head001",
+          resourceType: NWN_KEY_BIF_RESOURCE_TYPES.PLT,
+          bytes: Buffer.from("PLT_HEAD", "utf-8")
+        }
+      ]);
+      const runtimeSettings = buildRuntimeSettingsRecord();
+      runtimeSettings.paths.vanillaDataPath = tempRoot;
+      runtimeSettings.sources.placeable.includeVanilla = true;
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(runtimeSettings),
+        save: jest.fn()
+      };
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-creature-vanilla-head-texture",
+        totalFiles: 4,
+        totalBytes: 400,
+        objects: [
+          { key: "modules/current/models/pmh0.mdl", size: 100, etag: "skeleton" },
+          { key: "modules/current/models/pmh0_head001.mdl", size: 100, etag: "head-001" },
+          { key: "modules/current/models/pmh0_head006.mdl", size: 100, etag: "head-006" },
+          { key: "modules/current/auctioneer.utc", size: 100, etag: "utc" }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      putModuleObject.mockImplementation(async (settings, file) => ({
+        key: `${settings.modulePrefix}/${file.fileName}`,
+        size: file.bytes.length,
+        etag: `etag-${file.fileName}`,
+        lastModified: "2026-05-24T10:20:00.000Z"
+      }));
+
+      const template: TemplateRecord = {
+        ...buildTemplate("creature", "cre_auctioneer"),
+        resref: "auctioneer",
+        metadata: {
+          ...buildTemplate("creature", "cre_auctioneer").metadata,
+          sourceObjectKey: "modules/current/auctioneer.utc",
+          firstName: "Auctioneer",
+          appearanceId: 6,
+          appearanceLabelSource2daRow: 6,
+          appearanceModelType: "P",
+          appearanceRaceModel: "H",
+          phenotype: 0,
+          gender: 0,
+          appearanceHead: 1,
+          partModelCandidates: JSON.stringify([
+            {
+              slot: "head",
+              partId: 1,
+              partModelName: "head",
+              modelPrefix: "pmh0_",
+              modelResRef: "pmh0_head001",
+              modelResRefPattern: "aurora-player-body-part",
+              source: "utc.Appearance_Head",
+              sourceKey: "modules/current/auctioneer.utc"
+            }
+          ])
+        }
+      };
+      repository.findByKindAndId.mockResolvedValue(template);
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:20:00.000Z",
+        hits: 0
+      }));
+
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage
+      );
+
+      const result = await serviceWithBlob.processCreature({
+        templateId: "cre_auctioneer",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      expect(putModuleObject).toHaveBeenCalledWith(
+        runtimeSettings.blobStorage,
+        expect.objectContaining({
+          fileName: "__aurora/sources/vanilla/textures/pmh0_head001.plt",
+          resourceType: NWN_KEY_BIF_RESOURCE_TYPES.PLT,
+          bytes: Buffer.from("PLT_HEAD", "utf-8")
+        })
+      );
+      expect(result.creature.assetManifest?.assets.map((asset) => asset.fileName).sort()).toEqual([
+        "auctioneer.utc",
+        "pmh0.mdl",
+        "pmh0_head001.mdl",
+        "pmh0_head001.plt"
+      ]);
+      expect(
+        result.creature.creatureRenderPackage?.textureBindings?.map((binding) => binding.reference)
+      ).toContain("pmh0_head001");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("derives all raw CAPart creature part models before exposing delivery URLs", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      putModuleObject: jest.fn()
+    };
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    const sourceModelBytesByKey = new Map<string, Buffer>([
+      ["modules/current/models/pfh2.mdl", Buffer.from("skeleton mdl")],
+      ["modules/current/models/pfh2_head022.mdl", Buffer.from("head mdl")],
+      ["modules/current/models/pfh2_rfoot004.mdl", Buffer.from("rfoot mdl")],
+      ["modules/current/models/pfh2_lfoot005.mdl", Buffer.from("lfoot mdl")],
+      ["modules/current/models/wing_guard04.mdl", Buffer.from("wing mdl")],
+      ["modules/current/models/tail_guard05.mdl", Buffer.from("tail mdl")]
+    ]);
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-creature-raw-part-models",
+      totalFiles: 6,
+      totalBytes: 42,
+      objects: [
+        {
+          key: "modules/current/models/pfh2.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/pfh2.mdl")!.length,
+          etag: "pfh2-mdl-hash"
+        },
+        {
+          key: "modules/current/models/pfh2_head022.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/pfh2_head022.mdl")!.length,
+          etag: "head-mdl-hash"
+        },
+        {
+          key: "modules/current/models/pfh2_rfoot004.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/pfh2_rfoot004.mdl")!.length,
+          etag: "rfoot-mdl-hash"
+        },
+        {
+          key: "modules/current/models/pfh2_lfoot005.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/pfh2_lfoot005.mdl")!.length,
+          etag: "lfoot-mdl-hash"
+        },
+        {
+          key: "modules/current/models/wing_guard04.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/wing_guard04.mdl")!.length,
+          etag: "wing-mdl-hash"
+        },
+        {
+          key: "modules/current/models/tail_guard05.mdl",
+          size: sourceModelBytesByKey.get("modules/current/models/tail_guard05.mdl")!.length,
+          etag: "tail-mdl-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const sourceBytes = sourceModelBytesByKey.get(key);
+      if (sourceBytes) {
+        return {
+          key,
+          size: sourceBytes.length,
+          contentType: "application/octet-stream",
+          etag: `${key}-etag`,
+          bytes: sourceBytes
+        };
+      }
+      return null;
+    });
+    derivedAssetGenerator.generateDerivedAssets.mockImplementation(async (input) => ({
+      files: input.sourceFiles.map((file) => {
+        const basename = file.fileName.split(/[\\/]/u).pop()!.replace(/\.(?:mdl|mdb)$/iu, "");
+        const bytes = Buffer.from(`${basename} glb`);
+        return {
+          fileName: `__aurora/derived/models/${basename}.glb`,
+          resourceType: 0,
+          bytes
+        };
+      }),
+      summary: {
+        generator: "test-generator",
+        generatedFiles: input.sourceFiles.length,
+        generatedBytes: input.sourceFiles.reduce(
+          (total, file) =>
+            total +
+            Buffer.from(
+              `${file.fileName.split(/[\\/]/u).pop()!.replace(/\.(?:mdl|mdb)$/iu, "")} glb`
+            ).length,
+          0
+        )
+      }
+    }));
+    (moduleBlobStorage.putModuleObject as jest.Mock).mockImplementation(
+      async (
+        _settings: Parameters<NonNullable<ModuleBlobStoragePort["putModuleObject"]>>[0],
+        file: Parameters<NonNullable<ModuleBlobStoragePort["putModuleObject"]>>[1]
+      ) => {
+        const fileName = file.fileName.split(/[\\/]/u).pop()!;
+        return {
+          key: `modules/current/__aurora/derived/models/${fileName}`,
+          size: file.bytes.length,
+          etag: `${fileName}-hash`
+        };
+      }
+    );
+
+    const template: TemplateRecord = {
+      ...buildTemplate("creature", "cre_guard_human_001"),
+      resref: "cre_guard_human_001",
+      metadata: {
+        ...buildTemplate("creature", "cre_guard_human_001").metadata,
+        firstName: "City",
+        lastName: "Guard",
+        appearanceId: 17,
+        appearanceLabelSource2daRow: 17,
+        appearanceModelType: "P",
+        appearanceRaceModel: "H",
+        phenotype: 2,
+        gender: 1,
+        genderLabel: "Female",
+        appearanceHead: 22,
+        bodyPartRFoot: 4,
+        bodyPartLFoot: 5,
+        wingsNew: 4,
+        tailNew: 5,
+        partModelCandidates: JSON.stringify([
+          {
+            slot: "head",
+            partId: 22,
+            partModelName: "head",
+            modelPrefix: "pfh2_",
+            modelResRef: "pfh2_head022",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "utc.Appearance_Head",
+            sourceKey: "modules/current/blueprints/creatures/cre_guard_human_001.utc"
+          },
+          {
+            slot: "rFoot",
+            partId: 4,
+            partModelName: "rfoot",
+            nodeName: "rfoot_g",
+            modelPrefix: "pfh2_",
+            modelResRef: "pfh2_rfoot004",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 0,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+          },
+          {
+            slot: "lFoot",
+            partId: 5,
+            partModelName: "lfoot",
+            nodeName: "lfoot_g",
+            modelPrefix: "pfh2_",
+            modelResRef: "pfh2_lfoot005",
+            modelResRefPattern: "aurora-player-body-part",
+            source: "capart.2da.MDLNAME",
+            source2daRow: 1,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+          },
+          {
+            slot: "wings",
+            partId: 4,
+            partModelName: "Guard_Wings",
+            modelResRef: "wing_guard04",
+            source: "wingmodel.2da.MODEL",
+            source2daRow: 4,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/wingmodel.2da"
+          },
+          {
+            slot: "tail",
+            partId: 5,
+            partModelName: "Guard_Tail",
+            modelResRef: "tail_guard05",
+            source: "tailmodel.2da.MODEL",
+            source2daRow: 5,
+            sourceKey: "modules/current/__aurora/sources/hak/lc_2da/tailmodel.2da"
+          }
+        ])
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:20:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithBlob.processCreature({
+      templateId: "cre_guard_human_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    const generationInput = derivedAssetGenerator.generateDerivedAssets.mock.calls[0]?.[0];
+    expect(generationInput?.sourceFiles).toHaveLength(6);
+    expect(generationInput?.sourceFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "modules/current/models/pfh2.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/pfh2.mdl")
+        }),
+        expect.objectContaining({
+          fileName: "modules/current/models/pfh2_head022.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/pfh2_head022.mdl")
+        }),
+        expect.objectContaining({
+          fileName: "modules/current/models/pfh2_rfoot004.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/pfh2_rfoot004.mdl")
+        }),
+        expect.objectContaining({
+          fileName: "modules/current/models/pfh2_lfoot005.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/pfh2_lfoot005.mdl")
+        }),
+        expect.objectContaining({
+          fileName: "modules/current/models/wing_guard04.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/wing_guard04.mdl")
+        }),
+        expect.objectContaining({
+          fileName: "modules/current/models/tail_guard05.mdl",
+          bytes: sourceModelBytesByKey.get("modules/current/models/tail_guard05.mdl")
+        })
+      ])
+    );
+    expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledTimes(6);
+    const renderPackage = result.creature.creatureRenderPackage;
+    expect(renderPackage?.status).toBe("ready");
+    expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "CREATURE_RENDER_BASE_SKELETON_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_CAPART_PART_MODEL_ASSETS_READY",
+        "CREATURE_RENDER_PART_MODEL_GROUP_READY",
+        "CREATURE_RENDER_SKINNED_GLB_ASSEMBLY_PENDING"
+      ])
+    );
+    expect(renderPackage?.skeletonModelCandidates[0]).toMatchObject({
+      resref: "pfh2",
+      assetId: expect.any(String),
+      glbUrl: expect.stringContaining(
+        `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+      )
+    });
+    expect(
+      renderPackage?.partModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        modelResRef: candidate.modelResRef,
+        glbUrlReady: Boolean(candidate.glbUrl)
+      }))
+    ).toEqual([
+      { slot: "head", modelResRef: "pfh2_head022", glbUrlReady: true },
+      { slot: "rFoot", modelResRef: "pfh2_rfoot004", glbUrlReady: true },
+      { slot: "lFoot", modelResRef: "pfh2_lfoot005", glbUrlReady: true },
+      { slot: "wings", modelResRef: "wing_guard04", glbUrlReady: true },
+      { slot: "tail", modelResRef: "tail_guard05", glbUrlReady: true }
+    ]);
+    expect(result.creature.assetManifest?.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "pfh2.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pfh2_head022.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pfh2_rfoot004.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "pfh2_lfoot005.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "wing_guard04.glb",
+          role: "model"
+        }),
+        expect.objectContaining({
+          fileName: "tail_guard05.glb",
+          role: "model"
+        })
+      ])
+    );
+  });
+
+  it("fetches missing CAPart creature source models on demand before derivation", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-creature-part-model-hak-"));
+    const hakPath = join(tempRoot, "creature_parts.hak");
+    const skeletonMdlBytes = Buffer.from("newmodel pfh2\n", "utf-8");
+    const headMdlBytes = Buffer.from("newmodel pfh2_head022\n", "utf-8");
+    const rfootMdlBytes = Buffer.from("newmodel pfh2_rfoot004\n", "utf-8");
+    const lfootMdlBytes = Buffer.from("newmodel pfh2_lfoot005\n", "utf-8");
+    await writeFile(
+      hakPath,
+      buildHakV10File([
+        {
+          resref: "pfh2",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: skeletonMdlBytes
+        },
+        {
+          resref: "pfh2_head022",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: headMdlBytes
+        },
+        {
+          resref: "pfh2_rfoot004",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: rfootMdlBytes
+        },
+        {
+          resref: "pfh2_lfoot005",
+          restype: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+          bytes: lfootMdlBytes
+        }
+      ])
+    );
+
+    try {
+      const settings = buildRuntimeSettingsRecord();
+      settings.paths.hakDirectoryPath = tempRoot;
+      settings.paths.moduleDecompiledPath = "";
+      settings.sources.placeable.includeHaks = false;
+      settings.sources.placeable.includeVanilla = false;
+      settings.sources.creature = {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: true,
+        includeVanilla: false,
+        hakProfileId: "creature_parts",
+        hakPriorityList: []
+      };
+      settings.hakProfiles.creature_parts = ["creature_parts.hak"];
+      const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+        get: jest.fn().mockResolvedValue(settings),
+        save: jest.fn()
+      };
+      const storedObjects = new Map<
+        string,
+        { bytes: Buffer; contentType: string; etag: string }
+      >();
+      const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+        replaceModuleSnapshot: jest.fn(),
+        listModuleSnapshot: jest.fn(),
+        getModuleObject: jest.fn(),
+        putModuleObject: jest.fn()
+      };
+      const putModuleObject =
+        moduleBlobStorage.putModuleObject as jest.MockedFunction<
+          NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+        >;
+      const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+        generateDerivedAssets: jest.fn()
+      };
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-creature-missing-part-models",
+        totalFiles: 0,
+        totalBytes: 0,
+        objects: [],
+        truncated: false,
+        continuationToken: undefined
+      });
+      moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+        const stored = storedObjects.get(key);
+        return stored
+          ? {
+              key,
+              size: stored.bytes.length,
+              contentType: stored.contentType,
+              etag: stored.etag,
+              bytes: stored.bytes
+            }
+          : null;
+      });
+      putModuleObject.mockImplementation(async (_settings, file) => {
+        const normalizedFileName = file.fileName.replace(/\\/gu, "/").replace(/^\/+/u, "");
+        const key = `modules/current/${normalizedFileName}`;
+        const bytes = Buffer.from(file.bytes);
+        const etag = `etag-${storedObjects.size + 1}`;
+        storedObjects.set(key, {
+          bytes,
+          contentType: "application/octet-stream",
+          etag
+        });
+        return { key, size: bytes.length, etag };
+      });
+      derivedAssetGenerator.generateDerivedAssets.mockImplementation(async (input) => ({
+        files: input.sourceFiles.map((file) => {
+          const basename = file.fileName.split(/[\\/]/u).pop()!.replace(/\.(?:mdl|mdb)$/iu, "");
+          const bytes = Buffer.from(`${basename} glb`);
+          return {
+            fileName: `__aurora/derived/models/${basename}.glb`,
+            resourceType: 0,
+            bytes
+          };
+        }),
+        summary: {
+          generator: "test-generator",
+          generatedFiles: input.sourceFiles.length,
+          generatedBytes: input.sourceFiles.length
+        }
+      }));
+
+      const template: TemplateRecord = {
+        ...buildTemplate("creature", "cre_guard_human_001"),
+        resref: "cre_guard_human_001",
+        metadata: {
+          ...buildTemplate("creature", "cre_guard_human_001").metadata,
+          firstName: "City",
+          lastName: "Guard",
+          appearanceId: 17,
+          appearanceLabelSource2daRow: 17,
+          appearanceModelType: "P",
+          appearanceRaceModel: "H",
+          phenotype: 2,
+          gender: 1,
+          genderLabel: "Female",
+          appearanceHead: 22,
+          bodyPartRFoot: 4,
+          bodyPartLFoot: 5,
+          partModelCandidates: JSON.stringify([
+            {
+              slot: "head",
+              partId: 22,
+              partModelName: "head",
+              modelPrefix: "pfh2_",
+              modelResRef: "pfh2_head022",
+              modelResRefPattern: "aurora-player-body-part",
+              source: "utc.Appearance_Head",
+              sourceKey: "modules/current/blueprints/creatures/cre_guard_human_001.utc"
+            },
+            {
+              slot: "rFoot",
+              partId: 4,
+              partModelName: "rfoot",
+              nodeName: "rfoot_g",
+              modelPrefix: "pfh2_",
+              modelResRef: "pfh2_rfoot004",
+              modelResRefPattern: "aurora-player-body-part",
+              source: "capart.2da.MDLNAME",
+              source2daRow: 0,
+              sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+            },
+            {
+              slot: "lFoot",
+              partId: 5,
+              partModelName: "lfoot",
+              nodeName: "lfoot_g",
+              modelPrefix: "pfh2_",
+              modelResRef: "pfh2_lfoot005",
+              modelResRefPattern: "aurora-player-body-part",
+              source: "capart.2da.MDLNAME",
+              source2daRow: 1,
+              sourceKey: "modules/current/__aurora/sources/hak/lc_2da/capart.2da"
+            }
+          ])
+        }
+      };
+      repository.findByKindAndId.mockResolvedValue(template);
+      placeableCache.get.mockResolvedValue(null);
+      placeableCache.set.mockImplementation(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-05-24T10:20:00.000Z",
+        hits: 0
+      }));
+
+      const serviceWithBlob = new CatalogApplicationService(
+        repository,
+        placeableCache,
+        undefined,
+        runtimeSettingsRepository,
+        moduleBlobStorage,
+        derivedAssetGenerator
+      );
+
+      const result = await serviceWithBlob.processCreature({
+        templateId: "cre_guard_human_001",
+        bypassCache: false,
+        includeBenchmarkMetadata: true
+      });
+
+      expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledTimes(8);
+      const generationInput = derivedAssetGenerator.generateDerivedAssets.mock.calls[0]?.[0];
+      expect(generationInput?.sourceFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fileName:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2.mdl",
+            bytes: skeletonMdlBytes
+          }),
+          expect.objectContaining({
+            fileName:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_head022.mdl",
+            bytes: headMdlBytes
+          }),
+          expect.objectContaining({
+            fileName:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_rfoot004.mdl",
+            bytes: rfootMdlBytes
+          }),
+          expect.objectContaining({
+            fileName:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_lfoot005.mdl",
+            bytes: lfootMdlBytes
+          })
+        ])
+      );
+      expect(result.creature.assetManifest?.assets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fileName: "pfh2.mdl",
+            objectKey:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2.mdl",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_head022.mdl",
+            objectKey:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_head022.mdl",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_rfoot004.mdl",
+            objectKey:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_rfoot004.mdl",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_lfoot005.mdl",
+            objectKey:
+              "modules/current/__aurora/sources/hak/creature_parts/pfh2_lfoot005.mdl",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2.glb",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_head022.glb",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_rfoot004.glb",
+            role: "model"
+          }),
+          expect.objectContaining({
+            fileName: "pfh2_lfoot005.glb",
+            role: "model"
+          })
+        ])
+      );
+      expect(result.creature.creatureRenderPackage?.skeletonModelCandidates[0]).toMatchObject({
+        resref: "pfh2",
+        assetId: expect.any(String),
+        glbUrl: expect.stringContaining(
+          `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/`
+        )
+      });
+      expect(
+        result.creature.creatureRenderPackage?.partModelCandidates.map((candidate) => ({
+          slot: candidate.slot,
+          modelResRef: candidate.modelResRef,
+          glbUrlReady: Boolean(candidate.glbUrl)
+        }))
+      ).toEqual([
+        { slot: "head", modelResRef: "pfh2_head022", glbUrlReady: true },
+        { slot: "rFoot", modelResRef: "pfh2_rfoot004", glbUrlReady: true },
+        { slot: "lFoot", modelResRef: "pfh2_lfoot005", glbUrlReady: true }
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("deduplicates concurrent creature processing misses by cache key", async () => {
@@ -5477,7 +13217,459 @@ describe("CatalogApplicationService", () => {
     expect(Array.isArray(result.item.itemValidationIssues)).toBe(true);
   });
 
-  it("returns creature/item processed cache entries", async () => {
+  it("processItem refreshes cached potion runtime to use the Aurora default model", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("item", "itm_nw_it_mpotion002"),
+      resref: "nw_it_mpotion002",
+      metadata: {
+        ...buildTemplate("item", "itm_nw_it_mpotion002").metadata,
+        baseItem: 49,
+        baseItemModelType: "it_potion",
+        baseItemDefaultModel: "it_potion_000",
+        baseItemDefaultIcon: "iit_potion",
+        modelPart1: 41,
+        modelPart2: 13,
+        modelPart3: 33
+      }
+    };
+    const staleCachedItem: TemplateProcessingResult = {
+      templateId: "itm_nw_it_mpotion002",
+      kind: "item",
+      resref: "nw_it_mpotion002",
+      name: "Potion",
+      category: "test",
+      benchmarkCandidate: false,
+      metadata: template.metadata,
+      render: {
+        backendType: "item",
+        frontendType: "item",
+        rendererPreset: "item-standard"
+      },
+      assetManifest: {
+        ...buildEmptyManifest(),
+        moduleHash: "stale-icon-only",
+        assetCount: 1,
+        assets: [
+          {
+            assetId: "stale-icon",
+            role: "texture",
+            fileName: "iit_potion.tga",
+            objectKey: "modules/current/__aurora/sources/vanilla/textures/iit_potion.tga",
+            extension: "tga",
+            contentType: "image/x-tga",
+            sizeBytes: 32,
+            etag: "stale-icon"
+          }
+        ]
+      },
+      itemRuntime: {
+        source: {},
+        identity: {},
+        classification: {
+          baseItem: 49,
+          defaultIcon: "iit_potion"
+        },
+        visual: {
+          baseItemModelType: "it_potion",
+          baseItemDefaultModel: "it_potion_000",
+          modelPart1: 41,
+          modelPart2: 13,
+          modelPart3: 33,
+          modelParts: [41, 13, 33],
+          modelPartRoles: ["blade", "middle", "top"],
+          modelPartResRefs: ["it_potion_b_041", "it_potion_m_013", "it_potion_t_033"],
+          modelPartResRefRoles: ["blade", "middle", "top"],
+          cloakHiddenSlots: [],
+          armorRobeHiddenSlots: [],
+          armorPartModelCandidates: [],
+          armorParts: {},
+          materialColors: {}
+        },
+        pricing: {},
+        state: {},
+        palette: {},
+        itemProperties: [],
+        scripts: {}
+      },
+      itemValidationIssues: [],
+      processedAt: "2026-07-06T18:55:00.000Z"
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue({
+      key: "cached-potion",
+      value: staleCachedItem,
+      storedAt: "2026-07-06T18:55:00.000Z",
+      hits: 4
+    });
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-06T19:20:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processItem({
+      templateId: "itm_nw_it_mpotion002",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(true);
+    expect(result.item.itemRuntime?.visual).toMatchObject({
+      baseItemModelType: "it_potion",
+      baseItemDefaultModel: "it_potion_000",
+      modelParts: [41, 13, 33],
+      modelPartResRefs: ["it_potion_000"],
+      modelPartResRefRoles: ["default"]
+    });
+    expect(result.item.metadata).toMatchObject({
+      modelPartResRef1: "it_potion_000",
+      modelPartResRefRole1: "default",
+      itemModelRefs: "it_potion_000"
+    });
+    expect(placeableCache.set).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        itemRuntime: expect.objectContaining({
+          visual: expect.objectContaining({
+            modelPartResRefs: ["it_potion_000"]
+          })
+        })
+      })
+    );
+  });
+
+  it("processItem applies visual overrides to model and armor part candidates", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("item", "itm_cnr_b_dagger"),
+      resref: "cnr_b_dagger",
+      metadata: {
+        ...buildTemplate("item", "itm_cnr_b_dagger").metadata,
+        baseItem: 22,
+        baseItemModelType: "WSwDg",
+        modelPart1: 11,
+        modelPart2: 13,
+        modelPart3: 63,
+        bodyPartTorso: 43,
+        bodyPartRHand: 3,
+        leather1Color: 2,
+        metal2Color: 9
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-06-29T10:21:00.000Z",
+      hits: 0
+    }));
+
+    const baseResult = await service.processItem({
+      templateId: "itm_cnr_b_dagger",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+    const variantResult = await service.processItem({
+      templateId: "itm_cnr_b_dagger",
+      bypassCache: false,
+      includeBenchmarkMetadata: true,
+      itemVisualOverride: {
+        modelPart1: 12,
+        armorParts: {
+          torso: 0,
+          rHand: 4
+        },
+        materialColors: {
+          leather1: 7,
+          metal2: 21
+        }
+      }
+    });
+
+    expect(variantResult.cache.key).not.toBe(baseResult.cache.key);
+    expect(variantResult.item.metadata).toMatchObject({
+      modelPart1: 12,
+      bodyPartTorso: 0,
+      bodyPartRHand: 4,
+      leather1Color: 7,
+      metal2Color: 21
+    });
+    expect(variantResult.item.itemRuntime?.visual).toMatchObject({
+      modelPart1: 12,
+      modelPart2: 13,
+      modelPart3: 63,
+      modelParts: [12, 13, 63],
+      modelPartResRefs: ["wswdg_b_012", "wswdg_m_013", "wswdg_t_063"],
+      armorParts: {
+        torso: 0,
+        rHand: 4
+      },
+      materialColors: {
+        leather1: 7,
+        metal2: 21
+      }
+    });
+    expect(
+      variantResult.item.itemRuntime?.visual.armorPartModelCandidates.map((candidate) => ({
+        slot: candidate.slot,
+        partId: candidate.partId,
+        modelResRef: candidate.modelResRef
+      }))
+    ).toEqual([
+      {
+        slot: "rHand",
+        partId: 4,
+        modelResRef: "pmh0_handr004"
+      }
+    ]);
+  });
+
+  it("processItem prioritizes item HAK assets for single-piece shields", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const settings = buildRuntimeSettingsRecord();
+    settings.hakProfiles = {
+      lc_items: ["bdhd_items.hak"],
+      lc_creatures: ["creature_wrong.hak"]
+    };
+    settings.sources.item = {
+      includeModuleTemp0: false,
+      includeModulePacked: false,
+      includeHaks: true,
+      includeVanilla: false,
+      hakProfileId: "lc_items",
+      hakPriorityList: []
+    };
+    settings.sources.creature = {
+      includeModuleTemp0: false,
+      includeModulePacked: false,
+      includeHaks: true,
+      includeVanilla: false,
+      hakProfileId: "lc_creatures",
+      hakPriorityList: []
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(settings);
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-item-shield",
+      totalFiles: 2,
+      totalBytes: 24,
+      objects: [
+        {
+          key: "modules/current/__aurora/sources/hak/creature_wrong/ashto_095.glb",
+          size: 12,
+          etag: "creature-hash"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/bdhd_items/ashto_095.glb",
+          size: 12,
+          etag: "item-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+    const serviceWithItems = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const template: TemplateRecord = {
+      ...buildTemplate("item", "itm_tower_shield"),
+      resref: "tower_shield",
+      metadata: {
+        ...buildTemplate("item", "itm_tower_shield").metadata,
+        baseItem: 57,
+        baseItemModelType: "AShTo",
+        modelPart1: 95
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-06-30T10:21:00.000Z",
+      hits: 0
+    }));
+
+    const result = await serviceWithItems.processItem({
+      templateId: "itm_tower_shield",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.item.itemRuntime?.visual.modelPartResRefs).toEqual(["ashto_095"]);
+    expect(result.item.assetManifest?.assets[0]).toMatchObject({
+      fileName: "ashto_095.glb",
+      objectKey: "modules/current/__aurora/sources/hak/bdhd_items/ashto_095.glb"
+    });
+  });
+
+  it("processItem includes sibling model part fallbacks for missing multipart item pieces", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn(),
+      save: jest.fn()
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn()
+    };
+    const settings = buildRuntimeSettingsRecord();
+    settings.hakProfiles = {
+      lc_items: ["lc_items.hak"]
+    };
+    settings.sources.item = {
+      includeModuleTemp0: false,
+      includeModulePacked: false,
+      includeHaks: true,
+      includeVanilla: false,
+      hakProfileId: "lc_items",
+      hakPriorityList: []
+    };
+    runtimeSettingsRepository.get.mockResolvedValue(settings);
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-item-sickle-fallback",
+      totalFiles: 3,
+      totalBytes: 36,
+      objects: [
+        {
+          key: "modules/current/__aurora/sources/hak/lc_items/wspsc_b_011.glb",
+          size: 12,
+          etag: "blade-hash"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/lc_items/wspsc_m_011.glb",
+          size: 12,
+          etag: "middle-fallback-hash"
+        },
+        {
+          key: "modules/current/__aurora/sources/hak/lc_items/wspsc_t_011.glb",
+          size: 12,
+          etag: "top-hash"
+        }
+      ],
+      truncated: false,
+      continuationToken: undefined
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue(null);
+    const serviceWithItems = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const template: TemplateRecord = {
+      ...buildTemplate("item", "itm_test_sierp"),
+      resref: "test_sierp",
+      metadata: {
+        ...buildTemplate("item", "itm_test_sierp").metadata,
+        baseItem: 60,
+        baseItemModelType: "WSpSc",
+        modelPart1: 11,
+        modelPart2: 10,
+        modelPart3: 11
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-01T10:21:00.000Z",
+      hits: 0
+    }));
+
+    const result = await serviceWithItems.processItem({
+      templateId: "itm_test_sierp",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.item.itemRuntime?.visual.modelPartResRefs).toEqual([
+      "wspsc_b_011",
+      "wspsc_m_010",
+      "wspsc_t_011"
+    ]);
+    expect(result.item.assetManifest?.assets.map((asset) => asset.fileName).sort()).toEqual([
+      "wspsc_b_011.glb",
+      "wspsc_m_011.glb",
+      "wspsc_t_011.glb"
+    ]);
+  });
+
+  it("processes encounter into cached contract", async () => {
+    const template: TemplateRecord = {
+      ...buildTemplate("encounter", "enc_forest_ambush_001"),
+      resref: "enc_forest_ambush_001",
+      metadata: {
+        ...buildTemplate("encounter", "enc_forest_ambush_001").metadata,
+        templateResRef: "enc_forest_ambush_001",
+        localizedName: "Forest Ambush",
+        active: true,
+        difficulty: 2,
+        difficultyIndex: 1,
+        factionId: 5,
+        maxCreatures: 6,
+        recCreatures: 3,
+        playerOnly: true,
+        reset: true,
+        resetTime: 120,
+        respawns: 2,
+        spawnOption: 1,
+        encounterCreatureListEntries: JSON.stringify([
+          {
+            resRef: "nw_wolf001",
+            appearance: 11,
+            challengeRating: 1.5,
+            singleSpawn: false
+          }
+        ]),
+        "script.onentered": "enc_enter"
+      }
+    };
+    repository.findByKindAndId.mockResolvedValue(template);
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:22:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processEncounter({
+      templateId: "enc_forest_ambush_001",
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(result.cache.hit).toBe(false);
+    expect(result.encounter.kind).toBe("encounter");
+    expect(result.encounter.render.frontendType).toBe("encounter");
+    expect(result.encounter.encounterRuntime).toBeDefined();
+    expect(result.encounter.encounterRuntime?.identity.localizedName).toBe("Forest Ambush");
+    expect(result.encounter.encounterRuntime?.settings.maxCreatures).toBe(6);
+    expect(result.encounter.encounterRuntime?.creatureList?.[0]?.resRef).toBe("nw_wolf001");
+    expect(Array.isArray(result.encounter.encounterValidationIssues)).toBe(true);
+  });
+
+  it("returns creature/item/encounter processed cache entries", async () => {
     placeableCache.get
       .mockResolvedValueOnce({
         key: "c".repeat(64),
@@ -5518,10 +13710,35 @@ describe("CatalogApplicationService", () => {
           },
           processedAt: "2026-05-24T10:21:00.000Z"
         }
+      })
+      .mockResolvedValueOnce({
+        key: "g".repeat(64),
+        storedAt: "2026-05-24T10:24:00.000Z",
+        hits: 1,
+        value: {
+          templateId: "enc_forest_ambush_001",
+          kind: "encounter",
+          resref: "enc_forest_ambush_001",
+          name: "encounter",
+          category: "encounter",
+          benchmarkCandidate: false,
+          metadata: {
+            templateResRef: "enc_forest_ambush_001",
+            encounterCreatureListEntries: JSON.stringify([{ resRef: "nw_wolf001" }]),
+            "script.onentered": "enc_enter"
+          },
+          render: {
+            backendType: "encounter",
+            frontendType: "encounter",
+            rendererPreset: "encounter-standard"
+          },
+          processedAt: "2026-05-24T10:22:00.000Z"
+        }
       });
 
     const creature = await service.getProcessedCreature("c".repeat(64));
     const item = await service.getProcessedItem("d".repeat(64));
+    const encounter = await service.getProcessedEncounter("g".repeat(64));
 
     expect(creature.creature.templateId).toBe("cre_guard_human_001");
     expect(creature.creature.creatureRuntime).toBeDefined();
@@ -5529,9 +13746,12 @@ describe("CatalogApplicationService", () => {
     expect(item.item.templateId).toBe("itm_health_potion_001");
     expect(item.item.itemRuntime).toBeDefined();
     expect(item.item.itemValidationIssues).toBeDefined();
+    expect(encounter.encounter.templateId).toBe("enc_forest_ambush_001");
+    expect(encounter.encounter.encounterRuntime).toBeDefined();
+    expect(encounter.encounter.encounterValidationIssues).toBeDefined();
   });
 
-  it("throws creature/item cache not found errors", async () => {
+  it("throws creature/item/encounter cache not found errors", async () => {
     placeableCache.get.mockResolvedValue(null);
 
     await expect(service.getProcessedCreature("e".repeat(64))).rejects.toMatchObject({
@@ -5539,6 +13759,9 @@ describe("CatalogApplicationService", () => {
     });
     await expect(service.getProcessedItem("f".repeat(64))).rejects.toMatchObject({
       code: "ITEM_CACHE_NOT_FOUND"
+    });
+    await expect(service.getProcessedEncounter("g".repeat(64))).rejects.toMatchObject({
+      code: "ENCOUNTER_CACHE_NOT_FOUND"
     });
   });
 
@@ -5760,10 +13983,20 @@ describe("CatalogApplicationService", () => {
           appearance: {},
           bodyParts: {},
           colors: {},
+          partModelCandidates: [],
           faction: {},
           stats: {},
           lists: {},
           scripts: {}
+        },
+        creatureRenderPackage: {
+          status: "missing_profile",
+          rendererPreset: "creature-standard",
+          diagnostics: [],
+          sourceModelCandidates: [],
+          partModelCandidates: [],
+          bodyParts: {},
+          colors: {}
         },
         creatureValidationIssues: [],
         processedAt: "2026-05-24T10:09:00.000Z"
@@ -5830,6 +14063,80 @@ describe("CatalogApplicationService", () => {
       "cre_guard_human_001"
     );
     expect(result.creature.templateId).toBe("cre_resref_001");
+  });
+
+  it("processCreature synthesizes an Area GIT creature when the catalog UTC is missing", async () => {
+    repository.findByKindAndId.mockResolvedValue(null);
+    repository.findByKindAndResref.mockResolvedValue(null);
+    repository.resolveCreatureAppearanceProfile = jest.fn().mockResolvedValue({
+      appearanceType: 6403,
+      appearanceLabel: "Alligator* (Project Q)",
+      appearanceSource2daRow: 6403,
+      appearanceSourceKey: "runtime-source/hak/lc_2da/appearance.2da",
+      modelType: "S",
+      raceModel: "qc_alligator",
+      portrait2da: "po_Deer",
+      bloodColor: "R",
+      sizeCategory: 3
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-06-30T12:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processCreature({
+      templateId: "cre_alligator_hatchl",
+      resref: "alligator_hatchl",
+      creatureMetadata: {
+        templateResRef: "alligator_hatchl",
+        tag: "alligator_hatchling",
+        firstName: "Alligator Hatchling",
+        appearanceId: 6403,
+        race: 9,
+        hitPoints: 1
+      },
+      bypassCache: false,
+      includeBenchmarkMetadata: true
+    });
+
+    expect(repository.findByKindAndId).toHaveBeenCalledWith(
+      "creature",
+      "cre_alligator_hatchl"
+    );
+    expect(repository.findByKindAndResref).toHaveBeenCalledWith(
+      "creature",
+      "alligator_hatchl"
+    );
+    expect(result.creature).toMatchObject({
+      templateId: "cre_alligator_hatchl",
+      resref: "alligator_hatchl",
+      name: "Alligator Hatchling",
+      category: "Area GIT Creatures",
+      benchmarkBucket: "area-git-instance",
+      metadata: expect.objectContaining({
+        areaInstanceTemplateSource: "git",
+        areaInstanceTemplateSynthesized: true,
+        templateResRef: "alligator_hatchl",
+        tag: "alligator_hatchling",
+        appearanceId: 6403,
+        appearanceLabel: "Alligator* (Project Q)",
+        appearanceRaceModel: "qc_alligator",
+        race: 9
+      })
+    });
+    expect(result.creature.creatureRuntime).toMatchObject({
+      appearance: {
+        appearanceType: 6403,
+        appearanceRaceModel: "qc_alligator"
+      }
+    });
+    expect(result.creature.creatureRenderPackage?.appearanceProfile).toMatchObject({
+      appearanceType: 6403,
+      raceModel: "qc_alligator"
+    });
   });
 
   it("throws TEMPLATE_NOT_FOUND for processCreature when both id and resref are missing", async () => {
@@ -6405,7 +14712,7 @@ describe("CatalogApplicationService", () => {
 
   it("skips module hash probing in test mode when cached placeable already has manifest", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
-      get: jest.fn(),
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
       save: jest.fn()
     };
     const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
@@ -6572,6 +14879,96 @@ describe("CatalogApplicationService", () => {
       fileName: "tx_recovered.dds",
       objectKey: textureKey
     });
+  });
+
+  it("adds missing texture diagnostics for embedded NWN2 source texture references without assets", async () => {
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(buildRuntimeSettingsRecord()),
+      save: jest.fn()
+    };
+    const derivedKey = "modules/current/__aurora/derived/models/nw2winecrate5.glb";
+    const sourceKey =
+      "modules/current/__aurora/sources/hak/cep3_core0/models/nw2winecrate5.mdl";
+    const derivedBytes = buildGlbWithTextureReferences([]);
+    const sourceBytes = Buffer.from(
+      "\0nw2_mc_winecrate01\0plc_mc_winecrate05\0",
+      "latin1"
+    );
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-missing-nwn2-textures",
+        totalFiles: 2,
+        totalBytes: derivedBytes.length + sourceBytes.length,
+        objects: [
+          { key: derivedKey, size: derivedBytes.length, etag: "glb-etag" },
+          { key: sourceKey, size: sourceBytes.length, etag: "mdl-etag" }
+        ],
+        truncated: false,
+        continuationToken: undefined
+      }),
+      getModuleObject: jest.fn().mockImplementation(async (_settings, key) => {
+        if (key === derivedKey) {
+          return {
+            key,
+            size: derivedBytes.length,
+            contentType: "model/gltf-binary",
+            bytes: derivedBytes
+          };
+        }
+        if (key === sourceKey) {
+          return {
+            key,
+            size: sourceBytes.length,
+            contentType: "application/octet-stream",
+            bytes: sourceBytes
+          };
+        }
+        return null;
+      })
+    };
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "plc_zep_cask001"),
+      resref: "zep_cask001",
+      metadata: {
+        lookupModelResRef: "nw2winecrate5"
+      }
+    });
+    placeableCache.get.mockResolvedValue(null);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-24T10:10:00.000Z",
+      hits: 0
+    }));
+
+    const serviceWithBlob = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+
+    const result = await serviceWithBlob.processPlaceable({
+      templateId: "plc_zep_cask001",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    const missingTextureDiagnostic = result.placeable.renderPackage?.diagnostics.find(
+      (diagnostic) => diagnostic.code === "PLACEABLE_RENDER_TEXTURES_MISSING"
+    );
+
+    expect(result.placeable.renderPackage?.status).toBe("ready");
+    expect(result.placeable.renderPackage?.textureUrls).toBeUndefined();
+    expect(missingTextureDiagnostic?.message).toEqual(
+      expect.stringContaining("nw2_mc_winecrate01")
+    );
+    expect(missingTextureDiagnostic?.message).toEqual(
+      expect.stringContaining("plc_mc_winecrate05")
+    );
   });
 
   it("uses a lightweight module hash probe when validating cached placeable manifests", async () => {
@@ -6768,6 +15165,21 @@ function buildGlbWithTextureReferences(textureReferences: string[]): Buffer {
     });
 }
 
+function buildGlbWithConverterVersion(converterVersion: string): Buffer {
+  return buildGlbFromJson({
+    asset: {
+      version: "2.0",
+      generator: `aurora-web aurora-mdl-to-glb ${converterVersion}`
+    },
+    extras: {
+      aurora: {
+        sourceModel: "n_bear",
+        converterVersion
+      }
+    }
+  });
+}
+
 function buildGlbFromJson(value: unknown): Buffer {
   const json = Buffer.from(JSON.stringify(value), "utf-8");
   const jsonPadding = (4 - (json.length % 4)) % 4;
@@ -6823,6 +15235,101 @@ function buildHakV10File(
   });
 
   return Buffer.concat([header, keyTable, resourceTable, ...payloadBuffers]);
+}
+
+function buildNwnRawDxtTextureBytes(input: {
+  width: number;
+  height: number;
+  encoding: 3 | 4;
+}): Buffer {
+  const blockByteLength = input.encoding === 3 ? 8 : 16;
+  const mip0ByteLength =
+    Math.max(1, Math.ceil(input.width / 4)) *
+    Math.max(1, Math.ceil(input.height / 4)) *
+    blockByteLength;
+  const header = Buffer.alloc(20);
+  header.writeUInt32LE(input.width, 0);
+  header.writeUInt32LE(input.height, 4);
+  header.writeUInt32LE(input.encoding, 8);
+  header.writeUInt32LE(mip0ByteLength, 12);
+  header.writeFloatLE(1, 16);
+  return Buffer.concat([header, Buffer.alloc(mip0ByteLength, 0xff)]);
+}
+
+async function writeFakeKeyBif(
+  root: string,
+  resources: Array<{ resref: string; resourceType: number; bytes: Buffer }>
+): Promise<void> {
+  const bifFileName = "vanilla_test.bif";
+  const bif = buildFakeBif(resources);
+  const key = buildFakeKey(bifFileName, bif.length, resources);
+  await writeFile(join(root, bifFileName), bif);
+  await writeFile(join(root, "nwn_base.key"), key);
+}
+
+function buildFakeBif(
+  resources: Array<{ resref: string; resourceType: number; bytes: Buffer }>
+): Buffer {
+  const headerSize = 20;
+  const entrySize = 16;
+  const tableSize = resources.length * entrySize;
+  const dataOffset = headerSize + tableSize;
+  const totalSize = dataOffset + resources.reduce((sum, resource) => sum + resource.bytes.length, 0);
+  const buffer = Buffer.alloc(totalSize);
+  buffer.write("BIFF", 0, "ascii");
+  buffer.write("V1  ", 4, "ascii");
+  buffer.writeUInt32LE(resources.length, 8);
+  buffer.writeUInt32LE(0, 12);
+  buffer.writeUInt32LE(headerSize, 16);
+
+  let cursor = dataOffset;
+  resources.forEach((resource, index) => {
+    const entryOffset = headerSize + index * entrySize;
+    buffer.writeUInt32LE(index, entryOffset);
+    buffer.writeUInt32LE(cursor, entryOffset + 4);
+    buffer.writeUInt32LE(resource.bytes.length, entryOffset + 8);
+    buffer.writeUInt32LE(resource.resourceType, entryOffset + 12);
+    resource.bytes.copy(buffer, cursor);
+    cursor += resource.bytes.length;
+  });
+
+  return buffer;
+}
+
+function buildFakeKey(
+  bifFileName: string,
+  bifSize: number,
+  resources: Array<{ resref: string; resourceType: number; bytes: Buffer }>
+): Buffer {
+  const fileTableOffset = 64;
+  const fileTableEntrySize = 12;
+  const keyTableOffset = fileTableOffset + fileTableEntrySize;
+  const keyEntrySize = 22;
+  const fileNameOffset = keyTableOffset + resources.length * keyEntrySize;
+  const fileNameBytes = Buffer.from(`${bifFileName}\0`, "ascii");
+  const buffer = Buffer.alloc(fileNameOffset + fileNameBytes.length);
+
+  buffer.write("KEY ", 0, "ascii");
+  buffer.write("V1  ", 4, "ascii");
+  buffer.writeUInt32LE(1, 8);
+  buffer.writeUInt32LE(resources.length, 12);
+  buffer.writeUInt32LE(fileTableOffset, 16);
+  buffer.writeUInt32LE(keyTableOffset, 20);
+  buffer.writeUInt32LE(bifSize, fileTableOffset);
+  buffer.writeUInt32LE(fileNameOffset, fileTableOffset + 4);
+  buffer.writeUInt16LE(fileNameBytes.length, fileTableOffset + 8);
+  buffer.writeUInt16LE(0, fileTableOffset + 10);
+  fileNameBytes.copy(buffer, fileNameOffset);
+
+  resources.forEach((resource, index) => {
+    const entryOffset = keyTableOffset + index * keyEntrySize;
+    const resrefBytes = Buffer.from(resource.resref.toLowerCase().slice(0, 16), "ascii");
+    resrefBytes.copy(buffer, entryOffset);
+    buffer.writeUInt16LE(resource.resourceType, entryOffset + 16);
+    buffer.writeUInt32LE(index, entryOffset + 18);
+  });
+
+  return buffer;
 }
 
 function buildTemplate(kind: TemplateRecord["kind"], id: string): TemplateRecord {
@@ -6917,6 +15424,14 @@ function buildRuntimeSettingsRecord(): RuntimeSettingsRecord {
         includeVanilla: false,
         hakProfileId: "",
         hakPriorityList: []
+      },
+      item: {
+        includeModuleTemp0: true,
+        includeModulePacked: false,
+        includeHaks: false,
+        includeVanilla: false,
+        hakProfileId: "",
+        hakPriorityList: []
       }
     },
     benchmarkCandidates: {
@@ -6947,6 +15462,40 @@ function buildRuntimeSettingsRecord(): RuntimeSettingsRecord {
       }
     }
   };
+}
+
+function buildItemPaletteTestTlkBuffer(entries: Record<number, string>): Buffer {
+  const entryIndexes = Object.keys(entries)
+    .map((key) => Number.parseInt(key, 10))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+  const stringCount = Math.max(0, ...entryIndexes) + 1;
+  const headerSize = 20;
+  const entrySize = 40;
+  const stringDataOffset = headerSize + stringCount * entrySize;
+  const table = Buffer.alloc(stringCount * entrySize);
+  const chunks: Buffer[] = [];
+  let currentOffset = 0;
+
+  for (const index of entryIndexes) {
+    const text = entries[index];
+    if (!text) {
+      continue;
+    }
+    const encoded = Buffer.from(text, "latin1");
+    const entryOffset = index * entrySize;
+    table.writeUInt32LE(currentOffset, entryOffset + 28);
+    table.writeUInt32LE(encoded.length, entryOffset + 32);
+    chunks.push(encoded);
+    currentOffset += encoded.length;
+  }
+
+  const header = Buffer.alloc(headerSize);
+  header.write("TLK V3.0", 0, "ascii");
+  header.writeUInt32LE(0, 8);
+  header.writeUInt32LE(stringCount, 12);
+  header.writeUInt32LE(stringDataOffset, 16);
+
+  return Buffer.concat([header, table, ...chunks]);
 }
 
 function buildEmitterOnlyBinaryMdl(

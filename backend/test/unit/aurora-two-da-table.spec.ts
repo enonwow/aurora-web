@@ -208,6 +208,7 @@ describe("aurora-two-da-table", () => {
     expect(placeableRows).toEqual([
       {
         rowId: 0,
+        physicalRowIndex: 0,
         label: "Display Name",
         modelResRef: "plc_table"
       }
@@ -231,16 +232,19 @@ describe("aurora-two-da-table", () => {
     expect(placeableRows).toEqual([
       {
         rowId: 26096,
+        physicalRowIndex: 0,
         label: "SVALE - kull",
         modelResRef: "plc_core_0096"
       },
       {
         rowId: 26133,
+        physicalRowIndex: 1,
         label: "LVALE - adder",
         modelResRef: "plc_core_0133"
       },
       {
         rowId: 26685,
+        physicalRowIndex: 2,
         label: "*VALE - ***",
         modelResRef: "plc_core_0685"
       }

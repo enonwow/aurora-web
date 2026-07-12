@@ -4,6 +4,11 @@ import {
   compareAuroraVfxRenderOrder
 } from "../../src/modules/vfx/domain/aurora-vfx-render-contract";
 import {
+  buildAuroraVfxPhaseSchedule,
+  parseAuroraProgFxTwoDa,
+  parseAuroraVisualEffectsTwoDa
+} from "../../src/modules/vfx/domain/aurora-vfx-source.parser";
+import {
   createAuroraEmitterRuntimeState,
   tickAuroraEmitterRuntime,
   type AuroraEmitterRuntimeFamily,
@@ -471,6 +476,321 @@ describe("aurora VFX render contract", () => {
         "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
         "VFX_TEXTURE_FIELD_LANE_COLLAPSED"
       ])
+    );
+  });
+
+  it("preserves ProgFX Type 4 light owner-phase evidence without creating a generic light", () => {
+    const visualEffect = parseAuroraVisualEffectsTwoDa(
+      [
+        "2DA V2.0",
+        "",
+        "Label Type_FD ProgFX_Duration",
+        "153 VFX_DUR_LIGHT_BLUE_5 D 304"
+      ].join("\n"),
+      "progfx-type4-owner-fixture"
+    ).rows[0]!;
+    const phaseSchedule = buildAuroraVfxPhaseSchedule(visualEffect, {
+      constructorKind: "EffectVisualEffect",
+      sourceRowId: 153,
+      applicationMode: "object",
+      durationType: "temporary",
+      durationSeconds: 6,
+      targetRef: "object:target"
+    });
+    const progFxRows = parseAuroraProgFxTwoDa(
+      [
+        "2DA V2.0",
+        "",
+        "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+        "304 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****"
+      ].join("\n"),
+      "progfx-type4-owner-fixture"
+    ).rows;
+    const emitter = fountainEmitter({ birthrate: 1 });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter,
+      phaseSchedule,
+      progFxRows
+    });
+
+    expect(phaseSchedule.status).toBe("ready");
+    expect(contract.progFxType4Light).toMatchObject({
+      rowId: 304,
+      label: "LightBlue5m",
+      animationRaw: "Blue_5m",
+      animation: "Blue_5m",
+      animationParameterStatus:
+        "source-backed-progfx-type4-param1-animation-token-preserved",
+      animationKind: "light",
+      symbolicColor: "Blue",
+      tokenRadiusMeters: 5,
+      tokenRadiusProofStatus: "source-backed-progfx-param1-animation-token-radius",
+      radiusMeters: 13.3,
+      radiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+      sourceMdlNodeName: "AuroraLight01",
+      sourceMdlAnimation: "Blue_5m",
+      sourceMdlColor: { r: 0.5, g: 0.5, b: 1 },
+      sourceMdlRadiusMeters: 13.3,
+      sourceMdlRadiusFrames: [0, 13.3],
+      sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+      sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+      castShadowsRaw: "0",
+      castShadowParameterStatus:
+        "source-backed-progfx-type4-param3-cast-shadows-preserved-item-toggle-known-non-item-vanilla-cast-shadow-absent",
+      priorityRaw: "20",
+      priority: 20,
+      priorityParameterStatus:
+        "docs-backed-progfx-type4-param4-priority-lower-value-wins",
+      proximitySuppressionRaw: "0",
+      proximitySuppressionParameterStatus:
+        "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light",
+      attachToSceneRaw: "0",
+      sceneAttachmentParameterStatus:
+        "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights",
+      modelRaw: "fx_light_clr",
+      modelRef: "fx_light_clr",
+      parameterPreservationProofStatus:
+        "source-backed-progfx-type4-param1-param8-raw-preserved",
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      sceneAttachmentPolicyStatus:
+        "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights-retail-dataflow-blocked",
+      proximitySuppressionPolicyStatus:
+        "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light-retail-distance-blocked",
+      visionMutationPolicyStatus:
+        "docs-backed-progfx-type4-param4-param1-vision-priority-token-retail-mutation-blocked",
+      shadowPolicyStatus:
+        "source-backed-progfx-type4-param3-item-light-shadow-toggle-retail-shadow-volume-projection-blocked",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+      notPlaceableTwoDaLight: true,
+      notMdlLightNode: true,
+      ownerVisualEffectRowId: 153,
+      ownerVisualEffectLabel: "VFX_DUR_LIGHT_BLUE_5",
+      ownerPhase: "duration",
+      ownerProgFxRef: "304",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "temporary",
+      color: { r: 0.5, g: 0.5, b: 1 }
+    });
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "decompiled_all.c:348244 loads visualeffects.2da"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "audit-retail-progfx-type4-table.ts over retail nwn_base.key reports progfx rowCount=1301, type4RowCount=68"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "itemLightNormalRowCount=28, itemLightFadeRowCount=28, nonItemType4RowCount=12"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "Param3 castShadows true=42 false=26"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "nonItemCastShadowRows=[]"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "attachRows=[333,383]"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "type4OwnerPhaseCount=77, itemLightOwnerPhaseCount=56, nonItemOwnerPhaseCount=21"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "nonItemCastShadowOwnerPhaseCount=0"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "nonItemOwnerLabels=[VFX_DUR_BLACKOUT,VFX_DUR_DARKVISION,VFX_FNF_SOUND_BURST,VFX_FNF_STRIKE_HOLY,VFX_DUR_BLINDVISION,VFX_DUR_LOWLIGHTVISION,VFX_DUR_ULTRAVISION,VFX_DUR_BLIND,VFX_FNF_SOUND_BURST_SILENT,VFX_FNF_TELEPORT_IN,VFX_FNF_TELEPORT_OUT]"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientObjectVisualEffectLifecycle proofStatus=source-backed-client-object-add-remove-refresh-looping-vfx-path"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "visualEffectSourceModelLoaders proofStatus=source-backed-client-vfx-loadvisualeffect-newcaurobject-model-loader-path"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "capstoneFreeCallTargetEvidence proofStatus=capstone-free-binary-relative-call-target-scan-ran"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientVisualEffectDirectCallXrefCount=1502"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientVisualEffectObservedTargetFamilies=[message-readers,visual-transform-reader,looping-vfx-list-attach,progfx-source-loader,vfx-2da-row-loader,fx-light-loader-region,aurora-object-gob-construction,runtime-state-scene-helpers]"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientVisualEffectReceiveRenderEvidence proofStatus=source-backed-capstone-free-cnwcmessage-client-vfx-callgraph-vtable-loader-path-scheduler-dataflow-blocked"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientKnownFunctionCallgraph proofStatus=source-backed-capstone-free-client-vfx-message-owner-loader-callgraph"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "clientVisualEffectSchedulerDataFlowProofStatus=blocked-capstone-free-callgraph-proves-vfx-loader-object-attach-not-progfx-param-scheduler-dataflow"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "legacyDirectCallScanSchedulerStatus=blocked-direct-call-targets-show-vfx-loader-object-attach-not-progfx-param-scheduler-dataflow"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "top direct target groups ReadBYTE=416"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "progfxType4SourceSchedulerEvidence proofStatus=source-backed-visualeffects-loader-progfx-type4-scheduler-not-in-source-only-decompilation"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "runtimeSchedulerStringHitCount=0"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingBlocker).toContain(
+      "source-only decompiled_all.c still has no progfx.2da/fx_light_clr/Blind_Vision scheduler string hit"
+    );
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY",
+        "VFX_PROGFX_TYPE4_RENDER_CONTRACT_NO_POINTLIGHT",
+        "VFX_PROGFX_TYPE4_RETAIL_SCHEDULING_REQUIRED",
+        "VFX_PROGFX_TYPE4_PARAMETERS_PRESERVED",
+        "VFX_PROGFX_TYPE4_PARAM3_CAST_SHADOWS_PRESERVED",
+        "VFX_PROGFX_TYPE4_PARAM4_PRIORITY_PRESERVED",
+        "VFX_PROGFX_TYPE4_PARAM5_PROXIMITY_PRESERVED",
+        "VFX_PROGFX_TYPE4_PARAM6_ATTACH_TO_SCENE_PRESERVED",
+        "VFX_PROGFX_TYPE4_RUNTIME_SCHEDULING_PROOF_SOURCE",
+        "VFX_PROGFX_TYPE4_RUNTIME_POLICY_BLOCKED"
+      ])
+    );
+  });
+
+  it("preserves ProgFX Type 4 vision owner-phase evidence without creating a generic light", () => {
+    const visualEffect = parseAuroraVisualEffectsTwoDa(
+      [
+        "2DA V2.0",
+        "",
+        "Label Type_FD ProgFX_Duration",
+        "242 VFX_DUR_BLINDVISION D 305"
+      ].join("\n"),
+      "progfx-type4-vision-owner-fixture"
+    ).rows[0]!;
+    const phaseSchedule = buildAuroraVfxPhaseSchedule(visualEffect, {
+      constructorKind: "EffectVisualEffect",
+      sourceRowId: 242,
+      applicationMode: "object",
+      durationType: "temporary",
+      durationSeconds: 6,
+      targetRef: "object:target"
+    });
+    const progFxRows = parseAuroraProgFxTwoDa(
+      [
+        "2DA V2.0",
+        "",
+        "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+        "305 BlindVision 4 Blind_Vision 1 0 13 0 1 fx_light_clr ****"
+      ].join("\n"),
+      "progfx-type4-vision-owner-fixture"
+    ).rows;
+    const emitter = fountainEmitter({ birthrate: 1 });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter,
+      phaseSchedule,
+      progFxRows
+    });
+
+    expect(phaseSchedule.status).toBe("ready");
+    expect(contract.progFxType4Light).toMatchObject({
+      rowId: 305,
+      label: "BlindVision",
+      animationRaw: "Blind_Vision",
+      animation: "Blind_Vision",
+      animationKind: "vision",
+      visionMode: "Blind_Vision",
+      visionParameterStatus:
+        "docs-backed-progfx-type4-param1-vision-token-param4-priority",
+      symbolicColor: "",
+      tokenRadiusMeters: null,
+      tokenRadiusProofStatus: "",
+      radiusMeters: null,
+      radiusProofStatus: "",
+      priority: 13,
+      priorityRaw: "13",
+      attachToScene: true,
+      attachToSceneRaw: "1",
+      sourceMdlNodeName: "AuroraLight02",
+      sourceMdlAnimation: "Blind_Vision",
+      sourceMdlColor: { r: 0.3, g: 0.3, b: 0.3 },
+      sourceMdlRadiusMeters: 7,
+      sourceMdlRadiusFrames: [0, 7],
+      sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+      sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+      modelRef: "fx_light_clr",
+      proofStatus:
+        "source-backed-progfx-type4-owner-phase-effect-instance-runtime-retail-unverified",
+      runtimeSchedulingStatus:
+        "source-backed-owner-phase-effect-instance-ready-retail-runtime-unverified",
+      sceneAttachmentPolicyStatus:
+        "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights-retail-dataflow-blocked",
+      proximitySuppressionPolicyStatus:
+        "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light-retail-distance-blocked",
+      visionMutationPolicyStatus:
+        "docs-backed-progfx-type4-param4-param1-vision-priority-token-retail-mutation-blocked",
+      shadowPolicyStatus: "source-backed-progfx-type4-non-item-cast-shadow-absent-vanilla-rows",
+      visualPreviewStatus: "backend-render-contract-source-record-no-scene-light",
+      notPlaceableTwoDaLight: true,
+      notMdlLightNode: true,
+      ownerVisualEffectRowId: 242,
+      ownerVisualEffectLabel: "VFX_DUR_BLINDVISION",
+      ownerPhase: "duration",
+      ownerProgFxRef: "305",
+      ownerEffectConstructorKind: "EffectVisualEffect",
+      ownerDurationType: "temporary",
+      color: { r: 0, g: 0, b: 0 }
+    });
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "decompiled_all.c:348244 loads visualeffects.2da"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "animationKindCounts light=56 vision=10 unknown=2"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "Param5 proximity true=8 false=60"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "visionRows=[328,329,330,331,333,378,379,380,381,383]"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingProofSource).toContain(
+      "fx-light-loader-region 0x14096c610"
+    );
+    expect(contract.progFxType4Light?.runtimeSchedulingBlocker).toContain(
+      "proximity distance threshold, scene-light restore timing, and pixel/runtime vision mutation parity"
+    );
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY",
+        "VFX_PROGFX_TYPE4_RENDER_CONTRACT_NO_POINTLIGHT",
+        "VFX_PROGFX_TYPE4_RETAIL_SCHEDULING_REQUIRED",
+        "VFX_PROGFX_TYPE4_RUNTIME_SCHEDULING_PROOF_SOURCE",
+        "VFX_PROGFX_TYPE4_PARAM1_VISION_TOKEN_PRESERVED",
+        "VFX_PROGFX_TYPE4_RUNTIME_POLICY_BLOCKED"
+      ])
+    );
+  });
+
+  it("keeps ProgFX Type 4 blocked when the EffectVisualEffect owner phase is absent", () => {
+    const progFxRows = parseAuroraProgFxTwoDa(
+      [
+        "2DA V2.0",
+        "",
+        "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+        "304 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****"
+      ].join("\n"),
+      "progfx-type4-source-only-fixture"
+    ).rows;
+    const emitter = fountainEmitter({ birthrate: 1 });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter,
+      progFxRows
+    });
+
+    expect(contract.progFxType4Light).toBeUndefined();
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "VFX_PROGFX_TYPE4_OWNER_PHASE_EFFECT_INSTANCE_READY"
     );
   });
 

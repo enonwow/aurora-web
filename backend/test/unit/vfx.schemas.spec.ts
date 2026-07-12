@@ -25,6 +25,7 @@ describe("vfx.schemas", () => {
     const parsed = parseVfxProcessPayload({
       packageKind: "source_parse",
       sourceTableText: "2DA V2.0\n\nLabel Type_FD\n0 VFX_TEST F",
+      progFxTableText: "2DA V2.0\n\nLabel Type\n304 LightBlue5m 4",
       sourceCandidates: [
         {
           candidateId: "module:visualeffects",
@@ -58,6 +59,7 @@ describe("vfx.schemas", () => {
     });
 
     expect(parsed.packageKind).toBe("source_parse");
+    expect(parsed.progFxTableText).toBe("2DA V2.0\n\nLabel Type\n304 LightBlue5m 4");
     expect(parsed.bypassCache).toBe(true);
     expect(parsed.sourceCandidates?.[0]?.layer).toBe("module");
     expect(parsed.resourceTraces?.[0]?.lowerPrecedenceCandidates?.[0]?.sourceLayer).toBe("vanilla");

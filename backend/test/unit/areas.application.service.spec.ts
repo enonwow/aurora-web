@@ -4,11 +4,17 @@ import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/a
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { AreaProcessingCachePort } from "../../src/modules/areas/application/ports/area-processing-cache.port";
 import type { AreaRepositoryPort } from "../../src/modules/areas/application/ports/area-repository.port";
+import type { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
 import type {
+  AreaObjectCounts,
   AreaListResult,
   AreaProcessingResult,
   AreaRecord
 } from "../../src/modules/areas/domain/area.types";
+import {
+  parseAreaMetadataFromAreGff,
+  parseAreaObjectsFromGitGff
+} from "../../src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser";
 
 describe("AreasApplicationService", () => {
   let repository: jest.Mocked<AreaRepositoryPort>;
@@ -41,14 +47,12 @@ describe("AreasApplicationService", () => {
           benchmark: true,
           previewImageUrl: "/preview.webp",
           textureAtlasId: "atlas_urban_v1",
-          objectCounts: {
+          objectCounts: buildObjectCounts({
             placeables: 1,
-            doors: 0,
             creatures: 1,
             items: 1,
-            sounds: 0,
             total: 3
-          },
+          }),
           updatedAt: "2026-05-23T00:00:00.000Z"
         }
       ],
@@ -143,8 +147,207 @@ describe("AreasApplicationService", () => {
     expect(second.items[0].previewImageUrl).toBe("/api/v1/areas/area_cached_002/thumbnail");
   });
 
+  it("builds area lighting evidence from all listed areas", async () => {
+    const catalogService = {
+      listPlaceables: jest.fn().mockResolvedValue({
+        items: [
+          {
+            templateId: "plc_magic_yellow",
+            kind: "placeable",
+            placeableSubtype: "light_source",
+            resref: "plc_magic_yellow",
+            name: "Magic Yellow",
+            category: "light",
+            tags: ["light_source"],
+            previewImageUrl: "/api/v1/catalog/placeables/plc_magic_yellow/thumbnail",
+            metadata: {
+              source2daLightColorRaw: "7",
+              source2daLightColorRow: 7,
+              source2daLightColorLabel: "Yellow",
+              source2daLightOffsetZ: 4,
+              lightState: 2,
+              modelResRef: "plc_u07"
+            }
+          }
+        ],
+        total: 1,
+        limit: 1000,
+        offset: 0
+      }),
+      processPlaceablesBatch: jest.fn().mockResolvedValue({
+        items: [
+          {
+            cache: {
+              key: "cache_plc_magic_yellow",
+              hit: false,
+              storedAt: "2026-06-28T00:00:00.000Z",
+              hits: 0
+            },
+            placeable: {
+              templateId: "plc_magic_yellow",
+              renderPackage: {
+                auroraLight: {
+                  source: "source-mdl",
+                  diagnostics: [],
+                  lights: [
+                    {
+                      source: "aurora-mdl-ascii",
+                      sourceModelAssetId: "asset_plc_u07",
+                      sourceModelFileName: "plc_u07.mdl",
+                      sourceModelObjectKey: "modules/current/models/plc_u07.mdl",
+                      nodeName: "light01",
+                      sourceNodeKind: "placeablelight",
+                      transform: {
+                        position: [0, 0, 1.25],
+                        scale: 1
+                      },
+                      radius: 6,
+                      color: [1, 0.85, 0.15],
+                      shadow: true,
+                      lightPriority: 3,
+                      animations: [
+                        {
+                          animationName: "default"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      })
+    } as unknown as jest.Mocked<CatalogApplicationService>;
+    const serviceWithCatalog = new AreasApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      undefined,
+      undefined,
+      catalogService
+    );
+    const area: AreaRecord = {
+      ...buildArea("area_light_001"),
+      tiles: [
+        {
+          tileInstanceId: "area_light_001:tile:0",
+          areaId: "area_light_001",
+          tilesetResRef: "tno01",
+          row: 0,
+          col: 0,
+          tileIndex: 0,
+          tileId: 101,
+          source: "are-tile-list",
+          mainLight1: 3,
+          mainLight1Color: { rowId: 3, red: 1, green: 0.75, blue: 0.25 },
+          sourceLight1: 5,
+          sourceLight1Color: { rowId: 5, red: 0.25, green: 0.5, blue: 1 }
+        }
+      ],
+      objects: [
+        {
+          objectId: "obj_torch_001",
+          kind: "placeable",
+          templateId: "plc_wall_torch",
+          resRef: "plc_wall_torch",
+          x: 1,
+          y: 2,
+          z: 0,
+          bearing: 0
+        }
+      ]
+    };
+    repository.list.mockResolvedValue({
+      items: [buildAreaListItem(area.areaId)],
+      total: 1,
+      limit: 1000,
+      offset: 0
+    });
+    repository.findById.mockResolvedValue(area);
+
+    const report = await serviceWithCatalog.getAreaLightingEvidence();
+
+    expect(repository.list).toHaveBeenCalledWith({ limit: 1000, offset: 0 });
+    expect(repository.findById).toHaveBeenCalledWith("area_light_001");
+    expect(catalogService.listPlaceables).toHaveBeenCalledWith({
+      subtype: "light_source",
+      limit: 1000,
+      offset: 0
+    });
+    expect(catalogService.processPlaceablesBatch).toHaveBeenCalledWith([
+      {
+        templateId: "plc_magic_yellow",
+        resref: "plc_magic_yellow",
+        bypassCache: false,
+        includeBenchmarkMetadata: false
+      }
+    ]);
+    expect(report.summary).toMatchObject({
+      areasScanned: 1,
+      tileLightTiles: 1,
+      tileLightReferences: 2,
+      placeableNameCandidates: 1,
+      catalogLightSourceTemplates: 1,
+      catalogLightColorTemplates: 1,
+      catalogLightStateTemplates: 1,
+      processedMdlLightTemplatesScanned: 1,
+      processedMdlLightSourceTemplates: 1,
+      processedMdlLightNodes: 1,
+      processedMdlLightScanLimit: 24,
+      auroraActiveLightSlotCap: 128,
+      rendererCandidateLights: 5,
+      rendererAcceptedLights: 5,
+      rendererDroppedLights: 0,
+      shadowDiagnosticEntries: 1,
+      shadowMdlLightNodes: 1,
+      shadowCatalogShadowSizeTemplates: 0
+    });
+    expect(report.tileLights[0]).toMatchObject({
+      areaId: "area_light_001",
+      mainLight1: 3,
+      sourceLight1: 5
+    });
+    expect(report.placeableNameCandidates[0]).toMatchObject({
+      objectId: "obj_torch_001",
+      matchedTokens: expect.arrayContaining(["torch"])
+    });
+    expect(report.catalogLightSources[0]).toMatchObject({
+      templateId: "plc_magic_yellow",
+      evidence: expect.arrayContaining(["placeables.2da.LightColor", "utp.LightState"]),
+      source2daLightColorRow: 7,
+      source2daLightOffsetZ: 4,
+      lightState: 2
+    });
+    expect(report.processedMdlLightSources[0]).toMatchObject({
+      templateId: "plc_magic_yellow",
+      cacheKey: "cache_plc_magic_yellow",
+      nodes: [
+        expect.objectContaining({
+          nodeName: "light01",
+          sourceNodeKind: "placeablelight",
+          position: { x: 0, y: 0, z: 1.25 },
+          scale: 1,
+          radius: 6,
+          quadraticAtten: 0.125,
+          quadraticAttenSource:
+            "C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 uploads lightQuadraticAtten = 9/(max(radius,0.1)^2*2)",
+          quadraticAttenProofStatus: "source-backed-mdl-radius-quadratic-attenuation",
+          auroraLightFieldParserSource: expect.stringContaining("FUN_00a5872c"),
+          auroraLightFieldParserProofStatus: "source-backed-mdl-auroralight-field-parser",
+          color: { red: 1, green: 0.85, blue: 0.15 },
+          shadow: true,
+          lightPriority: 3,
+          animationNames: ["default"]
+        })
+      ]
+    });
+  });
+
   it("returns full area payload with composition counts", async () => {
-    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    repository.findById.mockResolvedValue(
+      buildArea("area_test_001", { lighting: buildAreaGlobalLighting() })
+    );
 
     const detail = await service.getArea("area_test_001");
 
@@ -162,6 +365,15 @@ describe("AreasApplicationService", () => {
     expect(detail.composition.items).toBe(1);
     expect(detail.composition.total).toBe(4);
     expect(detail.objects.length).toBe(4);
+    expect(detail.lighting).toEqual({
+      source: "are-root-fields",
+      fields: [
+        { field: "IsNight", value: 0 },
+        { field: "SunShadows", value: 1 },
+        { field: "MoonShadows", value: 0 },
+        { field: "ShadowOpacity", value: 50 }
+      ]
+    });
   });
 
   it("returns lightweight area preview payload", async () => {
@@ -181,7 +393,9 @@ describe("AreasApplicationService", () => {
   });
 
   it("returns generated area thumbnail image payload", async () => {
-    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    repository.findById.mockResolvedValue(
+      buildArea("area_test_001", { lighting: buildAreaGlobalLighting() })
+    );
 
     const thumbnail = await service.getAreaThumbnail("area_test_001");
 
@@ -204,7 +418,9 @@ describe("AreasApplicationService", () => {
   });
 
   it("processes area and stores cache payload on miss", async () => {
-    repository.findById.mockResolvedValue(buildArea("area_test_001"));
+    repository.findById.mockResolvedValue(
+      buildArea("area_test_001", { lighting: buildAreaGlobalLighting() })
+    );
     processingCache.get.mockResolvedValue(null);
     processingCache.set.mockImplementation(async (key, value) => ({
       key,
@@ -243,6 +459,7 @@ describe("AreasApplicationService", () => {
       })
     ]);
     expect(result.area.processedAt).toEqual(expect.any(String));
+    expect(result.area.lighting).toEqual(buildAreaGlobalLighting());
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
@@ -266,14 +483,12 @@ describe("AreasApplicationService", () => {
         etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
-      composition: {
+      composition: buildObjectCounts({
         placeables: 1,
-        doors: 0,
         creatures: 2,
         items: 1,
-        sounds: 0,
         total: 4
-      },
+      }),
       objects: [],
       updatedAt: "2026-05-23T00:00:00.000Z",
       processedAt: "2026-05-24T10:59:00.000Z"
@@ -319,14 +534,12 @@ describe("AreasApplicationService", () => {
         etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
-      composition: {
+      composition: buildObjectCounts({
         placeables: 1,
-        doors: 0,
         creatures: 2,
         items: 1,
-        sounds: 0,
         total: 4
-      },
+      }),
       objects: [],
       updatedAt: "2026-05-23T00:00:00.000Z",
       processedAt: "2026-05-24T10:59:00.000Z"
@@ -447,14 +660,12 @@ describe("AreasApplicationService", () => {
         etag: "atlas-urban-v1"
       },
       soundscape: buildAreaSoundscape(),
-      composition: {
+      composition: buildObjectCounts({
         placeables: 1,
-        doors: 0,
         creatures: 2,
         items: 1,
-        sounds: 0,
         total: 4
-      },
+      }),
       objects: [],
       updatedAt: "2026-05-23T00:00:00.000Z",
       processedAt: "2026-05-24T10:59:00.000Z"
@@ -605,9 +816,143 @@ describe("AreasApplicationService", () => {
       message: "Area was not found."
     });
   });
+
+  it("exports placed item properties as parseable GIT ItemList bytes", async () => {
+    const area = buildArea("area_item_export_001");
+    area.objects = [
+      {
+        objectId: "obj_plc_001",
+        kind: "placeable",
+        templateId: "plc_market_stall_001",
+        x: 1,
+        y: 2,
+        z: 0,
+        bearing: 0
+      },
+      {
+        objectId: "obj_itm_armor_001",
+        kind: "item",
+        templateId: "itm_hide_armor",
+        resRef: "itm_hide_armor",
+        tag: "ITM_HIDE_ARMOR",
+        localizedName: "Placed Hide Armor",
+        description: "Area item export proof",
+        x: 5.5,
+        y: 6.25,
+        z: 0.5,
+        bearing: 225,
+        itemMetadata: {
+          baseItem: 16,
+          modelPart1: 66,
+          modelPart2: 13,
+          modelPart3: 63,
+          bodyPartTorso: 43,
+          leather1Color: 5,
+          metal2Color: 8,
+          identified: true,
+          plot: true,
+          "script.onused": "it_onuse",
+          itemPropertyListEntries: JSON.stringify([
+            {
+              propertyName: 15,
+              subtype: 66,
+              costTable: 3,
+              costValue: 1,
+              param1: 255,
+              param1Value: 0,
+              chanceAppear: 100
+            }
+          ])
+        }
+      }
+    ];
+    repository.findById.mockResolvedValue(area);
+
+    const exported = await service.getAreaItemGitExport(area.areaId);
+    const parsed = parseAreaObjectsFromGitGff(exported.bytes);
+
+    expect(exported).toMatchObject({
+      areaId: "area_item_export_001",
+      fileName: "area_item_export_001.items.git",
+      contentType: "application/octet-stream",
+      itemCount: 1
+    });
+    expect(exported.size).toBe(exported.bytes.length);
+    expect(parsed?.items).toHaveLength(1);
+    expect(parsed?.items[0]).toMatchObject({
+      templateResRef: "itm_hide_armor",
+      tag: "ITM_HIDE_ARMOR",
+      localizedName: "Placed Hide Armor",
+      description: "Area item export proof",
+      x: 5.5,
+      y: 6.25,
+      z: 0.5,
+      bearing: 225,
+      itemMetadata: {
+        baseItem: 16,
+        modelPart1: 66,
+        modelPart2: 13,
+        modelPart3: 63,
+        bodyPartTorso: 43,
+        leather1Color: 5,
+        metal2Color: 8,
+        identified: true,
+        plot: true,
+        "script.onused": "it_onuse",
+        itemPropertyListCount: 1
+      }
+    });
+  });
+
+  it("exports supported whole-area GIT root lists and ARE metadata bytes", async () => {
+    const area = buildArea("area_whole_export_001", {
+      lighting: buildAreaGlobalLighting()
+    });
+    repository.findById.mockResolvedValue(area);
+
+    const git = await service.getAreaGitExport(area.areaId);
+    const are = await service.getAreaAreExport(area.areaId);
+    const parsedGit = parseAreaObjectsFromGitGff(git.bytes);
+    const parsedAre = parseAreaMetadataFromAreGff(are.bytes);
+
+    expect(git).toMatchObject({
+      areaId: "area_whole_export_001",
+      fileName: "area_whole_export_001.git",
+      contentType: "application/octet-stream",
+      objectCounts: {
+        placeables: 1,
+        creatures: 2,
+        items: 1,
+        total: 4
+      }
+    });
+    expect(git.size).toBe(git.bytes.length);
+    expect(parsedGit?.placeables).toHaveLength(1);
+    expect(parsedGit?.creatures).toHaveLength(2);
+    expect(parsedGit?.items).toHaveLength(1);
+
+    expect(are).toMatchObject({
+      areaId: "area_whole_export_001",
+      fileName: "area_whole_export_001.are",
+      contentType: "application/octet-stream",
+      tileCount: 2
+    });
+    expect(are.size).toBe(are.bytes.length);
+    expect(parsedAre).toMatchObject({
+      name: "Test Area",
+      tag: "area_whole_export_001",
+      width: 12,
+      height: 12,
+      tileSet: "tno01"
+    });
+    expect(parsedAre?.tiles).toHaveLength(2);
+  });
 });
 
-function buildArea(id: string): AreaRecord {
+function buildArea(
+  id: string,
+  options: { lighting?: AreaRecord["lighting"] } = {}
+): AreaRecord {
   return {
     areaId: id,
     name: "Test Area",
@@ -651,6 +996,7 @@ function buildArea(id: string): AreaRecord {
         fallbackReason: "tile-model-reference-missing"
       }
     ],
+    ...(options.lighting ? { lighting: options.lighting } : {}),
     soundscape: buildAreaSoundscape(),
     objects: [
       {
@@ -694,6 +1040,34 @@ function buildArea(id: string): AreaRecord {
   };
 }
 
+function buildObjectCounts(overrides: Partial<AreaObjectCounts> = {}): AreaObjectCounts {
+  return {
+    placeables: 0,
+    doors: 0,
+    creatures: 0,
+    encounters: 0,
+    items: 0,
+    sounds: 0,
+    stores: 0,
+    triggers: 0,
+    waypoints: 0,
+    total: 0,
+    ...overrides
+  };
+}
+
+function buildAreaGlobalLighting(): AreaRecord["lighting"] {
+  return {
+    source: "are-root-fields",
+    fields: [
+      { field: "IsNight", value: 0 },
+      { field: "SunShadows", value: 1 },
+      { field: "MoonShadows", value: 0 },
+      { field: "ShadowOpacity", value: 50 }
+    ]
+  };
+}
+
 function buildAreaListItem(id: string): AreaListResult["items"][number] {
   const area = buildArea(id);
   return {
@@ -706,14 +1080,12 @@ function buildAreaListItem(id: string): AreaListResult["items"][number] {
     benchmark: area.benchmark,
     previewImageUrl: area.previewImageUrl,
     textureAtlasId: area.textureAtlasId,
-    objectCounts: {
+    objectCounts: buildObjectCounts({
       placeables: 1,
-      doors: 0,
       creatures: 2,
       items: 1,
-      sounds: 0,
       total: 4
-    },
+    }),
     updatedAt: area.updatedAt
   };
 }
@@ -776,14 +1148,12 @@ function buildProcessedAreaResult(areaId: string): AreaProcessingResult {
       etag: area.textureAtlasEtag
     },
     soundscape: area.soundscape,
-    composition: {
+    composition: buildObjectCounts({
       placeables: 1,
-      doors: 0,
       creatures: 2,
       items: 1,
-      sounds: 0,
       total: 4
-    },
+    }),
     objects: area.objects,
     updatedAt: area.updatedAt,
     processedAt: "2026-05-24T10:59:00.000Z"

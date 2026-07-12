@@ -7,7 +7,9 @@ import {
   parseAuroraProgFxTwoDa,
   parseAuroraSpellsTwoDa,
   parseAuroraTwoDaTable,
-  parseAuroraVisualEffectsTwoDa
+  parseAuroraVisualEffectsTwoDa,
+  summarizeAuroraProgFxType4VisualEffectOwners,
+  summarizeAuroraProgFxType4Rows
 } from "../../src/modules/vfx/domain/aurora-vfx-source.parser";
 
 const VISUALEFFECTS_HEADER = [
@@ -286,8 +288,31 @@ describe("aurora-vfx-source parser", () => {
     expect(parsed.rows[1]).toMatchObject({
       rowId: 148,
       label: "DurationLoop",
-      type: 4
+      type: 4,
+      type4Light: {
+        proofStatus: "profile-gated-source-preserved-no-runtime-scheduling",
+        animationRaw: "light",
+        animation: "light",
+        animationParameterStatus:
+          "source-backed-progfx-type4-param1-animation-token-preserved",
+        animationSpeedRaw: "0.25",
+        animationSpeed: 0.25,
+        animationSpeedParameterStatus:
+          "source-backed-progfx-type4-param2-animation-speed-preserved-runtime-playback-blocked",
+        castShadowsRaw: "1.5",
+        castShadowParameterStatus:
+          "source-backed-progfx-type4-param3-cast-shadows-preserved-item-toggle-known-non-item-vanilla-cast-shadow-absent",
+        parameterPreservationProofStatus:
+          "source-backed-progfx-type4-param1-param8-raw-preserved",
+        parameterSource:
+          "retail progfx.2da Type 4 Param1 animation, Param2 speed, Param3 cast shadows, Param4 priority, Param5 proximity suppression, Param6 attach to scene, Param7 model"
+      }
     });
+    expect(parsed.rows[1]?.diagnostics.map((entry) => entry.code)).toEqual([
+      "VFX_PROGFX_TYPE4_REQUEST_CONTEXT_REQUIRED",
+      "VFX_PROGFX_TYPE4_NOT_MDL_LIGHT_NODE",
+      "VFX_CLIENT_LIGHT_NOT_GENERIC_POINT_LIGHT"
+    ]);
     expect(parsed.rows[1].params).toEqual([
       { column: "Param1", raw: "light", value: "light" },
       { column: "Param2", raw: "0.25", value: "0.25" },
@@ -298,6 +323,353 @@ describe("aurora-vfx-source parser", () => {
       { column: "Param7", raw: "****" },
       { column: "Param8", raw: "****" }
     ]);
+  });
+
+  it("preserves progfx.2da Type 4 light parameters without runtime scheduling", () => {
+    const source = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "304 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****",
+      "333 LightAreaBlackout 4 Blind_Vision 1 0 13 0 1 fx_light_clr ****"
+    ].join("\n");
+
+    const parsed = parseAuroraProgFxTwoDa(source, "fixture-8193.34");
+
+    expect(parsed.rows[0]).toMatchObject({
+      rowId: 304,
+      label: "LightBlue5m",
+      type: 4,
+      type4Light: {
+        proofStatus: "profile-gated-source-preserved-no-runtime-scheduling",
+        animationRaw: "Blue_5m",
+        animation: "Blue_5m",
+        animationParameterStatus:
+          "source-backed-progfx-type4-param1-animation-token-preserved",
+        animationKind: "light",
+        animationSymbolicColor: "Blue",
+        animationTokenRadiusMeters: 5,
+        animationTokenRadiusProofStatus: "source-backed-progfx-param1-animation-token-radius",
+        sourceMdlNodeName: "AuroraLight01",
+        sourceMdlAnimation: "Blue_5m",
+        sourceMdlColor: { r: 0.5, g: 0.5, b: 1 },
+        sourceMdlRadiusMeters: 13.3,
+        sourceMdlRadiusFrames: [0, 13.3],
+        sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+        sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+        animationSemanticSource:
+          "progfx.2da Type 4 Param1 names the fx_light_clr.mdl animation; 5m/10m/15m/20m is preserved as a token, while source MDL controller type 88 supplies radius",
+        animationSpeedRaw: "1",
+        animationSpeed: 1,
+        castShadowsRaw: "0",
+        castShadows: false,
+        castShadowParameterStatus:
+          "source-backed-progfx-type4-param3-cast-shadows-preserved-item-toggle-known-non-item-vanilla-cast-shadow-absent",
+        priorityRaw: "20",
+        priority: 20,
+        priorityParameterStatus:
+          "docs-backed-progfx-type4-param4-priority-lower-value-wins",
+        proximitySuppressionRaw: "0",
+        proximitySuppression: false,
+        proximitySuppressionParameterStatus:
+          "docs-backed-progfx-type4-param5-proximity-suppression-near-other-light",
+        attachToSceneRaw: "0",
+        attachToScene: false,
+        sceneAttachmentParameterStatus:
+          "docs-backed-progfx-type4-param6-attach-to-scene-removes-scene-lights",
+        modelRaw: "fx_light_clr",
+        modelRef: "fx_light_clr",
+        modelParameterStatus:
+          "source-backed-progfx-type4-param7-model-ref-preserved-client-loader-path-source-backed",
+        parameterPreservationProofStatus:
+          "source-backed-progfx-type4-param1-param8-raw-preserved"
+      }
+    });
+    expect(parsed.rows[1]?.type4Light).toMatchObject({
+      animation: "Blind_Vision",
+      animationKind: "vision",
+      visionMode: "Blind_Vision",
+      visionParameterStatus:
+        "docs-backed-progfx-type4-param1-vision-token-param4-priority",
+      sourceMdlNodeName: "AuroraLight02",
+      sourceMdlAnimation: "Blind_Vision",
+      sourceMdlColor: { r: 0.3, g: 0.3, b: 0.3 },
+      sourceMdlRadiusMeters: 7,
+      sourceMdlRadiusFrames: [0, 7],
+      sourceMdlColorProofStatus: "source-family-backed-fx_light_clr-mdl-animation-rgb",
+      sourceMdlRadiusProofStatus: "source-family-backed-fx_light_clr-mdl-animation-radius",
+      priority: 13,
+      attachToScene: true
+    });
+    expect(parsed.rows[0]?.diagnostics.map((entry) => entry.code)).toEqual([
+      "VFX_PROGFX_TYPE4_REQUEST_CONTEXT_REQUIRED",
+      "VFX_PROGFX_TYPE4_NOT_MDL_LIGHT_NODE",
+      "VFX_CLIENT_LIGHT_NOT_GENERIC_POINT_LIGHT"
+    ]);
+  });
+
+  it("summarizes ProgFX Type 4 table parameters without promoting runtime scheduler parity", () => {
+    const source = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "300 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****",
+      "327 LightWhite20m 4 white_20m 1 1 44 0 0 fx_light_clr ****",
+      "333 LightAreaBlackout 4 Blind_Vision 1 0 13 0 1 fx_light_clr ****",
+      "350 FadeLBlue5m 4 Blue_5m 1 0 20 1 0 fx_light_clr ****",
+      "900 Smoke 9 chunk **** **** **** **** **** ****",
+      "901 CustomType4 4 CustomAnim 0.5 **** **** **** 1 custom_model ****"
+    ].join("\n");
+
+    const parsed = parseAuroraProgFxTwoDa(source, "fixture-type4-summary");
+    const summary = summarizeAuroraProgFxType4Rows(parsed.rows);
+
+    expect(summary).toEqual({
+      sourceTable: "progfx.2da",
+      proofStatus:
+        "source-backed-progfx-type4-table-parameter-distribution-runtime-scheduler-blocked",
+      rowCount: 6,
+      type4RowCount: 5,
+      itemLightNormalRowCount: 2,
+      itemLightFadeRowCount: 1,
+      nonItemType4RowCount: 2,
+      animationKindCounts: {
+        light: 3,
+        vision: 1,
+        unknown: 1
+      },
+      castShadowsBooleanCounts: {
+        true: 1,
+        false: 3,
+        unknown: 1
+      },
+      proximitySuppressionBooleanCounts: {
+        true: 1,
+        false: 3,
+        unknown: 1
+      },
+      attachToSceneBooleanCounts: {
+        true: 2,
+        false: 3,
+        unknown: 0
+      },
+      castShadowsRawCounts: {
+        "****": 1,
+        "0": 3,
+        "1": 1
+      },
+      priorityRawCounts: {
+        "****": 1,
+        "13": 1,
+        "20": 2,
+        "44": 1
+      },
+      proximitySuppressionRawCounts: {
+        "****": 1,
+        "0": 3,
+        "1": 1
+      },
+      attachToSceneRawCounts: {
+        "0": 3,
+        "1": 2
+      },
+      modelCounts: {
+        custom_model: 1,
+        fx_light_clr: 4
+      },
+      lightTokenRadiusCounts: {
+        "****": 2,
+        "5": 2,
+        "20": 1
+      },
+      sampleRows: expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 300,
+          label: "LightBlue5m",
+          animation: "Blue_5m",
+          animationKind: "light",
+          castShadowsRaw: "0",
+          priorityRaw: "20",
+          proximitySuppressionRaw: "0",
+          attachToSceneRaw: "0",
+          modelRef: "fx_light_clr"
+        }),
+        expect.objectContaining({
+          rowId: 333,
+          animation: "Blind_Vision",
+          animationKind: "vision",
+          attachToSceneRaw: "1"
+        }),
+        expect.objectContaining({
+          rowId: 901,
+          animation: "CustomAnim",
+          attachToSceneRaw: "1",
+          modelRef: "custom_model"
+        })
+      ]),
+      nonItemRows: expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 333,
+          animation: "Blind_Vision",
+          animationKind: "vision",
+          attachToSceneRaw: "1"
+        }),
+        expect.objectContaining({
+          rowId: 901,
+          animation: "CustomAnim",
+          attachToSceneRaw: "1",
+          modelRef: "custom_model"
+        })
+      ]),
+      nonItemCastShadowRows: [],
+      proximitySuppressionRows: [
+        expect.objectContaining({
+          rowId: 350,
+          proximitySuppressionRaw: "1"
+        })
+      ],
+      attachToSceneRows: expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 333,
+          attachToSceneRaw: "1"
+        }),
+        expect.objectContaining({
+          rowId: 901,
+          attachToSceneRaw: "1"
+        })
+      ]),
+      visionRows: [
+        expect.objectContaining({
+          rowId: 333,
+          animationKind: "vision"
+        })
+      ],
+      remainingBlockedSemantics: [
+        "Param3/Param4/Param5/Param6 table distribution is source-backed",
+        "retail table/owner-phase audit proves nonItemCastShadowRows=[] and nonItemCastShadowOwnerPhaseCount=0 for vanilla resources",
+        "table distribution does not prove runtime scheduler order, vtable dispatch, proximity suppression, scene attachment, vision mutation, or cross-lane insertion behavior"
+      ]
+    });
+  });
+
+  it("maps visualeffects.2da owner phases to ProgFX Type 4 rows without inventing scene lights", () => {
+    const visualEffectsSource = [
+      "2DA V2.0",
+      "",
+      VISUALEFFECTS_HEADER.join(" "),
+      visualEffectsRow(153, {
+        Label: "VFX_DUR_LIGHT_BLUE_5",
+        Type_FD: "D",
+        ProgFX_Duration: "300",
+        ProgFX_Cessation: "350"
+      }),
+      visualEffectsRow(183, {
+        Label: "VFX_FNF_SOUND_BURST",
+        Type_FD: "F",
+        ProgFX_Duration: "328",
+        ProgFX_Cessation: "378"
+      }),
+      visualEffectsRow(333, {
+        Label: "VFX_DUR_BLACKOUT",
+        Type_FD: "D",
+        ProgFX_Duration: "333"
+      }),
+      visualEffectsRow(900, {
+        Label: "VFX_TEST_NON_TYPE4",
+        Type_FD: "D",
+        ProgFX_Duration: "901"
+      }),
+      visualEffectsRow(901, {
+        Label: "VFX_TEST_MISSING_PROGFX",
+        Type_FD: "D",
+        ProgFX_Duration: "999"
+      })
+    ].join("\n");
+    const progFxSource = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "300 LightBlue5m 4 Blue_5m 1 0 20 0 0 fx_light_clr ****",
+      "328 LightDarkvision 4 Dark_Vision 1 0 49 1 0 fx_light_clr ****",
+      "333 LightAreaBlackout 4 Blind_Vision 1 0 13 0 1 fx_light_clr ****",
+      "350 FadeLBlue5m 4 Blue_5m 1 0 20 1 0 fx_light_clr ****",
+      "378 FadeLDarkvision 4 Dark_Vision 1 0 49 1 0 fx_light_clr ****",
+      "901 Smoke 9 chunk **** **** **** **** **** ****"
+    ].join("\n");
+
+    const visualEffects = parseAuroraVisualEffectsTwoDa(
+      visualEffectsSource,
+      "fixture-vfx-progfx-owner-map"
+    );
+    const progFx = parseAuroraProgFxTwoDa(progFxSource, "fixture-vfx-progfx-owner-map");
+    const summary = summarizeAuroraProgFxType4VisualEffectOwners(
+      visualEffects.rows,
+      progFx.rows
+    );
+
+    expect(summary).toEqual({
+      sourceTable: "visualeffects.2da",
+      linkedProgFxTable: "progfx.2da",
+      proofStatus:
+        "source-backed-visualeffects-progfx-type4-owner-phase-map-runtime-scheduler-blocked",
+      visualEffectRowCount: 5,
+      type4OwnerPhaseCount: 5,
+      itemLightOwnerPhaseCount: 2,
+      nonItemOwnerPhaseCount: 3,
+      nonItemVisionOwnerPhaseCount: 3,
+      nonItemCastShadowOwnerPhaseCount: 0,
+      nonItemAttachToSceneOwnerPhaseCount: 1,
+      nonItemProximitySuppressionOwnerPhaseCount: 2,
+      missingProgFxReferenceCount: 1,
+      nonType4ProgFxReferenceCount: 1,
+      ownerPhaseCounts: {
+        impact: 0,
+        duration: 3,
+        cessation: 2
+      },
+      nonItemOwnerRows: expect.arrayContaining([
+        expect.objectContaining({
+          visualEffectRowId: 183,
+          visualEffectLabel: "VFX_FNF_SOUND_BURST",
+          phase: "duration",
+          progFxRowId: 328,
+          progFxLabel: "LightDarkvision",
+          ownerKind: "non-item",
+          animation: "Dark_Vision",
+          animationKind: "vision",
+          priorityRaw: "49",
+          proximitySuppressionRaw: "1"
+        }),
+        expect.objectContaining({
+          visualEffectRowId: 333,
+          progFxRowId: 333,
+          ownerKind: "non-item",
+          animation: "Blind_Vision",
+          attachToSceneRaw: "1"
+        })
+      ]),
+      itemLightOwnerRows: expect.arrayContaining([
+        expect.objectContaining({
+          visualEffectRowId: 153,
+          phase: "duration",
+          progFxRowId: 300,
+          ownerKind: "item-light",
+          animation: "Blue_5m"
+        }),
+        expect.objectContaining({
+          visualEffectRowId: 153,
+          phase: "cessation",
+          progFxRowId: 350,
+          ownerKind: "item-light",
+          animation: "Blue_5m"
+        })
+      ]),
+      remainingBlockedSemantics: [
+        "visualeffects.2da owner phase references for ProgFX Type 4 are source-backed",
+        "owner phase mapping does not prove client runtime scheduler priority, proximity suppression, scene attachment, vision mutation, or shadow projection behavior",
+        "retail cross-lane ordering still requires scheduler data-flow or a retail oracle scene"
+      ]
+    });
   });
 
   it("preserves profile-mismatch visualeffects.2da columns as diagnostics instead of runtime fields", () => {

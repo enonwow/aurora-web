@@ -3,9 +3,11 @@ import {
   TilesApplicationService,
   __tilesApplicationServiceInternals
 } from "../../src/modules/tiles/application/tiles.application.service";
+import type { DerivedAssetGeneratorPort } from "../../src/modules/runtime-settings/application/ports/derived-asset-generator.port";
 import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
 import type { TileProcessingCachePort } from "../../src/modules/tiles/application/ports/tile-processing-cache.port";
 import type { TileRepositoryPort } from "../../src/modules/tiles/application/ports/tile-repository.port";
 import type { TileListResult, TileProcessingResult, TileRecord } from "../../src/modules/tiles/domain/tile.types";
@@ -196,6 +198,58 @@ describe("TilesApplicationService", () => {
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
+  it("returns source and GLB delivery contracts for every edited Tile_ID model candidate", async () => {
+    const records = new Map(
+      ["sic11_a00_00", "sic11_a01_02"].map((resref) => {
+        const tileId = `tile_${resref}`;
+        return [
+          tileId,
+          {
+            ...buildTile(tileId),
+            resref,
+            sourceAssetObjectKey: `modules/current/__aurora/sources/vanilla/models/${resref}.mdl`,
+            sourceAssetExtension: "mdl" as const,
+            sourceAssetSizeBytes: 2048,
+            sourceAssetOrigin: "module-snapshot" as const,
+            renderModelObjectKey: `modules/current/__aurora/derived/models/${resref}.glb`,
+            renderModelExtension: "glb" as const,
+            renderModelSizeBytes: 4096
+          }
+        ] as const;
+      })
+    );
+    repository.findById.mockImplementation(async (tileId) => records.get(tileId) ?? null);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-11T00:00:00.000Z",
+      hits: 0
+    }));
+
+    const result = await service.processTilesBatch([
+      { tileId: "tile_sic11_a00_00" },
+      { tileId: "tile_sic11_a01_02" }
+    ]);
+
+    expect(result.items).toHaveLength(2);
+    for (const item of result.items) {
+      expect(item.status).toBe("ready");
+      expect(item.result?.tile.sourceAsset).toMatchObject({
+        extension: "mdl",
+        role: "mdl_source",
+        origin: "module-snapshot"
+      });
+      expect(item.result?.tile.renderAssetContract?.modelAsset).toMatchObject({
+        extension: "glb",
+        contentType: "model/gltf-binary",
+        deliveryUrl: expect.stringContaining("/api/v1/catalog/tiles/cache/")
+      });
+      expect(item.result?.tile.renderAssetContract?.modelDeliveryStatus).toBe("ready");
+      expect(item.result?.tile.renderAssetContract?.rendererHandoffStatus).toBe("ready");
+    }
+  });
+
   it("processTile bypassCache=true refreshes source-backed tile models missing derived GLB", async () => {
     const sourceOnlyTile = {
       ...buildTile("tile_tno01_a01_01"),
@@ -248,6 +302,270 @@ describe("TilesApplicationService", () => {
     expect(result.tile.renderAssetContract?.modelAsset?.objectKey).toBe(
       "modules/current/__aurora/derived/models/tno01_a01_01.glb"
     );
+  });
+
+  it("regenerates source-backed tile GLB when the stored derived model uses an old converter", async () => {
+    const tile = {
+      ...buildTile("tile_sic11_a01_07"),
+      resref: "sic11_a01_07",
+      sourceAssetObjectKey: "modules/current/__aurora/sources/hak/_sic11/sic11_a01_07.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 8192,
+      sourceAssetEtag: "mdl-old",
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 2048,
+      renderModelEtag: "glb-v2"
+    };
+    repository.findById.mockResolvedValue(tile);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.putModuleObject = jest.fn().mockResolvedValue({
+      key: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      size: 4096,
+      etag: "glb-v5"
+    });
+    const generatedBytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION);
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn().mockResolvedValue({
+        files: [
+          {
+            fileName: "__aurora/derived/models/sic11_a01_07.glb",
+            resourceType: 0,
+            bytes: generatedBytes
+          }
+        ],
+        summary: {
+          generator: "test",
+          generatedFiles: 1,
+          generatedBytes: generatedBytes.length
+        }
+      })
+    };
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key.endsWith(".glb")) {
+        const bytes = buildGlbWithConverterVersion("aurora-mdl-to-glb/v2-material-scoped-primitives");
+        return {
+          key,
+          size: bytes.length,
+          contentType: "model/gltf-binary",
+          etag: "glb-v2",
+          bytes
+        };
+      }
+      return {
+        key,
+        size: 8192,
+        contentType: "application/octet-stream",
+        etag: "mdl-old",
+        bytes: Buffer.from("#MAXMODEL ASCII\r\nnewmodel sic11_a01_07\r\nendmodel sic11_a01_07\r\n", "latin1")
+      };
+    });
+    const serviceWithGenerator = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      undefined,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithGenerator.processTile({
+      tileId: "tile_sic11_a01_07",
+      bypassCache: false
+    });
+
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settingsRevision: 1,
+        modulePrefix: "modules/current",
+        sourceFiles: [
+          expect.objectContaining({
+            fileName: tile.sourceAssetObjectKey,
+            resourceType: 0
+          })
+        ]
+      })
+    );
+    expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        fileName: "__aurora/derived/models/sic11_a01_07.glb"
+      })
+    );
+    expect(result.tile.renderAssetContract?.modelAsset).toMatchObject({
+      objectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      extension: "glb",
+      sizeBytes: 4096,
+      etag: "glb-v5"
+    });
+  });
+
+  it("keeps a source-backed tile GLB when the stored derived model uses the current converter", async () => {
+    const tile = {
+      ...buildTile("tile_sic11_a01_07"),
+      resref: "sic11_a01_07",
+      sourceAssetObjectKey: "modules/current/__aurora/sources/hak/_sic11/sic11_a01_07.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 8192,
+      sourceAssetEtag: "mdl-current",
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096,
+      renderModelEtag: "glb-v5"
+    };
+    repository.findById.mockResolvedValue(tile);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.putModuleObject = jest.fn();
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: tile.renderModelObjectKey,
+      size: 4096,
+      contentType: "model/gltf-binary",
+      etag: "glb-v5",
+      bytes: buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION)
+    });
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn()
+    };
+    const serviceWithGenerator = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      undefined,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithGenerator.processTile({
+      tileId: "tile_sic11_a01_07",
+      bypassCache: false
+    });
+
+    expect(derivedAssetGenerator.generateDerivedAssets).not.toHaveBeenCalled();
+    expect(moduleBlobStorage.putModuleObject).not.toHaveBeenCalled();
+    expect(result.tile.renderAssetContract?.modelAsset).toMatchObject({
+      objectKey: tile.renderModelObjectKey,
+      extension: "glb",
+      sizeBytes: 4096,
+      etag: "glb-v5"
+    });
+  });
+
+  it("regenerates source-backed tile GLB when current converter output exceeds tile footprint", async () => {
+    const tile = {
+      ...buildTile("tile_sic11_a01_07"),
+      resref: "sic11_a01_07",
+      sourceAssetObjectKey: "modules/current/__aurora/sources/hak/_sic11/sic11_a01_07.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 8192,
+      sourceAssetEtag: "mdl-current",
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096,
+      renderModelEtag: "glb-wide"
+    };
+    repository.findById.mockResolvedValue(tile);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-05-25T11:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.putModuleObject = jest.fn().mockResolvedValue({
+      key: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      size: 4096,
+      etag: "glb-v5"
+    });
+    const generatedBytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION);
+    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
+      generateDerivedAssets: jest.fn().mockResolvedValue({
+        files: [
+          {
+            fileName: "__aurora/derived/models/sic11_a01_07.glb",
+            resourceType: 0,
+            bytes: generatedBytes
+          }
+        ],
+        summary: {
+          generator: "test",
+          generatedFiles: 1,
+          generatedBytes: generatedBytes.length
+        }
+      })
+    };
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key.endsWith(".glb")) {
+        const bytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION, {
+          min: [-5.0001, -0.0045, -7.301],
+          max: [8.0894, 4.6677, 5.0001]
+        });
+        return {
+          key,
+          size: bytes.length,
+          contentType: "model/gltf-binary",
+          etag: "glb-wide",
+          bytes
+        };
+      }
+      return {
+        key,
+        size: 8192,
+        contentType: "application/octet-stream",
+        etag: "mdl-current",
+        bytes: Buffer.from("#MAXMODEL ASCII\r\nnewmodel sic11_a01_07\r\nendmodel sic11_a01_07\r\n", "latin1")
+      };
+    });
+    const serviceWithGenerator = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      undefined,
+      derivedAssetGenerator
+    );
+
+    const result = await serviceWithGenerator.processTile({
+      tileId: "tile_sic11_a01_07",
+      bypassCache: false
+    });
+
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalled();
+    expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        fileName: "__aurora/derived/models/sic11_a01_07.glb"
+      })
+    );
+    expect(result.tile.renderAssetContract?.modelAsset).toMatchObject({
+      objectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+      extension: "glb",
+      sizeBytes: 4096,
+      etag: "glb-v5"
+    });
   });
 
   it("deduplicates concurrent tile processing misses by cache key", async () => {
@@ -831,6 +1149,20 @@ describe("TilesApplicationService", () => {
     expect(__tilesApplicationServiceInternals.percentile([1, 2, 3], 5)).toBe(3);
   });
 
+  it("collects texture slots from binary Aurora MDL tile models", () => {
+    const bytes = buildMinimalBinaryAuroraTileMdl([
+      "tni01_lwalls",
+      "tno01_planks02",
+      "tni02_grad01"
+    ]);
+
+    expect(__tilesApplicationServiceInternals.collectTileMdlTextureReferences(bytes)).toEqual([
+      "tni01_lwalls",
+      "tni02_grad01",
+      "tno01_planks02"
+    ]);
+  });
+
   it("benchmark validation fails for unknown tile ids", async () => {
     repository.findById.mockResolvedValue(null);
 
@@ -904,6 +1236,130 @@ function buildProcessedTileResult(tileId: string): TileProcessingResult {
     updatedAt: tile.updatedAt,
     processedAt: "2026-05-25T10:59:00.000Z"
   };
+}
+
+function buildMinimalBinaryAuroraTileMdl(textureSlots: string[]): Buffer {
+  const binaryModelBase = 12;
+  const rootNodeOffset = 200;
+  const rootNodeAbsOffset = binaryModelBase + rootNodeOffset;
+  const rawDataOffset = 1024;
+  const rawBase = binaryModelBase + rawDataOffset;
+  const faceTableOffset = 600;
+  const textureVertexOffset = 64;
+  const bytes = Buffer.alloc(rawBase + 256);
+
+  bytes.writeUInt32LE(0, 0);
+  bytes.writeUInt32LE(rawDataOffset, 4);
+  bytes.writeUInt32LE(256, 8);
+  writeCString(bytes, binaryModelBase + 8, 64, "tile_test");
+  bytes.writeUInt32LE(rootNodeOffset, binaryModelBase + 72);
+
+  bytes.writeInt32LE(0, rootNodeAbsOffset + 28);
+  writeCString(bytes, rootNodeAbsOffset + 32, 32, "mesh");
+  writeArrayHeader(bytes, rootNodeAbsOffset + 72, 0, 0, 0);
+  writeArrayHeader(bytes, rootNodeAbsOffset + 84, 0, 0, 0);
+  writeArrayHeader(bytes, rootNodeAbsOffset + 96, 0, 0, 0);
+  bytes.writeUInt32LE(0x20, rootNodeAbsOffset + 108);
+
+  writeArrayHeader(bytes, rootNodeAbsOffset + 120, faceTableOffset, 1, 1);
+  bytes.writeUInt32LE(1, rootNodeAbsOffset + 220);
+  textureSlots.slice(0, 3).forEach((texture, index) => {
+    writeCString(bytes, rootNodeAbsOffset + 232 + index * 64, 64, texture);
+  });
+  bytes.writeUInt32LE(0, rootNodeAbsOffset + 556);
+  bytes.writeUInt16LE(3, rootNodeAbsOffset + 560);
+  bytes.writeUInt32LE(textureVertexOffset, rootNodeAbsOffset + 564);
+  bytes.writeUInt32LE(0xffffffff, rootNodeAbsOffset + 568);
+  bytes.writeUInt32LE(0xffffffff, rootNodeAbsOffset + 572);
+  bytes.writeUInt32LE(0xffffffff, rootNodeAbsOffset + 576);
+
+  writeFloatTriplet(bytes, rawBase, [0, 0, 0]);
+  writeFloatTriplet(bytes, rawBase + 12, [1, 0, 0]);
+  writeFloatTriplet(bytes, rawBase + 24, [0, 1, 0]);
+  writeFloatPair(bytes, rawBase + textureVertexOffset, [0, 0]);
+  writeFloatPair(bytes, rawBase + textureVertexOffset + 8, [1, 0]);
+  writeFloatPair(bytes, rawBase + textureVertexOffset + 16, [0, 1]);
+
+  const faceIndexOffset = binaryModelBase + faceTableOffset + 26;
+  bytes.writeUInt16LE(0, faceIndexOffset);
+  bytes.writeUInt16LE(1, faceIndexOffset + 2);
+  bytes.writeUInt16LE(2, faceIndexOffset + 4);
+  return bytes;
+}
+
+function writeArrayHeader(
+  bytes: Buffer,
+  offset: number,
+  arrayOffset: number,
+  count: number,
+  allocated: number
+): void {
+  bytes.writeUInt32LE(arrayOffset, offset);
+  bytes.writeUInt32LE(count, offset + 4);
+  bytes.writeUInt32LE(allocated, offset + 8);
+}
+
+function writeCString(bytes: Buffer, offset: number, length: number, value: string): void {
+  bytes.write(value, offset, Math.max(0, length - 1), "ascii");
+}
+
+function writeFloatTriplet(bytes: Buffer, offset: number, value: [number, number, number]): void {
+  bytes.writeFloatLE(value[0], offset);
+  bytes.writeFloatLE(value[1], offset + 4);
+  bytes.writeFloatLE(value[2], offset + 8);
+}
+
+function writeFloatPair(bytes: Buffer, offset: number, value: [number, number]): void {
+  bytes.writeFloatLE(value[0], offset);
+  bytes.writeFloatLE(value[1], offset + 4);
+}
+
+function buildGlbWithConverterVersion(
+  converterVersion: string,
+  bounds: { min: [number, number, number]; max: [number, number, number] } = {
+    min: [-5, 0, -5],
+    max: [5, 1, 5]
+  }
+): Buffer {
+  const json = {
+    asset: {
+      version: "2.0",
+      generator: `aurora-web aurora-mdl-to-glb ${converterVersion}`
+    },
+    meshes: [
+      {
+        primitives: [
+          {
+            attributes: {
+              POSITION: 0
+            }
+          }
+        ]
+      }
+    ],
+    accessors: [
+      {
+        min: bounds.min,
+        max: bounds.max
+      }
+    ],
+    extras: {
+      aurora: {
+        converterVersion
+      }
+    }
+  };
+  const jsonBytes = Buffer.from(JSON.stringify(json), "utf-8");
+  const jsonPadding = (4 - (jsonBytes.length % 4)) % 4;
+  const jsonChunk = Buffer.concat([jsonBytes, Buffer.alloc(jsonPadding, 0x20)]);
+  const glb = Buffer.alloc(20 + jsonChunk.length);
+  glb.writeUInt32LE(0x46546c67, 0);
+  glb.writeUInt32LE(2, 4);
+  glb.writeUInt32LE(glb.length, 8);
+  glb.writeUInt32LE(jsonChunk.length, 12);
+  glb.writeUInt32LE(0x4e4f534a, 16);
+  jsonChunk.copy(glb, 20);
+  return glb;
 }
 
 function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {

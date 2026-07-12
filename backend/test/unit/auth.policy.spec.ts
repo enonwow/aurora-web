@@ -9,9 +9,16 @@ describe("auth policy", () => {
     expect(ROLE_PERMISSIONS.viewer).toContain("scene.read");
     expect(ROLE_PERMISSIONS.builder).toContain("scene.edit");
     expect(ROLE_PERMISSIONS.builder).toContain("processing.placeable.run");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.creature.run");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.encounter.run");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.area.run");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.job.run");
+    expect(ROLE_PERMISSIONS.builder).toContain("processing.graph.run");
     expect(ROLE_PERMISSIONS.builder).toContain("processing.vfx.run");
     expect(ROLE_PERMISSIONS.dm).toContain("dm.spawn_creature");
-    expect(ROLE_PERMISSIONS.dm).toContain("processing.placeable.read");
+    expect(ROLE_PERMISSIONS.dm).toContain("processing.creature.read");
+    expect(ROLE_PERMISSIONS.dm).toContain("processing.encounter.read");
+    expect(ROLE_PERMISSIONS.dm).toContain("processing.sound.read");
     expect(ROLE_PERMISSIONS.dm).toContain("processing.vfx.read");
     expect(ROLE_PERMISSIONS.admin).toContain("admin.config.write");
   });
