@@ -1,0 +1,90 @@
+[
+  {
+    "resref": "ir_warr",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_warr.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_warr.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "hak",
+      "path": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+      "resourceType": 3
+    }
+  },
+  {
+    "resref": "ir_ranger",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_ranger.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_ranger.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "vanilla-key-bif",
+      "keyPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\nwn_base.key",
+      "bifPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\aurora_gui.bif",
+      "resourceType": 3,
+      "resourceIndex": 1703
+    }
+  },
+  {
+    "resref": "ir_rogue",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_rogue.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_rogue.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "vanilla-key-bif",
+      "keyPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\nwn_base.key",
+      "bifPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\aurora_gui.bif",
+      "resourceType": 3,
+      "resourceIndex": 1709
+    }
+  },
+  {
+    "resref": "ir_fighter",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_fighter.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_fighter.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "vanilla-key-bif",
+      "keyPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\nwn_base.key",
+      "bifPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\aurora_gui.bif",
+      "resourceType": 3,
+      "resourceIndex": 1636
+    }
+  },
+  {
+    "resref": "ir_archer",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_archer.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_archer.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "vanilla-key-bif",
+      "keyPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\nwn_base.key",
+      "bifPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\xp2_textures.bif",
+      "resourceType": 3,
+      "resourceIndex": 878
+    }
+  },
+  {
+    "resref": "ir_asasin",
+    "status": "ok",
+    "rawPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_asasin.tga",
+    "pngPath": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-icons-extracted\\ir_asasin.png",
+    "width": 32,
+    "height": 32,
+    "source": {
+      "kind": "vanilla-key-bif",
+      "keyPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\nwn_base.key",
+      "bifPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\data\\xp2_textures.bif",
+      "resourceType": 3,
+      "resourceIndex": 879
+    }
+  }
+]

@@ -1,0 +1,300 @@
+{
+  "source": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\source-generated-sheet.png",
+  "note": "Original generated color class icons in LC/GW2-like skill-icon color language; no direct icon copies.",
+  "grid": {
+    "columns": 5,
+    "rows": 3,
+    "inset": 7,
+    "source_size": [
+      1619,
+      971
+    ]
+  },
+  "classes": [
+    {
+      "class": "Warrior",
+      "resref": "ir_lc_war",
+      "palette": "orange/iron",
+      "motif": "sword and shield",
+      "source_crop": [
+        7,
+        7,
+        317,
+        317
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_war.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_war.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_war.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_war.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_war.png"
+      }
+    },
+    {
+      "class": "Shieldmaster",
+      "resref": "ir_lc_shld",
+      "palette": "orange/iron",
+      "motif": "tower shield",
+      "source_crop": [
+        331,
+        7,
+        641,
+        317
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_shld.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_shld.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_shld.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_shld.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_shld.png"
+      }
+    },
+    {
+      "class": "Berserker",
+      "resref": "ir_lc_brsrk",
+      "palette": "orange/red",
+      "motif": "rage axe",
+      "source_crop": [
+        655,
+        7,
+        964,
+        317
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_brsrk.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_brsrk.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_brsrk.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_brsrk.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_brsrk.png"
+      }
+    },
+    {
+      "class": "Knight",
+      "resref": "ir_lc_knght",
+      "palette": "orange/steel",
+      "motif": "helm and lance",
+      "source_crop": [
+        978,
+        7,
+        1288,
+        317
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_knght.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_knght.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_knght.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_knght.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_knght.png"
+      }
+    },
+    {
+      "class": "Tracker",
+      "resref": "ir_lc_trk",
+      "palette": "emerald green",
+      "motif": "compass/paw/trap",
+      "source_crop": [
+        1302,
+        7,
+        1612,
+        317
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_trk.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_trk.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_trk.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_trk.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_trk.png"
+      }
+    },
+    {
+      "class": "Archer",
+      "resref": "ir_lc_arch",
+      "palette": "emerald green",
+      "motif": "bow and arrow",
+      "source_crop": [
+        7,
+        331,
+        317,
+        640
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_arch.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_arch.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_arch.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_arch.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_arch.png"
+      }
+    },
+    {
+      "class": "Hunter",
+      "resref": "ir_lc_htr",
+      "palette": "emerald green",
+      "motif": "claw and arrow",
+      "source_crop": [
+        331,
+        331,
+        641,
+        640
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_htr.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_htr.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_htr.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_htr.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_htr.png"
+      }
+    },
+    {
+      "class": "Tamer",
+      "resref": "ir_lc_tmr",
+      "palette": "emerald green",
+      "motif": "beast paw and collar",
+      "source_crop": [
+        655,
+        331,
+        964,
+        640
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_tmr.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_tmr.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_tmr.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_tmr.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_tmr.png"
+      }
+    },
+    {
+      "class": "Scientist",
+      "resref": "ir_lc_sci",
+      "palette": "icy blue",
+      "motif": "vial and atom",
+      "source_crop": [
+        978,
+        331,
+        1288,
+        640
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_sci.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_sci.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_sci.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_sci.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_sci.png"
+      }
+    },
+    {
+      "class": "Alchemist",
+      "resref": "ir_lc_alch",
+      "palette": "icy blue",
+      "motif": "flask reagent",
+      "source_crop": [
+        1302,
+        331,
+        1612,
+        640
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_alch.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_alch.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_alch.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_alch.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_alch.png"
+      }
+    },
+    {
+      "class": "Medic",
+      "resref": "ir_lc_mdc",
+      "palette": "icy blue",
+      "motif": "cross and healing hand",
+      "source_crop": [
+        7,
+        654,
+        317,
+        964
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_mdc.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_mdc.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_mdc.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_mdc.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_mdc.png"
+      }
+    },
+    {
+      "class": "Engineer",
+      "resref": "ir_lc_engnr",
+      "palette": "blue steel",
+      "motif": "cog and crossbow",
+      "source_crop": [
+        331,
+        654,
+        641,
+        964
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_engnr.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_engnr.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_engnr.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_engnr.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_engnr.png"
+      }
+    },
+    {
+      "class": "Charlatan",
+      "resref": "ir_lc_chr",
+      "palette": "violet",
+      "motif": "mask and card",
+      "source_crop": [
+        655,
+        654,
+        964,
+        964
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_chr.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_chr.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_chr.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_chr.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_chr.png"
+      }
+    },
+    {
+      "class": "Boxer",
+      "resref": "ir_lc_bxr",
+      "palette": "violet",
+      "motif": "wrapped fist",
+      "source_crop": [
+        978,
+        654,
+        1288,
+        964
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_bxr.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_bxr.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_bxr.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_bxr.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_bxr.png"
+      }
+    },
+    {
+      "class": "Assassin",
+      "resref": "ir_lc_asn",
+      "palette": "violet",
+      "motif": "hood and dagger",
+      "source_crop": [
+        1302,
+        654,
+        1612,
+        964
+      ],
+      "files": {
+        "png32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-32\\ir_lc_asn.png",
+        "tga32": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\tga-32\\ir_lc_asn.tga",
+        "png64": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-64\\ir_lc_asn.png",
+        "png128": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-128\\ir_lc_asn.png",
+        "png256": "docs\\assets\\last-city-generated-class-icons-v4-color-skillstyle\\png-256\\ir_lc_asn.png"
+      }
+    }
+  ]
+}

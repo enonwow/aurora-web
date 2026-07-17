@@ -1,0 +1,186 @@
+{
+  "schema_version": "1",
+  "purpose": "Reviewer-only scoring matrix for NWN skill prompt forward tests. Do not give this file to the agent under test.",
+  "tests": [
+    {
+      "test_id": "FT-001",
+      "title": "Low-Level Forest Area",
+      "prompt_file": "forward-tests/prompts/ft-001-low-level-forest-area.txt",
+      "expected_references": [
+        "locations-areas-tilesets.md",
+        "creatures-encounters-ai.md",
+        "items-equipment-loot.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Separates design from Toolset/runtime implementation.",
+        "Produces transitions, encounter roles, spawn/trigger scripts, and QA checklist.",
+        "Marks output as design-only unless runtime evidence is provided.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-002",
+      "title": "Custom Item Plus 2DA/HAK/TLK Impact",
+      "prompt_file": "forward-tests/prompts/ft-002-custom-spear-2da-hak-tlk.txt",
+      "expected_references": [
+        "items-equipment-loot.md",
+        "two-da-hak-tlk-pipeline.md",
+        "nwscript-events-systems.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Distinguishes simple blueprint work from custom 2DA/TLK/HAK changes.",
+        "Calls out row ownership, StringRef/client distribution, rollback, and NWSync impact.",
+        "Avoids marking untested custom content as shipped.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-003",
+      "title": "NUI Crafting Panel",
+      "prompt_file": "forward-tests/prompts/ft-003-nui-crafting-panel.txt",
+      "expected_references": [
+        "nui-player-ui.md",
+        "economy-crafting-progression.md",
+        "nwscript-events-systems.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Includes event flow and bind lifecycle.",
+        "Includes refresh behavior after data mutation.",
+        "Includes close/reopen/relog/invalid input tests.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-004",
+      "title": "Persistence And Restart Safety",
+      "prompt_file": "forward-tests/prompts/ft-004-persistence-restart-safety.txt",
+      "expected_references": [
+        "persistence-database-nwnx.md",
+        "nwscript-events-systems.md",
+        "deployment-nwsync-ops.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Separates vanilla storage, external DB, and NWNX-backed options.",
+        "Requires restart and rollback verification.",
+        "Labels project-specific storage assumptions.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-005",
+      "title": "Release Review",
+      "prompt_file": "forward-tests/prompts/ft-005-release-review.txt",
+      "expected_references": [
+        "common-antipatterns.md",
+        "two-da-hak-tlk-pipeline.md",
+        "nui-player-ui.md",
+        "locations-areas-tilesets.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Produces a missing-evidence checklist.",
+        "Does not accept broad release claims without runtime, package, and persistence verification.",
+        "Separates release-note wording from proof of implementation.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-006",
+      "title": "Economy And Progression",
+      "prompt_file": "forward-tests/prompts/ft-006-economy-progression.txt",
+      "expected_references": [
+        "economy-crafting-progression.md",
+        "items-equipment-loot.md",
+        "creatures-encounters-ai.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Produces a faucet/sink map rather than only reward tables.",
+        "Labels numeric values as assumptions or project-specific unless server data exists.",
+        "Includes anti-farm, anti-duplication, vendor, full-inventory, and telemetry tests.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-007",
+      "title": "Quest, Dialogue, Journal",
+      "prompt_file": "forward-tests/prompts/ft-007-quest-dialogue-journal.txt",
+      "expected_references": [
+        "quests-dialogues-journal.md",
+        "persistence-database-nwnx.md",
+        "economy-crafting-progression.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Produces quest state table, dialogue branch outline, reward idempotency policy, and persistence/relog tests.",
+        "Includes abort, disconnect, range break, party sharing, and restart checks.",
+        "Does not assume journal or reward state survives without a persistence lane.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-008",
+      "title": "Feedback Contribution",
+      "prompt_file": "forward-tests/prompts/ft-008-feedback-contribution.txt",
+      "expected_references": [
+        "feedback-and-versioning.md",
+        "nui-player-ui.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Produces a feedback-record shape compatible with scripts/nwn_skill_feedback.py.",
+        "Labels the report as project-specific unless logs/screenshots/module facts prove runtime behavior.",
+        "Proposes maintainer review questions before official reference promotion.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-009",
+      "title": "Aurora Local Intake Boundary",
+      "prompt_file": "forward-tests/prompts/ft-009-aurora-local-intake-boundary.txt",
+      "expected_references": [
+        "source-registry.md",
+        "feedback-and-versioning.md",
+        "testing-runtime-qa.md",
+        "common-antipatterns.md"
+      ],
+      "review_focus": [
+        "Treats decompilation and Toolset screenshot leads as local-intake, not general NWN facts.",
+        "Routes through feedback or reference-promotion review before any installed skill reference update.",
+        "Names redaction, evidence labeling, maintainer decision, verification, blocker, and rollback steps.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    },
+    {
+      "test_id": "FT-010",
+      "title": "Full Feature Server Slice",
+      "prompt_file": "forward-tests/prompts/ft-010-full-feature-server-slice.txt",
+      "expected_references": [
+        "server-gamedev-capability-map.md",
+        "feature-design-output-template.md",
+        "locations-areas-tilesets.md",
+        "items-equipment-loot.md",
+        "creatures-encounters-ai.md",
+        "two-da-hak-tlk-pipeline.md",
+        "nwscript-events-systems.md",
+        "nui-player-ui.md",
+        "quests-dialogues-journal.md",
+        "economy-crafting-progression.md",
+        "persistence-database-nwnx.md",
+        "deployment-nwsync-ops.md",
+        "testing-runtime-qa.md"
+      ],
+      "review_focus": [
+        "Uses the capability map or equivalent routing before narrowing into domain details.",
+        "Covers the full feature slice: locations, items, creatures, 2DA/HAK/TLK, NWScript, NUI, quests, economy, persistence, deployment, and testing.",
+        "Marks any skipped domain as out-of-scope with an explicit reason rather than silently omitting it.",
+        "Does not let a script, NUI mockup, or content table stand in for the whole server slice.",
+        "Names a First Implementable Slice with files/assets touched, expected proof, rollback, and evidence limits."
+      ]
+    }
+  ]
+}

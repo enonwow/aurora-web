@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "aurora-vfx-retail-capture/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "retailExecution": {
+    "commandOrScript": "TODO",
+    "startedAt": null,
+    "finishedAt": null,
+    "retailBuildRef": "retail-build.json",
+    "effectContextRef": "effect-context.json"
+  },
+  "camera": {
+    "areaTag": null,
+    "position": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "orientation": {
+      "pitch": null,
+      "yaw": null,
+      "roll": null
+    },
+    "fov": null,
+    "near": null,
+    "far": null
+  },
+  "sceneSetup": {
+    "targetRef": null,
+    "effectorRef": null,
+    "lightingProfile": null,
+    "weather": null,
+    "timeOfDay": null,
+    "background": "TODO"
+  },
+  "media": {
+    "screenshots": [],
+    "videoPath": null,
+    "frameRange": {
+      "startSeconds": null,
+      "endSeconds": null,
+      "sampledFrames": [
+        "TODO"
+      ]
+    },
+    "mediaHashesSha256": [
+      {
+        "path": "TODO",
+        "hashSha256": null
+      }
+    ]
+  },
+  "captureNotes": "TODO",
+  "notParityEvidenceByItself": true
+}

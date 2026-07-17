@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "aurora-vfx-retail-build/v1",
+  "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+  "status": "missing",
+  "client": {
+    "name": "NWN:EE retail",
+    "buildId": null,
+    "version": null,
+    "distribution": "missing",
+    "executableHashSha256": null
+  },
+  "platform": {
+    "os": null,
+    "architecture": null,
+    "renderer": null,
+    "gpu": null,
+    "driverVersion": null
+  },
+  "buildProfile": {
+    "profileId": null,
+    "profileName": "missing",
+    "retailBranch": "missing",
+    "language": null,
+    "lowViolence": null,
+    "lowQuality": null
+  },
+  "moduleProfile": {
+    "moduleName": null,
+    "modulePath": null,
+    "moduleHashSha256": null,
+    "profileId": null,
+    "profileName": "missing",
+    "areaTag": null,
+    "cameraSetupId": null
+  },
+  "hakProfile": {
+    "profileId": null,
+    "hakList": [],
+    "hakListHashSha256": null
+  },
+  "runtimeSettings": {
+    "revision": null,
+    "hashSha256": null,
+    "path": null,
+    "sourcesVfxProfileId": "nwn-ee-8193.34-selected-source"
+  },
+  "captureEnvironment": {
+    "machineName": null,
+    "operator": null,
+    "timezone": null,
+    "captureStartedAt": null,
+    "captureFinishedAt": null,
+    "tooling": []
+  },
+  "operatorNotes": "Retail NWN client is not available in this context; build/profile must be filled by the retail capture operator."
+}

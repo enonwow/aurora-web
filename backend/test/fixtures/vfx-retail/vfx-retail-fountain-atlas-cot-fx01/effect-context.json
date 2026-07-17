@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "unknown",
+  "constructor": {
+    "kind": "MDL_EMITTER",
+    "sourceRowId": null,
+    "rawInvocation": "backend/tmp_cot_fx01.mdl emitter fire!03 Fountain atlas xgrid/ygrid/fps/framestart/frameend/random",
+    "scriptSource": null,
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "source_only",
+    "durationType": null,
+    "durationSeconds": null,
+    "targetRef": null,
+    "effectorRef": null,
+    "creatorRef": null,
+    "bodyNode": null,
+    "missFlag": null,
+    "location": {
+      "areaTag": null,
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "sourceModel": {
+    "modelName": "cot_fx01",
+    "modelPath": "backend/tmp_cot_fx01.mdl",
+    "modelHashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5",
+    "emitter": "fire!03",
+    "emitterFamily": "Fountain",
+    "retailRowFound": false
+  },
+  "emitter": {
+    "name": "fire!03",
+    "parent": "cot_fx01",
+    "update": "Fountain",
+    "render": "Billboard_to_World_Z",
+    "blend": "Normal",
+    "spawnType": 0,
+    "birthrate": 5,
+    "lifeExp": 5,
+    "texture": "fxpa_smoke01",
+    "material": null,
+    "txi": null,
+    "atlas": {
+      "xgrid": 4,
+      "ygrid": 4,
+      "fps": 10,
+      "framestart": 0,
+      "frameend": 24,
+      "random": 1
+    },
+    "timelines": {
+      "colorStart": [0.392157, 0, 0],
+      "colorEnd": [0.184314, 0, 0],
+      "alphaStart": 0.5,
+      "alphaEnd": 0,
+      "sizeStart": 1,
+      "sizeEnd": 6
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "retailCommandOrScript": {
+    "command": null,
+    "moduleScriptName": null,
+    "trigger": "missing: no retail EffectVisualEffect row/context for cot_fx01 was found in this context"
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+      "severity": "missing",
+      "message": "The fixture describes a local source-only MDL candidate, not a retail effect invocation."
+    },
+    {
+      "code": "VFX_FIXTURE_SOURCE_TABLE_MISSING",
+      "severity": "missing",
+      "message": "No admitted retail row/context is available for cot_fx01."
+    }
+  ],
+  "operatorNotes": "Do not replace MDL_EMITTER/source_only with EffectVisualEffect until a retail row or script context resolving to cot_fx01 is found."
+}

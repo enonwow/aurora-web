@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "aurora-vfx-retail-capture/v1",
+  "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+  "status": "missing",
+  "retailExecution": {
+    "commandOrScript": "dm_visualeffect 68 0",
+    "startedAt": null,
+    "finishedAt": null,
+    "retailBuildRef": "retail-build.json",
+    "effectContextRef": "effect-context.json"
+  },
+  "camera": {
+    "areaTag": null,
+    "position": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "orientation": {
+      "pitch": null,
+      "yaw": null,
+      "roll": null
+    },
+    "fov": null,
+    "near": null,
+    "far": null
+  },
+  "sceneSetup": {
+    "targetRef": "retail-capture-target",
+    "effectorRef": null,
+    "lightingProfile": null,
+    "weather": null,
+    "timeOfDay": null,
+    "background": "missing"
+  },
+  "media": {
+    "screenshots": [],
+    "videoPath": null,
+    "frameRange": {
+      "startSeconds": null,
+      "endSeconds": null,
+      "sampledFrames": []
+    },
+    "mediaHashesSha256": []
+  },
+  "captureNotes": "Retail client is unavailable in this context; no screenshot, video, or capture metadata was produced.",
+  "notParityEvidenceByItself": true
+}

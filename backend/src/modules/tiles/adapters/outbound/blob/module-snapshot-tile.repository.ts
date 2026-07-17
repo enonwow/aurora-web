@@ -1,0 +1,611 @@
+import { createHash } from "node:crypto";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type {
+  ModuleBlobObjectSummary,
+  ModuleBlobSnapshotSummary,
+  ModuleBlobStoragePort
+} from "../../../../runtime-settings/application/ports/module-blob-storage.port";
+import { MODULE_BLOB_STORAGE } from "../../../../runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
+import { RUNTIME_SETTINGS_REPOSITORY } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
+import type { BlobStorageSettings } from "../../../../runtime-settings/domain/runtime-settings.types";
+import type { TileRepositoryPort } from "../../../application/ports/tile-repository.port";
+import { buildTileProcessCacheKey } from "../../../domain/tile-processing.builders";
+import type {
+  TileListItem,
+  TileListQuery,
+  TileListResult,
+  TileMetrics,
+  TileRecord,
+  TileWalkmeshKind
+} from "../../../domain/tile.types";
+import { StaticTileRepository } from "../memory/static-tile.repository";
+
+interface IndexedTile {
+  record: TileRecord;
+  listItem: TileListItem;
+  searchable: string;
+  tilesetLower: string;
+  variantLower: string;
+  walkmeshLower: string;
+  tagsLower: Set<string>;
+  processingCacheKey: string;
+}
+
+interface SnapshotIndex {
+  fetchedAtMs: number;
+  byId: Map<string, TileRecord>;
+  processingById: Map<string, { cacheKey: string }>;
+  items: IndexedTile[];
+}
+
+interface TileCandidate {
+  resref: string;
+  sourceKey: string;
+  extension: string;
+  sourceSize: number;
+  sourceEtag?: string;
+  updatedAt: string;
+  renderModel?: DerivedTileModelCandidate;
+}
+
+interface DerivedTileModelCandidate {
+  sourceKey: string;
+  extension: "glb" | "gltf";
+  sourceSize: number;
+  sourceEtag?: string;
+  updatedAt: string;
+}
+
+const CANDIDATE_EXTENSIONS = new Set(["set", "itp", "mdl", "wok"]);
+const DERIVED_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
+const SNAPSHOT_INDEX_CACHE_TTL_MS = 10 * 60_000;
+
+@Injectable()
+export class ModuleSnapshotTileRepository implements TileRepositoryPort {
+  private readonly logger = new Logger(ModuleSnapshotTileRepository.name);
+  private readonly fallback = new StaticTileRepository();
+  private snapshotIndex: SnapshotIndex | null = null;
+  private snapshotIndexPromise: Promise<SnapshotIndex | null> | null = null;
+
+  constructor(
+    @Inject(RUNTIME_SETTINGS_REPOSITORY)
+    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
+    @Inject(MODULE_BLOB_STORAGE)
+    private readonly moduleBlobStorage: ModuleBlobStoragePort
+  ) {}
+
+  async list(query: TileListQuery): Promise<TileListResult> {
+    const index = await this.getSnapshotIndex();
+    if (!index) {
+      return this.fallback.list(query);
+    }
+
+    const normalizedQuery = query.query?.toLowerCase().trim();
+    const normalizedTileset = query.tileset?.toLowerCase().trim();
+    const normalizedVariant = query.variant?.toLowerCase().trim();
+    const normalizedWalkmesh = query.walkmesh?.toLowerCase().trim();
+    const normalizedTag = query.tag?.toLowerCase().trim();
+
+    const filtered = index.items
+      .filter((tile) => {
+        if (!query.query) {
+          return true;
+        }
+        return tile.searchable.includes(normalizedQuery ?? "");
+      })
+      .filter((tile) => {
+        if (!query.tileset) {
+          return true;
+        }
+        return tile.tilesetLower === normalizedTileset;
+      })
+      .filter((tile) => {
+        if (!query.variant) {
+          return true;
+        }
+        return tile.variantLower === normalizedVariant;
+      })
+      .filter((tile) => {
+        if (!query.walkmesh) {
+          return true;
+        }
+        return tile.walkmeshLower === normalizedWalkmesh;
+      })
+      .filter((tile) => {
+        if (!query.tag) {
+          return true;
+        }
+        return tile.tagsLower.has(normalizedTag ?? "");
+      })
+      .filter((tile) => {
+        if (typeof query.benchmark !== "boolean") {
+          return true;
+        }
+        return tile.record.benchmark === query.benchmark;
+      });
+
+    const items = filtered
+      .slice(query.offset, query.offset + query.limit)
+      .map((tile) => tile.listItem);
+
+    return {
+      items,
+      total: filtered.length,
+      limit: query.limit,
+      offset: query.offset
+    };
+  }
+
+  async findById(tileId: string): Promise<TileRecord | null> {
+    const index = await this.getSnapshotIndex();
+    if (!index) {
+      return this.fallback.findById(tileId);
+    }
+    return index.byId.get(tileId) ?? null;
+  }
+
+  getPrecomputedTileProcessing(tileId: string): { cacheKey: string } | null {
+    if (!this.snapshotIndex) {
+      return this.fallback.getPrecomputedTileProcessing?.(tileId) ?? null;
+    }
+    return this.snapshotIndex.processingById.get(tileId) ?? null;
+  }
+
+  refreshSnapshot(): void {
+    this.snapshotIndex = null;
+    this.snapshotIndexPromise = null;
+  }
+
+  private async getSnapshotIndex(): Promise<SnapshotIndex | null> {
+    const now = Date.now();
+    if (this.snapshotIndex && now - this.snapshotIndex.fetchedAtMs < SNAPSHOT_INDEX_CACHE_TTL_MS) {
+      return this.snapshotIndex;
+    }
+    if (this.snapshotIndex) {
+      this.refreshSnapshotIndexInBackground();
+      return this.snapshotIndex;
+    }
+    if (this.snapshotIndexPromise) {
+      return this.snapshotIndexPromise;
+    }
+
+    this.snapshotIndexPromise = this.rebuildSnapshotIndex(now);
+    try {
+      return await this.snapshotIndexPromise;
+    } finally {
+      this.snapshotIndexPromise = null;
+    }
+  }
+
+  private refreshSnapshotIndexInBackground(): void {
+    if (this.snapshotIndexPromise) {
+      return;
+    }
+
+    const previousIndex = this.snapshotIndex;
+    this.snapshotIndexPromise = this.rebuildSnapshotIndex(Date.now())
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Tile snapshot index refresh failed; keeping stale index. ${formatErrorForLog(error)}`
+        );
+        return previousIndex;
+      })
+      .finally(() => {
+        this.snapshotIndexPromise = null;
+      });
+  }
+
+  private async rebuildSnapshotIndex(now: number): Promise<SnapshotIndex | null> {
+    const settings = await this.runtimeSettingsRepository.get();
+    const snapshot = await this.listAllModuleSnapshotObjects(settings.blobStorage);
+    const records = buildTilesFromSnapshot(snapshot.objects);
+    if (records.length === 0) {
+      this.logger.warn(
+        "No tile candidates detected in module snapshot (expected tile-like set/itp/mdl/wok files). Falling back to static repository."
+      );
+      this.snapshotIndex = null;
+      return null;
+    }
+
+    const benchmarkIds = pickBenchmarkIds(records);
+    const indexed = records
+      .map((record) => mapCandidateToTileRecord(record, benchmarkIds))
+      .sort((left, right) => left.tileId.localeCompare(right.tileId))
+      .map((record) => ({
+        record,
+        listItem: mapTileToListItem(record),
+        searchable: buildTileSearchableText(record),
+        tilesetLower: record.tileset.toLowerCase(),
+        variantLower: record.variant.toLowerCase(),
+        walkmeshLower: record.walkmesh.toLowerCase(),
+        tagsLower: new Set(record.tags.map((tag) => tag.toLowerCase())),
+        processingCacheKey: buildTileProcessCacheKey(record)
+      }));
+
+    this.snapshotIndex = {
+      fetchedAtMs: now,
+      items: indexed,
+      byId: new Map(indexed.map((entry) => [entry.record.tileId, entry.record])),
+      processingById: new Map(
+        indexed.map((entry) => [entry.record.tileId, { cacheKey: entry.processingCacheKey }])
+      )
+    };
+    return this.snapshotIndex;
+  }
+
+  private async listAllModuleSnapshotObjects(
+    settings: BlobStorageSettings
+  ): Promise<ModuleBlobSnapshotSummary> {
+    const objects: ModuleBlobObjectSummary[] = [];
+    let continuationToken: string | undefined;
+    let moduleHash: string | undefined;
+    let prefix = normalizePrefixForLookup(settings.modulePrefix);
+
+    do {
+      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
+        limit: 50_000,
+        continuationToken
+      });
+      moduleHash = moduleHash ?? page.moduleHash;
+      prefix = page.prefix;
+      objects.push(...page.objects);
+      continuationToken = page.continuationToken;
+      if (!page.truncated || !continuationToken) {
+        break;
+      }
+    } while (true);
+
+    const totalBytes = objects.reduce((sum, object) => sum + object.size, 0);
+    return {
+      bucket: settings.bucket,
+      prefix,
+      moduleHash,
+      totalFiles: objects.length,
+      totalBytes,
+      objects,
+      truncated: false
+    };
+  }
+}
+
+function buildTilesFromSnapshot(objects: ModuleBlobObjectSummary[]): TileCandidate[] {
+  const byResref = new Map<string, TileCandidate>();
+  const derivedModelByResref = new Map<string, DerivedTileModelCandidate>();
+
+  for (const object of objects) {
+    const fileName = extractFileName(object.key);
+    const extension = extractExtension(fileName);
+    const basename = normalizeResref(extractBasename(fileName));
+    if (
+      DERIVED_MODEL_EXTENSIONS.has(extension) &&
+      object.key.replace(/\\/gu, "/").toLowerCase().includes("__aurora/derived/models/")
+    ) {
+      const current = derivedModelByResref.get(basename);
+      const next: DerivedTileModelCandidate = {
+        sourceKey: object.key,
+        extension: extension as "glb" | "gltf",
+        sourceSize: object.size,
+        sourceEtag: object.etag,
+        updatedAt: object.lastModified ?? new Date().toISOString()
+      };
+      if (!current || derivedModelScore(next) > derivedModelScore(current)) {
+        derivedModelByResref.set(basename, next);
+      }
+      continue;
+    }
+
+    if (!CANDIDATE_EXTENSIONS.has(extension)) {
+      continue;
+    }
+
+    if (!looksLikeTileResref(basename, object.key)) {
+      continue;
+    }
+
+    const current = byResref.get(basename);
+    const next: TileCandidate = {
+      resref: basename,
+      sourceKey: object.key,
+      extension,
+      sourceSize: object.size,
+      sourceEtag: object.etag,
+      updatedAt: object.lastModified ?? new Date().toISOString()
+    };
+
+    if (!current) {
+      byResref.set(basename, next);
+      continue;
+    }
+
+    const scoreDelta = extensionScore(next.extension) - extensionScore(current.extension);
+    if (scoreDelta > 0) {
+      byResref.set(basename, next);
+      continue;
+    }
+    if (scoreDelta === 0 && next.sourceSize > current.sourceSize) {
+      byResref.set(basename, next);
+      continue;
+    }
+    if (
+      scoreDelta === 0 &&
+      next.sourceSize === current.sourceSize &&
+      next.updatedAt > current.updatedAt
+    ) {
+      byResref.set(basename, next);
+    }
+  }
+
+  const sourceBackedCandidates: TileCandidate[] = [...byResref.values()].map((candidate) => ({
+    ...candidate,
+    renderModel: derivedModelByResref.get(candidate.resref)
+  }));
+  return sourceBackedCandidates.concat(
+    buildDerivedOnlyTileModelCandidates(byResref, derivedModelByResref)
+  );
+}
+
+function buildDerivedOnlyTileModelCandidates(
+  sourceCandidatesByResref: ReadonlyMap<string, TileCandidate>,
+  derivedModelByResref: ReadonlyMap<string, DerivedTileModelCandidate>
+): TileCandidate[] {
+  const candidates: TileCandidate[] = [];
+  for (const [resref, renderModel] of derivedModelByResref.entries()) {
+    if (
+      sourceCandidatesByResref.has(resref) ||
+      !looksLikeTileResref(resref, renderModel.sourceKey)
+    ) {
+      continue;
+    }
+    candidates.push({
+      resref,
+      sourceKey: renderModel.sourceKey,
+      extension: renderModel.extension,
+      sourceSize: renderModel.sourceSize,
+      sourceEtag: renderModel.sourceEtag,
+      updatedAt: renderModel.updatedAt,
+      renderModel
+    });
+  }
+  return candidates;
+}
+
+function mapCandidateToTileRecord(candidate: TileCandidate, benchmarkIds: Set<string>): TileRecord {
+  const tileset = inferTileset(candidate);
+  const variant = inferVariant(candidate.resref);
+  const walkmesh = inferWalkmesh(candidate);
+  const metrics = estimateMetrics(candidate);
+  const benchmark = benchmarkIds.has(candidate.resref);
+
+  return {
+    tileId: `tile_${candidate.resref}`.slice(0, 80),
+    resref: candidate.resref,
+    name: humanizeName(candidate.resref),
+    tileset,
+    variant,
+    tags: buildTags(candidate, tileset, variant, walkmesh),
+    benchmark,
+    previewImageUrl: `/assets/previews/tiles/${candidate.resref}.webp`,
+    textureAtlasId: `atlas_tile_${tileset}_v1`,
+    textureAtlasObjectKey: candidate.sourceKey,
+    textureAtlasContentType: inferAtlasContentType(candidate.extension),
+    textureAtlasSizeBytes: candidate.sourceSize,
+    textureAtlasEtag: candidate.sourceEtag,
+    textureAtlasFingerprint: buildAtlasFingerprint(candidate),
+    sourceAssetObjectKey: candidate.sourceKey,
+    sourceAssetExtension: candidate.extension,
+    sourceAssetSizeBytes: candidate.sourceSize,
+    sourceAssetEtag: candidate.sourceEtag,
+    sourceAssetOrigin: "module-snapshot",
+    renderModelObjectKey: candidate.renderModel?.sourceKey,
+    renderModelExtension: candidate.renderModel?.extension,
+    renderModelSizeBytes: candidate.renderModel?.sourceSize,
+    renderModelEtag: candidate.renderModel?.sourceEtag,
+    walkmesh,
+    metrics,
+    updatedAt: candidate.updatedAt
+  };
+}
+
+function derivedModelScore(candidate: DerivedTileModelCandidate): number {
+  const extensionRank = candidate.extension === "glb" ? 10_000_000 : 5_000_000;
+  return extensionRank + candidate.sourceSize;
+}
+
+function pickBenchmarkIds(records: TileCandidate[]): Set<string> {
+  const sorted = records.slice().sort((left, right) => right.sourceSize - left.sourceSize);
+  const count = sorted.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(sorted.length * 0.2)));
+  return new Set(sorted.slice(0, count).map((entry) => entry.resref));
+}
+
+function looksLikeTileResref(resref: string, sourceKey: string): boolean {
+  if (resref.length < 4) {
+    return false;
+  }
+  const normalizedKey = sourceKey.replace(/\\/gu, "/").toLowerCase();
+  if (normalizedKey.includes("/tile/") || normalizedKey.includes("/tiles/")) {
+    return true;
+  }
+  if (/^[a-z][a-z0-9]{2,12}_[a-z]\d{2}_\d{2}[a-z]?$/u.test(resref)) {
+    return true;
+  }
+  return /^t[a-z0-9_]+$/u.test(resref);
+}
+
+function extensionScore(extension: string): number {
+  switch (extension) {
+    case "set":
+      return 4;
+    case "mdl":
+      return 3;
+    case "wok":
+      return 2;
+    case "itp":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function inferTileset(candidate: TileCandidate): string {
+  const normalized = candidate.sourceKey.replace(/\\/gu, "/").toLowerCase();
+  const known = ["city", "forest", "dungeon", "swamp", "rural", "desert"];
+  for (const value of known) {
+    if (normalized.includes(value) || candidate.resref.includes(value)) {
+      return value;
+    }
+  }
+
+  const token = candidate.resref.split(/[_-]+/u)[0] ?? "generic";
+  return token.slice(0, 12) || "generic";
+}
+
+function inferVariant(resref: string): string {
+  const tokens = resref.split(/[_-]+/u).filter((token) => token.length > 0);
+  if (tokens.length <= 1) {
+    return "standard";
+  }
+  return tokens[1].slice(0, 24);
+}
+
+function inferWalkmesh(candidate: TileCandidate): TileWalkmeshKind {
+  const normalized = `${candidate.resref}|${candidate.sourceKey}`.toLowerCase();
+  if (/(water|river|swamp|shore)/u.test(normalized)) {
+    return "water";
+  }
+  if (/(block|blocked|wall|rubble|closed)/u.test(normalized)) {
+    return "blocked";
+  }
+  return "walkable";
+}
+
+function estimateMetrics(candidate: TileCandidate): TileMetrics {
+  const meshes = clamp(Math.round(candidate.sourceSize / 12000), 1, 64);
+  const triangles = clamp(Math.round(candidate.sourceSize / 180), 64, 20000);
+  const emitters = /(vfx|emit|particle|fire|smoke)/u.test(candidate.sourceKey.toLowerCase())
+    ? 1
+    : 0;
+  return {
+    triangles,
+    meshes,
+    emitters
+  };
+}
+
+function buildTags(
+  candidate: TileCandidate,
+  tileset: string,
+  variant: string,
+  walkmesh: TileWalkmeshKind
+): string[] {
+  const tags = new Set<string>();
+  tags.add("tile");
+  tags.add(tileset);
+  tags.add(variant);
+  tags.add(walkmesh);
+  tags.add(candidate.extension);
+
+  for (const token of candidate.resref.split(/[_-]+/u)) {
+    if (token.length >= 3 && token.length <= 24) {
+      tags.add(token);
+    }
+  }
+
+  return [...tags].slice(0, 12);
+}
+
+function mapTileToListItem(tile: TileRecord): TileListItem {
+  return {
+    tileId: tile.tileId,
+    resref: tile.resref,
+    name: tile.name,
+    tileset: tile.tileset,
+    variant: tile.variant,
+    tags: tile.tags,
+    benchmark: tile.benchmark,
+    previewImageUrl: tile.previewImageUrl,
+    walkmesh: tile.walkmesh,
+    metrics: tile.metrics,
+    updatedAt: tile.updatedAt
+  };
+}
+
+function inferAtlasContentType(extension: string): string {
+  if (extension === "set" || extension === "itp") {
+    return "text/plain";
+  }
+  return "application/octet-stream";
+}
+
+function buildAtlasFingerprint(candidate: TileCandidate): string {
+  return createHash("sha256")
+    .update(
+      [
+        candidate.resref,
+        candidate.sourceKey,
+        candidate.extension,
+        String(candidate.sourceSize),
+        candidate.sourceEtag ?? ""
+      ].join("|")
+    )
+    .digest("hex");
+}
+
+function buildTileSearchableText(tile: TileRecord): string {
+  return [tile.name, tile.tileId, tile.resref, ...tile.tags].join("|").toLowerCase();
+}
+
+function extractFileName(key: string): string {
+  const normalized = key.replace(/\\/gu, "/");
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] ?? normalized;
+}
+
+function extractExtension(fileName: string): string {
+  const normalized = fileName.trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  if (index <= 0) {
+    return "";
+  }
+  return normalized.slice(index + 1);
+}
+
+function extractBasename(fileName: string): string {
+  const normalized = fileName.trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  if (index <= 0) {
+    return normalized;
+  }
+  return normalized.slice(0, index);
+}
+
+function normalizeResref(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/gu, "_").slice(0, 64);
+}
+
+function humanizeName(resref: string): string {
+  return resref
+    .split(/[_-]+/u)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
+function normalizePrefixForLookup(value: string): string {
+  const trimmed = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
+  if (!trimmed) {
+    return "";
+  }
+  return `${trimmed}/`;
+}

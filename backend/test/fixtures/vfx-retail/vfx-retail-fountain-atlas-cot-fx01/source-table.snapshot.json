@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "aurora-vfx-source-table-snapshot/v1",
+  "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+  "status": "unknown",
+  "sourceTable": {
+    "tableName": "visualeffects.2da",
+    "profile": null,
+    "objectKey": null,
+    "sourceLayer": null,
+    "tableHashSha256": null,
+    "capturedAt": null
+  },
+  "selectedRow": {
+    "rowId": null,
+    "label": null,
+    "physicalLine": null,
+    "rawCells": {
+      "TODO": "No retail visualeffects.2da row leading to cot_fx01 was found in this context."
+    },
+    "decodedCells": {
+      "TODO": null
+    },
+    "extraCells": [],
+    "missingCells": [
+      "retail visualeffects.2da row id",
+      "retail visualeffects.2da label",
+      "retail row cells linking to cot_fx01"
+    ]
+  },
+  "sourceModel": {
+    "modelName": "cot_fx01",
+    "modelPath": "backend/tmp_cot_fx01.mdl",
+    "modelHashSha256": "515F7D53F4A1D683BF7E6D38653C677E9D48B6712A3FF53795ECC611FBC1AFF5",
+    "sourceLayer": "local-untracked-repo-candidate",
+    "sourceAuthority": "localUntrackedMdlCandidate",
+    "retailSelectedResource": false
+  },
+  "sourceAuthority": "localUntrackedMdlCandidate",
+  "profileMismatchFields": [],
+  "diagnostics": [
+    {
+      "code": "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+      "severity": "missing",
+      "message": "backend/tmp_cot_fx01.mdl is a local source-only candidate and is not admitted as a retail selected source."
+    },
+    {
+      "code": "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "A retail visualeffects.2da row, resource provenance, or selected retail resource hash is still required."
+    }
+  ],
+  "operatorNotes": "Search the retail-selected visualeffects.2da/progfx/resource graph for a row/context that resolves to cot_fx01 before converting this source-only candidate into an EffectVisualEffect fixture."
+}

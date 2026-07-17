@@ -10,6 +10,7 @@ out/
 # Test and coverage
 coverage/
 .nyc_output/
+.stryker-tmp/
 
 # Logs
 *.log
@@ -27,7 +28,32 @@ pnpm-debug.log*
 .cache/
 .turbo/
 .parcel-cache/
+__pycache__/
+*.py[cod]
 *.tsbuildinfo
+cache/
+caches/
+local-cache/
+runtime-cache/
+.aurora-cache/
+.codex/
+.codex-tmp/
+
+# Local proof and generated Aurora artifacts
+backend/backend/
+docs/aurora-reverse/artifacts/
+backend/docs/aurora-reverse/artifacts/
+backend/docs/aurora-reverse/guard-reports/
+frontend/public/aurora-evidence/
+**/*.chrome-profile/
+**/chrome-profile/
+backend/.placeable-render-audit*.json
+backend/tmp_*
+backend/*.bin
+backend/*.glb
+backend/*.mdl
+Sword/
+tmp_*
 
 # Editor/IDE
 .vscode/

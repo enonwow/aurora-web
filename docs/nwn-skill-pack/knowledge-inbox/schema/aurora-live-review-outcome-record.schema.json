@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/aurora-live-review-outcome-record.schema.json",
+  "title": "Aurora Live Review Outcome Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "live_record_id",
+    "live_record_path",
+    "evidence_manifest_path",
+    "reviewer",
+    "outcome",
+    "decision_summary",
+    "promotion_proposal_path",
+    "reference_promotion_allowed",
+    "accepted_atoms",
+    "held_atoms",
+    "rejected_atoms",
+    "blocked_atoms",
+    "visual_redaction_record_ids",
+    "checks_run",
+    "checks_passed",
+    "privacy_findings",
+    "schema_expansion_candidates",
+    "next_actions",
+    "non_proof_boundaries",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "live_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "live_record_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "accept-for-proposal",
+        "hold-for-retest",
+        "reject",
+        "not-run"
+      ]
+    },
+    "decision_summary": {
+      "type": "string"
+    },
+    "promotion_proposal_path": {
+      "type": "string"
+    },
+    "reference_promotion_allowed": {
+      "type": "boolean"
+    },
+    "accepted_atoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "held_atoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rejected_atoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocked_atoms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "visual_redaction_record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks_passed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "privacy_findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema_expansion_candidates": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "non_proof_boundaries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

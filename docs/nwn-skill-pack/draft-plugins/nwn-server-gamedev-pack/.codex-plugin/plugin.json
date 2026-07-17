@@ -1,0 +1,25 @@
+{
+  "name": "nwn-server-gamedev-pack",
+  "version": "0.1.0",
+  "description": "Codex skill pack for designing and building Neverwinter Nights server content and systems.",
+  "author": {
+    "name": "NWN Skill Pack Maintainers"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "NWN Server Gamedev Pack",
+    "shortDescription": "Design and build NWN server features.",
+    "longDescription": "A Codex plugin packaging the nwn-server-gamedev skill, reference routing, and feedback tooling for NWN or NWN:EE server game development.",
+    "developerName": "NWN Skill Pack Maintainers",
+    "category": "Development",
+    "capabilities": [
+      "Write",
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use $nwn-server-gamedev to design a new NWN area.",
+      "Use $nwn-server-gamedev to plan a 2DA/HAK/TLK change.",
+      "Use $nwn-server-gamedev to review a NUI workflow."
+    ]
+  }
+}

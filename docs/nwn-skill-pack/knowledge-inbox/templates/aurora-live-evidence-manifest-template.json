@@ -1,0 +1,29 @@
+{
+  "schema_version": "1",
+  "id": "aurora-live-evidence-manifest-YYYYMMDD-small-location-first-pass",
+  "created_at": "",
+  "operator": "",
+  "live_record_id": "aurora-live-YYYYMMDD-small-location-first-pass",
+  "live_record_path": "knowledge-inbox/aurora-live-records/aurora-live-YYYYMMDD-small-location-first-pass.json",
+  "evidence_root": "docs/nwn-skill-pack/.codex-tmp/aurora-live-evidence/aurora-live-YYYYMMDD-small-location-first-pass",
+  "redaction_reviewed": false,
+  "privacy_notes": "",
+  "artifacts": [
+    {
+      "artifact_id": "area-wizard-step-01",
+      "atom": "area.createWithWizard",
+      "kind": "screenshot",
+      "path": "screenshots/area-wizard-step-01.png",
+      "description": "Redacted screenshot of the area wizard route.",
+      "evidence_label": "toolset-observed",
+      "redaction_status": "pending-redaction",
+      "sha256": "",
+      "notes": ""
+    }
+  ],
+  "not_proven": [
+    "Toolset screenshots are not runtime proof.",
+    "This manifest does not prove referenced files are present or visually redacted.",
+    "Promotion still requires live-record validation, redaction check, review queue, review checklist, and proposal review."
+  ]
+}

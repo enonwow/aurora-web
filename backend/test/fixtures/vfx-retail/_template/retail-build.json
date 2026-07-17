@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "aurora-vfx-retail-build/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "client": {
+    "name": null,
+    "buildId": null,
+    "version": null,
+    "distribution": "TODO",
+    "executableHashSha256": null
+  },
+  "platform": {
+    "os": null,
+    "architecture": null,
+    "renderer": null,
+    "gpu": null,
+    "driverVersion": null
+  },
+  "buildProfile": {
+    "profileId": null,
+    "profileName": "TODO",
+    "retailBranch": "TODO",
+    "language": null,
+    "lowViolence": null,
+    "lowQuality": null
+  },
+  "moduleProfile": {
+    "moduleName": null,
+    "modulePath": null,
+    "moduleHashSha256": null,
+    "profileId": null,
+    "profileName": "TODO",
+    "areaTag": null,
+    "cameraSetupId": null
+  },
+  "hakProfile": {
+    "profileId": null,
+    "hakList": [
+      {
+        "name": "TODO",
+        "path": null,
+        "hashSha256": null,
+        "order": null
+      }
+    ],
+    "hakListHashSha256": null
+  },
+  "runtimeSettings": {
+    "revision": null,
+    "hashSha256": null,
+    "path": null,
+    "sourcesVfxProfileId": null
+  },
+  "captureEnvironment": {
+    "machineName": null,
+    "operator": null,
+    "timezone": null,
+    "captureStartedAt": null,
+    "captureFinishedAt": null,
+    "tooling": [
+      {
+        "name": "TODO",
+        "version": null,
+        "notes": "missing"
+      }
+    ]
+  },
+  "operatorNotes": "TODO"
+}

@@ -1,0 +1,178 @@
+{
+  "schema_version": "1",
+  "id": "aurora-live-YYYYMMDD-small-location-first-pass",
+  "created_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "checklist_path": "docs/nwn-skill-pack/local-aurora-small-location-live-operator-checklist.md",
+  "operator": "",
+  "environment": {
+    "toolset_version": "",
+    "nwn_version": "",
+    "module_path_or_copy_id": "",
+    "hak_list": [],
+    "custom_tlk": "",
+    "screenshots_folder": "",
+    "log_folder": ""
+  },
+  "atoms": [
+    {
+      "atom": "area.createWithWizard",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "area.editProperties",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "palette.switchBlueprintSource",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "palette.selectObjectFamilyByIcon",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "placeable.editBlueprintOrInstance",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "inventory.insertItem",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "item.editBlueprint",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "creature.editBlueprintOrInstance",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "door.editBlueprintOrInstance",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "door.linkAreaTransition",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "trigger.editBlueprintOrInstance",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "sound.editPlacedSound",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "conversation.editAndTest",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "script.createEditSearch",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "module.configureEventsAndEntry",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "customContent.verify2daHakTlkLoad",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    },
+    {
+      "atom": "toolset.buildAndClientRun",
+      "status": "not-run",
+      "evidence_label": "local-reverse-lead",
+      "observations": [],
+      "artifacts": [],
+      "blockers": [],
+      "promotion_ready": false
+    }
+  ],
+  "overall_result": "not-run",
+  "promotion": {
+    "candidate_references": [],
+    "requires_reference_promotion_proposal": true,
+    "notes": ""
+  },
+  "notes": "Copy this template into a dated record after running the live operator checklist. Keep private module/player data out of artifacts."
+}

@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to design persistence for player-owned crafting stations on a NWN:EE server. Include state ownership, database or NWNX options, migration, backup, restart tests, and operational risks.

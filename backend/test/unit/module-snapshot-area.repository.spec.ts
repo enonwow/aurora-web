@@ -1,0 +1,944 @@
+import { ModuleSnapshotAreaRepository } from "../../src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository";
+import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
+
+type SupportedField =
+  | { label: string; type: "dword"; value: number }
+  | { label: string; type: "float"; value: number }
+  | { label: string; type: "cexostring"; value: string }
+  | { label: string; type: "resref"; value: string }
+  | { label: string; type: "cexolocstring"; value: string }
+  | { label: string; type: "struct"; value: number }
+  | { label: string; type: "list"; value: number[] };
+
+interface StructDef {
+  typeId?: number;
+  fields: SupportedField[];
+}
+
+const FIELD_TYPE = {
+  DWORD: 4,
+  FLOAT: 8,
+  CEXOSTRING: 10,
+  RESREF: 11,
+  CEXOLOCSTRING: 12,
+  STRUCT: 14,
+  LIST: 15
+} as const;
+
+const HEADER_SIZE = 56;
+const STRUCT_ENTRY_SIZE = 12;
+const FIELD_ENTRY_SIZE = 12;
+const LABEL_ENTRY_SIZE = 16;
+
+describe("ModuleSnapshotAreaRepository", () => {
+  function createRuntimeSettingsApplicationService() {
+    return {
+      syncModuleAreaSourceFiles: jest.fn().mockResolvedValue({ uploadedFiles: 0 }),
+      syncVanillaTilesetSetSources: jest.fn().mockResolvedValue({ uploadedFiles: 0 })
+    } as any;
+  }
+
+  function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
+    return {
+      get: jest.fn().mockResolvedValue({
+        revision: 1,
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        updatedBy: "test",
+        paths: {
+          vanillaDataPath: "",
+          hakDirectoryPath: "",
+          moduleDecompiledPath: "",
+          modulePackedPath: "",
+          tlkBasePath: "",
+          tlkCustomPath: ""
+        },
+        blobStorage: {
+          endpoint: "http://seaweedfs:8333",
+          region: "us-east-1",
+          bucket: "aurora-module-assets",
+          modulePrefix: "modules/current",
+          accessKeyId: "seaweedfs",
+          secretAccessKey: "secret",
+          forcePathStyle: true
+        },
+        telemetryDebugMode: "off",
+        hakProfiles: {},
+        sources: {
+          placeable: {
+            includeModuleTemp0: true,
+            includeModulePacked: false,
+            includeHaks: false,
+            includeVanilla: false,
+            hakProfileId: "",
+            hakPriorityList: []
+          },
+          tile: {
+            includeModuleTemp0: true,
+            includeModulePacked: false,
+            includeHaks: false,
+            includeVanilla: false,
+            hakProfileId: "",
+            hakPriorityList: []
+          },
+          area: {
+            includeModuleTemp0: true,
+            includeModulePacked: false,
+            includeHaks: false,
+            includeVanilla: false,
+            hakProfileId: "",
+            hakPriorityList: []
+          },
+          sound: {
+            includeModuleTemp0: true,
+            includeModulePacked: false,
+            includeHaks: false,
+            includeVanilla: false,
+            hakProfileId: "",
+            hakPriorityList: []
+          }
+        },
+        benchmarkCandidates: {
+          placeableHeavyNoVfx: {
+            resref: "",
+            metrics: { triangles: 0, meshes: 0, emitters: 0 },
+            context: { source: "test" }
+          },
+          placeableHeavyVfx: {
+            resref: "",
+            metrics: { triangles: 0, meshes: 0, emitters: 0 },
+            context: { source: "test" }
+          },
+          placeableVfxPlcAlternative: {
+            resref: "",
+            metrics: { triangles: 0, meshes: 0, emitters: 0 },
+            context: { source: "test" }
+          },
+          doorHeavyInstance: {
+            resref: "",
+            metrics: { triangles: 0, meshes: 0, emitters: 0 },
+            context: { source: "test" }
+          },
+          doorHeavySingleMesh: {
+            resref: "",
+            metrics: { triangles: 0, meshes: 0, emitters: 0 },
+            context: { source: "test" }
+          }
+        }
+      }),
+      save: jest.fn()
+    };
+  }
+
+  function createModuleBlobStorage(): jest.Mocked<ModuleBlobStoragePort> {
+    return {
+      replaceModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-v1",
+        totalFiles: 3,
+        totalBytes: 2200,
+        truncated: false,
+        continuationToken: undefined,
+        objects: [
+          {
+            key: "modules/current/areas/market_district.are",
+            size: 1000,
+            lastModified: "2026-05-25T10:00:00.000Z",
+            etag: "a1"
+          },
+          {
+            key: "modules/current/areas/swamp_crossing.are",
+            size: 800,
+            lastModified: "2026-05-25T10:00:00.000Z",
+            etag: "a2"
+          },
+          {
+            key: "modules/current/readme.txt",
+            size: 20,
+            lastModified: "2026-05-25T10:00:00.000Z",
+            etag: "x1"
+          }
+        ]
+      })
+    };
+  }
+
+  it("lists and resolves areas from module snapshot", async () => {
+    const repository = new ModuleSnapshotAreaRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage(),
+      createRuntimeSettingsApplicationService()
+    );
+
+    const list = await repository.list({
+      limit: 20,
+      offset: 0
+    });
+    expect(list.total).toBe(2);
+    expect(list.items[0].objectCounts.total).toBe(0);
+    expect(list.items.some((item) => item.biome === "urban")).toBe(true);
+
+    const first = list.items[0];
+    await expect(repository.findById(first.areaId)).resolves.toMatchObject({
+      areaId: first.areaId
+    });
+    expect(repository.getPrecomputedAreaProcessing(first.areaId)).toEqual({
+      cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      composition: {
+        placeables: 0,
+        doors: 0,
+        creatures: 0,
+        encounters: 0,
+        items: 0,
+        sounds: 0,
+        stores: 0,
+        triggers: 0,
+        waypoints: 0,
+        total: 0
+      }
+    });
+  });
+
+  it("parses ARE/GIT object placements from blob payloads", async () => {
+    const runtimeSettings = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValueOnce({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-v2",
+      totalFiles: 7,
+      totalBytes: 4096,
+      truncated: false,
+      continuationToken: undefined,
+      objects: [
+        {
+          key: "modules/current/areas/market_district.are",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "a1"
+        },
+        {
+          key: "modules/current/areas/market_district.git",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "g1"
+        },
+        {
+          key: "modules/current/tiles/tno01.set",
+          size: 180,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "set1"
+        },
+        {
+          key: "modules/current/__aurora/sources/vanilla/lightcolor.2da",
+          size: 96,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "lightcolor1"
+        },
+        {
+          key: "modules/current/__aurora/sources/vanilla/tilecolor.2da",
+          size: 96,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "tilecolor1"
+        },
+        {
+          key: "modules/current/sounds/ambient/amb_city_day_41.wav",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "s1"
+        },
+        {
+          key: "modules/current/sounds/music/mus_city_day_11.bmu",
+          size: 1024,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "s2"
+        }
+      ]
+    });
+
+    const areBytes = buildNestedGffBuffer(
+      [
+        {
+          fields: [
+            { label: "Name", type: "cexolocstring", value: "Market District" },
+            { label: "Width", type: "dword", value: 24 },
+            { label: "Height", type: "dword", value: 20 },
+            { label: "Tileset", type: "resref", value: "tno01" },
+            { label: "Tile_List", type: "list", value: [1, 2, 3] },
+            { label: "AmbientSndDay", type: "dword", value: 41 },
+            { label: "MusicDay", type: "dword", value: 11 }
+          ]
+        },
+        {
+          fields: [
+            { label: "Tile_ID", type: "dword", value: 101 },
+            { label: "Tile_MainLight1", type: "dword", value: 3 },
+            { label: "Tile_SrcLight1", type: "dword", value: 5 }
+          ]
+        },
+        { fields: [{ label: "Tile_ID", type: "dword", value: 102 }] },
+        { fields: [{ label: "Tile_ID", type: "dword", value: 103 }] }
+      ],
+      "ARE "
+    );
+
+    const gitBytes = buildNestedGffBuffer(
+      [
+        {
+          fields: [
+            { label: "Placeable List", type: "list", value: [1, 14] },
+            { label: "Door List", type: "list", value: [2] },
+            { label: "Creature List", type: "list", value: [3] },
+            { label: "Encounter List", type: "list", value: [8] },
+            { label: "Item List", type: "list", value: [4] },
+            { label: "SoundList", type: "list", value: [6] },
+            { label: "StoreList", type: "list", value: [9] },
+            { label: "TriggerList", type: "list", value: [10] },
+            { label: "WaypointList", type: "list", value: [13] }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "plc_crate_01" },
+            { label: "XPosition", type: "float", value: 12.5 },
+            { label: "YPosition", type: "float", value: 6.25 },
+            { label: "Static", type: "dword", value: 0 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "utd_city_gate_01" },
+            { label: "XPosition", type: "float", value: 20 },
+            { label: "YPosition", type: "float", value: 10 },
+            { label: "XOrientation", type: "float", value: 0 },
+            { label: "YOrientation", type: "float", value: 1 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "cre_guard_01" },
+            { label: "Tag", type: "cexostring", value: "guard_git_tag" },
+            { label: "FirstName", type: "cexolocstring", value: "GIT Guard" },
+            { label: "Appearance_Type", type: "dword", value: 42 },
+            { label: "Race", type: "dword", value: 6 },
+            { label: "Plot", type: "dword", value: 1 },
+            { label: "Str", type: "dword", value: 15 },
+            { label: "ScriptSpawn", type: "resref", value: "nw_c2_guardspawn" },
+            { label: "XPosition", type: "float", value: 7.75 },
+            { label: "YPosition", type: "float", value: 8.5 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "itm_potion_01" },
+            { label: "Position", type: "struct", value: 5 }
+          ]
+        },
+        {
+          fields: [
+            { label: "X", type: "float", value: 1.5 },
+            { label: "Y", type: "float", value: 2.5 },
+            { label: "Z", type: "float", value: 0 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "snd_forge_loop" },
+            { label: "Tag", type: "cexostring", value: "forge_sound" },
+            { label: "XPosition", type: "float", value: 9.5 },
+            { label: "YPosition", type: "float", value: 10.5 },
+            { label: "Active", type: "dword", value: 1 },
+            { label: "Looping", type: "dword", value: 1 },
+            { label: "Positional", type: "dword", value: 1 },
+            { label: "MaxDistance", type: "float", value: 16 },
+            { label: "MinDistance", type: "float", value: 2 },
+            { label: "Sounds", type: "list", value: [7] }
+          ]
+        },
+        {
+          fields: [{ label: "Sound", type: "resref", value: "forge_loop_a" }]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "enc_city_patrol" },
+            { label: "Tag", type: "cexostring", value: "enc_patrol_tag" },
+            { label: "XPosition", type: "float", value: 3 },
+            { label: "YPosition", type: "float", value: 4 }
+          ]
+        },
+        {
+          fields: [
+            { label: "ResRef", type: "resref", value: "sto_blacksmith" },
+            { label: "Tag", type: "cexostring", value: "merchant_store" },
+            { label: "XPosition", type: "float", value: 5 },
+            { label: "YPosition", type: "float", value: 6 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "trg_transition" },
+            { label: "Tag", type: "cexostring", value: "exit_trigger" },
+            { label: "Geometry", type: "list", value: [11, 12] }
+          ]
+        },
+        {
+          fields: [
+            { label: "PointX", type: "float", value: 0 },
+            { label: "PointY", type: "float", value: 0 },
+            { label: "PointZ", type: "float", value: 0 }
+          ]
+        },
+        {
+          fields: [
+            { label: "PointX", type: "float", value: 4 },
+            { label: "PointY", type: "float", value: 2 },
+            { label: "PointZ", type: "float", value: 2 }
+          ]
+        },
+        {
+          fields: [
+            { label: "Tag", type: "cexostring", value: "wp_market_entry" },
+            { label: "XPosition", type: "float", value: 8 },
+            { label: "YPosition", type: "float", value: 9 }
+          ]
+        },
+        {
+          fields: [
+            { label: "TemplateResRef", type: "resref", value: "plc_vt_floor_board" },
+            { label: "Tag", type: "cexostring", value: "vt_floor_board" },
+            { label: "XPosition", type: "float", value: 18.12 },
+            { label: "YPosition", type: "float", value: 22.13 },
+            { label: "ZPosition", type: "float", value: 1.95 },
+            { label: "Bearing", type: "float", value: Math.PI / 2 },
+            { label: "Static", type: "dword", value: 1 },
+            { label: "VisTransformList", type: "list", value: [15] }
+          ]
+        },
+        {
+          fields: [
+            { label: "Scope", type: "dword", value: 0 },
+            { label: "ScaleX", type: "float", value: 0.5 },
+            { label: "ScaleY", type: "float", value: 0.75 },
+            { label: "ScaleZ", type: "float", value: 1.25 },
+            { label: "RotateX", type: "float", value: 270 },
+            { label: "RotateY", type: "float", value: 90 },
+            { label: "RotateZ", type: "float", value: 45 },
+            { label: "TranslateX", type: "float", value: 1 },
+            { label: "TranslateY", type: "float", value: -2 },
+            { label: "TranslateZ", type: "float", value: 3 }
+          ]
+        }
+      ],
+      "GIT "
+    );
+    const setBytes = Buffer.from(
+      [
+        "[TILE101]",
+        "Model=tno01_a01_01",
+        "[TILE102]",
+        "Model=tno01_a01_02",
+        "[TILE103]",
+        "Model=tno01_a01_03"
+      ].join("\n"),
+      "utf-8"
+    );
+    const lightColorBytes = Buffer.from(
+      [
+        "2DA V2.0",
+        "",
+        "    RED  GREEN BLUE",
+        "0   0.0  0.0   0.0",
+        "3   1.0  0.75  0.25"
+      ].join("\n"),
+      "utf-8"
+    );
+    const tileColorBytes = Buffer.from(
+      [
+        "2DA V2.0",
+        "",
+        "    RED  GREEN BLUE",
+        "0   0.0  0.0   0.0",
+        "5   0.25 0.5   1.0"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      if (key.endsWith(".are")) {
+        return {
+          key,
+          size: areBytes.length,
+          contentType: "application/octet-stream",
+          bytes: areBytes,
+          etag: "a1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      if (key.endsWith(".set")) {
+        return {
+          key,
+          size: setBytes.length,
+          contentType: "text/plain",
+          bytes: setBytes,
+          etag: "set1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      if (key.endsWith("lightcolor.2da")) {
+        return {
+          key,
+          size: lightColorBytes.length,
+          contentType: "text/plain",
+          bytes: lightColorBytes,
+          etag: "lightcolor1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      if (key.endsWith("tilecolor.2da")) {
+        return {
+          key,
+          size: tileColorBytes.length,
+          contentType: "text/plain",
+          bytes: tileColorBytes,
+          etag: "tilecolor1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      if (key.endsWith(".git")) {
+        return {
+          key,
+          size: gitBytes.length,
+          contentType: "application/octet-stream",
+          bytes: gitBytes,
+          etag: "g1",
+          lastModified: "2026-05-25T10:00:00.000Z"
+        };
+      }
+      return null;
+    });
+
+    const repository = new ModuleSnapshotAreaRepository(
+      runtimeSettings,
+      moduleBlobStorage,
+      createRuntimeSettingsApplicationService()
+    );
+
+    const list = await repository.list({ limit: 20, offset: 0 });
+    expect(list.total).toBe(1);
+
+    const area = await repository.findById(list.items[0].areaId);
+    expect(area).not.toBeNull();
+    expect(area?.name).toBe("Market District");
+    expect(area?.width).toBe(24);
+    expect(area?.height).toBe(20);
+    expect(area?.textureAtlasId).toBe("atlas_tno01_v1");
+    expect(area?.tiles).toEqual([
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:0",
+        tilesetResRef: "tno01",
+        row: 0,
+        col: 0,
+        tileIndex: 0,
+        tileId: 101,
+        modelResRef: "tno01_a01_01",
+        modelSource: "set-tile-section",
+        mainLight1: 3,
+        mainLight1Color: {
+          rowId: 3,
+          red: 1,
+          green: 0.75,
+          blue: 0.25,
+          sourceKey: "modules/current/__aurora/sources/vanilla/lightcolor.2da"
+        },
+        sourceLight1: 5,
+        sourceLight1Color: {
+          rowId: 5,
+          red: 0.25,
+          green: 0.5,
+          blue: 1,
+          sourceKey: "modules/current/__aurora/sources/vanilla/tilecolor.2da"
+        },
+        source: "are-tile-list"
+      }),
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:1",
+        tileId: 102,
+        modelResRef: "tno01_a01_02",
+        modelSource: "set-tile-section"
+      }),
+      expect.objectContaining({
+        tileInstanceId: "area_market_district:tile:2",
+        tileId: 103,
+        modelResRef: "tno01_a01_03",
+        modelSource: "set-tile-section"
+      })
+    ]);
+    expect(area?.objects).toHaveLength(10);
+    expect(area?.objects.filter((entry) => entry.kind === "door")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "encounter")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "sound")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "store")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "trigger")).toHaveLength(1);
+    expect(area?.objects.filter((entry) => entry.kind === "waypoint")).toHaveLength(1);
+    expect(area?.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "placeable",
+          templateId: "plc_crate_01",
+          isStatic: false
+        }),
+        expect.objectContaining({
+          kind: "placeable",
+          templateId: "plc_vt_floor_board",
+          tag: "vt_floor_board",
+          isStatic: true,
+          x: 1.812,
+          y: 2.213,
+          z: 0.195,
+          bearing: expect.closeTo(90, 4),
+          visualTransform: {
+            scale: expect.closeTo(0.8333, 4),
+            scaleX: 0.5,
+            scaleY: 0.75,
+            scaleZ: 1.25,
+            offsetX: 0.1,
+            offsetY: -0.2,
+            offsetZ: 0.3,
+            pitch: expect.closeTo((Math.PI * 3) / 2, 6),
+            yaw: expect.closeTo(Math.PI / 4, 6),
+            roll: expect.closeTo(Math.PI / 2, 6)
+          }
+        }),
+        expect.objectContaining({
+          kind: "door",
+          templateId: "utd_city_gate_01"
+        }),
+        expect.objectContaining({
+          kind: "sound",
+          templateId: "snd_forge_loop",
+          soundPositioning: expect.objectContaining({
+            mode: "specific",
+            maxVolumeDistance: 0.2,
+            cutoffDistance: 1.6,
+            preserve: expect.objectContaining({
+              playStyle: "loop",
+              extra: {
+                auroraSoundList: "forge_loop_a"
+              }
+            })
+          })
+        }),
+        expect.objectContaining({
+          kind: "encounter",
+          templateId: "enc_city_patrol",
+          tag: "enc_patrol_tag"
+        }),
+        expect.objectContaining({
+          kind: "store",
+          templateId: "sto_blacksmith",
+          tag: "merchant_store"
+        }),
+        expect.objectContaining({
+          kind: "trigger",
+          templateId: "trg_transition",
+          tag: "exit_trigger",
+          x: 0.2,
+          y: 0.1,
+          z: 0.1
+        }),
+        expect.objectContaining({
+          kind: "waypoint",
+          tag: "wp_market_entry"
+        }),
+        expect.objectContaining({
+          kind: "creature",
+          templateId: "cre_guard_01",
+          resRef: "cre_guard_01",
+          tag: "guard_git_tag",
+          appearanceType: 42,
+          creatureMetadata: expect.objectContaining({
+            firstName: "GIT Guard",
+            race: 6,
+            plot: true,
+            strength: 15,
+            "script.scriptspawn": "nw_c2_guardspawn"
+          })
+        })
+      ])
+    );
+    expect(area?.soundscape.area).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          soundId: "sound_amb_city_day_41",
+          resref: "amb_city_day_41",
+          category: "ambient"
+        }),
+        expect.objectContaining({
+          soundId: "sound_mus_city_day_11",
+          resref: "mus_city_day_11",
+          category: "music"
+        })
+      ])
+    );
+
+    const composition = repository.getPrecomputedAreaProcessing(list.items[0].areaId);
+    expect(composition?.composition).toEqual({
+      placeables: 2,
+      doors: 1,
+      creatures: 1,
+      encounters: 1,
+      items: 1,
+      sounds: 1,
+      stores: 1,
+      triggers: 1,
+      waypoints: 1,
+      total: 10
+    });
+  });
+
+  it("falls back to static repository when no area files found", async () => {
+    const runtimeSettings = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValueOnce({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "hash-v2",
+      totalFiles: 1,
+      totalBytes: 20,
+      truncated: false,
+      continuationToken: undefined,
+      objects: [
+        {
+          key: "modules/current/readme.txt",
+          size: 20,
+          lastModified: "2026-05-25T10:00:00.000Z",
+          etag: "x2"
+        }
+      ]
+    });
+    const repository = new ModuleSnapshotAreaRepository(
+      runtimeSettings,
+      moduleBlobStorage,
+      createRuntimeSettingsApplicationService()
+    );
+
+    const list = await repository.list({
+      limit: 20,
+      offset: 0
+    });
+    expect(list.total).toBeGreaterThan(0);
+  });
+});
+
+function buildNestedGffBuffer(structs: StructDef[], fileType: string): Buffer {
+  const uniqueLabels = [
+    ...new Set(structs.flatMap((struct) => struct.fields.map((field) => field.label)))
+  ];
+  const labelIndexByName = new Map(uniqueLabels.map((label, index) => [label, index]));
+
+  const fieldDataChunks: Buffer[] = [];
+  const listIndicesChunks: Buffer[] = [];
+  const fieldEntries: Array<{ typeId: number; labelIndex: number; dataOrOffset: number }> = [];
+  const structFieldIndices: number[][] = structs.map(() => []);
+
+  const pushFieldData = (chunk: Buffer): number => {
+    const offset = fieldDataChunks.reduce((sum, entry) => sum + entry.length, 0);
+    fieldDataChunks.push(chunk);
+    return offset;
+  };
+
+  const pushListIndicesData = (chunk: Buffer): number => {
+    const offset = listIndicesChunks.reduce((sum, entry) => sum + entry.length, 0);
+    listIndicesChunks.push(chunk);
+    return offset;
+  };
+
+  structs.forEach((struct, structIndex) => {
+    struct.fields.forEach((field) => {
+      const labelIndex = labelIndexByName.get(field.label);
+      if (labelIndex === undefined) {
+        throw new Error(`Unknown label index for ${field.label}`);
+      }
+
+      let entry: { typeId: number; labelIndex: number; dataOrOffset: number };
+
+      if (field.type === "dword") {
+        entry = {
+          typeId: FIELD_TYPE.DWORD,
+          labelIndex,
+          dataOrOffset: field.value >>> 0
+        };
+      } else if (field.type === "float") {
+        const inline = Buffer.allocUnsafe(4);
+        inline.writeFloatLE(field.value, 0);
+        entry = {
+          typeId: FIELD_TYPE.FLOAT,
+          labelIndex,
+          dataOrOffset: inline.readUInt32LE(0)
+        };
+      } else if (field.type === "cexostring") {
+        const valueBytes = Buffer.from(field.value, "utf-8");
+        const payload = Buffer.alloc(4 + valueBytes.length);
+        payload.writeUInt32LE(valueBytes.length, 0);
+        valueBytes.copy(payload, 4);
+        entry = {
+          typeId: FIELD_TYPE.CEXOSTRING,
+          labelIndex,
+          dataOrOffset: pushFieldData(payload)
+        };
+      } else if (field.type === "resref") {
+        const valueBytes = Buffer.from(field.value, "ascii");
+        const payload = Buffer.alloc(1 + valueBytes.length);
+        payload.writeUInt8(valueBytes.length, 0);
+        valueBytes.copy(payload, 1);
+        entry = {
+          typeId: FIELD_TYPE.RESREF,
+          labelIndex,
+          dataOrOffset: pushFieldData(payload)
+        };
+      } else if (field.type === "cexolocstring") {
+        const valueBytes = Buffer.from(field.value, "utf-8");
+        const entryPayload = Buffer.alloc(8 + valueBytes.length);
+        entryPayload.writeUInt32LE(0, 0);
+        entryPayload.writeUInt32LE(valueBytes.length, 4);
+        valueBytes.copy(entryPayload, 8);
+
+        const locPayload = Buffer.alloc(12 + entryPayload.length);
+        const totalSize = 8 + entryPayload.length;
+        locPayload.writeUInt32LE(totalSize, 0);
+        locPayload.writeUInt32LE(0, 4);
+        locPayload.writeUInt32LE(1, 8);
+        entryPayload.copy(locPayload, 12);
+
+        entry = {
+          typeId: FIELD_TYPE.CEXOLOCSTRING,
+          labelIndex,
+          dataOrOffset: pushFieldData(locPayload)
+        };
+      } else if (field.type === "struct") {
+        entry = {
+          typeId: FIELD_TYPE.STRUCT,
+          labelIndex,
+          dataOrOffset: field.value >>> 0
+        };
+      } else {
+        const payload = Buffer.alloc(4 + field.value.length * 4);
+        payload.writeUInt32LE(field.value.length, 0);
+        field.value.forEach((structIndexFromList, index) => {
+          payload.writeUInt32LE(structIndexFromList >>> 0, 4 + index * 4);
+        });
+        entry = {
+          typeId: FIELD_TYPE.LIST,
+          labelIndex,
+          dataOrOffset: pushListIndicesData(payload)
+        };
+      }
+
+      const fieldIndex = fieldEntries.length;
+      fieldEntries.push(entry);
+      structFieldIndices[structIndex].push(fieldIndex);
+    });
+  });
+
+  const fieldData = Buffer.concat(fieldDataChunks);
+  const listIndices = Buffer.concat(listIndicesChunks);
+
+  const fieldIndicesChunks: Buffer[] = [];
+  const structEntries: Array<{ typeId: number; dataOrOffset: number; fieldCount: number }> = [];
+
+  structs.forEach((struct, index) => {
+    const indices = structFieldIndices[index];
+    if (indices.length === 0) {
+      structEntries.push({
+        typeId: struct.typeId ?? 1,
+        dataOrOffset: 0,
+        fieldCount: 0
+      });
+      return;
+    }
+
+    if (indices.length === 1) {
+      structEntries.push({
+        typeId: struct.typeId ?? 1,
+        dataOrOffset: indices[0],
+        fieldCount: 1
+      });
+      return;
+    }
+
+    const currentOffset = fieldIndicesChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const chunk = Buffer.alloc(indices.length * 4);
+    indices.forEach((fieldIndex, fieldPos) => {
+      chunk.writeUInt32LE(fieldIndex >>> 0, fieldPos * 4);
+    });
+    fieldIndicesChunks.push(chunk);
+
+    structEntries.push({
+      typeId: struct.typeId ?? 1,
+      dataOrOffset: currentOffset,
+      fieldCount: indices.length
+    });
+  });
+
+  const fieldIndices = Buffer.concat(fieldIndicesChunks);
+
+  const structTable = Buffer.alloc(structEntries.length * STRUCT_ENTRY_SIZE);
+  structEntries.forEach((entry, index) => {
+    const offset = index * STRUCT_ENTRY_SIZE;
+    structTable.writeUInt32LE(entry.typeId >>> 0, offset);
+    structTable.writeUInt32LE(entry.dataOrOffset >>> 0, offset + 4);
+    structTable.writeUInt32LE(entry.fieldCount >>> 0, offset + 8);
+  });
+
+  const fieldTable = Buffer.alloc(fieldEntries.length * FIELD_ENTRY_SIZE);
+  fieldEntries.forEach((entry, index) => {
+    const offset = index * FIELD_ENTRY_SIZE;
+    fieldTable.writeUInt32LE(entry.typeId, offset);
+    fieldTable.writeUInt32LE(entry.labelIndex, offset + 4);
+    fieldTable.writeUInt32LE(entry.dataOrOffset, offset + 8);
+  });
+
+  const labels = Buffer.alloc(uniqueLabels.length * LABEL_ENTRY_SIZE);
+  uniqueLabels.forEach((label, index) => {
+    const offset = index * LABEL_ENTRY_SIZE;
+    const bytes = Buffer.from(label.slice(0, LABEL_ENTRY_SIZE), "ascii");
+    bytes.copy(labels, offset);
+  });
+
+  const structOffset = HEADER_SIZE;
+  const fieldOffset = structOffset + structTable.length;
+  const labelOffset = fieldOffset + fieldTable.length;
+  const fieldDataOffset = labelOffset + labels.length;
+  const fieldIndicesOffset = fieldDataOffset + fieldData.length;
+  const listIndicesOffset = fieldIndicesOffset + fieldIndices.length;
+
+  const header = Buffer.alloc(HEADER_SIZE);
+  header.write(fileType, 0, "ascii");
+  header.write("V3.2", 4, "ascii");
+  header.writeUInt32LE(structOffset, 8);
+  header.writeUInt32LE(structEntries.length, 12);
+  header.writeUInt32LE(fieldOffset, 16);
+  header.writeUInt32LE(fieldEntries.length, 20);
+  header.writeUInt32LE(labelOffset, 24);
+  header.writeUInt32LE(uniqueLabels.length, 28);
+  header.writeUInt32LE(fieldDataOffset, 32);
+  header.writeUInt32LE(fieldData.length, 36);
+  header.writeUInt32LE(fieldIndicesOffset, 40);
+  header.writeUInt32LE(fieldIndices.length, 44);
+  header.writeUInt32LE(listIndicesOffset, 48);
+  header.writeUInt32LE(listIndices.length, 52);
+
+  return Buffer.concat([
+    header,
+    structTable,
+    fieldTable,
+    labels,
+    fieldData,
+    fieldIndices,
+    listIndices
+  ]);
+}

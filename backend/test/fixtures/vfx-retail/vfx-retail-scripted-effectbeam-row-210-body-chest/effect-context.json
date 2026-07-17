@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+  "status": "missing",
+  "constructor": {
+    "kind": "EffectBeam",
+    "sourceRowId": 210,
+    "rawInvocation": "ApplyEffectToObject(DURATION_TYPE_TEMPORARY, EffectBeam(VFX_BEAM_FIRE, oSource, BODY_NODE_CHEST), oTarget, 3.0);",
+    "scriptSource": "effect-beam-script.nss",
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "object",
+    "durationType": "temporary",
+    "durationSeconds": 3,
+    "targetRef": "retail-beam-target",
+    "effectorRef": "retail-beam-source",
+    "creatorRef": null,
+    "bodyNode": "BODY_NODE_CHEST",
+    "missFlag": false,
+    "location": {
+      "areaTag": null,
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "retailCommandOrScript": {
+    "command": "dm_runscript vfx_p12_beam210",
+    "moduleScriptName": "vfx_p12_beam210",
+    "trigger": "DM console while source object tag retail-beam-source and target object tag retail-beam-target are both visible in the capture area"
+  },
+  "beam": {
+    "sourceRef": "retail-beam-source",
+    "targetRef": "retail-beam-target",
+    "bodyNode": "BODY_NODE_CHEST",
+    "durationSeconds": 3,
+    "expectedAnchorObservation": "missing"
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_EFFECT_CONTEXT_EXECUTION_REQUIRED",
+      "severity": "missing",
+      "message": "The intended NWScript beam invocation is documented, but it has not been executed in retail in this context."
+    }
+  ],
+  "operatorNotes": "Compile effect-beam-script.nss as vfx_p12_beam210, place visible source and target objects, then run dm_runscript vfx_p12_beam210 in retail."
+}

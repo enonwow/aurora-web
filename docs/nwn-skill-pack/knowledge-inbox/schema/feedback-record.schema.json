@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/feedback-record.schema.json",
+  "title": "NWN Skill Feedback Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "domain",
+    "title",
+    "summary",
+    "source_type",
+    "status",
+    "evidence",
+    "proposed_skill_update"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain": {
+      "enum": [
+        "concept",
+        "locations",
+        "items",
+        "creatures",
+        "2da-hak-tlk",
+        "nwscript",
+        "nui",
+        "quests",
+        "economy",
+        "persistence",
+        "deployment",
+        "testing",
+        "ops",
+        "other"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_type": {
+      "enum": [
+        "user-runtime-test",
+        "maintainer-review",
+        "docs-research",
+        "model-suggestion",
+        "claude-opus-import",
+        "codex-session",
+        "project-postmortem",
+        "other"
+      ]
+    },
+    "status": {
+      "enum": [
+        "unverified",
+        "runtime-verified",
+        "docs-verified",
+        "project-specific",
+        "promoted",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "nwn_version": {
+      "type": "string"
+    },
+    "server_context": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "files_or_scripts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "runtime_steps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failure_mode": {
+      "type": "string"
+    },
+    "proposed_skill_update": {
+      "type": "object",
+      "required": [
+        "file",
+        "summary"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "reviewed_at",
+        "reviewer",
+        "decision",
+        "promotion_ready",
+        "target_reference",
+        "required_actions",
+        "notes"
+      ],
+      "properties": {
+        "reviewed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "enum": [
+            "accept-for-promotion",
+            "needs-more-evidence",
+            "reject",
+            "project-specific-only",
+            "supersede"
+          ]
+        },
+        "promotion_ready": {
+          "type": "boolean"
+        },
+        "target_reference": {
+          "type": "string"
+        },
+        "required_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

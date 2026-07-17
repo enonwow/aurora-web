@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "aurora-vfx-retail-comparison/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "method": {
+    "type": "TODO",
+    "tool": null,
+    "toolVersion": null,
+    "operator": null,
+    "comparedAt": null
+  },
+  "artifacts": {
+    "retailBuild": "retail-build.json",
+    "sourceTableSnapshot": "source-table.snapshot.json",
+    "effectContext": "effect-context.json",
+    "parserSnapshot": "parser-snapshot.json",
+    "resolverTrace": "resolver-trace.json",
+    "runtimeTickDump": "runtime-tick-dump.json",
+    "renderContractSnapshot": "render-contract-snapshot.json",
+    "capture": "capture.json"
+  },
+  "checks": [
+    {
+      "name": "TODO",
+      "kind": "missing",
+      "expected": null,
+      "actual": null,
+      "result": "unknown",
+      "notes": "Comparison has not been run."
+    }
+  ],
+  "visualChecks": [
+    {
+      "name": "TODO",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Retail visual comparison has not been run."
+    }
+  ],
+  "result": null,
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Comparison evidence is missing."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

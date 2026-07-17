@@ -1,0 +1,1099 @@
+{
+  "version": "aurora-areas-claim-registry/v1",
+  "updatedAt": "2026-06-17T13:27:06.6257744+02:00",
+  "canonicalParityPromoted": false,
+  "claims": [
+    {
+      "claimId": "areas-coordinator-iteration-017-ingest-audit015-preserve-alpha010-beta010-assign-audit016",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Independent Audit iteration 015 as advisory evidence, preserved Worker Alpha iteration 010 and Worker Beta iteration 010 as active no-wait implementation lanes, and assigned Independent Audit iteration 016.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "disproof": "If Alpha010 or Beta010 later checkpoints completion or a hard blocker, the next coordinator heartbeat must accept it and assign the next visible slice immediately. Until then, no-wait means both workers continue without scheduler churn.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-016-alpha010-beta010-no-wait-loader-door-2da-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must continue verifying Alpha010 and Beta010 are concrete no-wait visible lanes, helper geometry remains opt-in/default-hidden, and neither worker invents tile loader output, door 2DA rows, browser proof, or retail parity.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-016-ingest-alpha009-assign-alpha010-preserve-beta010",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 009, assigned Worker Alpha iteration 010 immediately under no-wait dispatch, preserved Worker Beta iteration 010 as active, and assigned Independent Audit iteration 015.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-010-tile-render-loader-handoff-proof-contract",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Worker Alpha must move from Alpha009 sourceAsset/renderAssetContract normalization into selected-area tile render-loader handoff proof, exposing real GLB/material/loader handoff fields only when current contracts prove them and otherwise showing exact blockers in Terrain Readiness and capture datasets.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.json",
+        "backend/src/modules/tiles/domain/tile.types.ts",
+        "backend/src/modules/tiles/application/tiles.application.service.ts",
+        "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+        "frontend/src/modules/tiles/contracts.ts",
+        "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx"
+      ],
+      "disproof": "If current contracts still expose only sourceAsset/renderAssetContract blockers, Alpha must keep GLB geometry, material binding, renderer handoff, WOK/DWK, browser proof, and parity blocked instead of inventing asset URLs, geometry, material bindings, loader output, or runtime capture.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-015-alpha010-beta010-no-wait-loader-door-2da-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit published latest no-wait guard for Alpha (ACTIVE_ASSIGNED_ITERATION_010 / areas-worker-alpha-iteration-010-tile-render-loader-handoff-proof-contract) and Beta (ACTIVE_ASSIGNED_ITERATION_010 / areas-worker-beta-iteration-010-doortypes-genericdoors-source-lookup-contract) while preserving source-backed blockers and no parity promotion.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "canonicalParityPromoted": false,
+      "disproof": "If a completed worker waits without fresh dispatch, or if tile loader output, door 2DA rows, helper visibility, browser proof, POC code, or retail parity are invented, audit should flag it immediately."
+    },
+    {
+      "claimId": "areas-coordinator-iteration-015-ingest-beta009-preserve-alpha009-assign-beta010",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Beta iteration 009, preserved Worker Alpha iteration 009 as active, assigned Worker Beta iteration 010 immediately under no-wait dispatch, and assigned Independent Audit iteration 014.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-010-doortypes-genericdoors-source-lookup-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Door template metadata now indexes source doortypes.2da/genericdoors.2da rows from current module snapshot sources, preserves UTD GenericType when present, and selected-door UI/viewport datasets expose 2DA source keys, rows, labels, model resrefs, lookup status, and exact blockers without inventing rows, models, assets, animation, browser proof, or parity.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/src/modules/catalog/adapters/outbound/blob/aurora-gff-template-parser.ts",
+        "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "disproof": "Not disproven by backend and frontend builds. This slice proves only source-backed lookup readiness from current snapshot 2DA/UTD metadata; runtime door animation, model asset proof, transition execution, DWK/WOK, browser capture, and retail parity remain blocked.",
+      "canonicalParityPromoted": false,
+      "commandsRun": [
+        {
+          "command": "npm.cmd run typecheck (backend)",
+          "result": "not available: package has no typecheck script"
+        },
+        {
+          "command": "npm.cmd run typecheck (frontend)",
+          "result": "not available: package has no typecheck script"
+        },
+        {
+          "command": "npm.cmd run build (backend)",
+          "result": "passed"
+        },
+        {
+          "command": "npm.cmd run build (frontend)",
+          "result": "passed"
+        }
+      ]
+    },
+    {
+      "claimId": "areas-audit-iteration-014-alpha009-beta010-no-wait-door-2da-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must verify Alpha009 remains active, Beta010 is concrete no-wait door 2DA lookup work, helper geometry remains opt-in/default-hidden, and no source fields or retail parity are invented.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-014-ingest-alpha008-assign-alpha009-preserve-beta009",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 008, assigned Worker Alpha iteration 009 immediately under no-wait dispatch, preserved Worker Beta iteration 009 as active, and assigned Independent Audit iteration 013.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-009-tile-source-asset-render-contract-normalization",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Tile processing now exposes explicit sourceAsset and renderAssetContract payloads, Areas Terrain Readiness uses those normalized fields instead of inferring source assets from textureAtlas, and the panel shows source asset role/origin, render handoff status, GLB/material blockers, and capture-readable data-terrain-tile-* contract evidence.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/src/modules/tiles/domain/tile.types.ts",
+        "backend/src/modules/tiles/domain/tile-processing.builders.ts",
+        "backend/src/modules/tiles/application/tiles.application.service.ts",
+        "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+        "frontend/src/modules/tiles/contracts.ts",
+        "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.json"
+      ],
+      "disproof": "If current contracts only expose sourceAsset metadata and renderAssetContract blockers, the UI keeps GLB geometry, material binding, renderer handoff, browser proof, WOK/DWK, and retail parity blockers visible. No asset paths, geometry, material bindings, or loader output were invented.",
+      "canonicalParityPromoted": false,
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.json --pretty false --noEmit",
+          "result": "passed"
+        },
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ]
+    },
+    {
+      "claimId": "areas-audit-iteration-013-alpha009-beta009-no-wait-render-contract-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must verify Alpha009 and Beta009 are concrete no-wait visible lanes, helper geometry remains opt-in/default-hidden, and neither worker promotes tile/door runtime contract readiness into retail parity.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-013-ingest-beta008-preserve-alpha008-assign-beta009",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Beta iteration 008, preserved Worker Alpha iteration 008 as active, and assigned Worker Beta iteration 009 immediately under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-009-door-transition-runtime-evidence-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Area GIT doors now preserve source-backed transition/link metadata when present, including LinkedTo, TransitionDestin/TransitionDestination, LinkedToModule, LoadScreenID/LoadScreenId, and LinkedToFlags as preserve-only scene evidence; selected door properties and viewport datasets expose transition source/runtime/DWK-WOK/browser blockers without inventing target tags or behavior.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/unknowns-linkedtoflags-loadscreenid-r65.md",
+        "backend/src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts",
+        "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
+        "backend/src/modules/areas/domain/area.types.ts",
+        "backend/src/modules/areas/domain/area-processing.builders.ts",
+        "frontend/src/modules/areas/contracts.ts",
+        "frontend/src/modules/areas/adapters/httpAreaApiPort.ts",
+        "frontend/src/modules/areas/application/areaSceneMapper.ts",
+        "frontend/src/modules/scene/contracts.ts",
+        "frontend/src/modules/scene/domain/sceneFactory.ts",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "Not disproven by backend and frontend typecheck. This slice proves only source-field preservation and capture-readable evidence where GIT fields exist; it does not implement runtime transitions, DWK/WOK behavior, doortypes/genericdoors model lookup, browser proof, or retail parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        },
+        {
+          "command": "npx.cmd tsc -p tsconfig.json --pretty false --noEmit",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-012-alpha008-beta009-no-wait-door-runtime-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must verify Alpha008 remains active, Beta009 is concrete no-wait door runtime evidence work, helper geometry remains opt-in/default-hidden, and no POC transplant or parity promotion appears.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-012-ingest-alpha007-assign-alpha008-preserve-beta008",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 007, assigned Worker Alpha iteration 008 immediately under no-wait dispatch, and preserved Worker Beta iteration 008 as active door resolver work.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+        "frontend/src/modules/tiles/contracts.ts",
+        "frontend/src/modules/tiles/adapters/httpTileApiPort.ts"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-008-tile-mdl-glb-material-contract-readiness",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Terrain Readiness now breaks the real tile process/texture result into source-backed MDL source object-key evidence, explicit missing GLB geometry contract status, texture delivery readiness, material binding blockers, and capture-readable data-terrain-tile-* fields without claiming full tile model parity.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "frontend/src/modules/tiles/contracts.ts",
+        "frontend/src/modules/tiles/ports/tileApiPort.ts",
+        "frontend/src/modules/tiles/adapters/httpTileApiPort.ts",
+        "backend/src/modules/tiles/adapters/inbound/http/tiles.controller.ts",
+        "backend/src/modules/tiles/application/tiles.application.service.ts",
+        "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-alpha-latest.json"
+      ],
+      "disproof": "If current tile process results only expose process/cache/texture contracts, the UI keeps GLB geometry, material binding, full loader, browser proof, WOK/DWK, and retail parity blockers visible. MDL source is counted only when the real process object key ends in .mdl; no paths or geometry are invented.",
+      "canonicalParityPromoted": false,
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ]
+    },
+    {
+      "claimId": "areas-audit-iteration-011-alpha008-beta008-no-wait-render-contract-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must verify Alpha008 and Beta008 are concrete no-wait visible lanes and that neither terrain render-contract nor door resolver work invents source data, helper visibility, or parity.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-011-ingest-beta007-preserve-alpha007-assign-beta008",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Beta iteration 007, preserved Worker Alpha iteration 007 as active, and assigned Worker Beta iteration 008 immediately under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-008-door-template-model-resolver-source-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Areas now fetches source-backed UTD/door render payloads for GIT doors through the existing placeable processing contract with subtypeHint=door, selected door properties expose real UTD source/template/Appearance/model/asset handoff fields when present, viewport datasets expose partial door resolver evidence, and the object renderer can use a proven door model URL while preserving exact doortypes/genericdoors blockers.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+        "backend/src/modules/catalog/domain/template.types.ts",
+        "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+        "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If the current backend has no UTD payload or no model URL for a specific door, the panel/datasets keep missing UTD/model asset blockers. The slice does not resolve doortypes.2da, genericdoors.2da, door animation, transition runtime, DWK/WOK behavior, browser proof, or retail parity, and it invents no model names or 2DA rows.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-010-alpha007-beta008-door-resolver-no-wait-guard",
+      "status": "assigned",
+      "evidenceLevel": "directive",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit must verify Alpha007 remains active, Beta008 is concrete no-wait door resolver work, helper geometry remains opt-in/default-hidden, and no POC transplant or parity promotion appears.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-010-preserve-alpha-beta-007-no-wait-dispatch",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator verified Alpha007 and Beta007 have no newer completed checkpoint or hard blocker yet, then preserved both implementation-ready no-wait assignments so both workers continue without waiting.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-factory.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If either worker later checkpoints completion or a hard blocker, the next coordinator heartbeat must accept it and assign the next visible slice immediately. Until then, no-wait means continue Alpha007 and Beta007 without scheduler churn.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-009-ingest-alpha-beta-006-assign-007-scene-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 006 and Worker Beta iteration 006, then assigned immediate iteration 007 scene-package/render-contract lanes to both workers under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-007-tile-process-contract-source-wiring",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Terrain Readiness now calls the real backend catalog/tiles process and tile texture delivery contract endpoints for bounded source-backed candidates derived from SET modelResRef values, then exposes ready/blocked counts, cache samples, texture proxy contracts, and exact backend blockers.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "frontend/src/modules/tiles/contracts.ts",
+        "frontend/src/modules/tiles/ports/tileApiPort.ts",
+        "frontend/src/modules/tiles/adapters/httpTileApiPort.ts",
+        "frontend/src/modules/tiles/application/areaTileProcessContractReadiness.ts",
+        "frontend/src/App.tsx",
+        "frontend/src/modules/layout/components/WorkspaceMockLayout.tsx",
+        "backend/src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository.ts",
+        "backend/src/modules/tiles/application/tiles.application.service.ts"
+      ],
+      "disproof": "If aurora-web still cannot prove tile process/cache/source asset availability from current contracts, keep the derived/unverified candidate and missing loader blockers visible instead of inventing geometry, asset paths, texture availability, runtime capture, or parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-007-2da-model-lookup-readiness-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Selected placeable and door evidence now exposes 2DA/model lookup readiness: placeables show real catalog metadata such as source2da/source2daRow/lookupModelResRef/template/dependencies when present, doors show exact missing doortypes/genericdoors/template model resolver blockers, and viewport datasets expose lookup contract evidence for visible and selected objects.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "frontend/src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If selected placeable render payload lacks catalog metadata, the UI/datasets keep missing resolver blockers. Door doortypes/genericdoors/template model lookup remains blocked until a real resolver exists; no model names, 2DA rows, door behavior, animation, DWK/WOK, runtime capture, or parity were invented.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-009-alpha007-beta007-scene-contract-no-wait-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit verified Alpha007 and Beta007 are concrete no-wait visible lanes, accepted Alpha006/Beta006 as source-backed non-parity progress, and flagged coordinator009 artifact drift across context/latest/run-log artifacts.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "frontend/src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx"
+      ],
+      "canonicalParityPromoted": false,
+      "disproof": "If Alpha007 or Beta007 waits, if coordinator-owned artifacts remain stale, if POC code is transplanted, or if any tile/model/door/helper/browser/retail parity claim appears without source/route proof, audit should flag it immediately."
+    },
+    {
+      "claimId": "areas-coordinator-iteration-008-ingest-alpha-beta-005-assign-006-scene-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 005 and Worker Beta iteration 005, then assigned immediate iteration 006 scene-package/render-contract lanes to both workers under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-006-terrain-tile-asset-contract-readiness",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Opened viewport and pre-open Terrain Readiness now expose terrain tile asset contract readiness from real ARE TileList and SET modelResRef data: derived catalog tile candidates, process/MDL/GLB/texture statuses, exact blockers, and capture-readable areaTerrainTileAsset* plus data-terrain-tile-* fields without inventing geometry.",
+      "evidence": [
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "disproof": "If current aurora-web terrain paths cannot resolve asset availability beyond SET model resrefs, show the exact missing asset contract fields and keep source-backed bridge rendering non-parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-006-area-object-model-source-fields-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Area object model-resolution source fields are now first-class where GIT provides them: backend parser preserves optional Appearance and GenericType, Area API/frontend contracts pass them through, SceneObject.source exposes them, and selected placeable/door panels plus viewport model-contract datasets prefer source-backed values before showing blockers.",
+      "evidence": [
+        "backend/src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts",
+        "backend/src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts",
+        "backend/src/modules/areas/domain/area.types.ts",
+        "frontend/src/modules/areas/contracts.ts",
+        "frontend/src/modules/areas/adapters/httpAreaApiPort.ts",
+        "frontend/src/modules/areas/application/areaSceneMapper.ts",
+        "frontend/src/modules/scene/contracts.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If real GIT files do not include Appearance or GenericType for a specific object, the UI/datasets must keep source-field-missing blockers. This slice does not resolve placeables.2da ModelName, doortypes/genericdoors, door models, animations, transitions, DWK/WOK, browser proof, or parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        },
+        {
+          "command": "npx.cmd tsc -p tsconfig.json --pretty false --noEmit",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-007-ingest-beta004-preserve-alpha005-assign-beta005-scene-contract",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Beta iteration 004, preserved Worker Alpha iteration 005 as active, and assigned Worker Beta iteration 005 toward an aurora-web area scene package/render-contract path using the POC only as observational evidence.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-005-placeable-door-model-resolution-contract-readiness",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Selected placeable and door panels now expose the POC-informed model-resolution checklist, and the opened-area viewport writes capture-readable areaObjectSelectedModelContractStatus/Evidence datasets that preserve GIT source/order ids while surfacing exact placeable Appearance/2DA/model asset readiness and door template/appearance/generic type/doortypes/genericdoors blockers.",
+      "evidence": [
+        "frontend/src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If later parser/template/2DA work exposes first-class Area GIT Appearance or door appearance/generic type, replace the current missing-contract blockers with those source fields; until then, do not invent model names, door assets, animations, transitions, DWK/WOK behavior, or parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-008-scene-package-contract-no-wait-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit verified coordinator heartbeat 008 ingested Alpha005 and Beta005, assigned concrete Alpha006/Beta006 no-wait scene-contract lanes, kept the POC observational-only, and preserved explicit blocker/no-parity guardrails.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json"
+      ],
+      "disproof": "If Alpha006 or Beta006 waits, if coordinator instructions become vague, or if POC code transplant/parity promotion appears, audit should flag it immediately.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-poc-reference-analysis-ingested",
+      "status": "completed_advisory",
+      "evidenceLevel": "decomp-evidence",
+      "owner": "current-thread",
+      "visibleOutcome": "The Areas Generator 3d POC was inspected as observational evidence and the factory now points Alpha/Beta toward a real area scene package/render-contract lane instead of treating source-backed bridges as the final Aurora path.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-poc-reference-analysis.json",
+        "backend/docs/aurora-reverse/areas-loop-factory.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "C:\\Projects\\nwn-last-city\\Areas Generator 3d"
+      ],
+      "disproof": "If later source inspection shows aurora-web already has a complete selected-area scene package/real MDL geometry path, the next coordinator heartbeat should assign workers to wire that path visibly rather than keep readiness blockers.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-006-ingest-alpha004-preserve-beta004-assign-alpha005",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 004, preserved Worker Beta iteration 004 as active, and immediately assigned Worker Alpha iteration 005 under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-005-opened-area-terrain-runtime-proof-dataset",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Opened area viewport now exposes capture-readable scene-package terrain readiness from the actual AreaScene: area id, tileset, tile/model counts, model source/fallback summary, model/tile samples, ARE TileList, SET model metadata, MDL/GLB/texture availability statuses, exact loader blockers, and source-backed bridge status.",
+      "evidence": [
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "disproof": "If browser/runtime capture later shows the opened selected area lacks these areaTerrain* datasets, preserve the exact runtime blocker; do not invent geometry, GLB availability, texture contracts, or parity.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-005-ingest-alpha-beta-003-assign-004",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 003, Worker Beta iteration 003, and Independent Audit iteration 005, then assigned immediate iteration 004 visible lanes to Alpha and Beta under no-wait dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-004-tile-model-loader-readiness-surface",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Area selection now exposes a pre-open source-backed tile model loader readiness surface through Check Terrain Readiness, using selected AreaApiDetail.tiles and capture-readable data-terrain status/count/source/blocker attributes while keeping the full loader blocker explicit.",
+      "evidence": [
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "disproof": "If runtime/browser verification later shows detail tiles or readiness fields are absent for a real selected area, preserve blocked_missing_tile_data or blocked_tile_model_metadata_incomplete rather than inventing model geometry.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-004-source-object-ordering-and-selected-datasets",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Area object list rows now show visible GIT/scene order keys and data-source-order-key attributes, while the opened-area viewport exposes capture-readable areaObjectOrderKeys, areaObjectOrderEvidence, and selected-object source/order/evidence datasets without moving or inventing objects.",
+      "evidence": [
+        "frontend/src/modules/layout/components/SceneObjectListPanel.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/styles.css",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "disproof": "If later source analysis proves AreaApiDetail object array order is not original Aurora GIT order, preserve this as current scene/source-array order evidence and add an exact source-order blocker rather than reordering objects.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-005-alpha-beta-003-consistency-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit accepted both Alpha and Beta iteration 003 as visible source-backed progress, then flagged coordinator ingest/next-lane assignment and stale Worker Beta latest-report consistency as the active guards.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-004-alpha-readiness-ingest-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit accepted Worker Alpha iteration 003 selected-area terrain readiness as repo-visible progress, then shifted the guard to coordinator ingest, Beta iteration 003 progress, and real-route proof readiness.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-003-runtime-proof-readiness-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit verified coordinator iteration 004 resolved the stale-ingest warning and assigned concrete Alpha/Beta iteration 003 lanes, then shifted findings to real-route proof readiness and remaining visible source-backed gaps.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-004-ingest-alpha-beta-002-assign-003",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha iteration 002 and Worker Beta iteration 002, then assigned immediate iteration 003 visible lanes to both workers under no-wait parallel dispatch.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-003-area-selection-terrain-readiness",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Area opening now exposes real source-backed terrain/tile/model readiness from selected area detail data without inventing list metrics: tileset, tile count, resolved/missing model metadata, source counts, fallback count, sampled row/col/tileId/orientation/height, sampled model refs, bridge disclosure, and full loader blocker.",
+      "evidence": [
+        "frontend/src/modules/layout/components/AreaSelectionPanel.tsx",
+        "frontend/src/styles.css",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "disproof": "If runtime/browser verification later shows detail tiles are absent for a real selected area, preserve blocked_missing_tile_data rather than inventing tile readiness.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-003-door-placeable-model-handoff-affordance",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Selected placeable and door properties now show Aurora source/model-handoff evidence: source id, template id, exact x/y/z/bearing placement, placeable render-contract readiness, door transition/readiness status, marker render path, and explicit blockers for real door MDL animation, transition runtime, and DWK/WOK behavior.",
+      "evidence": [
+        "frontend/src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/properties/DoorPropertiesDialog.tsx",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/styles.css",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "disproof": "If later runtime proof shows a selected placeable has no render-contract payload, preserve the missing-render-contract blocker instead of inventing model readiness. Door MDL animation, transition runtime, and DWK/WOK remain blocked.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-007-alpha005-beta004-no-wait-runtime-proof-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit verified Worker Alpha iteration 005 remains active, accepted Worker Beta iteration 004 as repo-visible source ordering/selected dataset progress, and shifted the no-wait guard to coordinator ingest plus immediate Beta005 assignment.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-claim-registry.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.json"
+      ],
+      "disproof": "If the next coordinator heartbeat does not ingest Beta004 and assign a fresh Beta lane while preserving Alpha005, audit should flag coordinator waiting or soft dispatch.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-002-no-wait-stall-guard",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit now flags worker stalls, waiting states, and overly soft coordinator directives while verifying Alpha and Beta both produced concrete visible progress.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-no-wait-parallel-dispatch-correction",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "current-thread",
+      "visibleOutcome": "Coordinator protocol now requires no-wait parallel dispatch: Worker Alpha and Worker Beta must always have immediate concrete visible assignments for source-backed tiles, placeables, doors, and object ordering.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-factory.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-003-post-alpha-beta-directives",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator ingested completed Worker Alpha terrain bridge, completed Worker Beta GIT object/door bridge, and completed Independent Audit gap inventory, then assigned the next visible lanes.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-002-door-transition-status-readability",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "Placeables and doors now have visible source-backed/fallback list badges, source summary counts, viewport source-status footprints, selected source id sprites, and capture-readable source status datasets.",
+      "evidence": [
+        "frontend/src/modules/layout/components/SceneObjectListPanel.tsx",
+        "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/styles.css",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "disproof": "If source-backed door/placeable status cannot be improved without invented model or transition data, record the exact blocker and keep real door model/DWK/WOK work as the next lane.",
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc -p tsconfig.app.json --pretty false",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-002-alpha-reassignment",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator accepted Worker Alpha's completed terrain bridge checkpoint, assigned Alpha iteration 002, and preserved Worker Beta's visible object/door directive.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-002-terrain-bridge-visual-verification",
+      "status": "completed_readability_slice",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Source-backed terrain bridge readability improved with asymmetric orientation geometry, modelSource/height-aware coloring, and sampled labels for real tileId/modelResRef/orientation/height.",
+      "disproof": "If runtime app verification is unavailable or the bridge output cannot be made readable without inventing tile geometry/source data, record the exact blocker and keep full tile model geometry loader work as the next lane.",
+      "evidence": [
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-coordinator-iteration-001-directives-current",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "coordinator",
+      "visibleOutcome": "Coordinator verified current Worker Alpha/Beta directives and preserved them without unnecessary churn.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-factory-control-plane-bootstrap",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "current-thread",
+      "visibleOutcome": "Durable control-plane files exist for the Areas factory and define four heartbeat contexts.",
+      "evidence": [
+        "backend/docs/aurora-reverse/areas-loop-factory.md",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/guard-reports/areas-domain-coordinator-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-factory-heartbeat-context-setup",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "current-thread",
+      "visibleOutcome": "Four same-directory Codex contexts and one-minute heartbeat automations are active for coordinator, terrain worker, object worker, and independent audit.",
+      "evidence": [
+        "thread:019ed47a-2c6c-7301-bec3-154865bc10a4 automation:aurora-areas-coordinator",
+        "thread:019ed47a-8459-79d2-b19b-ee0080f5eebb automation:aurora-areas-worker-alpha",
+        "thread:019ed47a-db3f-7081-a3f4-edd2216a8060 automation:aurora-areas-worker-beta",
+        "thread:019ed47b-3c1b-7a20-976a-5df23ae60929 automation:aurora-areas-independent-audit"
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-alpha-iteration-001-visible-terrain-source-path",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-alpha",
+      "visibleOutcome": "Complete ARE TileList plus SET model metadata now renders a source-backed tile bridge instead of stopping at an invisible blocked_tile_model_geometry_loader_missing state.",
+      "disproof": "If ARE/SET tile data cannot produce stable tile positions, rotations, heights, model references, or a truthful local preview path without invented data, the claim is blocked.",
+      "evidence": [
+        "frontend/src/modules/layout/adapters/three/workspaceTerrainMesh.ts",
+        "backend/docs/aurora-reverse/areas-context-pack.md",
+        "backend/docs/aurora-reverse/areas-loop-state.json",
+        "backend/docs/aurora-reverse/areas-run-log.jsonl"
+      ],
+      "commandsRun": [
+        {
+          "command": "npx.cmd tsc --noEmit --pretty false -p tsconfig.app.json",
+          "result": "passed"
+        }
+      ],
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-worker-beta-iteration-001-visible-git-objects-and-doors",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "worker-beta",
+      "visibleOutcome": "GIT placeables and doors carry source metadata, rows show source id plus x/y/z/bearing, doors have a distinct upright primitive marker, and viewport datasets expose source object counts.",
+      "evidence": [
+        "frontend/src/modules/scene/contracts.ts",
+        "frontend/src/modules/areas/application/areaSceneMapper.ts",
+        "frontend/src/modules/layout/application/sceneObjectCatalogQueryFacade.ts",
+        "frontend/src/modules/layout/components/SceneObjectListPanel.tsx",
+        "frontend/src/modules/layout/adapters/three/workspaceObjectMeshLayer.ts",
+        "frontend/src/modules/layout/components/WorkspaceCanvasViewport.tsx",
+        "frontend/src/styles.css",
+        "backend/docs/aurora-reverse/guard-reports/areas-worker-beta-latest.md"
+      ],
+      "disproof": "If GIT objects are absent or cannot be mapped without inventing object data, the claim is blocked and the exact source blocker must be recorded.",
+      "canonicalParityPromoted": false
+    },
+    {
+      "claimId": "areas-audit-iteration-001-visible-gap-inventory",
+      "status": "completed",
+      "evidenceLevel": "repo-visible-evidence",
+      "owner": "independent-audit",
+      "visibleOutcome": "Independent Audit published a post-Worker-Alpha/Beta visible gap inventory: terrain and GIT object bridges need real-route proof; true tile geometry/materials, door model/DWK/WOK behavior, area selection readiness, and artifact normalization remain open.",
+      "disproof": "If the audit cannot inspect current state because app/runtime prerequisites are unavailable, it must write exact blockers and source-only findings.",
+      "evidence": [
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.md",
+        "backend/docs/aurora-reverse/guard-reports/areas-audit-latest.json"
+      ],
+      "canonicalParityPromoted": false
+    }
+  ]
+}

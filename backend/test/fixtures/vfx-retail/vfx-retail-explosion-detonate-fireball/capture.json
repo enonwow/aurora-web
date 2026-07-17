@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "aurora-vfx-retail-capture/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "retailExecution": {
+    "commandOrScript": "dm_runscript vfx_p12_fireball22",
+    "startedAt": null,
+    "finishedAt": null,
+    "retailBuildRef": "retail-build.json",
+    "effectContextRef": "effect-context.json",
+    "harnessRef": "effect-fireball-script.nss"
+  },
+  "camera": {
+    "areaTag": "retail-fireball-capture-area",
+    "position": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "orientation": {
+      "pitch": null,
+      "yaw": null,
+      "roll": null
+    },
+    "fov": null,
+    "near": null,
+    "far": null,
+    "framingRequirement": "Camera must show the fireball location before effect start, the detonate moment, and post-detonate particles without moving during the capture window."
+  },
+  "sceneSetup": {
+    "locationRef": "retail-fireball-location",
+    "targetRef": "retail-fireball-location",
+    "effectorRef": null,
+    "lightingProfile": null,
+    "weather": null,
+    "timeOfDay": null,
+    "background": "missing"
+  },
+  "detonateCaptureRequirements": {
+    "requiredEvent": "detonate",
+    "minimumPreDetonateWindowSeconds": 1,
+    "minimumPostDetonateWindowSeconds": 2,
+    "startEffectVisible": false,
+    "detonateMomentCaptured": false,
+    "detonateTimeSeconds": null,
+    "firstParticleTimeSeconds": null,
+    "particlesOnlyAfterDetonate": null,
+    "timingMethod": "TODO: frame timestamps or runtime tick dump"
+  },
+  "media": {
+    "screenshots": [],
+    "videoPath": null,
+    "frameRange": {
+      "startSeconds": null,
+      "endSeconds": null,
+      "sampledFrames": []
+    },
+    "mediaHashesSha256": []
+  },
+  "captureNotes": "Retail client is unavailable in this context; no screenshot, video, detonate timestamp, or capture metadata was produced.",
+  "notParityEvidenceByItself": true
+}

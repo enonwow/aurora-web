@@ -1,0 +1,120 @@
+{
+  "source": "source-mdl",
+  "diagnostics": [],
+  "emitters": [
+    {
+      "source": "aurora-mdl-binary",
+      "sourceModelAssetId": "plc-t04-source-model",
+      "sourceModelFileName": "plc_t04.mdl",
+      "sourceModelObjectKey": "modules/current/__aurora/sources/vanilla/models/plc_t04.mdl",
+      "nodeName": "OmenEmitter240",
+      "texture": "fxpa_flame00",
+      "emitterType": "Fountain",
+      "renderMode": "Normal",
+      "blendMode": "Lighten",
+      "atlas": {
+        "xGridRaw": 4,
+        "yGridRaw": 4,
+        "effectiveXGrid": 4,
+        "effectiveYGrid": 4,
+        "fps": 24,
+        "frameStart": 0,
+        "frameEnd": 15,
+        "random": true
+      },
+      "transform": {
+        "position": [-0.021879099309444427, -0.013056599535048008, 0.1125670000910759]
+      },
+      "simulation": {
+        "xSize": 40,
+        "ySize": 40,
+        "birthrate": 6,
+        "lifeExp": 2,
+        "velocity": 0.10000000149011612,
+        "randvel": 0,
+        "spread": 0.34906598925590515,
+        "sizeStart": 2,
+        "sizeEnd": 4,
+        "sizeStartY": 0,
+        "sizeEndY": 0,
+        "alphaStart": 0.75,
+        "alphaEnd": 0.10000000149011612,
+        "colorStart": [0.2549020051956177, 0.2549020051956177, 0.2549020051956177],
+        "colorEnd": [1, 1, 1],
+        "inherit": true,
+        "affectedByWind": false
+      },
+      "animations": [
+        { "animationName": "on", "simulation": { "birthrate": 6, "xSize": 40, "ySize": 40 } },
+        { "animationName": "off2on", "simulation": { "birthrate": -4, "xSize": 10, "ySize": 10 } },
+        { "animationName": "on2off", "simulation": { "birthrate": 3 } },
+        { "animationName": "off", "simulation": { "birthrate": -4 } }
+      ],
+      "sourceState": {
+        "renderOrder": 0,
+        "twoSidedTexture": false,
+        "loop": false,
+        "isTinted": false,
+        "splat": false
+      }
+    },
+    {
+      "source": "aurora-mdl-binary",
+      "sourceModelAssetId": "plc-t04-source-model",
+      "sourceModelFileName": "plc_t04.mdl",
+      "sourceModelObjectKey": "modules/current/__aurora/sources/vanilla/models/plc_t04.mdl",
+      "nodeName": "fire!02",
+      "texture": "fxpa_smoke01",
+      "emitterType": "Fountain",
+      "renderMode": "Normal",
+      "blendMode": "Normal",
+      "atlas": {
+        "xGridRaw": 4,
+        "yGridRaw": 4,
+        "effectiveXGrid": 4,
+        "effectiveYGrid": 4,
+        "fps": 10,
+        "frameStart": 0,
+        "frameEnd": 24,
+        "random": false
+      },
+      "transform": {
+        "position": [-0.034283701330423355, -0.03768249973654747, 1.721690058708191]
+      },
+      "simulation": {
+        "xSize": 40,
+        "ySize": 40,
+        "birthrate": 5,
+        "lifeExp": 2,
+        "mass": 0.014999999664723873,
+        "velocity": 2,
+        "randvel": 0.20000000298023224,
+        "spread": 0.17453299462795258,
+        "particleRot": 0.5,
+        "sizeStart": 2,
+        "sizeEnd": 4,
+        "sizeStartY": 0,
+        "sizeEndY": 0,
+        "alphaStart": 0.10000000149011612,
+        "alphaEnd": 0,
+        "colorStart": [0, 0, 0],
+        "colorEnd": [0, 0, 0],
+        "inherit": true,
+        "affectedByWind": true
+      },
+      "animations": [
+        { "animationName": "on", "simulation": { "birthrate": 5 } },
+        { "animationName": "off2on", "simulation": { "birthrate": -15 } },
+        { "animationName": "on2off", "simulation": { "birthrate": 5 } },
+        { "animationName": "off", "simulation": { "birthrate": 5 } }
+      ],
+      "sourceState": {
+        "renderOrder": 0,
+        "twoSidedTexture": false,
+        "loop": false,
+        "isTinted": false,
+        "splat": false
+      }
+    }
+  ]
+}

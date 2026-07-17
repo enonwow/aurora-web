@@ -1,0 +1,941 @@
+{
+  "specVersion": "alg-bench-v1",
+  "generatedAt": "2026-05-26T20:47:06.610Z",
+  "profile": "small",
+  "timing": {
+    "startedAt": "2026-05-26T20:47:05.993Z",
+    "finishedAt": "2026-05-26T20:47:06.610Z"
+  },
+  "config": {
+    "maxCandidatesPerType": 10,
+    "iterations": 40,
+    "warmupIterations": 5,
+    "areaLoadIterations": 10,
+    "areaLoadWarmupIterations": 2,
+    "areaIterations": 20,
+    "areaWarmupIterations": 3,
+    "areaCacheReadIterations": 80,
+    "queueJobs": 20,
+    "queuePollMs": 75,
+    "queueTimeoutMs": 20000
+  },
+  "datasets": {
+    "placeableIds": [
+      "plc_bench_c_wingsmeph_001",
+      "plc_bench_ad_top_lion_1_001",
+      "plc_bench_plc_x02_001",
+      "plc_bench_tn_sdoor_14_001",
+      "plc_bench_tn_gdoor_05_001"
+    ],
+    "tileIds": [
+      "tile_city_street_001",
+      "tile_city_gate_002"
+    ],
+    "soundIds": [
+      "sound_ambient_city_market_001",
+      "sound_music_city_theme_002",
+      "sound_effect_forge_loop_003"
+    ],
+    "areaIds": [
+      "area_market_district_001",
+      "area_dungeon_entry_001"
+    ]
+  },
+  "memory": {
+    "peakRssMb": 302.5234,
+    "snapshots": [
+      {
+        "label": "startup",
+        "at": "2026-05-26T20:47:05.731Z",
+        "rssMb": 300.2695,
+        "heapUsedMb": 121.7729,
+        "externalMb": 8.8083,
+        "arrayBuffersMb": 5.2653
+      },
+      {
+        "label": "after-bootstrap",
+        "at": "2026-05-26T20:47:06.063Z",
+        "rssMb": 300.9023,
+        "heapUsedMb": 99.1782,
+        "externalMb": 8.6479,
+        "arrayBuffersMb": 5.0603
+      },
+      {
+        "label": "after-placeables",
+        "at": "2026-05-26T20:47:06.073Z",
+        "rssMb": 301.0469,
+        "heapUsedMb": 103.3053,
+        "externalMb": 8.6543,
+        "arrayBuffersMb": 5.0666
+      },
+      {
+        "label": "after-tiles",
+        "at": "2026-05-26T20:47:06.079Z",
+        "rssMb": 301.3008,
+        "heapUsedMb": 104.7389,
+        "externalMb": 8.6582,
+        "arrayBuffersMb": 5.0706
+      },
+      {
+        "label": "after-sounds",
+        "at": "2026-05-26T20:47:06.085Z",
+        "rssMb": 301.4258,
+        "heapUsedMb": 106.3672,
+        "externalMb": 8.6631,
+        "arrayBuffersMb": 5.0754
+      },
+      {
+        "label": "after-areas-load",
+        "at": "2026-05-26T20:47:06.165Z",
+        "rssMb": 301.582,
+        "heapUsedMb": 114.8597,
+        "externalMb": 8.8158,
+        "arrayBuffersMb": 5.2282
+      },
+      {
+        "label": "after-areas",
+        "at": "2026-05-26T20:47:06.542Z",
+        "rssMb": 302.5234,
+        "heapUsedMb": 135.2118,
+        "externalMb": 9.4988,
+        "arrayBuffersMb": 5.9111
+      },
+      {
+        "label": "after-queue",
+        "at": "2026-05-26T20:47:06.610Z",
+        "rssMb": 301.918,
+        "heapUsedMb": 109.468,
+        "externalMb": 8.583,
+        "arrayBuffersMb": 4.9954
+      }
+    ]
+  },
+  "results": {
+    "placeables": {
+      "cold": {
+        "datasetFingerprint": "a8852fc6a6100ff46b7ba2d4a00e5a75e6b0f85b816ff600818ac9798ea71e73",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": true,
+          "candidates": 5
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.067Z",
+          "finishedAt": "2026-05-26T20:47:06.069Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0065,
+            "maxMs": 0.0519,
+            "avgMs": 0.0083,
+            "p50Ms": 0.0071,
+            "p95Ms": 0.0132,
+            "p99Ms": 0.0309
+          },
+          "perCandidate": [
+            {
+              "templateId": "plc_bench_c_wingsmeph_001",
+              "resref": "c_wingsmeph",
+              "placeableSubtype": "generic",
+              "metrics": {
+                "minMs": 0.0072,
+                "maxMs": 0.0519,
+                "avgMs": 0.0129,
+                "p50Ms": 0.0085,
+                "p95Ms": 0.0309,
+                "p99Ms": 0.0519
+              }
+            },
+            {
+              "templateId": "plc_bench_ad_top_lion_1_001",
+              "resref": "ad_top_lion_1",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0066,
+                "maxMs": 0.008,
+                "avgMs": 0.007,
+                "p50Ms": 0.007,
+                "p95Ms": 0.0076,
+                "p99Ms": 0.008
+              }
+            },
+            {
+              "templateId": "plc_bench_plc_x02_001",
+              "resref": "plc_x02",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0065,
+                "maxMs": 0.0083,
+                "avgMs": 0.007,
+                "p50Ms": 0.007,
+                "p95Ms": 0.0075,
+                "p99Ms": 0.0083
+              }
+            },
+            {
+              "templateId": "plc_bench_tn_sdoor_14_001",
+              "resref": "tn_sdoor_14",
+              "placeableSubtype": "door",
+              "metrics": {
+                "minMs": 0.0066,
+                "maxMs": 0.0189,
+                "avgMs": 0.0073,
+                "p50Ms": 0.0069,
+                "p95Ms": 0.0078,
+                "p99Ms": 0.0189
+              }
+            },
+            {
+              "templateId": "plc_bench_tn_gdoor_05_001",
+              "resref": "tn_gdoor_05",
+              "placeableSubtype": "door",
+              "metrics": {
+                "minMs": 0.0067,
+                "maxMs": 0.0142,
+                "avgMs": 0.0073,
+                "p50Ms": 0.0071,
+                "p95Ms": 0.0079,
+                "p99Ms": 0.0142
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "eb26134f9c109fdf6b2f7301e6f3c118646a6e825d986aaf9e28c8f9e1c8cb80",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": false,
+          "candidates": 5
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.072Z",
+          "finishedAt": "2026-05-26T20:47:06.073Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0023,
+            "maxMs": 0.1534,
+            "avgMs": 0.0041,
+            "p50Ms": 0.0027,
+            "p95Ms": 0.0055,
+            "p99Ms": 0.0146
+          },
+          "perCandidate": [
+            {
+              "templateId": "plc_bench_c_wingsmeph_001",
+              "resref": "c_wingsmeph",
+              "placeableSubtype": "generic",
+              "metrics": {
+                "minMs": 0.0024,
+                "maxMs": 0.1534,
+                "avgMs": 0.0079,
+                "p50Ms": 0.0031,
+                "p95Ms": 0.0122,
+                "p99Ms": 0.1534
+              }
+            },
+            {
+              "templateId": "plc_bench_ad_top_lion_1_001",
+              "resref": "ad_top_lion_1",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0023,
+                "maxMs": 0.0071,
+                "avgMs": 0.0027,
+                "p50Ms": 0.0025,
+                "p95Ms": 0.0032,
+                "p99Ms": 0.0071
+              }
+            },
+            {
+              "templateId": "plc_bench_plc_x02_001",
+              "resref": "plc_x02",
+              "placeableSubtype": "vfx",
+              "metrics": {
+                "minMs": 0.0024,
+                "maxMs": 0.0312,
+                "avgMs": 0.004,
+                "p50Ms": 0.0027,
+                "p95Ms": 0.008,
+                "p99Ms": 0.0312
+              }
+            },
+            {
+              "templateId": "plc_bench_tn_sdoor_14_001",
+              "resref": "tn_sdoor_14",
+              "placeableSubtype": "door",
+              "metrics": {
+                "minMs": 0.0023,
+                "maxMs": 0.0039,
+                "avgMs": 0.0027,
+                "p50Ms": 0.0027,
+                "p95Ms": 0.0033,
+                "p99Ms": 0.0039
+              }
+            },
+            {
+              "templateId": "plc_bench_tn_gdoor_05_001",
+              "resref": "tn_gdoor_05",
+              "placeableSubtype": "door",
+              "metrics": {
+                "minMs": 0.0023,
+                "maxMs": 0.0138,
+                "avgMs": 0.0029,
+                "p50Ms": 0.0025,
+                "p95Ms": 0.0032,
+                "p99Ms": 0.0138
+              }
+            }
+          ]
+        }
+      }
+    },
+    "tiles": {
+      "cold": {
+        "datasetFingerprint": "2f35179c4d997c42549e0fd81a339e9050bcf66a8790a0aba79f80778452609a",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.075Z",
+          "finishedAt": "2026-05-26T20:47:06.076Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0029,
+            "maxMs": 0.0254,
+            "avgMs": 0.004361249999999997,
+            "p50Ms": 0.0033,
+            "p95Ms": 0.0094,
+            "p99Ms": 0.0193
+          },
+          "perCandidate": [
+            {
+              "tileId": "tile_city_street_001",
+              "resref": "tcn01_city_street",
+              "metrics": {
+                "minMs": 0.0031,
+                "maxMs": 0.0254,
+                "avgMs": 0.005557500000000002,
+                "p50Ms": 0.0039,
+                "p95Ms": 0.0113,
+                "p99Ms": 0.0193
+              }
+            },
+            {
+              "tileId": "tile_city_gate_002",
+              "resref": "tcn02_city_gate",
+              "metrics": {
+                "minMs": 0.0029,
+                "maxMs": 0.0036,
+                "avgMs": 0.003164999999999999,
+                "p50Ms": 0.0031,
+                "p95Ms": 0.0035,
+                "p99Ms": 0.0035
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "8f5ec759327a7194ed1cc73e7afaf52cb806094c4a4e8aaedc916000eaa42a0e",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.078Z",
+          "finishedAt": "2026-05-26T20:47:06.078Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0006,
+            "maxMs": 0.0856,
+            "avgMs": 0.0021724999999999995,
+            "p50Ms": 0.0008,
+            "p95Ms": 0.0022,
+            "p99Ms": 0.0098
+          },
+          "perCandidate": [
+            {
+              "tileId": "tile_city_street_001",
+              "resref": "tcn01_city_street",
+              "metrics": {
+                "minMs": 0.0006,
+                "maxMs": 0.0856,
+                "avgMs": 0.0033300000000000005,
+                "p50Ms": 0.0008,
+                "p95Ms": 0.0044,
+                "p99Ms": 0.0052
+              }
+            },
+            {
+              "tileId": "tile_city_gate_002",
+              "resref": "tcn02_city_gate",
+              "metrics": {
+                "minMs": 0.0006,
+                "maxMs": 0.0098,
+                "avgMs": 0.0010149999999999998,
+                "p50Ms": 0.0008,
+                "p95Ms": 0.0011,
+                "p99Ms": 0.0011
+              }
+            }
+          ]
+        }
+      }
+    },
+    "sounds": {
+      "cold": {
+        "datasetFingerprint": "696b88808a55813f3328ed8add01a82e1e8023cccef3b99d68f655bdd1b4a9b0",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": true,
+          "candidates": 3
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.081Z",
+          "finishedAt": "2026-05-26T20:47:06.082Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0037,
+            "maxMs": 0.0311,
+            "avgMs": 0.004993333333333334,
+            "p50Ms": 0.004,
+            "p95Ms": 0.0079,
+            "p99Ms": 0.0133
+          },
+          "perCandidate": [
+            {
+              "soundId": "sound_ambient_city_market_001",
+              "resref": "amb_city_market_day",
+              "metrics": {
+                "minMs": 0.0041,
+                "maxMs": 0.0311,
+                "avgMs": 0.0070374999999999995,
+                "p50Ms": 0.0049,
+                "p95Ms": 0.0133,
+                "p99Ms": 0.0259
+              }
+            },
+            {
+              "soundId": "sound_music_city_theme_002",
+              "resref": "mus_city_theme_main",
+              "metrics": {
+                "minMs": 0.0037,
+                "maxMs": 0.0047,
+                "avgMs": 0.003962500000000001,
+                "p50Ms": 0.0039,
+                "p95Ms": 0.0042,
+                "p99Ms": 0.0044
+              }
+            },
+            {
+              "soundId": "sound_effect_forge_loop_003",
+              "resref": "sfx_forge_loop_heavy",
+              "metrics": {
+                "minMs": 0.0037,
+                "maxMs": 0.0043,
+                "avgMs": 0.003980000000000001,
+                "p50Ms": 0.004,
+                "p95Ms": 0.0042,
+                "p99Ms": 0.0043
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "datasetFingerprint": "c354bb9bb56fe86e058d1a9998aae7b861d8460981ef203db574ea3044642fd5",
+        "config": {
+          "iterations": 40,
+          "warmupIterations": 5,
+          "bypassCache": false,
+          "candidates": 3
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.085Z",
+          "finishedAt": "2026-05-26T20:47:06.085Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 0.0007,
+            "maxMs": 0.0908,
+            "avgMs": 0.0018366666666666666,
+            "p50Ms": 0.0009,
+            "p95Ms": 0.0021,
+            "p99Ms": 0.0064
+          },
+          "perCandidate": [
+            {
+              "soundId": "sound_ambient_city_market_001",
+              "resref": "amb_city_market_day",
+              "metrics": {
+                "minMs": 0.0007,
+                "maxMs": 0.0908,
+                "avgMs": 0.0038225000000000004,
+                "p50Ms": 0.001,
+                "p95Ms": 0.0064,
+                "p99Ms": 0.0095
+              }
+            },
+            {
+              "soundId": "sound_music_city_theme_002",
+              "resref": "mus_city_theme_main",
+              "metrics": {
+                "minMs": 0.0007,
+                "maxMs": 0.0018,
+                "avgMs": 0.0008600000000000005,
+                "p50Ms": 0.0008,
+                "p95Ms": 0.001,
+                "p99Ms": 0.001
+              }
+            },
+            {
+              "soundId": "sound_effect_forge_loop_003",
+              "resref": "sfx_forge_loop_heavy",
+              "metrics": {
+                "minMs": 0.0007,
+                "maxMs": 0.0011,
+                "avgMs": 0.0008275000000000003,
+                "p50Ms": 0.0008,
+                "p95Ms": 0.001,
+                "p99Ms": 0.0011
+              }
+            }
+          ]
+        }
+      }
+    },
+    "areas": {
+      "load": {
+        "config": {
+          "iterations": 10,
+          "warmupIterations": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.099Z",
+          "finishedAt": "2026-05-26T20:47:06.165Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 5.7717,
+            "maxMs": 7.9899,
+            "avgMs": 6.6064,
+            "p50Ms": 6.4195,
+            "p95Ms": 7.9899,
+            "p99Ms": 7.9899
+          },
+          "areaCount": {
+            "min": 3,
+            "max": 3,
+            "avg": 3
+          }
+        }
+      },
+      "cold": {
+        "config": {
+          "iterations": 20,
+          "warmupIterations": 3,
+          "bypassCache": true,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.166Z",
+          "finishedAt": "2026-05-26T20:47:06.247Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.3557,
+            "maxMs": 7.6974,
+            "avgMs": 1.7737,
+            "p50Ms": 1.5025,
+            "p95Ms": 2.6255,
+            "p99Ms": 7.6974
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "metrics": {
+                "minMs": 1.4147,
+                "maxMs": 7.6974,
+                "avgMs": 1.9665,
+                "p50Ms": 1.5652,
+                "p95Ms": 2.6255,
+                "p99Ms": 7.6974
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "metrics": {
+                "minMs": 1.3557,
+                "maxMs": 2.9188,
+                "avgMs": 1.5809,
+                "p50Ms": 1.4522,
+                "p95Ms": 1.946,
+                "p99Ms": 2.9188
+              }
+            }
+          ]
+        }
+      },
+      "warm": {
+        "config": {
+          "iterations": 20,
+          "warmupIterations": 3,
+          "bypassCache": false,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.247Z",
+          "finishedAt": "2026-05-26T20:47:06.315Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.2365,
+            "maxMs": 2.1441,
+            "avgMs": 1.4424,
+            "p50Ms": 1.369,
+            "p95Ms": 1.7742,
+            "p99Ms": 2.1441
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "metrics": {
+                "minMs": 1.2889,
+                "maxMs": 2.1441,
+                "avgMs": 1.4605,
+                "p50Ms": 1.3912,
+                "p95Ms": 1.8344,
+                "p99Ms": 2.1441
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "metrics": {
+                "minMs": 1.2365,
+                "maxMs": 1.7742,
+                "avgMs": 1.4244,
+                "p50Ms": 1.3664,
+                "p95Ms": 1.7284,
+                "p99Ms": 1.7742
+              }
+            }
+          ]
+        }
+      },
+      "cacheRead": {
+        "config": {
+          "iterations": 80,
+          "candidates": 2
+        },
+        "timing": {
+          "startedAt": "2026-05-26T20:47:06.318Z",
+          "finishedAt": "2026-05-26T20:47:06.542Z"
+        },
+        "metrics": {
+          "overall": {
+            "minMs": 1.1278,
+            "maxMs": 2.8924,
+            "avgMs": 1.3943,
+            "p50Ms": 1.313,
+            "p95Ms": 1.8866,
+            "p99Ms": 2.475
+          },
+          "perCandidate": [
+            {
+              "areaId": "area_market_district_001",
+              "cacheKey": "8f2f481b4a2c632824a03b39e1015c6abdd7df196ef0d8981df369cb90ca3df6",
+              "metrics": {
+                "minMs": 1.1766,
+                "maxMs": 2.078,
+                "avgMs": 1.4052,
+                "p50Ms": 1.3784,
+                "p95Ms": 1.7244,
+                "p99Ms": 2.078
+              }
+            },
+            {
+              "areaId": "area_dungeon_entry_001",
+              "cacheKey": "ff72a40ee076aeba1effe0ce0e68810ce77f127b3f67e8b1ec6d717f4293cdab",
+              "metrics": {
+                "minMs": 1.1278,
+                "maxMs": 2.8924,
+                "avgMs": 1.3833,
+                "p50Ms": 1.2764,
+                "p95Ms": 2.24,
+                "p99Ms": 2.8924
+              }
+            }
+          ]
+        }
+      }
+    },
+    "queue": {
+      "config": {
+        "jobs": 20,
+        "pollMs": 75,
+        "timeoutMs": 20000
+      },
+      "timing": {
+        "startedAt": "2026-05-26T20:47:06.543Z",
+        "finishedAt": "2026-05-26T20:47:06.610Z"
+      },
+      "metrics": {
+        "enqueue": {
+          "minMs": 1.3307,
+          "maxMs": 2.7296,
+          "avgMs": 1.6121,
+          "p50Ms": 1.5051,
+          "p95Ms": 2.18,
+          "p99Ms": 2.7296
+        },
+        "runtime": {
+          "minMs": 0,
+          "maxMs": 1,
+          "avgMs": 0.1,
+          "p50Ms": 0,
+          "p95Ms": 1,
+          "p99Ms": 1
+        },
+        "wallClock": {
+          "minMs": 30,
+          "maxMs": 34,
+          "avgMs": 31.7,
+          "p50Ms": 32,
+          "p95Ms": 34,
+          "p99Ms": 34
+        }
+      },
+      "statusCounts": {
+        "completed": 20
+      },
+      "pendingTimeouts": 0,
+      "queueMetrics": {
+        "before": {
+          "windowSize": 1000,
+          "sampledJobs": 0,
+          "counts": {
+            "pending": 0,
+            "running": 0,
+            "failed": 0,
+            "deadLetter": 0
+          },
+          "durationMs": {
+            "p50": null,
+            "p95": null
+          },
+          "generatedAt": "2026-05-26T20:47:06.543Z"
+        },
+        "after": {
+          "windowSize": 1000,
+          "sampledJobs": 20,
+          "counts": {
+            "pending": 0,
+            "running": 0,
+            "failed": 0,
+            "deadLetter": 0
+          },
+          "durationMs": {
+            "p50": 0,
+            "p95": 1
+          },
+          "generatedAt": "2026-05-26T20:47:06.609Z"
+        }
+      },
+      "jobs": [
+        {
+          "jobId": "617f08b3-e4b4-40f2-83a3-34f76a62e310",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 2.7296,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 32
+        },
+        {
+          "jobId": "3bc620b9-e488-4a29-8f60-472feb01bb57",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 2.18,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 31
+        },
+        {
+          "jobId": "1a59eec6-58d4-4056-bfed-63f8763deb03",
+          "targetId": "plc_bench_plc_x02_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.9458,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "0da1c6ac-d964-4311-8d35-f5a2bfa2b18e",
+          "targetId": "plc_bench_tn_sdoor_14_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.5228,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "50855830-1190-449e-86ab-72df9072883c",
+          "targetId": "plc_bench_tn_gdoor_05_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.4214,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 31
+        },
+        {
+          "jobId": "c0ea6f61-59d8-4320-bc7b-dd6ae5d158a7",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.3363,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "b44fbc7a-320c-4b60-99b3-585b44a4f6c9",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.3891,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "f2bf1654-e680-4671-8c64-b6be0c87c1dc",
+          "targetId": "plc_bench_plc_x02_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.3307,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "4805748d-dbef-44f3-9efc-d5c87b29307a",
+          "targetId": "plc_bench_tn_sdoor_14_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.3718,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 30
+        },
+        {
+          "jobId": "d71941db-6740-49d9-b561-8f01f22d549a",
+          "targetId": "plc_bench_tn_gdoor_05_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.7062,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 34
+        },
+        {
+          "jobId": "d6be3e82-dc4e-4b81-99f9-8e8300cd66db",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.5664,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 34
+        },
+        {
+          "jobId": "4822640b-2e4d-4343-b0fc-ebec146f4f27",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.5629,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 33
+        },
+        {
+          "jobId": "ffeb58c7-274b-4da9-8216-3ec2a6349f7f",
+          "targetId": "plc_bench_plc_x02_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.9457,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 33
+        },
+        {
+          "jobId": "88d9c1d1-8c20-40e9-8a3d-9915dfb029d1",
+          "targetId": "plc_bench_tn_sdoor_14_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.7083,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 33
+        },
+        {
+          "jobId": "42bd455c-15e5-4541-9136-a92b3afff3cb",
+          "targetId": "plc_bench_tn_gdoor_05_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.5324,
+          "runtimeLatencyMs": 1,
+          "wallClockLatencyMs": 32
+        },
+        {
+          "jobId": "771aa549-28e9-40ea-be2c-995a9d3917be",
+          "targetId": "plc_bench_c_wingsmeph_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.375,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 33
+        },
+        {
+          "jobId": "77432c00-dbf1-4f0b-b29e-6a5cf4b2c0ac",
+          "targetId": "plc_bench_ad_top_lion_1_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.361,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 32
+        },
+        {
+          "jobId": "c2107a04-f82e-4f86-8d86-d50beba0bd6d",
+          "targetId": "plc_bench_plc_x02_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.3405,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 32
+        },
+        {
+          "jobId": "acbc2f83-df89-4819-95ee-ad8a5a781268",
+          "targetId": "plc_bench_tn_sdoor_14_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.4119,
+          "runtimeLatencyMs": 0,
+          "wallClockLatencyMs": 32
+        },
+        {
+          "jobId": "11c389eb-5082-46b9-9aa9-96235090776e",
+          "targetId": "plc_bench_tn_gdoor_05_001",
+          "finalStatus": "completed",
+          "attemptCount": 1,
+          "enqueueLatencyMs": 1.5051,
+          "runtimeLatencyMs": 1,
+          "wallClockLatencyMs": 32
+        }
+      ]
+    }
+  }
+}

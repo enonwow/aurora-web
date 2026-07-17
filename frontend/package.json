@@ -1,0 +1,42 @@
+{
+  "name": "aurora-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:regression": "vitest run tests/regression-smoke",
+    "test:unit:coverage": "vitest run tests/unit --coverage",
+    "test:regression:coverage": "vitest run tests/regression-smoke --coverage --coverage.include=src/App.tsx --coverage.include=src/modules/layout/components/WorkspaceTopbar.tsx --coverage.include=src/modules/layout/components/WorkspaceLayout.tsx --coverage.include=src/modules/layout/components/SceneObjectListPanel.tsx",
+    "test:mutation": "stryker run",
+    "test:all": "npm run test:unit && npm run test:regression"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.184.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^3.2.4",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.1",
+    "vitest": "^3.0.7"
+  }
+}

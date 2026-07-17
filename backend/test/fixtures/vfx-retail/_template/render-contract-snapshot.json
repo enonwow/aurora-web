@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "aurora-vfx-render-contract-snapshot/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "renderContract": {
+    "contractVersion": null,
+    "sourceFixtureId": "TODO",
+    "drawRecords": [
+      {
+        "recordId": "TODO",
+        "lane": "missing",
+        "particleId": null,
+        "texture": null,
+        "chunkModel": null,
+        "atlasFrame": null,
+        "blendMode": null,
+        "depthWrite": null,
+        "color": null,
+        "alpha": null,
+        "position": null,
+        "size": null
+      }
+    ],
+    "atlas": {
+      "texture": null,
+      "xgrid": null,
+      "ygrid": null,
+      "fps": null,
+      "frameStart": null,
+      "frameEnd": null,
+      "random": null
+    },
+    "renderState": {
+      "blend": null,
+      "renderMode": null,
+      "punchThroughCandidate": null,
+      "lightenModeCandidate": null
+    },
+    "chunkLane": {
+      "enabled": null,
+      "model": null,
+      "diagnostics": [
+        "TODO"
+      ]
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "TODO",
+      "severity": "missing",
+      "message": "Render contract snapshot has not been generated."
+    }
+  ],
+  "operatorNotes": "TODO"
+}

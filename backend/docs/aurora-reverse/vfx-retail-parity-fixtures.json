@@ -1,0 +1,614 @@
+{
+  "version": "aurora-vfx-retail-parity-manifest/v1",
+  "policy": {
+    "canonicalRequires": [
+      "retailBuild",
+      "source",
+      "parserSnapshot",
+      "resolverTrace",
+      "runtimeTickDump",
+      "renderContractSnapshot",
+      "captureReference",
+      "comparison"
+    ],
+    "screenshotAloneIsParityProof": false
+  },
+  "fixtures": [
+    {
+      "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+      "requiredCase": "dm_visualeffect_row_duration",
+      "title": "dm_visualeffect 68 0 / VFX_IMP_HEALING_M",
+      "status": "missing",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": "nwn-ee-8193.34-selected-source",
+        "tableHash": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+        "rowId": 68,
+        "label": "VFX_IMP_HEALING_M",
+        "sourceAuthority": "selectedSource2da"
+      },
+      "effectContext": {
+        "constructorKind": "dm_visualeffect",
+        "applicationMode": "object",
+        "durationType": "instant",
+        "durationSeconds": 0,
+        "sourceRowId": 68,
+        "targetRef": "retail-capture-target",
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "dm_visualeffect 68 0",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Repo-side capture pack exists at backend/test/fixtures/vfx-retail/vfx-retail-dm-visualeffect-row-68-duration-0/, but retail visual capture is still missing; command/source row alone is not parity proof."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+        "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Repo-side fixture pack is prepared, but no retail build/profile, parser snapshot, resolver trace, runtime dump, render snapshot, visual capture, or comparison evidence is present.",
+      "notes": [
+        "VFX-P12-B prepared a fixture directory with required JSON files for dm_visualeffect 68 0 / VFX_IMP_HEALING_M.",
+        "Retail NWN client was not available in this context, so the fixture remains missing and diagnostic-only."
+      ]
+    },
+    {
+      "fixtureId": "vfx-retail-scripted-effectvisualeffect-row-50",
+      "requiredCase": "scripted_effect_visual_effect",
+      "title": "Scripted EffectVisualEffect(VFX_IMP_DEATH)",
+      "status": "missing",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": "nwn-ee-8193.34-selected-source",
+        "tableHash": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+        "rowId": 50,
+        "label": "VFX_IMP_DEATH",
+        "sourceAuthority": "selectedSource2da"
+      },
+      "effectContext": {
+        "constructorKind": "EffectVisualEffect",
+        "applicationMode": "object",
+        "durationType": "instant",
+        "durationSeconds": 0,
+        "sourceRowId": 50,
+        "targetRef": "vfx_retail_target",
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectVisualEffect(VFX_IMP_DEATH), oTarget);",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Repo-side capture pack and effect-script.nss harness exist at backend/test/fixtures/vfx-retail/vfx-retail-scripted-effectvisualeffect-row-50/, but retail script execution/capture is still missing."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+        "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Repo-side scripted fixture pack and NWScript harness are prepared, but no retail build/profile, parser snapshot, resolver trace, runtime dump, render snapshot, script execution capture, or comparison evidence is present.",
+      "notes": [
+        "VFX-P12-C prepared a fixture directory with required JSON files and effect-script.nss for scripted EffectVisualEffect(VFX_IMP_DEATH).",
+        "Retail NWN client was not available in this context, so the fixture remains missing and diagnostic-only."
+      ]
+    },
+    {
+      "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+      "requiredCase": "scripted_effect_beam",
+      "title": "Scripted EffectBeam(VFX_BEAM_FIRE, BODY_NODE_CHEST)",
+      "status": "missing",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": "nwn-ee-8193.34-selected-source",
+        "tableHash": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+        "rowId": 210,
+        "label": "VFX_BEAM_FIRE",
+        "sourceAuthority": "selectedSource2da"
+      },
+      "effectContext": {
+        "constructorKind": "EffectBeam",
+        "applicationMode": "object",
+        "durationType": "temporary",
+        "durationSeconds": 3,
+        "sourceRowId": 210,
+        "targetRef": "retail-beam-target",
+        "effectorRef": "retail-beam-source",
+        "bodyNode": "BODY_NODE_CHEST",
+        "rawInvocation": "ApplyEffectToObject(DURATION_TYPE_TEMPORARY, EffectBeam(VFX_BEAM_FIRE, oSource, BODY_NODE_CHEST), oTarget, 3.0);",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Repo-side capture pack and effect-beam-script.nss harness exist at backend/test/fixtures/vfx-retail/vfx-retail-scripted-effectbeam-row-210-body-chest/, but retail beam execution/capture is still missing. Retail capture must show visible source, visible target, full beam start/end, BODY_NODE_CHEST anchoring, and at least 3 seconds."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+        "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Repo-side scripted beam fixture pack and NWScript harness are prepared, but no retail build/profile, parser snapshot, resolver trace, runtime dump, render snapshot, beam execution capture, BODY_NODE_CHEST anchor observation, or comparison evidence is present.",
+      "notes": [
+        "VFX-P12-D prepared a fixture directory with required JSON files and effect-beam-script.nss for scripted EffectBeam(VFX_BEAM_FIRE, BODY_NODE_CHEST).",
+        "Retail NWN client was not available in this context, so the fixture remains missing and diagnostic-only."
+      ]
+    },
+    {
+      "fixtureId": "vfx-retail-explosion-detonate-fireball",
+      "requiredCase": "explosion_plus_detonate",
+      "title": "Explosion emitter with explicit detonate event",
+      "status": "missing",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": "nwn-ee-8193.34-selected-source",
+        "tableHash": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+        "rowId": 22,
+        "label": "VFX_FNF_FIREBALL",
+        "sourceAuthority": "selectedSource2da-candidate"
+      },
+      "effectContext": {
+        "constructorKind": "EffectVisualEffect",
+        "applicationMode": "location",
+        "durationType": "instant",
+        "durationSeconds": 0,
+        "sourceRowId": 22,
+        "targetRef": "retail-fireball-location",
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "EffectVisualEffect(VFX_FNF_FIREBALL) plus MDL animation event detonate",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Repo-side capture pack and effect-fireball-script.nss harness exist at backend/test/fixtures/vfx-retail/vfx-retail-explosion-detonate-fireball/, but retail execution/capture is still missing. Retail capture must include effect start, detonate moment, explosion timing, particles-after-detonate observation, and pre/post detonate capture window."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+        "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+        "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Repo-side explosion/detonate fixture pack and NWScript harness are prepared, but no retail build/profile, parser snapshot, resolver trace, runtime dump with detonate timing, render snapshot, capture media, SHA-256 hashes, or comparison evidence is present.",
+      "notes": [
+        "VFX-P12-E prepared a fixture directory with required JSON files and effect-fireball-script.nss for EffectVisualEffect(VFX_FNF_FIREBALL) plus the required detonate animation event.",
+        "Retail NWN client was not available in this context, so the fixture remains missing and diagnostic-only."
+      ]
+    },
+    {
+      "fixtureId": "vfx-retail-fountain-atlas-cot-fx01",
+      "requiredCase": "fountain_plus_atlas_playback",
+      "title": "Fountain emitter plus atlas playback",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": null,
+        "tableHash": null,
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": "localUntrackedMdlCandidate"
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "source_only",
+        "durationType": null,
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": null,
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "backend/tmp_cot_fx01.mdl emitter fire!03 Fountain atlas xgrid/ygrid/fps/framestart/frameend/random",
+        "evidenceRef": "backend/tmp_cot_fx01.mdl"
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Repo-side capture pack exists at backend/test/fixtures/vfx-retail/vfx-retail-fountain-atlas-cot-fx01/ and records local cot_fx01/fire!03 Fountain atlas setup, but no retail row/context or capture is admitted. Retail capture must include several seconds of video proving birthrate/spawn, lifetime, atlas frame progression, random 1 behavior, UV orientation, color/alpha/size timeline, billboard orientation, and texture/material/TXI lanes."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+        "VFX_FIXTURE_LOCAL_MDL_UNTRACKED_SOURCE",
+        "VFX_FIXTURE_COT_FX01_BASELINE_ONLY",
+        "VFX_FOUNTAIN_ATLAS_PLAYBACK_CAPTURE_REQUIRED",
+        "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Repo-side Fountain/atlas fixture pack is prepared from a local untracked MDL candidate, but no owning retail source row/effect context, retail build/profile, parser snapshot, resolver trace, runtime dump, render snapshot, video capture, texture/material/TXI hashes, or comparison evidence is present.",
+      "notes": [
+        "VFX-P12-F prepared a fixture directory with required JSON files for backend/tmp_cot_fx01.mdl emitter fire!03 and recorded local atlas fields xgrid 4, ygrid 4, fps 10, framestart 0, frameend 24, random 1.",
+        "Repo search found local/test/placeable-preview references to cot_fx01 but no admitted retail visualeffects.2da row, so this remains MDL_EMITTER/source_only and diagnostic-only.",
+        "Retail NWN client was not available in this context, so the fixture remains unknown and cannot provide capture or comparison evidence."
+      ]
+    },
+    {
+      "fixtureId": "vfx-retail-chunk-particles-progfx-type9",
+      "requiredCase": "chunk_particles",
+      "title": "Chunk particles / progfx Type 9 candidate",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "progfx.2da",
+        "profile": "nwn-ee-8193.34-selected-source",
+        "tableHash": "A570A8F97F7CA238BCFC7C91E4F229F597C51EC581382BE2404B1B0B3289E54F",
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": "selectedSource2da-type-distribution"
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "source_only",
+        "durationType": null,
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": null,
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "Chunk emitter/progFX Type 9 retail fixture required",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Chunk model resource class and retail chunk behavior need capture."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "No specific progfx row, chunk source model, or retail capture has been admitted.",
+      "notes": []
+    },
+    {
+      "fixtureId": "vfx-retail-p2p-gravity-reference-node",
+      "requiredCase": "p2p_gravity",
+      "title": "P2P gravity with target/reference-node context",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": null,
+        "tableHash": null,
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": null
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "object",
+        "durationType": "temporary",
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": "retail-p2p-target",
+        "effectorRef": "retail-p2p-source",
+        "bodyNode": null,
+        "rawInvocation": "P2P emitter with p2p target pointer and gravity fields",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "P2P target pointer and gravity equations require retail runtime dump."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_P2P_TARGET_RUNTIME_POINTER_REQUIRED",
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Target/reference-node retail runtime evidence is absent.",
+      "notes": []
+    },
+    {
+      "fixtureId": "vfx-retail-linked-chain",
+      "requiredCase": "linked_chain",
+      "title": "Linked particle chain draw count and basis",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": null,
+        "tableHash": null,
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": null
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "source_only",
+        "durationType": null,
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": null,
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "Linked render mode fixture required",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Linked chain retail draw behavior remains unknown."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "No linked render-mode retail evidence is present.",
+      "notes": []
+    },
+    {
+      "fixtureId": "vfx-retail-punch-through-mode2-lighten",
+      "requiredCase": "punch_through_vs_mode2_lighten",
+      "title": "Punch-Through versus raw mode 2 / Lighten candidate",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": null,
+        "tableHash": null,
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": null
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "source_only",
+        "durationType": null,
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": null,
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "Emitter blend Punch-Through and raw mode 2 comparison fixture required",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "Exact GL blend factors need retail/capture proof."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED",
+        "VFX_PUNCH_THROUGH_DEPTHWRITE_LANE_REQUIRED",
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "Blend/render-state parity evidence is missing.",
+      "notes": []
+    },
+    {
+      "fixtureId": "vfx-retail-plt-known-layer-colors",
+      "requiredCase": "plt_visual_known_layer_colors",
+      "title": "PLT visual with known layer colors",
+      "status": "unknown",
+      "behaviorClaim": "diagnostic",
+      "retailBuild": {
+        "buildId": null,
+        "buildProfile": null,
+        "client": "NWN:EE retail",
+        "captureMachine": null,
+        "evidenceRef": null
+      },
+      "source": {
+        "tableName": "visualeffects.2da",
+        "profile": null,
+        "tableHash": null,
+        "rowId": null,
+        "label": null,
+        "sourceAuthority": null
+      },
+      "effectContext": {
+        "constructorKind": "MDL_EMITTER",
+        "applicationMode": "object",
+        "durationType": "temporary",
+        "durationSeconds": null,
+        "sourceRowId": null,
+        "targetRef": "retail-plt-colored-target",
+        "effectorRef": null,
+        "bodyNode": null,
+        "rawInvocation": "PLT texture fixture with known layer colors required",
+        "evidenceRef": null
+      },
+      "parserSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "resolverTrace": { "path": null, "hash": null, "capturedAt": null },
+      "runtimeTickDump": { "path": null, "hash": null, "capturedAt": null },
+      "renderContractSnapshot": { "path": null, "hash": null, "capturedAt": null },
+      "captureReference": {
+        "screenshotPath": null,
+        "videoPath": null,
+        "captureReference": null,
+        "notes": "PLT layer colors need source palette/profile and retail capture evidence."
+      },
+      "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "expectedDiagnostics": [
+        "VFX_PLT_PROFILE_GATED",
+        "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+        "VFX_RETAIL_SOURCE_EVIDENCE_REQUIRED",
+        "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+        "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+        "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED",
+        "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED"
+      ],
+      "notCanonicalReason": "PLT profile/layer-color retail evidence is missing.",
+      "notes": []
+    }
+  ]
+}

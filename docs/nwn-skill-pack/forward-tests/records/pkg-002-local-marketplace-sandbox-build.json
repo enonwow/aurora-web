@@ -1,0 +1,45 @@
+{
+  "schema_version": "1",
+  "id": "pkg-002-local-marketplace-sandbox-build",
+  "created_at": "2026-06-18T12:50:05+00:00",
+  "record_type": "static-check",
+  "test_id": "PKG-002",
+  "title": "Local marketplace sandbox build",
+  "result": "pass",
+  "tester": "Codex heartbeat loop",
+  "context": "Built a repo-local marketplace sandbox without registering it in Codex.",
+  "prompt_or_command": "python docs\\nwn-skill-pack\\tools\\build_local_marketplace_candidate.py docs\\nwn-skill-pack --force",
+  "skill_path": "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev",
+  "expected_references": [
+    "package-boundaries.md",
+    "plugin-distribution-plan.md",
+    "forward-tests/install-smoke-checklist.md"
+  ],
+  "observed_references": [
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/marketplace.json",
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/plugins/nwn-server-gamedev-pack/.codex-plugin/plugin.json"
+  ],
+  "evidence_labels": [
+    "static-checked"
+  ],
+  "evidence": [
+    "Marketplace sandbox generated docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/marketplace.json with one local plugin entry.",
+    "Sandbox marketplace uses source.path ./plugins/nwn-server-gamedev-pack and policy AVAILABLE/ON_INSTALL.",
+    "Sandbox plugin passed plugin-creator validate_plugin.py after setting PYTHONPATH to the local PyYAML dependency folder.",
+    "Sandbox packaged skill passed skill-creator quick_validate.py."
+  ],
+  "issues": [],
+  "missing_evidence": [
+    "This record does not prove codex plugin marketplace add, Codex UI discovery, new-thread trigger behavior, or NWN runtime correctness."
+  ],
+  "artifacts": [
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/marketplace.json",
+    "docs/nwn-skill-pack/.codex-tmp/marketplace-candidate/plugins/nwn-server-gamedev-pack"
+  ],
+  "feedback_record_ids": [],
+  "improvement_action": {
+    "needed": false,
+    "summary": ""
+  },
+  "notes": "Static marketplace-shape evidence only; INSTALL-001 is still required for actual install smoke."
+}

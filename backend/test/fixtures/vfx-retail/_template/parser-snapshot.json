@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "aurora-vfx-parser-snapshot/v1",
+  "fixtureId": "TODO",
+  "status": "missing",
+  "parser": {
+    "name": "aurora-vfx-source.parser",
+    "version": null,
+    "commit": null
+  },
+  "input": {
+    "sourceTablePath": null,
+    "sourceTableHashSha256": null,
+    "tableName": null,
+    "profile": null,
+    "rowId": null
+  },
+  "output": {
+    "rowKind": null,
+    "rowId": null,
+    "label": null,
+    "sourceRefs": {
+      "impact": null,
+      "duration": null,
+      "cessation": null,
+      "progfxImpact": null,
+      "progfxDuration": null,
+      "progfxCessation": null
+    },
+    "rawCells": {
+      "TODO": "missing"
+    },
+    "decodedCells": {
+      "TODO": null
+    },
+    "diagnostics": [
+      {
+        "code": "TODO",
+        "severity": "missing",
+        "message": "Parser snapshot has not been generated."
+      }
+    ]
+  },
+  "provenance": {
+    "sourceObjectKey": null,
+    "sourceLayer": null,
+    "sourceHashSha256": null,
+    "runtimeSettingsRevision": null,
+    "hakListHashSha256": null
+  }
+}

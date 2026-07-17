@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "vfx-retail-scripted-effectvisualeffect-row-50",
+  "status": "missing",
+  "constructor": {
+    "kind": "EffectVisualEffect",
+    "sourceRowId": 50,
+    "rawInvocation": "ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectVisualEffect(VFX_IMP_DEATH), oTarget);",
+    "scriptSource": "effect-script.nss",
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "object",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "targetRef": "vfx_retail_target",
+    "effectorRef": null,
+    "creatorRef": null,
+    "bodyNode": null,
+    "missFlag": null,
+    "location": {
+      "areaTag": null,
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "retailCommandOrScript": {
+    "command": "dm_runscript vfx_p12_row50",
+    "moduleScriptName": "vfx_p12_row50",
+    "trigger": "DM console while an object tagged vfx_retail_target exists in the capture area"
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_EFFECT_CONTEXT_EXECUTION_REQUIRED",
+      "severity": "missing",
+      "message": "The intended NWScript invocation is documented, but it has not been executed in retail in this context."
+    }
+  ],
+  "operatorNotes": "Compile effect-script.nss as vfx_p12_row50, place or possess target object tag vfx_retail_target, then run dm_runscript vfx_p12_row50 in retail."
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "aurora-vfx-source-table-snapshot/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "sourceTable": {
+    "tableName": "visualeffects.2da",
+    "profile": "nwn-ee-8193.34-selected-source",
+    "objectKey": "visualeffects.2da",
+    "sourceLayer": "selected-source-candidate",
+    "tableHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "capturedAt": null
+  },
+  "selectedRow": {
+    "rowId": 22,
+    "label": "VFX_FNF_FIREBALL",
+    "physicalLine": null,
+    "rawCells": {
+      "Label": "VFX_FNF_FIREBALL",
+      "Impact": "TODO: capture raw Impact cell",
+      "Duration": "TODO: capture raw Duration cell",
+      "Cessation": "TODO: capture raw Cessation cell",
+      "ProgFX_Impact": "TODO: capture raw ProgFX_Impact cell",
+      "ProgFX_Duration": "TODO: capture raw ProgFX_Duration cell",
+      "ProgFX_Cessation": "TODO: capture raw ProgFX_Cessation cell"
+    },
+    "decodedCells": {
+      "Label": "VFX_FNF_FIREBALL",
+      "Impact": null,
+      "Duration": null,
+      "Cessation": null,
+      "ProgFX_Impact": null,
+      "ProgFX_Duration": null,
+      "ProgFX_Cessation": null
+    },
+    "extraCells": [],
+    "missingCells": [
+      "TODO: source row cells have not been captured from the retail-selected table"
+    ]
+  },
+  "sourceAuthority": "selectedSource2da-candidate",
+  "profileMismatchFields": [],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_SOURCE_ROW_CAPTURE_REQUIRED",
+      "severity": "missing",
+      "message": "Candidate row 22 / VFX_FNF_FIREBALL is documented, but the retail source-table snapshot has not been captured in this context."
+    }
+  ],
+  "operatorNotes": "Capture the exact retail-selected visualeffects.2da row 22 and replace TODO/null placeholders before using this as evidence."
+}

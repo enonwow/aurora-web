@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "aurora-vfx-render-contract-snapshot/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "renderContract": {
+    "contractVersion": null,
+    "sourceFixtureId": "vfx-retail-explosion-detonate-fireball",
+    "drawRecords": [
+      {
+        "recordId": "TODO: first post-detonate particle draw record",
+        "lane": "missing",
+        "particleId": null,
+        "texture": null,
+        "chunkModel": null,
+        "atlasFrame": null,
+        "blendMode": null,
+        "depthWrite": null,
+        "color": null,
+        "alpha": null,
+        "position": null,
+        "size": null
+      }
+    ],
+    "atlas": {
+      "texture": null,
+      "xgrid": null,
+      "ygrid": null,
+      "fps": null,
+      "frameStart": null,
+      "frameEnd": null,
+      "random": null
+    },
+    "renderState": {
+      "blend": null,
+      "renderMode": "Explosion",
+      "punchThroughCandidate": null,
+      "lightenModeCandidate": null
+    },
+    "explosion": {
+      "requiredEvent": "detonate",
+      "drawsBeforeDetonate": null,
+      "drawsAtDetonate": null,
+      "drawsAfterDetonate": null
+    },
+    "chunkLane": {
+      "enabled": null,
+      "model": null,
+      "diagnostics": []
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RENDER_CONTRACT_SNAPSHOT_REQUIRED",
+      "severity": "missing",
+      "message": "Render contract snapshot has not been generated for the detonate timing window."
+    }
+  ],
+  "operatorNotes": "Generate renderer-agnostic draw records for pre-detonate, detonate, and post-detonate frames before comparison."
+}

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "aurora-vfx-retail-comparison/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "method": {
+    "type": "TODO: retail frame/tick timing comparison",
+    "tool": null,
+    "toolVersion": null,
+    "operator": null,
+    "comparedAt": null
+  },
+  "artifacts": {
+    "retailBuild": "retail-build.json",
+    "sourceTableSnapshot": "source-table.snapshot.json",
+    "effectContext": "effect-context.json",
+    "parserSnapshot": "parser-snapshot.json",
+    "resolverTrace": "resolver-trace.json",
+    "runtimeTickDump": "runtime-tick-dump.json",
+    "renderContractSnapshot": "render-contract-snapshot.json",
+    "capture": "capture.json"
+  },
+  "checks": [
+    {
+      "name": "source row and invocation",
+      "kind": "structured",
+      "expected": "visualeffects.2da row 22 / VFX_FNF_FIREBALL at location via EffectVisualEffect",
+      "actual": null,
+      "result": "unknown",
+      "notes": "Retail source/capture evidence has not been produced."
+    },
+    {
+      "name": "detonate event timing",
+      "kind": "timing",
+      "expected": "explicit MDL animation event detonate is observed and timestamped",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No retail runtime tick dump or video frame timing exists yet."
+    },
+    {
+      "name": "particle onset",
+      "kind": "visual-runtime",
+      "expected": "particles appear only at or after detonate",
+      "actual": null,
+      "result": "unknown",
+      "notes": "No pre/post detonate capture exists yet."
+    }
+  ],
+  "visualChecks": [
+    {
+      "name": "start, detonate, post-detonate capture window",
+      "evidence": null,
+      "result": "unknown",
+      "notes": "Retail screenshot/video has not been captured."
+    }
+  ],
+  "result": null,
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_COMPARISON_EVIDENCE_REQUIRED",
+      "severity": "missing",
+      "message": "Comparison evidence is missing."
+    },
+    {
+      "code": "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+      "severity": "missing",
+      "message": "Detonate timing cannot be compared until retail capture and runtime dump exist."
+    }
+  ],
+  "operatorNotes": "Leave result null/unknown until retail capture, parser snapshot, resolver trace, runtime dump, render contract snapshot, and media hashes exist."
+}

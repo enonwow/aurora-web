@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "aurora-vfx-source-table-snapshot/v1",
+  "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+  "status": "missing",
+  "sourceTable": {
+    "tableName": "visualeffects.2da",
+    "profile": "nwn-ee-8193.34-selected-source",
+    "objectKey": "visualeffects.2da",
+    "sourceLayer": "selectedSource2da",
+    "tableHashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "capturedAt": null
+  },
+  "selectedRow": {
+    "rowId": 210,
+    "label": "VFX_BEAM_FIRE",
+    "physicalLine": null,
+    "rawCells": {
+      "rowId": "210",
+      "label": "VFX_BEAM_FIRE",
+      "rawRow": "missing"
+    },
+    "decodedCells": {
+      "rowId": 210,
+      "label": "VFX_BEAM_FIRE"
+    },
+    "extraCells": [],
+    "missingCells": [
+      "raw visualeffects.2da row cells from retail-selected source"
+    ]
+  },
+  "sourceAuthority": "selectedSource2da",
+  "profileMismatchFields": [],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_SOURCE_ROW_RAW_CELLS_REQUIRED",
+      "severity": "missing",
+      "message": "Row identity is known from the manifest, but the raw source-table snapshot still needs retail operator verification."
+    }
+  ],
+  "operatorNotes": "This file identifies the intended beam source row only; it is not retail capture evidence until raw row cells and source provenance are verified."
+}

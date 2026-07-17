@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nwn-skill-pack/external-contributor-trial-record.schema.json",
+  "title": "NWN Skill External Contributor Trial Record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "trial_id",
+    "title",
+    "result",
+    "packet_path",
+    "result_template_path",
+    "tester_role",
+    "tester_environment",
+    "path_used",
+    "public_inputs",
+    "returned_artifacts",
+    "command_transcript",
+    "friction",
+    "privacy_confirmation",
+    "maintainer_verification",
+    "issues",
+    "improvement_action"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trial_id": {
+      "type": "string",
+      "pattern": "^EXT-[0-9]{3}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result": {
+      "enum": [
+        "pass",
+        "partial",
+        "fail",
+        "not-run"
+      ]
+    },
+    "packet_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "result_template_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tester_role": {
+      "type": "string"
+    },
+    "tester_environment": {
+      "type": "string"
+    },
+    "path_used": {
+      "enum": [
+        "command",
+        "form",
+        "mixed",
+        "not-run"
+      ]
+    },
+    "public_inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "returned_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "command_transcript": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "friction": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "privacy_confirmation": {
+      "type": "object",
+      "required": [
+        "no_private_data",
+        "quarantine_required",
+        "summary"
+      ],
+      "properties": {
+        "no_private_data": {
+          "type": "boolean"
+        },
+        "quarantine_required": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "maintainer_verification": {
+      "type": "object",
+      "required": [
+        "packet_check",
+        "result_template_check",
+        "cleanroom_check",
+        "independent_tester",
+        "verify_bundle",
+        "validate_records",
+        "notes"
+      ],
+      "properties": {
+        "packet_check": {
+          "type": "boolean"
+        },
+        "result_template_check": {
+          "type": "boolean"
+        },
+        "cleanroom_check": {
+          "type": "boolean"
+        },
+        "independent_tester": {
+          "type": "boolean"
+        },
+        "verify_bundle": {
+          "type": "boolean"
+        },
+        "validate_records": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "feedback_record_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "improvement_action": {
+      "type": "object",
+      "required": [
+        "needed",
+        "summary"
+      ],
+      "properties": {
+        "needed": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "path_used": {
+            "const": "command"
+          },
+          "privacy_confirmation": {
+            "properties": {
+              "no_private_data": {
+                "const": true
+              },
+              "quarantine_required": {
+                "const": false
+              }
+            }
+          },
+          "maintainer_verification": {
+            "properties": {
+              "packet_check": {
+                "const": true
+              },
+              "result_template_check": {
+                "const": true
+              },
+              "cleanroom_check": {
+                "const": true
+              },
+              "independent_tester": {
+                "const": true
+              },
+              "verify_bundle": {
+                "const": true
+              },
+              "validate_records": {
+                "const": true
+              }
+            }
+          },
+          "command_transcript": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "improvement_action": {
+            "properties": {
+              "needed": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "fail"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "issues": {
+            "minItems": 1
+          },
+          "improvement_action": {
+            "properties": {
+              "needed": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

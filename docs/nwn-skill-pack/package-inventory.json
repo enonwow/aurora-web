@@ -1,0 +1,2740 @@
+{
+  "schema_version": "1",
+  "generated_at": "2026-06-19T09:43:30+00:00",
+  "root": "docs\\nwn-skill-pack",
+  "file_count": 303,
+  "total_size_bytes": 3328314,
+  "warnings": [
+    "knowledge-inbox/incoming records are present; install candidates should include them only intentionally.",
+    "authoring skill files are inventory-tracked for repo review but not required in the install candidate package."
+  ],
+  "entries": [
+    {
+      "path": "architecture-decisions/adr-0001-skill-plugin-first.md",
+      "role": "release-doc",
+      "size_bytes": 5265,
+      "sha256": "ded17662e1a29c470f91d349c95f1e6208ecab46a64ae6f280996d4e16e93f09",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "architecture-escalation-roadmap.md",
+      "role": "release-doc",
+      "size_bytes": 4633,
+      "sha256": "c7f4640e243cc173007c291168f8b812f9cd9659c4db8bc443eb221d7e222e92",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "architecture-escalation-scorecard.md",
+      "role": "release-doc",
+      "size_bytes": 5666,
+      "sha256": "97bda62aabfb542079a594ccb94e14bc57064f75695562e630856174f9dbc89d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "architecture-options.md",
+      "role": "release-doc",
+      "size_bytes": 6029,
+      "sha256": "b30012f1a563d27386ffa1c5863c9ca60ea587e5cda2afd2455c5e64d7b942ba",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "aurora-live-evidence-workflow.md",
+      "role": "release-doc",
+      "size_bytes": 11666,
+      "sha256": "10d9d729df49426f386f3814800fb0b478b9bcc48226764efae6ab86ad8c49c3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "aurora-live-operator-execution-packet.md",
+      "role": "release-doc",
+      "size_bytes": 17948,
+      "sha256": "d90dae9dc5728e01a04e83e2d7ee974d06bed60d57cb1d89917f0e62ff649a55",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "aurora-live-promotion-proof-gates.md",
+      "role": "release-doc",
+      "size_bytes": 4579,
+      "sha256": "eb12d9dc3ae4c8143c2d25c3ef2e3fdf60e861d2fa2bf05c3d53225ee2ddafe0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "contribution-loop.md",
+      "role": "release-doc",
+      "size_bytes": 5567,
+      "sha256": "2c2db88e4d8f967f525393ba9533ef4c3ccb41b9b5c1eae4fd19b5f0e1dd83a6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "contributor-feedback-packet.md",
+      "role": "release-doc",
+      "size_bytes": 4908,
+      "sha256": "dad74a1cd2ce16619590290a3a08c8d415f0cec6f88c3da6545ff26256d93abb",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/.codex-plugin/plugin.json",
+      "role": "plugin-package",
+      "size_bytes": 910,
+      "sha256": "5c00b1ec034c8fabdfb2a4058c5eb3c17c16130c81ac49b0ed45f2a912671f2b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/agents/openai.yaml",
+      "role": "plugin-package",
+      "size_bytes": 186,
+      "sha256": "1179da967b5d293a716180361016618d12a338d8c778fef914071b6ca95260b9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/common-antipatterns.md",
+      "role": "plugin-package",
+      "size_bytes": 4487,
+      "sha256": "3715ca6212bb7c1bd6b459c4499377cc2af4ad8cc305f137107aa7aec0b2e3c0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/concept-and-scope.md",
+      "role": "plugin-package",
+      "size_bytes": 672,
+      "sha256": "618f92fb27660188531ccbc898eb6b3423e385743245825707c6d4d780e9888d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/creatures-encounters-ai.md",
+      "role": "plugin-package",
+      "size_bytes": 8929,
+      "sha256": "72b7d5e158353d4e35c4cd61bbabfb62fc47699166c499fece6407b41b5a4fe0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/deployment-nwsync-ops.md",
+      "role": "plugin-package",
+      "size_bytes": 5559,
+      "sha256": "cdfa62ef5bcf7178d9a3afd2f56a706bab0b67b1518087de0da6790dfb7b62f1",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/economy-crafting-progression.md",
+      "role": "plugin-package",
+      "size_bytes": 12003,
+      "sha256": "236471b607282e985a33ab7d1b1de1e9be0804efad8487e469006cc7ec6485c2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/example-prompts.md",
+      "role": "plugin-package",
+      "size_bytes": 7709,
+      "sha256": "eb41dba5573ff2497a09acb0605a6efde448bdbf3b4be158b85f097b76212c8b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/feature-design-output-template.md",
+      "role": "plugin-package",
+      "size_bytes": 6098,
+      "sha256": "de45c59a1ebe1dffadb7b99ed93d287c36c8a365c2b40de4d6376fda376b22dc",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/feedback-and-versioning.md",
+      "role": "plugin-package",
+      "size_bytes": 1525,
+      "sha256": "aee32de893b80fea0d6e1b2b8ec3f489805beeb6307fecdde00d09e7851a06f2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/items-equipment-loot.md",
+      "role": "plugin-package",
+      "size_bytes": 9666,
+      "sha256": "9a02b3e93985cc2e2ea4e9449d34d5d78a6c33fba94a2aa79c329aab35655161",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/locations-areas-tilesets.md",
+      "role": "plugin-package",
+      "size_bytes": 6833,
+      "sha256": "6ec1ebcccfd84c4579ba0bf8e0155e688f53c43ba304af53d42880edc9dcd697",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/nui-player-ui.md",
+      "role": "plugin-package",
+      "size_bytes": 5341,
+      "sha256": "f05d1c32ac675eef35ce3d7de7a3552fee4e34efea7a4b5410c856da3c1388b0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/nwscript-events-systems.md",
+      "role": "plugin-package",
+      "size_bytes": 6524,
+      "sha256": "b977cc308a086f4df8ec3129a91afcc4046ae131499c4f3cef6c89c5d55ec16d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/persistence-database-nwnx.md",
+      "role": "plugin-package",
+      "size_bytes": 6384,
+      "sha256": "5ebfbc3f7adc472b8121bd3c0c20e2539733c376fb0643371c034dba00a7c757",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/quests-dialogues-journal.md",
+      "role": "plugin-package",
+      "size_bytes": 10693,
+      "sha256": "977d06c001add7589a665775827fc9069685f15286e3b768fc0f71076611226b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/server-gamedev-capability-map.md",
+      "role": "plugin-package",
+      "size_bytes": 7329,
+      "sha256": "6540edf760a3e1b5e58b9011d8ed3e316df33d17a9acbd414d9e1bc1b82ccaa4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/source-registry.md",
+      "role": "plugin-package",
+      "size_bytes": 4745,
+      "sha256": "0da75bd8c5762da5543878125fc2aec0cee994e21a60202c50052906bf995a1f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/testing-runtime-qa.md",
+      "role": "plugin-package",
+      "size_bytes": 8083,
+      "sha256": "bbd61183dd3b0734ca79b1efc25802100bea198d24ab1ab9d04853c64dc57cf2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/references/two-da-hak-tlk-pipeline.md",
+      "role": "plugin-package",
+      "size_bytes": 5320,
+      "sha256": "d242fbb34c35e72ed0c6d5a281450c0340932b4159b680ef5d57b87e5103fd3d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/scripts/nwn_skill_feedback.py",
+      "role": "plugin-package",
+      "size_bytes": 23006,
+      "sha256": "8ce82da7deef83bad8d0ea9cc55b3f8c8e1e05b0fddfd23f21efcd035c29baca",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-plugins/nwn-server-gamedev-pack/skills/nwn-server-gamedev/SKILL.md",
+      "role": "plugin-package",
+      "size_bytes": 4959,
+      "sha256": "7dc49a5a58c5e8deb4790449a0e6f18d3f75b38a18f5917719bf5fcd5411098d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": true
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/agents/openai.yaml",
+      "role": "authoring-skill",
+      "size_bytes": 186,
+      "sha256": "1179da967b5d293a716180361016618d12a338d8c778fef914071b6ca95260b9",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/common-antipatterns.md",
+      "role": "authoring-skill",
+      "size_bytes": 4487,
+      "sha256": "3715ca6212bb7c1bd6b459c4499377cc2af4ad8cc305f137107aa7aec0b2e3c0",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/concept-and-scope.md",
+      "role": "authoring-skill",
+      "size_bytes": 672,
+      "sha256": "618f92fb27660188531ccbc898eb6b3423e385743245825707c6d4d780e9888d",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/creatures-encounters-ai.md",
+      "role": "authoring-skill",
+      "size_bytes": 8929,
+      "sha256": "72b7d5e158353d4e35c4cd61bbabfb62fc47699166c499fece6407b41b5a4fe0",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/deployment-nwsync-ops.md",
+      "role": "authoring-skill",
+      "size_bytes": 5559,
+      "sha256": "cdfa62ef5bcf7178d9a3afd2f56a706bab0b67b1518087de0da6790dfb7b62f1",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/economy-crafting-progression.md",
+      "role": "authoring-skill",
+      "size_bytes": 12003,
+      "sha256": "236471b607282e985a33ab7d1b1de1e9be0804efad8487e469006cc7ec6485c2",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/example-prompts.md",
+      "role": "authoring-skill",
+      "size_bytes": 7709,
+      "sha256": "eb41dba5573ff2497a09acb0605a6efde448bdbf3b4be158b85f097b76212c8b",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/feature-design-output-template.md",
+      "role": "authoring-skill",
+      "size_bytes": 6098,
+      "sha256": "de45c59a1ebe1dffadb7b99ed93d287c36c8a365c2b40de4d6376fda376b22dc",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/feedback-and-versioning.md",
+      "role": "authoring-skill",
+      "size_bytes": 1525,
+      "sha256": "aee32de893b80fea0d6e1b2b8ec3f489805beeb6307fecdde00d09e7851a06f2",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/items-equipment-loot.md",
+      "role": "authoring-skill",
+      "size_bytes": 9666,
+      "sha256": "9a02b3e93985cc2e2ea4e9449d34d5d78a6c33fba94a2aa79c329aab35655161",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/locations-areas-tilesets.md",
+      "role": "authoring-skill",
+      "size_bytes": 6833,
+      "sha256": "6ec1ebcccfd84c4579ba0bf8e0155e688f53c43ba304af53d42880edc9dcd697",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/nui-player-ui.md",
+      "role": "authoring-skill",
+      "size_bytes": 5341,
+      "sha256": "f05d1c32ac675eef35ce3d7de7a3552fee4e34efea7a4b5410c856da3c1388b0",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/nwscript-events-systems.md",
+      "role": "authoring-skill",
+      "size_bytes": 6524,
+      "sha256": "b977cc308a086f4df8ec3129a91afcc4046ae131499c4f3cef6c89c5d55ec16d",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/persistence-database-nwnx.md",
+      "role": "authoring-skill",
+      "size_bytes": 6384,
+      "sha256": "5ebfbc3f7adc472b8121bd3c0c20e2539733c376fb0643371c034dba00a7c757",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/quests-dialogues-journal.md",
+      "role": "authoring-skill",
+      "size_bytes": 10693,
+      "sha256": "977d06c001add7589a665775827fc9069685f15286e3b768fc0f71076611226b",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/server-gamedev-capability-map.md",
+      "role": "authoring-skill",
+      "size_bytes": 7329,
+      "sha256": "6540edf760a3e1b5e58b9011d8ed3e316df33d17a9acbd414d9e1bc1b82ccaa4",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/source-registry.md",
+      "role": "authoring-skill",
+      "size_bytes": 4745,
+      "sha256": "0da75bd8c5762da5543878125fc2aec0cee994e21a60202c50052906bf995a1f",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/testing-runtime-qa.md",
+      "role": "authoring-skill",
+      "size_bytes": 8083,
+      "sha256": "bbd61183dd3b0734ca79b1efc25802100bea198d24ab1ab9d04853c64dc57cf2",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/references/two-da-hak-tlk-pipeline.md",
+      "role": "authoring-skill",
+      "size_bytes": 5320,
+      "sha256": "d242fbb34c35e72ed0c6d5a281450c0340932b4159b680ef5d57b87e5103fd3d",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/scripts/nwn_skill_feedback.py",
+      "role": "authoring-skill",
+      "size_bytes": 23006,
+      "sha256": "8ce82da7deef83bad8d0ea9cc55b3f8c8e1e05b0fddfd23f21efcd035c29baca",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "draft-skills/nwn-server-gamedev/SKILL.md",
+      "role": "authoring-skill",
+      "size_bytes": 4959,
+      "sha256": "7dc49a5a58c5e8deb4790449a0e6f18d3f75b38a18f5917719bf5fcd5411098d",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "external-nwn-source-registry.md",
+      "role": "release-doc",
+      "size_bytes": 41275,
+      "sha256": "e51ce466d30753d8d605907fd573fcb486b71b1eea1e46304b27473716d556e2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "feedback-intake-status.md",
+      "role": "release-doc",
+      "size_bytes": 2963,
+      "sha256": "f213dfc1fb992fec468270bf843d9d5537229acad43070d0e7330629f9ff0476",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-test-plan.md",
+      "role": "release-doc",
+      "size_bytes": 12275,
+      "sha256": "d72ff58a450250c262ad7146e6d2cdb7cfd1b3a61a1cac7f6ef12daf09a75187",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-test-results.md",
+      "role": "release-doc",
+      "size_bytes": 9017,
+      "sha256": "e9a8188fe7419d4a51dd8d0d6915c68f9a8a011c628351deed1f006041b5cf66",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/aggregate.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 935,
+      "sha256": "52938f9db9d5305a1277a08b3391d81a04c238fbff37c3ba156954998a3df239",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/answer-capture-template.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 2300,
+      "sha256": "f678ec52a9c97113905d5a76f3022b4483212a0579493e8c159c7d0024febbb6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/evidence-acceptance-policy.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 2730,
+      "sha256": "420fb26af2f9381f5296b6777c9d9b53af02ea8b319248b2d10569abc40d3fe9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/execution-queue.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 5356,
+      "sha256": "bb980112b7616e1fd84aefd5b2923ad2852cb3a0996d8d0c237a660589f9678a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/ft-009-local-intake-clean-session-handoff.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 3212,
+      "sha256": "14dcfe3dde730eacf65d22fcf034752a730cf19ea55146b6b55a0b4b9ff90aae",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/ft-010-full-slice-capture-review.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 5607,
+      "sha256": "ac37bb2cb8170edb66e3268adec66f4a24c537e33b96c7e0f458e25037b3594f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/ft-010-full-slice-clean-session-handoff.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 3303,
+      "sha256": "839265215344d996d6bd6660349ac8f28f732b01b00e125121b807e1a8e7b2c7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/install-smoke-checklist.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 5799,
+      "sha256": "9ffecb6a576748a9045814eff4e250a871d587135973041fc0f190c751c3c91d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/install-smoke-execution-playbook.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 8307,
+      "sha256": "b87d1f4ab7eb7de5640c4e19dfa912f781c6d2742aa8c4474e2cd8a7a17a5237",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/install-smoke-packet.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 9743,
+      "sha256": "0c74285c3a44e94ebde12ab397a96573ba67b999d4e69a17a746fafb81eb6592",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/minimum-rc-proof-packet.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 7794,
+      "sha256": "60efb97c1ea09c3fba0240e2ea73ca21ddca65a20019b7297c20323689b8bdfa",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-001-low-level-forest-area.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 267,
+      "sha256": "741e954e77b9a0a99bc34ac4f25d37bd8c88fac9a1f8fed0b7ba9c198cf77d3b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-002-custom-spear-2da-hak-tlk.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 281,
+      "sha256": "f0a1d9cc54f4cdae8b58361caa03361eab40cb1d1f87363895985c41a2c267ba",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-003-nui-crafting-panel.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 245,
+      "sha256": "a19f705baeed5b8f58e5b08142e6e974c3867ba14907b54dbb45081390efe0c3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-004-persistence-restart-safety.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 264,
+      "sha256": "fa35d2ed3ceeeddcbe1a1bc8d81af9d8614f02d4756ceb68828b798665b4d942",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-005-release-review.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 269,
+      "sha256": "d2cf0be1897b2e4484dfd14ff78a75dbdb1ee04f65bfebc815ac68bc676a6d6d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-006-economy-progression.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 278,
+      "sha256": "ae34919f2e85070251340a792533239f05eac3af252a66b01184b3a4921e3052",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-007-quest-dialogue-journal.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 230,
+      "sha256": "a2a2c743d57d4cc999895b0028f41413f83b02c9524b54ea28228d3339182e43",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-008-feedback-contribution.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 343,
+      "sha256": "4d5ad6ab637678597e6f0be12a49d506d22f91b042f0c66fda35f6cb4dbf74b9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-009-aurora-local-intake-boundary.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 632,
+      "sha256": "f0dec1ca52df6c7f7297d90691e16cf44e435386990f702df45a7329a583732a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/prompts/ft-010-full-feature-server-slice.txt",
+      "role": "forward-test-evidence",
+      "size_bytes": 391,
+      "sha256": "d3941deb58b0d56d1e997fd6142fa80d64594a4d663816ffcbdff9579ab5269e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/rc-prompt-test-handoff.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 3528,
+      "sha256": "d02399cc5b9ce02d674da59febbf74b743a0c310c669dd4ee3165d91395c3bde",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/rc-unblock-playbook.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 7337,
+      "sha256": "07dc55b0204d65eeae714c695bcd60478e703638e24b462d4d574681219bec60",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/record-command-templates.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 24370,
+      "sha256": "ab40b8acf01b1c0f290b9084793f51f89a3945f69793949378ec14c9b46faffc",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/records/pkg-000-static-plugin-package-audit.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 1398,
+      "sha256": "c41ed8327209951031fb24aa93f938550674638483df912e1fd68b7fb34bdb78",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/records/pkg-001-local-plugin-install-candidate-build.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 1820,
+      "sha256": "f4eca0a86e84a9eaa43beb8fc79a1f2397e68cccc2c0f8fd4e785735d77de181",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/records/pkg-002-local-marketplace-sandbox-build.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 2140,
+      "sha256": "3306735ad1f60617f9a921fe44f0e77c82dc3855ddb6373ac07af408bd50dac1",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/records/pkg-003-post-workflow-install-marketplace-refresh.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 2040,
+      "sha256": "1ed54af28b7b00b1f280530df420049888581640f169f72631dbf6cb0ff7e354",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/reviewer-matrix.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 8147,
+      "sha256": "2fa4debfbf2121abb624a00f498b49cb0f74cec8ed73807d1bdb0fa1fc4f4899",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/reviewer-packet.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 9837,
+      "sha256": "ea1cc89af359bea4a4ba3a71bec682fa55ad8b244b1ac0fbdf4444a9e1a3e7a5",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/schema/forward-test-record.schema.json",
+      "role": "forward-test-evidence",
+      "size_bytes": 6823,
+      "sha256": "37236087baa1b323534b680d2525a8431596b3f785427aab16b82612fd2d8dca",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "forward-tests/tester-packet.md",
+      "role": "forward-test-evidence",
+      "size_bytes": 5779,
+      "sha256": "530ab36ceeef2a751bae7e9c7973ef48a52a0b7b42ac00fc5d4593c93f1f8d5b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "human-feedback-release-workflow.md",
+      "role": "release-doc",
+      "size_bytes": 12868,
+      "sha256": "a237b07b17dfc73ba9397e11979e640bc600112096cb6655b84e544890ed9248",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-first-review-command-sheet.md",
+      "role": "feedback-process",
+      "size_bytes": 8673,
+      "sha256": "c6194384a0658df24b573d82c91d0b48a6609ec56bfec0e02e6a8a7ceca5955e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-first-session-command-sheet.md",
+      "role": "feedback-process",
+      "size_bytes": 6817,
+      "sha256": "c01a9c07031b5f70612e67459b33e6fad67a674c1aec5c92529201fe0556cb4c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-record-review-checklist.md",
+      "role": "feedback-process",
+      "size_bytes": 12056,
+      "sha256": "5d810f298e37a2dd03f95afd10c7e796ae4618bfd9978e04e6495dd3b8d75874",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-redaction-policy.md",
+      "role": "feedback-process",
+      "size_bytes": 5364,
+      "sha256": "c853c628d8b233abaf8f4730aeaa284f47e0b18cb46a285e9dfb9a215bb5fb48",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-retest-dispatch.md",
+      "role": "feedback-process",
+      "size_bytes": 2559,
+      "sha256": "6e411af3cdcd7088b07fb427b29bcb72a92e469e51802cef38467bf60238b7ce",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-retest-promotion-bridge.md",
+      "role": "feedback-process",
+      "size_bytes": 1802,
+      "sha256": "34d2b18da637283bffeca68d73514ce0389661b23d9d5bed622593381401c34d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-retest-result-template.md",
+      "role": "feedback-process",
+      "size_bytes": 8589,
+      "sha256": "42658f29c1c85642157fa266db79159a0faefabad64403d59fbecd50abc7111d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-retest-results/aggregate.md",
+      "role": "feedback-process",
+      "size_bytes": 584,
+      "sha256": "8400bf72a6407d56d75ac1a6ca719d604ba21b6d32b51f1945db38fcfc3c8f75",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-return-packet.md",
+      "role": "feedback-process",
+      "size_bytes": 10814,
+      "sha256": "a668d6d5d6fe04010b8be8bd72204686b72cbc0898c2f4c15d2d7aeb7e227dd0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-review-outcomes/aggregate.md",
+      "role": "feedback-process",
+      "size_bytes": 624,
+      "sha256": "28219651766f593eb98b22875da0baaaefc751d54a1f302fcba3318819663be3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-review-queue.md",
+      "role": "feedback-process",
+      "size_bytes": 3288,
+      "sha256": "3e978fed65ea010925d0564b221338427632e95c0423f4a6c24a4b2b7025a184",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-status.md",
+      "role": "feedback-process",
+      "size_bytes": 2967,
+      "sha256": "e84ad14805f303db407c4e161f0f8680a9cc40db572f9807c2336b917ff84b95",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-visual-redaction-checklist.md",
+      "role": "feedback-process",
+      "size_bytes": 4945,
+      "sha256": "9ba0d709d874e3dab36f1ae98ea22ec52378accb0cdb8cc07811539c1699a781",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/aurora-live-visual-redaction-records/aggregate.md",
+      "role": "feedback-process",
+      "size_bytes": 654,
+      "sha256": "a9feb2d883dc78b235ca1c8f0e04dcfd6a1d1f3fc27196a9bd5cc4f30823b590",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/contribution-bundle-format.md",
+      "role": "feedback-process",
+      "size_bytes": 4093,
+      "sha256": "4e1776ca6dc4afe9df0a0fe1674c93ad65c1ff37e07b9a1cdd79c6fb9868ba2b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/contributor-intake-quickstart.md",
+      "role": "feedback-process",
+      "size_bytes": 6521,
+      "sha256": "e6c7a71668e49c6cfb9073d0fca6c349ec32fa60f8a925f9e1d13112ad6b4ef8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/external-contributor-trial-packet.md",
+      "role": "feedback-process",
+      "size_bytes": 5389,
+      "sha256": "bfde8dbab3b94bd1d33629f580c83a0335ce951d3158218ac32efe9cf99464c9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/external-contributor-trial-result-template.md",
+      "role": "feedback-process",
+      "size_bytes": 8253,
+      "sha256": "044859555be8cb83803198eb67b5fa1885b54b640d8f8c8e9a57be48b2b2da78",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/external-trials/aggregate.md",
+      "role": "feedback-process",
+      "size_bytes": 512,
+      "sha256": "0b28559ddb848c12839dcfc5120a350ecd56336b3e2007dab1ba60f6f367fd65",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/external-trials/ext-001-handoff.md",
+      "role": "feedback-process",
+      "size_bytes": 10818,
+      "sha256": "89d41bb3136a02878f8870cc28a5ac6397cff2747533e4358c6f424df8c024e3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/external-trials/ext-001-tester-message.md",
+      "role": "feedback-process",
+      "size_bytes": 2575,
+      "sha256": "dd3d074dcfd0385c9b3c8e11d4f8b925f94a37b6372fc753f21b903c2a4db131",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/feedback-review-rubric.md",
+      "role": "feedback-process",
+      "size_bytes": 6487,
+      "sha256": "3100d738410899a91713ffff7a7f47f7e36ef6244f716bf3a6525005894bc176",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/incoming/20260618T075533Z-nui-feedback-record-smoke-test.json",
+      "role": "feedback-source-incoming",
+      "size_bytes": 757,
+      "sha256": "9427bb64255ce15f9311ade90b858c59b8f1c6cb3aeb6fd24cee3e8f9b88da52",
+      "repo_artifact_include": true,
+      "install_candidate_include": false,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/lifecycle-policy.md",
+      "role": "feedback-process",
+      "size_bytes": 2120,
+      "sha256": "db0042769a212f33f71d8435266791808e703aac1ea547bbeb2e116e44b8d25e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/model-import-policy.md",
+      "role": "feedback-process",
+      "size_bytes": 4862,
+      "sha256": "8f0e38ac1c80ee09a4e99d44166f7a221c796083772a077dfebdb3fdc2ea96f8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/promotion-backlog.md",
+      "role": "feedback-process",
+      "size_bytes": 1579,
+      "sha256": "5ff7f7d739283ce56f843c77c910226bb7ab82ecbf2a29defacb460caae13234",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/reference-promotion-proposal-template.md",
+      "role": "feedback-process",
+      "size_bytes": 5229,
+      "sha256": "c12ecd2c304c98aa8fbff60481e39edb71b0322932c7a61b7aaced1182f05160",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/reference-promotions/aggregate.md",
+      "role": "feedback-process",
+      "size_bytes": 534,
+      "sha256": "fa0a805a30634fadfdd76e769595786a1f090ede6974bb3630ac3f1ee76677f4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/rejected/20260618T075533Z-nui-feedback-record-smoke-test.json",
+      "role": "feedback-rejected",
+      "size_bytes": 1147,
+      "sha256": "33b27e29aa64e46279944f54ccb7451c7abfd3fdfc043244a94cf43ec9670fe7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/reviewed/aggregate.md",
+      "role": "feedback-reviewed",
+      "size_bytes": 397,
+      "sha256": "fa88970a8553f0750ee6e025a95417586ea9fe67cac79b7976c1709151ce282b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/aurora-live-retest-result-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 4629,
+      "sha256": "a32f2831fc8b1570c51ca885a973b973e426825afbfa7065ba220075efda3c95",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/aurora-live-review-outcome-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 2839,
+      "sha256": "83cd9e7a3fa0fcdc07f855b3c9345c4dde89815d3f149d0eb00bc6a638c854d4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/aurora-live-visual-redaction-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 5953,
+      "sha256": "e5f5cb5d4c5e38d6930756b57ecdbdc87fd371c1736c673d05b9783216406923",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/aurora-toolset-live-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 4542,
+      "sha256": "10b0fcc239d536954bfa0bb752ce3092b4cc4d3a1ae1fa43548f494234247ca6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/external-contributor-trial-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 5715,
+      "sha256": "072429f5049210c6c90ccd7904dd4dac45134a62d10523545d56fb3da12a08d9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/feedback-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 3490,
+      "sha256": "7fa0b7aa60bf502fb38c93d0294dd5034371b933fbf8011306ba319344f17009",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/schema/reference-promotion-record.schema.json",
+      "role": "feedback-schema",
+      "size_bytes": 5327,
+      "sha256": "d0eb073a1aab94d13e68177e3d8dd51d600de2983b6cd4770d9817a7c595f637",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/aurora-live-evidence-manifest-template.json",
+      "role": "feedback-template",
+      "size_bytes": 1182,
+      "sha256": "472514c37e7177851035ec20b54f519cc9112664097bc29423f5cee161025bf9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/aurora-live-retest-result-record-template.json",
+      "role": "feedback-template",
+      "size_bytes": 2081,
+      "sha256": "842ece504db03a00ea5e9e24bec3ac828dfe366dcac7ccc49a13457230bcac5e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/aurora-live-review-outcome-record-template.json",
+      "role": "feedback-template",
+      "size_bytes": 1156,
+      "sha256": "63b1fa201169bd0afa9a19efcb2ef0b27fa0783f9c1cfc4c94955c2b63f82b85",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/aurora-toolset-live-record-template.json",
+      "role": "feedback-template",
+      "size_bytes": 4702,
+      "sha256": "6d893bdaeabea07ac8a3fc06f8407a32c01cc54abc08f6f7355baa27638bf8ca",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/github-issue-body.md",
+      "role": "feedback-template",
+      "size_bytes": 1389,
+      "sha256": "ecccbfec725c2820a0ed3d8c04d6364cf88e2343f567fa678fe9d2cb40109d81",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-inbox/templates/user-feedback-form.md",
+      "role": "feedback-template",
+      "size_bytes": 1117,
+      "sha256": "9f6db47572bc9b2b1cc9eb59145befb2c45dee57a6cde323065367c8a7de62f6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "knowledge-index-policy.md",
+      "role": "release-doc",
+      "size_bytes": 9780,
+      "sha256": "57672001960cc5eb60c1b535d0bc56f4b1cb29263e23b6d17f7f079579bb2cc0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-live-gap-queue.md",
+      "role": "release-doc",
+      "size_bytes": 4482,
+      "sha256": "c383e16468705c97441d440248d93f1cb070d649be022a13c76eb7b36a23c29d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-object-terrain-symbol-crosswalk-2026-06-18.md",
+      "role": "release-doc",
+      "size_bytes": 29049,
+      "sha256": "eefb4b8056b1c8f5812825f2963a3dd847d4714385afa7bc4ba70d0cb5bbebb3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-reverse-ingestion.md",
+      "role": "release-doc",
+      "size_bytes": 29262,
+      "sha256": "6b29a54da7f388d83dac0985dffdd01c8b9ad9490f04535c140b486126c903c7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-skill-reference-gap-analysis.md",
+      "role": "release-doc",
+      "size_bytes": 7832,
+      "sha256": "df56f63c382ff0d66336a465b90bff54dfed870f10cba904019446bc91dc54fd",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-small-location-live-operator-checklist.md",
+      "role": "release-doc",
+      "size_bytes": 23660,
+      "sha256": "3eabcc9a93197fa25b703f5ff1d1ac99dcba2340002868504f9303dd80cafd56",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-symbol-index.md",
+      "role": "release-doc",
+      "size_bytes": 21647,
+      "sha256": "f9451a63058612d902a5dd1a0e3333703b2a71a138ef93d07aa0286d08f7d2ed",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-aurora-ui-symbol-crosswalk-2026-06-18.md",
+      "role": "release-doc",
+      "size_bytes": 27792,
+      "sha256": "6f2288bcd120dd8fd7d64305da134efa96ac59172d3f8c3267f4409e68384abf",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "local-thread-019ed62e-aurora-ui-gallery-intake.md",
+      "role": "release-doc",
+      "size_bytes": 30770,
+      "sha256": "bb3fcdd66c78865c515b6faf54b56723df6478693042667ef0e9d29978bfad8a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "maintainer-decision-index.md",
+      "role": "release-doc",
+      "size_bytes": 21501,
+      "sha256": "dfbea32a4f8f7a92cdf9d97e953f3e254187643671a9072b8ae0373d810cd7c0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "nwn-server-gamedev-skill-spec.md",
+      "role": "release-doc",
+      "size_bytes": 3966,
+      "sha256": "409f4e5ff6a3e7167d5075ad12cd06bb0ad8f89e56ded096421e0fefb994103a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "package-boundaries.md",
+      "role": "release-doc",
+      "size_bytes": 36372,
+      "sha256": "4257725c9bdc27e292556597ec318a6ec8af5b5c47b62aae8938c98da614a6e4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "plugin-distribution-plan.md",
+      "role": "release-doc",
+      "size_bytes": 7993,
+      "sha256": "8ac5766e4328ab78df82294eb3870ebae5f9d408ffe6f2337f99d295685aaf4c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "plugin-release-candidate-checklist.md",
+      "role": "release-doc",
+      "size_bytes": 14223,
+      "sha256": "be3fe0ae99b235006460aa67d930000d9595181b3eb93f19152130ba184fe503",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "preflight-snapshots/2026-06-18T212906Z-repo-artifact-preflight.md",
+      "role": "release-doc",
+      "size_bytes": 2017,
+      "sha256": "a084a574ee47fc1cfaab93171576a93508dffd81e4dab2baee9048f939e64d90",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "rc-blocker-burndown.md",
+      "role": "release-doc",
+      "size_bytes": 5369,
+      "sha256": "0b9f7101c024d3870b730e87ad0a3ba326090980c01161a45e4f34865d3b922f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-and-review-checklists.md",
+      "role": "release-doc",
+      "size_bytes": 30880,
+      "sha256": "6d941c47328beacf891386be2f48b64454ccc19beb7e3388210a74f578b5ed37",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-evidence-index.md",
+      "role": "release-doc",
+      "size_bytes": 9239,
+      "sha256": "9533397f33cc95d7e6f64871bf65ff95d34270d89ea81ae5cdf629c5aea4bdf5",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-handoff-template.md",
+      "role": "release-doc",
+      "size_bytes": 7449,
+      "sha256": "24776ee4c59cde15b80673f26012d79d4f3037897e9942b8fa128a1597cf4d39",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-handoffs/nwn-server-gamedev-pack-0.1.0-repo-artifact.md",
+      "role": "release-doc",
+      "size_bytes": 7308,
+      "sha256": "3448f89a7de99fd842af0f7ef36c753310672c29191da97bb0df4f9507b503da",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-next-actions.md",
+      "role": "release-doc",
+      "size_bytes": 7307,
+      "sha256": "fe7a2dba07ba478cca0211ef5bcaba30bf5a4bf8d5c243291f2dff155bd58b34",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-notes-draft.md",
+      "role": "release-doc",
+      "size_bytes": 3904,
+      "sha256": "78dfed668c01d3ef10b9f0fb449c87b284cb55cdd8f824bf75174a85c71186f4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "release-readiness.md",
+      "role": "release-doc",
+      "size_bytes": 9686,
+      "sha256": "7ca7a5ce7d3bffcf52bedff085b8b86f2958eff33703823b508792c23659936c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "research-loop-state.json",
+      "role": "release-doc",
+      "size_bytes": 70316,
+      "sha256": "1d0f67b35936fe68dd3acb78c8d04ea38b1bbf018618632eed59dd6ed71126c1",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "research-run-log.jsonl",
+      "role": "release-doc",
+      "size_bytes": 552815,
+      "sha256": "ed292a6ec4a22b5901e5da4ec6afcf75ccc7e2fc446672ba80e5edd97340f395",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "research-run-summary.md",
+      "role": "release-doc",
+      "size_bytes": 7665,
+      "sha256": "9e26dcf5f554408c44b59eca7af92bb70eff4a85184501943d938ff8da7f952a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "skill-pack-research.md",
+      "role": "release-doc",
+      "size_bytes": 5147,
+      "sha256": "ffe29453b8d05106ed80725dea4c82d08df18e0dd869b83e4df40025dfcd1b20",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "source-of-truth-map.md",
+      "role": "release-doc",
+      "size_bytes": 75914,
+      "sha256": "292fa389a9651b670bf10615ed9f8b91172dc012d290460751cf3ed7fe1e340f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/aurora_live_retest_promotion_decision.py",
+      "role": "release-tooling",
+      "size_bytes": 9515,
+      "sha256": "c8e48d90d02758e47d9ef240f60794a060cf73d7975743e2b1a801d738e549d7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/aurora_live_retest_result_record.py",
+      "role": "release-tooling",
+      "size_bytes": 21000,
+      "sha256": "81364995c562998a15ebbcbe1578366e12740d56b17fddd2dcc670ac4d0e0a71",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/aurora_live_review_outcome_record.py",
+      "role": "release-tooling",
+      "size_bytes": 27041,
+      "sha256": "2c951b785d3cf948fbb766f0f9a97032c88028f402e8cafa1c009b2d0af7d301",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/aurora_live_visual_redaction_record.py",
+      "role": "release-tooling",
+      "size_bytes": 22195,
+      "sha256": "038a565a8b23e0aa6ce8be209c79e3702188550526a7a976da7e742cd83116ed",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/aurora_toolset_live_record.py",
+      "role": "release-tooling",
+      "size_bytes": 12669,
+      "sha256": "02e9981ae6639f5196a52ee7a41cf6d02e43de49d657b5f1d83aa1145a61579f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_aurora_live_retest_operator_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 7062,
+      "sha256": "840c0b4563cb5000521298bdfbb451d8dc4cd8d4f56e32063791f8df25d10c9d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_external_trial_dispatch_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 6340,
+      "sha256": "72fab99921373da8ed309098e5333b3357193ff6a8449ea8e584ddc28c0c268d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_external_trial_public_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 8917,
+      "sha256": "564ebbba747be0c6829e5213405b18647471397b2907a4b1cb15bc6e411d8ba2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_forward_test_clean_session_prompts.py",
+      "role": "release-tooling",
+      "size_bytes": 10839,
+      "sha256": "84633fd21b4c98455585795a636b5837c7345bb4e695f7ad3b0cbb7c2f22d713",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_forward_test_dispatch_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 9357,
+      "sha256": "35efb2f6351402507704de5b3a877c1da03c6fe59ab24d2ce9677e3a995dd30a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_local_marketplace_candidate.py",
+      "role": "release-tooling",
+      "size_bytes": 8496,
+      "sha256": "16a464041a2ac3e135e1b146ab2ea5d80d963436096e1b1c295e3a4ae131b40f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/build_plugin_install_candidate.py",
+      "role": "release-tooling",
+      "size_bytes": 5608,
+      "sha256": "4ab6a58f305216a43cf8234768adb2ab1ed5f44cf7fc55701afb6f63dcc25220",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_architecture_decisions.py",
+      "role": "release-tooling",
+      "size_bytes": 3823,
+      "sha256": "e9a55b6ff0741c277f4f78d026593e0f1d2f868c9976319f185c2bc52f4abb86",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_architecture_scorecard.py",
+      "role": "release-tooling",
+      "size_bytes": 3827,
+      "sha256": "43cc4a2d2e14e136ac4c476d8f434f0274f1d6ddfb48d47d49d86bd2664ab02f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_evidence_manifest.py",
+      "role": "release-tooling",
+      "size_bytes": 11712,
+      "sha256": "1cf33919fb7953b4cfdd9c3ab20bdf51ee21d3c82322d83c23bef0bd17b1d03e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_intake_consistency.py",
+      "role": "release-tooling",
+      "size_bytes": 13267,
+      "sha256": "11483f3c8ccf8726aa62a5662471f23ba19ae37bf55d3e9f8e32f1fd3329a338",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_operator_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 11236,
+      "sha256": "2a34c4d0f76ee9925e9bb876c2a0c99a52087f8a1cd5ac948078c7902e95e608",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_promotion_proof_gates.py",
+      "role": "release-tooling",
+      "size_bytes": 4708,
+      "sha256": "abdfa89459b5b9f2224c3eb9799aaec53816679aa901a9b70985c145c8690c93",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_record_review_checklist.py",
+      "role": "release-tooling",
+      "size_bytes": 7566,
+      "sha256": "45102be972f55093d0621e83879280a1a10b2356fea23f56e9b16b91aa2548a4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_records.py",
+      "role": "release-tooling",
+      "size_bytes": 5355,
+      "sha256": "ab001c9139f4a889e38fe8bc6dfa7d6c1cfbb77300dc346e00884602c5751646",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_redaction_policy.py",
+      "role": "release-tooling",
+      "size_bytes": 5852,
+      "sha256": "3930e17eb48e51e86297715fa039f50252352bebdcfae781b8c4b21f9a19ffb2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_dispatch.py",
+      "role": "release-tooling",
+      "size_bytes": 7647,
+      "sha256": "4382df56a1648cb34f04e4857a18ee307a0200067af282374bf758957c687ada",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_dispatch_roundtrip.py",
+      "role": "release-tooling",
+      "size_bytes": 11881,
+      "sha256": "910b5685c7ac6239020af72fdd41c2ee3d9e58aca401e06c24df95db719f3032",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_operator_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 11510,
+      "sha256": "e8291b59b27e2f92aa2888831e7584e826cf3fc29cafe3b4eed909fdba5f2e8c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_promotion_bridge.py",
+      "role": "release-tooling",
+      "size_bytes": 9772,
+      "sha256": "041bf9d4988123a7b7298439f927423d9ba4e99dc64ad76f3872ad5fa61bf92d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_promotion_decision.py",
+      "role": "release-tooling",
+      "size_bytes": 11554,
+      "sha256": "f41c050c3d10d2872c21ac7f3783d3ca3943f6f958f9560117712f3c145a76b3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_result_received_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 17225,
+      "sha256": "e2e4c630ea53f7529544d9214758c6c3d29cfd2bbac958831933ed7053f35343",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_result_records.py",
+      "role": "release-tooling",
+      "size_bytes": 13926,
+      "sha256": "cd108f873e34d222c717ed2fb2213aa819c894b595cfe371998fc147dd989c1d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_retest_result_template.py",
+      "role": "release-tooling",
+      "size_bytes": 6329,
+      "sha256": "dbba318daa8e8bd7eb911d3705541dda2575468b521921fdfcf7b0b22c15963d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_return_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 7450,
+      "sha256": "6fdb26569b207ce86f745f311986d5c74812e84504848dea838496e35df429c1",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_return_roundtrip.py",
+      "role": "release-tooling",
+      "size_bytes": 20156,
+      "sha256": "1cbd182a62097e1c52c4b4db0040fcc6dd99e5b2ef3d72eb7ce4d7eb917fd1fd",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_review_outcome_records.py",
+      "role": "release-tooling",
+      "size_bytes": 38495,
+      "sha256": "e915ff593d34e7652898cbfe39654790d82701acb6ca9741a7817dec552f9d7f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_review_queue.py",
+      "role": "release-tooling",
+      "size_bytes": 15488,
+      "sha256": "f068523240204ac10a55e5c5904ae950c166ea6d49d320a32f8f5017848e52b8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_status.py",
+      "role": "release-tooling",
+      "size_bytes": 11433,
+      "sha256": "849181f8a9f97e8bf79849da2a96a66aa8b6e0e47526130c18acbbf7b3ef3abd",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_visual_redaction_checklist.py",
+      "role": "release-tooling",
+      "size_bytes": 6208,
+      "sha256": "7103a81fe9c3e9134f92db02bce18b34cee08b8a8b61c2d02e0ce760e0850860",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_live_visual_redaction_records.py",
+      "role": "release-tooling",
+      "size_bytes": 18112,
+      "sha256": "fa1d1f2f6c8bb18f0c24e915ba9f19e44cbf85da4fb47a60c3ae9e02c32387aa",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_aurora_toolset_promotion_proposal_tool.py",
+      "role": "release-tooling",
+      "size_bytes": 20166,
+      "sha256": "c514591982f064a7aaf7b8fb95cc7ebfaae31e446cff76d6400c24ff4b9c5b30",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_capability_map.py",
+      "role": "release-tooling",
+      "size_bytes": 4612,
+      "sha256": "7d57d5d70f3a5f59f668266b7e765215af1b0539113d1bd7074580a48f7ed682",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_contribution_bundle_format.py",
+      "role": "release-tooling",
+      "size_bytes": 4274,
+      "sha256": "85c6931477d981540d83f06d17833af60042c9c3239356eae7c187f9d4cdf277",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_contribution_bundle_roundtrip.py",
+      "role": "release-tooling",
+      "size_bytes": 5622,
+      "sha256": "a2ea5a4a10d5fa6db7ba5c60bb18ca759fa8738cc8c5f3d5abe1bbf4d7554317",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_contributor_intake_quickstart.py",
+      "role": "release-tooling",
+      "size_bytes": 4851,
+      "sha256": "9bd1e72d32a5126209f990d23981ad2f392cb65c74c31e359f657ab0d130d3f7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_domain_reference_status.py",
+      "role": "release-tooling",
+      "size_bytes": 5291,
+      "sha256": "702dd19c171d2bff18cc65e879078c79ddf2749966fd6449892c3c7d9520374d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_contributor_trial_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 4549,
+      "sha256": "c5da4d5c06245efec837f65c106f24439c0b09f544abbcc962ed0deaf4674abf",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_contributor_trial_result_template.py",
+      "role": "release-tooling",
+      "size_bytes": 4670,
+      "sha256": "e03ebf9548f71fe66ddef77de92c5058b0199961d786909ee9fab8a7d3c6a827",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_source_registry.py",
+      "role": "release-tooling",
+      "size_bytes": 5437,
+      "sha256": "df69fec11c3cf6a43b7c325bca58312a1e968c3c1166366c2c0317191b9ffd9c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_cleanroom.py",
+      "role": "release-tooling",
+      "size_bytes": 7588,
+      "sha256": "5c50009b601cd6a9ad3a60b4d015af1dfa799b02a9ca00c0dc606aa0b81190ec",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_dispatch_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 10381,
+      "sha256": "70bb51703979ac88c752fe0273a8501bff9077038a8cbe566a6e50166faa307a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 5693,
+      "sha256": "fac0b68388539048f52f2d25db6d73d6b7ebbe479d419f169fc3f7875b1674c0",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_public_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 17711,
+      "sha256": "ce6e4f4e8926edebb88d8176ae717b13d04bfa8c287118a5f45dce73b7a6dd10",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_received_dispatch.py",
+      "role": "release-tooling",
+      "size_bytes": 17394,
+      "sha256": "3a4aff452c8fed06cd45c3e37cee17e15b3b21ee42e31a952ebbf483ff8aa402",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_records.py",
+      "role": "release-tooling",
+      "size_bytes": 7488,
+      "sha256": "11a469ee79df6f01fee64444d2b0551f11fbd75e19b79df40db016c959cecbd8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_external_trial_tester_message.py",
+      "role": "release-tooling",
+      "size_bytes": 5361,
+      "sha256": "0837e6e7bab9409ddc8190205e9961ea7d389e16ca5766e66736a6683a8e8b4c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_feature_design_template.py",
+      "role": "release-tooling",
+      "size_bytes": 4588,
+      "sha256": "d0f740de8fd8000df7a43ac4086d13ceff0fca5e499c0d213ecadad77158dacb",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_feedback_intake_docs.py",
+      "role": "release-tooling",
+      "size_bytes": 7374,
+      "sha256": "03778b1ea04e7edcfe24cc6bb67656fd5c72130fe8ce27f8f2f5d26bb06688d7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_feedback_intake_status.py",
+      "role": "release-tooling",
+      "size_bytes": 4161,
+      "sha256": "9aade85bc020396c9b2535ba378ef1208b9ac3114c35a72849381f338ee75ca8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_feedback_lifecycle.py",
+      "role": "release-tooling",
+      "size_bytes": 7981,
+      "sha256": "31bb6ea93238ba81622b31d3c25c5bea135cb0e8c326c6c9d8e0769caac60533",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_feedback_review_rubric.py",
+      "role": "release-tooling",
+      "size_bytes": 3037,
+      "sha256": "b836faee0d0447d5f41bd5c6df989c2083676478ffc0206f898dfb32d93ca591",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_capture_template.py",
+      "role": "release-tooling",
+      "size_bytes": 4466,
+      "sha256": "fd0dab745b83c738723253956bb8c61eef55156268344e376ba443edbe5804ce",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_clean_session_prompts.py",
+      "role": "release-tooling",
+      "size_bytes": 10456,
+      "sha256": "fa772af22ade123bccf38589ac02648dc5a109e4a8324082640cae6e71227570",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_clean_session_received_pack.py",
+      "role": "release-tooling",
+      "size_bytes": 7860,
+      "sha256": "b994ca67bb3d2bd26d60719e0d7f32f44054909333ecee1ee56a6d5cc7da155a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_dispatch_bundle.py",
+      "role": "release-tooling",
+      "size_bytes": 9224,
+      "sha256": "77a2212671a9f232c16556473704475b8b07a25de27ab982afdd36bca3c231c7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_evidence_policy.py",
+      "role": "release-tooling",
+      "size_bytes": 5289,
+      "sha256": "5405dbcccc6bce21817321d6468d08f346cdc81b23c249bd1e4d1a10710ff14a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_prompts.py",
+      "role": "release-tooling",
+      "size_bytes": 17959,
+      "sha256": "f2474e6002d86961d189110fd1539287a1e95c716927e933307e20253e73ff1a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_forward_test_return_captures.py",
+      "role": "release-tooling",
+      "size_bytes": 9877,
+      "sha256": "27bd856edf5d02a3710979c8c7a0910e5e08732f95d1be69bd1391fec884cb50",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_ft009_local_intake_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 4651,
+      "sha256": "b52772b4445804ba77ca299d9282f0c44da209f9b8f4fdce96c7eb8609927601",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_ft010_full_slice_capture_review.py",
+      "role": "release-tooling",
+      "size_bytes": 5043,
+      "sha256": "ccb466c89f605a09c4b9f1d5eb9eab6be97df30ac0cf9dad11b5fea28fb445d8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_ft010_full_slice_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 4751,
+      "sha256": "78fc878dee397da4aa96e0a961c9608ffa1ef11df49ab67aa51a4d41488495fb",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_init_aurora_live_evidence_manifest.py",
+      "role": "release-tooling",
+      "size_bytes": 7901,
+      "sha256": "857d1a260c7b31de4c6450e8a33c944f62a20f299a0681f024707fe044eb2415",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_init_aurora_live_record.py",
+      "role": "release-tooling",
+      "size_bytes": 6235,
+      "sha256": "fed73292024cf7774bb97eece4396940f4a1728754d7237feb0a6f7891f99103",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_init_forward_test_capture.py",
+      "role": "release-tooling",
+      "size_bytes": 7233,
+      "sha256": "fe915f9c115a66f9892a562052ea564975535ced5e2bff041f80a5f3eeac688c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_init_ft010_full_slice_review.py",
+      "role": "release-tooling",
+      "size_bytes": 7101,
+      "sha256": "94ccc8bea5b029e870c319e881e56ed8ce093922388e56f4398b016ba2b06104",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_install_candidate.py",
+      "role": "release-tooling",
+      "size_bytes": 10969,
+      "sha256": "a186869759a990939e1aac58eb1e916c35183d11b0202ab0572ee0d0ea561e7c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_install_smoke_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 12474,
+      "sha256": "1501d78922c587287c8d615e6212a48e20b88e6bac93f526f30ac663fce1dd2e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_install_smoke_playbook.py",
+      "role": "release-tooling",
+      "size_bytes": 5737,
+      "sha256": "73a50953e398e8703e25a83848acd61b08b926b759ec7344f2257716b502a2f6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_install_smoke_records.py",
+      "role": "release-tooling",
+      "size_bytes": 8601,
+      "sha256": "2836e4c8a2c3be5cdd7d90f5c71929fa13f34dea0069f5657d2830428a9d62fd",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_isolated_install_layout.py",
+      "role": "release-tooling",
+      "size_bytes": 14447,
+      "sha256": "6fd8b2f5a35064d0aa1819061f7c45587f6b6a6b436087bf048b4749ce3bc0dc",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_knowledge_index_policy.py",
+      "role": "release-tooling",
+      "size_bytes": 5570,
+      "sha256": "b1b494005dcb545f19bd4cc2ece63a8d837ee44a0f949e9d1406c7f189e09882",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_local_aurora_reverse_scope.py",
+      "role": "release-tooling",
+      "size_bytes": 14036,
+      "sha256": "ba19d67eac447c7b4f4b88a3e6a4cdb433c51ad92e8e2f02ac98eaec7b5e3067",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_maintainer_decision_index.py",
+      "role": "release-tooling",
+      "size_bytes": 11496,
+      "sha256": "64e2620329d904521c5951880d4d2609d312832b336a726daa2c3aabc903dd89",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_minimum_rc_proof_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 7421,
+      "sha256": "65e52922afd7f919c82c7eac9424c7c578b9dbf7ff59e13af2b68d4589770f1c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_model_import_policy.py",
+      "role": "release-tooling",
+      "size_bytes": 4522,
+      "sha256": "02451131b3c773e98709dc1439a854b65df92628321b9d1fe55a9a071439bfc4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_package_boundaries.py",
+      "role": "release-tooling",
+      "size_bytes": 9533,
+      "sha256": "f34a44ae6055876821f499ae48f4eb1f4f9a51eeb890c1aca1f0c5c684d9c6c7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_package_inventory.py",
+      "role": "release-tooling",
+      "size_bytes": 5509,
+      "sha256": "ff9c81be7474fbb317c0a64c168cee6924611625b6cce80ed045f0559a16f4fe",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_plugin_package.py",
+      "role": "release-tooling",
+      "size_bytes": 66247,
+      "sha256": "42111e6d4cbabf3cbb064a8a542774c91eee7e68a0a3652230eff5d74ae1a5d2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_prepare_aurora_live_session.py",
+      "role": "release-tooling",
+      "size_bytes": 8500,
+      "sha256": "90b1d22faea80c471932fa6704037cb8d48381bab5d2d06b8574a508389a5c2f",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_rc_blocker_burndown.py",
+      "role": "release-tooling",
+      "size_bytes": 3215,
+      "sha256": "99dc5670767818213e2548508ba282c3b900a4203f9b5a73fafe58885992f1e3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_rc_prompt_test_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 5409,
+      "sha256": "03dbbfee1404175c07b1ecfde7a10e50939d0a8553e5f83559db5be35715b0d5",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_rc_unblock_playbook.py",
+      "role": "release-tooling",
+      "size_bytes": 6288,
+      "sha256": "f229e64d868c8ac9c9af67cdcaa2956affbb7c3b294ea5537674e798b131e7ff",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_record_contracts.py",
+      "role": "release-tooling",
+      "size_bytes": 36349,
+      "sha256": "2873fe9b72fbd00ae95c3f745f75d5a7766e5dda137d5f0810b377fc420d797d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_reference_promotion_proposal_template.py",
+      "role": "release-tooling",
+      "size_bytes": 5013,
+      "sha256": "84813fa06a5cac8ffcf70debfb230f8c6c00f8284ee72608b08362e97e4d1262",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_reference_promotion_proposal_tool.py",
+      "role": "release-tooling",
+      "size_bytes": 7021,
+      "sha256": "84313660d9601e3f3d3aa7b61e2641146cc6f13613394cbe9694c028dd409d99",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_reference_promotion_records.py",
+      "role": "release-tooling",
+      "size_bytes": 11061,
+      "sha256": "16e129561cf4b49a30ded171b693912f13d27d1e6f13094817bc684f9fc7e1dc",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_evidence_index.py",
+      "role": "release-tooling",
+      "size_bytes": 9063,
+      "sha256": "87cb73e448b8aaf5aca96326848de4f5d37ba434e6e4cdfe2d85254c9f253a25",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_gate.py",
+      "role": "release-tooling",
+      "size_bytes": 15960,
+      "sha256": "9fdb00c1d995d5bd95a91d627f2a7f6dccb5c46841404f8c8670154f58edc061",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 7347,
+      "sha256": "c0b430eebbba18e9f0de48523555a5cd91db647a13b941ca5de376914adfd2a8",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_next_actions.py",
+      "role": "release-tooling",
+      "size_bytes": 6698,
+      "sha256": "66c79ea48324f9270b3c4d47a572b850dc911ef1a3a9be3dbccd9898de0d5d84",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_notes_draft.py",
+      "role": "release-tooling",
+      "size_bytes": 4640,
+      "sha256": "9e99d7104a5aa80f3068ce18d34caad96f7babf5653aeccc43e8947337e49636",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_release_readiness.py",
+      "role": "release-tooling",
+      "size_bytes": 4210,
+      "sha256": "01148b4d2e5f536f5b7b5880f9d0d2f362b22a789cdb676422bc632334d2333e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_research_run_log.py",
+      "role": "release-tooling",
+      "size_bytes": 5955,
+      "sha256": "acb69bf5f7898690422689ae25da2f533b7333961ede62d2a97e725cf562865a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_research_run_summary.py",
+      "role": "release-tooling",
+      "size_bytes": 3543,
+      "sha256": "19d4e152a1a8c980e32efdd679d1b9247783f6f3931e99aa9335591baa666763",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_skill_routes.py",
+      "role": "release-tooling",
+      "size_bytes": 3421,
+      "sha256": "861ccf64ffb5cdabe43989c1778ee1ef2b98397092e42818163d723350644e0a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_version_bump_plan.py",
+      "role": "release-tooling",
+      "size_bytes": 7434,
+      "sha256": "1adb7bc836ae04d993348ab8cf051336a1a5ccc500fae7e09c6360e78b70f52a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_version_manifest.py",
+      "role": "release-tooling",
+      "size_bytes": 69753,
+      "sha256": "e3cdc4742e269605274613d1805534b698d2ae147b22c9f9c7dc600bf2154b9a",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/check_versioning_policy.py",
+      "role": "release-tooling",
+      "size_bytes": 6011,
+      "sha256": "1945327c0cdf774309341ee3f4648461e6506e343bcfe4b1223b9109981133d6",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/external_trial_record.py",
+      "role": "release-tooling",
+      "size_bytes": 15785,
+      "sha256": "badb88e7a0a8fcd6bce2fff85a3f098e07e2f4ac5bdce49f56b4b413bb85d377",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/forward_test_record.py",
+      "role": "release-tooling",
+      "size_bytes": 15014,
+      "sha256": "006e6cfb4745390431ac20e47d0a4ec7bbd2553919f3e1f3a5e0fe0b0c449a1e",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_live_promotion_proof_gates.py",
+      "role": "release-tooling",
+      "size_bytes": 12384,
+      "sha256": "fd759a75ebd19581a47fa3c31506b8e58a985b36def1cd22252f235f7f8df573",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_live_retest_dispatch.py",
+      "role": "release-tooling",
+      "size_bytes": 9918,
+      "sha256": "2169ba1ecf16f6723e1d57fa3f131b03dbd58c2b50b5b44c8fba9a15ae4648d7",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_live_retest_promotion_bridge.py",
+      "role": "release-tooling",
+      "size_bytes": 12899,
+      "sha256": "373679d27236dd0371efa79b90b89b648fec0c1ff011d36db31a37cff7e3a4ae",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_live_review_queue.py",
+      "role": "release-tooling",
+      "size_bytes": 15745,
+      "sha256": "d1972be8f28df2b8c18cbde8f9cf3889916ed1dd6a804d2a198322a0fff1d0bb",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_live_status.py",
+      "role": "release-tooling",
+      "size_bytes": 9422,
+      "sha256": "6c34c36c8280f17b9a5cf6a728bad8d0f547f83d203b049f50ab5332b4ed7c37",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_aurora_toolset_promotion_proposal.py",
+      "role": "release-tooling",
+      "size_bytes": 18032,
+      "sha256": "c02acccaded19c591bf039ea2c51aff2776106ed605b85b709302405120bfcc4",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_external_trial_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 14225,
+      "sha256": "e0d33dac1a1442af481d482622dff4220a880ad14b58e83c3efe9743fcd99e84",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_external_trial_tester_message.py",
+      "role": "release-tooling",
+      "size_bytes": 5452,
+      "sha256": "3183588c7462718b306adb60651b5e3ccdacf1d0612008ae60a04014690a3c15",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_feedback_intake_status.py",
+      "role": "release-tooling",
+      "size_bytes": 9740,
+      "sha256": "c87aa22dc1ae6d376192d0cea4c81cfe0465e02a681956ceeafff29ffa2f6648",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_feedback_promotion_backlog.py",
+      "role": "release-tooling",
+      "size_bytes": 9857,
+      "sha256": "ac2bc940983fe33b626fb1651cf29fa0235c4f7a252fca6f7c2e9481b9346a53",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_forward_test_execution_queue.py",
+      "role": "release-tooling",
+      "size_bytes": 7490,
+      "sha256": "73595b3501279ee45a6861324ef676717ed2bdadc80a12a48363b830edde6b5b",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_forward_test_record_templates.py",
+      "role": "release-tooling",
+      "size_bytes": 6722,
+      "sha256": "dc7a3e184d4658f9c0d8c4a88da79f3e3225144449988119e40434ecbb306ba2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_forward_test_reviewer_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 6414,
+      "sha256": "ceeddb219003f6d3a5504e97fe11d1abd9d28b71e858827b2585f62bbeb30401",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_install_smoke_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 13469,
+      "sha256": "5a975ba9e718521dcfa8df484e7bcba7bcd6c0f635bee2c95fcb8e61af29f431",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_local_aurora_symbol_index.py",
+      "role": "release-tooling",
+      "size_bytes": 13181,
+      "sha256": "d3b826c2e790470bdc00c2fcc9a293f4a40a18d3c9f73487ea00e18d16632821",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_minimum_rc_proof_packet.py",
+      "role": "release-tooling",
+      "size_bytes": 11617,
+      "sha256": "f3a4bf153261b4570786e00af0d4d2c0f7227abcb6a0af45cdacff1fc0b00428",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_package_inventory.py",
+      "role": "release-tooling",
+      "size_bytes": 6598,
+      "sha256": "ffe44152b516ee1f13d839f5d074e3daf20fe0b60dd9b0f9684228228b92e9c9",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_rc_blocker_burndown.py",
+      "role": "release-tooling",
+      "size_bytes": 8026,
+      "sha256": "1ab62520a24e739e1c4d18196f7410797d08828870334ca4a518cbcd7468bdb1",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_rc_prompt_test_handoff.py",
+      "role": "release-tooling",
+      "size_bytes": 5938,
+      "sha256": "e4c0c97c8ffdf50586d3a166291d37f1233753f0cc678287d5ace6a28e936e92",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_reference_promotion_proposal.py",
+      "role": "release-tooling",
+      "size_bytes": 12494,
+      "sha256": "a689d57b929001c0c287e48534c2d022bd45b8559c57f9f1dbfa8af302204a77",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_release_evidence_index.py",
+      "role": "release-tooling",
+      "size_bytes": 15371,
+      "sha256": "6b68d368c5dfcaa74b5919d13ba738c5e14cbe49547e3efc03dc1e04d06d79e3",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_release_next_actions.py",
+      "role": "release-tooling",
+      "size_bytes": 11424,
+      "sha256": "3a39ee4495cb9745e79b2a984d7201d21845905571efcef08627efb07e14f768",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_release_notes_draft.py",
+      "role": "release-tooling",
+      "size_bytes": 7981,
+      "sha256": "fa31bfde14ad49c04cbb790d01da7746b402c95f913762669901d4374aeb3a07",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_release_readiness.py",
+      "role": "release-tooling",
+      "size_bytes": 16487,
+      "sha256": "f657ef77085bb14761c607aaaf801420e350fe8cd8327df36036bffe2f362e75",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_research_run_summary.py",
+      "role": "release-tooling",
+      "size_bytes": 5479,
+      "sha256": "9ea49e76fcbf6d75ec9bb1a57e8e458c8fff3452f0f37f520f40b3f46eb0b650",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/generate_version_bump_plan.py",
+      "role": "release-tooling",
+      "size_bytes": 9673,
+      "sha256": "1b8a343dfea078c34076c6c2ff0ba0d6d06060c4935ee3e2b84b14b8bb61fdbd",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/init_aurora_live_evidence_manifest.py",
+      "role": "release-tooling",
+      "size_bytes": 6605,
+      "sha256": "0296a6ceea8ea182e730913443e9fba265ef6065fdf227c275868b509936965d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/init_aurora_live_record.py",
+      "role": "release-tooling",
+      "size_bytes": 6437,
+      "sha256": "e48a47e5868c402c7d49857adcf6f053e937fb795f7a6c8bad35fea3f985e340",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/init_forward_test_capture.py",
+      "role": "release-tooling",
+      "size_bytes": 4126,
+      "sha256": "5940677ad82e5d7fd8a8ce32468ef6bca9245387c42a6805cf0f6980bbae34ca",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/init_ft010_full_slice_review.py",
+      "role": "release-tooling",
+      "size_bytes": 5311,
+      "sha256": "8935bfc39a1038e0a2ccdd29a924b0716d35cf41d22f9c07e0133ff81f46cf58",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/nwn_skill_feedback.py",
+      "role": "release-tooling",
+      "size_bytes": 23006,
+      "sha256": "8ce82da7deef83bad8d0ea9cc55b3f8c8e1e05b0fddfd23f21efcd035c29baca",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/prepare_aurora_live_session.py",
+      "role": "release-tooling",
+      "size_bytes": 8895,
+      "sha256": "279f69507061bce6cd62bd9ce6893d0c45a017f3617bc6cf8ebc41600b34ad2d",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/reference_promotion_record.py",
+      "role": "release-tooling",
+      "size_bytes": 12578,
+      "sha256": "ebc694ea05a63e69c5d1f7996271f7dfbbc8e4317839465ba6d468112c8a3767",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "tools/run_repo_artifact_preflight.py",
+      "role": "release-tooling",
+      "size_bytes": 27460,
+      "sha256": "20dffe92c29b9d604dbf633694fe04eba5730020c4e9ca71bd325c2a37daa21c",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "version-bump-plan.md",
+      "role": "release-doc",
+      "size_bytes": 2353,
+      "sha256": "47e3be8405ee9bc4561442f1a374af98c76589d15060abfcc6ae0e54c9b0aff2",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "version-manifest.json",
+      "role": "release-doc",
+      "size_bytes": 17611,
+      "sha256": "56149b91f89675eefcb2bcef9ca798dbba7ea78ff8f48f4af8e71315fe2c1b57",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    },
+    {
+      "path": "versioning-policy.md",
+      "role": "release-doc",
+      "size_bytes": 6144,
+      "sha256": "1eded5e9229431f2812ec90b563b776db2837298ec155475a9e95892003f0e39",
+      "repo_artifact_include": true,
+      "install_candidate_include": true,
+      "plugin_install_include": false
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+  "concurrency": 1,
+  "maxTestRunnerReuse": 2,
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress"],
+  "mutate": ["src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts"],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.areas.config.js",
+    "enableFindRelatedTests": false
+  }
+}

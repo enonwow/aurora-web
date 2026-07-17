@@ -1,0 +1,160 @@
+name: aurora-web
+
+services:
+  seaweedfs:
+    container_name: aurora-seaweedfs-dev
+    image: chrislusf/seaweedfs:latest
+    command: 'server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0'
+    environment:
+      AWS_ACCESS_KEY_ID: seaweedfs
+      AWS_SECRET_ACCESS_KEY: seaweedfs-secret
+      S3_BUCKET: aurora-module-assets
+    ports:
+      - "8333:8333"
+      - "9333:9333"
+      - "8888:8888"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  mysql:
+    container_name: aurora-mysql-dev
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: aurora_web
+      MYSQL_USER: aurora
+      MYSQL_PASSWORD: aurora
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    container_name: aurora-redis-dev
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  redis-insight:
+    container_name: aurora-redis-insight-dev
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    volumes:
+      - redis_insight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    container_name: aurora-frontend-dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      BACKEND_PROXY_TARGET: http://backend:3000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    restart: unless-stopped
+
+  backend:
+    container_name: aurora-backend-dev
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: sh -c "npm install && npm run start:dev"
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: mysql://aurora:aurora@mysql:3306/aurora_web
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CONTRACT_VERSION: "1.0.0"
+      SWAGGER_ENABLED: "true"
+      SWAGGER_PATH: docs
+      SWAGGER_JSON_PATH: docs-json
+      AUTH_REPOSITORY_DRIVER: mysql
+      SESSION_TTL_SECONDS: "3600"
+      RUNTIME_SETTINGS_FILE: ./config/runtime-settings.json
+      REDIS_URL: redis://redis:6379
+      PROCESSING_JOBS_REDIS_CHANNEL: aurora.jobs
+      PROCESSING_JOBS_REDIS_DEAD_LETTER_CHANNEL: aurora.jobs.dead
+      PROCESSING_JOBS_PAYLOAD_TTL_SECONDS: "3600"
+      PROCESSING_JOBS_MAX_ATTEMPTS: "3"
+      PROCESSING_JOBS_RETRY_BASE_DELAY_MS: "1000"
+      PROCESSING_JOBS_RETRY_MAX_DELAY_MS: "30000"
+      PROCESSING_JOBS_INLINE_ENABLED: "true"
+      RUNTIME_SETTINGS_BOOTSTRAP_SYNC: "false"
+      AURORA_DERIVED_ASSET_CONVERTER_COMMAND: node
+      AURORA_DERIVED_ASSET_CONVERTER_ARGS: '["/app/node_modules/ts-node/dist/bin.js","--transpile-only","/app/scripts/aurora-mdl-to-glb.ts","--input","{source}","--output","{output}","--resref","{resref}","--extension","{extension}"]'
+      AURORA_DERIVED_ASSET_CONVERTER_TIMEOUT_MS: "30000"
+      AURORA_DERIVED_ASSET_MAX_MODELS: "200"
+      AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: glb
+      AURORA_PLACEABLE_BATCH_CONCURRENCY: "4"
+      AURORA_ITEM_GENERATOR_SOURCE_DIRS: /host/aurora-reference/item-retail-extract/utg
+    depends_on:
+      mysql:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - "C:/Users/enonw/Documents/Neverwinter Nights:/host/nwn-docs:ro"
+      - "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights:/host/nwn-game:ro"
+      - "C:/Projects/New Folder/item-retail-extract/utg:/host/aurora-reference/item-retail-extract/utg:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
+    name: aurora_frontend_node_modules
+  backend_node_modules:
+    name: aurora_backend_node_modules
+  mysql_data:
+    name: aurora_mysql_data
+  seaweedfs_data:
+    name: aurora_seaweedfs_data
+  redis_data:
+    name: aurora_redis_data
+  redis_insight_data:
+    name: aurora_redis_insight_data

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "aurora-vfx-retail-capture/v1",
+  "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+  "status": "missing",
+  "retailExecution": {
+    "commandOrScript": "dm_runscript vfx_p12_beam210",
+    "startedAt": null,
+    "finishedAt": null,
+    "retailBuildRef": "retail-build.json",
+    "effectContextRef": "effect-context.json",
+    "harnessRef": "effect-beam-script.nss"
+  },
+  "camera": {
+    "areaTag": null,
+    "position": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "orientation": {
+      "pitch": null,
+      "yaw": null,
+      "roll": null
+    },
+    "fov": null,
+    "near": null,
+    "far": null,
+    "framingRequirement": "Camera must show visible retail-beam-source, visible retail-beam-target, and the full beam start/end for at least 3 seconds."
+  },
+  "sceneSetup": {
+    "sourceRef": "retail-beam-source",
+    "targetRef": "retail-beam-target",
+    "effectorRef": "retail-beam-source",
+    "bodyNode": "BODY_NODE_CHEST",
+    "lightingProfile": null,
+    "weather": null,
+    "timeOfDay": null,
+    "background": "missing"
+  },
+  "beamCaptureRequirements": {
+    "minimumDurationSeconds": 3,
+    "sourceObjectVisible": false,
+    "targetObjectVisible": false,
+    "cameraShowsBeamStartAndEnd": false,
+    "bodyNodeAnchor": "BODY_NODE_CHEST",
+    "bodyNodeAnchorObserved": null
+  },
+  "media": {
+    "screenshots": [],
+    "videoPath": null,
+    "frameRange": {
+      "startSeconds": null,
+      "endSeconds": null,
+      "sampledFrames": []
+    },
+    "mediaHashesSha256": []
+  },
+  "captureNotes": "Retail client is unavailable in this context; no screenshot, video, or capture metadata was produced.",
+  "notParityEvidenceByItself": true
+}

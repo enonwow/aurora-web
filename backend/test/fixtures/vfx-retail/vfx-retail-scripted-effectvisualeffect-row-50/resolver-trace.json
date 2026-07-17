@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "aurora-vfx-resolver-trace/v1",
+  "fixtureId": "vfx-retail-scripted-effectvisualeffect-row-50",
+  "status": "missing",
+  "sourcePolicy": {
+    "sourcesVfxProfileId": "nwn-ee-8193.34-selected-source",
+    "selectedSourceLayer": "selectedSource2da",
+    "runtimeSettingsRevision": null,
+    "runtimeSettingsHashSha256": null,
+    "hakListHashSha256": null
+  },
+  "selectedCandidate": {
+    "objectKey": "visualeffects.2da",
+    "resourceType": "2da",
+    "sourceLayer": "selectedSource2da",
+    "hashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+    "reason": "Fixture target row identity from manifest; retail resolver trace still missing."
+  },
+  "lowerPrecedenceCandidates": [],
+  "resourceHashes": [
+    {
+      "objectKey": "visualeffects.2da",
+      "resourceType": "2da",
+      "hashSha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+      "sourceLayer": "selectedSource2da"
+    }
+  ],
+  "dependencyEdges": [
+    {
+      "from": "visualeffects.2da#50",
+      "to": "VFX_IMP_DEATH runtime resources",
+      "kind": "missing",
+      "resolved": false
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RESOLVER_TRACE_REQUIRED",
+      "severity": "missing",
+      "message": "Retail resolver trace with selected resources and lower-precedence candidates has not been captured."
+    }
+  ],
+  "operatorNotes": "Resolve the row and all dependent VFX resources in the selected retail build/profile before using this as evidence."
+}

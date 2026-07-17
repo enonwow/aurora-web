@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to design a NUI crafting panel for a NWN:EE server. Include player flow, bind data, event handlers, refresh behavior, permissions, failure states, and runtime tests.

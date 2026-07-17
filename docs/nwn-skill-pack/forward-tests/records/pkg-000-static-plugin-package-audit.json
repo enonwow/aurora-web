@@ -1,0 +1,40 @@
+{
+  "schema_version": "1",
+  "id": "pkg-000-static-plugin-package-audit",
+  "created_at": "2026-06-18T10:47:45+00:00",
+  "record_type": "static-check",
+  "test_id": "PKG-000",
+  "title": "Static plugin package audit",
+  "result": "pass",
+  "tester": "Codex local loop",
+  "context": "Deterministic package audit run in current workspace; forward prompt tests remain pending.",
+  "prompt_or_command": "python docs\\nwn-skill-pack\\tools\\check_plugin_package.py docs\\nwn-skill-pack",
+  "skill_path": "docs/nwn-skill-pack/draft-skills/nwn-server-gamedev",
+  "expected_references": [
+    "plugin-release-candidate-checklist.md",
+    "plugin-distribution-plan.md"
+  ],
+  "observed_references": [
+    "plugin-release-candidate-checklist.md",
+    "release-handoff-template.md"
+  ],
+  "evidence_labels": [
+    "static-checked"
+  ],
+  "evidence": [
+    "check_plugin_package.py completed with zero errors and one warning about pending forward tests."
+  ],
+  "issues": [],
+  "missing_evidence": [
+    "Independent prompt forward tests FT-001..FT-008 are still pending."
+  ],
+  "artifacts": [
+    "docs/nwn-skill-pack/forward-test-results.md#pkg-000-static-plugin-package-audit"
+  ],
+  "feedback_record_ids": [],
+  "improvement_action": {
+    "needed": false,
+    "summary": ""
+  },
+  "notes": "This record proves package mechanics only, not skill output quality."
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "aurora-vfx-runtime-tick-dump/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "effectInstance": {
+    "constructorKind": "EffectVisualEffect",
+    "sourceRowId": 22,
+    "applicationMode": "location",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "targetRef": "retail-fireball-location",
+    "effectorRef": null
+  },
+  "phaseSchedule": {
+    "impact": null,
+    "duration": null,
+    "cessation": null,
+    "timingNotes": "TODO: runtime dump must include pre-detonate, detonate, and post-detonate ticks."
+  },
+  "runtimeFamily": {
+    "emitterType": "Explosion",
+    "renderMode": null,
+    "texture": null,
+    "chunkName": null,
+    "model": "TODO: resolved fireball emitter model/resource"
+  },
+  "detonateTiming": {
+    "requiredEvent": "detonate",
+    "startEffectTimeSeconds": null,
+    "detonateTimeSeconds": null,
+    "firstParticleTimeSeconds": null,
+    "particlesOnlyAfterDetonate": null,
+    "preDetonateWindowSeconds": null,
+    "postDetonateWindowSeconds": null
+  },
+  "tickInputs": {
+    "startTimeSeconds": null,
+    "endTimeSeconds": null,
+    "deltaSeconds": null,
+    "randomSeed": null,
+    "cameraRef": "retail-fireball-detonate-camera"
+  },
+  "ticks": [
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: pre-detonate tick"
+      ]
+    },
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: detonate event tick"
+      ]
+    },
+    {
+      "timeSeconds": null,
+      "stateBefore": "missing",
+      "stateAfter": "missing",
+      "activeParticles": "missing",
+      "freeParticles": "missing",
+      "events": [
+        "TODO: post-detonate particles tick"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+      "severity": "missing",
+      "message": "Runtime tick dump with detonate timing has not been captured."
+    },
+    {
+      "code": "VFX_EXPLOSION_DETONATE_EVENT_REQUIRED",
+      "severity": "missing",
+      "message": "The exact detonate event tick and first-particle timing remain unknown."
+    }
+  ],
+  "operatorNotes": "Capture ticks from before effect application through detonate and at least one post-detonate particle interval."
+}

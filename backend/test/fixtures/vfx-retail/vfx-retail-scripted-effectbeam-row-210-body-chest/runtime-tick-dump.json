@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "aurora-vfx-runtime-tick-dump/v1",
+  "fixtureId": "vfx-retail-scripted-effectbeam-row-210-body-chest",
+  "status": "missing",
+  "effectInstance": {
+    "constructorKind": "EffectBeam",
+    "sourceRowId": 210,
+    "applicationMode": "object",
+    "durationType": "temporary",
+    "durationSeconds": 3,
+    "targetRef": "retail-beam-target",
+    "effectorRef": "retail-beam-source",
+    "bodyNode": "BODY_NODE_CHEST"
+  },
+  "phaseSchedule": {
+    "impact": "missing",
+    "duration": "missing",
+    "cessation": null,
+    "timingNotes": "Temporary 3-second scripted EffectBeam fixture; retail tick timing and beam anchor state still required."
+  },
+  "runtimeFamily": {
+    "emitterType": "beam",
+    "renderMode": null,
+    "texture": null,
+    "chunkName": null,
+    "model": null
+  },
+  "tickInputs": {
+    "startTimeSeconds": null,
+    "endTimeSeconds": null,
+    "deltaSeconds": null,
+    "randomSeed": null,
+    "cameraRef": null
+  },
+  "beamRuntime": {
+    "sourceRef": "retail-beam-source",
+    "targetRef": "retail-beam-target",
+    "bodyNode": "BODY_NODE_CHEST",
+    "durationSeconds": 3,
+    "anchorObserved": null
+  },
+  "ticks": [],
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_RUNTIME_DUMP_REQUIRED",
+      "severity": "missing",
+      "message": "No retail or backend runtime tick dump has been captured for row 210 beam fixture."
+    }
+  ],
+  "operatorNotes": "Capture deterministic tick input/state/output across at least 3 seconds after running the scripted EffectBeam fixture in retail."
+}

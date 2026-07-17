@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "aurora-vfx-retail-build/v1",
+  "fixtureId": "vfx-retail-explosion-detonate-fireball",
+  "status": "missing",
+  "client": {
+    "name": "NWN:EE retail",
+    "buildId": null,
+    "version": null,
+    "distribution": "TODO: retail distribution/channel used by capture operator",
+    "executableHashSha256": null
+  },
+  "platform": {
+    "os": null,
+    "architecture": null,
+    "renderer": null,
+    "gpu": null,
+    "driverVersion": null
+  },
+  "buildProfile": {
+    "profileId": null,
+    "profileName": "TODO: final retail profile",
+    "retailBranch": "TODO: retail branch/build profile",
+    "language": null,
+    "lowViolence": null,
+    "lowQuality": null
+  },
+  "moduleProfile": {
+    "moduleName": null,
+    "modulePath": null,
+    "moduleHashSha256": null,
+    "profileId": null,
+    "profileName": "TODO: module profile containing vfx_p12_fireball22",
+    "areaTag": "retail-fireball-capture-area",
+    "cameraSetupId": "retail-fireball-detonate-camera"
+  },
+  "hakProfile": {
+    "profileId": null,
+    "hakList": [
+      {
+        "name": "TODO: capture HAK if used",
+        "path": null,
+        "hashSha256": null,
+        "order": null
+      }
+    ],
+    "hakListHashSha256": null
+  },
+  "runtimeSettings": {
+    "revision": null,
+    "hashSha256": null,
+    "path": null,
+    "sourcesVfxProfileId": "nwn-ee-8193.34-selected-source"
+  },
+  "captureEnvironment": {
+    "machineName": null,
+    "operator": null,
+    "timezone": null,
+    "captureStartedAt": null,
+    "captureFinishedAt": null,
+    "tooling": [
+      {
+        "name": "TODO: capture/recording tool",
+        "version": null,
+        "notes": "missing"
+      }
+    ]
+  },
+  "operatorNotes": "Retail client is unavailable in this context; fill this file only from the actual retail capture machine."
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "aurora-vfx-effect-context/v1",
+  "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+  "status": "missing",
+  "constructor": {
+    "kind": "dm_visualeffect",
+    "sourceRowId": 68,
+    "rawInvocation": "dm_visualeffect 68 0",
+    "scriptSource": null,
+    "scriptHashSha256": null
+  },
+  "application": {
+    "mode": "object",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "targetRef": "retail-capture-target",
+    "effectorRef": null,
+    "creatorRef": null,
+    "bodyNode": null,
+    "missFlag": null,
+    "location": {
+      "areaTag": null,
+      "x": null,
+      "y": null,
+      "z": null,
+      "orientation": null
+    }
+  },
+  "transform": {
+    "scale": null,
+    "translate": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "rotate": {
+      "x": null,
+      "y": null,
+      "z": null,
+      "w": null
+    }
+  },
+  "retailCommandOrScript": {
+    "command": "dm_visualeffect 68 0",
+    "moduleScriptName": null,
+    "trigger": "DM console"
+  },
+  "diagnostics": [
+    {
+      "code": "VFX_RETAIL_EFFECT_CONTEXT_EXECUTION_REQUIRED",
+      "severity": "missing",
+      "message": "The intended DM invocation is documented, but it has not been executed in retail in this context."
+    }
+  ],
+  "operatorNotes": "Run this as an object-targeted DM console fixture in retail: dm_visualeffect 68 0."
+}

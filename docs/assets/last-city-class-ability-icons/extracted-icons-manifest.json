@@ -1,0 +1,2464 @@
+[
+  {
+    "resref": "cls_sci_gra_off",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\cls_sci_gra_off.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "cls_sci_x_off",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\cls_sci_x_off.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4166,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4166
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4170,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4170
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4132,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4132
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4149,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4149
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4087,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4087
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4131,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4131
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_6",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_6.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4172,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4172
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_alchm_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_alchm_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4150,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4150
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4102,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4102
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4167,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4167
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4081,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4081
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4150,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4150
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_6",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_6.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_arr_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_arr_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4136,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4136
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4154,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4154
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4154,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4154
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4152,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4152
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4140,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4140
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4120,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4120
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_asn_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_asn_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4080,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4080
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3911,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3911
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3918,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3918
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3894,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3894
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3973,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3973
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3800,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3800
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_brsrk_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_brsrk_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4165,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4165
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4152,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4152
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4164,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4164
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3885,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3885
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4157,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4157
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_bxr_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_bxr_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_avd",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_avd.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_avoid",
+    "status": "missing",
+    "sources": []
+  },
+  {
+    "resref": "if_chr_caltr",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_caltr.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_caltrops",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_caltrops.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3148,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3148
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_leg_s",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_leg_s.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4127,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4127
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_leg_sweep",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_leg_sweep.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3148,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3148
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_maxlvl",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_maxlvl.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4154,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4154
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_poisn",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_poisn.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4047,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4047
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_poison",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_poison.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3141,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3141
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_risk",
+    "status": "missing",
+    "sources": []
+  },
+  {
+    "resref": "if_chr_sand",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_sand.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4172,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4172
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_strike",
+    "status": "missing",
+    "sources": []
+  },
+  {
+    "resref": "if_chr_strk",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_strk.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4140,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4140
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_chr_trick",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_chr_trick.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4147,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4147
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4126,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4126
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4164,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4164
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4118,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4118
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4164,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4164
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_6",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_6.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4158,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4158
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_engnr_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_engnr_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4163,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4163
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4166,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4166
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4165,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4165
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4158,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4158
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4165,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4165
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_htr_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_htr_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4170,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4170
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4164,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4164
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4024,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4024
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4160,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4160
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_knght_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_knght_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4107,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4107
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4152,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4152
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4144,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4144
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4172,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4172
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4160,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4160
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_mdc_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_mdc_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4158,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4158
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_animus",
+    "status": "missing",
+    "sources": []
+  },
+  {
+    "resref": "if_sci_anms",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_anms.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3378,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3378
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_dice_gra",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_dice_gra.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4170,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4170
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_foc_gra",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_foc_gra.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_heal",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_heal.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4170,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4170
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_ic_gra",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_ic_gra.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4168,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4168
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_lepid",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_lepid.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3732,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3732
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_maxlvl",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_maxlvl.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4169,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4169
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_recipes",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_recipes.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4167,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4167
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_rhod",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_rhod.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3682,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3682
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_symph",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_symph.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 3359,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 3359
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_vis",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_vis.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4079,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4079
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_sci_x3_gra",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_sci_x3_gra.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4118,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4118
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4161,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4161
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4153,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4153
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4148,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4148
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4156,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4156
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4094,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4094
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_shld_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_shld_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4158,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4158
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_1",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_1.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 2993,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 2993
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_2",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_2.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4075,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4075
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_3",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_3.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4041,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4041
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_4",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_4.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4101,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4101
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_5",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_5.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4146,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4146
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_6",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_6.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4142,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4142
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_tmr_passive",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_tmr_passive.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4106,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4106
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_maxlvl",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_maxlvl.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4079,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4079
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_rene",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_rene.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4172,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4172
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_root",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_root.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4150,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4150
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_t_ba",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_t_ba.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4160,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4160
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_t_du",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_t_du.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4147,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4147
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_t_fl",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_t_fl.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4135,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4135
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_t_fr",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_t_fr.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4168,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4168
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_trk_t_vi",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_trk_t_vi.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4165,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4165
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_eyes",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_eyes.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4162,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4162
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_fear",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_fear.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4159,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4159
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_iway",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_iway.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4160,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4160
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_kick",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_kick.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4159,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4159
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_lung",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_lung.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4142,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4142
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_maxlvl",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_maxlvl.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4159,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4159
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_rank",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_rank.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4144,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4144
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_shlds",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_shlds.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4168,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4168
+      }
+    ],
+    "error": null
+  },
+  {
+    "resref": "if_war_surv",
+    "status": "ok",
+    "png": "C:\\Projects\\aurora-web\\docs\\assets\\last-city-class-ability-icons\\extracted-icons\\if_war_surv.png",
+    "native_size": [
+      32,
+      32
+    ],
+    "layer": "hak",
+    "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+    "type": "tga",
+    "size": 4152,
+    "sources": [
+      {
+        "layer": "hak",
+        "source": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\lc_icons.hak",
+        "type": "tga",
+        "size": 4152
+      }
+    ],
+    "error": null
+  }
+]

@@ -1,0 +1,16 @@
+row,name,label,group,icon,icon_reuse_among_15,icon_png,icon_source,feats_table,bonus_feats_table,prereq_table,max_level,warning
+100,Wojownik,Warrior,Start,IR_WARR,1,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_warr.png,hak: lc_icons.hak,CLS_FEAT_WARR,CLS_BFEAT_WARR,CLS_PRES_WARR,10,
+101,Tropiciel,Tracker,Start,IR_RANGER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_ranger.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_TRK,CLS_BFEAT_TRK,CLS_PRES_TRACK,10,
+102,Szarlatan,Charlatan,Start,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_CHR,CLS_BFEAT_CHR,CLS_PRES_CHARL,10,reuse stałej
+103,Uczony,Scientist,Start,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_SCI,CLS_BFEAT_SCI,CLS_PRES_SCIEN,10,
+110,Zbrojny,Shieldmaster,Wojownik,IR_FIGHTER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_fighter.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_SHLD,CLS_BFEAT_WARR,CLS_PRES_SHLD,0,
+111,Berserker,Berserker,Wojownik,IR_FIGHTER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_fighter.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_BRSRK,CLS_BFEAT_WARR,CLS_PRES_BRSRK,0,Lower=opis
+112,Rycerz,Knight,Wojownik,IR_FIGHTER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_fighter.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_KNGHT,CLS_BFEAT_WARR,CLS_PRES_KNGHT,0,
+113,Alchemik,Alchemist,Uczony,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_ALCHEM,CLS_BFEAT_ALCHEM,CLS_PRES_ALCHEM,0,
+114,Medyk,Medic,Uczony,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_MEDIC,CLS_BFEAT_MEDIC,CLS_PRES_MEDIC,0,
+115,Inżynier,Engineer,Uczony,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_ENGNR,CLS_BFEAT_ENG,CLS_PRES_ENGNR,0,brak f_engnr_sharp.ncs
+116,Myśliwy,Archer,Tropiciel,IR_ARCHER,1,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_archer.png,vanilla-key-bif: xp2_textures.bif,CLS_FEAT_ARR,CLS_BFEAT_ARR,CLS_PRES_ARR,0,
+117,Strażnik,Hunter,Tropiciel,IR_RANGER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_ranger.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_HTR,CLS_BFEAT_HTR,CLS_PRES_HTR,0,
+118,Treser bestii,Tamer,Tropiciel,IR_RANGER,3,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_ranger.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_TMR,CLS_BFEAT_TMR,CLS_PRES_HTR,0,PreReq Hunter
+119,Pięściarz,Boxer,Szarlatan,IR_ROGUE,6,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_rogue.png,vanilla-key-bif: aurora_gui.bif,CLS_FEAT_BXR,CLS_BFEAT_BXR,CLS_PRES_BXR,0,
+120,Skrytobójca,Assassin,Szarlatan,IR_ASASIN,1,C:\Projects\aurora-web\docs\assets\last-city-class-icons-extracted\ir_asasin.png,vanilla-key-bif: xp2_textures.bif,CLS_FEAT_ASN,CLS_BFEAT_ASN,CLS_PRES_ASN,0,brak BFEAT + reuse stałej

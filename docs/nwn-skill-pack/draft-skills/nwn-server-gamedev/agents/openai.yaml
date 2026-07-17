@@ -1,0 +1,4 @@
+interface:
+  display_name: "NWN Server Gamedev"
+  short_description: "Design and build NWN servers"
+  default_prompt: "Use $nwn-server-gamedev to design a practical NWN server feature."

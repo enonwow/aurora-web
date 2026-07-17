@@ -1,0 +1,1 @@
+Use $nwn-server-gamedev at docs/nwn-skill-pack/draft-skills/nwn-server-gamedev to design the first 10 levels of gold, XP, loot, crafting, and shop progression for a low-magic persistent NWN:EE server. Include faucets, sinks, repeatable farming risks, telemetry, and runtime QA.
