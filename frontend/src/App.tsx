@@ -26,13 +26,56 @@ import {
 import { createBrowserLayoutFacadeBundle } from "./modules/layout/composition/createBrowserLayoutFacadeBundle";
 import { createBrowserSceneViewportPort } from "./modules/scene/composition/createBrowserSceneViewportPort";
 import { createHttpAreaApiPort } from "./modules/areas/adapters/httpAreaApiPort";
+import { createBrowserAreaEditingFacade } from "./modules/areas/composition/createBrowserAreaEditingFacade";
+import { createHttpAreaCreateApiPort } from "./modules/areas/adapters/httpAreaCreateApiPort";
+import { createAreaCreateFacade } from "./modules/areas/application/areaCreateFacade";
+import { createHttpAreaUpdateApiPort } from "./modules/areas/adapters/httpAreaUpdateApiPort";
+import { createAreaUpdateFacade } from "./modules/areas/application/areaUpdateFacade";
+import { createHttpAreaDeleteApiPort } from "./modules/areas/adapters/httpAreaDeleteApiPort";
+import { createAreaDeleteFacade } from "./modules/areas/application/areaDeleteFacade";
+import { createHttpAreaRenameApiPort } from "./modules/areas/adapters/httpAreaRenameApiPort";
+import { createAreaRenameFacade } from "./modules/areas/application/areaRenameFacade";
+import { createHttpAreaLifecyclePort } from "./modules/areas/adapters/httpAreaLifecyclePort";
+import { createAreaLifecycleFacade } from "./modules/areas/application/areaLifecycleFacade";
+import { HttpAreaCapabilityPort } from "./modules/areas/adapters/httpAreaCapabilityPort";
+import { createAreaCapabilityFacade } from "./modules/areas/application/areaCapabilityFacade";
+import { HttpAreaEventScriptCatalogPort } from "./modules/areas/adapters/httpAreaEventScriptCatalogPort";
+import { createAreaEventScriptCatalogFacade } from "./modules/areas/application/areaEventScriptCatalogFacade";
+import { createBrowserAreaEventScriptPublicationFacade } from "./modules/areas/composition/createBrowserAreaEventScriptPublicationFacade";
+import type { AreaWorkspaceDraftDocument } from "./modules/areas/areaWorkspaceDraftContracts";
 import { createHttpTileApiPort } from "./modules/tiles/adapters/httpTileApiPort";
 import { createHttpPlaceableApiPort } from "./modules/placeables/adapters/httpPlaceableApiPort";
 import { createHttpCreatureApiPort } from "./modules/creatures/adapters/httpCreatureApiPort";
+import { createBrowserCreatureAppearancePaletteFacade } from "./modules/creatures/composition/createBrowserCreatureAppearancePaletteFacade";
+import { createCreatureAppearanceCatalogFacade } from "./modules/creatures/application/creatureAppearanceCatalogFacade";
+import { createCreatureGenderCatalogFacade } from "./modules/creatures/application/creatureGenderCatalogFacade";
+import { createCreatureAppendageCatalogFacade } from
+  "./modules/creatures/application/creatureAppendageCatalogFacade";
+import { createCreaturePerceptionRangeCatalogFacade } from
+  "./modules/creatures/application/creaturePerceptionRangeCatalogFacade";
+import { createCreatureWalkRateCatalogFacade } from
+  "./modules/creatures/application/creatureWalkRateCatalogFacade";
+import { createCreatureSoundSetCatalogFacade } from
+  "./modules/creatures/application/creatureSoundSetCatalogFacade";
+import { createCreatureStartingPackageCatalogFacade } from
+  "./modules/creatures/application/creatureStartingPackageCatalogFacade";
+import { createCreatureClassCatalogFacade } from
+  "./modules/creatures/application/creatureClassCatalogFacade";
+import { createCreatureSkillCatalogFacade } from
+  "./modules/creatures/application/creatureSkillCatalogFacade";
+import { createCreatureFeatCatalogFacade } from
+  "./modules/creatures/application/creatureFeatCatalogFacade";
+import { createCreatureSpecialAbilityCatalogFacade } from
+  "./modules/creatures/application/creatureSpecialAbilityCatalogFacade";
+import { createCreaturePhenotypeCatalogFacade } from "./modules/creatures/application/creaturePhenotypeCatalogFacade";
 import { createHttpEncounterApiPort } from "./modules/encounters/adapters/httpEncounterApiPort";
+import { createHttpWaypointApiPort } from "./modules/waypoints/adapters/httpWaypointApiPort";
 import { createHttpItemApiPort } from "./modules/items/adapters/httpItemApiPort";
 import { createHttpSoundApiPort } from "./modules/sounds/adapters/httpSoundApiPort";
 import { createHttpStoreApiPort } from "./modules/stores/adapters/httpStoreApiPort";
+import { createBrowserClientAssetCachePort } from "./modules/shared/adapters/browserClientAssetCachePort";
+import type { ClientAssetCacheDiagnosticEvent } from "./modules/shared/application/clientAssetCachePort";
+import { enforceClientAssetCacheBudgetAtStartup } from "./modules/shared/application/clientAssetCacheLifecycle";
 import { resolveWorkspaceBackendApiBaseUrl } from "./modules/shared/workspaceBackendApiBaseUrl";
 import { probeBackendHealth } from "./modules/auth/adapters/httpBackendAuthFacade";
 import {
@@ -45,9 +88,17 @@ import {
   VfxFixtureRunner
 } from "./modules/vfx/dev/VfxFixtureRunner";
 import {
+  isNwnVfxComparisonRunnerPath,
+  NwnVfxComparisonRunner
+} from "./modules/vfx/dev/NwnVfxComparisonRunner";
+import {
   CatalogVfxPreviewRunner,
   isCatalogVfxPreviewRunnerPath
 } from "./modules/vfx/dev/CatalogVfxPreviewRunner";
+import {
+  isMtrCustomShaderProbeRunnerPath,
+  MtrCustomShaderProbeRunner
+} from "./modules/placeables/dev/MtrCustomShaderProbeRunner";
 import {
   CreatureLightPreviewRunner,
   isCreatureLightPreviewRunnerPath
@@ -68,8 +119,22 @@ import {
   isItemPropertiesDialogProofRunnerPath,
   ItemPropertiesDialogProofRunner
 } from "./modules/items/dev/ItemPropertiesDialogProofRunner";
+import {
+  getRuntimePathReadiness,
+  type RuntimePathReadiness
+} from "./modules/runtime-settings/runtimePathOnboardingApi";
+import { RuntimePathOnboardingScreen } from "./modules/runtime-settings/RuntimePathOnboardingScreen";
+import {
+  getSystemMaintenanceStatus,
+  getRuntimeCacheRebuildDetails,
+  retryRuntimeCacheRebuild,
+  rollbackRuntimeCacheRebuild,
+  type RuntimeCacheRebuildDetails,
+  type SystemMaintenanceStatus
+} from "./modules/runtime-settings/systemMaintenanceApi";
+import { SystemMaintenanceScreen } from "./modules/runtime-settings/SystemMaintenanceScreen";
 
-type AppRoute = "/login" | "/app";
+type AppRoute = "/login" | "/app" | "/settings/runtime" | "/maintenance";
 type BackendHealthState = "checking" | "available" | "unavailable";
 
 export const AUTH_SESSION_STORAGE_KEY = "aurora_web.auth_session.v1";
@@ -227,7 +292,14 @@ function persistWorkspaceMode(modeId: WorkspaceModeId, storage: Storage): void {
 }
 
 function resolveRoute(pathname: string): AppRoute {
-  return pathname === "/app" ? "/app" : "/login";
+  if (
+    pathname === "/app" ||
+    pathname === "/settings/runtime" ||
+    pathname === "/maintenance"
+  ) {
+    return pathname;
+  }
+  return "/login";
 }
 
 function averageDurationMs(values: number[]): string {
@@ -239,6 +311,12 @@ function averageDurationMs(values: number[]): string {
 }
 
 export default function App(props: AppProps) {
+  if (isMtrCustomShaderProbeRunnerPath(window.location.pathname)) {
+    return <MtrCustomShaderProbeRunner />;
+  }
+  if (isNwnVfxComparisonRunnerPath(window.location.pathname)) {
+    return <NwnVfxComparisonRunner />;
+  }
   if (isCreatureEquipmentAnimationProofRunnerPath(window.location.pathname)) {
     return <CreatureEquipmentAnimationProofRunner />;
   }
@@ -285,9 +363,59 @@ function AuthenticatedApp({
     []
   );
   const sceneViewportPort = useMemo(() => createBrowserSceneViewportPort(), []);
+  const clientAssetCachePort = useMemo(() => createBrowserClientAssetCachePort(), []);
   const areaApiPort = useMemo(
     () => createHttpAreaApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL),
     []
+  );
+  const areaEditingFacade = useMemo(
+    () => createBrowserAreaEditingFacade(WORKSPACE_BACKEND_API_BASE_URL),
+    []
+  );
+  const areaCreateFacade = useMemo(
+    () =>
+      createAreaCreateFacade(
+        createHttpAreaCreateApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+      ),
+    []
+  );
+  const areaUpdateFacade = useMemo(
+    () =>
+      createAreaUpdateFacade(
+        createHttpAreaUpdateApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+      ),
+    []
+  );
+  const areaDeleteFacade = useMemo(
+    () =>
+      createAreaDeleteFacade(
+        createHttpAreaDeleteApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+      ),
+    []
+  );
+  const areaRenameFacade = useMemo(
+    () =>
+      createAreaRenameFacade(
+        createHttpAreaRenameApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+      ),
+    []
+  );
+  const areaCapabilityFacade = useMemo(
+    () =>
+      createAreaCapabilityFacade(
+        new HttpAreaCapabilityPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+      ),
+    []
+  );
+  const areaEventScriptCatalogFacade = useMemo(
+    () => createAreaEventScriptCatalogFacade(
+      new HttpAreaEventScriptCatalogPort(undefined, WORKSPACE_BACKEND_API_BASE_URL)
+    ),
+    []
+  );
+  const areaEventScriptPublicationFacade = useMemo(
+    () => createBrowserAreaEventScriptPublicationFacade(WORKSPACE_BACKEND_API_BASE_URL),
+    [],
   );
   const tileApiPort = useMemo(
     () => createHttpTileApiPort(undefined, WORKSPACE_BACKEND_API_BASE_URL),
@@ -298,7 +426,60 @@ function AuthenticatedApp({
     []
   );
   const creatureApiPort = useMemo(() => createHttpCreatureApiPort(), []);
+  const creatureAppearanceCatalogFacade = useMemo(
+    () => createCreatureAppearanceCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureGenderCatalogFacade = useMemo(
+    () => createCreatureGenderCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureAppendageCatalogFacade = useMemo(
+    () => createCreatureAppendageCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creaturePerceptionRangeCatalogFacade = useMemo(
+    () => createCreaturePerceptionRangeCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureWalkRateCatalogFacade = useMemo(
+    () => createCreatureWalkRateCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureSoundSetCatalogFacade = useMemo(
+    () => createCreatureSoundSetCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureStartingPackageCatalogFacade = useMemo(
+    () => createCreatureStartingPackageCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureClassCatalogFacade = useMemo(
+    () => createCreatureClassCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureSkillCatalogFacade = useMemo(
+    () => createCreatureSkillCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureFeatCatalogFacade = useMemo(
+    () => createCreatureFeatCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureSpecialAbilityCatalogFacade = useMemo(
+    () => createCreatureSpecialAbilityCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creaturePhenotypeCatalogFacade = useMemo(
+    () => createCreaturePhenotypeCatalogFacade(creatureApiPort),
+    [creatureApiPort]
+  );
+  const creatureAppearancePaletteFacade = useMemo(
+    () => createBrowserCreatureAppearancePaletteFacade(),
+    []
+  );
   const encounterApiPort = useMemo(() => createHttpEncounterApiPort(), []);
+  const waypointApiPort = useMemo(() => createHttpWaypointApiPort(), []);
   const itemApiPort = useMemo(() => createHttpItemApiPort(), []);
   const soundApiPort = useMemo(() => createHttpSoundApiPort(), []);
   const storeApiPort = useMemo(() => createHttpStoreApiPort(), []);
@@ -334,6 +515,35 @@ function AuthenticatedApp({
   const [backendAccessToken, setBackendAccessToken] = useState<string | null>(
     () => persistedAuthState?.session.accessToken ?? null
   );
+  const areaLifecycleFacade = useMemo(() => {
+    const port = createHttpAreaLifecyclePort<AreaWorkspaceDraftDocument>(
+      undefined,
+      WORKSPACE_BACKEND_API_BASE_URL,
+      () => backendAccessToken
+    );
+    return createAreaLifecycleFacade({ queryPort: port, commandPort: port });
+  }, [backendAccessToken]);
+  const [runtimePathReadiness, setRuntimePathReadiness] =
+    useState<RuntimePathReadiness | null>(() =>
+      isVitestRuntime()
+        ? { ready: true, issues: [], canConfigure: true }
+        : null
+    );
+  const [maintenanceStatus, setMaintenanceStatus] =
+    useState<SystemMaintenanceStatus | null>(() =>
+      isVitestRuntime()
+        ? {
+            state: "idle",
+            maintenance: false,
+            loginAvailable: true,
+            phase: "idle",
+            updatedAt: new Date(0).toISOString(),
+            message: "Server is ready."
+          }
+        : null
+    );
+  const [maintenanceDetails, setMaintenanceDetails] =
+    useState<RuntimeCacheRebuildDetails | null>(null);
   const [backendHealthState, setBackendHealthState] =
     useState<BackendHealthState>(() => (persistedAuthState ? "available" : "unavailable"));
   const [backendHealthService, setBackendHealthService] = useState<string | null>(null);
@@ -350,6 +560,101 @@ function AuthenticatedApp({
     telemetryFacade.track("route.changed", { route: nextRoute });
   }, [telemetryFacade]);
 
+  const clearLocalSessionForMaintenance = useCallback(() => {
+    setShowDebugPanel(false);
+    setSession(null);
+    setAuthorization(null);
+    setBackendAccessToken(null);
+    setRuntimePathReadiness(null);
+    clearPersistedAuthState(window.localStorage);
+    setUsername("");
+    setPassword("");
+    setIsSigningIn(false);
+    setAuthError(null);
+    setActiveWorkspaceModeId(getDefaultWorkspaceModeId());
+    persistWorkspaceMode(getDefaultWorkspaceModeId(), window.localStorage);
+    setToolbarState(workspaceChromeFacade.createDefaultToolbarState());
+    setCommandSignal(null);
+  }, [workspaceChromeFacade]);
+
+  const refreshMaintenanceStatus = useCallback(async () => {
+    if (isVitestRuntime()) {
+      return;
+    }
+    try {
+      setMaintenanceStatus(await getSystemMaintenanceStatus());
+    } catch {
+      // Keep the last known state. Backend availability is reported separately.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isVitestRuntime()) {
+      return;
+    }
+    void refreshMaintenanceStatus();
+    const intervalId = window.setInterval(
+      () => void refreshMaintenanceStatus(),
+      maintenanceStatus?.maintenance ? 2_000 : 10_000
+    );
+    return () => window.clearInterval(intervalId);
+  }, [maintenanceStatus?.maintenance, refreshMaintenanceStatus]);
+
+  useEffect(() => {
+    if (
+      isVitestRuntime() ||
+      maintenanceStatus?.state !== "failed" ||
+      !maintenanceStatus.operationId ||
+      session?.user.role !== "admin"
+    ) {
+      setMaintenanceDetails(null);
+      return;
+    }
+    let cancelled = false;
+    void getRuntimeCacheRebuildDetails(
+      session.accessToken,
+      maintenanceStatus.operationId
+    )
+      .then((details) => {
+        if (!cancelled) {
+          setMaintenanceDetails(details);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMaintenanceDetails(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [maintenanceStatus?.operationId, maintenanceStatus?.state, session]);
+
+  useEffect(() => {
+    if (!maintenanceStatus?.maintenance) {
+      if (route === "/maintenance") {
+        navigate("/login");
+      }
+      return;
+    }
+    const adminRecoverySession =
+      maintenanceStatus.state === "failed" && session?.user.role === "admin";
+    if (!adminRecoverySession && session) {
+      clearLocalSessionForMaintenance();
+    }
+    const failedLoginRoute =
+      maintenanceStatus.state === "failed" && route === "/login";
+    if (route !== "/maintenance" && !adminRecoverySession && !failedLoginRoute) {
+      navigate("/maintenance");
+    }
+  }, [
+    clearLocalSessionForMaintenance,
+    maintenanceStatus,
+    navigate,
+    route,
+    session
+  ]);
+
   useEffect(() => {
     const unsubscribe = telemetryFacade.subscribe((incomingEvents) => {
       setEvents(incomingEvents);
@@ -363,6 +668,29 @@ function AuthenticatedApp({
     }
     persistAuthState({ session, authorization }, window.localStorage);
   }, [authorization, session]);
+
+  useEffect(() => {
+    const adoptRefreshedAuthState = (event: StorageEvent) => {
+      if (
+        event.key !== AUTH_SESSION_STORAGE_KEY ||
+        (event.storageArea !== null && event.storageArea !== window.localStorage)
+      ) {
+        return;
+      }
+      const refreshed = loadPersistedAuthState(window.localStorage);
+      if (!refreshed || refreshed.session.accessToken === session?.accessToken) {
+        return;
+      }
+      setSession(refreshed.session);
+      setAuthError(null);
+      setBackendHealthState("available");
+      telemetryFacade.track("ui.auth.session_refreshed_from_storage", {
+        userId: refreshed.session.user.id
+      });
+    };
+    window.addEventListener("storage", adoptRefreshedAuthState);
+    return () => window.removeEventListener("storage", adoptRefreshedAuthState);
+  }, [session?.accessToken, telemetryFacade]);
 
   useEffect(() => {
     if (!session) {
@@ -440,6 +768,43 @@ function AuthenticatedApp({
   }, [authFacade, navigate, session, telemetryFacade]);
 
   useEffect(() => {
+    if (!session || !authorization) {
+      if (!isVitestRuntime()) {
+        setRuntimePathReadiness(null);
+      }
+      return;
+    }
+    if (isVitestRuntime()) {
+      return;
+    }
+    let cancelled = false;
+    void getRuntimePathReadiness(session.accessToken)
+      .then((readiness) => {
+        if (!cancelled) {
+          setRuntimePathReadiness(readiness);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRuntimePathReadiness({
+            ready: false,
+            canConfigure: false,
+            issues: [
+              {
+                field: "runtimeSettings",
+                code: "PATH_NOT_FOUND",
+                message: "The server configuration status could not be read."
+              }
+            ]
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authorization, session]);
+
+  useEffect(() => {
     layoutFacades.preferences.persistLayoutSettings(layoutSettings);
     layoutFacades.preferences.applyTheme(layoutSettings.theme);
   }, [layoutFacades, layoutSettings]);
@@ -481,7 +846,12 @@ function AuthenticatedApp({
     return () => window.removeEventListener("popstate", onPopState);
   }, [telemetryFacade]);
 
-  const isMainView = Boolean(session) && Boolean(authorization) && route === "/app";
+  const isAuthenticated = Boolean(session) && Boolean(authorization);
+  const isMainView =
+    isAuthenticated &&
+    maintenanceStatus?.maintenance !== true &&
+    runtimePathReadiness?.ready === true &&
+    route === "/app";
   const currentRole = authorization?.role;
   const handleWorkspaceTelemetryEvent = useCallback(
     (name: string, payload?: TelemetryPayload) => {
@@ -489,6 +859,18 @@ function AuthenticatedApp({
     },
     [telemetryFacade]
   );
+  const handleClientAssetCacheDiagnostic = useCallback(
+    (event: ClientAssetCacheDiagnosticEvent) => {
+      telemetryFacade.track("ui.workspace.asset_cache", { ...event });
+    },
+    [telemetryFacade]
+  );
+  useEffect(() => {
+    void enforceClientAssetCacheBudgetAtStartup(
+      clientAssetCachePort,
+      handleClientAssetCacheDiagnostic,
+    );
+  }, [clientAssetCachePort, handleClientAssetCacheDiagnostic]);
   const handleToggleViewportFullscreen = useCallback(() => {
     setIsViewportFullscreen((current) => {
       const next = !current;
@@ -512,15 +894,38 @@ function AuthenticatedApp({
   }, [telemetryFacade]);
 
   useEffect(() => {
-    if (route === "/app" && !isMainView) {
-      window.history.replaceState({}, "", `/login${window.location.search}`);
-      setRoute("/login");
+    if ((route === "/app" || route === "/settings/runtime") && !isAuthenticated) {
+      const destination: AppRoute = maintenanceStatus?.maintenance
+        ? "/maintenance"
+        : "/login";
+      window.history.replaceState({}, "", `${destination}${window.location.search}`);
+      setRoute(destination);
       telemetryFacade.track("route.guard.redirect_anonymous", {
-        from: "/app",
-        to: "/login"
+        from: route,
+        to: destination
       });
     }
-  }, [isMainView, route, telemetryFacade]);
+  }, [isAuthenticated, maintenanceStatus?.maintenance, route, telemetryFacade]);
+
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !runtimePathReadiness ||
+      maintenanceStatus?.maintenance
+    ) {
+      return;
+    }
+    if (!runtimePathReadiness.ready && route !== "/settings/runtime") {
+      navigate("/settings/runtime");
+      return;
+    }
+  }, [
+    isAuthenticated,
+    maintenanceStatus?.maintenance,
+    navigate,
+    route,
+    runtimePathReadiness
+  ]);
 
   useEffect(() => {
     if (!isMainView && isViewportFullscreen) {
@@ -577,6 +982,12 @@ function AuthenticatedApp({
       setUsername(submittedUsername);
       setPassword(submittedPassword);
 
+      if (maintenanceStatus?.maintenance && !maintenanceStatus.loginAvailable) {
+        setAuthError("Login is disabled while server data is rebuilding.");
+        navigate("/maintenance");
+        return;
+      }
+
       if (!submittedUsername || !submittedPassword) {
         setAuthError("Username and password are required.");
         telemetryFacade.track("ui.auth.login_blocked", {
@@ -625,7 +1036,10 @@ function AuthenticatedApp({
         telemetryFacade.track("ui.auth.login_success", {
           role: authz.role
         });
-        navigate("/app", loginSearch);
+        navigate(
+          maintenanceStatus?.state === "failed" ? "/maintenance" : "/app",
+          maintenanceStatus?.state === "failed" ? "" : loginSearch
+        );
       } finally {
         setIsSigningIn(false);
       }
@@ -633,6 +1047,7 @@ function AuthenticatedApp({
     [
       authFacade,
       layoutFacades,
+      maintenanceStatus,
       navigate,
       route,
       telemetryFacade,
@@ -668,6 +1083,7 @@ function AuthenticatedApp({
         | "placeables_catalog"
         | "creatures_catalog"
         | "encounters_catalog"
+        | "waypoints_catalog"
         | "items_catalog"
         | "stores_catalog"
         | "sounds_catalog",
@@ -744,7 +1160,7 @@ function AuthenticatedApp({
   return (
     <main className="app-shell">
       <WorkspaceTopbar
-        isAuthenticated={isMainView}
+        isAuthenticated={isAuthenticated}
         role={currentRole}
         workspaceChromeFacade={workspaceChromeFacade}
         workspaceTopbarActionStateFacade={workspaceTopbarActionStateFacade}
@@ -755,6 +1171,8 @@ function AuthenticatedApp({
           setLayoutSettings((current) => ({ ...current, theme }))
         }
         workspaceOptions={workspaceOptions}
+        clientAssetCachePort={clientAssetCachePort}
+        onClientAssetCacheDiagnostic={handleClientAssetCacheDiagnostic}
         onWorkspaceOptionsChange={(patch) => {
           setWorkspaceOptions((current) => {
             const next = { ...current, ...patch };
@@ -767,21 +1185,95 @@ function AuthenticatedApp({
         onToggleDebug={() => setShowDebugPanel((current) => !current)}
         isViewportFullscreen={isViewportFullscreen}
         onToggleViewportFullscreen={isMainView ? handleToggleViewportFullscreen : undefined}
+        onOpenRuntimeSettings={
+          currentRole === "admin" ? () => navigate("/settings/runtime") : undefined
+        }
         onSignOut={handleSignOut}
       />
 
       <section className={pageContentClassName}>
-        {isMainView ? (
+        {route === "/maintenance" && maintenanceStatus?.maintenance ? (
+          <SystemMaintenanceScreen
+            status={maintenanceStatus}
+            details={maintenanceDetails}
+            onRetryStatus={() => void refreshMaintenanceStatus()}
+            accessToken={
+              session?.user.role === "admin"
+                ? session.accessToken
+                : undefined
+            }
+            onAdminSignIn={() => navigate("/login")}
+            onRetryRebuild={
+              session?.user.role === "admin" && maintenanceStatus.operationId
+                ? async () => {
+                    await retryRuntimeCacheRebuild(
+                      session.accessToken,
+                      maintenanceStatus.operationId!
+                    );
+                    setMaintenanceStatus((current) =>
+                      current
+                        ? {
+                            ...current,
+                            state: "rebuilding",
+                            maintenance: true,
+                            loginAvailable: false,
+                            phase: "building_generation",
+                            message:
+                              "Server data is being rebuilt. Login will reopen automatically when it is ready."
+                          }
+                        : current
+                    );
+                    clearLocalSessionForMaintenance();
+                  }
+                : undefined
+            }
+            onRollback={
+              session?.user.role === "admin" && maintenanceStatus.operationId
+                ? async () => {
+                    await rollbackRuntimeCacheRebuild(
+                      session.accessToken,
+                      maintenanceStatus.operationId!
+                    );
+                    await refreshMaintenanceStatus();
+                  }
+                : undefined
+            }
+          />
+        ) : isMainView ? (
           <WorkspaceLayout
             role={authorization!.role}
             userId={session!.user.id}
             workspaceChromeFacade={workspaceChromeFacade}
             sceneViewportPort={sceneViewportPort}
+            clientAssetCachePort={clientAssetCachePort}
+            areaLifecycleFacade={areaLifecycleFacade}
             areaApiPort={areaApiPort}
+            areaEditingFacade={areaEditingFacade}
+            areaCreateFacade={areaCreateFacade}
+            areaUpdateFacade={areaUpdateFacade}
+            areaDeleteFacade={areaDeleteFacade}
+            areaRenameFacade={areaRenameFacade}
+            areaCapabilityFacade={areaCapabilityFacade}
+            areaEventScriptCatalogFacade={areaEventScriptCatalogFacade}
+            areaEventScriptPublicationFacade={areaEventScriptPublicationFacade}
             tileApiPort={tileApiPort}
             placeableApiPort={placeableApiPort}
             creatureApiPort={creatureApiPort}
+            creatureAppearanceCatalogFacade={creatureAppearanceCatalogFacade}
+            creatureGenderCatalogFacade={creatureGenderCatalogFacade}
+            creatureAppendageCatalogFacade={creatureAppendageCatalogFacade}
+            creaturePerceptionRangeCatalogFacade={creaturePerceptionRangeCatalogFacade}
+            creatureWalkRateCatalogFacade={creatureWalkRateCatalogFacade}
+            creatureSoundSetCatalogFacade={creatureSoundSetCatalogFacade}
+            creatureStartingPackageCatalogFacade={creatureStartingPackageCatalogFacade}
+            creatureClassCatalogFacade={creatureClassCatalogFacade}
+            creatureSkillCatalogFacade={creatureSkillCatalogFacade}
+            creatureFeatCatalogFacade={creatureFeatCatalogFacade}
+            creatureSpecialAbilityCatalogFacade={creatureSpecialAbilityCatalogFacade}
+            creaturePhenotypeCatalogFacade={creaturePhenotypeCatalogFacade}
+            creatureAppearancePaletteFacade={creatureAppearancePaletteFacade}
             encounterApiPort={encounterApiPort}
+            waypointApiPort={waypointApiPort}
             itemApiPort={itemApiPort}
             soundApiPort={soundApiPort}
             storeApiPort={storeApiPort}
@@ -823,6 +1315,43 @@ function AuthenticatedApp({
               })
             }
           />
+        ) : isAuthenticated && runtimePathReadiness && backendAccessToken ? (
+          <RuntimePathOnboardingScreen
+            accessToken={backendAccessToken}
+            readiness={runtimePathReadiness}
+            onCompleted={(result) => {
+              if (result.outcome === "NO_CHANGES") {
+                setRuntimePathReadiness((current) => ({
+                  ready: true,
+                  issues: [],
+                  canConfigure: current?.canConfigure ?? true,
+                  values: current?.values,
+                  environment: current?.environment
+                }));
+                navigate("/app");
+                return;
+              }
+              setMaintenanceStatus({
+                state: "rebuilding",
+                maintenance: true,
+                loginAvailable: false,
+                phase: "building_generation",
+                operationId: result.operationId,
+                updatedAt: new Date().toISOString(),
+                retryAfterSeconds: 2,
+                message:
+                  "Server data is being rebuilt. Login will reopen automatically when it is ready."
+              });
+              clearLocalSessionForMaintenance();
+              navigate("/maintenance");
+            }}
+          />
+        ) : isAuthenticated ? (
+          <section className="card" aria-live="polite">
+            <p className="eyebrow">Server configuration</p>
+            <h1>Checking Aurora paths</h1>
+            <p>The workspace will open when server configuration is ready.</p>
+          </section>
         ) : (
           <section className="card">
             <p className="eyebrow">Authentication</p>

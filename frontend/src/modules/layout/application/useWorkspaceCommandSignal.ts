@@ -1,13 +1,23 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
+import type { AreaLifecycleFacade } from "../../areas/application/areaLifecycleFacade";
+import { createAreaDraftSaveQueue } from "../../areas/application/areaDraftSaveQueue";
+import { buildAreaWorkspaceDraftPayload } from "../../areas/application/areaWorkspaceDraft";
+import type { AreaWorkspaceStatusEvent } from "../../areas/application/areaWorkspaceStatus";
+import type { AreaWorkspaceDraftDocument } from "../../areas/areaWorkspaceDraftContracts";
+import type { AreaApiDetail } from "../../areas/contracts";
+import type {
+  AreaDraftSessionRegistry,
+  ProductionAreaDraftPayload
+} from "../../areas/ports/areaLifecyclePort";
 import type {
   AreaScene,
   SceneHistoryState,
-  SceneObject,
-  SceneObjectKind
+  SceneObject
 } from "../contracts";
+import type { AreaTileProcessContractReadiness } from "../../tiles/application/areaTileProcessContractReadiness";
 import type {
   WorkspaceCommandSignal,
   WorkspaceToolbarState
@@ -19,11 +29,13 @@ import type {
 import {
   filterVisibleSelectableCommandObjects,
   resolveInvertSelectionObjectIds,
-  resolveObjectRenderStatus,
   resolveRadiusSelectionObjectIds,
-  resolveSelectSameResRefObjectIds,
-  type ObjectRenderStatus
+  resolveSelectSameResRefObjectIds
 } from "./workspaceSceneInteraction";
+import {
+  buildAreaWorkspaceDiagnosticsFilename,
+  buildAreaWorkspaceDiagnosticsReport
+} from "./areaWorkspaceDiagnosticsReport";
 
 const AREA_ORACLE_TOP_DOWN_CAMERA_EVENT = "aurora:areas:oracle-top-down-camera";
 
@@ -35,10 +47,15 @@ interface UseWorkspaceCommandSignalArgs<TRuntime, TCameraBookmark> {
   cameraRuntimePort: WorkspaceCameraRuntimePort<TRuntime, TCameraBookmark>;
   scene: AreaScene;
   sceneViewportPort: SceneViewportPort;
+  areaLifecycleFacade?: AreaLifecycleFacade<AreaWorkspaceDraftDocument>;
+  areaDraftSessionRegistry?: AreaDraftSessionRegistry;
+  onAreaDraftPersisted?: () => void;
+  createIdempotencyKey?: (commandRevision: number) => string;
   setSceneHistory: Dispatch<SetStateAction<SceneHistoryState>>;
   setSelectedObjectIds: Dispatch<SetStateAction<string[]>>;
   setSelectedTileId: Dispatch<SetStateAction<string | null>>;
   setLastSavedAtUnixMs: Dispatch<SetStateAction<number | null>>;
+  onAreaWorkspaceStatusChange?: (event: AreaWorkspaceStatusEvent) => void;
   copySelectedObjectsToClipboard: (source: string) => SceneObject[];
   deleteSelectedObjects: (source: string) => number;
   duplicateObjects: (
@@ -49,6 +66,8 @@ interface UseWorkspaceCommandSignalArgs<TRuntime, TCameraBookmark> {
   isSelectableByActiveFilters: (object: SceneObject) => boolean;
   renderAreaGeometry: boolean;
   selectedObjectIds: string[];
+  selectedTileIds?: readonly string[];
+  tileProcessReadiness?: AreaTileProcessContractReadiness | null;
   toolbarState: WorkspaceToolbarState;
   userId: string;
   visibleObjects: SceneObject[];
@@ -63,21 +82,35 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
   cameraRuntimePort,
   scene,
   sceneViewportPort,
+  areaLifecycleFacade,
+  areaDraftSessionRegistry,
+  onAreaDraftPersisted,
+  createIdempotencyKey = defaultAreaDraftIdempotencyKey,
   setSceneHistory,
   setSelectedObjectIds,
   setSelectedTileId,
   setLastSavedAtUnixMs,
+  onAreaWorkspaceStatusChange,
   copySelectedObjectsToClipboard,
   deleteSelectedObjects,
   duplicateObjects,
   isSelectableByActiveFilters,
   renderAreaGeometry,
   selectedObjectIds,
+  selectedTileIds = [],
+  tileProcessReadiness = null,
   toolbarState,
   userId,
   visibleObjects,
   trackTelemetry
 }: UseWorkspaceCommandSignalArgs<TRuntime, TCameraBookmark>) {
+  const internalAreaDraftSessionRegistry = useRef<
+    AreaDraftSessionRegistry["current"]
+  >({});
+  const remoteAreaDraftSaveQueueRef = useRef(createAreaDraftSaveQueue());
+  const activeAreaDraftSessionRegistry =
+    areaDraftSessionRegistry ?? internalAreaDraftSessionRegistry;
+
   useEffect(() => {
     if (!commandSignal || commandSignal.revision <= commandRevisionRef.current) {
       return;
@@ -145,15 +178,159 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
     if (commandSignal.actionKey === "save_local_draft") {
       try {
         sceneViewportPort.saveLocalDraft(userId, scene);
-        const savedAt = Date.now();
-        setLastSavedAtUnixMs(savedAt);
         trackTelemetry("scene.save_local_draft", {
           userId,
           sceneId: scene.sceneId,
           objectCount: scene.objects.length,
           tileCount: scene.tiles.length
         });
+
+        if (areaLifecycleFacade) {
+          const commandRevision = commandSignal.revision;
+          const sceneId = scene.sceneId;
+          onAreaWorkspaceStatusChange?.({
+            schemaVersion: "area-workspace-status.v1",
+            lane: "draft",
+            state: "saving",
+            sceneId,
+            sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+            commandRevision,
+            occurredAtUnixMs: Date.now(),
+            browserRecoveryAvailable: true,
+            destination: "remote"
+          });
+          const queuedSave = remoteAreaDraftSaveQueueRef.current.enqueue(
+            sceneId,
+            async () => {
+              const existingSession =
+                activeAreaDraftSessionRegistry.current[sceneId];
+              const productionSource = existingSession?.productionSource as
+                | ProductionAreaDraftPayload<AreaApiDetail, AreaScene>
+                | undefined;
+              const document: AreaWorkspaceDraftDocument = {
+                schemaVersion: "area-draft.v1",
+                title: scene.areaName,
+                source: productionSource
+                  ? {
+                      type: "production_area",
+                      areaId: productionSource.provenance.areaId
+                    }
+                  : scene.source === "aurora_area"
+                    ? { type: "production_area", areaId: scene.sceneId }
+                    : { type: "new" },
+                payload: buildAreaWorkspaceDraftPayload(scene, productionSource)
+              };
+              const draftId = existingSession?.draftId ?? sceneId;
+              const expectedRevision = existingSession?.revision ?? 0;
+              const result = await areaLifecycleFacade.commands.saveLocalDraft({
+                draftId,
+                expectedRevision,
+                idempotencyKey: createIdempotencyKey(commandRevision),
+                schemaVersion: document.schemaVersion,
+                draft: document
+              });
+              if (!result.ok) {
+                onAreaWorkspaceStatusChange?.({
+                  schemaVersion: "area-workspace-status.v1",
+                  lane: "draft",
+                  state: result.error.code === "STALE_REVISION" ? "conflict" : "recovery",
+                  sceneId,
+                  sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+                  commandRevision,
+                  occurredAtUnixMs: Date.now(),
+                  browserRecoveryAvailable: true,
+                  destination: "remote",
+                  code: result.error.code,
+                  expectedRevision: result.error.expectedRevision,
+                  actualRevision: result.error.actualRevision
+                });
+                trackTelemetry("scene.save_local_draft_remote_failed", {
+                  userId,
+                  sceneId,
+                  code: result.error.code,
+                  recovery: result.error.recovery,
+                  expectedRevision: result.error.expectedRevision,
+                  actualRevision: result.error.actualRevision
+                });
+                return;
+              }
+              activeAreaDraftSessionRegistry.current[sceneId] = {
+                draftId: result.value.draftId,
+                revision: result.value.revision,
+                normalizedSha256: result.value.normalizedSha256,
+                persistedSceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+                ...(productionSource ? { productionSource } : {})
+              };
+              setLastSavedAtUnixMs(Date.now());
+              onAreaWorkspaceStatusChange?.({
+                schemaVersion: "area-workspace-status.v1",
+                lane: "draft",
+                state: "saved",
+                sceneId,
+                sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+                commandRevision,
+                occurredAtUnixMs: Date.now(),
+                browserRecoveryAvailable: true,
+                destination: "remote",
+                draftId: result.value.draftId,
+                revision: result.value.revision
+              });
+              onAreaDraftPersisted?.();
+              trackTelemetry("scene.save_local_draft_remote", {
+                userId,
+                sceneId,
+                draftId: result.value.draftId,
+                revision: result.value.revision,
+                idempotencyStatus: result.metadata.idempotencyStatus
+              });
+            }
+          );
+          void queuedSave.catch(() => {
+            onAreaWorkspaceStatusChange?.({
+              schemaVersion: "area-workspace-status.v1",
+              lane: "draft",
+              state: "recovery",
+              sceneId,
+              sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+              commandRevision,
+              occurredAtUnixMs: Date.now(),
+              browserRecoveryAvailable: true,
+              destination: "remote",
+              code: "PORT_FAILURE"
+            });
+            trackTelemetry("scene.save_local_draft_remote_failed", {
+              userId,
+              sceneId,
+              code: "PORT_FAILURE",
+              recovery: "retry"
+            });
+          });
+        } else {
+          setLastSavedAtUnixMs(Date.now());
+          onAreaWorkspaceStatusChange?.({
+            schemaVersion: "area-workspace-status.v1",
+            lane: "draft",
+            state: "saved",
+            sceneId: scene.sceneId,
+            sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+            commandRevision: commandSignal.revision,
+            occurredAtUnixMs: Date.now(),
+            browserRecoveryAvailable: true,
+            destination: "browser"
+          });
+        }
       } catch {
+        onAreaWorkspaceStatusChange?.({
+          schemaVersion: "area-workspace-status.v1",
+          lane: "draft",
+          state: "failed",
+          sceneId: scene.sceneId,
+          sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+          commandRevision: commandSignal.revision,
+          occurredAtUnixMs: Date.now(),
+          browserRecoveryAvailable: false,
+          code: "BROWSER_DRAFT_SAVE_FAILED"
+        });
         trackTelemetry("scene.save_local_draft_failed", {
           userId,
           sceneId: scene.sceneId
@@ -271,48 +448,40 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
     }
 
     if (commandSignal.actionKey === "debug_export_status_report") {
-      const statusByKind = scene.objects.reduce<Record<SceneObjectKind, Record<ObjectRenderStatus, number>>>(
-        (acc, object) => {
-          const status = resolveObjectRenderStatus(object);
-          acc[object.kind][status] += 1;
-          return acc;
-        },
-        {
-          creatures: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          doors: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          encounters: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          items: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          placeables: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          sounds: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          stores: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          triggers: { ok: 0, warning: 0, error: 0, non_render: 0 },
-          waypoints: { ok: 0, warning: 0, error: 0, non_render: 0 }
-        }
-      );
-
-      const report = {
+      const built = buildAreaWorkspaceDiagnosticsReport({
         generatedAtIso: new Date().toISOString(),
-        sceneId: scene.sceneId,
-        areaName: scene.areaName,
-        objectCount: scene.objects.length,
-        tileCount: scene.tiles.length,
-        statusByKind
-      };
+        scene,
+        selectedObjectIds,
+        selectedTileIds,
+        tileProcessReadiness
+      });
+      if (!built.ok) {
+        trackTelemetry("scene.debug.export_status_report_failed", {
+          userId,
+          sceneId: scene.sceneId,
+          code: built.code
+        });
+        return;
+      }
 
       try {
-        const blob = new Blob([JSON.stringify(report, null, 2)], {
+        const blob = new Blob([JSON.stringify(built.report, null, 2)], {
           type: "application/json"
         });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = `${scene.sceneId}_status_report.json`;
+        anchor.download = buildAreaWorkspaceDiagnosticsFilename(scene.sceneId);
         anchor.click();
         URL.revokeObjectURL(url);
         trackTelemetry("scene.debug.export_status_report", {
           userId,
           sceneId: scene.sceneId,
-          objectCount: scene.objects.length
+          schemaVersion: built.report.schemaVersion,
+          tileCount: built.report.area.tileCount,
+          objectCount: built.report.area.objectCount,
+          issueCount: built.report.summary.issueCount,
+          resourceStatus: built.report.resources.status
         });
       } catch {
         trackTelemetry("scene.debug.export_status_report_failed", {
@@ -323,25 +492,39 @@ export function useWorkspaceCommandSignal<TRuntime, TCameraBookmark>({
     }
   }, [
     bookmark1Ref,
+    areaLifecycleFacade,
+    activeAreaDraftSessionRegistry,
     cameraRuntimePort,
     commandRevisionRef,
     commandSignal,
+    createIdempotencyKey,
     copySelectedObjectsToClipboard,
     deleteSelectedObjects,
     duplicateObjects,
     isSelectableByActiveFilters,
+    onAreaDraftPersisted,
+    onAreaWorkspaceStatusChange,
     renderAreaGeometry,
     runtimeRef,
     scene,
     sceneViewportPort,
     selectedObjectIds,
+    selectedTileIds,
     setLastSavedAtUnixMs,
     setSceneHistory,
     setSelectedObjectIds,
     setSelectedTileId,
     toolbarState.canvasDebug,
+    tileProcessReadiness,
     trackTelemetry,
     userId,
     visibleObjects
   ]);
+}
+
+function defaultAreaDraftIdempotencyKey(commandRevision: number): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId
+    ? `area-draft-save:${randomId}`
+    : `area-draft-save:${Date.now()}:${commandRevision}`;
 }

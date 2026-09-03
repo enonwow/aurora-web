@@ -35,7 +35,6 @@ export interface SceneCanvasFacade {
   getSoundPropertiesById(scene: AreaScene, objectId: string): SceneSoundPropertiesModel | null;
 }
 
-const SCENE_OBJECT_MIN_Z = 0;
 const LEGACY_SEED_SCENE_ID = "wnd_seed_builder_v1";
 
 function resolveFiniteNumber(value: number | undefined, fallback: number): number {
@@ -116,10 +115,9 @@ function normalizeDraftVisualTransform(scene: AreaScene): AreaScene {
   const normalizedObjects = sceneWithWalkmesh.objects.map((object) => {
     const withMetadata = normalizeSceneObjectMetadata(object);
     const hasNormalizedZ = Number.isFinite(withMetadata.z);
-    const nextZ = Math.max(
-      SCENE_OBJECT_MIN_Z,
-      hasNormalizedZ ? withMetadata.z : withMetadata.visualTransform.offsetZ
-    );
+    const nextZ = hasNormalizedZ
+      ? withMetadata.z
+      : resolveFiniteNumber(withMetadata.visualTransform.offsetZ, 0);
     const nextOffsetZ = hasNormalizedZ
       ? resolveFiniteNumber(withMetadata.visualTransform.offsetZ, 0)
       : 0;

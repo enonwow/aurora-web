@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
+import {
+  probeBackendHealth,
+  type BackendRuntimeBuildIdentity
+} from "../../auth/adapters/httpBackendAuthFacade";
 import { HttpAreaApiPort } from "../adapters/httpAreaApiPort";
 import { mapBackendAreaToScene } from "../application/areaSceneMapper";
 import {
@@ -7,7 +12,11 @@ import {
   centerCameraForScene,
   createRuntime,
   disposeRuntime,
-  resizeRuntime
+  readRuntimeAuroraVfxCanonicalPlaybackState,
+  renderRuntime,
+  renderRuntimeWithoutPostprocess,
+  resizeRuntime,
+  seekRuntimeAuroraVfxCanonicalPlaybacks
 } from "../../layout/adapters/three/workspaceThreeRuntime";
 import { rebuildTerrainMesh } from "../../layout/adapters/three/workspaceTerrainMesh";
 import {
@@ -15,18 +24,43 @@ import {
   writePlaceableTwoDaLightRenderDiagnostics
 } from "../../layout/adapters/three/workspaceObjectMeshLayer";
 import { writeAuroraScenePointLightDiagnostics } from "../../layout/adapters/three/workspaceSceneLightDiagnostics";
+import { resolveAuroraAreaRenderTileHeight } from "../../layout/adapters/three/workspaceAreaRenderCoordinates";
+import {
+  applyAuroraPlaceableLightingProofProfile,
+  collectAuroraPlaceableLightingProofSceneFacts
+} from "../../layout/adapters/three/auroraPlaceableLightingProofAdapter";
+import {
+  evaluateAuroraPlaceableLightingProof,
+  resolveAuroraPlaceableLightingProofProfile,
+  type AuroraPlaceableLightingPointLightSpatialSample,
+  type AuroraPlaceableLightingProofProfile,
+  type AuroraPlaceableLightingProofSnapshot
+} from "../../layout/application/auroraPlaceableLightingProof";
+import { createDefaultToolbarState } from "../../layout/roleTopbarPolicy";
 import { HttpTileApiPort } from "../../tiles/adapters/httpTileApiPort";
 import { HttpPlaceableApiPort } from "../../placeables/adapters/httpPlaceableApiPort";
+import type { PlaceableApiProcessPayload } from "../../placeables/contracts";
 import {
   fetchPlaceableViewportRenderPayloadBatch,
   type PlaceableViewportRenderPayload
 } from "../../placeables/application/placeableRenderPayloadResolver";
+import {
+  buildCatalogVfxExpectedRuntimeAssets,
+  recordCatalogVfxRuntimeBindings,
+  rewriteCatalogVfxPreviewPayloadDeliveryUrls
+} from "../../vfx/dev/CatalogVfxPreviewRunner";
+import {
+  createVfxRuntimeObservabilityReport,
+  registerVfxRuntimeExpectedAssets
+} from "../../vfx/application/vfxRuntimeObservability";
 import { resolvePlaceableRenderPayloadLookup } from "../../layout/application/workspacePlaceableRenderContracts";
+import type { DebugState } from "../../layout/application/workspaceSceneInteraction";
 import {
   LEGACY_SEED_SCENE_HEIGHT_TILES,
   LEGACY_SEED_SCENE_WIDTH_TILES,
   normalizeSceneObjectMetadata
 } from "../../scene/domain/sceneFactory";
+import type { AreaApiProcessedArea, AreaApiProcessOptions } from "../contracts";
 import type { AreaScene, SceneObject } from "../../scene/contracts";
 import {
   resolveAreaTileProcessContractReadiness,
@@ -44,7 +78,78 @@ const CAMPFIRE_PROOF_OBJECT_ID = "aurora-web-proof:plc_plc_i06";
 const CAMPFIRE_PROOF_TEMPLATE_ID = "plc_plc_i06";
 const CAMPFIRE_PROOF_RES_REF = "plc_i06";
 const CAMPFIRE_PROOF_RETAIL_RES_REF = "plc_campfr";
+// Retail placeables.2da row 58 (Campfr) resolves to plc_i06. Supplying the
+// instance appearance is required so the backend's Area render path admits
+// on-demand MDL -> GLB generation instead of returning a source-only package.
+export const CAMPFIRE_PROOF_APPEARANCE_TYPE = 58;
 const DEFAULT_AREA_SOUND_UNITS_PER_TILE = 10;
+export const ALS_ORACLE_CAMPFIRE_FIXTURE_ID = "als-oracle-campfire-v1";
+const ALS_ORACLE_AREA_ID = "area__als_light_lab_oracle";
+const ALS_ORACLE_MODULE_SHA256 =
+  "29e158317794d6519e2a807cec5ce4bfd4b025be33886694b1340515d9c94604";
+const ALS_ORACLE_ARE_SHA256 =
+  "f550902c496a0eba85877d3dc27d40fd1015b001015b1e7a3c43a54214d64c1c";
+const ALS_ORACLE_GIT_SHA256 =
+  "0202de0642a6670adfb4e10f9b5d635f77765736f53a0e2fd8df972f7c549a01";
+const ALS_ORACLE_GIC_SHA256 =
+  "20b5f2935ab06c9b974b154423a98830d1513d17ac049abd6a943b0d07728f89";
+export const ALS_ORACLE_CAMPFIRE_SOURCE_MDL_SHA256 =
+  "144d84a94f1039e1031ea6949098c0106ac81f96794df308853a28dd757d1db4";
+const ALS_ORACLE_CAMPFIRE_SOURCE_MDL_OBJECT_KEY_SUFFIX =
+  "/__aurora/sources/vanilla/models/plc_i06.mdl";
+const ALS_ORACLE_CAMPFIRE_LIGHT_PROJECTION = {
+  role: "placeables-2da-point-light",
+  sourceLightColorRow: 6,
+  sourceColor: [1.9, 1.9, 1] as const,
+  adjustedColor: [1, 1, 0.526316] as const,
+  sourceRadius: 10,
+  sourceUnitScale: 0.1,
+  sourceRadiusWorld: 1,
+  sourceOffset: [0.240711, 0.011001, 0.194654] as const,
+  mappedOffset: [0.024071, 0.019465, 0.0011] as const,
+  offsetScale: 0.1,
+  effectiveRange: 3.8,
+  intensity: 1,
+  decay: 1.25,
+  falloffMode: "enhanced-performance",
+  falloffProofStatus:
+    "retail-binary-and-shader-backed-enhanced-performance-point-light-falloff"
+} as const;
+const ALS_ORACLE_TILESET_RESREF = "tin01";
+const ALS_ORACLE_TILE_MODEL_RESREF = "tin01_d11_01";
+const ALS_ORACLE_TILE_IMAGE_MAP = "miin01_d11";
+export const ALS_ORACLE_TILE_SOURCE_MDL_SHA256 =
+  "08c7810e8faf1ba4d4730cf14c8fb2737cf5f695e02e3d4f38d0e51f086da44d";
+export const ALS_ORACLE_TILE_MODEL_ASSET_SHA256 =
+  "0c8a58aa3f6643f09dfe888ce82cf82da25cfb2a184b31ad534b0e7425161cd1";
+export const ALS_ORACLE_TILE_TEXTURE_SHA256 =
+  "dae40e6294f63ac13ced7de4e138b32c57ef99357a291f2664178ed8a8ed7eb7";
+const ALS_ORACLE_TILE_SOURCE_MDL_OBJECT_KEY_SUFFIX =
+  "/__aurora/sources/vanilla/models/tin01_d11_01.mdl";
+const ALS_ORACLE_TILE_MODEL_ASSET_OBJECT_KEY_SUFFIX =
+  "/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/tin01_d11_01.glb";
+const ALS_ORACLE_TILE_TEXTURE_REFERENCE = "tin01_shpflr1";
+const ALS_ORACLE_TILE_TEXTURE_OBJECT_KEY_SUFFIX =
+  "/__aurora/sources/vanilla/textures/tin01_shpflr1.dds";
+const ALS_ORACLE_AREA_SIZE = 12;
+const ALS_ORACLE_CAMPFIRE_TILE_POSITION = 6.5;
+
+type AreaLightShadowOracleFixture = "" | typeof ALS_ORACLE_CAMPFIRE_FIXTURE_ID;
+
+declare global {
+  interface Window {
+    __auroraAreaVfxPreviewBeginDeterministicCapture?: () => boolean;
+    __auroraAreaVfxPreviewRenderAtTime?: (elapsedSeconds: number) => unknown;
+    __auroraAreaVfxPreviewForceRender?: () => boolean;
+    __auroraAreaVfxPreviewSetParticleDepthTest?: (enabled: boolean) => unknown;
+    __auroraAreaVfxPreviewGetCompositionSpatialDiagnostics?: () => unknown;
+    __auroraAreaVfxPreviewGetPostprocessDiagnostics?: () => unknown;
+    __auroraAreaVfxPreviewGetRuntimeObservability?: () => ReturnType<
+      typeof createVfxRuntimeObservabilityReport
+    >;
+    __auroraAreaPlaceableLightingGetProofSnapshot?: () => AuroraPlaceableLightingProofSnapshot;
+  }
+}
 
 type RunnerStatus = "loading" | "ready" | "error" | "skipped-test";
 
@@ -59,12 +164,22 @@ interface AreaLightShadowPreviewRequest {
   renderObjects: boolean;
   includeAreaObjects: boolean;
   injectCampfire: boolean;
+  highlightInjectedCampfire: boolean;
   fullViewport: boolean;
   canvasWidth: number;
   canvasHeight: number;
   campfireX: number | null;
   campfireY: number | null;
   campfireZ: number | null;
+  objectResRefFilter: string;
+  captureTimeSeconds: number | null;
+  focusRenderedObjects: boolean;
+  renderTerrain: boolean;
+  cameraDistanceScale: number;
+  cameraAzimuthDegrees: number;
+  proofBackdrop: "default" | "neutral" | "warm-dark";
+  lightingProofProfile: AuroraPlaceableLightingProofProfile;
+  oracleFixture: AreaLightShadowOracleFixture;
 }
 
 interface AreaLightShadowPreviewSnapshot {
@@ -79,6 +194,7 @@ interface AreaLightShadowPreviewSnapshot {
   renderObjects: boolean;
   includeAreaObjects: boolean;
   injectCampfire: boolean;
+  highlightInjectedCampfire: boolean;
   fullViewport: boolean;
   canvasWidth: number;
   canvasHeight: number;
@@ -91,6 +207,42 @@ interface AreaLightShadowPreviewSnapshot {
   tileCount: number;
   objectCount: number;
   renderObjectCount: number;
+  renderTerrain: boolean;
+  cameraDistanceScale: number;
+  cameraAzimuthDegrees: number;
+  proofBackdrop: string;
+  placeableLightingProofProfile: AuroraPlaceableLightingProofProfile;
+  placeableLightingProof: AuroraPlaceableLightingProofSnapshot | null;
+  placeableSourceLineageStatus: "pass" | "blocked" | "not-required";
+  placeableSourceModelObjectKeys: string[];
+  placeableSourceModelHashes: string[];
+  placeableSourceLineageBlockers: string[];
+  placeableLightProjectionStatus: "pass" | "blocked" | "not-required";
+  placeableLightProjectionBlockers: string[];
+  terrainSourceLineageStatus: "pass" | "blocked" | "not-required";
+  terrainSourceModelObjectKeys: string[];
+  terrainSourceModelHashes: string[];
+  terrainModelAssetObjectKeys: string[];
+  terrainModelAssetHashes: string[];
+  terrainTextureObjectKeys: string[];
+  terrainTextureHashes: string[];
+  terrainSourceLineageBlockers: string[];
+  objectResRefFilter: string;
+  captureTimeSeconds: number | null;
+  vfxPlaybackRootCount: number;
+  vfxPlaybackFrameCount: number;
+  vfxPlaybackDurationSeconds: number;
+  vfxPlaybackCompleted: boolean;
+  vfxVisibleDrawMeshCount: number;
+  vfxVisibleDrawParticleCount: number;
+  vfxVisibleTextureReferences: string[];
+  vfxVisibleDrawBoundsCenter: number[];
+  vfxVisibleDrawBoundsSize: number[];
+  vfxVisibleDrawMeshSamples: Array<Record<string, unknown>>;
+  vfxRuntimeObservability: ReturnType<
+    typeof createVfxRuntimeObservabilityReport
+  > | null;
+  renderedObjectSamples: Array<Record<string, unknown>>;
   injectedCampfireObjectId: string;
   injectedCampfireTemplateId: string;
   injectedCampfireResRef: string;
@@ -113,6 +265,11 @@ interface AreaLightShadowPreviewSnapshot {
   placeableModelStatus: string;
   placeableModelMeshCount: number;
   placeableModelUrl: string;
+  placeableModelTextureStatus: string;
+  placeableModelTextureCount: number;
+  placeableModelTextureLoaded: number;
+  placeableModelTextureSource: string;
+  placeableModelTextureSettled: boolean;
   areaGlobalLightingStatus: string;
   areaGlobalLightingPhase: string;
   areaGlobalLightingFields: string;
@@ -135,6 +292,11 @@ interface AreaLightShadowPreviewSnapshot {
   sceneShadowAreaOpacity: string;
   sceneShadowAreaOpacityFactor: string;
   terrainRuntimeStatus: string;
+  terrainLoaderBlockers: string;
+  terrainTileModelBlockedCount: number;
+  terrainTileModelDeliveryUrlSample: string;
+  terrainTileModelLoaderErrorSample: string;
+  terrainTileModelBlockedTileSample: string;
   terrainAreaId: string;
   terrainTileModelLoadedCount: number;
   terrainTileModelVisibleMeshCount: number;
@@ -145,6 +307,329 @@ interface AreaLightShadowPreviewSnapshot {
   terrainTileShadowReceiverSource: string;
   terrainTileShadowReceiverSample: string;
   cameraPosition: number[];
+  oracleFixture: AreaLightShadowOracleFixture;
+}
+
+export interface AreaLightShadowPreviewPlaceableSourceLineage {
+  status: "pass" | "blocked" | "not-required";
+  sourceModelObjectKeys: string[];
+  sourceModelHashes: string[];
+  blockerCodes: string[];
+}
+
+export interface AreaLightShadowPreviewPlaceableLightProjection {
+  status: "pass" | "blocked" | "not-required";
+  blockerCodes: string[];
+  observedSamples: readonly AuroraPlaceableLightingPointLightSpatialSample[];
+}
+
+export interface AreaLightShadowPreviewTerrainSourceLineage {
+  status: "pass" | "blocked" | "not-required";
+  sourceModelObjectKeys: string[];
+  sourceModelHashes: string[];
+  modelAssetObjectKeys: string[];
+  modelAssetHashes: string[];
+  textureObjectKeys: string[];
+  textureHashes: string[];
+  blockerCodes: string[];
+}
+
+export function evaluateAreaLightShadowPreviewTerrainSourceLineage(
+  readiness: AreaTileProcessContractReadiness | null | undefined,
+  oracleFixture: AreaLightShadowOracleFixture
+): AreaLightShadowPreviewTerrainSourceLineage {
+  const entries = readiness?.entries ?? [];
+  const uniqueSorted = (values: Array<string | undefined>): string[] =>
+    [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))]
+      .sort((left, right) => left.localeCompare(right));
+  const sourceModelObjectKeys = uniqueSorted(entries.map((entry) => entry.sourceObjectKey));
+  const sourceModelHashes = uniqueSorted(entries.map((entry) => entry.mdlSourceContentSha256));
+  const modelAssetObjectKeys = uniqueSorted(entries.map((entry) => entry.modelAssetObjectKey));
+  const modelAssetHashes = uniqueSorted(entries.map((entry) => entry.modelAssetContentSha256));
+  const textureAssets = entries.flatMap((entry) => entry.materialTextureAssets ?? []);
+  const expectedTextures = textureAssets.filter(
+    (asset) =>
+      asset.reference.toLowerCase() === ALS_ORACLE_TILE_TEXTURE_REFERENCE &&
+      asset.resref.toLowerCase() === ALS_ORACLE_TILE_TEXTURE_REFERENCE
+  );
+  const textureObjectKeys = uniqueSorted(expectedTextures.map((asset) => asset.objectKey));
+  const textureHashes = uniqueSorted(expectedTextures.map((asset) => asset.contentSha256));
+
+  const result = (status: AreaLightShadowPreviewTerrainSourceLineage["status"], blockerCodes: string[]) => ({
+    status,
+    sourceModelObjectKeys,
+    sourceModelHashes,
+    modelAssetObjectKeys,
+    modelAssetHashes,
+    textureObjectKeys,
+    textureHashes,
+    blockerCodes
+  });
+  if (oracleFixture !== ALS_ORACLE_CAMPFIRE_FIXTURE_ID) {
+    return result("not-required", []);
+  }
+
+  const blockerCodes: string[] = [];
+  if (!readiness) blockerCodes.push("ALS_ORACLE_TERRAIN_READINESS_MISSING");
+  if (readiness?.status !== "ready") blockerCodes.push("ALS_ORACLE_TERRAIN_READINESS_NOT_READY");
+  if (entries.length !== 1) blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ENTRY_COUNT_MISMATCH");
+  const entry = entries[0];
+  if (entry?.modelResRef.toLowerCase() !== ALS_ORACLE_TILE_MODEL_RESREF) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_RESREF_MISMATCH");
+  }
+  if (entry?.status !== "ready") blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ENTRY_NOT_READY");
+
+  if (sourceModelObjectKeys.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_SOURCE_MDL_OBJECT_KEY_MISSING_OR_AMBIGUOUS");
+  } else if (!normalizeProofObjectKey(sourceModelObjectKeys[0]).endsWith(ALS_ORACLE_TILE_SOURCE_MDL_OBJECT_KEY_SUFFIX)) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_SOURCE_MDL_OBJECT_KEY_MISMATCH");
+  }
+  if (sourceModelHashes.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_SOURCE_MDL_HASH_MISSING_OR_AMBIGUOUS");
+  } else if (sourceModelHashes[0] !== ALS_ORACLE_TILE_SOURCE_MDL_SHA256) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_SOURCE_MDL_HASH_MISMATCH");
+  }
+  if (modelAssetObjectKeys.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ASSET_OBJECT_KEY_MISSING_OR_AMBIGUOUS");
+  } else if (!normalizeProofObjectKey(modelAssetObjectKeys[0]).endsWith(ALS_ORACLE_TILE_MODEL_ASSET_OBJECT_KEY_SUFFIX)) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ASSET_OBJECT_KEY_MISMATCH");
+  }
+  if (modelAssetHashes.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ASSET_HASH_MISSING_OR_AMBIGUOUS");
+  } else if (modelAssetHashes[0] !== ALS_ORACLE_TILE_MODEL_ASSET_SHA256) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_MODEL_ASSET_HASH_MISMATCH");
+  }
+
+  if (expectedTextures.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_MISSING_OR_AMBIGUOUS");
+  }
+  const texture = expectedTextures[0];
+  if (texture && texture.source !== "vanilla") {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_SOURCE_MISMATCH");
+  }
+  if (texture && texture.extension.toLowerCase() !== "dds") {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_EXTENSION_MISMATCH");
+  }
+  if (
+    textureObjectKeys.length === 1 &&
+    !normalizeProofObjectKey(textureObjectKeys[0]).endsWith(ALS_ORACLE_TILE_TEXTURE_OBJECT_KEY_SUFFIX)
+  ) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_OBJECT_KEY_MISMATCH");
+  }
+  if (textureHashes.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_HASH_MISSING_OR_AMBIGUOUS");
+  } else if (textureHashes[0] !== ALS_ORACLE_TILE_TEXTURE_SHA256) {
+    blockerCodes.push("ALS_ORACLE_TERRAIN_TEXTURE_HASH_MISMATCH");
+  }
+
+  return result(blockerCodes.length === 0 ? "pass" : "blocked", blockerCodes);
+}
+
+function normalizeProofObjectKey(value: string): string {
+  return value.replaceAll("\\", "/").toLowerCase();
+}
+
+export function applyAreaLightShadowPreviewPlaceableFreshnessPolicy(
+  payload: PlaceableApiProcessPayload,
+  oracleFixture: AreaLightShadowOracleFixture
+): PlaceableApiProcessPayload {
+  return oracleFixture === ALS_ORACLE_CAMPFIRE_FIXTURE_ID
+    ? { ...payload, bypassCache: true }
+    : payload;
+}
+
+export function applyAreaLightShadowPreviewAreaFreshnessPolicy(
+  options: AreaApiProcessOptions,
+  oracleFixture: AreaLightShadowOracleFixture
+): AreaApiProcessOptions {
+  return oracleFixture === ALS_ORACLE_CAMPFIRE_FIXTURE_ID
+    ? { ...options, bypassCache: true }
+    : options;
+}
+
+export function evaluateAreaLightShadowPreviewPlaceableSourceLineage(
+  payload: Pick<PlaceableViewportRenderPayload, "renderPackage" | "placeable"> | null | undefined,
+  oracleFixture: AreaLightShadowOracleFixture
+): AreaLightShadowPreviewPlaceableSourceLineage {
+  const renderPackage = payload?.renderPackage ?? payload?.placeable.renderPackage;
+  const sourceNodes = [
+    ...(renderPackage?.auroraEmitter?.emitters ?? []),
+    ...(renderPackage?.auroraLight?.lights ?? []),
+    ...(renderPackage?.auroraModelGraph?.staticGeometryNodes ?? []),
+    ...(renderPackage?.auroraModelGraph?.nodes ?? []),
+    ...(renderPackage?.auroraModelGraph?.animationEvents ?? [])
+  ];
+  const sourceModelObjectKeys = [
+    ...new Set(
+      sourceNodes
+        .map((node) => node.sourceModelObjectKey?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ].sort((left, right) => left.localeCompare(right));
+  const sourceModelHashes = [
+    ...new Set(
+      sourceNodes
+        .map((node) => node.sourceModelHash?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ].sort((left, right) => left.localeCompare(right));
+
+  if (oracleFixture !== ALS_ORACLE_CAMPFIRE_FIXTURE_ID) {
+    return {
+      status: "not-required",
+      sourceModelObjectKeys,
+      sourceModelHashes,
+      blockerCodes: []
+    };
+  }
+
+  const blockerCodes: string[] = [];
+  if (sourceNodes.length === 0) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_LINEAGE_MISSING");
+  }
+  if (
+    sourceNodes.some((node) =>
+      !node.sourceModelObjectKey || node.sourceModelObjectKey.trim().length === 0
+    )
+  ) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_OBJECT_KEY_MISSING");
+  }
+  if (
+    sourceNodes.some((node) =>
+      !node.sourceModelHash || node.sourceModelHash.trim().length === 0
+    )
+  ) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_HASH_MISSING");
+  }
+  if (
+    sourceModelHashes.some((hash) => !/^[a-f0-9]{64}$/u.test(hash))
+  ) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_HASH_INVALID");
+  }
+  if (sourceModelObjectKeys.length > 1) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_OBJECT_KEY_AMBIGUOUS");
+  }
+  if (sourceModelHashes.length > 1) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_HASH_AMBIGUOUS");
+  }
+  if (
+    sourceModelObjectKeys.length === 1 &&
+    !sourceModelObjectKeys[0]
+      .replaceAll("\\", "/")
+      .toLowerCase()
+      .endsWith(ALS_ORACLE_CAMPFIRE_SOURCE_MDL_OBJECT_KEY_SUFFIX)
+  ) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_OBJECT_KEY_MISMATCH");
+  }
+  if (
+    sourceModelHashes.length === 1 &&
+    sourceModelHashes[0] !== ALS_ORACLE_CAMPFIRE_SOURCE_MDL_SHA256
+  ) {
+    blockerCodes.push("ALS_ORACLE_SOURCE_MDL_HASH_MISMATCH");
+  }
+
+  return {
+    status: blockerCodes.length === 0 ? "pass" : "blocked",
+    sourceModelObjectKeys,
+    sourceModelHashes,
+    blockerCodes
+  };
+}
+
+function sameProjectionNumber(left: number | undefined, right: number): boolean {
+  return typeof left === "number" && Math.abs(left - right) <= 0.000001;
+}
+
+function sameProjectionTuple(
+  observed: readonly number[] | undefined,
+  expected: readonly [number, number, number]
+): boolean {
+  return (
+    observed?.length === expected.length &&
+    expected.every((value, index) => sameProjectionNumber(observed[index], value))
+  );
+}
+
+export function evaluateAreaLightShadowPreviewPlaceableLightProjection(
+  proof: AuroraPlaceableLightingProofSnapshot | null | undefined,
+  oracleFixture: AreaLightShadowOracleFixture
+): AreaLightShadowPreviewPlaceableLightProjection {
+  const observedSamples = proof?.facts.pointLightSpatialSamples ?? [];
+  if (
+    oracleFixture !== ALS_ORACLE_CAMPFIRE_FIXTURE_ID ||
+    proof?.profile.pointLight === false
+  ) {
+    return { status: "not-required", blockerCodes: [], observedSamples };
+  }
+
+  const blockerCodes: string[] = [];
+  if (!proof) {
+    blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_PROOF_MISSING");
+  }
+  if (observedSamples.length !== 1) {
+    blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_COUNT_MISMATCH");
+  }
+  const sample = observedSamples[0];
+  if (sample) {
+    const expected = ALS_ORACLE_CAMPFIRE_LIGHT_PROJECTION;
+    if (sample.role !== expected.role) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_ROLE_MISMATCH");
+    }
+    if (sample.sourceLightColorRow !== expected.sourceLightColorRow) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_COLOR_ROW_MISMATCH");
+    }
+    if (!sameProjectionTuple(sample.sourceColor, expected.sourceColor)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_SOURCE_COLOR_MISMATCH");
+    }
+    if (!sameProjectionTuple(sample.color, expected.adjustedColor)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_ADJUSTED_COLOR_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.sourceRadius, expected.sourceRadius)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_SOURCE_RADIUS_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.sourceUnitScale, expected.sourceUnitScale)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_SOURCE_SCALE_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.sourceRadiusWorld, expected.sourceRadiusWorld)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_WORLD_RADIUS_MISMATCH");
+    }
+    if (!sameProjectionTuple(sample.sourceOffset, expected.sourceOffset)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_SOURCE_OFFSET_MISMATCH");
+    }
+    if (!sameProjectionTuple(sample.mappedOffset, expected.mappedOffset)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_MAPPED_OFFSET_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.offsetScale, expected.offsetScale)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_OFFSET_SCALE_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.distance, expected.effectiveRange)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_EFFECTIVE_RANGE_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.intensity, expected.intensity)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_INTENSITY_MISMATCH");
+    }
+    if (!sameProjectionNumber(sample.decay, expected.decay)) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_DECAY_MISMATCH");
+    }
+    if (sample.falloffMode !== expected.falloffMode) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_FALLOFF_MODE_MISMATCH");
+    }
+    if (sample.falloffProofStatus !== expected.falloffProofStatus) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_FALLOFF_PROOF_MISMATCH");
+    }
+    if (
+      sample.falloffRendererPatchStatus !== "installed" &&
+      sample.falloffRendererPatchStatus !== "already-installed"
+    ) {
+      blockerCodes.push("ALS_ORACLE_LIGHT_PROJECTION_SHADER_PATCH_BLOCKED");
+    }
+  }
+
+  return {
+    status: blockerCodes.length === 0 ? "pass" : "blocked",
+    blockerCodes,
+    observedSamples
+  };
 }
 
 export function isAreaLightShadowPreviewRunnerPath(pathname: string): boolean {
@@ -184,9 +669,26 @@ function readFiniteNumberQuery(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function readProofBackdrop(value: string | null): AreaLightShadowPreviewRequest["proofBackdrop"] {
+  return value === "neutral" || value === "warm-dark" ? value : "default";
+}
+
+function readLightingProofReceiver(
+  value: string | null
+): AuroraPlaceableLightingProofProfile["receiver"] {
+  return value?.trim().toLowerCase() === "debug" ? "debug" : "area";
+}
+
+function readOracleFixture(value: string | null): AreaLightShadowOracleFixture {
+  return value?.trim().toLowerCase() === ALS_ORACLE_CAMPFIRE_FIXTURE_ID
+    ? ALS_ORACLE_CAMPFIRE_FIXTURE_ID
+    : "";
+}
+
 function parseAreaLightShadowPreviewRequest(): AreaLightShadowPreviewRequest {
   const params = new URLSearchParams(window.location.search);
   const injectCampfire = readBooleanQuery(params.get("injectCampfire"), false);
+  const objectResRefFilter = params.get("objectResRef")?.trim().toLowerCase() ?? "";
   return {
     areaId: params.get("areaId")?.trim() || DEFAULT_AREA_ID,
     apiBaseUrl: params.get("apiBaseUrl")?.trim() || DEFAULT_API_BASE_URL,
@@ -198,12 +700,39 @@ function parseAreaLightShadowPreviewRequest(): AreaLightShadowPreviewRequest {
     renderObjects: readBooleanQuery(params.get("renderObjects"), injectCampfire),
     includeAreaObjects: readBooleanQuery(params.get("includeAreaObjects"), !injectCampfire),
     injectCampfire,
+    highlightInjectedCampfire: readBooleanQuery(
+      params.get("highlightInjectedCampfire"),
+      true
+    ),
     fullViewport: readBooleanQuery(params.get("fullViewport"), false),
     canvasWidth: readPositiveIntegerQuery(params.get("canvasWidth"), DEFAULT_CANVAS_WIDTH),
     canvasHeight: readPositiveIntegerQuery(params.get("canvasHeight"), DEFAULT_CANVAS_HEIGHT),
     campfireX: readFiniteNumberQuery(params.get("campfireX")),
     campfireY: readFiniteNumberQuery(params.get("campfireY")),
-    campfireZ: readFiniteNumberQuery(params.get("campfireZ"))
+    campfireZ: readFiniteNumberQuery(params.get("campfireZ")),
+    objectResRefFilter,
+    captureTimeSeconds: readFiniteNumberQuery(params.get("captureTimeSeconds")),
+    focusRenderedObjects: readBooleanQuery(
+      params.get("focusRenderedObjects"),
+      objectResRefFilter.length > 0
+    ),
+    renderTerrain: readBooleanQuery(params.get("renderTerrain"), true),
+    cameraDistanceScale: clamp(readFiniteNumberQuery(params.get("cameraDistanceScale")) ?? 1, 0.05, 2),
+    cameraAzimuthDegrees: clamp(
+      readFiniteNumberQuery(params.get("cameraAzimuthDegrees")) ?? 0,
+      -360,
+      360
+    ),
+    proofBackdrop: readProofBackdrop(params.get("proofBackdrop")),
+    lightingProofProfile: resolveAuroraPlaceableLightingProofProfile({
+      receiver: readLightingProofReceiver(params.get("lightingReceiver")),
+      pointLight: readBooleanQuery(params.get("lightingPointLight"), true),
+      halo: readBooleanQuery(params.get("lightingHalo"), true),
+      vfx: readBooleanQuery(params.get("lightingVfx"), true),
+      shadow: readBooleanQuery(params.get("lightingShadow"), true),
+      postprocess: readBooleanQuery(params.get("lightingPostprocess"), true)
+    }),
+    oracleFixture: readOracleFixture(params.get("oracleFixture"))
   };
 }
 
@@ -212,10 +741,25 @@ function createEmptySnapshot(
   request: AreaLightShadowPreviewRequest,
   error = ""
 ): AreaLightShadowPreviewSnapshot {
+  const placeableSourceLineage =
+    evaluateAreaLightShadowPreviewPlaceableSourceLineage(
+      undefined,
+      request.oracleFixture
+    );
+  const placeableLightProjection = request.lightingProofProfile.pointLight
+    ? evaluateAreaLightShadowPreviewPlaceableLightProjection(
+        undefined,
+        request.oracleFixture
+      )
+    : { status: "not-required" as const, blockerCodes: [] };
+  const terrainSourceLineage = evaluateAreaLightShadowPreviewTerrainSourceLineage(
+    undefined,
+    request.oracleFixture
+  );
   return {
     status,
     error,
-    areaId: request.areaId,
+    areaId: request.oracleFixture ? ALS_ORACLE_AREA_ID : request.areaId,
     areaName: "",
     apiBaseUrl: request.apiBaseUrl,
     displayFog: request.displayFog,
@@ -224,6 +768,7 @@ function createEmptySnapshot(
     renderObjects: request.renderObjects,
     includeAreaObjects: request.includeAreaObjects,
     injectCampfire: request.injectCampfire,
+    highlightInjectedCampfire: request.highlightInjectedCampfire,
     fullViewport: request.fullViewport,
     canvasWidth: request.canvasWidth,
     canvasHeight: request.canvasHeight,
@@ -236,6 +781,40 @@ function createEmptySnapshot(
     tileCount: 0,
     objectCount: 0,
     renderObjectCount: 0,
+    renderTerrain: request.renderTerrain,
+    cameraDistanceScale: request.cameraDistanceScale,
+    cameraAzimuthDegrees: request.cameraAzimuthDegrees,
+    proofBackdrop: request.proofBackdrop,
+    placeableLightingProofProfile: { ...request.lightingProofProfile },
+    placeableLightingProof: null,
+    placeableSourceLineageStatus: placeableSourceLineage.status,
+    placeableSourceModelObjectKeys: placeableSourceLineage.sourceModelObjectKeys,
+    placeableSourceModelHashes: placeableSourceLineage.sourceModelHashes,
+    placeableSourceLineageBlockers: placeableSourceLineage.blockerCodes,
+    placeableLightProjectionStatus: placeableLightProjection.status,
+    placeableLightProjectionBlockers: placeableLightProjection.blockerCodes,
+    terrainSourceLineageStatus: terrainSourceLineage.status,
+    terrainSourceModelObjectKeys: terrainSourceLineage.sourceModelObjectKeys,
+    terrainSourceModelHashes: terrainSourceLineage.sourceModelHashes,
+    terrainModelAssetObjectKeys: terrainSourceLineage.modelAssetObjectKeys,
+    terrainModelAssetHashes: terrainSourceLineage.modelAssetHashes,
+    terrainTextureObjectKeys: terrainSourceLineage.textureObjectKeys,
+    terrainTextureHashes: terrainSourceLineage.textureHashes,
+    terrainSourceLineageBlockers: terrainSourceLineage.blockerCodes,
+    objectResRefFilter: request.objectResRefFilter,
+    captureTimeSeconds: request.captureTimeSeconds,
+    vfxPlaybackRootCount: 0,
+    vfxPlaybackFrameCount: 0,
+    vfxPlaybackDurationSeconds: 0,
+    vfxPlaybackCompleted: false,
+    vfxVisibleDrawMeshCount: 0,
+    vfxVisibleDrawParticleCount: 0,
+    vfxVisibleTextureReferences: [],
+    vfxVisibleDrawBoundsCenter: [],
+    vfxVisibleDrawBoundsSize: [],
+    vfxVisibleDrawMeshSamples: [],
+    vfxRuntimeObservability: null,
+    renderedObjectSamples: [],
     injectedCampfireObjectId: "",
     injectedCampfireTemplateId: "",
     injectedCampfireResRef: "",
@@ -258,6 +837,11 @@ function createEmptySnapshot(
     placeableModelStatus: "",
     placeableModelMeshCount: 0,
     placeableModelUrl: "",
+    placeableModelTextureStatus: "",
+    placeableModelTextureCount: 0,
+    placeableModelTextureLoaded: 0,
+    placeableModelTextureSource: "",
+    placeableModelTextureSettled: false,
     areaGlobalLightingStatus: "",
     areaGlobalLightingPhase: "",
     areaGlobalLightingFields: "",
@@ -280,6 +864,11 @@ function createEmptySnapshot(
     sceneShadowAreaOpacity: "",
     sceneShadowAreaOpacityFactor: "",
     terrainRuntimeStatus: "",
+    terrainLoaderBlockers: "",
+    terrainTileModelBlockedCount: 0,
+    terrainTileModelDeliveryUrlSample: "",
+    terrainTileModelLoaderErrorSample: "",
+    terrainTileModelBlockedTileSample: "",
     terrainAreaId: "",
     terrainTileModelLoadedCount: 0,
     terrainTileModelVisibleMeshCount: 0,
@@ -289,15 +878,130 @@ function createEmptySnapshot(
     terrainTileShadowReceiverStatus: "",
     terrainTileShadowReceiverSource: "",
     terrainTileShadowReceiverSample: "",
-    cameraPosition: []
+    cameraPosition: [],
+    oracleFixture: request.oracleFixture
+  };
+}
+
+/**
+ * Reconstructs the immutable Area used by the retail `als_oracle.mod`
+ * campfire lane.  The values are extracted from the packed module and its
+ * resolved `tin01.set`; they deliberately do not inherit the unrelated Area's
+ * tiles, lighting or texture-atlas identity.
+ */
+export function createAlsOracleCampfireAreaFixture(
+  baseArea: AreaApiProcessedArea
+): AreaApiProcessedArea {
+  const tiles = Array.from(
+    { length: ALS_ORACLE_AREA_SIZE * ALS_ORACLE_AREA_SIZE },
+    (_, tileIndex) => {
+      const row = Math.floor(tileIndex / ALS_ORACLE_AREA_SIZE);
+      const col = tileIndex % ALS_ORACLE_AREA_SIZE;
+      return {
+        tileInstanceId: `${ALS_ORACLE_AREA_ID}:tile-${tileIndex}`,
+        areaId: ALS_ORACLE_AREA_ID,
+        tilesetResRef: ALS_ORACLE_TILESET_RESREF,
+        row,
+        col,
+        tileIndex,
+        tileId: 18,
+        modelResRef: ALS_ORACLE_TILE_MODEL_RESREF,
+        modelSource: "set-tile-section" as const,
+        imageMap2D: ALS_ORACLE_TILE_IMAGE_MAP,
+        orientation: 0,
+        tilesetOrientation: 0,
+        mainLight1: 0,
+        mainLight2: 0,
+        sourceLight1: 0,
+        sourceLight2: 0,
+        animLoop1: 1,
+        animLoop2: 1,
+        animLoop3: 1,
+        height: 0,
+        source: "are-tile-list" as const
+      };
+    }
+  );
+  return {
+    ...baseArea,
+    areaId: ALS_ORACLE_AREA_ID,
+    name: "enon_test_effects",
+    biome: ALS_ORACLE_TILESET_RESREF,
+    width: ALS_ORACLE_AREA_SIZE,
+    height: ALS_ORACLE_AREA_SIZE,
+    tags: [
+      "immutable-retail-oracle",
+      ALS_ORACLE_CAMPFIRE_FIXTURE_ID,
+      `module-sha256:${ALS_ORACLE_MODULE_SHA256}`
+    ],
+    benchmark: true,
+    previewImageUrl: "",
+    textureAtlas: {
+      atlasId: `${ALS_ORACLE_AREA_ID}:${ALS_ORACLE_ARE_SHA256}`,
+      cacheKey: ALS_ORACLE_ARE_SHA256,
+      strategy: "blob-cache"
+    },
+    tileSet: ALS_ORACLE_TILESET_RESREF,
+    tiles,
+    lighting: {
+      source: "are-root-fields",
+      fields: [
+        { field: "LightingScheme", value: 12 },
+        { field: "ShadowOpacity", value: 60 },
+        { field: "DayNightCycle", value: 0 },
+        { field: "IsNight", value: 1 },
+        { field: "SkyBox", value: 0 },
+        { field: "FogClipDist", value: 45 },
+        { field: "ChanceRain", value: 0 },
+        { field: "ChanceSnow", value: 0 },
+        { field: "ChanceLightning", value: 0 },
+        { field: "WindPower", value: 0 },
+        { field: "SunAmbientColor", value: 0 },
+        { field: "SunDiffuseColor", value: 0 },
+        { field: "SunFogColor", value: 0 },
+        { field: "SunFogAmount", value: 0 },
+        { field: "SunShadows", value: 0 },
+        { field: "MoonAmbientColor", value: 3947580 },
+        { field: "MoonDiffuseColor", value: 11184810 },
+        { field: "MoonFogColor", value: 0 },
+        { field: "MoonFogAmount", value: 5 },
+        { field: "MoonShadows", value: 0 }
+      ]
+    },
+    objects: [],
+    composition: {
+      placeables: 0,
+      doors: 0,
+      creatures: 0,
+      encounters: 0,
+      items: 0,
+      sounds: 0,
+      stores: 0,
+      triggers: 0,
+      waypoints: 0,
+      total: 0
+    },
+    sourceResources: {
+      areSha256: ALS_ORACLE_ARE_SHA256,
+      gitSha256: ALS_ORACLE_GIT_SHA256,
+      gicSha256: ALS_ORACLE_GIC_SHA256
+    }
   };
 }
 
 function createAreaLightShadowDebugState(
     request: Pick<AreaLightShadowPreviewRequest, "displayFog" | "useAreaLighting">
-): Parameters<typeof rebuildTerrainMesh>[3] {
+): DebugState {
+  const defaults = createDefaultToolbarState().canvasDebug;
   return {
+    ...defaults,
     textureCompression: "uastc",
+    grid: false,
+    axes: false,
+    objectLabels: false,
+    perfHud: false,
+    runtimeHud: false,
+    controlsHint: false,
     hiddenMeshes: false,
     ceilingMeshes: false,
     wireframe: false,
@@ -324,9 +1028,16 @@ function createCampfireProofObject(
   scene: AreaScene,
   request: AreaLightShadowPreviewRequest
 ): SceneObject {
-  const x = request.campfireX ?? Math.max(0.5, scene.width / 2);
-  const y = request.campfireY ?? Math.max(0.5, scene.height / 2);
-  const z = request.campfireZ ?? 0;
+  const placement = resolveCampfireProofPlacement(scene, {
+    x:
+      request.campfireX ??
+      (request.oracleFixture ? ALS_ORACLE_CAMPFIRE_TILE_POSITION : null),
+    y:
+      request.campfireY ??
+      (request.oracleFixture ? ALS_ORACLE_CAMPFIRE_TILE_POSITION : null),
+    z: request.campfireZ
+  });
+  const { x, y, z } = placement;
   return normalizeSceneObjectMetadata({
     id: CAMPFIRE_PROOF_OBJECT_ID,
     kind: "placeables",
@@ -345,8 +1056,9 @@ function createCampfireProofObject(
       sourceKind: "placeable",
       templateId: CAMPFIRE_PROOF_TEMPLATE_ID,
       sourceModelResRef: "plc_i06.mdl",
+      appearanceType: CAMPFIRE_PROOF_APPEARANCE_TYPE,
       localizedName: "Fire: Campfire 1",
-      description: `retail oracle resref ${CAMPFIRE_PROOF_RETAIL_RES_REF}; Aurora Web template ${CAMPFIRE_PROOF_TEMPLATE_ID}`
+      description: `retail oracle resref ${CAMPFIRE_PROOF_RETAIL_RES_REF}; Aurora Web template ${CAMPFIRE_PROOF_TEMPLATE_ID}; proof placement tile=${placement.tileId || "unresolved"} z=${z}`
     },
     visualTransform: {
       scale: 1,
@@ -360,6 +1072,51 @@ function createCampfireProofObject(
   });
 }
 
+interface CampfireProofPlacementInput {
+  readonly x: number | null;
+  readonly y: number | null;
+  readonly z: number | null;
+}
+
+interface CampfireProofPlacement {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly tileId: string;
+}
+
+function resolveCampfireProofPlacement(
+  scene: AreaScene,
+  input: CampfireProofPlacementInput
+): CampfireProofPlacement {
+  const x = input.x ?? Math.max(0.5, scene.width / 2);
+  const y = input.y ?? Math.max(0.5, scene.height / 2);
+  const tileCol = clamp(Math.floor(x), 0, Math.max(0, scene.width - 1));
+  const tileRow = clamp(Math.floor(y), 0, Math.max(0, scene.height - 1));
+  const tile = scene.tiles.find(
+    (candidate) => candidate.col === tileCol && candidate.row === tileRow
+  );
+  const tileSurfaceZ = tile
+    ? resolveAuroraAreaRenderTileHeight(
+        tile.height,
+        scene.auroraAreaEditing?.definition.defaults?.transition
+      )
+    : 0;
+  return {
+    x,
+    y,
+    z: input.z ?? tileSurfaceZ,
+    tileId: tile?.id ?? ""
+  };
+}
+
+export function resolveCampfireProofPlacementForTests(
+  scene: AreaScene,
+  input: CampfireProofPlacementInput
+): CampfireProofPlacement {
+  return resolveCampfireProofPlacement(scene, input);
+}
+
 function resolveRenderObjectsForPreview(
   scene: AreaScene,
   request: AreaLightShadowPreviewRequest
@@ -367,7 +1124,13 @@ function resolveRenderObjectsForPreview(
   if (!request.renderObjects) {
     return [];
   }
-  const objects = request.includeAreaObjects ? [...scene.objects] : [];
+  const objects = request.includeAreaObjects
+    ? scene.objects.filter(
+        (object) =>
+          request.objectResRefFilter.length === 0 ||
+          object.resRef.trim().toLowerCase() === request.objectResRefFilter
+      )
+    : [];
   if (!request.injectCampfire) {
     return objects;
   }
@@ -393,7 +1156,10 @@ async function resolvePlaceablePayloadsForPreview(
 }> {
   const entries = objects.filter(isPlaceablePayloadObject).map((object) => ({
     key: object.id,
-    lookup: resolvePlaceableRenderPayloadLookup(object).processPayload
+    lookup: applyAreaLightShadowPreviewPlaceableFreshnessPolicy(
+      resolvePlaceableRenderPayloadLookup(object).processPayload,
+      request.oracleFixture
+    )
   }));
   if (entries.length === 0) {
     return { payloadByObjectId: {}, status: "not-requested", error: "" };
@@ -414,7 +1180,12 @@ async function resolvePlaceablePayloadsForPreview(
       }
     );
     return {
-      payloadByObjectId: Object.fromEntries(results.map((result) => [result.key, result.payload])),
+      payloadByObjectId: Object.fromEntries(
+        results.map((result) => [
+          result.key,
+          rewriteCatalogVfxPreviewPayloadDeliveryUrls(result.payload, request.apiBaseUrl)
+        ])
+      ),
       status: results.length === entries.length ? "ready" : "partial",
       error: results.length === entries.length ? "" : `resolved ${results.length}/${entries.length}`
     };
@@ -425,6 +1196,129 @@ async function resolvePlaceablePayloadsForPreview(
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function uniqueSortedStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right)
+  );
+}
+
+export function buildAreaVfxExpectedHostGraph(
+  payloadByObjectId: Record<string, PlaceableViewportRenderPayload>
+) {
+  const payloads = Object.values(payloadByObjectId);
+  return {
+    staticBranches: uniqueSortedStrings(
+      payloads.flatMap((payload) => {
+        const nodes =
+          payload.renderPackage?.auroraModelGraph?.staticGeometryNodes ?? [];
+        const primaryModelAssetIds = new Set(
+          (payload.renderPackage?.assetRefs.modelAssetIds ?? [])
+            .map((assetId) => assetId.trim())
+            .filter(Boolean)
+        );
+        const primaryNodes =
+          primaryModelAssetIds.size > 0
+            ? nodes.filter((node) =>
+                primaryModelAssetIds.has(node.sourceModelAssetId.trim())
+              )
+            : nodes;
+        return primaryNodes.map((node) => node.nodeName);
+      })
+    ),
+    emitterBranches: uniqueSortedStrings(
+      payloads.flatMap(
+        (payload) =>
+          payload.renderPackage?.auroraEmitter?.emitters.map(
+            (emitter) => emitter.nodeName
+          ) ?? []
+      )
+    ),
+    lightBranches: uniqueSortedStrings(
+      payloads.flatMap(
+        (payload) =>
+          payload.renderPackage?.auroraLight?.lights.map(
+            (light) => light.nodeName
+          ) ?? []
+      )
+    )
+  };
+}
+
+function buildAreaVfxCacheIdentity(
+  areaId: string,
+  payloadByObjectId: Record<string, PlaceableViewportRenderPayload>
+): string | null {
+  const cacheKeys = uniqueSortedStrings(
+    Object.values(payloadByObjectId).map((payload) => payload.cacheKey ?? "")
+  );
+  return cacheKeys.length > 0 ? `${areaId}:${cacheKeys.join("|")}` : null;
+}
+
+function hasDeferredAreaVfxRuntimeEmitters(
+  payloadByObjectId: Record<string, PlaceableViewportRenderPayload>
+): boolean {
+  return Object.values(payloadByObjectId).some((payload) => {
+    const auroraPayload = payload.renderPackage?.auroraVfxPayload;
+    if (!auroraPayload || typeof auroraPayload !== "object") return false;
+    const contracts = (auroraPayload as { contracts?: unknown }).contracts;
+    return (
+      contracts !== null &&
+      typeof contracts === "object" &&
+      (contracts as { runtimeEmittersDeferred?: unknown })
+        .runtimeEmittersDeferred === true
+    );
+  });
+}
+
+function readAreaVfxCompositionRoots(
+  runtime: ReturnType<typeof createRuntime>,
+  payloadByObjectId: Record<string, PlaceableViewportRenderPayload>
+): THREE.Object3D[] {
+  return Object.entries(payloadByObjectId)
+    .filter(
+      ([, payload]) =>
+        (payload.renderPackage?.auroraEmitter?.emitters.length ?? 0) > 0
+    )
+    .map(([objectId]) => runtime.objectMeshById.get(objectId))
+    .filter((root): root is THREE.Object3D => root !== undefined);
+}
+
+function createAreaVfxRuntimeObservability(
+  runtime: ReturnType<typeof createRuntime>,
+  areaId: string,
+  payloadByObjectId: Record<string, PlaceableViewportRenderPayload>,
+  backendRuntimeBuild: BackendRuntimeBuildIdentity | null
+) {
+  const compositionRoots = readAreaVfxCompositionRoots(
+    runtime,
+    payloadByObjectId
+  );
+  compositionRoots.forEach((root) =>
+    recordCatalogVfxRuntimeBindings(runtime, root)
+  );
+  return createVfxRuntimeObservabilityReport({
+    runtime,
+    root: runtime.objectLayer,
+    compositionRoots,
+    expectedPlaybackRootCount: Math.max(1, compositionRoots.length),
+    profile: "development",
+    overlayRequested: false,
+    runtimeEmittersDeferred:
+      hasDeferredAreaVfxRuntimeEmitters(payloadByObjectId),
+    expectedHostGraph: buildAreaVfxExpectedHostGraph(payloadByObjectId),
+    buildIdentity: {
+      frontend: {
+        commit: import.meta.env.VITE_RUNTIME_BUILD_COMMIT,
+        imageDigest: import.meta.env.VITE_RUNTIME_BUILD_IMAGE_DIGEST,
+        builtAt: import.meta.env.VITE_RUNTIME_BUILD_BUILT_AT
+      },
+      backend: backendRuntimeBuild ?? undefined,
+      contractVersion: backendRuntimeBuild?.contractVersion ?? null,
+      cacheKey: buildAreaVfxCacheIdentity(areaId, payloadByObjectId)
+    }
+  });
 }
 
 async function resolveTileProcessReadinessForPreview(
@@ -445,7 +1339,7 @@ async function resolveTileProcessReadinessForPreview(
         tileApiPort,
         accessToken,
         area,
-        { bypassCache: false }
+        { bypassCache: request.oracleFixture === ALS_ORACLE_CAMPFIRE_FIXTURE_ID }
       ),
       error: ""
     };
@@ -488,14 +1382,131 @@ async function waitForObjectRuntimeSettlement(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const status = runtime.container.dataset.placeableModelStatus;
-    if (status !== "loading" && runtime.placeableModelPendingByUrl.size === 0) {
+    if (
+      isAreaLightShadowPreviewPlaceableTextureSettled(runtime.container.dataset) &&
+      runtime.placeableModelPendingByUrl.size === 0
+    ) {
       break;
     }
     render();
     await new Promise((resolve) => window.setTimeout(resolve, 100));
   }
+  if (
+    !isAreaLightShadowPreviewPlaceableTextureSettled(runtime.container.dataset) ||
+    runtime.placeableModelPendingByUrl.size > 0
+  ) {
+    throw new Error(
+      `AREA_PLACEABLE_TEXTURE_SETTLEMENT_TIMEOUT:${JSON.stringify({
+        modelStatus: runtime.container.dataset.placeableModelStatus ?? null,
+        textureStatus: runtime.container.dataset.placeableModelTextureStatus ?? null,
+        textureCount: runtime.container.dataset.placeableModelTextureCount ?? null,
+        textureLoaded: runtime.container.dataset.placeableModelTextureLoaded ?? null,
+        pendingModelCount: runtime.placeableModelPendingByUrl.size
+      })}`
+    );
+  }
   render();
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  render();
+}
+
+export function isAreaLightShadowPreviewPlaceableTextureSettled(dataset: {
+  placeableModelStatus?: string;
+  placeableModelTextureStatus?: string;
+  placeableModelTextureCount?: string;
+  placeableModelTextureLoaded?: string;
+}): boolean {
+  if (dataset.placeableModelStatus !== "loaded") {
+    return false;
+  }
+  const textureCount = Number(dataset.placeableModelTextureCount ?? 0);
+  const textureLoaded = Number(dataset.placeableModelTextureLoaded ?? 0);
+  if (dataset.placeableModelTextureStatus === "not-applicable") {
+    return textureCount === 0 && textureLoaded === 0;
+  }
+  return (
+    dataset.placeableModelTextureStatus === "applied" &&
+    textureCount > 0 &&
+    textureLoaded >= textureCount
+  );
+}
+
+async function seekAreaVfxForCapture(
+  runtime: ReturnType<typeof createRuntime>,
+  render: () => void,
+  elapsedSeconds: number,
+  expectedRootCount: number,
+  timeoutMs = 12000
+): Promise<ReturnType<typeof readRuntimeAuroraVfxCanonicalPlaybackState>> {
+  const deadline = Date.now() + timeoutMs;
+  let playback = readRuntimeAuroraVfxCanonicalPlaybackState(runtime);
+  do {
+    seekRuntimeAuroraVfxCanonicalPlaybacks(runtime, elapsedSeconds);
+    render();
+    playback = readRuntimeAuroraVfxCanonicalPlaybackState(runtime);
+    if (
+      playback.rootCount >= expectedRootCount &&
+      playback.visibleDrawMeshCount > 0 &&
+      playback.visibleMappedMaterialCount > 0
+    ) {
+      return playback;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+  return playback;
+}
+
+export function renderAreaLightShadowPreviewRuntime(
+  runtime: ReturnType<typeof createRuntime>,
+  renderFrame: (runtime: ReturnType<typeof createRuntime>) => void =
+    renderRuntime
+): void {
+  runtime.controls.update();
+  renderFrame(runtime);
+}
+
+export function rotateAreaLightShadowPreviewCameraAzimuth(
+  runtime: Pick<ReturnType<typeof createRuntime>, "camera" | "controls">,
+  azimuthDegrees: number
+): void {
+  if (!Number.isFinite(azimuthDegrees) || Math.abs(azimuthDegrees) <= Number.EPSILON) {
+    return;
+  }
+  const target = runtime.controls.target;
+  const offset = runtime.camera.position.clone().sub(target);
+  offset.applyAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    THREE.MathUtils.degToRad(azimuthDegrees)
+  );
+  runtime.camera.position.copy(target).add(offset);
+  runtime.camera.lookAt(target);
+  runtime.camera.updateMatrixWorld(true);
+  runtime.controls.update();
+}
+
+export function readAreaLightShadowPreviewPostprocessDiagnostics(
+  runtime: Pick<
+    ReturnType<typeof createRuntime>,
+    "renderer" | "auroraRetailBloomPass"
+  >
+): unknown {
+  const pass = runtime.auroraRetailBloomPass;
+  if (!pass) return null;
+  return {
+    contract: pass.getDiagnostics(),
+    frameEnergy: pass.readFrameEnergyDiagnostics(runtime.renderer)
+  };
+}
+
+export function hideAreaLightShadowPreviewEditorLayers(
+  runtime: Pick<
+    ReturnType<typeof createRuntime>,
+    "gridLayer" | "tileOverlayLayer" | "axesHelper"
+  >
+): void {
+  runtime.gridLayer.visible = false;
+  runtime.tileOverlayLayer.visible = false;
+  runtime.axesHelper.visible = false;
 }
 
 export function AreaLightShadowPreviewRunner() {
@@ -520,51 +1531,90 @@ export function AreaLightShadowPreviewRunner() {
         }
 
         const areaApiPort = new HttpAreaApiPort(fetch.bind(window), request.apiBaseUrl);
-        const login = await areaApiPort.login(request.username, request.password);
-        const processed = await areaApiPort.processArea(login.accessToken, request.areaId, {
-          bypassCache: false
-        });
+        const [login, health] = await Promise.all([
+          areaApiPort.login(request.username, request.password),
+          probeBackendHealth(fetch.bind(globalThis), request.apiBaseUrl)
+        ]);
+        const processed = await areaApiPort.processArea(
+          login.accessToken,
+          request.areaId,
+          applyAreaLightShadowPreviewAreaFreshnessPolicy({}, request.oracleFixture)
+        );
+        const processedArea = request.oracleFixture
+          ? createAlsOracleCampfireAreaFixture(processed.area)
+          : processed.area;
         const tileProcessReadiness = await resolveTileProcessReadinessForPreview(
           request,
           login.accessToken,
-          processed.area
+          processedArea
+        );
+        const terrainSourceLineage = evaluateAreaLightShadowPreviewTerrainSourceLineage(
+          tileProcessReadiness.readiness,
+          request.oracleFixture
         );
         if (cancelled) {
           return;
         }
 
-        const scene = mapBackendAreaToScene(processed.area);
+        const scene = mapBackendAreaToScene(processedArea);
         const renderObjects = resolveRenderObjectsForPreview(scene, request);
-        const placeablePayloadResult = request.renderObjects
+        const placeablePayloadResult: Awaited<
+          ReturnType<typeof resolvePlaceablePayloadsForPreview>
+        > = request.renderObjects
           ? await resolvePlaceablePayloadsForPreview(
               request,
               login.accessToken,
               renderObjects
             )
           : { payloadByObjectId: {}, status: "not-requested", error: "" };
+        const placeableSourceLineage =
+          evaluateAreaLightShadowPreviewPlaceableSourceLineage(
+            placeablePayloadResult.payloadByObjectId[CAMPFIRE_PROOF_OBJECT_ID],
+            request.oracleFixture
+          );
         if (cancelled) {
           return;
         }
         const runtime = createRuntime(host);
         cleanupRuntime = () => disposeRuntime(runtime);
+        hideAreaLightShadowPreviewEditorLayers(runtime);
+        registerVfxRuntimeExpectedAssets(
+          runtime,
+          Object.values(placeablePayloadResult.payloadByObjectId).flatMap(
+            buildCatalogVfxExpectedRuntimeAssets
+          )
+        );
+        if (request.proofBackdrop !== "default") {
+          const backdrop = new THREE.Color(
+            request.proofBackdrop === "warm-dark" ? 0x2a211b : 0x59626d
+          );
+          runtime.scene.background = backdrop;
+          runtime.renderer.setClearColor(backdrop, 1);
+        }
         applyPlaceableAssetRequestHeaders(runtime, login.accessToken);
         host.style.width = `${request.canvasWidth}px`;
         host.style.height = `${request.canvasHeight}px`;
         resizeRuntime(runtime);
         centerCameraForScene(runtime, scene);
         const debugState = createAreaLightShadowDebugState(request);
-        rebuildTerrainMesh(
-          runtime,
-          scene,
-          null,
-          debugState,
-          tileProcessReadiness.readiness
-        );
+        if (request.renderTerrain) {
+          rebuildTerrainMesh(
+            runtime,
+            scene,
+            null,
+            debugState,
+            tileProcessReadiness.readiness
+          );
+        } else {
+          if (runtime.tileMesh) runtime.tileMesh.visible = false;
+        }
         if (request.renderObjects) {
           rebuildObjectMeshes(
             runtime,
             renderObjects,
-            request.injectCampfire ? [CAMPFIRE_PROOF_OBJECT_ID] : [],
+            request.injectCampfire && request.highlightInjectedCampfire
+              ? [CAMPFIRE_PROOF_OBJECT_ID]
+              : [],
             debugState,
             scene.width,
             scene.height,
@@ -579,19 +1629,176 @@ export function AreaLightShadowPreviewRunner() {
         }
 
         const render = () => {
-          runtime.controls.update();
-          runtime.renderer.render(runtime.scene, runtime.camera);
+          applyAuroraPlaceableLightingProofProfile(
+            { scene: runtime.scene, objectLayer: runtime.objectLayer },
+            request.lightingProofProfile
+          );
+          renderAreaLightShadowPreviewRuntime(
+            runtime,
+            request.lightingProofProfile.postprocess
+              ? renderRuntime
+              : renderRuntimeWithoutPostprocess
+          );
         };
-        await waitForTerrainRuntimeSettlement(runtime, render);
+        if (request.renderTerrain) {
+          await waitForTerrainRuntimeSettlement(runtime, render);
+        }
         if (request.renderObjects) {
           await waitForObjectRuntimeSettlement(runtime, render);
-          if (request.injectCampfire) {
+          if (request.injectCampfire || request.focusRenderedObjects) {
             centerCameraForRuntimeObjectPreview(runtime);
+            if (request.cameraDistanceScale !== 1) {
+              runtime.camera.position
+                .sub(runtime.controls.target)
+                .multiplyScalar(request.cameraDistanceScale)
+                .add(runtime.controls.target);
+              runtime.controls.update();
+            }
+            rotateAreaLightShadowPreviewCameraAzimuth(
+              runtime,
+              request.cameraAzimuthDegrees
+            );
             render();
           }
         }
+        const requestedCaptureTimeSeconds = Math.max(0, request.captureTimeSeconds ?? 0);
+        const vfxPlayback =
+          request.captureTimeSeconds !== null
+            ? await seekAreaVfxForCapture(
+                runtime,
+                render,
+                requestedCaptureTimeSeconds,
+                Math.max(1, renderObjects.length)
+              )
+            : readRuntimeAuroraVfxCanonicalPlaybackState(runtime);
         const placeableLightDiagnostics = writePlaceableTwoDaLightRenderDiagnostics(runtime);
         const diagnostics = writeAuroraScenePointLightDiagnostics(runtime);
+        const readRuntimeObservability = () =>
+          createAreaVfxRuntimeObservability(
+            runtime,
+            processedArea.areaId,
+            placeablePayloadResult.payloadByObjectId,
+            health.runtimeBuild
+          );
+        const readPlaceableLightingProofSnapshot = () => {
+          applyAuroraPlaceableLightingProofProfile(
+            { scene: runtime.scene, objectLayer: runtime.objectLayer },
+            request.lightingProofProfile
+          );
+          const runtimeObservability = readRuntimeObservability();
+          const facts = collectAuroraPlaceableLightingProofSceneFacts({
+            scene: runtime.scene,
+            objectLayer: runtime.objectLayer,
+            tileMesh: runtime.tileMesh,
+            assetSettlementStatus: runtimeObservability.assetSettlement.status
+          });
+          return evaluateAuroraPlaceableLightingProof({
+            ...facts,
+            profile: request.lightingProofProfile
+          });
+        };
+        const runtimeObservability = readRuntimeObservability();
+        const placeableLightingProof = readPlaceableLightingProofSnapshot();
+        const placeableLightProjection =
+          evaluateAreaLightShadowPreviewPlaceableLightProjection(
+            placeableLightingProof,
+            request.oracleFixture
+          );
+        const readCapturePlaybackState = () => ({
+          ...readRuntimeAuroraVfxCanonicalPlaybackState(runtime),
+          cameraPosition: runtime.camera.position.toArray(),
+          cameraTarget: runtime.controls.target.toArray()
+        });
+        window.__auroraAreaVfxPreviewBeginDeterministicCapture = () => {
+          seekRuntimeAuroraVfxCanonicalPlaybacks(runtime, 0);
+          render();
+          return true;
+        };
+        window.__auroraAreaVfxPreviewRenderAtTime = (elapsedSeconds: number) => {
+          if (Number.isFinite(elapsedSeconds)) {
+            seekRuntimeAuroraVfxCanonicalPlaybacks(runtime, Math.max(0, elapsedSeconds));
+            render();
+          }
+          return readCapturePlaybackState();
+        };
+        window.__auroraAreaVfxPreviewForceRender = () => {
+          render();
+          return true;
+        };
+        window.__auroraAreaVfxPreviewSetParticleDepthTest = (enabled: boolean) => {
+          const samples: Array<Record<string, unknown>> = [];
+          runtime.objectLayer.traverse((node) => {
+            if (
+              !(node instanceof THREE.Mesh) ||
+              node.userData.auroraVfxCanonicalDrawMesh !== true
+            ) {
+              return;
+            }
+            const materials = Array.isArray(node.material)
+              ? node.material
+              : [node.material];
+            materials.forEach((material) => {
+              material.depthTest = enabled;
+            });
+            samples.push({
+              textureReference:
+                node.userData.auroraVfxCanonicalTextureReference ?? "",
+              depthTest: materials.every((material) => material.depthTest)
+            });
+          });
+          render();
+          return { enabled, samples };
+        };
+        window.__auroraAreaVfxPreviewGetCompositionSpatialDiagnostics = () => {
+          const root = runtime.objectMeshById.get(CAMPFIRE_PROOF_OBJECT_ID);
+          const samples: Array<Record<string, unknown>> = [];
+          root?.traverse((node) => {
+            if (!(node instanceof THREE.Mesh)) return;
+            node.updateWorldMatrix(true, false);
+            const bounds = new THREE.Box3().setFromObject(node, true);
+            const size = bounds.isEmpty()
+              ? new THREE.Vector3()
+              : bounds.getSize(new THREE.Vector3());
+            const center = bounds.isEmpty()
+              ? new THREE.Vector3()
+              : bounds.getCenter(new THREE.Vector3());
+            samples.push({
+              name: node.name,
+              canonicalDrawMesh:
+                node.userData.auroraVfxCanonicalDrawMesh === true,
+              textureReference:
+                node.userData.auroraVfxCanonicalTextureReference ?? "",
+              hostBranchKind:
+                node.userData.auroraVfxHostBranchKind ?? "",
+              hostBranchName:
+                node.userData.auroraVfxHostBranchName ?? "",
+              visible: node.visible,
+              worldBoundsMin: bounds.isEmpty() ? [] : bounds.min.toArray(),
+              worldBoundsMax: bounds.isEmpty() ? [] : bounds.max.toArray(),
+              worldBoundsCenter: center.toArray(),
+              worldBoundsSize: size.toArray()
+            });
+          });
+          return { rootName: root?.name ?? "", samples };
+        };
+        window.__auroraAreaVfxPreviewGetPostprocessDiagnostics = () =>
+          readAreaLightShadowPreviewPostprocessDiagnostics(runtime);
+        window.__auroraAreaVfxPreviewGetRuntimeObservability =
+          readRuntimeObservability;
+        window.__auroraAreaPlaceableLightingGetProofSnapshot =
+          readPlaceableLightingProofSnapshot;
+        const renderedObjectSamples = renderObjects.map((object) => {
+          const root = runtime.objectMeshById.get(object.id);
+          const worldPosition = root?.getWorldPosition(new THREE.Vector3()).toArray() ?? [];
+          return {
+            objectId: object.id,
+            resRef: object.resRef,
+            sourcePosition: [object.x, object.y, object.z],
+            rootPosition: root?.position.toArray() ?? [],
+            worldPosition,
+            childNames: root?.children.map((child) => child.name) ?? []
+          };
+        });
 
         if (cancelled) {
           return;
@@ -604,8 +1811,8 @@ export function AreaLightShadowPreviewRunner() {
         setSnapshot({
           status: "ready",
           error: "",
-          areaId: processed.area.areaId,
-          areaName: processed.area.name,
+          areaId: processedArea.areaId,
+          areaName: processedArea.name,
           apiBaseUrl: request.apiBaseUrl,
           displayFog: request.displayFog,
           useAreaLighting: request.useAreaLighting,
@@ -613,6 +1820,7 @@ export function AreaLightShadowPreviewRunner() {
           renderObjects: request.renderObjects,
           includeAreaObjects: request.includeAreaObjects,
           injectCampfire: request.injectCampfire,
+          highlightInjectedCampfire: request.highlightInjectedCampfire,
           fullViewport: request.fullViewport,
           canvasWidth: request.canvasWidth,
           canvasHeight: request.canvasHeight,
@@ -626,6 +1834,41 @@ export function AreaLightShadowPreviewRunner() {
           tileCount: scene.tiles.length,
           objectCount: scene.objects.length,
           renderObjectCount: renderObjects.length,
+          renderTerrain: request.renderTerrain,
+          cameraDistanceScale: request.cameraDistanceScale,
+          cameraAzimuthDegrees: request.cameraAzimuthDegrees,
+          proofBackdrop: request.proofBackdrop,
+          placeableLightingProofProfile: { ...request.lightingProofProfile },
+          placeableLightingProof,
+          placeableSourceLineageStatus: placeableSourceLineage.status,
+          placeableSourceModelObjectKeys:
+            placeableSourceLineage.sourceModelObjectKeys,
+          placeableSourceModelHashes: placeableSourceLineage.sourceModelHashes,
+          placeableSourceLineageBlockers: placeableSourceLineage.blockerCodes,
+          placeableLightProjectionStatus: placeableLightProjection.status,
+          placeableLightProjectionBlockers: placeableLightProjection.blockerCodes,
+          terrainSourceLineageStatus: terrainSourceLineage.status,
+          terrainSourceModelObjectKeys: terrainSourceLineage.sourceModelObjectKeys,
+          terrainSourceModelHashes: terrainSourceLineage.sourceModelHashes,
+          terrainModelAssetObjectKeys: terrainSourceLineage.modelAssetObjectKeys,
+          terrainModelAssetHashes: terrainSourceLineage.modelAssetHashes,
+          terrainTextureObjectKeys: terrainSourceLineage.textureObjectKeys,
+          terrainTextureHashes: terrainSourceLineage.textureHashes,
+          terrainSourceLineageBlockers: terrainSourceLineage.blockerCodes,
+          objectResRefFilter: request.objectResRefFilter,
+          captureTimeSeconds: request.captureTimeSeconds,
+          vfxPlaybackRootCount: vfxPlayback.rootCount,
+          vfxPlaybackFrameCount: vfxPlayback.frameCount,
+          vfxPlaybackDurationSeconds: vfxPlayback.durationSeconds,
+          vfxPlaybackCompleted: vfxPlayback.completed,
+          vfxVisibleDrawMeshCount: vfxPlayback.visibleDrawMeshCount,
+          vfxVisibleDrawParticleCount: vfxPlayback.visibleDrawParticleCount,
+          vfxVisibleTextureReferences: vfxPlayback.visibleTextureReferences,
+          vfxVisibleDrawBoundsCenter: vfxPlayback.visibleDrawBoundsCenter,
+          vfxVisibleDrawBoundsSize: vfxPlayback.visibleDrawBoundsSize,
+          vfxVisibleDrawMeshSamples: vfxPlayback.visibleDrawMeshSamples,
+          vfxRuntimeObservability: runtimeObservability,
+          renderedObjectSamples,
           injectedCampfireObjectId: injectedCampfire?.id ?? "",
           injectedCampfireTemplateId: injectedCampfire?.source?.templateId ?? "",
           injectedCampfireResRef: injectedCampfire?.resRef ?? "",
@@ -662,6 +1905,16 @@ export function AreaLightShadowPreviewRunner() {
           placeableModelStatus: dataset.placeableModelStatus ?? "",
           placeableModelMeshCount: Number(dataset.placeableModelMeshCount ?? 0),
           placeableModelUrl: dataset.placeableModelUrl ?? "",
+          placeableModelTextureStatus: dataset.placeableModelTextureStatus ?? "",
+          placeableModelTextureCount: Number(
+            dataset.placeableModelTextureCount ?? 0
+          ),
+          placeableModelTextureLoaded: Number(
+            dataset.placeableModelTextureLoaded ?? 0
+          ),
+          placeableModelTextureSource: dataset.placeableModelTextureSource ?? "",
+          placeableModelTextureSettled:
+            isAreaLightShadowPreviewPlaceableTextureSettled(dataset),
           areaGlobalLightingStatus: dataset.areaTerrainAreaGlobalLightingStatus ?? "",
           areaGlobalLightingPhase: dataset.areaTerrainAreaGlobalLightingPhase ?? "",
           areaGlobalLightingFields: dataset.areaTerrainAreaGlobalLightingFields ?? "",
@@ -702,6 +1955,16 @@ export function AreaLightShadowPreviewRunner() {
               ? ""
               : String(diagnostics.shadow.areaShadowOpacityFactor),
           terrainRuntimeStatus: dataset.areaTerrainTileModelRuntimeStatus ?? "",
+          terrainLoaderBlockers: dataset.areaTerrainLoaderBlockers ?? "",
+          terrainTileModelBlockedCount: Number(
+            dataset.areaTerrainTileModelBlockedCount ?? "0"
+          ),
+          terrainTileModelDeliveryUrlSample:
+            dataset.areaTerrainTileModelDeliveryUrlSample ?? "",
+          terrainTileModelLoaderErrorSample:
+            dataset.areaTerrainTileModelLoaderErrorSample ?? "",
+          terrainTileModelBlockedTileSample:
+            dataset.areaTerrainTileModelBlockedTileSample ?? "",
           terrainAreaId: dataset.areaTerrainAreaId ?? "",
           terrainTileModelLoadedCount: Number(
             dataset.areaTerrainTileModelLoadedCount ?? 0
@@ -727,7 +1990,8 @@ export function AreaLightShadowPreviewRunner() {
             roundNumber(runtime.camera.position.x),
             roundNumber(runtime.camera.position.y),
             roundNumber(runtime.camera.position.z)
-          ]
+          ],
+          oracleFixture: request.oracleFixture
         });
       } catch (error) {
         if (!cancelled) {
@@ -735,7 +1999,7 @@ export function AreaLightShadowPreviewRunner() {
             createEmptySnapshot(
               "error",
               request,
-              error instanceof Error ? error.message : String(error)
+              error instanceof Error ? error.stack ?? error.message : String(error)
             )
           );
         }
@@ -745,6 +2009,14 @@ export function AreaLightShadowPreviewRunner() {
     void run();
     return () => {
       cancelled = true;
+      delete window.__auroraAreaVfxPreviewBeginDeterministicCapture;
+      delete window.__auroraAreaVfxPreviewRenderAtTime;
+      delete window.__auroraAreaVfxPreviewForceRender;
+      delete window.__auroraAreaVfxPreviewSetParticleDepthTest;
+      delete window.__auroraAreaVfxPreviewGetCompositionSpatialDiagnostics;
+      delete window.__auroraAreaVfxPreviewGetPostprocessDiagnostics;
+      delete window.__auroraAreaVfxPreviewGetRuntimeObservability;
+      delete window.__auroraAreaPlaceableLightingGetProofSnapshot;
       cleanupRuntime?.();
     };
   }, [request]);
@@ -760,12 +2032,128 @@ export function AreaLightShadowPreviewRunner() {
       data-tile-count={snapshot.tileCount}
       data-object-count={snapshot.objectCount}
       data-render-object-count={snapshot.renderObjectCount}
+      data-rendered-object-samples={JSON.stringify(snapshot.renderedObjectSamples)}
+      data-render-terrain={String(snapshot.renderTerrain)}
+      data-camera-distance-scale={snapshot.cameraDistanceScale}
+      data-camera-azimuth-degrees={snapshot.cameraAzimuthDegrees}
+      data-proof-backdrop={snapshot.proofBackdrop}
+      data-placeable-lighting-proof-profile-version={
+        snapshot.placeableLightingProofProfile.version
+      }
+      data-placeable-lighting-proof-receiver={
+        snapshot.placeableLightingProofProfile.receiver
+      }
+      data-placeable-lighting-proof-point-light={String(
+        snapshot.placeableLightingProofProfile.pointLight
+      )}
+      data-placeable-lighting-proof-halo={String(
+        snapshot.placeableLightingProofProfile.halo
+      )}
+      data-placeable-lighting-proof-vfx={String(
+        snapshot.placeableLightingProofProfile.vfx
+      )}
+      data-placeable-lighting-proof-shadow={String(
+        snapshot.placeableLightingProofProfile.shadow
+      )}
+      data-placeable-lighting-proof-postprocess={String(
+        snapshot.placeableLightingProofProfile.postprocess
+      )}
+      data-placeable-lighting-proof-snapshot-version={
+        snapshot.placeableLightingProof?.version ?? ""
+      }
+      data-placeable-lighting-proof-status={
+        snapshot.placeableLightingProof?.status ?? ""
+      }
+      data-placeable-lighting-proof-retail-parity-status={
+        snapshot.placeableLightingProof?.retailParityStatus ?? ""
+      }
+      data-placeable-lighting-proof-blockers={
+        snapshot.placeableLightingProof?.blockerCodes.join("|") ?? ""
+      }
+      data-placeable-source-lineage-status={snapshot.placeableSourceLineageStatus}
+      data-placeable-source-model-object-keys={
+        snapshot.placeableSourceModelObjectKeys.join("|")
+      }
+      data-placeable-source-model-hashes={
+        snapshot.placeableSourceModelHashes.join("|")
+      }
+      data-placeable-source-lineage-blockers={
+        snapshot.placeableSourceLineageBlockers.join("|")
+      }
+      data-placeable-light-projection-status={snapshot.placeableLightProjectionStatus}
+      data-placeable-light-projection-blockers={
+        snapshot.placeableLightProjectionBlockers.join("|")
+      }
+      data-terrain-source-lineage-status={snapshot.terrainSourceLineageStatus}
+      data-terrain-source-model-object-keys={snapshot.terrainSourceModelObjectKeys.join("|")}
+      data-terrain-source-model-hashes={snapshot.terrainSourceModelHashes.join("|")}
+      data-terrain-model-asset-object-keys={snapshot.terrainModelAssetObjectKeys.join("|")}
+      data-terrain-model-asset-hashes={snapshot.terrainModelAssetHashes.join("|")}
+      data-terrain-texture-object-keys={snapshot.terrainTextureObjectKeys.join("|")}
+      data-terrain-texture-hashes={snapshot.terrainTextureHashes.join("|")}
+      data-terrain-source-lineage-blockers={snapshot.terrainSourceLineageBlockers.join("|")}
+      data-placeable-lighting-proof-area-receiver-mesh-count={
+        snapshot.placeableLightingProof?.facts.areaReceiverMeshCount ?? 0
+      }
+      data-placeable-lighting-proof-debug-receiver-mesh-count={
+        snapshot.placeableLightingProof?.facts.debugReceiverMeshCount ?? 0
+      }
+      data-placeable-lighting-proof-reactive-material-count={
+        snapshot.placeableLightingProof?.facts.reactiveReceiverMaterialCount ?? 0
+      }
+      data-placeable-lighting-proof-unlit-material-count={
+        snapshot.placeableLightingProof?.facts.unlitReceiverMaterialCount ?? 0
+      }
+      data-placeable-lighting-proof-unknown-material-count={
+        snapshot.placeableLightingProof?.facts.unknownReceiverMaterialCount ?? 0
+      }
+      data-placeable-lighting-proof-point-light-count={
+        snapshot.placeableLightingProof?.facts.pointLightCount ?? 0
+      }
+      data-placeable-lighting-proof-receiver-material-families={JSON.stringify(
+        snapshot.placeableLightingProof?.facts.receiverMaterialFamilies ?? []
+      )}
+      data-object-resref-filter={snapshot.objectResRefFilter}
+      data-capture-time-seconds={snapshot.captureTimeSeconds ?? ""}
+      data-vfx-playback-root-count={snapshot.vfxPlaybackRootCount}
+      data-vfx-playback-frame-count={snapshot.vfxPlaybackFrameCount}
+      data-vfx-playback-duration-seconds={snapshot.vfxPlaybackDurationSeconds}
+      data-vfx-playback-completed={String(snapshot.vfxPlaybackCompleted)}
+      data-vfx-visible-draw-mesh-count={snapshot.vfxVisibleDrawMeshCount}
+      data-vfx-visible-draw-particle-count={snapshot.vfxVisibleDrawParticleCount}
+      data-vfx-visible-texture-references={snapshot.vfxVisibleTextureReferences.join("|")}
+      data-vfx-runtime-observability-version={
+        snapshot.vfxRuntimeObservability?.version ?? ""
+      }
+      data-vfx-runtime-identity-status={
+        snapshot.vfxRuntimeObservability?.identity.status ?? ""
+      }
+      data-vfx-runtime-host-graph-status={
+        snapshot.vfxRuntimeObservability?.hostGraph.status ?? ""
+      }
+      data-vfx-runtime-asset-settlement-status={
+        snapshot.vfxRuntimeObservability?.assetSettlement.status ?? ""
+      }
+      data-vfx-runtime-draw-ledger-status={
+        snapshot.vfxRuntimeObservability?.drawLedger.status ?? ""
+      }
+      data-vfx-runtime-playback-guard-status={
+        snapshot.vfxRuntimeObservability?.playbackGuard.status ?? ""
+      }
+      data-vfx-runtime-proof-gate-status={
+        snapshot.vfxRuntimeObservability?.proofGate.status ?? ""
+      }
+      data-vfx-runtime-proof-blockers={
+        snapshot.vfxRuntimeObservability?.proofGate.blockerManifest.join("|") ??
+        ""
+      }
       data-display-fog={String(snapshot.displayFog)}
       data-use-area-lighting={String(snapshot.useAreaLighting)}
       data-tile-process={String(snapshot.tileProcess)}
       data-render-objects={String(snapshot.renderObjects)}
       data-include-area-objects={String(snapshot.includeAreaObjects)}
       data-inject-campfire={String(snapshot.injectCampfire)}
+      data-highlight-injected-campfire={String(snapshot.highlightInjectedCampfire)}
       data-full-viewport={String(snapshot.fullViewport)}
       data-canvas-width={snapshot.canvasWidth}
       data-canvas-height={snapshot.canvasHeight}
@@ -804,6 +2192,13 @@ export function AreaLightShadowPreviewRunner() {
       data-placeable-model-status={snapshot.placeableModelStatus}
       data-placeable-model-mesh-count={snapshot.placeableModelMeshCount}
       data-placeable-model-url={snapshot.placeableModelUrl}
+      data-placeable-model-texture-status={snapshot.placeableModelTextureStatus}
+      data-placeable-model-texture-count={snapshot.placeableModelTextureCount}
+      data-placeable-model-texture-loaded={snapshot.placeableModelTextureLoaded}
+      data-placeable-model-texture-source={snapshot.placeableModelTextureSource}
+      data-placeable-model-texture-settled={String(
+        snapshot.placeableModelTextureSettled
+      )}
       data-area-global-lighting-status={snapshot.areaGlobalLightingStatus}
       data-area-global-lighting-phase={snapshot.areaGlobalLightingPhase}
       data-area-global-lighting-fields={snapshot.areaGlobalLightingFields}
@@ -844,6 +2239,11 @@ export function AreaLightShadowPreviewRunner() {
       data-scene-shadow-area-opacity={snapshot.sceneShadowAreaOpacity}
       data-scene-shadow-area-opacity-factor={snapshot.sceneShadowAreaOpacityFactor}
       data-terrain-runtime-status={snapshot.terrainRuntimeStatus}
+      data-terrain-loader-blockers={snapshot.terrainLoaderBlockers}
+      data-terrain-tile-model-blocked-count={snapshot.terrainTileModelBlockedCount}
+      data-terrain-tile-model-delivery-url-sample={snapshot.terrainTileModelDeliveryUrlSample}
+      data-terrain-tile-model-loader-error-sample={snapshot.terrainTileModelLoaderErrorSample}
+      data-terrain-tile-model-blocked-tile-sample={snapshot.terrainTileModelBlockedTileSample}
       data-terrain-area-id={snapshot.terrainAreaId}
       data-terrain-tile-model-loaded-count={snapshot.terrainTileModelLoadedCount}
       data-terrain-tile-model-visible-mesh-count={
@@ -868,6 +2268,7 @@ export function AreaLightShadowPreviewRunner() {
         snapshot.terrainTileShadowReceiverSample
       }
       data-camera-position={snapshot.cameraPosition.join(",")}
+      data-oracle-fixture={snapshot.oracleFixture}
       data-error={snapshot.error}
       style={{
         margin: 0,

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceToolbarState } from "./workspaceChromeFacade";
 import type { SceneObject } from "../contracts";
 import { isKindVisibleWithIsolation, isObjectVisible } from "./workspaceSceneInteraction";
-import { normalizeSoundGuidePositioning } from "../soundGuideDomain";
+import {
+  normalizeSoundGuidePositioning,
+  resolveSoundGuideWorldGeometry
+} from "../soundGuideDomain";
 import type {
   WorkspaceRuntimeRef,
   WorkspaceSoundListenerRuntimePort
@@ -238,10 +241,6 @@ export function useRuntimeSoundPreview<TRuntime>(args: {
       const listenerX = listenerPosition.x;
       const listenerY = listenerPosition.y;
       const listenerZ = listenerPosition.z;
-      const soundMetersToWorldScale = 1 / Math.max(1, unitsPerTile);
-      const toWorldSoundDistance = (meters: number) =>
-        Math.max(0, meters) * soundMetersToWorldScale;
-
       const candidateSounds = sceneObjects.filter((object) =>
         isRuntimeSoundPreviewEligible(object, toolbarState, renderObjectIdsSet)
       );
@@ -265,6 +264,7 @@ export function useRuntimeSoundPreview<TRuntime>(args: {
 
       for (const object of candidateSounds) {
         const positioning = normalizeSoundGuidePositioning(object.soundPositioning);
+        const soundGuideGeometry = resolveSoundGuideWorldGeometry(positioning, unitsPerTile);
         const preserve = object.soundPositioning?.preserve;
         const isActive = preserve?.active ?? SOUND_PRESERVE_DEFAULTS.active;
         const soundList = resolveSoundPlaybackList(object);
@@ -288,14 +288,15 @@ export function useRuntimeSoundPreview<TRuntime>(args: {
 
         const resolveSourcePosition = () => {
           const baseX = object.x;
-          const baseY = object.z + toWorldSoundDistance(positioning.elevation);
+          const baseY = object.z + soundGuideGeometry.elevationOffsetWorld;
           const baseZ = object.y;
           if (positioning.mode !== "random") {
             return { x: baseX, y: baseY, z: baseZ };
           }
-          const randomOffsetX = toWorldSoundDistance(positioning.randomRangeWestEast) * (Math.random() - 0.5);
+          const randomOffsetX =
+            soundGuideGeometry.randomRangeHalfWidthWorld * (Math.random() * 2 - 1);
           const randomOffsetZ =
-            toWorldSoundDistance(positioning.randomRangeNorthSouth) * (Math.random() - 0.5);
+            soundGuideGeometry.randomRangeHalfDepthWorld * (Math.random() * 2 - 1);
           return {
             x: baseX + randomOffsetX,
             y: baseY,
@@ -304,11 +305,8 @@ export function useRuntimeSoundPreview<TRuntime>(args: {
         };
 
         const resolveEffectiveVolume = (sourceX: number, sourceY: number, sourceZ: number) => {
-          const maxDistance = toWorldSoundDistance(positioning.maxVolumeDistance);
-          const cutoffDistance = Math.max(
-            maxDistance,
-            toWorldSoundDistance(positioning.cutoffDistance)
-          );
+          const maxDistance = soundGuideGeometry.maxVolumeRadiusWorld;
+          const cutoffDistance = soundGuideGeometry.cutoffRadiusWorld;
           const distance =
             positioning.mode === "everywhere"
               ? 0

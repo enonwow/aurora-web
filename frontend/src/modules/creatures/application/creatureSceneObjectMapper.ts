@@ -275,6 +275,7 @@ function mapSkillEntries(metadata: CreatureMetadata | undefined): SceneObjectCre
           ? entry.skillLabel.trim()
           : undefined;
       return {
+        skillId,
         skill: skillLabel ?? CREATURE_SKILL_LABELS[skillId] ?? `Skill ${skillId + 1}`,
         rank:
           typeof entry.rank === "number" && Number.isFinite(entry.rank)
@@ -656,6 +657,7 @@ function mapInventoryItems(
   return readJsonArray(metadata, "inventoryItemListEntries")
     .filter(isRecord)
     .map((entry) => ({
+      sourceIndex: readRecordNumber(entry, "sourceIndex"),
       resRef: readRecordString(entry, "resRef"),
       randomResRef: readRecordString(entry, "randomResRef"),
       randomList: readRecordString(entry, "randomList"),
@@ -839,6 +841,8 @@ export function mapCreatureApiListItemToSceneObject(
   const walkRateSource2daRow = readNumber(metadata, "walkRateSource2daRow");
   const walkRateSource2daName = readString(metadata, "walkRateSource2daName");
   const walkRateSpeed2daRow = readNumber(metadata, "walkRateSpeed2daRow");
+  const walkRate = readNumber(metadata, "walkRate");
+  const walkRateEffective = readNumber(metadata, "walkRateEffective");
   const walkRateAppearance2daSourceKey = readString(
     metadata,
     "walkRateAppearance2daSourceKey"
@@ -929,10 +933,10 @@ export function mapCreatureApiListItemToSceneObject(
         dexterityBonus: 0,
         sizeModifier: 0,
         baseHitPoints: hitPoints,
-        hitPointBonuses: Math.max(0, maxHitPoints - hitPoints),
+        hitPointBonuses: maxHitPoints - hitPoints,
         currentHitPoints,
         maxHitPoints,
-        movementRate: String(readNumber(metadata, "walkRateEffective") ?? readNumber(metadata, "walkRate") ?? "")
+        movementRate: String(walkRateEffective ?? walkRate ?? "")
       },
       scriptSlots: buildScriptSlots(metadata),
       advancedSettings: {
@@ -955,6 +959,7 @@ export function mapCreatureApiListItemToSceneObject(
         soundSet: soundSetLabel ?? formatNumberLabel("SoundSet", soundSetFile),
         ...(soundSetFile !== undefined ? { soundSetFile } : {}),
         perceptionRange: String(perceptionRange),
+        ...(walkRate !== undefined ? { walkRateId: walkRate } : {}),
         ...(walkRateSource2daRow !== undefined ? { walkRateSource2daRow } : {}),
         ...(walkRateSource2daName ? { walkRateSource2daName } : {}),
         ...(walkRateSpeed2daRow !== undefined ? { walkRateSpeed2daRow } : {}),

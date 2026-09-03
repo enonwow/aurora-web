@@ -521,6 +521,22 @@ export function resolveVisibleObjectForPropertiesSignal(input: {
   toolbarState: WorkspaceToolbarState;
   renderObjectIdsSet: ReadonlySet<string> | null;
 }): SceneObject | null {
+  const identityMatch =
+    input.objects.find((candidate) => candidate.id === input.objectId) ?? null;
+  if (!identityMatch || identityMatch.kind !== input.objectKind) {
+    return null;
+  }
+  // Trigger, Encounter, and Waypoint property dialogs edit logical Area
+  // records. Their sidebar action must remain usable while the corresponding
+  // canvas overlay is hidden; each dialog opener performs its stricter draft
+  // or exact-provenance gate.
+  if (
+    identityMatch.kind === "triggers" ||
+    identityMatch.kind === "encounters" ||
+    identityMatch.kind === "waypoints"
+  ) {
+    return identityMatch;
+  }
   const object = resolveVisibleObjectForSidebarSignal({
     objects: input.objects,
     objectId: input.objectId,
@@ -539,13 +555,23 @@ export function resolveVisibleObjectForSidebarSignal(input: {
   toolbarState: WorkspaceToolbarState;
   renderObjectIdsSet: ReadonlySet<string> | null;
 }): SceneObject | null {
-  return (
-    input.objects.find(
-      (object) =>
-        object.id === input.objectId &&
-        isObjectVisibleWithRenderFilter(object, input.toolbarState, input.renderObjectIdsSet)
-    ) ?? null
-  );
+  const object = input.objects.find((candidate) => candidate.id === input.objectId) ?? null;
+  if (!object) {
+    return null;
+  }
+  // Retained Stores are logical Area authoring objects and intentionally have
+  // no canvas mesh. Their sidebar selection/context/properties flow therefore
+  // cannot depend on canvas visibility or render membership.
+  if (object.kind === "stores") {
+    return object;
+  }
+  return isObjectVisibleWithRenderFilter(
+    object,
+    input.toolbarState,
+    input.renderObjectIdsSet
+  )
+    ? object
+    : null;
 }
 
 export function resolveSidebarSelectionIds(input: {

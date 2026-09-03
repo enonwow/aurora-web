@@ -3,7 +3,11 @@ export interface WorkspaceBackendEnvironment {
   VITE_BACKEND_API_BASE_URL?: string;
 }
 
-const DEFAULT_DEV_BACKEND_API_BASE_URL = "http://127.0.0.1:3000/api/v1";
+// Keep the workspace control plane on the Vite same-origin proxy in development.
+// A direct loopback request works from a terminal but is routinely blocked or
+// isolated in browser-controlled proof sessions, leaving Areas unable to keep
+// its authenticated tile-editing session alive.
+const DEFAULT_DEV_BACKEND_API_BASE_URL = "/_aurora/v1";
 const DEFAULT_PRODUCTION_BACKEND_API_BASE_URL = "/api/v1";
 
 export function resolveWorkspaceBackendApiBaseUrl(

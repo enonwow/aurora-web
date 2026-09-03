@@ -6,9 +6,15 @@ import type {
   SceneObjectItemMaterialColors,
   SceneObjectItemModelAssetCandidate,
   SceneObjectItemModelPartCandidate,
-  SceneObjectItemPropertyEntry
+  SceneObjectItemPropertyEntry,
+  SceneObjectItemVariableTargetEntry
 } from "../../scene/contracts";
 import { createNewSceneObject } from "../../scene/domain/sceneFactory";
+import { readDynamicAreaItemConstructionDefaults } from
+  "../../scene/domain/areaItemDynamicConstructionProfile";
+import { readItemVariableTargetEntries } from "../../scene/domain/itemVariableTable";
+import { readItemBlueprintReferenceLists } from
+  "../../scene/domain/itemBlueprintInventory";
 import type {
   ItemApiBaseItemEntry,
   ItemApiAssetManifestAsset,
@@ -107,6 +113,13 @@ function mapItemPropertyEntries(
       descriptionStrRef: readRecordNumber(entry, "descriptionStrRef")
     }))
     .filter((entry) => Object.values(entry).some((value) => value !== undefined));
+}
+
+function mapItemVariableEntries(
+  metadata: ItemMetadata | undefined
+): SceneObjectItemVariableTargetEntry[] {
+  const entries = readItemVariableTargetEntries(readJsonArray(metadata, "variableListEntries"));
+  return entries ? entries.map((entry) => ({ ...entry })) : [];
 }
 
 function mapScriptSlots(metadata: ItemMetadata | undefined): Record<string, string> | undefined {
@@ -679,11 +692,13 @@ export function mapItemApiListItemToSceneObject(
   sequence = 1
 ): SceneObject {
   const metadata = item.metadata;
+  const constructionDefaults = readDynamicAreaItemConstructionDefaults(item);
   const object = createNewSceneObject("items", ITEM_TEMPLATE_X, ITEM_TEMPLATE_Y, sequence);
   const normalizedTemplateId = sanitizeIdentifier(item.templateId, `item_${sequence}`);
-  const templateResRef = readString(metadata, "templateResRef") ?? item.resref;
+  const templateResRef = constructionDefaults?.resRef ??
+    readString(metadata, "templateResRef") ?? item.resref;
   const localizedName = readString(metadata, "localizedName") ?? readString(metadata, "displayName");
-  const tag = readString(metadata, "tag") ?? item.resref;
+  const tag = constructionDefaults?.tag ?? readString(metadata, "tag") ?? item.resref;
   const modelParts = compactNumberArray([
     readNumber(metadata, "modelPart1"),
     readNumber(metadata, "modelPart2"),
@@ -700,6 +715,12 @@ export function mapItemApiListItemToSceneObject(
     readString(metadata, "modelPartResRefRole3")
   ]);
   const propertyList = mapItemPropertyEntries(metadata);
+  const variables = mapItemVariableEntries(metadata);
+  const blueprintReferenceLists = readItemBlueprintReferenceLists(
+    readJsonArray(metadata, "inventoryItemListEntries"),
+    readJsonArray(metadata, "equipItemListEntries"),
+    templateResRef,
+  );
   const armorParts = buildArmorParts(metadata);
   const armorPartCostModifiers = buildArmorPartCostModifiers(metadata);
   const cloakHiddenSlots = readDelimitedStringArray(readString(metadata, "cloakHiddenSlots"));
@@ -716,10 +737,10 @@ export function mapItemApiListItemToSceneObject(
     id: `itm_template_${normalizedTemplateId}`,
     name: localizedName ?? item.name,
     resRef: templateResRef,
-    tag: tag.toUpperCase(),
+    tag: constructionDefaults ? tag : tag.toUpperCase(),
     previewImageUrl: item.previewImageUrl.trim() || undefined,
     isStatic: false,
-    source: {
+    source: constructionDefaults?.source ?? {
       type: "aurora_git",
       sourceObjectId: item.templateId,
       sourceKind: "item",
@@ -804,6 +825,13 @@ export function mapItemApiListItemToSceneObject(
       ...(armorParts ? { armorParts } : {}),
       ...(materialColors ? { materialColors } : {}),
       ...(propertyList.length > 0 ? { propertyList } : {}),
+      ...(variables.length > 0 ? { variables } : {}),
+      ...(blueprintReferenceLists && blueprintReferenceLists.inventory.length > 0
+        ? { blueprintInventoryItems: blueprintReferenceLists.inventory }
+        : {}),
+      ...(blueprintReferenceLists && blueprintReferenceLists.equipment.length > 0
+        ? { blueprintEquippedItems: blueprintReferenceLists.equipment }
+        : {}),
       ...(modelAssetCandidates.length > 0 ? { modelAssetCandidates } : {}),
       ...(scripts ? { scripts } : {})
     }

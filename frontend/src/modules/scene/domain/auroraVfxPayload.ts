@@ -5,6 +5,8 @@ import type {
   AuroraVfxPayloadContracts,
   AuroraVfxPayloadDiagnostics,
   AuroraVfxPayloadProvenance,
+  AuroraVfxRendererEligibility,
+  AuroraVfxRetailParityStatus,
   AreaScene,
   SceneObject,
   SceneObjectVfxCanonicalStatus,
@@ -37,6 +39,7 @@ const VFX_DIAGNOSTIC_SEVERITIES = new Set<SceneObjectVfxDiagnostic["severity"]>(
 const VFX_SOURCE_KINDS = new Set<SceneObjectVfxSourceKind>([
   "unknown",
   "placeable_preview",
+  "source_mdl_graph",
   "visualeffects_2da",
   "effect_instance"
 ]);
@@ -58,6 +61,18 @@ const VFX_CANONICAL_STATUSES = new Set<SceneObjectVfxCanonicalStatus>([
   "unmapped",
   "preview_only",
   "canonical"
+]);
+
+const VFX_RENDERER_ELIGIBILITY = new Set<AuroraVfxRendererEligibility>([
+  "blocked",
+  "preview_only",
+  "source_backed"
+]);
+
+const VFX_RETAIL_PARITY_STATUSES = new Set<AuroraVfxRetailParityStatus>([
+  "unproven",
+  "blocked",
+  "proven"
 ]);
 
 export interface BuildSceneObjectVfxPayloadOptions {
@@ -102,6 +117,22 @@ export function normalizeAuroraVfxPayload(value: unknown): AuroraVfxPayload | un
     requestedCanonicalStatus === "canonical" && !backendCanonical
       ? "preview_only"
       : requestedCanonicalStatus;
+  const legacyRendererEligibility: AuroraVfxRendererEligibility =
+    canonicalStatus === "canonical" && backendCanonical
+      ? "source_backed"
+      : canonicalStatus === "preview_only"
+        ? "preview_only"
+        : "blocked";
+  const rendererEligibility = readEnum(
+    value.rendererEligibility,
+    VFX_RENDERER_ELIGIBILITY,
+    legacyRendererEligibility
+  );
+  const retailParityStatus = readEnum(
+    value.retailParityStatus,
+    VFX_RETAIL_PARITY_STATUSES,
+    value.canonicalParityPromoted === true ? "proven" : "unproven"
+  );
 
   if (requestedCanonicalStatus === "canonical" && !backendCanonical) {
     diagnostics.payload.push({
@@ -116,6 +147,8 @@ export function normalizeAuroraVfxPayload(value: unknown): AuroraVfxPayload | un
     version: AURORA_VFX_PAYLOAD_VERSION,
     canonicalStatus,
     backendCanonical: backendCanonical && canonicalStatus === "canonical",
+    rendererEligibility,
+    retailParityStatus,
     sourceKind: readSourceKind(value.sourceKind, "unknown"),
     previewMode: readPreviewMode(value.previewMode, "none"),
     diagnostics,
@@ -187,6 +220,8 @@ export function buildPreviewOnlyAuroraVfxPayload(input: {
     version: AURORA_VFX_PAYLOAD_VERSION,
     canonicalStatus: "preview_only",
     backendCanonical: false,
+    rendererEligibility: "preview_only",
+    retailParityStatus: "blocked",
     sourceKind: input.sourceKind,
     previewMode: input.previewMode,
     diagnostics: {
@@ -370,17 +405,80 @@ function normalizeContracts(source: Record<string, unknown>): AuroraVfxPayloadCo
     ...(cloneJsonValue(source.effectInstance ?? nestedContracts.effectInstance) !== undefined
       ? { effectInstance: cloneJsonValue(source.effectInstance ?? nestedContracts.effectInstance)! }
       : {}),
+    ...(cloneJsonValue(source.aoeRuntimeObject ?? nestedContracts.aoeRuntimeObject) !== undefined
+      ? {
+          aoeRuntimeObject: cloneJsonValue(
+            source.aoeRuntimeObject ?? nestedContracts.aoeRuntimeObject
+          )!
+        }
+      : {}),
     ...(cloneJsonValue(source.phaseSchedule ?? nestedContracts.phaseSchedule) !== undefined
       ? { phaseSchedule: cloneJsonValue(source.phaseSchedule ?? nestedContracts.phaseSchedule)! }
       : {}),
     ...(cloneJsonValue(source.dependencyGraph ?? nestedContracts.dependencyGraph) !== undefined
       ? { dependencyGraph: cloneJsonValue(source.dependencyGraph ?? nestedContracts.dependencyGraph)! }
       : {}),
+    ...(cloneJsonValue(source.runtimeReplayCommand ?? nestedContracts.runtimeReplayCommand) !==
+    undefined
+      ? {
+          runtimeReplayCommand: cloneJsonValue(
+            source.runtimeReplayCommand ?? nestedContracts.runtimeReplayCommand
+          )!
+        }
+      : {}),
+    ...(cloneJsonValue(source.runtimeEmitters ?? nestedContracts.runtimeEmitters) !== undefined
+      ? { runtimeEmitters: cloneJsonValue(source.runtimeEmitters ?? nestedContracts.runtimeEmitters)! }
+      : {}),
+    ...(cloneJsonValue(
+      source.runtimeEmittersDeferred ?? nestedContracts.runtimeEmittersDeferred
+    ) !== undefined
+      ? {
+          runtimeEmittersDeferred: cloneJsonValue(
+            source.runtimeEmittersDeferred ?? nestedContracts.runtimeEmittersDeferred
+          )!
+        }
+      : {}),
+    ...(cloneJsonValue(
+      source.runtimeEmittersHydration ?? nestedContracts.runtimeEmittersHydration
+    ) !== undefined
+      ? {
+          runtimeEmittersHydration: cloneJsonValue(
+            source.runtimeEmittersHydration ?? nestedContracts.runtimeEmittersHydration
+          )!
+        }
+      : {}),
     ...(cloneJsonValue(source.runtimeState ?? nestedContracts.runtimeState) !== undefined
       ? { runtimeState: cloneJsonValue(source.runtimeState ?? nestedContracts.runtimeState)! }
       : {}),
+    ...(cloneJsonValue(source.runtimeSharedRng ?? nestedContracts.runtimeSharedRng) !==
+    undefined
+      ? {
+          runtimeSharedRng: cloneJsonValue(
+            source.runtimeSharedRng ?? nestedContracts.runtimeSharedRng
+          )!
+        }
+      : {}),
     ...(cloneJsonValue(source.renderContract ?? nestedContracts.renderContract) !== undefined
       ? { renderContract: cloneJsonValue(source.renderContract ?? nestedContracts.renderContract)! }
+      : {}),
+    ...(cloneJsonValue(source.sourceModelGraph ?? nestedContracts.sourceModelGraph) !== undefined
+      ? {
+          sourceModelGraph: cloneJsonValue(
+            source.sourceModelGraph ?? nestedContracts.sourceModelGraph
+          )!
+        }
+      : {}),
+    ...(cloneJsonValue(source.sourceMdlLights ?? nestedContracts.sourceMdlLights) !== undefined
+      ? { sourceMdlLights: cloneJsonValue(source.sourceMdlLights ?? nestedContracts.sourceMdlLights)! }
+      : {}),
+    ...(cloneJsonValue(
+      source.sourceMdlLightFeatureManifest ?? nestedContracts.sourceMdlLightFeatureManifest
+    ) !== undefined
+      ? {
+          sourceMdlLightFeatureManifest: cloneJsonValue(
+            source.sourceMdlLightFeatureManifest ?? nestedContracts.sourceMdlLightFeatureManifest
+          )!
+        }
       : {})
   };
 }
@@ -391,17 +489,48 @@ function cloneContracts(contracts: AuroraVfxPayloadContracts): AuroraVfxPayloadC
     ...(contracts.effectInstance !== undefined
       ? { effectInstance: cloneJsonValue(contracts.effectInstance)! }
       : {}),
+    ...(contracts.aoeRuntimeObject !== undefined
+      ? { aoeRuntimeObject: cloneJsonValue(contracts.aoeRuntimeObject)! }
+      : {}),
     ...(contracts.phaseSchedule !== undefined
       ? { phaseSchedule: cloneJsonValue(contracts.phaseSchedule)! }
       : {}),
     ...(contracts.dependencyGraph !== undefined
       ? { dependencyGraph: cloneJsonValue(contracts.dependencyGraph)! }
       : {}),
+    ...(contracts.runtimeReplayCommand !== undefined
+      ? { runtimeReplayCommand: cloneJsonValue(contracts.runtimeReplayCommand)! }
+      : {}),
+    ...(contracts.runtimeEmitters !== undefined
+      ? { runtimeEmitters: cloneJsonValue(contracts.runtimeEmitters)! }
+      : {}),
+    ...(contracts.runtimeEmittersDeferred !== undefined
+      ? { runtimeEmittersDeferred: cloneJsonValue(contracts.runtimeEmittersDeferred)! }
+      : {}),
+    ...(contracts.runtimeEmittersHydration !== undefined
+      ? { runtimeEmittersHydration: cloneJsonValue(contracts.runtimeEmittersHydration)! }
+      : {}),
     ...(contracts.runtimeState !== undefined
       ? { runtimeState: cloneJsonValue(contracts.runtimeState)! }
       : {}),
+    ...(contracts.runtimeSharedRng !== undefined
+      ? { runtimeSharedRng: cloneJsonValue(contracts.runtimeSharedRng)! }
+      : {}),
     ...(contracts.renderContract !== undefined
       ? { renderContract: cloneJsonValue(contracts.renderContract)! }
+      : {}),
+    ...(contracts.sourceModelGraph !== undefined
+      ? { sourceModelGraph: cloneJsonValue(contracts.sourceModelGraph)! }
+      : {}),
+    ...(contracts.sourceMdlLights !== undefined
+      ? { sourceMdlLights: cloneJsonValue(contracts.sourceMdlLights)! }
+      : {}),
+    ...(contracts.sourceMdlLightFeatureManifest !== undefined
+      ? {
+          sourceMdlLightFeatureManifest: cloneJsonValue(
+            contracts.sourceMdlLightFeatureManifest
+          )!
+        }
       : {})
   };
 }

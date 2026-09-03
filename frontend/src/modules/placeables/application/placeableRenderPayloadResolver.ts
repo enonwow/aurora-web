@@ -5,9 +5,12 @@ import type {
   PlaceableApiAssetRole,
   PlaceableApiProcessPayload,
   PlaceableRenderPackageAssetRefs,
-  PlaceableApiProcessResult
+  PlaceableApiProcessResult,
+  PlaceableApiViewportRenderPayload,
+  PlaceableRenderPackage
 } from "../contracts";
 import type { PlaceableApiPort } from "../ports/placeableApiPort";
+import { isPlaceableCacheNotFoundError } from "../domain/placeableCacheMiss";
 
 const CONTRACT_ROLE_PRIORITY: ReadonlyArray<PlaceableApiAssetRole> = [
   "model",
@@ -32,6 +35,74 @@ const RENDER_PACKAGE_ASSET_REF_PRIORITY: ReadonlyArray<keyof PlaceableRenderPack
   "metadataAssetIds",
   "otherAssetIds"
 ];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasDeferredRuntimeEmitters(renderPackage: PlaceableRenderPackage | undefined): boolean {
+  const payload = renderPackage?.auroraVfxPayload;
+  if (!isRecord(payload) || !isRecord(payload.contracts)) return false;
+  return payload.contracts.runtimeEmittersDeferred === true;
+}
+
+function hasHydratedRuntimeEmitters(renderPackage: PlaceableRenderPackage | undefined): boolean {
+  const payload = renderPackage?.auroraVfxPayload;
+  if (!isRecord(payload) || !isRecord(payload.contracts)) return false;
+  return (
+    payload.contracts.runtimeEmittersDeferred !== true &&
+    Array.isArray(payload.contracts.runtimeEmitters) &&
+    payload.contracts.runtimeEmitters.length > 0
+  );
+}
+
+async function hydrateDeferredViewportVfxPayloads(
+  placeableApiPort: PlaceableApiPort,
+  accessToken: string,
+  payloads: PlaceableApiViewportRenderPayload[]
+): Promise<PlaceableApiViewportRenderPayload[]> {
+  const hydratedRenderPackages = new Map<string, Promise<PlaceableRenderPackage>>();
+  const resolveHydratedRenderPackage = (
+    payload: PlaceableApiViewportRenderPayload
+  ): Promise<PlaceableRenderPackage> => {
+    const cached = hydratedRenderPackages.get(payload.cacheKey);
+    if (cached) return cached;
+    if (!placeableApiPort.getProcessedPlaceable) {
+      throw new Error(
+        `Deferred VFX runtime '${payload.cacheKey}' requires placeable cache hydration.`
+      );
+    }
+    const hydration = placeableApiPort
+      .getProcessedPlaceable(accessToken, payload.cacheKey, undefined)
+      .then((processed) => {
+        const renderPackage = processed.placeable.renderPackage;
+        if (!hasHydratedRuntimeEmitters(renderPackage)) {
+          throw new Error(
+            `Placeable cache hydration '${payload.cacheKey}' did not return complete runtime emitters.`
+          );
+        }
+        return renderPackage!;
+      });
+    hydratedRenderPackages.set(payload.cacheKey, hydration);
+    return hydration;
+  };
+
+  return Promise.all(
+    payloads.map(async (payload) => {
+      const renderPackage = payload.renderPackage ?? payload.placeable.renderPackage;
+      if (!hasDeferredRuntimeEmitters(renderPackage)) return payload;
+      const hydratedRenderPackage = await resolveHydratedRenderPackage(payload);
+      return {
+        ...payload,
+        renderPackage: hydratedRenderPackage,
+        placeable: {
+          ...payload.placeable,
+          renderPackage: hydratedRenderPackage
+        }
+      };
+    })
+  );
+}
 
 function normalizeAssetId(assetId: string): string {
   return assetId.trim();
@@ -327,6 +398,10 @@ export interface FetchPlaceableViewportRenderPayloadOptions {
   processBatchTimeoutMs?: number;
   resolveProcessPreviewOnly?: boolean;
   processSingleTimeoutMs?: number;
+  onCacheMissRecovery?: (event: {
+    staleCacheKey: string;
+    lookup: PlaceableApiProcessPayload;
+  }) => void;
   onProcessPayload?: (
     payload: PlaceableViewportRenderPayload,
     context?: FetchPlaceableViewportRenderPayloadContext
@@ -977,27 +1052,42 @@ export async function fetchPlaceableViewportRenderPayload(
   options: FetchPlaceableViewportRenderPayloadOptions = {}
 ): Promise<PlaceableViewportRenderPayload> {
   const processPayload = typeof lookup === "string" ? { templateId: lookup } : lookup;
-  const processResult = await withOptionalAbortableTimeout(
-    (signal) =>
-      processPlaceableWithOptionalSignal(
-        placeableApiPort,
-        accessToken,
-        {
-          ...processPayload,
-          includeBenchmarkMetadata: false
-        },
-        signal
-      ),
-    options.processSingleTimeoutMs,
-    `Placeable process request ${processPayload.templateId ?? processPayload.resref ?? "lookup"}`
-  );
-  return resolveViewportRenderPayloadFromProcessResult(
-    placeableApiPort,
-    accessToken,
-    processResult,
-    options,
-    { lookup: processPayload }
-  );
+  const processOnce = () =>
+    withOptionalAbortableTimeout(
+      (signal) =>
+        processPlaceableWithOptionalSignal(
+          placeableApiPort,
+          accessToken,
+          {
+            ...processPayload,
+            includeBenchmarkMetadata: false
+          },
+          signal
+        ),
+      options.processSingleTimeoutMs,
+      `Placeable process request ${processPayload.templateId ?? processPayload.resref ?? "lookup"}`
+    );
+  const resolveOnce = (processResult: PlaceableApiProcessResult) =>
+    resolveViewportRenderPayloadFromProcessResult(
+      placeableApiPort,
+      accessToken,
+      processResult,
+      options,
+      { lookup: processPayload }
+    );
+  const processResult = await processOnce();
+  try {
+    return await resolveOnce(processResult);
+  } catch (error) {
+    if (!isPlaceableCacheNotFoundError(error)) {
+      throw error;
+    }
+    options.onCacheMissRecovery?.({
+      staleCacheKey: processResult.cacheKey,
+      lookup: processPayload
+    });
+    return resolveOnce(await processOnce());
+  }
 }
 
 export async function fetchPlaceableViewportRenderPayloadBatch(
@@ -1035,7 +1125,12 @@ export async function fetchPlaceableViewportRenderPayloadBatch(
           `Placeable viewport render payload batch returned ${renderPayloadBatch.items.length}/${entries.length} items`
         );
       }
-      return renderPayloadBatch.items.map((payload, index) => {
+      const hydratedPayloads = await hydrateDeferredViewportVfxPayloads(
+        placeableApiPort,
+        accessToken,
+        renderPayloadBatch.items
+      );
+      return hydratedPayloads.map((payload, index) => {
         const entry = entries[index];
         options.onProcessPayload?.(
           payload,

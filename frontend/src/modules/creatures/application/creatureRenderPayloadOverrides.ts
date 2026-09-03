@@ -82,11 +82,26 @@ export function buildCreatureAppearanceProcessOverride(
     return undefined;
   }
   const settings = object.creatureProperties?.appearanceSettings;
+  const exactAppearanceType = object.creatureProperties?.appearanceType;
+  const retainedAppearanceType = Number.isSafeInteger(exactAppearanceType) &&
+    Number(exactAppearanceType) >= 0 && Number(exactAppearanceType) <= 0xffff
+      ? Number(exactAppearanceType)
+      : undefined;
+  const exactPhenotype = object.creatureProperties?.phenotypeId;
+  const retainedPhenotype = Number.isSafeInteger(exactPhenotype) &&
+    Number(exactPhenotype) >= 0 && Number(exactPhenotype) <= 0xff && Number(exactPhenotype) !== 1
+      ? Number(exactPhenotype)
+      : undefined;
   if (!settings?.partBasedAppearance) {
-    return undefined;
+    const override: CreatureAppearanceProcessOverride = {
+      ...(retainedAppearanceType !== undefined ? { appearanceType: retainedAppearanceType } : {}),
+      ...(retainedPhenotype !== undefined ? { phenotype: retainedPhenotype } : {}),
+    };
+    return hasOwnKeys(override) ? override : undefined;
   }
+  const appearanceType = retainedAppearanceType ??
+    parseNwnAppearanceNumber(object.creatureProperties?.appearance);
 
-  const appearanceType = parseNwnAppearanceNumber(object.creatureProperties?.appearance);
   const appearanceHead = parseNwnAppearanceNumber(settings.head);
   const wingsNew = parseNwnAppearanceNumber(settings.wings);
   const tailNew = parseNwnAppearanceNumber(settings.tail);
@@ -94,6 +109,7 @@ export function buildCreatureAppearanceProcessOverride(
   const colors = buildColorOverrides(settings);
   const override: CreatureAppearanceProcessOverride = {
     ...(appearanceType !== undefined ? { appearanceType } : {}),
+    ...(retainedPhenotype !== undefined ? { phenotype: retainedPhenotype } : {}),
     ...(appearanceHead !== undefined ? { appearanceHead } : {}),
     ...(wingsNew !== undefined ? { wingsNew } : {}),
     ...(tailNew !== undefined ? { tailNew } : {}),

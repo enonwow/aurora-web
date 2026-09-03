@@ -55,6 +55,26 @@ import {
   normalizeSoundPositioning,
   normalizeSoundPositioningPreservePayload
 } from "./sound";
+import {
+  AREA_DOOR_CONSTRUCTION_PROFILE,
+  getAreaDoorConstructionDefaults,
+  getAreaObjectConstructionDefaults,
+} from "./areaWaypointConstructionProfile";
+import { isPlaceableDurabilitySaveByte } from "./placeableDurabilitySaveBytes";
+import { isEditablePlaceableHitPoints } from "./placeableHitPoints";
+import {
+  areaDoorTransitionStorageEqual,
+  cloneAreaDoorTransitionStorage,
+  isAreaDoorTransitionStorage,
+} from "../../shared/domain/areaDoorTransitionStorage";
+import {
+  placeableVariableTargetEntriesEqual,
+  readPlaceableVariableTargetEntries,
+} from "./placeableVariableTable";
+import {
+  isPlaceableTrapTargetValue,
+  type PlaceableTrapByteField
+} from "./placeableTrapByteFields";
 
 const TERRAIN_SEQUENCE: TerrainBrushKind[] = [
   "corridor",
@@ -94,6 +114,10 @@ const DEFAULT_PLACEABLE_SCRIPT_SLOTS: SceneObjectPlaceableScriptSlots = {
   onUserDefined: ""
 };
 
+export function createEmptyPlaceableScriptSlots(): SceneObjectPlaceableScriptSlots {
+  return { ...DEFAULT_PLACEABLE_SCRIPT_SLOTS };
+}
+
 const DEFAULT_PLACEABLE_DISABLED_FLAGS: SceneObjectPlaceableDisabledFlags = {
   plot: true,
   useable: true,
@@ -125,11 +149,22 @@ const DEFAULT_PLACEABLE_TRAP_SETTINGS: SceneObjectPlaceableTrapSettings = {
   disarmDcModWhenSetByRogue: 22
 };
 
-const DEFAULT_PLACEABLE_ADVANCED_SETTINGS: SceneObjectPlaceableAdvancedSettings = {
+export function createDefaultPlaceableTrapSettings(): SceneObjectPlaceableTrapSettings {
+  return { ...DEFAULT_PLACEABLE_TRAP_SETTINGS };
+}
+
+const DEFAULT_PLACEABLE_ADVANCED_SETTINGS: Required<
+  Pick<
+    SceneObjectPlaceableAdvancedSettings,
+    | "blueprintResRef"
+    | "belongsToFaction"
+    | "portraitResRef"
+    | "initialState"
+    | "treasureModel"
+  >
+> = {
   blueprintResRef: "",
   belongsToFaction: "Hostile",
-  conversation: "",
-  noInterrupt: false,
   portraitResRef: "",
   initialState: "Default",
   treasureModel: "Default"
@@ -296,7 +331,7 @@ const DEFAULT_CREATURE_SCRIPT_SLOTS: SceneObjectCreatureScriptSlots = {
   onUserDefined: ""
 };
 
-const DEFAULT_CREATURE_ADVANCED_SETTINGS: SceneObjectCreatureAdvancedSettings = {
+const DEFAULT_CREATURE_ADVANCED_SETTINGS = {
   blueprintResRef: "",
   disarmable: false,
   plot: false,
@@ -314,7 +349,7 @@ const DEFAULT_CREATURE_ADVANCED_SETTINGS: SceneObjectCreatureAdvancedSettings = 
   challengeRatingAdjustment: 0,
   soundSet: "",
   perceptionRange: "Default"
-};
+} satisfies SceneObjectCreatureAdvancedSettings;
 
 const DEFAULT_CREATURE_CLASS_ENTRIES: SceneObjectCreatureClassEntry[] = [
   { className: "Aberration", level: 1 }
@@ -348,6 +383,7 @@ const DEFAULT_VFX_PAYLOAD: SceneObjectVfxPreservePayload = {
 const VFX_SOURCE_KINDS = new Set<SceneObjectVfxSourceKind>([
   "unknown",
   "placeable_preview",
+  "source_mdl_graph",
   "visualeffects_2da",
   "effect_instance"
 ]);
@@ -685,6 +721,15 @@ function areDoorTransitionFlagsEqual(
   return leftEntries.every(([key, value]) => right[key] === value);
 }
 
+function areDoorTransitionStorageValuesEqual(
+  left: SceneObjectDoorTransitionPayload["storage"],
+  right: SceneObjectDoorTransitionPayload["storage"],
+): boolean {
+  if (left === undefined && right === undefined) return true;
+  if (!left || !right || !isAreaDoorTransitionStorage(left)) return false;
+  return Object.isFrozen(left) && areaDoorTransitionStorageEqual(left, right);
+}
+
 function arePlaceableLockSettingsEqual(
   left: SceneObjectPlaceableLockSettings | undefined,
   right: SceneObjectPlaceableLockSettings | undefined
@@ -716,7 +761,16 @@ function arePlaceableTrapSettingsEqual(
   if (!left || !right) {
     return false;
   }
+  const hasEqualPresence = (field: PlaceableTrapByteField): boolean =>
+    Object.prototype.hasOwnProperty.call(left, field) ===
+    Object.prototype.hasOwnProperty.call(right, field);
   return (
+    hasEqualPresence("isTrapped") &&
+    hasEqualPresence("detectable") &&
+    hasEqualPresence("disarmable") &&
+    hasEqualPresence("oneShot") &&
+    hasEqualPresence("detectionDc") &&
+    hasEqualPresence("disarmDc") &&
     left.isTrapped === right.isTrapped &&
     left.trapType === right.trapType &&
     left.detectionDc === right.detectionDc &&
@@ -742,14 +796,30 @@ function arePlaceableAdvancedSettingsEqual(
   if (!left || !right) {
     return false;
   }
+  const hasEqualPresence = (field: keyof SceneObjectPlaceableAdvancedSettings): boolean =>
+    Object.prototype.hasOwnProperty.call(left, field) ===
+    Object.prototype.hasOwnProperty.call(right, field);
   return (
+    hasEqualPresence("blueprintResRef") &&
+    hasEqualPresence("belongsToFaction") &&
+    hasEqualPresence("factionId") &&
+    hasEqualPresence("conversation") &&
+    hasEqualPresence("noInterrupt") &&
+    hasEqualPresence("portraitResRef") &&
+    hasEqualPresence("portraitId") &&
+    hasEqualPresence("initialState") &&
+    hasEqualPresence("treasureModel") &&
+    hasEqualPresence("treasureModelRow") &&
     left.blueprintResRef === right.blueprintResRef &&
     left.belongsToFaction === right.belongsToFaction &&
+    left.factionId === right.factionId &&
     left.conversation === right.conversation &&
     left.noInterrupt === right.noInterrupt &&
     left.portraitResRef === right.portraitResRef &&
+    left.portraitId === right.portraitId &&
     left.initialState === right.initialState &&
-    left.treasureModel === right.treasureModel
+    left.treasureModel === right.treasureModel &&
+    left.treasureModelRow === right.treasureModelRow
   );
 }
 
@@ -1248,6 +1318,12 @@ function normalizeCreatureInventoryItems(
     .map((entry) => {
       const candidate = isRecord(entry) ? entry : {};
       const normalized: SceneObjectCreatureInventoryItemReference = {
+        sourceIndex:
+          typeof candidate.sourceIndex === "number" &&
+          Number.isSafeInteger(candidate.sourceIndex) &&
+          candidate.sourceIndex >= 0
+            ? candidate.sourceIndex
+            : undefined,
         resRef: asString(candidate.resRef, "").trim() || undefined,
         randomResRef: asString(candidate.randomResRef, "").trim() || undefined,
         randomList: asString(candidate.randomList, "").trim() || undefined,
@@ -1274,7 +1350,9 @@ function normalizeCreatureInventoryItems(
         pickpocketable: isBoolean(candidate.pickpocketable) ? candidate.pickpocketable : undefined,
         infinite: isBoolean(candidate.infinite) ? candidate.infinite : undefined
       };
-      return normalized;
+      return Object.fromEntries(
+        Object.entries(normalized).filter(([, entryValue]) => entryValue !== undefined)
+      ) as SceneObjectCreatureInventoryItemReference;
     })
     .filter((entry) => Object.values(entry).some((value) => value !== undefined && value !== ""));
 }
@@ -1282,7 +1360,8 @@ function normalizeCreatureInventoryItems(
 function normalizePlaceableInventoryItems(
   value: unknown
 ): SceneObjectPlaceableInventoryItemReference[] | undefined {
-  return normalizeCreatureInventoryItems(value);
+  const normalized = normalizeCreatureInventoryItems(value);
+  return normalized;
 }
 
 function normalizeCreatureEquippedItems(
@@ -1443,6 +1522,7 @@ function areCreatureInventoryItemsEqual(
   }
   return left.every(
     (entry, index) =>
+      entry.sourceIndex === right[index]?.sourceIndex &&
       entry.resRef === right[index]?.resRef &&
       entry.randomResRef === right[index]?.randomResRef &&
       entry.randomList === right[index]?.randomList &&
@@ -1719,14 +1799,18 @@ function areCreatureAdvancedSettingsEqual(
     left.immortal === right.immortal &&
     left.bodyBag === right.bodyBag &&
     left.startingPackage === right.startingPackage &&
+    left.startingPackageId === right.startingPackageId &&
     left.treasureModel === right.treasureModel &&
+    left.treasureModelRow === right.treasureModelRow &&
     left.corpseDecayTimeSeconds === right.corpseDecayTimeSeconds &&
+    left.factionId === right.factionId &&
     left.faction === right.faction &&
     left.subrace === right.subrace &&
     left.deity === right.deity &&
     left.challengeRatingAdjustment === right.challengeRatingAdjustment &&
     left.soundSet === right.soundSet &&
     left.perceptionRange === right.perceptionRange &&
+    left.perceptionRangeId === right.perceptionRangeId &&
     left.walkRateSource2daRow === right.walkRateSource2daRow &&
     left.walkRateSource2daName === right.walkRateSource2daName &&
     left.walkRateSpeed2daRow === right.walkRateSpeed2daRow &&
@@ -1790,6 +1874,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const hasRawTrapSettings = isRecord(rawPlaceableProperties?.trapSettings);
     const hasRawAdvancedSettings = isRecord(rawPlaceableProperties?.advancedSettings);
     const hasRawInventoryItems = Array.isArray(rawPlaceableProperties?.inventoryItems);
+    const hasRawVariables = Array.isArray(rawPlaceableProperties?.variables);
     const rawScriptSlots = hasRawScriptSlots
       ? (rawPlaceableProperties?.scriptSlots as Partial<
           Record<keyof SceneObjectPlaceableScriptSlots, unknown>
@@ -1816,6 +1901,14 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         >)
       : undefined;
     const currentPlaceableProperties = normalizedObject.placeableProperties;
+    const currentHasAppearanceType = Object.prototype.hasOwnProperty.call(
+      currentPlaceableProperties ?? {},
+      "appearanceType"
+    );
+    const currentHasHitPoints = Object.prototype.hasOwnProperty.call(
+      currentPlaceableProperties ?? {},
+      "hitPoints"
+    );
     const shouldNormalizeScriptSlots =
       hasRawScriptSlots || currentPlaceableProperties?.scriptSlots !== undefined;
     const shouldNormalizeDisabledFlags =
@@ -1828,9 +1921,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       hasRawAdvancedSettings || currentPlaceableProperties?.advancedSettings !== undefined;
     const shouldNormalizeInventoryItems =
       hasRawInventoryItems || currentPlaceableProperties?.inventoryItems !== undefined;
+    const shouldNormalizeVariables =
+      hasRawVariables || currentPlaceableProperties?.variables !== undefined;
+    const shouldNormalizeLocalizedName =
+      typeof rawPlaceableProperties?.localizedName === "string";
     const shouldNormalizeDescription =
-      typeof rawPlaceableProperties?.description === "string" ||
-      currentPlaceableProperties?.description !== undefined;
+      typeof rawPlaceableProperties?.description === "string";
     const shouldNormalizeComments =
       typeof rawPlaceableProperties?.comments === "string" ||
       currentPlaceableProperties?.comments !== undefined;
@@ -1910,24 +2006,13 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const nextTrapSettings: SceneObjectPlaceableTrapSettings | undefined =
       shouldNormalizeTrapSettings
         ? {
-            isTrapped: isBoolean(rawTrapSettings?.isTrapped)
-              ? rawTrapSettings.isTrapped
-              : DEFAULT_PLACEABLE_TRAP_SETTINGS.isTrapped,
             trapType: asString(rawTrapSettings?.trapType, DEFAULT_PLACEABLE_TRAP_SETTINGS.trapType),
-            detectionDc: asFiniteNumber(
-              rawTrapSettings?.detectionDc,
-              DEFAULT_PLACEABLE_TRAP_SETTINGS.detectionDc
-            ),
-            disarmDc: asFiniteNumber(rawTrapSettings?.disarmDc, DEFAULT_PLACEABLE_TRAP_SETTINGS.disarmDc),
-            oneShot: isBoolean(rawTrapSettings?.oneShot)
-              ? rawTrapSettings.oneShot
-              : DEFAULT_PLACEABLE_TRAP_SETTINGS.oneShot,
-            detectable: isBoolean(rawTrapSettings?.detectable)
-              ? rawTrapSettings.detectable
-              : DEFAULT_PLACEABLE_TRAP_SETTINGS.detectable,
-            disarmable: isBoolean(rawTrapSettings?.disarmable)
-              ? rawTrapSettings.disarmable
-              : DEFAULT_PLACEABLE_TRAP_SETTINGS.disarmable,
+            ...(Object.prototype.hasOwnProperty.call(rawTrapSettings ?? {}, "trapTypeRow") &&
+              Number.isSafeInteger(rawTrapSettings?.trapTypeRow) &&
+              Number(rawTrapSettings?.trapTypeRow) >= 0 &&
+              Number(rawTrapSettings?.trapTypeRow) <= 0xff
+              ? { trapTypeRow: Number(rawTrapSettings?.trapTypeRow) }
+              : {}),
             onDisarmScript: asString(
               rawTrapSettings?.onDisarmScript,
               DEFAULT_PLACEABLE_TRAP_SETTINGS.onDisarmScript
@@ -1947,40 +2032,67 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             )
           }
         : undefined;
+    if (nextTrapSettings && rawTrapSettings) {
+      for (const field of [
+        "isTrapped",
+        "detectable",
+        "disarmable",
+        "oneShot",
+        "detectionDc",
+        "disarmDc"
+      ] as const) {
+        if (!Object.prototype.hasOwnProperty.call(rawTrapSettings, field)) continue;
+        const value = rawTrapSettings[field];
+        nextTrapSettings[field] = (isPlaceableTrapTargetValue(field, value)
+          ? value
+          : DEFAULT_PLACEABLE_TRAP_SETTINGS[field]) as never;
+      }
+    }
 
     const nextAdvancedSettings: SceneObjectPlaceableAdvancedSettings | undefined =
       shouldNormalizeAdvancedSettings
-        ? {
-            blueprintResRef: asString(
-              rawAdvancedSettings?.blueprintResRef,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.blueprintResRef
-            ),
-            belongsToFaction: asString(
-              rawAdvancedSettings?.belongsToFaction,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.belongsToFaction
-            ),
-            conversation: asString(
-              rawAdvancedSettings?.conversation,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.conversation
-            ),
-            noInterrupt: isBoolean(rawAdvancedSettings?.noInterrupt)
-              ? rawAdvancedSettings.noInterrupt
-              : DEFAULT_PLACEABLE_ADVANCED_SETTINGS.noInterrupt,
-            portraitResRef: asString(
-              rawAdvancedSettings?.portraitResRef,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.portraitResRef
-            ),
-            initialState: asString(
-              rawAdvancedSettings?.initialState,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.initialState
-            ),
-            treasureModel: asString(
-              rawAdvancedSettings?.treasureModel,
-              DEFAULT_PLACEABLE_ADVANCED_SETTINGS.treasureModel
-            )
-          }
+        ? {}
         : undefined;
+    if (nextAdvancedSettings && rawAdvancedSettings) {
+      for (const field of [
+        "blueprintResRef",
+        "belongsToFaction",
+        "portraitResRef",
+        "initialState",
+        "treasureModel"
+      ] as const) {
+        if (!Object.prototype.hasOwnProperty.call(rawAdvancedSettings, field)) continue;
+        nextAdvancedSettings[field] = asString(
+          rawAdvancedSettings[field],
+          DEFAULT_PLACEABLE_ADVANCED_SETTINGS[field]
+        );
+      }
+      if (typeof rawAdvancedSettings?.conversation === "string") {
+        nextAdvancedSettings.conversation = rawAdvancedSettings.conversation;
+      }
+      if (isBoolean(rawAdvancedSettings?.noInterrupt)) {
+        nextAdvancedSettings.noInterrupt = rawAdvancedSettings.noInterrupt;
+      }
+      if (Number.isSafeInteger(rawAdvancedSettings?.portraitId) &&
+        Number(rawAdvancedSettings?.portraitId) >= 0 &&
+        Number(rawAdvancedSettings?.portraitId) <= 0xffff) {
+        nextAdvancedSettings.portraitId = Number(rawAdvancedSettings.portraitId);
+      }
+      if (Number.isSafeInteger(rawAdvancedSettings?.factionId) &&
+        Number(rawAdvancedSettings?.factionId) >= 0 &&
+        Number(rawAdvancedSettings?.factionId) <= 0xffffffff) {
+        nextAdvancedSettings.factionId = Number(rawAdvancedSettings.factionId);
+      }
+      if (Number.isSafeInteger(rawAdvancedSettings?.treasureModelRow) &&
+        Number(rawAdvancedSettings?.treasureModelRow) >= 0 &&
+        Number(rawAdvancedSettings?.treasureModelRow) <= 0xff) {
+        nextAdvancedSettings.treasureModelRow = Number(rawAdvancedSettings.treasureModelRow);
+      }
+    }
 
+    const nextLocalizedName = shouldNormalizeLocalizedName
+      ? asString(rawPlaceableProperties?.localizedName, "")
+      : undefined;
     const nextDescription = shouldNormalizeDescription
       ? asString(rawPlaceableProperties?.description, "")
       : undefined;
@@ -1996,6 +2108,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
             }))
           : [])
       : undefined;
+    const nextVariables = shouldNormalizeVariables
+      ? readPlaceableVariableTargetEntries(rawPlaceableProperties?.variables)?.map(
+          (entry) => ({ ...entry }),
+        )
+      : undefined;
 
     const nextPlaceableProperties: SceneObjectPlaceableProperties = {
       plot: isBoolean(rawPlaceableProperties?.plot)
@@ -2008,6 +2125,28 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         ? rawPlaceableProperties.hasInventory
         : DEFAULT_PLACEABLE_PROPERTIES.hasInventory
     };
+    if (isPlaceableDurabilitySaveByte(rawPlaceableProperties?.hardness)) {
+      nextPlaceableProperties.hardness = rawPlaceableProperties.hardness;
+    }
+    if (isPlaceableDurabilitySaveByte(rawPlaceableProperties?.fortitudeSave)) {
+      nextPlaceableProperties.fortitudeSave = rawPlaceableProperties.fortitudeSave;
+    }
+    if (isPlaceableDurabilitySaveByte(rawPlaceableProperties?.reflexSave)) {
+      nextPlaceableProperties.reflexSave = rawPlaceableProperties.reflexSave;
+    }
+    if (isPlaceableDurabilitySaveByte(rawPlaceableProperties?.willSave)) {
+      nextPlaceableProperties.willSave = rawPlaceableProperties.willSave;
+    }
+    if (isEditablePlaceableHitPoints(rawPlaceableProperties?.hitPoints)) {
+      nextPlaceableProperties.hitPoints = rawPlaceableProperties.hitPoints;
+    }
+    if (
+      Number.isSafeInteger(rawPlaceableProperties?.appearanceType) &&
+      Number(rawPlaceableProperties?.appearanceType) >= 0 &&
+      Number(rawPlaceableProperties?.appearanceType) <= 0xffff_ffff
+    ) {
+      nextPlaceableProperties.appearanceType = Number(rawPlaceableProperties?.appearanceType);
+    }
     if (nextScriptSlots !== undefined) {
       nextPlaceableProperties.scriptSlots = nextScriptSlots;
     }
@@ -2025,6 +2164,12 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     }
     if (nextInventoryItems !== undefined) {
       nextPlaceableProperties.inventoryItems = nextInventoryItems;
+    }
+    if (nextVariables !== undefined) {
+      nextPlaceableProperties.variables = nextVariables;
+    }
+    if (nextLocalizedName !== undefined) {
+      nextPlaceableProperties.localizedName = nextLocalizedName;
     }
     if (nextDescription !== undefined) {
       nextPlaceableProperties.description = nextDescription;
@@ -2073,6 +2218,8 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       nextDescription === undefined
         ? currentPlaceableProperties?.description === undefined
         : (currentPlaceableProperties?.description ?? "") === nextDescription;
+    const isLocalizedNameUnchanged =
+      nextLocalizedName !== undefined || currentPlaceableProperties?.localizedName === undefined;
     const isCommentsUnchanged =
       nextComments === undefined
         ? currentPlaceableProperties?.comments === undefined
@@ -2082,6 +2229,19 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       currentPlaceableProperties?.plot === nextPlaceableProperties.plot &&
       currentPlaceableProperties?.useable === nextPlaceableProperties.useable &&
       currentPlaceableProperties?.hasInventory === nextPlaceableProperties.hasInventory &&
+      currentHasAppearanceType === Object.prototype.hasOwnProperty.call(
+        nextPlaceableProperties,
+        "appearanceType"
+      ) &&
+      currentPlaceableProperties?.appearanceType === nextPlaceableProperties.appearanceType &&
+      currentHasHitPoints === Object.prototype.hasOwnProperty.call(
+        nextPlaceableProperties,
+        "hitPoints"
+      ) &&
+      currentPlaceableProperties?.hardness === nextPlaceableProperties.hardness &&
+      currentPlaceableProperties?.fortitudeSave === nextPlaceableProperties.fortitudeSave &&
+      currentPlaceableProperties?.reflexSave === nextPlaceableProperties.reflexSave &&
+      currentPlaceableProperties?.willSave === nextPlaceableProperties.willSave &&
       isScriptSlotsUnchanged &&
       isDisabledFlagsUnchanged &&
       isLockSettingsUnchanged &&
@@ -2091,6 +2251,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         currentPlaceableProperties?.inventoryItems,
         nextInventoryItems
       ) &&
+      placeableVariableTargetEntriesEqual(
+        currentPlaceableProperties?.variables,
+        nextVariables,
+      ) &&
+      isLocalizedNameUnchanged &&
       isDescriptionUnchanged &&
       isCommentsUnchanged &&
       normalizedObject.doorProperties === undefined &&
@@ -2533,7 +2698,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       )
     };
     const sourceAdvancedSettingsCandidate = currentCreatureProperties?.advancedSettings;
-    const sourceAdvancedSettings: SceneObjectCreatureAdvancedSettings = {
+    const sourceAdvancedSettings = {
       blueprintResRef: asString(
         sourceAdvancedSettingsCandidate?.blueprintResRef,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.blueprintResRef
@@ -2570,6 +2735,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         sourceAdvancedSettingsCandidate?.treasureModel,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.treasureModel
       ),
+      ...(Number.isSafeInteger(sourceAdvancedSettingsCandidate?.treasureModelRow) &&
+      Number(sourceAdvancedSettingsCandidate?.treasureModelRow) >= 0 &&
+      Number(sourceAdvancedSettingsCandidate?.treasureModelRow) <= 0xff
+        ? { treasureModelRow: Number(sourceAdvancedSettingsCandidate?.treasureModelRow) }
+        : {}),
       corpseDecayTimeSeconds: clampMin(
         asFiniteNumber(
           sourceAdvancedSettingsCandidate?.corpseDecayTimeSeconds,
@@ -2577,6 +2747,11 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         ),
         0
       ),
+      ...(Number.isSafeInteger(sourceAdvancedSettingsCandidate?.factionId) &&
+      Number(sourceAdvancedSettingsCandidate?.factionId) >= 0 &&
+      Number(sourceAdvancedSettingsCandidate?.factionId) <= 0xffff
+        ? { factionId: Number(sourceAdvancedSettingsCandidate?.factionId) }
+        : {}),
       faction: asString(sourceAdvancedSettingsCandidate?.faction, DEFAULT_CREATURE_ADVANCED_SETTINGS.faction),
       subrace: asString(sourceAdvancedSettingsCandidate?.subrace, DEFAULT_CREATURE_ADVANCED_SETTINGS.subrace),
       deity: asString(sourceAdvancedSettingsCandidate?.deity, DEFAULT_CREATURE_ADVANCED_SETTINGS.deity),
@@ -2589,10 +2764,19 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       Number.isFinite(sourceAdvancedSettingsCandidate.soundSetFile)
         ? { soundSetFile: Math.max(0, Math.min(65535, Math.trunc(sourceAdvancedSettingsCandidate.soundSetFile))) }
         : {}),
+      ...(Number.isSafeInteger(sourceAdvancedSettingsCandidate?.startingPackageId) &&
+      Number(sourceAdvancedSettingsCandidate?.startingPackageId) >= 0 &&
+      Number(sourceAdvancedSettingsCandidate?.startingPackageId) <= 0xff
+        ? { startingPackageId: Number(sourceAdvancedSettingsCandidate?.startingPackageId) }
+        : {}),
       perceptionRange: asString(
         sourceAdvancedSettingsCandidate?.perceptionRange,
         DEFAULT_CREATURE_ADVANCED_SETTINGS.perceptionRange
       ),
+      ...(Number.isSafeInteger(sourceAdvancedSettingsCandidate?.perceptionRangeId) &&
+      [8, 9, 10, 11].includes(Number(sourceAdvancedSettingsCandidate?.perceptionRangeId))
+        ? { perceptionRangeId: Number(sourceAdvancedSettingsCandidate?.perceptionRangeId) }
+        : {}),
       ...(typeof sourceAdvancedSettingsCandidate?.walkRateSource2daRow === "number" &&
       Number.isFinite(sourceAdvancedSettingsCandidate.walkRateSource2daRow)
         ? { walkRateSource2daRow: Math.trunc(sourceAdvancedSettingsCandidate.walkRateSource2daRow) }
@@ -2627,7 +2811,7 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       sourceAdvancedSettingsCandidate.animationName.trim().length > 0
         ? { animationName: sourceAdvancedSettingsCandidate.animationName.trim() }
         : {})
-    };
+    } satisfies SceneObjectCreatureAdvancedSettings;
 
     const shouldNormalizeStatistics =
       hasRawStatistics || currentCreatureProperties?.statistics !== undefined;
@@ -2971,10 +3155,24 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
               ? rawAdvancedSettings.startingPackage
               : sourceAdvancedSettings.startingPackage,
             treasureModel: asString(rawAdvancedSettings?.treasureModel, sourceAdvancedSettings.treasureModel),
+            ...(Number.isSafeInteger(rawAdvancedSettings?.treasureModelRow) &&
+            Number(rawAdvancedSettings?.treasureModelRow) >= 0 &&
+            Number(rawAdvancedSettings?.treasureModelRow) <= 0xff
+              ? { treasureModelRow: Number(rawAdvancedSettings?.treasureModelRow) }
+              : sourceAdvancedSettings.treasureModelRow !== undefined
+                ? { treasureModelRow: sourceAdvancedSettings.treasureModelRow }
+                : {}),
             corpseDecayTimeSeconds: clampMin(
               asFiniteNumber(rawAdvancedSettings?.corpseDecayTimeSeconds, sourceAdvancedSettings.corpseDecayTimeSeconds),
               0
             ),
+            ...(Number.isSafeInteger(rawAdvancedSettings?.factionId) &&
+            Number(rawAdvancedSettings?.factionId) >= 0 &&
+            Number(rawAdvancedSettings?.factionId) <= 0xffff
+              ? { factionId: Number(rawAdvancedSettings?.factionId) }
+              : sourceAdvancedSettings.factionId !== undefined
+                ? { factionId: sourceAdvancedSettings.factionId }
+                : {}),
             faction: asString(rawAdvancedSettings?.faction, sourceAdvancedSettings.faction),
             subrace: asString(rawAdvancedSettings?.subrace, sourceAdvancedSettings.subrace),
             deity: asString(rawAdvancedSettings?.deity, sourceAdvancedSettings.deity),
@@ -2989,10 +3187,24 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
               : sourceAdvancedSettings.soundSetFile !== undefined
                 ? { soundSetFile: sourceAdvancedSettings.soundSetFile }
                 : {}),
+            ...(Number.isSafeInteger(rawAdvancedSettings?.startingPackageId) &&
+            Number(rawAdvancedSettings?.startingPackageId) >= 0 &&
+            Number(rawAdvancedSettings?.startingPackageId) <= 0xff
+              ? { startingPackageId: Number(rawAdvancedSettings?.startingPackageId) }
+              : sourceAdvancedSettings.startingPackageId !== undefined
+                ? { startingPackageId: sourceAdvancedSettings.startingPackageId }
+                : {}),
             perceptionRange: asString(
               rawAdvancedSettings?.perceptionRange,
               sourceAdvancedSettings.perceptionRange
             ),
+            ...(Number.isSafeInteger(rawAdvancedSettings?.perceptionRangeId) &&
+            [8, 9, 10, 11].includes(Number(rawAdvancedSettings?.perceptionRangeId))
+              ? { perceptionRangeId: Number(rawAdvancedSettings?.perceptionRangeId) }
+              : Number.isSafeInteger(sourceAdvancedSettings.perceptionRangeId) &&
+                  [8, 9, 10, 11].includes(Number(sourceAdvancedSettings.perceptionRangeId))
+                ? { perceptionRangeId: Number(sourceAdvancedSettings.perceptionRangeId) }
+                : {}),
             ...(typeof rawAdvancedSettings?.walkRateSource2daRow === "number" &&
             Number.isFinite(rawAdvancedSettings.walkRateSource2daRow)
               ? { walkRateSource2daRow: Math.trunc(rawAdvancedSettings.walkRateSource2daRow) }
@@ -3140,13 +3352,54 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
     const nextRace = asString(rawCreatureProperties?.race, sourceRace);
     const sourceAppearance = asString(currentCreatureProperties?.appearance, normalizedObject.resRef);
     const nextAppearance = asString(rawCreatureProperties?.appearance, sourceAppearance);
+    const currentHasCreatureAppearanceType = Object.prototype.hasOwnProperty.call(
+      currentCreatureProperties ?? {},
+      "appearanceType",
+    );
+    const rawCreatureAppearanceType = rawCreatureProperties?.appearanceType;
+    const nextCreatureAppearanceType = Number.isSafeInteger(rawCreatureAppearanceType) &&
+      Number(rawCreatureAppearanceType) >= 0 && Number(rawCreatureAppearanceType) <= 0xffff
+        ? Number(rawCreatureAppearanceType)
+        : Number.isSafeInteger(currentCreatureProperties?.appearanceType) &&
+            Number(currentCreatureProperties?.appearanceType) >= 0 &&
+            Number(currentCreatureProperties?.appearanceType) <= 0xffff
+          ? Number(currentCreatureProperties?.appearanceType)
+          : undefined;
     const sourcePhenotype = asString(
       currentCreatureProperties?.phenotype,
       DEFAULT_CREATURE_PROPERTIES.phenotype
     );
     const nextPhenotype = asString(rawCreatureProperties?.phenotype, sourcePhenotype);
+    const currentHasCreaturePhenotypeId = Object.prototype.hasOwnProperty.call(
+      currentCreatureProperties ?? {},
+      "phenotypeId",
+    );
+    const rawCreaturePhenotypeId = rawCreatureProperties?.phenotypeId;
+    const nextCreaturePhenotypeId = Number.isSafeInteger(rawCreaturePhenotypeId) &&
+      Number(rawCreaturePhenotypeId) >= 0 && Number(rawCreaturePhenotypeId) <= 0xff &&
+      Number(rawCreaturePhenotypeId) !== 1
+        ? Number(rawCreaturePhenotypeId)
+        : Number.isSafeInteger(currentCreatureProperties?.phenotypeId) &&
+            Number(currentCreatureProperties?.phenotypeId) >= 0 &&
+            Number(currentCreatureProperties?.phenotypeId) <= 0xff &&
+            Number(currentCreatureProperties?.phenotypeId) !== 1
+          ? Number(currentCreatureProperties?.phenotypeId)
+          : undefined;
     const sourceGender = asString(currentCreatureProperties?.gender, DEFAULT_CREATURE_PROPERTIES.gender);
     const nextGender = asString(rawCreatureProperties?.gender, sourceGender);
+    const currentHasCreatureGenderId = Object.prototype.hasOwnProperty.call(
+      currentCreatureProperties ?? {},
+      "genderId",
+    );
+    const rawCreatureGenderId = rawCreatureProperties?.genderId;
+    const nextCreatureGenderId = Number.isSafeInteger(rawCreatureGenderId) &&
+      Number(rawCreatureGenderId) >= 0 && Number(rawCreatureGenderId) <= 0xff
+        ? Number(rawCreatureGenderId)
+        : Number.isSafeInteger(currentCreatureProperties?.genderId) &&
+            Number(currentCreatureProperties?.genderId) >= 0 &&
+            Number(currentCreatureProperties?.genderId) <= 0xff
+          ? Number(currentCreatureProperties?.genderId)
+          : undefined;
     const sourceDescription = asString(
       currentCreatureProperties?.description,
       DEFAULT_CREATURE_PROPERTIES.description
@@ -3165,6 +3418,19 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       DEFAULT_CREATURE_PROPERTIES.portraitResRef
     );
     const nextPortraitResRef = asString(rawCreatureProperties?.portraitResRef, sourcePortraitResRef);
+    const currentHasCreaturePortraitId = Object.prototype.hasOwnProperty.call(
+      currentCreatureProperties ?? {},
+      "portraitId",
+    );
+    const rawCreaturePortraitId = rawCreatureProperties?.portraitId;
+    const nextCreaturePortraitId = Number.isSafeInteger(rawCreaturePortraitId) &&
+      Number(rawCreaturePortraitId) >= 0 && Number(rawCreaturePortraitId) <= 0xffff
+        ? Number(rawCreaturePortraitId)
+        : Number.isSafeInteger(currentCreatureProperties?.portraitId) &&
+            Number(currentCreatureProperties?.portraitId) >= 0 &&
+            Number(currentCreatureProperties?.portraitId) <= 0xffff
+          ? Number(currentCreatureProperties?.portraitId)
+          : undefined;
     const sourceConversation = asString(
       currentCreatureProperties?.conversation,
       DEFAULT_CREATURE_PROPERTIES.conversation
@@ -3200,6 +3466,18 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       conversation: nextConversation,
       noInterrupt: nextNoInterrupt
     };
+    if (nextCreatureAppearanceType !== undefined) {
+      nextCreatureProperties.appearanceType = nextCreatureAppearanceType;
+    }
+    if (nextCreaturePhenotypeId !== undefined) {
+      nextCreatureProperties.phenotypeId = nextCreaturePhenotypeId;
+    }
+    if (nextCreatureGenderId !== undefined) {
+      nextCreatureProperties.genderId = nextCreatureGenderId;
+    }
+    if (nextCreaturePortraitId !== undefined) {
+      nextCreatureProperties.portraitId = nextCreaturePortraitId;
+    }
     if (nextStatistics !== undefined) {
       nextCreatureProperties.statistics = nextStatistics;
     }
@@ -3268,12 +3546,32 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
       (currentCreatureProperties?.lastName ?? "") === nextLastName &&
       (currentCreatureProperties?.race ?? DEFAULT_CREATURE_PROPERTIES.race) === nextRace &&
       (currentCreatureProperties?.appearance ?? normalizedObject.resRef) === nextAppearance &&
+      currentHasCreatureAppearanceType === Object.prototype.hasOwnProperty.call(
+        nextCreatureProperties,
+        "appearanceType",
+      ) &&
+      currentCreatureProperties?.appearanceType === nextCreatureProperties.appearanceType &&
       (currentCreatureProperties?.phenotype ?? DEFAULT_CREATURE_PROPERTIES.phenotype) === nextPhenotype &&
+      currentHasCreaturePhenotypeId === Object.prototype.hasOwnProperty.call(
+        nextCreatureProperties,
+        "phenotypeId",
+      ) &&
+      currentCreatureProperties?.phenotypeId === nextCreatureProperties.phenotypeId &&
       (currentCreatureProperties?.gender ?? DEFAULT_CREATURE_PROPERTIES.gender) === nextGender &&
+      currentHasCreatureGenderId === Object.prototype.hasOwnProperty.call(
+        nextCreatureProperties,
+        "genderId",
+      ) &&
+      currentCreatureProperties?.genderId === nextCreatureProperties.genderId &&
       (currentCreatureProperties?.description ?? "") === nextDescription &&
       (currentCreatureProperties?.challengeRating ?? DEFAULT_CREATURE_PROPERTIES.challengeRating) ===
         nextChallengeRating &&
       (currentCreatureProperties?.portraitResRef ?? "") === nextPortraitResRef &&
+      currentHasCreaturePortraitId === Object.prototype.hasOwnProperty.call(
+        nextCreatureProperties,
+        "portraitId",
+      ) &&
+      currentCreatureProperties?.portraitId === nextCreatureProperties.portraitId &&
       (currentCreatureProperties?.conversation ?? "") === nextConversation &&
       (currentCreatureProperties?.noInterrupt ?? DEFAULT_CREATURE_PROPERTIES.noInterrupt) ===
         nextNoInterrupt &&
@@ -3550,6 +3848,9 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
         | undefined) ?? undefined;
     const shouldNormalizeDoorTransition = rawDoorTransition !== undefined;
     const nextDoorTransitionExtra = normalizePreservePrimitiveMap(rawDoorTransition?.extra);
+    const nextDoorTransitionStorage = isAreaDoorTransitionStorage(rawDoorTransition?.storage)
+      ? cloneAreaDoorTransitionStorage(rawDoorTransition.storage)
+      : undefined;
     const nextDoorTransition: SceneObjectDoorTransitionPayload | undefined = shouldNormalizeDoorTransition
       ? {
           linkedTarget: asString(rawDoorTransition?.linkedTarget, ""),
@@ -3558,6 +3859,9 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           linkedWaypoint: asString(rawDoorTransition?.linkedWaypoint, ""),
           loadScreen: asString(rawDoorTransition?.loadScreen, ""),
           flags: normalizeDoorTransitionFlags(rawDoorTransition?.flags),
+          ...(nextDoorTransitionStorage
+            ? { storage: nextDoorTransitionStorage }
+            : {}),
           ...(Object.keys(nextDoorTransitionExtra).length > 0
             ? { extra: nextDoorTransitionExtra }
             : {})
@@ -3593,6 +3897,10 @@ export function normalizeSceneObjectMetadata(object: SceneObject): SceneObject {
           currentDoorTransition?.linkedWaypoint === nextDoorTransition.linkedWaypoint &&
           currentDoorTransition?.loadScreen === nextDoorTransition.loadScreen &&
           areDoorTransitionFlagsEqual(currentDoorTransition?.flags ?? {}, nextDoorTransition.flags) &&
+          areDoorTransitionStorageValuesEqual(
+            currentDoorTransition?.storage,
+            nextDoorTransition.storage,
+          ) &&
           arePrimitiveMapsEqual(currentDoorTransition?.extra ?? {}, nextDoorTransition.extra ?? {});
 
     if (
@@ -3832,6 +4140,7 @@ export function createNewSceneObject(
   y: number,
   sequence: number
 ): SceneObject {
+  const constructionDefaults = getAreaObjectConstructionDefaults(kind);
   const index = String(sequence).padStart(3, "0");
   const baseResRefByKind: Record<SceneObjectKind, string> = {
     placeables: "plc_a01",
@@ -3842,7 +4151,7 @@ export function createNewSceneObject(
     sounds: "as_amb_forest",
     stores: "store_general",
     triggers: "trg_generic",
-    waypoints: "wp_generic"
+    waypoints: "nw_waypoint001"
   };
 
   const key = kind.slice(0, 3);
@@ -3850,8 +4159,9 @@ export function createNewSceneObject(
     id: `${key}_${index}`,
     kind,
     name: `${kind.toUpperCase()}_${index}`,
-    resRef: baseResRefByKind[kind],
-    tag: `${kind.toUpperCase()}_${index}`,
+    resRef: constructionDefaults?.resRef ?? baseResRefByKind[kind],
+    tag: constructionDefaults?.tag ?? `${kind.toUpperCase()}_${index}`,
+    ...(constructionDefaults ? { source: constructionDefaults.source } : {}),
     isStatic: kind === "placeables",
     x,
     y,
@@ -3866,5 +4176,112 @@ export function createNewSceneObject(
       roll: 0,
       yaw: 0
     }
+  });
+}
+
+export function createNewDoorHookSceneObject(
+  scene: AreaScene,
+  x: number,
+  y: number,
+  sequence: number,
+): SceneObject | undefined {
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    return undefined;
+  }
+  const editing = scene.auroraAreaEditing;
+  const profile = AREA_DOOR_CONSTRUCTION_PROFILE;
+  const hook = profile.hook;
+  if (
+    !editing ||
+    editing.state.tilesetResRef !== hook.tilesetResRef ||
+    editing.definition.tilesetResRef !== hook.tilesetResRef ||
+    editing.state.tilesetFingerprint !== hook.tilesetSha256 ||
+    editing.definition.fingerprint !== hook.tilesetSha256 ||
+    editing.state.width !== scene.width ||
+    editing.state.height !== scene.height
+  ) {
+    return undefined;
+  }
+
+  const row = Math.floor(y);
+  const col = Math.floor(x);
+  if (row < 0 || col < 0 || row >= editing.state.height || col >= editing.state.width) {
+    return undefined;
+  }
+  const retainedTile = editing.state.tiles.find(
+    (candidate) => candidate.row === row && candidate.col === col,
+  );
+  if (
+    !retainedTile ||
+    retainedTile.tileId !== hook.tileId ||
+    retainedTile.orientation !== hook.tileOrientation ||
+    retainedTile.height !== hook.tileHeight
+  ) {
+    return undefined;
+  }
+
+  const definitionTile = editing.definition.tiles.find((candidate) => candidate.tileId === hook.tileId);
+  if (
+    !definitionTile ||
+    definitionTile.orientation !== hook.tileOrientation
+  ) {
+    return undefined;
+  }
+  const definitionHooks = definitionTile.doorHooks;
+  if (!definitionHooks || definitionHooks.length !== 1) {
+    return undefined;
+  }
+  const definitionHook = definitionHooks[0]!;
+  if (
+    definitionHook.index !== hook.hookIndex ||
+    definitionHook.type !== hook.hookType ||
+    definitionHook.x !== hook.localX ||
+    definitionHook.y !== hook.localY ||
+    definitionHook.z !== hook.localZ ||
+    definitionHook.orientationDegrees !== hook.orientationDegrees
+  ) {
+    return undefined;
+  }
+
+  const worldX = col + 0.5 + hook.localX / 10;
+  const worldY = row + 0.5 + hook.localY / 10;
+  const worldZ = hook.localZ / 10;
+  const isOccupied = scene.objects.some((object) => {
+    if (object.kind !== "doors") return false;
+    const existingHook = object.source?.doorHook;
+    return (
+      existingHook?.profileId === hook.profileId &&
+      existingHook.row === row &&
+      existingHook.col === col &&
+      existingHook.hookIndex === hook.hookIndex
+    ) || (
+      object.x === worldX && object.y === worldY && object.z === worldZ
+    );
+  });
+  if (isOccupied) return undefined;
+
+  const constructionDefaults = getAreaDoorConstructionDefaults(row, col)!;
+  const index = String(sequence).padStart(3, "0");
+  return normalizeSceneObjectMetadata({
+    id: `doo_${index}`,
+    kind: "doors",
+    name: "Barn 1 Door",
+    resRef: constructionDefaults.resRef,
+    tag: constructionDefaults.tag,
+    source: constructionDefaults.source,
+    isStatic: false,
+    x: worldX,
+    y: worldY,
+    z: worldZ,
+    bearing: hook.sceneBearing,
+    visualTransform: {
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      offsetZ: 0,
+      pitch: 0,
+      roll: 0,
+      yaw: 0,
+    },
   });
 }

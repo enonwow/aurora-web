@@ -1,7 +1,7 @@
 import type { SceneObject, SceneObjectVfxPreservePayload } from "../contracts";
 import { summarizeAuroraVfxDiagnosticGroups } from "../../scene/domain/auroraVfxPayload";
+import { resolveAuroraVfxClaimState } from "../../scene/domain/auroraVfxClaimState";
 import {
-  buildVfxPayloadFromPlaceablePreview,
   buildVfxPayloadFromRenderPayload
 } from "../../placeables/application/placeableVfxPreservePayload";
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
@@ -27,21 +27,7 @@ interface PlaceablesModeRightPanelProps {
 function resolveSceneObjectPreviewVfxPayload(
   object: SceneObject | null
 ): SceneObjectVfxPreservePayload | null {
-  if (!object || object.kind !== "placeables") {
-    return null;
-  }
-  if (object.vfxPayload) {
-    return object.vfxPayload;
-  }
-  const templateId = object.id.startsWith("preview:")
-    ? object.id.slice("preview:".length)
-    : object.id;
-  return buildVfxPayloadFromPlaceablePreview({
-    templateId,
-    resref: object.resRef,
-    name: object.name ?? object.tag,
-    kind: "placeables"
-  }) ?? null;
+  return object?.kind === "placeables" ? (object.vfxPayload ?? null) : null;
 }
 
 function resolveVfxDiagnosticSummary(
@@ -60,6 +46,14 @@ function resolveVfxDiagnosticSummary(
     }`,
     title: diagnosticCodes.join(", ")
   };
+}
+
+function resolveVfxContractStatus(payload: SceneObjectVfxPreservePayload): string {
+  const { rendererEligibility, retailParityStatus } = resolveAuroraVfxClaimState(
+    payload.auroraPayload,
+    payload.canonicalStatus
+  );
+  return `${rendererEligibility} / retail ${retailParityStatus}`;
 }
 
 function readMetadataString(
@@ -230,7 +224,7 @@ export function PlaceablesModeRightPanel({
         <article className="sidebar-section workspace-sidebar-minimal" aria-label="placeables mode inspector">
           <h2>Placeables Mode</h2>
           <p>
-            Status: <strong>{pendingVfxPayload.canonicalStatus} (asset loading)</strong>
+            Status: <strong>{resolveVfxContractStatus(pendingVfxPayload)} (asset loading)</strong>
           </p>
           <p>Type: vfx / subtype: vfx</p>
           <p>
@@ -273,11 +267,13 @@ export function PlaceablesModeRightPanel({
   const render = activePayload.placeable.render;
   const renderPackage = activePayload.renderPackage;
   const textureCount = Array.isArray(renderPackage?.textureUrls) ? renderPackage.textureUrls.length : 0;
-  const vfxPayload = buildVfxPayloadFromRenderPayload(activePayload);
+  const vfxPayload = render.isVfx
+    ? buildVfxPayloadFromRenderPayload(activePayload)
+    : undefined;
   const statusLabel = vfxPayload
     ? vfxPayload.extra.visiblePreview === false
-      ? `${vfxPayload.canonicalStatus} (source only)`
-      : `${vfxPayload.canonicalStatus} (asset ${renderPackage?.status ?? "none"})`
+      ? `${resolveVfxContractStatus(vfxPayload)} (source only)`
+      : `${resolveVfxContractStatus(vfxPayload)} (asset ${renderPackage?.status ?? "none"})`
     : (renderPackage?.status ?? "none");
   const modelUrlLabel = vfxPayload
     ? "not rendered for VFX"

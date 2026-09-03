@@ -16,6 +16,11 @@ import {
 } from "../application/layoutPreferencesFacade";
 import type { WorkspaceTopbarActionStateFacade } from "../application/workspaceTopbarActionStateFacade";
 import type { WorkspaceModeId } from "../workspaceModes";
+import type {
+  ClientAssetCacheDiagnosticSink,
+  ClientAssetCachePort,
+} from "../../shared/application/clientAssetCachePort";
+import { ClientAssetCacheControl } from "./ClientAssetCacheControl";
 
 interface WorkspaceTopbarProps {
   isAuthenticated: boolean;
@@ -28,11 +33,14 @@ interface WorkspaceTopbarProps {
   onLayoutThemeChange: (theme: LayoutThemeId) => void;
   workspaceOptions: WorkspaceOptionSettings;
   onWorkspaceOptionsChange: (patch: Partial<WorkspaceOptionSettings>) => void;
+  clientAssetCachePort?: ClientAssetCachePort;
+  onClientAssetCacheDiagnostic?: ClientAssetCacheDiagnosticSink;
   onAction: (actionKey: ToolbarActionKey) => void;
   showDebugPanel: boolean;
   onToggleDebug: () => void;
   isViewportFullscreen?: boolean;
   onToggleViewportFullscreen?: () => void;
+  onOpenRuntimeSettings?: () => void;
   onSignOut: () => void;
 }
 
@@ -156,11 +164,14 @@ export function WorkspaceTopbar({
   onLayoutThemeChange,
   workspaceOptions,
   onWorkspaceOptionsChange,
+  clientAssetCachePort,
+  onClientAssetCacheDiagnostic,
   onAction,
   showDebugPanel,
   onToggleDebug,
   isViewportFullscreen = false,
   onToggleViewportFullscreen,
+  onOpenRuntimeSettings,
   onSignOut
 }: WorkspaceTopbarProps) {
   const isAreasMode = workspaceModeId === undefined || workspaceModeId === "areas_mode";
@@ -783,6 +794,15 @@ export function WorkspaceTopbar({
             >
               Options
             </button>
+            {role === "admin" && onOpenRuntimeSettings ? (
+              <button
+                className="topbar-btn"
+                type="button"
+                onClick={onOpenRuntimeSettings}
+              >
+                Server paths
+              </button>
+            ) : null}
             <button className="topbar-btn" type="button" onClick={onSignOut}>
               Sign out
             </button>
@@ -1073,6 +1093,20 @@ export function WorkspaceTopbar({
                   </div>
                 </details>
               </>
+            ) : null}
+
+            {clientAssetCachePort ? (
+              <details className="topbar-options-section" open role="group" aria-label="Asset cache">
+                <summary className="topbar-options-summary">
+                  <span>Asset cache</span>
+                </summary>
+                <div className="topbar-options-content">
+                  <ClientAssetCacheControl
+                    port={clientAssetCachePort}
+                    onDiagnostic={onClientAssetCacheDiagnostic}
+                  />
+                </div>
+              </details>
             ) : null}
 
           </article>

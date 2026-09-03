@@ -9,6 +9,27 @@ import type {
 } from "../../areas/contracts";
 import type { AreaApiPort } from "../../areas/ports/areaApiPort";
 import { mapBackendAreaToScene } from "../../areas/application/areaSceneMapper";
+import type { AreaLifecycleFacade } from "../../areas/application/areaLifecycleFacade";
+import type { AreaCreateFacade } from "../../areas/application/areaCreateFacade";
+import type { AreaDeleteFacade } from "../../areas/application/areaDeleteFacade";
+import type { AreaRenameFacade } from "../../areas/application/areaRenameFacade";
+import {
+  resolveAreaDeleteAdmission,
+  resolveAreaResRefFromAreaId
+} from "../../areas/application/areaDeleteAdmission";
+import { resolveAreaRenameAdmission } from "../../areas/application/areaRenameAdmission";
+import type {
+  AreaDeletePreview,
+  AreaDeletePreviewCommand
+} from "../../areas/areaDeleteContracts";
+import type {
+  AreaRenamePreview,
+  AreaRenamePreviewCommand
+} from "../../areas/areaRenameContracts";
+import { resolveAreaWorkspaceDraft } from "../../areas/application/areaWorkspaceDraft";
+import type { AreaWorkspaceDraftDocument } from "../../areas/areaWorkspaceDraftContracts";
+import type { AreaDraftSessionRegistry } from "../../areas/ports/areaLifecyclePort";
+import type { AreaWorkspaceStatusEvent } from "../../areas/application/areaWorkspaceStatus";
 import {
   resolveAreaTextureAtlasReadiness,
   type AreaTextureAtlasReadiness
@@ -29,12 +50,23 @@ interface AreaSelectionPanelProps {
   userId: string;
   backendAccessToken: string | null;
   areaApiPort: AreaApiPort;
+  areaCreateFacade?: AreaCreateFacade;
+  areaDeleteFacade?: AreaDeleteFacade;
+  areaRenameFacade?: AreaRenameFacade;
+  areaLifecycleFacade?: AreaLifecycleFacade<AreaWorkspaceDraftDocument>;
+  areaDraftSessionRegistry?: AreaDraftSessionRegistry;
   tileApiPort?: TileApiPort;
   areaListClientCacheRef: { current: AreaListClientCacheEntry | null };
   hidden?: boolean;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
   creatureTemplateObjects?: readonly SceneObject[];
   objectTemplateObjects?: readonly SceneObject[];
+  onDraftCreated?: () => void;
+  canDeleteAreas?: boolean;
+  canRenameAreas?: boolean;
+  onAreaDeleted?: (areaId: string) => void;
+  onAreaRenamed?: (sourceAreaId: string, targetAreaId: string, moduleRevision: string) => void;
+  onAreaWorkspaceStatusChange?: (event: AreaWorkspaceStatusEvent) => void;
   onAreaSceneSelected: (scene: AreaScene, area: AreaApiListItem) => void;
   onAreaCanvasLoadingChange?: (loading: WorkspaceAreaCanvasLoadingState | null) => void;
   onTileProcessReadinessChange?: (
@@ -50,6 +82,22 @@ interface AreaContextMenuState {
   y: number;
 }
 
+interface AreaDeletePreviewState {
+  readonly areaId: string;
+  readonly areaName: string;
+  readonly command: AreaDeletePreviewCommand;
+  readonly preview: AreaDeletePreview;
+  readonly idempotencyKey: string;
+}
+
+interface AreaRenamePreviewState {
+  readonly areaId: string;
+  readonly areaName: string;
+  readonly command: AreaRenamePreviewCommand;
+  readonly preview: AreaRenamePreview;
+  readonly idempotencyKey: string;
+}
+
 export interface AreaListClientCacheEntry {
   accessToken: string;
   apiPort: AreaApiPort;
@@ -59,6 +107,7 @@ export interface AreaListClientCacheEntry {
 
 const AREA_LIST_CLIENT_CACHE_TTL_MS = 60_000;
 const AREA_LIST_BATCH_SIZE = 100;
+const AREA_LIST_RENDER_BATCH_SIZE = 100;
 const AREA_TERRAIN_READINESS_SAMPLE_LIMIT = 6;
 const AREA_CONTEXT_MENU_WIDTH_PX = 236;
 const AREA_CONTEXT_MENU_HEIGHT_PX = 252;
@@ -75,6 +124,51 @@ const AREA_TILE_RENDER_MATERIAL_BINDING_BLOCKER =
 const AREA_TILE_RENDER_LOADER_OUTPUT_BLOCKER = "blocked_tile_loader_output_not_proven";
 const AREA_TILE_MODEL_GEOMETRY_LOADER_BLOCKER =
   "blocked_tile_model_geometry_loader_missing";
+
+function createAreaDraftOpenIdempotencyKey(): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId
+    ? `area-draft-open:${randomId}`
+    : `area-draft-open:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+function createAreaDeleteOpaqueId(prefix: string): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId
+    ? `${prefix}-${randomId}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createAreaRenameOpaqueId(prefix: string): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId
+    ? `${prefix}-${randomId}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatAreaDeleteFailure(error: Readonly<{
+  code: string;
+  message: string;
+  details: readonly Readonly<{ path: string; reason: string }>[];
+}>): string {
+  const details = error.details.map((entry) => `${entry.path}: ${entry.reason}`).join("; ");
+  return `${error.code}: ${error.message}${details ? ` (${details})` : ""}`;
+}
+
+function formatAreaRenameFailure(error: Readonly<{
+  code: string;
+  message: string;
+  details: readonly Readonly<{ path: string; reason: string }>[];
+}>): string {
+  const details = error.details.map((entry) => `${entry.path}: ${entry.reason}`).join("; ");
+  return `${error.code}: ${error.message}${details ? ` (${details})` : ""}`;
+}
+
+function resolveAreaDeleteWorkspaceFailureCode(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const [candidate] = error.message.split(":", 1);
+  return candidate && /^[A-Z][A-Z0-9_]*$/u.test(candidate) ? candidate : fallback;
+}
 
 type AreaTerrainReadinessStatus =
   | "blocked_missing_tile_data"
@@ -480,16 +574,28 @@ export function AreaSelectionPanel({
   userId,
   backendAccessToken,
   areaApiPort,
+  areaCreateFacade,
+  areaDeleteFacade,
+  areaRenameFacade,
+  areaLifecycleFacade,
+  areaDraftSessionRegistry,
   tileApiPort,
   areaListClientCacheRef,
   hidden = false,
   trackTelemetryEvent,
   creatureTemplateObjects,
   objectTemplateObjects,
+  onDraftCreated,
+  canDeleteAreas = false,
+  canRenameAreas = false,
+  onAreaDeleted,
+  onAreaRenamed,
+  onAreaWorkspaceStatusChange,
   onAreaSceneSelected,
   onAreaCanvasLoadingChange,
   onTileProcessReadinessChange
 }: AreaSelectionPanelProps) {
+  const openDraftIdempotencyKeysRef = useRef<Record<string, string>>({});
   const [status, setStatus] = useState<AreaPanelStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [areas, setAreas] = useState<AreaApiListItem[]>([]);
@@ -504,7 +610,20 @@ export function AreaSelectionPanel({
   const [tileProcessReadiness, setTileProcessReadiness] =
     useState<AreaTileProcessContractReadiness | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [areaRenderLimit, setAreaRenderLimit] = useState(AREA_LIST_RENDER_BATCH_SIZE);
   const [areaContextMenu, setAreaContextMenu] = useState<AreaContextMenuState | null>(null);
+  const [areaDeletePreview, setAreaDeletePreview] =
+    useState<AreaDeletePreviewState | null>(null);
+  const [areaDeleteConfirmation, setAreaDeleteConfirmation] = useState("");
+  const [isPreviewingAreaDelete, setIsPreviewingAreaDelete] = useState(false);
+  const [isDeletingArea, setIsDeletingArea] = useState(false);
+  const [areaRenameTarget, setAreaRenameTarget] = useState("");
+  const [areaRenamePreview, setAreaRenamePreview] =
+    useState<AreaRenamePreviewState | null>(null);
+  const [areaRenameSourceConfirmation, setAreaRenameSourceConfirmation] = useState("");
+  const [areaRenameTargetConfirmation, setAreaRenameTargetConfirmation] = useState("");
+  const [isPreviewingAreaRename, setIsPreviewingAreaRename] = useState(false);
+  const [isRenamingArea, setIsRenamingArea] = useState(false);
   const selectedAreaIdRef = useRef<string | null>(null);
   const areaContextMenuRef = useRef<HTMLElement | null>(null);
 
@@ -519,6 +638,12 @@ export function AreaSelectionPanel({
   const selectArea = useCallback((areaId: string | null) => {
     selectedAreaIdRef.current = areaId;
     setSelectedAreaId(areaId);
+    setAreaDeletePreview(null);
+    setAreaDeleteConfirmation("");
+    setAreaRenameTarget("");
+    setAreaRenamePreview(null);
+    setAreaRenameSourceConfirmation("");
+    setAreaRenameTargetConfirmation("");
   }, []);
 
   const loadAreas = useCallback(async (forceRefresh = false) => {
@@ -656,11 +781,481 @@ export function AreaSelectionPanel({
       );
     });
   }, [areas, searchQuery]);
+  const renderedAreas = useMemo(
+    () => visibleAreas.slice(0, areaRenderLimit),
+    [areaRenderLimit, visibleAreas]
+  );
+
+  useEffect(() => {
+    setAreaRenderLimit(AREA_LIST_RENDER_BATCH_SIZE);
+  }, [searchQuery]);
 
   const selectedArea = useMemo(
     () => visibleAreas.find((area) => area.areaId === selectedAreaId) ?? null,
     [selectedAreaId, visibleAreas]
   );
+
+  const currentAreaDeleteAdmission = areaDeletePreview
+    ? resolveAreaDeleteAdmission({
+        moduleId: areaDeletePreview.command.moduleId,
+        areaResRef: areaDeletePreview.command.areaResRef,
+        moduleRevision: areaDeletePreview.command.expectedModuleRevision,
+        preview: areaDeletePreview.preview,
+        nowUnixMs: Date.now()
+      })
+    : null;
+
+  const currentAreaRenameAdmission = areaRenamePreview
+    ? resolveAreaRenameAdmission({
+        moduleId: areaRenamePreview.command.moduleId,
+        areaResRef: areaRenamePreview.command.areaResRef,
+        targetAreaResRef: areaRenamePreview.command.targetAreaResRef,
+        moduleRevision: areaRenamePreview.command.expectedModuleRevision,
+        preview: areaRenamePreview.preview,
+        nowUnixMs: Date.now()
+      })
+    : null;
+
+  const previewAreaRename = useCallback(async () => {
+    if (
+      !selectedArea ||
+      !backendAccessToken ||
+      !canRenameAreas ||
+      !areaCreateFacade ||
+      !areaRenameFacade
+    ) {
+      return;
+    }
+    const areaResRef = resolveAreaResRefFromAreaId(selectedArea.areaId);
+    const targetAreaResRef = areaRenameTarget;
+    if (!areaResRef) {
+      setErrorMessage("AREA_RENAME_INVALID: selected Area ID has no exact source ResRef.");
+      return;
+    }
+    if (!/^[a-z0-9_]{1,16}$/u.test(targetAreaResRef) || targetAreaResRef === areaResRef) {
+      setErrorMessage(
+        "AREA_RENAME_INVALID: target ResRef must be 1-16 lowercase letters, digits, or underscores and differ from the source."
+      );
+      return;
+    }
+    setIsPreviewingAreaRename(true);
+    setAreaRenamePreview(null);
+    setAreaRenameSourceConfirmation("");
+    setAreaRenameTargetConfirmation("");
+    setErrorMessage(null);
+    onAreaWorkspaceStatusChange?.({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "materialization",
+      state: "validating",
+      sceneId: selectedArea.areaId,
+      occurredAtUnixMs: Date.now(),
+      action: "rename"
+    });
+    try {
+      const profiles = await areaCreateFacade.queries.getProfiles(backendAccessToken);
+      if (!profiles.ok) throw new Error(formatAreaRenameFailure(profiles.error));
+      const command: AreaRenamePreviewCommand = {
+        schemaVersion: "area-rename-preview-command.v1",
+        moduleId: profiles.value.moduleId,
+        areaResRef,
+        targetAreaResRef,
+        expectedModuleRevision: profiles.value.moduleRevision,
+        clientCommandId: createAreaRenameOpaqueId("area-rename-preview")
+      };
+      const result = await areaRenameFacade.commands.preview({
+        accessToken: backendAccessToken,
+        moduleId: command.moduleId,
+        areaResRef,
+        command
+      });
+      if (!result.ok) throw new Error(formatAreaRenameFailure(result.error));
+      const admission = resolveAreaRenameAdmission({
+        moduleId: command.moduleId,
+        areaResRef,
+        targetAreaResRef,
+        moduleRevision: command.expectedModuleRevision,
+        preview: result.value,
+        nowUnixMs: Date.now()
+      });
+      if (!admission.allowed && admission.reason === "identity_mismatch") {
+        throw new Error("AREA_RENAME_RESPONSE_INVALID: preview identity differs from the request.");
+      }
+      setAreaRenamePreview({
+        areaId: selectedArea.areaId,
+        areaName: selectedArea.name,
+        command,
+        preview: result.value,
+        idempotencyKey: createAreaRenameOpaqueId("area-rename")
+      });
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: admission.allowed ? "ready" : "blocked",
+        sceneId: selectedArea.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "rename",
+        ...(admission.allowed ? {} : { code: admission.reason })
+      });
+      trackTelemetryEvent("ui.workspace.areas.rename_previewed", {
+        userId,
+        areaId: selectedArea.areaId,
+        targetAreaResRef,
+        blockerCount: result.value.blockerCount,
+        warningCount: result.value.warningCount
+      });
+    } catch (error) {
+      const code = resolveAreaDeleteWorkspaceFailureCode(error, "AREA_RENAME_PREVIEW_FAILED");
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: code.includes("CONFLICT") ? "conflict" : "failed",
+        sceneId: selectedArea.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "rename",
+        code
+      });
+      setErrorMessage(error instanceof Error ? error.message : "Area Rename preview failed.");
+    } finally {
+      setIsPreviewingAreaRename(false);
+    }
+  }, [
+    areaCreateFacade,
+    areaRenameFacade,
+    areaRenameTarget,
+    backendAccessToken,
+    canRenameAreas,
+    onAreaWorkspaceStatusChange,
+    selectedArea,
+    trackTelemetryEvent,
+    userId
+  ]);
+
+  const renameAreaAtomically = useCallback(async () => {
+    if (!areaRenamePreview || !areaRenameFacade || !backendAccessToken) return;
+    const admission = resolveAreaRenameAdmission({
+      moduleId: areaRenamePreview.command.moduleId,
+      areaResRef: areaRenamePreview.command.areaResRef,
+      targetAreaResRef: areaRenamePreview.command.targetAreaResRef,
+      moduleRevision: areaRenamePreview.command.expectedModuleRevision,
+      preview: areaRenamePreview.preview,
+      nowUnixMs: Date.now()
+    });
+    if (
+      !admission.allowed ||
+      areaRenameSourceConfirmation !== areaRenamePreview.command.areaResRef ||
+      areaRenameTargetConfirmation !== areaRenamePreview.command.targetAreaResRef
+    ) {
+      setErrorMessage(
+        "Area Rename confirmation is stale, blocked, or does not match both source and target ResRefs."
+      );
+      return;
+    }
+    setIsRenamingArea(true);
+    setErrorMessage(null);
+    onAreaWorkspaceStatusChange?.({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "materialization",
+      state: "materializing",
+      sceneId: areaRenamePreview.areaId,
+      occurredAtUnixMs: Date.now(),
+      action: "rename"
+    });
+    try {
+      const command = {
+        schemaVersion: "area-rename-command.v1" as const,
+        moduleId: areaRenamePreview.command.moduleId,
+        areaResRef: areaRenamePreview.command.areaResRef,
+        targetAreaResRef: areaRenamePreview.command.targetAreaResRef,
+        expectedModuleRevision: areaRenamePreview.command.expectedModuleRevision,
+        preview: { sha256: areaRenamePreview.preview.previewSha256 },
+        confirmation: {
+          sourceAreaResRef: areaRenamePreview.command.areaResRef,
+          targetAreaResRef: areaRenamePreview.command.targetAreaResRef,
+          policy: "block_on_references" as const
+        },
+        clientCommandId: createAreaRenameOpaqueId("area-rename-command")
+      };
+      const result = await areaRenameFacade.commands.rename({
+        accessToken: backendAccessToken,
+        moduleId: command.moduleId,
+        areaResRef: command.areaResRef,
+        idempotencyKey: areaRenamePreview.idempotencyKey,
+        command
+      });
+      if (!result.ok) throw new Error(formatAreaRenameFailure(result.error));
+      const sourceAreaId = areaRenamePreview.areaId;
+      const targetAreaId = `area_${command.targetAreaResRef}`;
+      setAreas((current) => current.map((entry) =>
+        entry.areaId === sourceAreaId
+          ? { ...entry, areaId: targetAreaId, updatedAt: result.value.renamedAt }
+          : entry
+      ));
+      areaListClientCacheRef.current = null;
+      if (areaDraftSessionRegistry) {
+        for (const [sceneId, session] of Object.entries(areaDraftSessionRegistry.current)) {
+          if (
+            sceneId === sourceAreaId ||
+            session.productionSource?.provenance.areaId === sourceAreaId
+          ) {
+            delete areaDraftSessionRegistry.current[sceneId];
+          }
+        }
+      }
+      selectArea(targetAreaId);
+      onAreaRenamed?.(sourceAreaId, targetAreaId, result.value.newModuleRevision);
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: "verified",
+        sceneId: sourceAreaId,
+        occurredAtUnixMs: Date.now(),
+        action: "rename"
+      });
+      trackTelemetryEvent("ui.workspace.areas.renamed", {
+        userId,
+        sourceAreaId,
+        targetAreaId,
+        moduleRevision: result.value.newModuleRevision,
+        idempotencyStatus: result.metadata.idempotencyStatus
+      });
+    } catch (error) {
+      const code = resolveAreaDeleteWorkspaceFailureCode(error, "AREA_RENAME_FAILED");
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: code.includes("CONFLICT") ? "conflict" : "recovery",
+        sceneId: areaRenamePreview.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "rename",
+        code
+      });
+      setErrorMessage(error instanceof Error ? error.message : "Atomic Area Rename failed.");
+    } finally {
+      setIsRenamingArea(false);
+    }
+  }, [
+    areaDraftSessionRegistry,
+    areaListClientCacheRef,
+    areaRenamePreview,
+    areaRenameFacade,
+    areaRenameSourceConfirmation,
+    areaRenameTargetConfirmation,
+    backendAccessToken,
+    onAreaRenamed,
+    onAreaWorkspaceStatusChange,
+    selectArea,
+    trackTelemetryEvent,
+    userId
+  ]);
+
+  const previewAreaDelete = useCallback(async () => {
+    if (
+      !selectedArea ||
+      !backendAccessToken ||
+      !canDeleteAreas ||
+      !areaCreateFacade ||
+      !areaDeleteFacade
+    ) {
+      return;
+    }
+    const areaResRef = resolveAreaResRefFromAreaId(selectedArea.areaId);
+    if (!areaResRef) {
+      setErrorMessage("AREA_DELETE_INVALID: selected Area ID has no exact source ResRef.");
+      return;
+    }
+    setIsPreviewingAreaDelete(true);
+    setAreaDeletePreview(null);
+    setAreaDeleteConfirmation("");
+    setErrorMessage(null);
+    onAreaWorkspaceStatusChange?.({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "materialization",
+      state: "validating",
+      sceneId: selectedArea.areaId,
+      occurredAtUnixMs: Date.now(),
+      action: "delete",
+    });
+    try {
+      const profiles = await areaCreateFacade.queries.getProfiles(backendAccessToken);
+      if (!profiles.ok) throw new Error(formatAreaDeleteFailure(profiles.error));
+      const command: AreaDeletePreviewCommand = {
+        schemaVersion: "area-delete-preview-command.v1",
+        moduleId: profiles.value.moduleId,
+        areaResRef,
+        expectedModuleRevision: profiles.value.moduleRevision,
+        clientCommandId: createAreaDeleteOpaqueId("area-delete-preview")
+      };
+      const result = await areaDeleteFacade.commands.preview({
+        accessToken: backendAccessToken,
+        moduleId: command.moduleId,
+        areaResRef,
+        command
+      });
+      if (!result.ok) throw new Error(formatAreaDeleteFailure(result.error));
+      const admission = resolveAreaDeleteAdmission({
+        moduleId: command.moduleId,
+        areaResRef,
+        moduleRevision: command.expectedModuleRevision,
+        preview: result.value,
+        nowUnixMs: Date.now()
+      });
+      if (!admission.allowed && admission.reason === "identity_mismatch") {
+        throw new Error("AREA_DELETE_RESPONSE_INVALID: preview identity differs from the request.");
+      }
+      setAreaDeletePreview({
+        areaId: selectedArea.areaId,
+        areaName: selectedArea.name,
+        command,
+        preview: result.value,
+        idempotencyKey: createAreaDeleteOpaqueId("area-delete")
+      });
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: admission.allowed ? "ready" : "blocked",
+        sceneId: selectedArea.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "delete",
+        ...(admission.allowed ? {} : { code: admission.reason }),
+      });
+      trackTelemetryEvent("ui.workspace.areas.delete_previewed", {
+        userId,
+        areaId: selectedArea.areaId,
+        blockerCount: result.value.blockerCount,
+        warningCount: result.value.warningCount
+      });
+    } catch (error) {
+      const code = resolveAreaDeleteWorkspaceFailureCode(
+        error,
+        "AREA_DELETE_PREVIEW_FAILED"
+      );
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: code.includes("CONFLICT") ? "conflict" : "failed",
+        sceneId: selectedArea.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "delete",
+        code,
+      });
+      setErrorMessage(
+        error instanceof Error ? error.message : "Area Delete preview failed."
+      );
+    } finally {
+      setIsPreviewingAreaDelete(false);
+    }
+  }, [
+    areaCreateFacade,
+    areaDeleteFacade,
+    backendAccessToken,
+    canDeleteAreas,
+    onAreaWorkspaceStatusChange,
+    selectedArea,
+    trackTelemetryEvent,
+    userId
+  ]);
+
+  const deleteAreaAtomically = useCallback(async () => {
+    if (!areaDeletePreview || !areaDeleteFacade || !backendAccessToken) return;
+    const admission = resolveAreaDeleteAdmission({
+      moduleId: areaDeletePreview.command.moduleId,
+      areaResRef: areaDeletePreview.command.areaResRef,
+      moduleRevision: areaDeletePreview.command.expectedModuleRevision,
+      preview: areaDeletePreview.preview,
+      nowUnixMs: Date.now()
+    });
+    if (!admission.allowed || areaDeleteConfirmation !== areaDeletePreview.command.areaResRef) {
+      setErrorMessage("Area Delete confirmation is stale, blocked, or does not match the ResRef.");
+      return;
+    }
+    setIsDeletingArea(true);
+    setErrorMessage(null);
+    onAreaWorkspaceStatusChange?.({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "materialization",
+      state: "materializing",
+      sceneId: areaDeletePreview.areaId,
+      occurredAtUnixMs: Date.now(),
+      action: "delete",
+    });
+    try {
+      const command = {
+        schemaVersion: "area-delete-command.v1" as const,
+        moduleId: areaDeletePreview.command.moduleId,
+        areaResRef: areaDeletePreview.command.areaResRef,
+        expectedModuleRevision: areaDeletePreview.command.expectedModuleRevision,
+        preview: { sha256: areaDeletePreview.preview.previewSha256 },
+        confirmation: {
+          areaResRef: areaDeletePreview.command.areaResRef,
+          policy: "block_on_references" as const
+        },
+        clientCommandId: createAreaDeleteOpaqueId("area-delete-command")
+      };
+      const result = await areaDeleteFacade.commands.delete({
+        accessToken: backendAccessToken,
+        moduleId: command.moduleId,
+        areaResRef: command.areaResRef,
+        idempotencyKey: areaDeletePreview.idempotencyKey,
+        command
+      });
+      if (!result.ok) throw new Error(formatAreaDeleteFailure(result.error));
+      const deletedAreaId = areaDeletePreview.areaId;
+      setAreas((current) => current.filter((entry) => entry.areaId !== deletedAreaId));
+      areaListClientCacheRef.current = null;
+      if (areaDraftSessionRegistry) {
+        for (const [sceneId, session] of Object.entries(areaDraftSessionRegistry.current)) {
+          if (
+            sceneId === deletedAreaId ||
+            session.productionSource?.provenance.areaId === deletedAreaId
+          ) {
+            delete areaDraftSessionRegistry.current[sceneId];
+          }
+        }
+      }
+      selectArea(null);
+      onAreaDeleted?.(deletedAreaId);
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: "verified",
+        sceneId: deletedAreaId,
+        occurredAtUnixMs: Date.now(),
+        action: "delete",
+      });
+      trackTelemetryEvent("ui.workspace.areas.deleted", {
+        userId,
+        areaId: deletedAreaId,
+        moduleRevision: result.value.newModuleRevision,
+        idempotencyStatus: result.metadata.idempotencyStatus
+      });
+    } catch (error) {
+      const code = resolveAreaDeleteWorkspaceFailureCode(error, "AREA_DELETE_FAILED");
+      onAreaWorkspaceStatusChange?.({
+        schemaVersion: "area-workspace-status.v1",
+        lane: "materialization",
+        state: code.includes("CONFLICT") ? "conflict" : "recovery",
+        sceneId: areaDeletePreview.areaId,
+        occurredAtUnixMs: Date.now(),
+        action: "delete",
+        code,
+      });
+      setErrorMessage(error instanceof Error ? error.message : "Atomic Area Delete failed.");
+    } finally {
+      setIsDeletingArea(false);
+    }
+  }, [
+    areaDeleteConfirmation,
+    areaDeleteFacade,
+    areaDeletePreview,
+    areaDraftSessionRegistry,
+    areaListClientCacheRef,
+    backendAccessToken,
+    onAreaDeleted,
+    onAreaWorkspaceStatusChange,
+    selectArea,
+    trackTelemetryEvent,
+    userId
+  ]);
 
   const contextMenuArea = useMemo(
     () =>
@@ -770,18 +1365,47 @@ export function AreaSelectionPanel({
       )
     );
     try {
-      const processed = await areaApiPort.processArea(backendAccessToken, areaToOpen.areaId, {
-        bypassCache: false
+      if (!areaLifecycleFacade || !areaDraftSessionRegistry) {
+        throw new Error("Local Area draft storage is unavailable.");
+      }
+      const idempotencyKey =
+        openDraftIdempotencyKeysRef.current[areaToOpen.areaId] ??
+        createAreaDraftOpenIdempotencyKey();
+      openDraftIdempotencyKeysRef.current[areaToOpen.areaId] = idempotencyKey;
+      const copyResult = await areaLifecycleFacade.commands.openProductionAreaAsDraft({
+        schemaVersion: "area-draft-open.v1",
+        areaId: areaToOpen.areaId,
+        draftTitle: `${areaToOpen.name} - Working Copy`,
+        idempotencyKey
       });
-      const detail = processed.area;
+      if (!copyResult.ok) {
+        throw new Error(copyResult.error.message);
+      }
+      const resolvedDraft = resolveAreaWorkspaceDraft(copyResult.value.draft.payload);
+      if (!resolvedDraft || !resolvedDraft.productionSource) {
+        throw new Error("The copy-on-open response contains an invalid production Area snapshot.");
+      }
+      delete openDraftIdempotencyKeysRef.current[areaToOpen.areaId];
+      const detail = resolvedDraft.productionSource.sourceArea;
       const nextTerrainReadiness = resolveAreaTerrainReadiness(detail);
       setTerrainReadiness(nextTerrainReadiness);
       let nextTileProcessStatus = "not_checked";
       publishTileProcessReadiness(null);
-      const scene = mapBackendAreaToScene(detail, undefined, {
-        creatureTemplateObjects,
-        objectTemplateObjects
-      });
+      const scene =
+        creatureTemplateObjects?.length || objectTemplateObjects?.length
+          ? mapBackendAreaToScene(detail, undefined, {
+              creatureTemplateObjects,
+              objectTemplateObjects
+            })
+          : resolvedDraft.scene;
+      areaDraftSessionRegistry.current[scene.sceneId] = {
+        draftId: copyResult.value.draftId,
+        revision: copyResult.value.revision,
+        normalizedSha256: copyResult.value.normalizedSha256,
+        persistedSceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+        productionSource: resolvedDraft.productionSource
+      };
+      onDraftCreated?.();
       onAreaSceneSelected(scene, areaToOpen);
       if (tileApiPort) {
         nextTileProcessStatus = "background_requested";
@@ -796,7 +1420,10 @@ export function AreaSelectionPanel({
         tileModelResolvedCount: nextTerrainReadiness.modelResolvedCount,
         tileModelMissingCount: nextTerrainReadiness.modelMissingCount,
         tileModelSourceSummary: formatModelSourceCounts(nextTerrainReadiness.modelSourceCounts),
-        tileProcessContractStatus: nextTileProcessStatus
+        tileProcessContractStatus: nextTileProcessStatus,
+        draftId: copyResult.value.draftId,
+        draftRevision: copyResult.value.revision,
+        idempotencyStatus: copyResult.metadata.idempotencyStatus
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to open area.";
@@ -814,10 +1441,12 @@ export function AreaSelectionPanel({
       onAreaCanvasLoadingChange?.(null);
     }
   }, [
-    areaApiPort,
+    areaDraftSessionRegistry,
+    areaLifecycleFacade,
     backendAccessToken,
     creatureTemplateObjects,
     objectTemplateObjects,
+    onDraftCreated,
     onAreaSceneSelected,
     onAreaCanvasLoadingChange,
     publishTileProcessReadiness,
@@ -1155,7 +1784,7 @@ export function AreaSelectionPanel({
 
       {backendAccessToken && visibleAreas.length > 0 ? (
         <ul className="scene-object-list" aria-label="area list">
-          {visibleAreas.map((area) => {
+          {renderedAreas.map((area) => {
             const isSelected = area.areaId === selectedAreaId;
             return (
               <li key={area.areaId} className="area-selection-list-item">
@@ -1218,6 +1847,21 @@ export function AreaSelectionPanel({
         </ul>
       ) : null}
 
+      {backendAccessToken && renderedAreas.length < visibleAreas.length ? (
+        <button
+          type="button"
+          className="topbar-btn area-selection-show-more"
+          aria-label="Show more areas"
+          onClick={() =>
+            setAreaRenderLimit((current) =>
+              Math.min(visibleAreas.length, current + AREA_LIST_RENDER_BATCH_SIZE)
+            )
+          }
+        >
+          Show more ({renderedAreas.length}/{visibleAreas.length})
+        </button>
+      ) : null}
+
       {backendAccessToken && status === "ready" && visibleAreas.length === 0 ? (
         <p className="scene-objects-empty" role="status">
           {hasAreaSearchQuery ? "No areas match the current filter." : "No areas available."}
@@ -1240,6 +1884,26 @@ export function AreaSelectionPanel({
       ) : null}
 
       <div className="area-selection-actions area-selection-diagnostics-actions" aria-label="area diagnostics actions">
+        {canRenameAreas ? (
+          <label>
+            New Area ResRef
+            <input
+              aria-label="New Area ResRef"
+              value={areaRenameTarget}
+              autoComplete="off"
+              maxLength={16}
+              pattern="[a-z0-9_]{1,16}"
+              disabled={!backendAccessToken || !selectedArea || isRenamingArea}
+              onChange={(event) => {
+                setAreaRenameTarget(event.target.value.trim().toLowerCase());
+                setAreaRenamePreview(null);
+                setAreaRenameSourceConfirmation("");
+                setAreaRenameTargetConfirmation("");
+              }}
+            />
+          </label>
+        ) : null}
+
         <button
           type="button"
           className="topbar-btn"
@@ -1279,7 +1943,177 @@ export function AreaSelectionPanel({
         >
           {status === "loading" ? "Refresh..." : "Refresh"}
         </button>
+
+        {canDeleteAreas ? (
+          <button
+            type="button"
+            className="topbar-btn"
+            aria-label="Preview Area Delete"
+            onClick={() => void previewAreaDelete()}
+            disabled={
+              !backendAccessToken ||
+              !selectedArea ||
+              !areaCreateFacade ||
+              !areaDeleteFacade ||
+              isPreviewingAreaDelete ||
+              isDeletingArea ||
+              isRenamingArea
+            }
+          >
+            {isPreviewingAreaDelete ? "Previewing Delete..." : "Preview Delete"}
+          </button>
+        ) : null}
+
+        {canRenameAreas ? (
+          <button
+            type="button"
+            className="topbar-btn"
+            aria-label="Preview Area Rename"
+            onClick={() => void previewAreaRename()}
+            disabled={
+              !backendAccessToken ||
+              !selectedArea ||
+              !areaCreateFacade ||
+              !areaRenameFacade ||
+              !/^[a-z0-9_]{1,16}$/u.test(areaRenameTarget) ||
+              areaRenameTarget === resolveAreaResRefFromAreaId(selectedArea.areaId) ||
+              isPreviewingAreaRename ||
+              isRenamingArea ||
+              isDeletingArea
+            }
+          >
+            {isPreviewingAreaRename ? "Previewing Rename..." : "Preview Rename"}
+          </button>
+        ) : null}
       </div>
+
+      {errorMessage && status !== "error" ? (
+        <p className="scene-objects-empty" role="alert">{errorMessage}</p>
+      ) : null}
+
+      {areaRenamePreview ? (
+        <section
+          className="scene-object-detail-panel area-rename-preview-panel"
+          aria-label="Area Rename impact preview"
+          data-area-rename-preview-sha256={areaRenamePreview.preview.previewSha256}
+          data-area-rename-admission={
+            currentAreaRenameAdmission?.allowed
+              ? "allowed"
+              : currentAreaRenameAdmission?.reason ?? "unavailable"
+          }
+        >
+          <h3>Rename {areaRenamePreview.areaName}</h3>
+          <p>
+            {areaRenamePreview.command.areaResRef} → {areaRenamePreview.command.targetAreaResRef}
+          </p>
+          <p>
+            Impact scan found {areaRenamePreview.preview.blockerCount} blocker(s) and{" "}
+            {areaRenamePreview.preview.warningCount} warning(s).
+          </p>
+          {areaRenamePreview.preview.findings.length > 0 ? (
+            <ul aria-label="Area Rename findings">
+              {areaRenamePreview.preview.findings.map((finding, index) => (
+                <li key={`${finding.code}:${finding.resourceKey}:${index}`}>
+                  {finding.severity}: {finding.code} — {finding.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p>
+            This atomically moves the exact ARE/GIT/GIC triplet, rewrites the ARE root
+            identity and verified IFO membership/entry fields, then requires persisted
+            readback. Static references block the operation.
+          </p>
+          <label>
+            Confirm source Area ResRef
+            <input
+              aria-label="Confirm source Area ResRef"
+              value={areaRenameSourceConfirmation}
+              autoComplete="off"
+              onChange={(event) => setAreaRenameSourceConfirmation(event.target.value)}
+            />
+          </label>
+          <label>
+            Confirm target Area ResRef
+            <input
+              aria-label="Confirm target Area ResRef"
+              value={areaRenameTargetConfirmation}
+              autoComplete="off"
+              onChange={(event) => setAreaRenameTargetConfirmation(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void renameAreaAtomically()}
+            disabled={
+              isRenamingArea ||
+              currentAreaRenameAdmission?.allowed !== true ||
+              areaRenameSourceConfirmation !== areaRenamePreview.command.areaResRef ||
+              areaRenameTargetConfirmation !== areaRenamePreview.command.targetAreaResRef
+            }
+          >
+            Rename Area atomically
+          </button>
+          {currentAreaRenameAdmission?.allowed === false ? (
+            <p role="status">Rename blocked: {currentAreaRenameAdmission.reason}.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {areaDeletePreview ? (
+        <section
+          className="scene-object-detail-panel area-delete-preview-panel"
+          aria-label="Area Delete impact preview"
+          data-area-delete-preview-sha256={areaDeletePreview.preview.previewSha256}
+          data-area-delete-admission={
+            currentAreaDeleteAdmission?.allowed
+              ? "allowed"
+              : currentAreaDeleteAdmission?.reason ?? "unavailable"
+          }
+        >
+          <h3>Delete {areaDeletePreview.areaName}</h3>
+          <p>
+            Impact scan found {areaDeletePreview.preview.blockerCount} blocker(s) and{" "}
+            {areaDeletePreview.preview.warningCount} warning(s).
+          </p>
+          {areaDeletePreview.preview.findings.length > 0 ? (
+            <ul aria-label="Area Delete findings">
+              {areaDeletePreview.preview.findings.map((finding, index) => (
+                <li key={`${finding.code}:${finding.resourceKey}:${index}`}>
+                  {finding.severity}: {finding.code} — {finding.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p>
+            This removes the exact ARE/GIT/GIC triplet and one module membership. It does
+            not cascade or repair references.
+          </p>
+          <label>
+            Confirm Area ResRef
+            <input
+              aria-label="Confirm Area ResRef"
+              value={areaDeleteConfirmation}
+              autoComplete="off"
+              onChange={(event) => setAreaDeleteConfirmation(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void deleteAreaAtomically()}
+            disabled={
+              isDeletingArea ||
+              currentAreaDeleteAdmission?.allowed !== true ||
+              areaDeleteConfirmation !== areaDeletePreview.command.areaResRef
+            }
+          >
+            Delete Area atomically
+          </button>
+          {currentAreaDeleteAdmission?.allowed === false ? (
+            <p role="status">Delete blocked: {currentAreaDeleteAdmission.reason}.</p>
+          ) : null}
+        </section>
+      ) : null}
 
       {isCheckingTerrainReadiness ? (
         <p className="scene-objects-empty" role="status">Checking terrain readiness...</p>

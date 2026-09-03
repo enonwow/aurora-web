@@ -6,11 +6,104 @@ import type {
 } from "../contracts";
 import type {
   SceneObjectItemArmorParts,
+  SceneObjectItemBlueprintEquipmentEntry,
+  SceneObjectItemBlueprintInventoryEntry,
+  SceneObjectItemInventoryTargetEntry,
   SceneObjectItemMaterialColors,
-  SceneObjectItemPropertyEntry
+  SceneObjectItemPropertyEntry,
+  SceneObjectItemVariableTargetEntry,
+  SceneObjectPlaceableProperties,
+  ScenePlaceableBodyBagCatalog,
+  ScenePlaceableFactionCatalog,
 } from "../../scene/contracts";
 import { CREATURE_SKILL_LABELS } from "../../creatures/application/creatureSkillLabels";
+import { PLACEABLE_ANIMATION_STATE_TOKENS } from "../../scene/domain/placeableAnimationState";
+import { CREATURE_ALIGNMENT_LABELS } from "../../scene/domain/creatureAlignment";
+import { canEditExistingCreatureInventory } from "../../scene/domain/creatureInventory";
+import {
+  canEditExistingCreatureEquipment,
+  readCreatureEquipmentTargetEntries
+} from "../../scene/domain/creatureEquipment";
+import { canEditExistingCreatureTag } from "./creatureTagProvenance";
+import { canEditExistingCreatureConversation } from "./creatureConversationProvenance";
+import { canEditExistingCreatureInterruptable } from "./creatureInterruptableProvenance";
+import { canEditExistingCreatureAdvancedFlag } from "./creatureAdvancedFlagsProvenance";
+import {
+  canEditExistingCreatureBodyBag,
+  canEditExistingCreatureDecayTime,
+} from "../../scene/domain/creatureDeathRemains";
+import { canEditExistingCreatureAppearance } from "./creatureAppearanceProvenance";
+import { canEditExistingCreatureGender } from "./creatureGenderProvenance";
+import { canEditExistingCreaturePhenotype } from "../../scene/domain/creaturePhenotype";
+import { canEditExistingCreatureFaction } from "./creatureFactionProvenance";
+import { canEditExistingCreatureTemplateResRef } from "./creatureTemplateResRefProvenance";
+import { canEditExistingCreatureSpecialIdentityString } from "./creatureSpecialIdentityStringsProvenance";
+import {
+  canEditExistingCreatureNameLocalizedString,
+} from "./creatureLocalizedStringProvenance";
 import { normalizeSoundGuidePositioning } from "../soundGuideDomain";
+import { resolvePreservedPlaceableAppearanceDword } from "./placeableBasicIdentityPreservation";
+import { readExistingPlaceableHitPointState } from "./placeableHitPointProvenance";
+import {
+  materializeExistingDoorTransitionStorage,
+  readExistingDoorTransitionStorageProvenance,
+} from "./doorTransitionStorageProvenance";
+import {
+  areaSoundIntervalVariationStoragesEqual,
+  cloneAreaSoundIntervalVariationStorage,
+  readAreaSoundIntervalVariationStorage,
+  soundIntervalVariationPresentationFromStorage,
+  soundIntervalVariationStorageFromPresentation,
+} from "../../areas/domain/areaSoundIntervalVariationStorage";
+import {
+  areaSoundVolumeStoragesEqual,
+  cloneAreaSoundVolumeStorage,
+  readAreaSoundVolumeStorage,
+  soundVolumePresentationFromStorage,
+  soundVolumeStorageFromPresentation,
+} from "../../areas/domain/areaSoundVolumeStorage";
+import {
+  areaSoundSchedulePresentationFromStorage,
+  areaSoundScheduleStorageFromPresentation,
+  areaSoundScheduleStoragesEqual,
+  cloneAreaSoundScheduleStorage,
+  readAreaSoundScheduleStorage,
+} from "../../areas/domain/areaSoundScheduleStorage";
+import {
+  areaSoundActiveStoragesEqual,
+  cloneAreaSoundActiveStorage,
+  readAreaSoundActiveStorage,
+  soundActivePresentationFromStorage,
+  soundActiveStorageFromPresentation,
+} from "../../areas/domain/areaSoundActiveStorage";
+import {
+  areaSoundPlayOrderStoragesEqual,
+  cloneAreaSoundPlayOrderStorage,
+  readAreaSoundPlayOrderStorage,
+  soundPlayOrderPresentationFromStorage,
+  soundPlayOrderStorageFromPresentation,
+} from "../../areas/domain/areaSoundPlayOrderStorage";
+import {
+  areaSoundPlayStylePresentationFromStorage,
+  areaSoundPlayStyleStorageFromPresentation,
+  areaSoundPlayStyleStoragesEqual,
+  cloneAreaSoundPlayStyleStorage,
+  readAreaSoundPlayStyleStorage,
+} from "../../areas/domain/areaSoundPlayStyleStorage";
+import {
+  areaSoundPlaybackPresentationFromStorage,
+  areaSoundPlaybackStorageFromPresentation,
+  areaSoundPlaybackStoragesEqual,
+  cloneAreaSoundPlaybackStorage,
+  readAreaSoundPlaybackStorage,
+} from "../../areas/domain/areaSoundPlaybackStorage";
+import {
+  areaSoundProfilePresentationFromStorage,
+  areaSoundProfileStorageFromPresentation,
+  areaSoundProfileStoragesEqual,
+  cloneAreaSoundProfileStorage,
+  readAreaSoundProfileStorage,
+} from "../../areas/domain/areaSoundProfileStorage";
 
 export { CREATURE_SKILL_LABELS };
 
@@ -76,7 +169,7 @@ export type ItemPropertiesTab =
   | "visual"
   | "colors"
   | "properties"
-  | "scripts"
+  | "variables"
   | "comments";
 export type PlaceableScriptSlotKey =
   | "onClick"
@@ -141,7 +234,7 @@ export const ITEM_PROPERTIES_TAB_OPTIONS: ReadonlyArray<PropertyTabOption<ItemPr
   { id: "visual", label: "Visual" },
   { id: "colors", label: "Colors" },
   { id: "properties", label: "Properties" },
-  { id: "scripts", label: "Scripts" },
+  { id: "variables", label: "Variables" },
   { id: "comments", label: "Comments" }
 ];
 
@@ -250,7 +343,7 @@ export const PLACEABLE_TRAP_TYPE_OPTIONS = [
 ];
 
 export const PLACEABLE_FACTION_OPTIONS = ["Hostile", "Commoner", "Defender", "Merchant", "Neutral"];
-export const PLACEABLE_INITIAL_STATE_OPTIONS = ["Default", "Open", "Closed", "Destroyed"];
+export const PLACEABLE_INITIAL_STATE_OPTIONS = PLACEABLE_ANIMATION_STATE_TOKENS;
 export const PLACEABLE_TREASURE_MODEL_OPTIONS = ["Default", "None", "Container", "Random"];
 export const DOOR_APPEARANCE_TYPE_OPTIONS = ["Use Generic Appearance", "Custom Appearance"];
 export const DOOR_GENERIC_APPEARANCE_OPTIONS = [
@@ -276,18 +369,7 @@ export const CREATURE_RACE_OPTIONS = [
   "Undead",
   "Vermin"
 ];
-export const CREATURE_GENDER_OPTIONS = ["None", "Male", "Female", "Both"];
-export const CREATURE_ALIGNMENT_OPTIONS = [
-  "Lawful Good",
-  "Neutral Good",
-  "Chaotic Good",
-  "Lawful Neutral",
-  "True Neutral",
-  "Chaotic Neutral",
-  "Lawful Evil",
-  "Neutral Evil",
-  "Chaotic Evil"
-];
+export const CREATURE_ALIGNMENT_OPTIONS = [...CREATURE_ALIGNMENT_LABELS];
 export const CREATURE_MOVEMENT_RATE_OPTIONS = [
   "Default",
   "Very Slow",
@@ -461,6 +543,7 @@ export interface PlaceablePropertiesDraft {
   name: string;
   tag: string;
   resRef: string;
+  appearanceType?: number;
   isStatic: boolean;
   plot: boolean;
   useable: boolean;
@@ -474,6 +557,7 @@ export interface PlaceablePropertiesDraft {
     hasInventory: boolean;
   };
   inventoryItems: SceneObjectPlaceableInventoryItemReference[];
+  variables: NonNullable<SceneObjectPlaceableProperties["variables"]>;
   hardness: number;
   hitPoints: number;
   fortitudeSave: number;
@@ -491,6 +575,7 @@ export interface PlaceablePropertiesDraft {
   trapSettings: {
     isTrapped: boolean;
     trapType: string;
+    trapTypeRow?: number;
     detectionDc: number;
     disarmDc: number;
     oneShot: boolean;
@@ -505,11 +590,14 @@ export interface PlaceablePropertiesDraft {
   advancedSettings: {
     blueprintResRef: string;
     belongsToFaction: string;
+    factionId?: number;
     conversation: string;
     noInterrupt: boolean;
     portraitResRef: string;
+    portraitId?: number;
     initialState: string;
     treasureModel: string;
+    treasureModelRow?: number;
   };
   description: string;
   comments: string;
@@ -531,6 +619,7 @@ export interface ItemPropertiesDraft {
   name: string;
   tag: string;
   resRef: string;
+  appearanceType?: number;
   localizedName: string;
   localizedNameStrRef?: number;
   description: string;
@@ -570,6 +659,10 @@ export interface ItemPropertiesDraft {
   plot: boolean;
   cursed: boolean;
   propertyList: SceneObjectItemPropertyEntry[];
+  inventoryItems: SceneObjectItemInventoryTargetEntry[];
+  blueprintInventoryItems: SceneObjectItemBlueprintInventoryEntry[];
+  blueprintEquippedItems: SceneObjectItemBlueprintEquipmentEntry[];
+  variables: SceneObjectItemVariableTargetEntry[];
   scripts: Record<string, string>;
 }
 
@@ -592,6 +685,7 @@ export interface SoundPropertiesDraft {
   resRef: string;
   comments: string;
   soundList: string[];
+  catalogSoundResRef: string;
   selectedSoundIndex: number;
   mode: SoundPositioningMode;
   elevation: number;
@@ -689,6 +783,10 @@ export interface DoorPropertiesDraft {
   loadScreen: string;
   transitionFlags: Record<string, boolean>;
   flagsSummary: string;
+  transitionStorageEditable: boolean;
+  linkedTo: string;
+  linkedToFlags: number;
+  loadScreenId: number;
 }
 
 export interface DoorPropertiesDialogState {
@@ -719,20 +817,48 @@ export type CreatureScriptSlotKey =
   | "onUserDefined";
 
 export interface CreaturePropertiesDraft {
+  tagControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  conversationControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  appearanceControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  genderControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  phenotypeControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  factionControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  templateResRefControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  subraceControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  deityControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  noInterruptControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  disarmableControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  plotControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  immortalControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  lootableControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  noPermanentDeathControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  bodyBagControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  decayTimeControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  firstNameControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  lastNameControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  descriptionControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  inventoryControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
+  equippedItemsControlState: "ACTIVE_NOW" | "PRESERVE_ONLY";
   firstName: string;
   lastName: string;
   tag: string;
   race: string;
   appearance: string;
+  appearanceType?: number;
   phenotype: string;
+  phenotypeId?: number;
   gender: string;
+  genderId?: number;
   description: string;
   challengeRating: number;
   portraitResRef: string;
+  portraitId?: number;
   conversation: string;
   noInterrupt: boolean;
   alignment: string;
   classEntries: Array<{ classId?: number; className: string; level: number }>;
+  classIdentityDestructiveSpellClearConfirmed: boolean;
+  classSlotResizeDestructiveRemovalConfirmed: boolean;
   templateEntries: Array<{ templateId?: number }>;
   defaultPackage: string;
   strength: number;
@@ -795,7 +921,8 @@ export interface CreaturePropertiesDraft {
     rightShoulder: string;
     leftShoulder: string;
   };
-  skills: Array<{ skill: string; rank: number }>;
+  skills: Array<{ skillId?: number; skill: string; rank: number }>;
+  skillListTruncationConfirmed: boolean;
   scriptSlots: Record<CreatureScriptSlotKey, string>;
   advancedSettings: {
     blueprintResRef: string;
@@ -808,8 +935,11 @@ export interface CreaturePropertiesDraft {
     immortal: boolean;
     bodyBag: boolean;
     startingPackage: boolean;
+    startingPackageId?: number;
     treasureModel: string;
-    corpseDecayTimeSeconds: number;
+    treasureModelRow?: number;
+    corpseDecayTimeSeconds?: number;
+    factionId?: number;
     faction: string;
     subrace: string;
     deity: string;
@@ -817,6 +947,8 @@ export interface CreaturePropertiesDraft {
     soundSet: string;
     soundSetFile?: number;
     perceptionRange: string;
+    perceptionRangeId?: number;
+    walkRateId?: number;
     walkRateSource2daRow?: number;
     walkRateSource2daName?: string;
     walkRateSpeed2daRow?: number;
@@ -850,6 +982,7 @@ export interface CreaturePropertiesDraft {
     | { name: string; type: "string"; value: string }
   >;
   inventoryItems: Array<{
+    sourceIndex?: number;
     resRef?: string;
     randomResRef?: string;
     randomList?: string;
@@ -867,6 +1000,7 @@ export interface CreaturePropertiesDraft {
     infinite?: boolean;
   }>;
   equippedItems: Array<{
+    sourceIndex?: number;
     resRef?: string;
     randomResRef?: string;
     randomList?: string;
@@ -1101,6 +1235,14 @@ export function buildItemPropertiesDraft(source: SceneObject): ItemPropertiesDra
     plot: item?.plot ?? false,
     cursed: item?.cursed ?? false,
     propertyList: item?.propertyList ? item.propertyList.map(cloneItemPropertyEntry) : [],
+    inventoryItems: item?.inventoryItems ? item.inventoryItems.map((entry) => ({ ...entry })) : [],
+    blueprintInventoryItems: item?.blueprintInventoryItems
+      ? item.blueprintInventoryItems.map((entry) => ({ ...entry }))
+      : [],
+    blueprintEquippedItems: item?.blueprintEquippedItems
+      ? item.blueprintEquippedItems.map((entry) => ({ ...entry }))
+      : [],
+    variables: item?.variables ? item.variables.map((entry) => ({ ...entry })) : [],
     scripts: item?.scripts ? { ...item.scripts } : {}
   };
 }
@@ -1169,12 +1311,13 @@ export function arePlaceableLockSettingsEqual(
 }
 
 export function arePlaceableTrapSettingsEqual(
-  left: PlaceablePropertiesDraft["trapSettings"],
-  right: PlaceablePropertiesDraft["trapSettings"]
+  left: Partial<PlaceablePropertiesDraft["trapSettings"]>,
+  right: Partial<PlaceablePropertiesDraft["trapSettings"]>
 ): boolean {
   return (
     left.isTrapped === right.isTrapped &&
     left.trapType === right.trapType &&
+    left.trapTypeRow === right.trapTypeRow &&
     left.detectionDc === right.detectionDc &&
     left.disarmDc === right.disarmDc &&
     left.oneShot === right.oneShot &&
@@ -1189,17 +1332,20 @@ export function arePlaceableTrapSettingsEqual(
 }
 
 export function arePlaceableAdvancedSettingsEqual(
-  left: PlaceablePropertiesDraft["advancedSettings"],
-  right: PlaceablePropertiesDraft["advancedSettings"]
+  left: Partial<PlaceablePropertiesDraft["advancedSettings"]>,
+  right: Partial<PlaceablePropertiesDraft["advancedSettings"]>
 ): boolean {
   return (
     left.blueprintResRef === right.blueprintResRef &&
     left.belongsToFaction === right.belongsToFaction &&
+    left.factionId === right.factionId &&
     left.conversation === right.conversation &&
     left.noInterrupt === right.noInterrupt &&
     left.portraitResRef === right.portraitResRef &&
+    left.portraitId === right.portraitId &&
     left.initialState === right.initialState &&
-    left.treasureModel === right.treasureModel
+    left.treasureModel === right.treasureModel &&
+    left.treasureModelRow === right.treasureModelRow
   );
 }
 
@@ -1210,9 +1356,12 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
   const trapSettings = placeableProperties?.trapSettings;
   const advancedSettings = placeableProperties?.advancedSettings;
   return {
-    name: resolveSceneObjectName(source),
+    name: placeableProperties?.localizedName ?? resolveSceneObjectName(source),
     tag: source.tag,
     resRef: source.resRef,
+    appearanceType:
+      placeableProperties?.appearanceType ??
+      resolvePreservedPlaceableAppearanceDword(source.source),
     isStatic: source.isStatic ?? true,
     plot: placeableProperties?.plot ?? false,
     useable: placeableProperties?.useable ?? false,
@@ -1231,11 +1380,17 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
           embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
         }))
       : [],
-    hardness: 5,
-    hitPoints: 15,
-    fortitudeSave: 16,
-    reflexSave: 0,
-    willSave: 0,
+    variables: placeableProperties?.variables
+      ? placeableProperties.variables.map((entry) => ({ ...entry }))
+      : [],
+    hardness: placeableProperties?.hardness ?? 5,
+    hitPoints:
+      placeableProperties?.hitPoints ??
+      readExistingPlaceableHitPointState(source.source)?.hitPoints ??
+      15,
+    fortitudeSave: placeableProperties?.fortitudeSave ?? 16,
+    reflexSave: placeableProperties?.reflexSave ?? 0,
+    willSave: placeableProperties?.willSave ?? 0,
     lockSettings: {
       locked: lockSettings?.locked ?? false,
       canRelock: lockSettings?.canRelock ?? false,
@@ -1248,6 +1403,9 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
     trapSettings: {
       isTrapped: trapSettings?.isTrapped ?? false,
       trapType: trapSettings?.trapType ?? PLACEABLE_TRAP_TYPE_OPTIONS[0]!,
+      ...(trapSettings?.trapTypeRow !== undefined
+        ? { trapTypeRow: trapSettings.trapTypeRow }
+        : {}),
       detectionDc: trapSettings?.detectionDc ?? 0,
       disarmDc: trapSettings?.disarmDc ?? 15,
       oneShot: trapSettings?.oneShot ?? true,
@@ -1262,11 +1420,20 @@ export function buildPlaceablePropertiesDraft(source: SceneObject): PlaceablePro
     advancedSettings: {
       blueprintResRef: advancedSettings?.blueprintResRef ?? source.resRef,
       belongsToFaction: advancedSettings?.belongsToFaction ?? PLACEABLE_FACTION_OPTIONS[0]!,
+      ...(advancedSettings?.factionId === undefined
+        ? {}
+        : { factionId: advancedSettings.factionId }),
       conversation: advancedSettings?.conversation ?? "",
       noInterrupt: advancedSettings?.noInterrupt ?? false,
       portraitResRef: advancedSettings?.portraitResRef ?? "",
+      ...(advancedSettings?.portraitId === undefined
+        ? {}
+        : { portraitId: advancedSettings.portraitId }),
       initialState: advancedSettings?.initialState ?? PLACEABLE_INITIAL_STATE_OPTIONS[0]!,
-      treasureModel: advancedSettings?.treasureModel ?? PLACEABLE_TREASURE_MODEL_OPTIONS[0]!
+      treasureModel: advancedSettings?.treasureModel ?? PLACEABLE_TREASURE_MODEL_OPTIONS[0]!,
+      ...(advancedSettings?.treasureModelRow === undefined
+        ? {}
+        : { treasureModelRow: advancedSettings.treasureModelRow })
     },
     description: placeableProperties?.description ?? "",
     comments: placeableProperties?.comments ?? ""
@@ -1367,11 +1534,50 @@ export function resolveDistanceAttenuation(
 
 export function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesDraft {
   const positioning = normalizeSoundGuidePositioning(source.soundPositioning);
-  const normalizedCutoffDistance = Math.max(0, positioning.cutoffDistance);
   const preserve = source.soundPositioning?.preserve;
   const commentsValue = preserve?.extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY];
-  const soundList = resolveSoundPlaybackList(source);
+  const exactProfile = readAreaSoundProfileStorage(source.soundProfile);
+  const exactProfilePresentation = exactProfile
+    ? areaSoundProfilePresentationFromStorage(exactProfile)
+    : undefined;
+  const normalizedCutoffDistance = exactProfilePresentation?.cutoffDistance
+    ?? Math.max(0, positioning.cutoffDistance);
+  const exactPlayback = readAreaSoundPlaybackStorage(source.soundPlayback);
+  const exactPlaybackPresentation = exactPlayback
+    ? areaSoundPlaybackPresentationFromStorage(exactPlayback)
+    : undefined;
+  const soundList = exactProfilePresentation
+    ? [...exactProfilePresentation.sounds]
+    : exactPlaybackPresentation
+    ? [...exactPlaybackPresentation.sounds]
+    : resolveSoundPlaybackList(source);
   const extra = preserve?.extra ?? {};
+  const exactIntervalVariation = readAreaSoundIntervalVariationStorage(
+    source.soundIntervalVariation,
+  );
+  const exactPresentation = exactIntervalVariation
+    ? soundIntervalVariationPresentationFromStorage(exactIntervalVariation)
+    : undefined;
+  const exactVolume = readAreaSoundVolumeStorage(source.soundVolume);
+  const exactVolumePresentation = exactVolume
+    ? soundVolumePresentationFromStorage(exactVolume)
+    : undefined;
+  const exactSchedule = readAreaSoundScheduleStorage(source.soundSchedule);
+  const exactSchedulePresentation = exactSchedule
+    ? areaSoundSchedulePresentationFromStorage(exactSchedule)
+    : undefined;
+  const exactActive = readAreaSoundActiveStorage(source.soundActive);
+  const exactActivePresentation = exactActive
+    ? soundActivePresentationFromStorage(exactActive)
+    : undefined;
+  const exactPlayOrder = readAreaSoundPlayOrderStorage(source.soundPlayOrder);
+  const exactPlayOrderPresentation = exactPlayOrder
+    ? soundPlayOrderPresentationFromStorage(exactPlayOrder)
+    : undefined;
+  const exactPlayStyle = readAreaSoundPlayStyleStorage(source.soundPlayStyle);
+  const exactPlayStylePresentation = exactPlayStyle
+    ? areaSoundPlayStylePresentationFromStorage(exactPlayStyle)
+    : undefined;
   const toReadonlyMetadataValue = (value: unknown): string =>
     typeof value === "string" || typeof value === "number" || typeof value === "boolean"
       ? String(value)
@@ -1382,28 +1588,56 @@ export function buildSoundPropertiesDraft(source: SceneObject): SoundPropertiesD
     resRef: source.resRef,
     comments: typeof commentsValue === "string" ? commentsValue : "",
     soundList,
+    catalogSoundResRef: "",
     selectedSoundIndex: soundList.length > 0 ? 0 : -1,
-    mode: positioning.mode,
-    elevation: positioning.elevation,
-    maxVolumeDistance: deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance),
+    mode: exactProfilePresentation?.mode ?? positioning.mode,
+    elevation: exactProfilePresentation?.elevation ?? positioning.elevation,
+    maxVolumeDistance: exactProfilePresentation?.maxVolumeDistance
+      ?? deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance),
     cutoffDistance: normalizedCutoffDistance,
-    randomRangeWestEast: positioning.randomRangeWestEast,
-    randomRangeNorthSouth: positioning.randomRangeNorthSouth,
-    active: preserve?.active ?? SOUND_PRESERVE_DEFAULTS.active,
-    whenToPlay: preserve?.whenToPlay ?? SOUND_PRESERVE_DEFAULTS.whenToPlay,
-    dayNight: preserve?.dayNight ?? SOUND_PRESERVE_DEFAULTS.dayNight,
+    randomRangeWestEast: exactProfilePresentation?.randomRangeWestEast
+      ?? positioning.randomRangeWestEast,
+    randomRangeNorthSouth: exactProfilePresentation?.randomRangeNorthSouth
+      ?? positioning.randomRangeNorthSouth,
+    active: exactActivePresentation?.active
+      ?? preserve?.active
+      ?? SOUND_PRESERVE_DEFAULTS.active,
+    whenToPlay: exactSchedulePresentation?.whenToPlay
+      ?? preserve?.whenToPlay
+      ?? SOUND_PRESERVE_DEFAULTS.whenToPlay,
+    dayNight: exactSchedulePresentation?.dayNight
+      ?? preserve?.dayNight
+      ?? SOUND_PRESERVE_DEFAULTS.dayNight,
     hoursStart: preserve?.hoursStart ?? SOUND_PRESERVE_DEFAULTS.hoursStart,
     hoursEnd: preserve?.hoursEnd ?? SOUND_PRESERVE_DEFAULTS.hoursEnd,
-    playStyle: preserve?.playStyle ?? SOUND_PRESERVE_DEFAULTS.playStyle,
-    playOrder: preserve?.playOrder ?? SOUND_PRESERVE_DEFAULTS.playOrder,
+    playStyle: exactProfilePresentation?.playStyle
+      ?? exactPlaybackPresentation?.playStyle
+      ?? exactPlayStylePresentation?.playStyle
+      ?? preserve?.playStyle
+      ?? SOUND_PRESERVE_DEFAULTS.playStyle,
+    playOrder: exactPlayOrderPresentation?.playOrder
+      ?? preserve?.playOrder
+      ?? SOUND_PRESERVE_DEFAULTS.playOrder,
     timeWindow: preserve?.timeWindow ?? SOUND_PRESERVE_DEFAULTS.timeWindow,
-    hourMask: preserve?.hourMask ?? SOUND_PRESERVE_DEFAULTS.hourMask,
-    intervalMs: preserve?.intervalMs ?? SOUND_PRESERVE_DEFAULTS.intervalMs,
+    hourMask: exactSchedulePresentation?.hourMask
+      ?? preserve?.hourMask
+      ?? SOUND_PRESERVE_DEFAULTS.hourMask,
+    intervalMs: exactPresentation?.intervalMs
+      ?? preserve?.intervalMs
+      ?? SOUND_PRESERVE_DEFAULTS.intervalMs,
     intervalVariationMs:
-      preserve?.intervalVariationMs ?? SOUND_PRESERVE_DEFAULTS.intervalVariationMs,
-    volume: preserve?.volume ?? SOUND_PRESERVE_DEFAULTS.volume,
-    volumeVariation: preserve?.volumeVariation ?? SOUND_PRESERVE_DEFAULTS.volumeVariation,
-    pitchVariation: preserve?.pitchVariation ?? SOUND_PRESERVE_DEFAULTS.pitchVariation,
+      exactPresentation?.intervalVariationMs
+      ?? preserve?.intervalVariationMs
+      ?? SOUND_PRESERVE_DEFAULTS.intervalVariationMs,
+    volume: exactVolumePresentation?.volume
+      ?? preserve?.volume
+      ?? SOUND_PRESERVE_DEFAULTS.volume,
+    volumeVariation: exactPresentation?.volumeVariation
+      ?? preserve?.volumeVariation
+      ?? SOUND_PRESERVE_DEFAULTS.volumeVariation,
+    pitchVariation: exactPresentation?.pitchVariation
+      ?? preserve?.pitchVariation
+      ?? SOUND_PRESERVE_DEFAULTS.pitchVariation,
     priority: preserve?.priority ?? SOUND_PRESERVE_DEFAULTS.priority,
     backendSoundId: toReadonlyMetadataValue(extra.backendSoundId),
     backendCategory: toReadonlyMetadataValue(extra.category),
@@ -1427,7 +1661,7 @@ function formatDoorTransitionFlagsSummary(
   const entries = transition?.flags
     ? Object.entries(transition.flags).map(([key, value]) => `${key}=${value ? "1" : "0"}`)
     : [];
-  const rawLinkedToFlags = transition?.extra?.linkedToFlags;
+  const rawLinkedToFlags = transition?.storage?.linkedToFlags ?? transition?.extra?.linkedToFlags;
 
   if (typeof rawLinkedToFlags === "number" && Number.isFinite(rawLinkedToFlags)) {
     entries.push(`linkedToFlags=${Math.trunc(rawLinkedToFlags)}`);
@@ -1452,16 +1686,58 @@ export function applySoundPropertiesDraftToScene(
     return scene;
   }
 
-  const normalizedCutoffDistance = Math.max(0, draft.cutoffDistance);
-  const normalizedMaxVolumeDistance = deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance);
-  const nextSoundPositioning = normalizeSoundGuidePositioning({
-    mode: draft.mode,
-    elevation: draft.elevation,
+  const exactSourceProfile = readAreaSoundProfileStorage(
+    sourceObject.source?.soundProfileStorage,
+  );
+  const exactCurrentProfile = readAreaSoundProfileStorage(sourceObject.soundProfile);
+  const profileEditable = exactSourceProfile !== null && exactCurrentProfile !== null;
+  const exactSourcePlayback = readAreaSoundPlaybackStorage(
+    sourceObject.source?.soundPlaybackStorage,
+  );
+  const exactCurrentPlayback = readAreaSoundPlaybackStorage(sourceObject.soundPlayback);
+  const playbackEditable = !profileEditable
+    && exactSourcePlayback !== null
+    && exactCurrentPlayback !== null;
+
+  const normalizedSoundList = draft.soundList
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const nextExactProfile = profileEditable
+    ? areaSoundProfileStorageFromPresentation(exactCurrentProfile, {
+        sounds: normalizedSoundList,
+        playStyle: draft.playStyle,
+        mode: draft.mode,
+        elevation: draft.elevation,
+        cutoffDistance: draft.cutoffDistance,
+        maxVolumeDistance: draft.maxVolumeDistance,
+        randomRangeWestEast: draft.mode === "random" ? draft.randomRangeWestEast : 0,
+        randomRangeNorthSouth: draft.mode === "random" ? draft.randomRangeNorthSouth : 0,
+      }) ?? cloneAreaSoundProfileStorage(exactCurrentProfile)
+    : undefined;
+  const nextExactProfilePresentation = nextExactProfile
+    ? areaSoundProfilePresentationFromStorage(nextExactProfile)
+    : undefined;
+
+  const normalizedCutoffDistance = nextExactProfilePresentation?.cutoffDistance
+    ?? Math.max(0, draft.cutoffDistance);
+  const normalizedMaxVolumeDistance = nextExactProfilePresentation?.maxVolumeDistance
+    ?? deriveMaxVolumeDistanceFromCutoff(normalizedCutoffDistance);
+  const positioningMode = nextExactProfilePresentation?.mode ?? draft.mode;
+  const normalizedSoundPositioning = normalizeSoundGuidePositioning({
+    mode: positioningMode,
+    elevation: nextExactProfilePresentation?.elevation ?? draft.elevation,
     maxVolumeDistance: normalizedMaxVolumeDistance,
     cutoffDistance: normalizedCutoffDistance,
-    randomRangeWestEast: draft.mode === "random" ? draft.randomRangeWestEast : 0,
-    randomRangeNorthSouth: draft.mode === "random" ? draft.randomRangeNorthSouth : 0
+    randomRangeWestEast: positioningMode === "random"
+      ? nextExactProfilePresentation?.randomRangeWestEast ?? draft.randomRangeWestEast
+      : 0,
+    randomRangeNorthSouth: positioningMode === "random"
+      ? nextExactProfilePresentation?.randomRangeNorthSouth ?? draft.randomRangeNorthSouth
+      : 0
   });
+  const nextSoundPositioning = nextExactProfilePresentation
+    ? { ...normalizedSoundPositioning, elevation: nextExactProfilePresentation.elevation }
+    : normalizedSoundPositioning;
   const sourcePreserve = sourceObject.soundPositioning?.preserve;
   const nextPreserveCore = {
     timeWindow: draft.timeWindow,
@@ -1501,13 +1777,13 @@ export function applySoundPropertiesDraftToScene(
   const sourceListValue = sourcePreserve?.extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
   const sourceHasListValue = typeof sourceListValue === "string";
   const nextCommentsValue = draft.comments.trim();
-  const normalizedSoundList = draft.soundList
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
   const defaultSoundList = buildSoundListFallback(sourceObject.resRef);
-  const shouldPersistSoundList =
-    sourceHasListValue || normalizedSoundList.join("\n") !== defaultSoundList.join("\n");
-  const nextSoundListValue = shouldPersistSoundList ? normalizedSoundList.join("\n") : "";
+  const shouldPersistSoundList = !profileEditable && !playbackEditable && (
+    sourceHasListValue || normalizedSoundList.join("\n") !== defaultSoundList.join("\n")
+  );
+  const nextSoundListValue = profileEditable || playbackEditable
+    ? (sourceHasListValue ? sourceListValue : "")
+    : shouldPersistSoundList ? normalizedSoundList.join("\n") : "";
   const hasAuroraBasicPreserve =
     nextCommentsValue.length > 0 ||
     sourceHasCommentsValue ||
@@ -1525,15 +1801,84 @@ export function applySoundPropertiesDraftToScene(
             } else {
               delete extra[SOUND_PRESERVE_EXTRA_COMMENTS_KEY];
             }
-            if (nextSoundListValue.length > 0) {
-              extra[SOUND_PRESERVE_EXTRA_LIST_KEY] = nextSoundListValue;
-            } else {
-              delete extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
+            if (!profileEditable && !playbackEditable) {
+              if (nextSoundListValue.length > 0) {
+                extra[SOUND_PRESERVE_EXTRA_LIST_KEY] = nextSoundListValue;
+              } else {
+                delete extra[SOUND_PRESERVE_EXTRA_LIST_KEY];
+              }
             }
             return extra;
           })()
         }
       : undefined;
+  const exactSourceStorage = readAreaSoundIntervalVariationStorage(
+    sourceObject.source?.soundIntervalVariationStorage,
+  );
+  const exactCurrentStorage = readAreaSoundIntervalVariationStorage(
+    sourceObject.soundIntervalVariation,
+  );
+  const nextExactStorage = exactSourceStorage && exactCurrentStorage
+    ? soundIntervalVariationStorageFromPresentation({
+        intervalMs: draft.intervalMs,
+        intervalVariationMs: draft.intervalVariationMs,
+        pitchVariation: draft.pitchVariation,
+        volumeVariation: draft.volumeVariation,
+      }) ?? cloneAreaSoundIntervalVariationStorage(exactCurrentStorage)
+    : undefined;
+  const exactSourceVolume = readAreaSoundVolumeStorage(
+    sourceObject.source?.soundVolumeStorage,
+  );
+  const exactCurrentVolume = readAreaSoundVolumeStorage(sourceObject.soundVolume);
+  const nextExactVolume = exactSourceVolume && exactCurrentVolume
+    ? soundVolumeStorageFromPresentation({ volume: draft.volume })
+      ?? cloneAreaSoundVolumeStorage(exactCurrentVolume)
+    : undefined;
+  const exactSourceSchedule = readAreaSoundScheduleStorage(
+    sourceObject.source?.soundScheduleStorage,
+  );
+  const exactCurrentSchedule = readAreaSoundScheduleStorage(sourceObject.soundSchedule);
+  const nextExactSchedule = exactSourceSchedule && exactCurrentSchedule
+    ? areaSoundScheduleStorageFromPresentation({
+        whenToPlay: draft.whenToPlay,
+        dayNight: draft.dayNight,
+        hourMask: draft.hourMask,
+      }) ?? cloneAreaSoundScheduleStorage(exactCurrentSchedule)
+    : undefined;
+  const exactSourceActive = readAreaSoundActiveStorage(
+    sourceObject.source?.soundActiveStorage,
+  );
+  const exactCurrentActive = readAreaSoundActiveStorage(sourceObject.soundActive);
+  const nextExactActive = exactSourceActive && exactCurrentActive
+    ? soundActiveStorageFromPresentation({ active: draft.active })
+      ?? cloneAreaSoundActiveStorage(exactCurrentActive)
+    : undefined;
+  const exactSourcePlayOrder = readAreaSoundPlayOrderStorage(
+    sourceObject.source?.soundPlayOrderStorage,
+  );
+  const exactCurrentPlayOrder = readAreaSoundPlayOrderStorage(sourceObject.soundPlayOrder);
+  const nextExactPlayOrder = exactSourcePlayOrder && exactCurrentPlayOrder
+    ? soundPlayOrderStorageFromPresentation({ playOrder: draft.playOrder })
+      ?? cloneAreaSoundPlayOrderStorage(exactCurrentPlayOrder)
+    : undefined;
+  const exactSourcePlayStyle = readAreaSoundPlayStyleStorage(
+    sourceObject.source?.soundPlayStyleStorage,
+  );
+  const exactCurrentPlayStyle = readAreaSoundPlayStyleStorage(sourceObject.soundPlayStyle);
+  const nextExactPlayback = !profileEditable && exactSourcePlayback && exactCurrentPlayback
+    ? areaSoundPlaybackStorageFromPresentation(exactCurrentPlayback, {
+        sounds: normalizedSoundList,
+        playStyle: draft.playStyle,
+      }) ?? cloneAreaSoundPlaybackStorage(exactCurrentPlayback)
+    : undefined;
+  const nextExactPlayStyle = !profileEditable
+    && !nextExactPlayback
+    && exactSourcePlayStyle
+    && exactCurrentPlayStyle
+    ? areaSoundPlayStyleStorageFromPresentation(exactCurrentPlayStyle, {
+        playStyle: draft.playStyle,
+      }) ?? cloneAreaSoundPlayStyleStorage(exactCurrentPlayStyle)
+    : undefined;
   const nextObjects = scene.objects.map((object) =>
     object.id === objectId
       ? {
@@ -1544,7 +1889,31 @@ export function applySoundPropertiesDraftToScene(
           soundPositioning: {
             ...nextSoundPositioning,
             preserve: nextPreserve
-          }
+          },
+          ...(nextExactStorage
+            ? { soundIntervalVariation: cloneAreaSoundIntervalVariationStorage(nextExactStorage) }
+            : {}),
+          ...(nextExactVolume
+            ? { soundVolume: cloneAreaSoundVolumeStorage(nextExactVolume) }
+            : {}),
+          ...(nextExactSchedule
+            ? { soundSchedule: cloneAreaSoundScheduleStorage(nextExactSchedule) }
+            : {}),
+          ...(nextExactActive
+            ? { soundActive: cloneAreaSoundActiveStorage(nextExactActive) }
+            : {}),
+          ...(nextExactPlayOrder
+            ? { soundPlayOrder: cloneAreaSoundPlayOrderStorage(nextExactPlayOrder) }
+            : {}),
+          ...(nextExactPlayStyle
+            ? { soundPlayStyle: cloneAreaSoundPlayStyleStorage(nextExactPlayStyle) }
+            : {}),
+          ...(nextExactPlayback
+            ? { soundPlayback: cloneAreaSoundPlaybackStorage(nextExactPlayback) }
+            : {}),
+          ...(nextExactProfile
+            ? { soundProfile: cloneAreaSoundProfileStorage(nextExactProfile) }
+            : {})
         }
       : object
   );
@@ -1582,7 +1951,54 @@ export function applySoundPropertiesDraftToScene(
     stableJsonStringify(nextTarget.soundPositioning?.preserve?.flags ?? {}) ===
       stableJsonStringify(sourcePreserve?.flags ?? {}) &&
     stableJsonStringify(nextTarget.soundPositioning?.preserve?.extra ?? {}) ===
-      stableJsonStringify(sourcePreserve?.extra ?? {})
+      stableJsonStringify(sourcePreserve?.extra ?? {}) &&
+    (
+      (!nextTarget.soundIntervalVariation && !sourceObject.soundIntervalVariation)
+      || areaSoundIntervalVariationStoragesEqual(
+        nextTarget.soundIntervalVariation,
+        sourceObject.soundIntervalVariation,
+      )
+    ) &&
+    (
+      (!nextTarget.soundVolume && !sourceObject.soundVolume)
+      || areaSoundVolumeStoragesEqual(nextTarget.soundVolume, sourceObject.soundVolume)
+    ) &&
+    (
+      (!nextTarget.soundSchedule && !sourceObject.soundSchedule)
+      || areaSoundScheduleStoragesEqual(nextTarget.soundSchedule, sourceObject.soundSchedule)
+    ) &&
+    (
+      (!nextTarget.soundActive && !sourceObject.soundActive)
+      || areaSoundActiveStoragesEqual(nextTarget.soundActive, sourceObject.soundActive)
+    ) &&
+    (
+      (!nextTarget.soundPlayOrder && !sourceObject.soundPlayOrder)
+      || areaSoundPlayOrderStoragesEqual(
+        nextTarget.soundPlayOrder,
+        sourceObject.soundPlayOrder,
+      )
+    ) &&
+    (
+      (!nextTarget.soundPlayStyle && !sourceObject.soundPlayStyle)
+      || areaSoundPlayStyleStoragesEqual(
+        nextTarget.soundPlayStyle,
+        sourceObject.soundPlayStyle,
+      )
+    ) &&
+    (
+      (!nextTarget.soundPlayback && !sourceObject.soundPlayback)
+      || areaSoundPlaybackStoragesEqual(
+        nextTarget.soundPlayback,
+        sourceObject.soundPlayback,
+      )
+    ) &&
+    (
+      (!nextTarget.soundProfile && !sourceObject.soundProfile)
+      || areaSoundProfileStoragesEqual(
+        nextTarget.soundProfile,
+        sourceObject.soundProfile,
+      )
+    )
   ) {
     return scene;
   }
@@ -1610,6 +2026,13 @@ export function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDra
         : "none";
   const transitionFlags = transition?.flags ? { ...transition.flags } : {};
   const flagsSummary = formatDoorTransitionFlagsSummary(transition);
+  const sourceTransitionStorage = source.kind === "doors"
+    ? readExistingDoorTransitionStorageProvenance(source.source)
+    : undefined;
+  const targetTransitionStorage = sourceTransitionStorage
+    ? materializeExistingDoorTransitionStorage(source.source, transition?.storage) ??
+      sourceTransitionStorage
+    : undefined;
 
   return {
     name: resolveSceneObjectName(source),
@@ -1677,7 +2100,11 @@ export function buildDoorPropertiesDraft(source: SceneObject): DoorPropertiesDra
     linkedWaypoint: transition?.linkedWaypoint ?? "",
     loadScreen: transition?.loadScreen ?? "",
     transitionFlags,
-    flagsSummary
+    flagsSummary,
+    transitionStorageEditable: sourceTransitionStorage !== undefined,
+    linkedTo: targetTransitionStorage?.linkedTo ?? "",
+    linkedToFlags: targetTransitionStorage?.linkedToFlags ?? 0,
+    loadScreenId: targetTransitionStorage?.loadScreenId ?? 0,
   };
 }
 
@@ -1704,7 +2131,10 @@ export function buildCreatureScriptSlotsDraft(
 
 export function buildCreatureSkillsDraft(
   source: SceneObject["creatureProperties"]
-): Array<{ skill: string; rank: number }> {
+): Array<{ skillId?: number; skill: string; rank: number }> {
+  if (source?.skills?.some((entry) => entry.skillId !== undefined)) {
+    return source.skills.map((entry) => ({ ...entry }));
+  }
   const byName = new Map(
     (source?.skills ?? []).map((entry) => [entry.skill.toLowerCase(), entry.rank])
   );
@@ -1723,16 +2153,16 @@ export function buildCreatureClassEntriesDraft(
     className: entry.className || "Class",
     level: Number.isFinite(entry.level) ? Math.max(1, Math.trunc(entry.level)) : 1
   }));
-  while (normalized.length < 8) {
-    normalized.push({
-      className: "",
-      level: 1
-    });
-  }
-  return normalized.slice(0, 8);
+  return normalized.length > 0
+    ? normalized.slice(0, 8)
+    : [{ className: source?.race ?? "Aberration", level: 1 }];
 }
 
-export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePropertiesDraft {
+export function buildCreaturePropertiesDraft(
+  source: SceneObject,
+  bodyBagCatalog?: ScenePlaceableBodyBagCatalog | null,
+  factionCatalog?: ScenePlaceableFactionCatalog | null,
+): CreaturePropertiesDraft {
   const creature = source.creatureProperties;
   const statistics = creature?.statistics;
   const abilityScores = statistics?.abilityScores;
@@ -1740,21 +2170,119 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
   const saves = statistics?.saves;
   const appearanceSettings = creature?.appearanceSettings;
   const advanced = creature?.advancedSettings;
+  const equipmentSource = source.source?.creatureEquippedItems;
+  const equipmentEditable = canEditExistingCreatureEquipment(source.source) &&
+    equipmentSource !== undefined &&
+    readCreatureEquipmentTargetEntries(creature?.equippedItems, equipmentSource) !== undefined;
   return {
+    tagControlState: canEditExistingCreatureTag(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    conversationControlState: canEditExistingCreatureConversation(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    appearanceControlState: canEditExistingCreatureAppearance(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    genderControlState: canEditExistingCreatureGender(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    phenotypeControlState: canEditExistingCreaturePhenotype(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    factionControlState: canEditExistingCreatureFaction(source.source, factionCatalog)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    templateResRefControlState: canEditExistingCreatureTemplateResRef(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    subraceControlState: canEditExistingCreatureSpecialIdentityString(source.source, "subrace")
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    deityControlState: canEditExistingCreatureSpecialIdentityString(source.source, "deity")
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    noInterruptControlState: canEditExistingCreatureInterruptable(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    disarmableControlState: canEditExistingCreatureAdvancedFlag(
+      source.source,
+      "disarmable",
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    plotControlState: canEditExistingCreatureAdvancedFlag(source.source, "plot")
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    immortalControlState: canEditExistingCreatureAdvancedFlag(source.source, "immortal")
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    lootableControlState: canEditExistingCreatureAdvancedFlag(source.source, "lootable")
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    noPermanentDeathControlState: canEditExistingCreatureAdvancedFlag(
+      source.source,
+      "noPermanentDeath",
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    bodyBagControlState: canEditExistingCreatureBodyBag(
+      source.source,
+      bodyBagCatalog,
+      advanced?.leavesLootableCorpse === true,
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    decayTimeControlState: canEditExistingCreatureDecayTime(
+      source.source,
+      advanced?.leavesLootableCorpse === true,
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    firstNameControlState: canEditExistingCreatureNameLocalizedString(
+      source.source,
+      "firstName",
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    lastNameControlState: canEditExistingCreatureNameLocalizedString(
+      source.source,
+      "lastName",
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    descriptionControlState: canEditExistingCreatureNameLocalizedString(
+      source.source,
+      "description",
+    )
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    inventoryControlState: canEditExistingCreatureInventory(source.source)
+      ? "ACTIVE_NOW"
+      : "PRESERVE_ONLY",
+    equippedItemsControlState: equipmentEditable ? "ACTIVE_NOW" : "PRESERVE_ONLY",
     firstName: creature?.firstName ?? resolveSceneObjectName(source),
     lastName: creature?.lastName ?? "",
     tag: source.tag,
     race: creature?.race ?? CREATURE_RACE_OPTIONS[0]!,
     appearance: creature?.appearance ?? source.resRef,
+    appearanceType: creature?.appearanceType,
     phenotype: creature?.phenotype ?? "",
-    gender: creature?.gender ?? CREATURE_GENDER_OPTIONS[0]!,
+    phenotypeId: creature?.phenotypeId,
+    gender: creature?.gender ?? "",
+    genderId: creature?.genderId,
     description: creature?.description ?? "",
     challengeRating: creature?.challengeRating ?? 1,
     portraitResRef: creature?.portraitResRef ?? "",
+    portraitId: creature?.portraitId,
     conversation: creature?.conversation ?? "",
     noInterrupt: creature?.noInterrupt ?? false,
     alignment: creature?.alignment ?? "True Neutral",
     classEntries: buildCreatureClassEntriesDraft(creature),
+    classIdentityDestructiveSpellClearConfirmed:
+      creature?.classIdentityDestructiveSpellClearConfirmed ?? false,
+    classSlotResizeDestructiveRemovalConfirmed:
+      creature?.classSlotResizeDestructiveRemovalConfirmed ?? false,
     templateEntries: creature?.templateEntries
       ? creature.templateEntries.map((entry) => ({ ...entry }))
       : [],
@@ -1825,6 +2353,7 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       leftShoulder: appearanceSettings?.sourceOnlyParts?.leftShoulder ?? ""
     },
     skills: buildCreatureSkillsDraft(creature),
+    skillListTruncationConfirmed: creature?.skillListTruncationConfirmed ?? false,
     scriptSlots: buildCreatureScriptSlotsDraft(creature),
     advancedSettings: {
       blueprintResRef: advanced?.blueprintResRef ?? source.resRef,
@@ -1837,8 +2366,19 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       immortal: advanced?.immortal ?? false,
       bodyBag: advanced?.bodyBag ?? false,
       startingPackage: advanced?.startingPackage ?? false,
+      ...(typeof advanced?.startingPackageId === "number"
+        ? { startingPackageId: advanced.startingPackageId }
+        : {}),
       treasureModel: advanced?.treasureModel ?? CREATURE_TREASURE_MODEL_OPTIONS[0]!,
-      corpseDecayTimeSeconds: advanced?.corpseDecayTimeSeconds ?? 5,
+      ...(advanced?.treasureModelRow === undefined
+        ? {}
+        : { treasureModelRow: advanced.treasureModelRow }),
+      ...(advanced?.corpseDecayTimeSeconds === undefined
+        ? {}
+        : { corpseDecayTimeSeconds: advanced.corpseDecayTimeSeconds }),
+      ...(advanced?.factionId === undefined
+        ? {}
+        : { factionId: advanced.factionId }),
       faction: advanced?.faction ?? CREATURE_FACTION_OPTIONS[0]!,
       subrace: advanced?.subrace ?? "",
       deity: advanced?.deity ?? "",
@@ -1846,6 +2386,12 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
       soundSet: advanced?.soundSet ?? "",
       ...(typeof advanced?.soundSetFile === "number" ? { soundSetFile: advanced.soundSetFile } : {}),
       perceptionRange: advanced?.perceptionRange ?? CREATURE_PERCEPTION_RANGE_OPTIONS[0]!,
+      ...(typeof advanced?.perceptionRangeId === "number"
+        ? { perceptionRangeId: advanced.perceptionRangeId }
+        : {}),
+      ...(typeof advanced?.walkRateId === "number"
+        ? { walkRateId: advanced.walkRateId }
+        : {}),
       ...(typeof advanced?.walkRateSource2daRow === "number"
         ? { walkRateSource2daRow: advanced.walkRateSource2daRow }
         : {}),
@@ -1898,13 +2444,17 @@ export function buildCreaturePropertiesDraft(source: SceneObject): CreaturePrope
     inventoryItems: creature?.inventoryItems
       ? creature.inventoryItems.map((entry) => ({
           ...entry,
-          embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
+          ...(entry.embeddedItem
+            ? { embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem) }
+            : {})
         }))
       : [],
     equippedItems: creature?.equippedItems
       ? creature.equippedItems.map((entry) => ({
           ...entry,
-          embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem)
+          ...(entry.embeddedItem
+            ? { embeddedItem: cloneEmbeddedItemSummary(entry.embeddedItem) }
+            : {})
         }))
       : [],
     comments: creature?.comments ?? ""
@@ -1919,6 +2469,7 @@ export function arePlaceablePropertiesDraftsEqual(
     left.name === right.name &&
     left.tag === right.tag &&
     left.resRef === right.resRef &&
+    left.appearanceType === right.appearanceType &&
     left.isStatic === right.isStatic &&
     left.plot === right.plot &&
     left.useable === right.useable &&
@@ -1928,6 +2479,7 @@ export function arePlaceablePropertiesDraftsEqual(
     left.disabledFlagsEnabled === right.disabledFlagsEnabled &&
     arePlaceableDisabledFlagsEqual(left.disabledFlags, right.disabledFlags) &&
     stableJsonStringify(left.inventoryItems) === stableJsonStringify(right.inventoryItems) &&
+    stableJsonStringify(left.variables) === stableJsonStringify(right.variables) &&
     left.hardness === right.hardness &&
     left.hitPoints === right.hitPoints &&
     left.fortitudeSave === right.fortitudeSave &&
@@ -1960,6 +2512,7 @@ export function areSoundPropertiesDraftsEqual(
     left.resRef === right.resRef &&
     left.comments === right.comments &&
     left.selectedSoundIndex === right.selectedSoundIndex &&
+    left.catalogSoundResRef === right.catalogSoundResRef &&
     leftSoundList === rightSoundList &&
     left.mode === right.mode &&
     left.elevation === right.elevation &&
@@ -2026,7 +2579,11 @@ export function areDoorPropertiesDraftsEqual(
     left.linkedWaypoint === right.linkedWaypoint &&
     left.loadScreen === right.loadScreen &&
     stableJsonStringify(left.transitionFlags) === stableJsonStringify(right.transitionFlags) &&
-    left.flagsSummary === right.flagsSummary
+    left.flagsSummary === right.flagsSummary &&
+    left.transitionStorageEditable === right.transitionStorageEditable &&
+    left.linkedTo === right.linkedTo &&
+    left.linkedToFlags === right.linkedToFlags &&
+    left.loadScreenId === right.loadScreenId
   );
 }
 

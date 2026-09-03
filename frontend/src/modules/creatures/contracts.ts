@@ -7,12 +7,327 @@ import type {
 
 export type CreatureApiMetadataPrimitive = string | number | boolean;
 
+export interface CreatureApiAppearanceRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CreatureApiAppearanceRow = {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id" | "label";
+  strRef?: number;
+  label?: string;
+};
+
+export interface CreatureApiAppearanceRowsResult {
+  resourceName: "appearance.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiAppearanceRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiGenderRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CreatureApiGenderRow = {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id";
+  nameStrRef: number;
+  genderToken: string;
+  constant?: string;
+};
+
+export interface CreatureApiGenderRowsResult {
+  resourceName: "gender.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiGenderRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type CreatureApiAppendageKind = "wings" | "tail";
+
+export interface CreatureApiAppendageRowsQuery {
+  kind: CreatureApiAppendageKind;
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiAppendageRow {
+  rowIndex: number;
+  displayName: string;
+}
+
+export interface CreatureApiAppendageRowsResult {
+  resourceName: "wingmodel.2da" | "tailmodel.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiAppendageRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiPerceptionRangeRowsQuery {
+  tableSha256: string;
+  rowIndex?: 8 | 9 | 10 | 11;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiPerceptionRangeRow {
+  rowIndex: 8 | 9 | 10 | 11;
+  displayName: string;
+  displaySource: "strref" | "strref_id";
+  nameStrRef: number;
+}
+
+export interface CreatureApiPerceptionRangeRowsResult {
+  resourceName: "ranges.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiPerceptionRangeRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiWalkRateRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiWalkRateRow {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id";
+  nameStrRef: number;
+  twoDaName: string;
+}
+
+export interface CreatureApiWalkRateRowsResult {
+  resourceName: "creaturespeed.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiWalkRateRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiSoundSetRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CreatureApiSoundSetRow = {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id" | "label";
+  nameStrRef: number | null;
+  resRef: string;
+};
+
+export interface CreatureApiSoundSetRowsResult {
+  resourceName: "soundset.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiSoundSetRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiStartingPackageRowsQuery {
+  tableSha256: string;
+  classIds: readonly number[];
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CreatureApiStartingPackageRow = {
+  rowIndex: number;
+  classId: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id" | "label";
+  nameStrRef: number | null;
+};
+
+export interface CreatureApiStartingPackageRowsResult {
+  resourceName: "packages.2da";
+  sha256: string;
+  rowCount: number;
+  classIds: number[];
+  items: CreatureApiStartingPackageRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiClassRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiClassRow {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id";
+  nameStrRef: number;
+}
+
+export interface CreatureApiClassRowsResult {
+  resourceName: "classes.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiClassRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiSkillRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiSkillRow {
+  rowIndex: number;
+  nameStrRef: number;
+  displayName: string;
+}
+
+export interface CreatureApiSkillRowsResult {
+  resourceName: "skills.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiSkillRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiFeatRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiFeatRow {
+  rowIndex: number;
+  featNameStrRef: number;
+  descriptionStrRef?: number;
+  toolsCategory: number;
+  displayName: string;
+}
+
+export interface CreatureApiFeatRowsResult {
+  resourceName: "feat.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiFeatRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiSpecialAbilityRowsQuery {
+  tableSha256: string;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreatureApiSpecialAbilityRow {
+  rowIndex: number;
+  nameStrRef: number;
+  spellDescStrRef?: number;
+  userType: 1 | 2;
+  displayName: string;
+}
+
+export interface CreatureApiSpecialAbilityRowsResult {
+  resourceName: "spells.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiSpecialAbilityRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CreatureApiPhenotypeRowsQuery {
+  tableSha256: string;
+  appearanceTableSha256: string;
+  appearanceRowCount: number;
+  appearanceType: number;
+  rowIndex?: number;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CreatureApiPhenotypeRow = {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "strref_id";
+  nameStrRef: number;
+  label?: string;
+};
+
+export interface CreatureApiPhenotypeRowsResult {
+  resourceName: "phenotype.2da";
+  sha256: string;
+  rowCount: number;
+  items: CreatureApiPhenotypeRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface CreatureApiProcessPayload {
   templateId?: string;
   resref?: string;
   creatureMetadata?: Record<string, CreatureApiMetadataPrimitive>;
   creatureAppearanceOverride?: {
     appearanceType?: number;
+    phenotype?: number;
     appearanceHead?: number;
     wingsNew?: number;
     tailNew?: number;

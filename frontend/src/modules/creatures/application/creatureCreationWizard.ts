@@ -443,6 +443,8 @@ const CREATURE_BLUEPRINT_JSON_FIELDS = new Set([
   "equipItemListEntries"
 ]);
 
+const CREATURE_BLUEPRINT_NON_NATIVE_FIELDS = new Set(["bodyPartRobe"]);
+
 const CREATURE_SCRIPT_SLOT_TO_GFF_LABEL: Record<string, string> = {
   onBlocked: "scriptonblocked",
   onCombatRoundEnd: "scriptendround",
@@ -476,6 +478,9 @@ function copySourceCreatureBlueprintFields(source: SceneObject): CreatureApiBlue
 
   const fields: CreatureApiBlueprintFields = {};
   for (const [key, value] of Object.entries(metadata)) {
+    if (CREATURE_BLUEPRINT_NON_NATIVE_FIELDS.has(key)) {
+      continue;
+    }
     if (CREATURE_BLUEPRINT_JSON_FIELDS.has(key) && typeof value === "string") {
       try {
         const parsed = JSON.parse(value);
@@ -537,7 +542,12 @@ function mapCreatureEquippedEntries(
 
 function toAuroraListId(value: unknown, maximum = 65535): number | undefined {
   const parsed = typeof value === "number" ? value : undefined;
-  return Number.isInteger(parsed) && parsed >= 0 && parsed <= maximum ? parsed : undefined;
+  return parsed !== undefined &&
+    Number.isInteger(parsed) &&
+    parsed >= 0 &&
+    parsed <= maximum
+    ? parsed
+    : undefined;
 }
 
 function toAuroraSpellEntry(entry: {
@@ -633,7 +643,6 @@ export function buildCreatureBlueprintCreatePayloadFromSceneObject(
           colorTattoo1: readFiniteInteger(appearance.colors?.tattoo1),
           colorTattoo2: readFiniteInteger(appearance.colors?.tattoo2),
           bodyPartBelt: readFiniteInteger(appearance.sourceOnlyParts?.belt),
-          bodyPartRobe: readFiniteInteger(appearance.sourceOnlyParts?.robe),
           bodyPartRShoul: readFiniteInteger(appearance.sourceOnlyParts?.rightShoulder),
           bodyPartLShoul: readFiniteInteger(appearance.sourceOnlyParts?.leftShoulder)
         }
@@ -695,9 +704,10 @@ export function buildCreatureBlueprintCreatePayloadFromSceneObject(
   const sourceClassRecords = sourceClassEntries.map((entry) =>
     entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}
   );
+  const creatureSpells = creature.spells;
   const shouldReplaceSpellLists =
-    creature.spells !== undefined &&
-    (creature.spells.length > 0 ||
+    creatureSpells !== undefined &&
+    (creatureSpells.length > 0 ||
       sourceClassRecords.some(
         (entry) => Array.isArray(entry.knownSpells) || Array.isArray(entry.memorizedSpells)
       ));
@@ -716,7 +726,7 @@ export function buildCreatureBlueprintCreatePayloadFromSceneObject(
         };
         if (shouldReplaceSpellLists) {
           const mapClassSpells = (prepared: boolean) =>
-            creature.spells
+            creatureSpells
               .filter((spell) => spell.classIndex === index && spell.prepared === prepared)
               .map(toAuroraSpellEntry)
               .filter((spell): spell is Record<string, number> => spell !== undefined);
@@ -772,7 +782,7 @@ export function buildCreatureBlueprintCreatePayloadFromSceneObject(
 
   return {
     templateResRef: source.resRef,
-    name: source.name,
+    name: trimText(source.name, source.resRef),
     blueprint: fields,
     overwrite: true
   };

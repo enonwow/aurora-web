@@ -582,15 +582,289 @@ label {
   font-size: 0.92rem;
 }
 
-input {
+input,
+textarea {
   border: 1px solid var(--input-border);
   border-radius: 10px;
   background: var(--input-bg);
   color: var(--input-text);
   padding: 0.65rem 0.75rem;
+  font: inherit;
+}
+
+textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.runtime-path-mode-note {
+  margin-top: 0.75rem;
+  border-left: 3px solid var(--group-tab-border-active);
+  padding-left: 0.75rem;
+  color: var(--text-muted);
+}
+
+.server-path-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.server-path-picker input {
+  width: 100%;
+  min-width: 0;
+}
+
+.server-path-picker.has-error input {
+  border-color: #c65b61;
+}
+
+.server-path-browse-btn {
+  min-width: 88px;
+}
+
+.server-path-inline-issue {
+  margin: 0.3rem 0 0;
+  color: #ef8b91;
+  font-size: 0.82rem;
+}
+
+.server-path-list-fieldset {
+  min-width: 0;
+  margin: 0.4rem 0;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  padding: 0.8rem;
+}
+
+.server-path-list-fieldset legend {
+  padding: 0 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.server-path-list-help {
+  margin: 0 0 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.server-path-table-scroll {
+  overflow-x: auto;
+}
+
+.server-path-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.server-path-table th {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.server-path-table th,
+.server-path-table td {
+  border-bottom: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent);
+  padding: 0.5rem 0.35rem;
+  vertical-align: top;
+}
+
+.server-path-table th:first-child,
+.server-path-table td:first-child {
+  width: auto;
+}
+
+.server-path-table th:nth-child(2),
+.server-path-table td:nth-child(2) {
+  width: 118px;
+}
+
+.server-path-table th:nth-child(3),
+.server-path-table td:nth-child(3) {
+  width: 66px;
+}
+
+.server-path-row-status {
+  display: inline-flex;
+  width: max-content;
+  max-width: 130px;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  padding: 0.22rem 0.48rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.server-path-row-status.is-invalid {
+  border-color: #9e474d;
+  color: #ef8b91;
+}
+
+.server-path-row-status.is-pending {
+  border-color: #88762e;
+  color: #e4cf72;
+}
+
+.server-path-remove-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  max-width: 62px;
+  overflow: hidden;
+  padding: 0.45rem 0.2rem;
+  text-overflow: ellipsis;
+}
+
+.server-path-remove-btn:hover:not(:disabled) {
+  color: #ef8b91;
+}
+
+.server-path-remove-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.server-path-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(3, 8, 14, 0.76);
+}
+
+.server-path-dialog {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(180px, 1fr) auto auto;
+  gap: 0.75rem;
+  width: min(860px, 100%);
+  max-height: min(760px, calc(100vh - 2rem));
+  overflow: hidden;
+  border: 1px solid var(--popover-border);
+  border-radius: 14px;
+  background: var(--popover-bg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  padding: 1rem;
+}
+
+.server-path-dialog-header,
+.server-path-dialog-footer,
+.server-path-location,
+.server-path-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.server-path-dialog-header,
+.server-path-dialog-footer {
+  justify-content: space-between;
+}
+
+.server-path-dialog-header h2,
+.server-path-dialog-header p,
+.server-path-dialog-footer p {
+  margin: 0;
+}
+
+.server-path-dialog-header h2 {
+  font-size: 1.2rem;
+}
+
+.server-path-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.server-path-location code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  padding: 0.55rem 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-path-entry-list {
+  min-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.server-path-entry {
+  border-bottom: 1px solid color-mix(in srgb, var(--input-border) 60%, transparent);
+  padding: 0.28rem 0.4rem;
+}
+
+.server-path-entry:last-child {
+  border-bottom: 0;
+}
+
+.server-path-entry-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0.45rem;
+  text-align: left;
+}
+
+.server-path-entry-open span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-path-entry-open:hover {
+  color: var(--button-text);
+  background: var(--button-bg-active);
+}
+
+.server-path-browser-message {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.server-path-dialog-footer p {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .primary-btn,
+.secondary-btn,
 .topbar-btn {
   border: 1px solid var(--button-border);
   border-radius: 8px;
@@ -599,6 +873,68 @@ input {
   padding: 0.5rem 0.8rem;
   min-height: 34px;
   cursor: pointer;
+}
+
+.secondary-btn {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.maintenance-instructions {
+  margin-top: 1rem;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  background: var(--input-bg);
+}
+
+.maintenance-instructions h2 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.maintenance-instructions code {
+  margin: 0 0.2rem;
+}
+
+.maintenance-details,
+.maintenance-participants {
+  margin: 0.75rem 0;
+}
+
+@media (max-width: 720px) {
+  .server-path-table th:nth-child(2),
+  .server-path-table td:nth-child(2) {
+    width: 92px;
+  }
+
+  .server-path-table th:nth-child(3),
+  .server-path-table td:nth-child(3) {
+    width: 56px;
+  }
+
+  .server-path-table .server-path-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .server-path-table .server-path-browse-btn {
+    min-width: 0;
+  }
+
+  .server-path-dialog-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .server-path-dialog-footer .primary-btn {
+    width: 100%;
+  }
 }
 
 .topbar-btn.is-active {
@@ -738,6 +1074,43 @@ input {
   padding: 0 0.6rem 0.58rem;
   display: grid;
   gap: 0.35rem;
+}
+
+.client-asset-cache-control {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.client-asset-cache-control h3,
+.client-asset-cache-control p {
+  margin: 0;
+}
+
+.client-asset-cache-control h3 {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.client-asset-cache-control p {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.client-asset-cache-control button {
+  justify-self: start;
+  border: 1px solid var(--button-border);
+  border-radius: 7px;
+  background: var(--button-bg);
+  color: var(--button-text);
+  padding: 0.34rem 0.55rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.client-asset-cache-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .topbar-options-label {
@@ -2389,8 +2762,109 @@ input {
   order: 1;
   flex: 1 1 auto;
   max-height: none;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
+}
+
+.areas-mode-sidebar-workflow > .area-draft-panel {
+  background: #091a2e;
+  border: 1px solid #36577f;
+  border-radius: 7px;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.42rem;
+  max-height: min(34vh, 250px);
+  order: 0;
+  overflow: auto;
+  padding: 0.5rem;
+}
+
+.area-draft-panel-header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.area-draft-panel-header > div {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.area-draft-panel-header span {
+  color: #8eb7e2;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.area-draft-panel-header strong {
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.area-draft-list {
+  display: grid;
+  gap: 0.22rem;
+  list-style: none;
+  margin: 0;
+  max-height: 112px;
+  overflow: auto;
+  padding: 0;
+}
+
+.area-draft-list button {
+  align-items: center;
+  background: #0e243b;
+  border: 1px solid #375373;
+  border-radius: 6px;
+  color: #d7e8ff;
+  cursor: pointer;
+  display: flex;
+  gap: 0.4rem;
+  justify-content: space-between;
+  min-height: 30px;
+  padding: 0.28rem 0.42rem;
+  text-align: left;
+  width: 100%;
+}
+
+.area-draft-list button.is-selected {
+  background: #20466f;
+  border-color: #75aee5;
+}
+
+.area-draft-list button strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.area-draft-list button span {
+  color: #9fc1e6;
+  flex: 0 0 auto;
+  font-size: 0.65rem;
+}
+
+.area-draft-actions,
+.area-draft-delete-confirmation {
+  display: grid;
+  gap: 0.28rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.area-draft-delete-confirmation {
+  border-top: 1px solid #36577f;
+  padding-top: 0.4rem;
+}
+
+.area-draft-delete-confirmation > span {
+  color: #ffd3d3;
+  font-size: 0.68rem;
+  grid-column: 1 / -1;
 }
 
 .area-selection-control-stack {
@@ -2470,8 +2944,26 @@ input {
 
 .areas-mode-sidebar-workflow .area-selection-panel .scene-object-list {
   flex: 1 1 auto;
-  min-height: 96px;
+  min-height: 64px;
   max-height: none;
+}
+
+/*
+ * The Area selector contains a sticky control stack.  Its parent used to
+ * scroll as a whole, which let that stack cover the first area row and steal
+ * its pointer events.  Keep the controls fixed in the panel and make only
+ * the result list scrollable instead.
+ */
+.areas-mode-sidebar-workflow .area-selection-panel .area-selection-control-stack {
+  flex: 0 0 auto;
+  position: static;
+}
+
+@media (max-height: 780px) {
+  /* The same commands remain available from the selected-area menu. */
+  .areas-mode-sidebar-workflow > .area-selection-panel .area-selection-diagnostics-actions {
+    display: none;
+  }
 }
 
 .area-selection-actions {
@@ -4488,6 +4980,16 @@ input {
   overflow: auto;
 }
 
+/* Keep the Area list as the sole scrolling surface in the Areas workflow. */
+.areas-mode-sidebar-workflow.areas-mode-panel > .area-selection-panel {
+  overflow: hidden;
+}
+
+.areas-mode-sidebar-workflow.areas-mode-panel .area-selection-panel .area-selection-control-stack {
+  flex: 0 0 auto;
+  position: static;
+}
+
 .areas-mode-panel > .scene-object-add-panel .scene-object-add-list {
   flex: 1 1 auto;
   max-height: none;
@@ -5038,6 +5540,51 @@ input {
   touch-action: none;
 }
 
+.area-workspace-status-bar {
+  position: absolute;
+  top: 0.7rem;
+  z-index: 26;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  pointer-events: none;
+  border: 1px solid rgba(108, 145, 181, 0.72);
+  border-radius: 7px;
+  overflow: hidden;
+  background: rgba(6, 15, 25, 0.9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  color: #eaf3fb;
+}
+
+.area-workspace-status-bar > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+  padding: 0.34rem 0.5rem;
+  background: rgba(17, 34, 50, 0.94);
+}
+
+.area-workspace-status-bar b {
+  color: #9fb8ce;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.area-workspace-status-bar strong {
+  overflow: hidden;
+  font-size: 0.7rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+  .area-workspace-status-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .sounds-mode-audio-stage {
   display: grid;
   place-items: center;
@@ -5580,6 +6127,246 @@ input {
 
 .canvas-placeable-properties-dialog.is-collapsed {
   width: min(420px, calc(100% - 1.5rem));
+}
+
+.canvas-area-object-polygon-dialog {
+  position: absolute;
+  z-index: 10;
+  width: min(720px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+  border: 1px solid #6d5a8d;
+  border-radius: 10px;
+  background: #102033;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-area-object-polygon-dialog.is-collapsed {
+  width: min(420px, calc(100% - 1.5rem));
+}
+
+.canvas-area-object-polygon-header,
+.canvas-area-object-polygon-header-actions,
+.canvas-area-object-polygon-tools,
+.canvas-area-object-polygon-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.canvas-area-object-polygon-header {
+  justify-content: space-between;
+  cursor: grab;
+}
+
+.canvas-area-object-polygon-header-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.canvas-area-object-polygon-header-copy h2,
+.canvas-area-object-polygon-header-copy p,
+.canvas-area-object-polygon-note,
+.canvas-area-object-polygon-error {
+  margin: 0;
+}
+
+.canvas-area-object-polygon-header-copy h2 {
+  color: #e7e0ff;
+  font-size: 1rem;
+}
+
+.canvas-area-object-polygon-header-copy p,
+.canvas-area-object-polygon-note {
+  color: #b7c8df;
+  font-size: 0.76rem;
+}
+
+.canvas-area-object-polygon-body {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-area-object-polygon-table {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.canvas-area-object-polygon-row {
+  display: grid;
+  grid-template-columns: 2.5rem repeat(3, minmax(5.5rem, 1fr)) 5.5rem;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.canvas-area-object-polygon-row.is-header {
+  color: #b7c8df;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.canvas-area-object-polygon-row input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #466487;
+  border-radius: 5px;
+  background: #091a2b;
+  color: #e8f2ff;
+  padding: 0.3rem 0.4rem;
+}
+
+.canvas-area-object-polygon-dialog button {
+  border: 1px solid #4d6687;
+  border-radius: 6px;
+  background: #112b47;
+  color: #e4f0ff;
+  padding: 0.32rem 0.58rem;
+  cursor: pointer;
+}
+
+.canvas-area-object-polygon-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.canvas-area-object-polygon-error {
+  color: #ffb4b4;
+  font-size: 0.76rem;
+}
+
+.canvas-area-object-polygon-tools {
+  justify-content: flex-start;
+}
+
+.canvas-area-object-polygon-actions {
+  justify-content: flex-end;
+}
+
+.canvas-store-properties-dialog {
+  position: absolute;
+  z-index: 10;
+  width: min(620px, calc(100% - 1.5rem));
+  max-height: calc(100% - 1.5rem);
+  overflow: auto;
+  border: 1px solid #8a7148;
+  border-radius: 10px;
+  background: #102033;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.canvas-store-properties-dialog.is-collapsed {
+  width: min(420px, calc(100% - 1.5rem));
+}
+
+.canvas-store-properties-header,
+.canvas-store-properties-header-actions,
+.canvas-store-properties-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.canvas-store-properties-header {
+  justify-content: space-between;
+  cursor: grab;
+}
+
+.canvas-store-properties-header-copy,
+.canvas-store-properties-body {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.canvas-store-properties-header-copy h2,
+.canvas-store-properties-header-copy p,
+.canvas-store-properties-evidence-note {
+  margin: 0;
+}
+
+.canvas-store-properties-header-copy h2 {
+  color: #ffe8b7;
+  font-size: 1rem;
+}
+
+.canvas-store-properties-header-copy p,
+.canvas-store-properties-evidence-note {
+  color: #b7c8df;
+  font-size: 0.76rem;
+}
+
+.canvas-store-properties-group {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid #3c5878;
+  border-radius: 7px;
+  padding: 0.65rem;
+}
+
+.canvas-store-properties-group label {
+  display: grid;
+  gap: 0.35rem;
+  color: #dce9f8;
+  font-size: 0.78rem;
+}
+
+.canvas-store-properties-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid #466487;
+  border-radius: 5px;
+  background: #091a2b;
+  color: #e8f2ff;
+  padding: 0.45rem 0.55rem;
+}
+
+.canvas-store-commerce-group {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.canvas-store-commerce-group legend {
+  grid-column: 1 / -1;
+}
+
+.canvas-store-properties-group input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #466487;
+  border-radius: 5px;
+  background: #091a2b;
+  color: #e8f2ff;
+  padding: 0.4rem 0.5rem;
+}
+
+.canvas-store-properties-group .canvas-store-properties-checkbox {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-self: end;
+  min-height: 2rem;
+}
+
+.canvas-store-properties-actions {
+  justify-content: flex-end;
+}
+
+.canvas-store-properties-dialog button {
+  border: 1px solid #4d6687;
+  border-radius: 6px;
+  background: #112b47;
+  color: #e4f0ff;
+  padding: 0.32rem 0.58rem;
+  cursor: pointer;
+}
+
+.canvas-store-properties-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .canvas-placeable-properties-header {

@@ -1,5 +1,7 @@
 import type { SceneObject } from "../../scene/contracts";
 import { createNewSceneObject } from "../../scene/domain/sceneFactory";
+import { readDynamicAreaStoreConstructionDefaults } from
+  "../../scene/domain/areaStoreDynamicConstructionProfile";
 import type {
   StoreApiListItem,
   StoreApiMetadataPrimitive
@@ -33,10 +35,12 @@ export function mapStoreApiListItemToSceneObject(
   sequence = 1
 ): SceneObject {
   const metadata = store.metadata;
+  const constructionDefaults = readDynamicAreaStoreConstructionDefaults(store);
   const object = createNewSceneObject("stores", STORE_TEMPLATE_X, STORE_TEMPLATE_Y, sequence);
   const normalizedTemplateId = sanitizeIdentifier(store.templateId, `store_${sequence}`);
-  const templateResRef = readString(metadata, "templateResRef") ?? store.resref;
-  const tag = readString(metadata, "tag") ?? store.resref;
+  const templateResRef = constructionDefaults?.resRef ??
+    readString(metadata, "templateResRef") ?? store.resref;
+  const tag = constructionDefaults?.tag ?? readString(metadata, "tag") ?? store.resref;
   const localizedName = readString(metadata, "localizedName") ?? readString(metadata, "displayName");
 
   return {
@@ -44,10 +48,10 @@ export function mapStoreApiListItemToSceneObject(
     id: `sto_template_${normalizedTemplateId}`,
     name: localizedName ?? store.name,
     resRef: templateResRef,
-    tag: tag.toUpperCase(),
+    tag: constructionDefaults ? tag : tag.toUpperCase(),
     previewImageUrl: store.previewImageUrl.trim() || undefined,
     isStatic: false,
-    source: {
+    source: constructionDefaults?.source ?? {
       type: "aurora_git",
       sourceObjectId: store.templateId,
       sourceKind: "store",

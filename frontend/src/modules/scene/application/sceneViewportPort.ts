@@ -2,11 +2,28 @@ import type {
   AreaScene,
   SceneHistoryState,
   SceneObject,
+  SceneObjectPlaceableProperties,
   SceneObjectKind,
+  SceneEncounterDifficultyPair,
+  SceneObjectEncounterCreatureListTargetEntry,
+  SceneObjectEncounterSpawnPointTargetEntry,
+  SceneObjectEncounterVariableTargetEntry,
   TerrainBrushKind
 } from "../contracts";
 import type { SceneFacadeBundle } from "./sceneFacadeBundle";
 import type { AuroraAreaCandidateSelector, AuroraAreaEdge } from "../domain/auroraAreaEditing";
+import type { AreaObjectPolygonGeometry } from "../../areas/domain/areaObjectPolygonGeometry";
+import type { EncounterActiveStorage } from "../domain/encounterActive";
+import type { EncounterPlayerOnlyStorage } from "../domain/encounterPlayerOnly";
+import type { EncounterResetStorage } from "../domain/encounterReset";
+import type { EncounterResetTimeStorage } from "../domain/encounterResetTime";
+import type { EncounterSpawnOptionStorage } from "../domain/encounterSpawnOption";
+import type { EncounterRespawnsStorage } from "../domain/encounterRespawns";
+import type { EncounterCreatureCountStorage } from "../domain/encounterCreatureCounts";
+import type { EncounterScriptResRefsStorage } from "../domain/encounterScriptResRefs";
+import type { TriggerScriptResRefsStorage } from "../domain/triggerScriptResRefs";
+import type { TriggerTransitionStorage } from "../domain/triggerTransitionStorage";
+import type { ExistingWaypointPropertiesInput } from "./sceneMutationsFacade";
 
 export interface SceneViewportPoint {
   x: number;
@@ -43,6 +60,7 @@ export interface SceneViewportPlaceablePropertiesInput {
   tag: string;
   resRef: string;
   isStatic: boolean;
+  placeableProperties?: SceneObjectPlaceableProperties;
 }
 
 export interface SceneViewportCopyAnchorParams {
@@ -68,6 +86,63 @@ export interface SceneViewportPort {
   appendObjects(scene: AreaScene, objects: SceneObject[]): AreaScene;
   deleteObjectsByIds(scene: AreaScene, objectIds: string[]): AreaScene;
   deleteObjectById(scene: AreaScene, objectId: string): AreaScene;
+  setExistingWaypointTagById(scene: AreaScene, objectId: string, tag: string): AreaScene;
+  setExistingWaypointPropertiesById(
+    scene: AreaScene,
+    objectId: string,
+    input: ExistingWaypointPropertiesInput,
+  ): AreaScene;
+  setExistingEncounterTemplateResRefById(
+    scene: AreaScene,
+    objectId: string,
+    templateResRef: string,
+  ): AreaScene;
+  setExistingTriggerTemplateResRefById(
+    scene: AreaScene,
+    objectId: string,
+    templateResRef: string,
+  ): AreaScene;
+  setExistingTriggerLocalizedNameById(
+    scene: AreaScene,
+    objectId: string,
+    localizedName: string,
+  ): AreaScene;
+  setExistingTriggerEditorCommentById(
+    scene: AreaScene,
+    objectId: string,
+    editorComment: string,
+  ): AreaScene;
+  setExistingTriggerScriptResRefsById(
+    scene: AreaScene,
+    objectId: string,
+    scripts: TriggerScriptResRefsStorage,
+  ): AreaScene;
+  setExistingTriggerTransitionStorageById(
+    scene: AreaScene,
+    objectId: string,
+    storage: TriggerTransitionStorage,
+  ): AreaScene;
+  setAreaObjectPolygonGeometryById(
+    scene: AreaScene,
+    objectId: string,
+    geometry: AreaObjectPolygonGeometry,
+    tag?: string,
+    encounterActive?: EncounterActiveStorage,
+    encounterPlayerOnly?: EncounterPlayerOnlyStorage,
+    encounterReset?: EncounterResetStorage,
+    encounterResetTime?: EncounterResetTimeStorage,
+    encounterSpawnOption?: EncounterSpawnOptionStorage,
+    encounterRespawns?: EncounterRespawnsStorage,
+    encounterCreatureCounts?: EncounterCreatureCountStorage,
+    encounterScriptResRefs?: EncounterScriptResRefsStorage,
+    encounterFactionId?: number,
+    encounterDifficulty?: SceneEncounterDifficultyPair,
+    encounterLocalizedName?: string,
+    encounterEditorComment?: string,
+    encounterVariables?: readonly SceneObjectEncounterVariableTargetEntry[],
+    encounterCreatureList?: readonly SceneObjectEncounterCreatureListTargetEntry[],
+    encounterSpawnPoints?: readonly SceneObjectEncounterSpawnPointTargetEntry[],
+  ): AreaScene;
   setPlaceablePropertiesByIds(
     scene: AreaScene,
     objectIds: string[],
@@ -117,6 +192,7 @@ export interface SceneViewportPort {
   changeAuroraAreaGroupHeight(scene: AreaScene, tileId: string, delta: -1 | 1): AreaScene;
   resetObjectTransform(scene: AreaScene, objectId: string): AreaScene;
   createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject;
+  createDoorAtHook(scene: AreaScene, x: number, y: number, sequence: number): SceneObject | undefined;
   resolveCopyAnchor(params: SceneViewportCopyAnchorParams): SceneViewportPoint | null;
   computeCopyTranslation(
     params: SceneViewportCopyTranslationParams
@@ -152,6 +228,347 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     deleteObjectById(scene: AreaScene, objectId: string): AreaScene {
       return bundle.mutations.deleteObjectById(scene, objectId);
+    },
+    setExistingWaypointTagById(scene: AreaScene, objectId: string, tag: string): AreaScene {
+      return bundle.mutations.setExistingWaypointTagById(scene, objectId, tag);
+    },
+    setExistingWaypointPropertiesById(
+      scene: AreaScene,
+      objectId: string,
+      input: ExistingWaypointPropertiesInput,
+    ): AreaScene {
+      return bundle.mutations.setExistingWaypointPropertiesById(scene, objectId, input);
+    },
+    setExistingEncounterTemplateResRefById(
+      scene: AreaScene,
+      objectId: string,
+      templateResRef: string,
+    ): AreaScene {
+      return bundle.mutations.setExistingEncounterTemplateResRefById(
+        scene,
+        objectId,
+        templateResRef,
+      );
+    },
+    setExistingTriggerTemplateResRefById(
+      scene: AreaScene,
+      objectId: string,
+      templateResRef: string,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerTemplateResRefById(
+        scene,
+        objectId,
+        templateResRef,
+      );
+    },
+    setExistingTriggerLocalizedNameById(
+      scene: AreaScene,
+      objectId: string,
+      localizedName: string,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerLocalizedNameById(
+        scene,
+        objectId,
+        localizedName,
+      );
+    },
+    setExistingTriggerEditorCommentById(
+      scene: AreaScene,
+      objectId: string,
+      editorComment: string,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerEditorCommentById(
+        scene,
+        objectId,
+        editorComment,
+      );
+    },
+    setExistingTriggerScriptResRefsById(
+      scene: AreaScene,
+      objectId: string,
+      scripts: TriggerScriptResRefsStorage,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerScriptResRefsById(
+        scene,
+        objectId,
+        scripts,
+      );
+    },
+    setExistingTriggerTransitionStorageById(
+      scene: AreaScene,
+      objectId: string,
+      storage: TriggerTransitionStorage,
+    ): AreaScene {
+      return bundle.mutations.setExistingTriggerTransitionStorageById(
+        scene,
+        objectId,
+        storage,
+      );
+    },
+    setAreaObjectPolygonGeometryById(
+      scene: AreaScene,
+      objectId: string,
+      geometry: AreaObjectPolygonGeometry,
+      tag?: string,
+      encounterActive?: EncounterActiveStorage,
+      encounterPlayerOnly?: EncounterPlayerOnlyStorage,
+      encounterReset?: EncounterResetStorage,
+      encounterResetTime?: EncounterResetTimeStorage,
+      encounterSpawnOption?: EncounterSpawnOptionStorage,
+      encounterRespawns?: EncounterRespawnsStorage,
+      encounterCreatureCounts?: EncounterCreatureCountStorage,
+      encounterScriptResRefs?: EncounterScriptResRefsStorage,
+      encounterFactionId?: number,
+      encounterDifficulty?: SceneEncounterDifficultyPair,
+      encounterLocalizedName?: string,
+      encounterEditorComment?: string,
+      encounterVariables?: readonly SceneObjectEncounterVariableTargetEntry[],
+      encounterCreatureList?: readonly SceneObjectEncounterCreatureListTargetEntry[],
+      encounterSpawnPoints?: readonly SceneObjectEncounterSpawnPointTargetEntry[],
+    ): AreaScene {
+      if (encounterSpawnPoints !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+          encounterLocalizedName,
+          encounterEditorComment,
+          encounterVariables,
+          encounterCreatureList,
+          encounterSpawnPoints,
+        );
+      }
+      if (encounterCreatureList !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+          encounterLocalizedName,
+          encounterEditorComment,
+          encounterVariables,
+          encounterCreatureList,
+        );
+      }
+      if (encounterVariables !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+          encounterLocalizedName,
+          encounterEditorComment,
+          encounterVariables,
+        );
+      }
+      if (encounterEditorComment !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+          encounterLocalizedName,
+          encounterEditorComment,
+        );
+      }
+      if (encounterLocalizedName !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+          encounterLocalizedName,
+        );
+      }
+      if (encounterDifficulty !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+          encounterDifficulty,
+        );
+      }
+      if (encounterFactionId !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+          encounterFactionId,
+        );
+      }
+      if (encounterScriptResRefs !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+          encounterScriptResRefs,
+        );
+      }
+      if (encounterCreatureCounts !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+          encounterCreatureCounts,
+        );
+      }
+      if (encounterRespawns !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+          encounterRespawns,
+        );
+      }
+      if (encounterSpawnOption !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+          encounterSpawnOption,
+        );
+      }
+      if (encounterResetTime !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+          encounterResetTime,
+        );
+      }
+      if (encounterReset !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+          encounterReset,
+        );
+      }
+      if (encounterPlayerOnly !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+          encounterPlayerOnly,
+        );
+      }
+      if (encounterActive !== undefined) {
+        return bundle.mutations.setAreaObjectPolygonGeometryById(
+          scene,
+          objectId,
+          geometry,
+          tag,
+          encounterActive,
+        );
+      }
+      return tag === undefined
+        ? bundle.mutations.setAreaObjectPolygonGeometryById(scene, objectId, geometry)
+        : bundle.mutations.setAreaObjectPolygonGeometryById(scene, objectId, geometry, tag);
     },
     setPlaceablePropertiesByIds(
       scene: AreaScene,
@@ -245,6 +662,9 @@ export function createSceneViewportPort(bundle: SceneFacadeBundle): SceneViewpor
     },
     createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject {
       return bundle.authoring.createObject(kind, x, y, sequence);
+    },
+    createDoorAtHook(scene: AreaScene, x: number, y: number, sequence: number): SceneObject | undefined {
+      return bundle.authoring.createDoorAtHook(scene, x, y, sequence);
     },
     resolveCopyAnchor(params: SceneViewportCopyAnchorParams): SceneViewportPoint | null {
       return bundle.authoring.resolveCopyAnchor(params);

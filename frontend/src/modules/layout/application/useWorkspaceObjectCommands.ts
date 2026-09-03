@@ -18,6 +18,7 @@ import {
   snapAngleRadians,
   snapHeightValue
 } from "./workspaceSceneInteraction";
+import { cloneDoorTransitionPreserveOnlyPayload } from "./doorTransitionStorageProvenance";
 
 interface UseWorkspaceObjectCommandsArgs {
   scene: AreaScene;
@@ -96,10 +97,23 @@ export function useWorkspaceObjectCommands({
         return [];
       }
 
-      const anchor = anchorOverride ?? resolveCopyAnchor(sourceObjects);
+      const copyableObjects = sourceObjects.filter((object) => object.kind !== "doors");
+      const blockedDoorCount = sourceObjects.length - copyableObjects.length;
+      if (blockedDoorCount > 0) {
+        trackTelemetry("scene.objects.copy_blocked_door_hook", {
+          userId,
+          source,
+          blockedCount: blockedDoorCount
+        });
+      }
+      if (copyableObjects.length === 0) {
+        return [];
+      }
+
+      const anchor = anchorOverride ?? resolveCopyAnchor(copyableObjects);
       const translation = anchor
         ? sceneViewportPort.computeCopyTranslation({
-            sourcePoints: sourceObjects.map((object) => ({ x: object.x, y: object.y })),
+            sourcePoints: copyableObjects.map((object) => ({ x: object.x, y: object.y })),
             anchor,
             snapGrid: toolbarState.canvasDebug.snapGrid,
             snapGridStep: workspaceOptions.snapGridStep
@@ -114,7 +128,7 @@ export function useWorkspaceObjectCommands({
         return [];
       }
 
-      const copies = sourceObjects.map((sourceObject) => {
+      const copies = copyableObjects.map((sourceObject) => {
         const nextSequence = nextObjectSequenceRef.current;
         nextObjectSequenceRef.current += 1;
         const sourceSnapshot = cloneSceneObject(sourceObject);
@@ -165,15 +179,9 @@ export function useWorkspaceObjectCommands({
                 : undefined
             }
           : undefined;
-        copy.doorTransition = sourceSnapshot.doorTransition
-          ? {
-              ...sourceSnapshot.doorTransition,
-              flags: { ...sourceSnapshot.doorTransition.flags },
-              ...(sourceSnapshot.doorTransition.extra
-                ? { extra: { ...sourceSnapshot.doorTransition.extra } }
-                : {})
-            }
-          : undefined;
+        copy.doorTransition = cloneDoorTransitionPreserveOnlyPayload(
+          sourceSnapshot.doorTransition,
+        );
         copy.vfxPayload = cloneSceneObjectVfxPayload(sourceSnapshot.vfxPayload);
         copy.z = toolbarState.canvasDebug.snapHeight
           ? snapHeightValue(sourceObject.z, workspaceOptions.snapHeightStep)
@@ -255,12 +263,11 @@ export function useWorkspaceObjectCommands({
         return [];
       }
 
-      return duplicateObjects(clipboardObjects, source, resolveCopyAnchor(clipboardObjects) ?? undefined);
+      return duplicateObjects(clipboardObjects, source);
     },
     [
       clipboardObjectsRef,
       duplicateObjects,
-      resolveCopyAnchor,
       toolbarState.canvasDebug,
       trackTelemetry,
       userId

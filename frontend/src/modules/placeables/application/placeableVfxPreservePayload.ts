@@ -186,15 +186,11 @@ export function buildVfxPayloadFromRenderPayload(
   payload: PlaceableViewportRenderPayload
 ): SceneObjectVfxPreservePayload | undefined {
   const renderContract = payload.placeable.render;
+  const renderPackage = payload.renderPackage;
   const isVfx =
     renderContract.frontendType === "vfx" ||
     renderContract.isVfx ||
     payload.placeable.placeableSubtype === "vfx";
-  if (!isVfx) {
-    return undefined;
-  }
-
-  const renderPackage = payload.renderPackage;
   const backendVfxPayload = buildSceneObjectVfxPayloadFromAuroraPayload(
     readBackendAuroraVfxPayload(renderPackage),
     {
@@ -224,6 +220,15 @@ export function buildVfxPayloadFromRenderPayload(
         renderPackageStatus: renderPackage?.status ?? ""
       }
     };
+  }
+
+  // Source MDL nodes, not the catalog row label, decide whether an ordinary
+  // placeable owns canonical emitters/lights. Retail campfires such as plc_i06
+  // are catalogued as generic placeables while their MDL still carries the
+  // flame/smoke emitter graph. Only fall back to the catalog VFX heuristic
+  // when the backend did not provide a validated Aurora payload.
+  if (!isVfx) {
+    return undefined;
   }
 
   const hasDerivedModelPreview =

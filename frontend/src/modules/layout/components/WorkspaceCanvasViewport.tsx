@@ -24,6 +24,21 @@ import type {
 import { browserTelemetryFacade } from "../../telemetry/composition/browserTelemetrySingleton";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
+import type { SceneObjectEncounterCreatureListBlueprintTargetEntry } from
+  "../../scene/contracts";
+import { AREA_STORE_COMMERCE_FIELDS } from "../../scene/domain/storeCommerce";
+import { AREA_STORE_SCRIPT_RESREF_FIELDS } from "../../scene/domain/storeScriptResRefs";
+import type { ClientAssetCachePort } from "../../shared/application/clientAssetCachePort";
+import { installClientAssetCachedFetch } from "../../shared/application/clientAssetCachedFetch";
+import type { AreaLifecycleFacade } from "../../areas/application/areaLifecycleFacade";
+import type { AreaTileProductionCertificationSource } from "../../areas/application/areaTileProductionPlacementAdmission";
+import type { AreaDraftSessionRegistry } from "../../areas/ports/areaLifecyclePort";
+import type { AreaWorkspaceDraftDocument } from "../../areas/areaWorkspaceDraftContracts";
+import {
+  formatAreaWorkspaceDraftStatus,
+  type AreaWorkspaceDraftStatusEvent,
+  type AreaWorkspaceStatusEvent
+} from "../../areas/application/areaWorkspaceStatus";
 import type { ViewportFacade } from "../application/viewportFacade";
 import { buildCanvasGridSegments, MASTER_CELLS_PER_TILE } from "../canvasGrid";
 import type { WorkspaceOptionSettings } from "../application/layoutPreferencesFacade";
@@ -36,11 +51,14 @@ import {
 } from "../visualTransformGizmoRules";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu";
 import { AdjustLocationDialog } from "./properties/AdjustLocationDialog";
+import { AreaObjectPolygonDialog } from "./properties/AreaObjectPolygonDialog";
 import { CreaturePropertiesDialog } from "./properties/CreaturePropertiesDialog";
 import { DoorPropertiesDialog } from "./properties/DoorPropertiesDialog";
 import { ItemPropertiesDialog } from "./properties/ItemPropertiesDialog";
 import { PlaceablePropertiesDialog } from "./properties/PlaceablePropertiesDialog";
 import { SoundPropertiesDialog } from "./properties/SoundPropertiesDialog";
+import { StorePropertiesDialog } from "./properties/StorePropertiesDialog";
+import { WaypointPropertiesDialog } from "./properties/WaypointPropertiesDialog";
 import {
   DEFAULT_PROPERTY_DIALOG_DRAG_STATE,
   usePropertyDialogDrag,
@@ -57,6 +75,7 @@ import {
   writeSoundRenderDiagnostics
 } from "../adapters/three/workspaceObjectMeshLayer";
 import { writeAuroraScenePointLightDiagnostics } from "../adapters/three/workspaceSceneLightDiagnostics";
+import { advanceAuroraWorldTimerRuntime } from "../adapters/three/auroraWorldTimerRuntime";
 import {
   AREA_TERRAIN_TILE_MODEL_RUNTIME_SNAPSHOT_EVENT,
   clearTerrainMesh,
@@ -81,6 +100,9 @@ import {
   createRuntime,
   disposeRuntime,
   focusCameraOnPoint,
+  refitFocusedPerspectiveCameraForVisibleTerrain,
+  refitTopDownOracleCameraForVisibleTerrain,
+  renderRuntime,
   resizeRuntime,
   sampleRuntimeObjectAnimationAtTime,
   setTopDownOracleCameraForScene,
@@ -112,12 +134,16 @@ import {
   resolveUnsupportedModelCandidateReason
 } from "../../placeables/application/placeableRenderAssetResolver";
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
+import type { PlaceableApiPort } from "../../placeables/ports/placeableApiPort";
+import type { WaypointApiPort } from "../../waypoints/ports/waypointApiPort";
 import type { CreatureViewportRenderPayload } from "../../creatures/application/creatureRenderPayloadResolver";
 import type { CreatureApiResourceOption } from "../../creatures/contracts";
 import {
   clearPlaceableModelLoadQueue,
   clearPlaceableTextureLoadQueue,
+  PLACEABLE_ASSET_CACHE_MISS_EVENT,
   PLACEABLE_MODEL_LOAD_QUEUE_PROGRESS_EVENT,
+  type PlaceableAssetCacheMissEventDetail,
   type PlaceableModelLoadQueueProgressDetail
 } from "../../placeables/adapters/three/placeableThreeAssetLoader";
 import type { AreaTileProcessContractReadiness } from "../../tiles/application/areaTileProcessContractReadiness";
@@ -145,10 +171,6 @@ import {
   CREATURE_SPELL_LEVEL_FILTER_OPTIONS,
   DOOR_APPEARANCE_TYPE_OPTIONS,
   DOOR_GENERIC_APPEARANCE_OPTIONS,
-  PLACEABLE_FACTION_OPTIONS,
-  PLACEABLE_INITIAL_STATE_OPTIONS,
-  PLACEABLE_TRAP_TYPE_OPTIONS,
-  PLACEABLE_TREASURE_MODEL_OPTIONS,
   arePlaceableAdvancedSettingsEqual,
   arePlaceableLockSettingsEqual,
   arePlaceableScriptSlotsEqual,
@@ -176,7 +198,464 @@ import {
   type SoundPropertiesTab,
   type SoundWhenToPlay
 } from "../application/workspaceObjectPropertyDrafts";
+import {
+  materializeExistingDoorTransitionPayload,
+  readExistingDoorTransitionStorageProvenance,
+} from "../application/doorTransitionStorageProvenance";
+import {
+  canEditExistingPlaceableScriptSlot,
+  materializeExistingPlaceableScriptSlots
+} from "../application/placeableScriptProvenance";
+import {
+  canEditExistingPlaceableTrapScript,
+  materializeExistingPlaceableTrapSettings
+} from "../application/placeableTrapScriptProvenance";
+import {
+  isPlaceableTrapByteField,
+  materializeExistingPlaceableTrapByteSettings,
+  reduceExistingPlaceableTrapByteField
+} from "../application/placeableTrapByteProvenance";
+import { canEditExistingPlaceableBoolean } from "../application/placeableBooleanProvenance";
+import {
+  canEditExistingPlaceableLockField,
+  materializeExistingPlaceableLockSettings
+} from "../application/placeableLockProvenance";
+import {
+  appendAdmittedPlaceableInventoryItem,
+  canEditExistingPlaceableInventory,
+  movePlaceableInventoryDraftItem,
+  removePlaceableInventoryDraftItem,
+  updatePlaceableInventoryDraftCoordinate
+} from "../application/placeableInventoryProvenance";
+import {
+  appendAdmittedCreatureInventoryItem,
+  materializeExistingCreatureInventory,
+  moveCreatureInventoryDraftItem,
+  removeCreatureInventoryDraftItem,
+  updateCreatureInventoryDraftField
+} from "../application/creatureInventoryProvenance";
+import {
+  materializeExistingCreatureEquipment,
+  removeCreatureEquipmentDraftItem,
+  updateCreatureEquipmentDraftFlag
+} from "../application/creatureEquipmentProvenance";
+import { materializeExistingCreatureTag } from "../application/creatureTagProvenance";
+import {
+  materializeExistingCreatureConversation,
+  reduceExistingCreatureConversation,
+} from "../application/creatureConversationProvenance";
+import {
+  materializeExistingCreatureNoInterrupt,
+  reduceExistingCreatureNoInterrupt,
+} from "../application/creatureInterruptableProvenance";
+import {
+  materializeExistingCreatureAdvancedFlag,
+  reduceExistingCreatureAdvancedFlag,
+} from "../application/creatureAdvancedFlagsProvenance";
+import {
+  materializeExistingCreatureBodyBagRow,
+  materializeExistingCreatureDecayTimeSeconds,
+} from "../application/creatureDeathRemainsProvenance";
+import type { CreatureAdvancedFlagKey } from "../../scene/domain/creatureAdvancedFlags";
+import {
+  materializeExistingCreatureNameLocalizedStrings,
+  reduceExistingCreatureNameLocalizedString,
+} from "../application/creatureLocalizedStringProvenance";
+import {
+  materializeExistingPlaceableDurabilitySaveBytes,
+  reduceExistingPlaceableDurabilitySaveByte
+} from "../application/placeableDurabilitySaveProvenance";
+import {
+  materializeExistingPlaceableConversationInterruptable,
+  reduceExistingPlaceableConversation,
+  reduceExistingPlaceableNoInterrupt
+} from "../application/placeableConversationInterruptableProvenance";
+import {
+  materializeExistingPlaceableAnimationState,
+  reduceExistingPlaceableInitialState
+} from "../application/placeableAnimationStateProvenance";
+import {
+  materializeExistingPlaceableComments,
+  reduceExistingPlaceableEditorComment
+} from "../application/placeableEditorCommentProvenance";
+import {
+  materializeExistingCreatureComments,
+  reduceExistingCreatureEditorComment,
+} from "../application/creatureEditorCommentProvenance";
+import {
+  reduceExistingItemEditorComment,
+} from "../application/itemEditorCommentProvenance";
+import {
+  reduceExistingItemInstanceStateField,
+} from "../application/itemInstanceStateProvenance";
+import {
+  reduceExistingItemTag,
+} from "../application/itemTagProvenance";
+import {
+  reduceExistingItemTemplateResRef,
+} from "../application/itemTemplateResRefProvenance";
+import {
+  reduceExistingItemLocalizedString,
+} from "../application/itemLocalizedStringProvenance";
+import {
+  appendItemVariable as appendEditableItemVariable,
+  moveItemVariable as moveEditableItemVariable,
+  removeItemVariable as removeEditableItemVariable,
+  updateItemVariable as updateEditableItemVariable,
+} from "../application/itemVariableProvenance";
+import {
+  appendExistingItemProperty,
+  moveExistingItemProperty,
+  removeExistingItemProperty,
+  updateExistingItemPropertyField,
+} from "../application/itemPropertyListProvenance";
+import {
+  appendExistingItemInventoryBlueprintEntry,
+  appendWizardItemEquipmentEntry,
+  appendWizardItemInventoryEntry,
+  listExistingItemInventoryBlueprintOptions,
+  moveExistingItemInventoryEntry,
+  moveWizardItemInventoryEntry,
+  removeExistingItemInventoryEntry,
+  removeWizardItemEquipmentEntry,
+  removeWizardItemInventoryEntry,
+  updateExistingItemInventoryCoordinate,
+  updateWizardItemEquipmentEntry,
+  updateWizardItemInventoryEntry,
+} from "../application/itemInventoryProvenance";
+import { isItemWizardBlueprintEditorObject } from
+  "../application/itemBlueprintPropertiesApplyRouting";
+import { materializeItemPropertiesDraft } from
+  "../application/itemPropertiesDraftMaterialization";
+import {
+  areStorePropertiesDraftsEqual,
+  buildStorePropertiesDraft,
+  materializeStorePropertiesDraft,
+  type StorePropertiesDraft,
+  type StorePropertiesDialogState,
+} from "../application/storePropertiesDraft";
+import {
+  buildWaypointPropertiesDraft,
+  materializeWaypointPropertiesDraft,
+  type WaypointPropertiesDialogState,
+} from "../application/waypointPropertiesDraft";
+import { reduceExistingWaypointTag } from
+  "../application/waypointTagProvenance";
+import { reduceExistingWaypointTemplateResRef } from
+  "../application/waypointTemplateResRefProvenance";
+import { reduceExistingWaypointLocalizedName } from
+  "../application/waypointLocalizedNameProvenance";
+import { reduceExistingWaypointDescription } from
+  "../application/waypointDescriptionProvenance";
+import { reduceExistingWaypointEditorComment } from
+  "../application/waypointEditorCommentProvenance";
+import { reduceExistingWaypointMapNote } from
+  "../application/waypointMapNoteProvenance";
+import { reduceExistingWaypointVariables } from
+  "../application/waypointVariableProvenance";
+import {
+  canEditExistingWaypointAppearance,
+  loadExistingWaypointAppearanceCatalog,
+  reduceExistingWaypointAppearance,
+  type ExistingWaypointAppearanceCatalog,
+} from "../application/waypointAppearanceProvenance";
+import { countChangedStoreInventoryEntries } from
+  "../../scene/domain/storeInventory";
+import { reduceExistingItemBaseItemDraft } from
+  "../application/itemBaseAppearanceProvenance";
+import {
+  materializePlaceableBasicIdentity,
+  reducePlaceableBasicIdentityField
+} from "../application/placeableBasicIdentityPreservation";
+import { reduceExistingPlaceableTag } from "../application/placeableTagProvenance";
+import {
+  materializeExistingPlaceableLocalizedStrings,
+  reduceExistingPlaceableLocalizedString
+} from "../application/placeableLocalizedStringProvenance";
+import {
+  loadExistingPlaceableAppearanceCatalog,
+  materializeExistingPlaceableAppearance,
+  reduceExistingPlaceableAppearance,
+  type ExistingPlaceableAppearanceCatalog
+} from "../application/placeableAppearanceProvenance";
+import {
+  loadExistingCreatureAppearanceCatalog,
+  materializeExistingCreatureAppearance,
+  reduceExistingCreatureAppearance,
+  type ExistingCreatureAppearanceCatalog,
+} from "../application/creatureAppearanceProvenance";
+import {
+  loadExistingCreatureGenderCatalog,
+  materializeExistingCreatureGender,
+  reduceExistingCreatureGender,
+  resolveCreatureGenderDisplayName,
+  type ExistingCreatureGenderCatalog,
+} from "../application/creatureGenderProvenance";
+import {
+  loadExistingCreatureAppendageCatalog,
+  materializeExistingCreatureAppendage,
+  reduceExistingCreatureAppendage,
+  type ExistingCreatureAppendageCatalog,
+} from "../application/creatureAppendageProvenance";
+import {
+  loadExistingCreaturePerceptionRangeCatalog,
+  materializeExistingCreaturePerceptionRange,
+  reduceExistingCreaturePerceptionRange,
+  resolveCreaturePerceptionRangeDisplayName,
+  type ExistingCreaturePerceptionRangeCatalog,
+} from "../application/creaturePerceptionRangeProvenance";
+import {
+  loadExistingCreatureWalkRateCatalog,
+  materializeExistingCreatureWalkRate,
+  reduceExistingCreatureWalkRate,
+  resolveCreatureWalkRateDisplayName,
+  type ExistingCreatureWalkRateCatalog,
+} from "../application/creatureWalkRateProvenance";
+import {
+  loadExistingCreatureSoundSetCatalog,
+  materializeExistingCreatureSoundSetFile,
+  reduceExistingCreatureSoundSetFile,
+  resolveCreatureSoundSetDisplayName,
+  type ExistingCreatureSoundSetCatalog,
+} from "../application/creatureSoundSetProvenance";
+import {
+  loadExistingCreatureStartingPackageCatalog,
+  materializeExistingCreatureStartingPackageId,
+  reduceExistingCreatureStartingPackageId,
+  type ExistingCreatureStartingPackageCatalog,
+} from "../application/creatureStartingPackageProvenance";
+import {
+  isExistingCreatureClassCatalogAdmitted,
+  loadCreatureClassIdentityStartingPackageCatalog,
+  loadExistingCreatureClassCatalog,
+  materializeExistingCreatureClassIdentity,
+  materializeExistingCreatureClassSlotResize,
+  readExistingCreatureClassIdentityProvenance,
+  reduceExistingCreatureClassIdentityStartingPackageId,
+  type ExistingCreatureClassCatalog,
+} from "../application/creatureClassIdentityProvenance";
+import {
+  isExistingCreatureSkillCatalogAdmitted,
+  loadExistingCreatureSkillCatalog,
+  materializeExistingCreatureSkills,
+  readExistingCreatureSkillListProvenance,
+  type ExistingCreatureSkillCatalog,
+} from "../application/creatureSkillListProvenance";
+import {
+  isExistingCreatureFeatCatalogAdmitted,
+  loadExistingCreatureFeatCatalog,
+  materializeExistingCreatureFeats,
+  readExistingCreatureFeatListProvenance,
+  type ExistingCreatureFeatCatalog,
+} from "../application/creatureFeatListProvenance";
+import {
+  isExistingCreatureSpecialAbilityCatalogAdmitted,
+  loadExistingCreatureSpecialAbilityCatalog,
+  materializeExistingCreatureSpecialAbilities,
+  readExistingCreatureSpecialAbilityListProvenance,
+  reduceCreatureSpecialAbilityEntry,
+  type ExistingCreatureSpecialAbilityCatalog,
+} from "../application/creatureSpecialAbilityListProvenance";
+import {
+  appendExistingCreatureVariable,
+  canEditExistingCreatureVariables,
+  moveExistingCreatureVariable,
+  removeExistingCreatureVariable,
+  updateExistingCreatureVariable,
+} from "../application/creatureVariableProvenance";
+import { readCreatureVariableTargetEntries } from "../../scene/domain/creatureVariableTable";
+import {
+  loadExistingCreaturePhenotypeCatalog,
+  materializeExistingCreaturePhenotype,
+  reduceExistingCreaturePhenotype,
+  resolveCreaturePhenotypeDisplayName,
+  type ExistingCreaturePhenotypeCatalog,
+} from "../application/creaturePhenotypeProvenance";
+import {
+  materializeExistingCreaturePortrait,
+  readExistingCreaturePortraitProvenance,
+  reduceExistingCreaturePortrait,
+} from "../application/creaturePortraitProvenance";
+import {
+  materializeExistingCreatureChallengeRating,
+  reduceExistingCreatureChallengeRating,
+} from "../application/creatureChallengeRatingProvenance";
+import {
+  materializeExistingCreatureAbilityScores,
+  reduceExistingCreatureAbilityScore,
+} from "../application/creatureAbilityScoresProvenance";
+import {
+  materializeExistingCreatureAppearanceColors,
+  reduceExistingCreatureAppearanceColor,
+} from "../application/creatureAppearanceColorsProvenance";
+import type { CreatureAppearanceColorKey } from "../../scene/domain/creatureAppearanceColors";
+import type { CreatureBodyPartKey } from "../../scene/domain/creatureBodyParts";
+import {
+  materializeExistingCreatureBodyParts,
+  reduceExistingCreatureBodyPart,
+} from "../application/creatureBodyPartProvenance";
+import {
+  materializeExistingCreatureHitPointDraft,
+  reduceExistingCreatureHitPointDraft,
+} from "../application/creatureHitPointsProvenance";
+import {
+  canEditExistingCreatureClassLevels,
+  materializeExistingCreatureClassEntries,
+} from "../application/creatureClassLevelProvenance";
+import type { CreatureAbilityScoreKey } from "../../scene/domain/creatureAbilityScores";
+import {
+  materializeExistingCreatureNaturalArmorClass,
+  reduceExistingCreatureNaturalArmorClass,
+} from "../application/creatureNaturalArmorClassProvenance";
+import {
+  materializeExistingCreatureSavingThrowBonuses,
+  reduceExistingCreatureSavingThrowBonus,
+} from "../application/creatureSavingThrowBonusesProvenance";
+import {
+  materializeExistingCreatureAlignment,
+  reduceExistingCreatureAlignment,
+} from "../application/creatureAlignmentProvenance";
+import { materializeExistingCreatureFaction } from "../application/creatureFactionProvenance";
+import {
+  materializeExistingCreatureTemplateResRef,
+  reduceExistingCreatureTemplateResRef,
+} from "../application/creatureTemplateResRefProvenance";
+import {
+  materializeExistingCreatureSpecialIdentityStrings,
+  reduceExistingCreatureSpecialIdentityString,
+} from "../application/creatureSpecialIdentityStringsProvenance";
+import {
+  materializeExistingCreatureScriptResRefs,
+  reduceExistingCreatureScriptResRef,
+} from "../application/creatureScriptResRefsProvenance";
+import type { CreatureAppearanceCatalogFacade } from "../../creatures/application/creatureAppearanceCatalogFacade";
+import type { CreatureGenderCatalogFacade } from "../../creatures/application/creatureGenderCatalogFacade";
+import type { CreatureAppendageCatalogFacade } from
+  "../../creatures/application/creatureAppendageCatalogFacade";
+import type { CreaturePerceptionRangeCatalogFacade } from
+  "../../creatures/application/creaturePerceptionRangeCatalogFacade";
+import type { CreatureWalkRateCatalogFacade } from
+  "../../creatures/application/creatureWalkRateCatalogFacade";
+import type { CreatureSoundSetCatalogFacade } from
+  "../../creatures/application/creatureSoundSetCatalogFacade";
+import type { CreatureStartingPackageCatalogFacade } from
+  "../../creatures/application/creatureStartingPackageCatalogFacade";
+import type { CreatureClassCatalogFacade } from
+  "../../creatures/application/creatureClassCatalogFacade";
+import type { CreatureSkillCatalogFacade } from
+  "../../creatures/application/creatureSkillCatalogFacade";
+import type { CreatureFeatCatalogFacade } from
+  "../../creatures/application/creatureFeatCatalogFacade";
+import type { CreatureSpecialAbilityCatalogFacade } from
+  "../../creatures/application/creatureSpecialAbilityCatalogFacade";
+import type { CreaturePhenotypeCatalogFacade } from "../../creatures/application/creaturePhenotypeCatalogFacade";
+import {
+  materializeExistingPlaceableHitPoints,
+  reduceExistingPlaceableHitPoints
+} from "../application/placeableHitPointProvenance";
+import { materializeExistingPlaceableTrapType } from "../application/placeableTrapTypeProvenance";
+import { materializeExistingPlaceableBodyBag } from "../application/placeableBodyBagProvenance";
+import { materializeExistingPlaceablePortrait } from "../application/placeablePortraitProvenance";
+import { materializeExistingPlaceableFaction } from "../application/placeableFactionProvenance";
+import { readExistingEncounterLocalizedName } from
+  "../application/encounterLocalizedNameProvenance";
+import {
+  appendExistingPlaceableVariable,
+  materializeExistingPlaceableVariables,
+  moveExistingPlaceableVariable,
+  removeExistingPlaceableVariable,
+  updateExistingPlaceableVariable,
+} from "../application/placeableVariableProvenance";
+import {
+  materializeExistingPlaceableTemplateResRef,
+  reduceExistingPlaceableTemplateResRef,
+} from "../application/placeableTemplateResRefProvenance";
 import { useRuntimeSoundPreview } from "../application/useRuntimeSoundPreview";
+import {
+  appendAreaObjectPolygonDraftCreature,
+  appendAreaObjectPolygonDraftPoint,
+  appendAreaObjectPolygonDraftSpawnPoint,
+  buildAreaObjectPolygonDraft,
+  materializeAreaObjectPolygonDraft,
+  materializeAreaObjectPolygonDraftActive,
+  materializeAreaObjectPolygonDraftPlayerOnly,
+  materializeAreaObjectPolygonDraftReset,
+  materializeAreaObjectPolygonDraftResetTime,
+  materializeAreaObjectPolygonDraftSpawnOption,
+  materializeAreaObjectPolygonDraftRespawns,
+  materializeAreaObjectPolygonDraftCreatureCounts,
+  materializeAreaObjectPolygonDraftFaction,
+  materializeAreaObjectPolygonDraftDifficulty,
+  materializeAreaObjectPolygonDraftTemplateResRef,
+  materializeAreaObjectPolygonDraftLocalizedName,
+  materializeAreaObjectPolygonDraftEditorComment,
+  materializeAreaObjectPolygonDraftVariables,
+  materializeAreaObjectPolygonDraftCreatureList,
+  materializeAreaObjectPolygonDraftSpawnPoints,
+  materializeAreaObjectPolygonDraftScriptResRefs,
+  materializeAreaObjectPolygonDraftTriggerScriptResRefs,
+  materializeAreaObjectPolygonDraftTriggerTransitionStorage,
+  materializeAreaObjectPolygonDraftTag,
+  removeAreaObjectPolygonDraftPoint,
+  removeAreaObjectPolygonDraftCreature,
+  removeAreaObjectPolygonDraftSpawnPoint,
+  moveAreaObjectPolygonDraftCreature,
+  moveAreaObjectPolygonDraftSpawnPoint,
+  replaceAreaObjectPolygonDraftCreature,
+  updateAreaObjectPolygonDraftActive,
+  updateAreaObjectPolygonDraftPlayerOnly,
+  updateAreaObjectPolygonDraftReset,
+  updateAreaObjectPolygonDraftResetTime,
+  updateAreaObjectPolygonDraftSpawnOption,
+  updateAreaObjectPolygonDraftRespawnsFinite,
+  updateAreaObjectPolygonDraftRespawnsInfinite,
+  updateAreaObjectPolygonDraftMaximumCreatures,
+  updateAreaObjectPolygonDraftMinimumCreatures,
+  updateAreaObjectPolygonDraftFaction,
+  updateAreaObjectPolygonDraftDifficulty,
+  updateAreaObjectPolygonDraftTemplateResRef,
+  updateAreaObjectPolygonDraftLocalizedName,
+  updateAreaObjectPolygonDraftEditorComment,
+  updateAreaObjectPolygonDraftVariables,
+  updateAreaObjectPolygonDraftCreatureSingleSpawn,
+  updateAreaObjectPolygonDraftSpawnPoint,
+  updateAreaObjectPolygonDraftScriptResRef,
+  updateAreaObjectPolygonDraftTriggerScriptResRef,
+  updateAreaObjectPolygonDraftTriggerTransitionStorage,
+  updateAreaObjectPolygonDraftTag,
+  updateAreaObjectPolygonDraftPoint,
+  type AreaObjectPolygonDraft,
+  type AreaObjectPolygonPointField,
+  type AreaObjectPolygonSpawnPointField,
+} from "../../areas/application/areaObjectPolygonAuthoring";
+import {
+  encounterScriptResRefsStoragesEqual,
+  type EncounterScriptResRefField,
+} from "../../scene/domain/encounterScriptResRefs";
+import {
+  triggerScriptResRefsStoragesEqual,
+  type TriggerScriptResRefField,
+} from "../../scene/domain/triggerScriptResRefs";
+import {
+  triggerTransitionStoragesEqual,
+  type TriggerTransitionStorage,
+} from "../../scene/domain/triggerTransitionStorage";
+import { encounterVariableTargetEntriesEqual } from
+  "../../scene/domain/encounterVariableTable";
+import {
+  encounterCreatureListTargetEntriesEqual,
+  readEncounterCreatureBlueprintTargetEntry,
+} from "../../scene/domain/encounterCreatureSingleSpawn";
+import { encounterSpawnPointTargetEntriesEqual } from
+  "../../scene/domain/encounterSpawnPointList";
+import type { AuroraVariableTargetEntry } from
+  "../../shared/domain/auroraVariableTable";
+import {
+  isAreaSoundResRef,
+  MAX_AREA_SOUND_PLAYBACK_LIST_ENTRIES,
+  readAreaSoundPlaybackStorage,
+} from "../../areas/domain/areaSoundPlaybackStorage";
+import { readAreaSoundProfileStorage } from "../../areas/domain/areaSoundProfileStorage";
 import type { RuntimeSoundNowPlayingBadge } from "../runtimeSoundPlaybackState";
 import { useWorkspaceKeyboardObjectActions } from "../application/useWorkspaceKeyboardObjectActions";
 import { useAuroraAreaTileClipboardCommands } from "../application/useAuroraAreaTileClipboardCommands";
@@ -217,6 +696,7 @@ import {
   resolvePlaceableModelResolution,
   resolveAreaPlaceablePlaceholderReason,
   resolvePlaceableRenderContractState,
+  resolveSceneObjectRenderAppearanceType,
   resolvePlaceableTextureDeliveryUrl,
   resolvePlaceableTextureDeliveryUrlsByReference,
   type AreaPlaceablePlaceholderReason
@@ -273,6 +753,52 @@ const ITEM_VISUAL_PROOF_SNAPSHOT_EVENT =
 const AREA_OBJECT_RUNTIME_DIAGNOSTICS_DEBOUNCE_MS = 300;
 export const AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT = 256;
 const CAMERA_WHEEL_DISTANCE_EPSILON = 0.001;
+
+function creatureAdvancedFlagForDraftField(
+  field: keyof CreaturePropertiesDraft["advancedSettings"],
+): CreatureAdvancedFlagKey | undefined {
+  switch (field) {
+    case "disarmable":
+      return "disarmable";
+    case "plot":
+      return "plot";
+    case "immortal":
+      return "immortal";
+    case "leavesLootableCorpse":
+      return "lootable";
+    case "noPermanentDeath":
+      return "noPermanentDeath";
+    default:
+      return undefined;
+  }
+}
+
+function readCreatureHitPointCoupledClassLevels(
+  snapshotObject: SceneObject,
+  targetEntries: ReadonlyArray<CreaturePropertiesDraft["classEntries"][number]>,
+): readonly number[] | undefined {
+  const snapshotEntries = snapshotObject.creatureProperties?.classEntries;
+  if (!canEditExistingCreatureClassLevels(snapshotObject.source, snapshotEntries) ||
+    !snapshotEntries || targetEntries.length < 1 || targetEntries.length > 8) return undefined;
+  if (targetEntries.length === snapshotEntries.length) {
+    if (targetEntries.some((entry, index) =>
+      entry.classId !== snapshotEntries[index]?.classId)) return undefined;
+    return targetEntries.map((entry) => entry.level);
+  }
+  const provenance = readExistingCreatureClassIdentityProvenance(snapshotObject.source);
+  const retainedCount = Math.min(targetEntries.length, snapshotEntries.length);
+  if (!provenance || snapshotEntries.length !== provenance.sourceClassIds.length ||
+    snapshotEntries.some((entry, index) => entry.classId !== provenance.sourceClassIds[index] ||
+      entry.level !== provenance.sourceLevels[index]) ||
+    targetEntries.some((entry, index) => !Number.isSafeInteger(entry.classId) ||
+      Number(entry.classId) < 0 || Number(entry.classId) >= provenance.classesRowCount ||
+      !Number.isSafeInteger(entry.level) || entry.level < 1 || entry.level > 60 ||
+      (index < retainedCount && (entry.classId !== provenance.sourceClassIds[index] ||
+        entry.level !== provenance.sourceLevels[index]))) ||
+    new Set(targetEntries.map((entry) => entry.classId)).size !== targetEntries.length ||
+    targetEntries.reduce((sum, entry) => sum + entry.level, 0) > 180) return undefined;
+  return targetEntries.map((entry) => entry.level);
+}
 
 type WorkspaceCanvasDebugState = WorkspaceToolbarState["canvasDebug"];
 
@@ -580,7 +1106,6 @@ interface AreaSharedRendererModelBoundsSampleEntry {
     depthWriteDisabled: number;
     multiplyBlending: number;
     auroraMaterialContract: number;
-    auroraMaterialClearCustomShader: number;
     auroraMagentaKeyMaterial: number;
   };
   materialOpacityRange: { min: number; max: number };
@@ -1360,7 +1885,6 @@ function collectAreaSharedRendererMaterialEvidence(root: THREE.Object3D): {
     depthWriteDisabled: 0,
     multiplyBlending: 0,
     auroraMaterialContract: 0,
-    auroraMaterialClearCustomShader: 0,
     auroraMagentaKeyMaterial: 0
   };
   let minOpacity = Number.POSITIVE_INFINITY;
@@ -1390,11 +1914,7 @@ function collectAreaSharedRendererMaterialEvidence(root: THREE.Object3D): {
       if (materialMapReference.trim().length > 0) {
         const normalizedMaterialMapReference = materialMapReference.trim();
         mapReferences.add(normalizedMaterialMapReference);
-        if (
-          /fxpa_smoke01/iu.test(normalizedMaterialMapReference) &&
-          material.opacity > 0.01 &&
-          userData.auroraMaterialClearCustomShader !== true
-        ) {
+        if (/fxpa_smoke01/iu.test(normalizedMaterialMapReference) && material.opacity > 0.01) {
           diagnosticPriority += 8;
         }
         if (/ob_plantmag/iu.test(normalizedMaterialMapReference)) {
@@ -1425,10 +1945,6 @@ function collectAreaSharedRendererMaterialEvidence(root: THREE.Object3D): {
       }
       if (typeof userData.auroraMaterialContractSource === "string") {
         flags.auroraMaterialContract += 1;
-      }
-      if (userData.auroraMaterialClearCustomShader === true) {
-        flags.auroraMaterialClearCustomShader += 1;
-        diagnosticPriority += 3;
       }
       if (userData.auroraMagentaKeyMaterial === true) {
         flags.auroraMagentaKeyMaterial += 1;
@@ -1498,6 +2014,8 @@ interface AreaTileProcessRuntimeSnapshot {
   path: "backend-tile-process-contract";
   status: "not_checked" | AreaTileProcessContractReadiness["status"];
   areaId: string | null;
+  expectedCandidateCount: number;
+  pendingCandidateCount: number;
   checkedCandidateCount: number;
   readyCandidateCount: number;
   blockedCandidateCount: number;
@@ -1692,7 +2210,7 @@ function buildItemVisualProofSnapshot(
   const canvas = runtime.renderer.domElement;
   let imageDataUrl = "";
   try {
-    runtime.renderer.render(runtime.scene, runtime.camera);
+    renderRuntime(runtime);
     imageDataUrl = canvas.toDataURL("image/png");
   } catch {
     imageDataUrl = "";
@@ -2461,7 +2979,7 @@ function resolveAreaObjectModelContractStatus(
   }
 
   const renderState = resolvePlaceableRenderContractState(payload);
-  const sourceAppearanceType = object.source?.appearanceType;
+  const sourceAppearanceType = resolveSceneObjectRenderAppearanceType(object);
   const hasSourceAppearance =
     typeof sourceAppearanceType === "number" && Number.isFinite(sourceAppearanceType);
   const hasModelName = readAreaObjectPlaceableMetadataValue(payload, [
@@ -2496,7 +3014,7 @@ function resolveAreaObjectModelContractEvidence(
 
   if (object.kind === "placeables") {
     const renderState = payload ? resolvePlaceableRenderContractState(payload) : null;
-    const sourceAppearanceType = object.source?.appearanceType;
+    const sourceAppearanceType = resolveSceneObjectRenderAppearanceType(object);
     const appearanceType = payload?.placeable.placeableRuntime?.state?.appearanceType;
     const appearance =
       typeof sourceAppearanceType === "number" && Number.isFinite(sourceAppearanceType)
@@ -2528,7 +3046,7 @@ function resolveAreaObjectModelContractEvidence(
   }
 
   if (object.kind === "doors") {
-    const sourceAppearanceType = object.source?.appearanceType;
+    const sourceAppearanceType = resolveSceneObjectRenderAppearanceType(object);
     const sourceGenericType = object.source?.genericType;
     const renderState = payload ? resolvePlaceableRenderContractState(payload) : null;
     const appearance =
@@ -2661,7 +3179,7 @@ function resolveAreaObjectLookupContractEvidence(
   ];
 
   if (object.kind === "placeables") {
-    const sourceAppearanceType = object.source?.appearanceType;
+    const sourceAppearanceType = resolveSceneObjectRenderAppearanceType(object);
     const appearance =
       typeof sourceAppearanceType === "number" && Number.isFinite(sourceAppearanceType)
         ? `git-appearance-${sourceAppearanceType}`
@@ -4487,6 +5005,15 @@ function writeAreaTileProcessRuntimeDiagnostics(
         path: "backend-tile-process-contract",
         status: readiness.status,
         areaId: readiness.areaId,
+        expectedCandidateCount:
+          readiness.expectedCandidateCount ?? readiness.checkedCandidateCount,
+        pendingCandidateCount:
+          readiness.pendingCandidateCount ??
+          Math.max(
+            (readiness.expectedCandidateCount ?? readiness.checkedCandidateCount) -
+              readiness.checkedCandidateCount,
+            0
+          ),
         checkedCandidateCount: readiness.checkedCandidateCount,
         readyCandidateCount: readiness.readyCandidateCount,
         blockedCandidateCount: readiness.blockedCandidateCount,
@@ -4508,6 +5035,8 @@ function writeAreaTileProcessRuntimeDiagnostics(
         path: "backend-tile-process-contract",
         status: "not_checked",
         areaId: null,
+        expectedCandidateCount: 0,
+        pendingCandidateCount: 0,
         checkedCandidateCount: 0,
         readyCandidateCount: 0,
         blockedCandidateCount: 0,
@@ -4528,6 +5057,8 @@ function writeAreaTileProcessRuntimeDiagnostics(
   if (!readiness) {
     dataset.areaTileProcessRuntimeStatus = "not_checked";
     dataset.areaTileProcessRuntimeAreaId = "none";
+    dataset.areaTileProcessRuntimeExpectedCount = "0";
+    dataset.areaTileProcessRuntimePendingCount = "0";
     dataset.areaTileProcessRuntimeCheckedCount = "0";
     dataset.areaTileProcessRuntimeReadyCount = "0";
     dataset.areaTileProcessRuntimeBlockedCount = "0";
@@ -4555,6 +5086,17 @@ function writeAreaTileProcessRuntimeDiagnostics(
 
   dataset.areaTileProcessRuntimeStatus = readiness.status;
   dataset.areaTileProcessRuntimeAreaId = readiness.areaId;
+  dataset.areaTileProcessRuntimeExpectedCount = String(
+    readiness.expectedCandidateCount ?? readiness.checkedCandidateCount
+  );
+  dataset.areaTileProcessRuntimePendingCount = String(
+    readiness.pendingCandidateCount ??
+      Math.max(
+        (readiness.expectedCandidateCount ?? readiness.checkedCandidateCount) -
+          readiness.checkedCandidateCount,
+        0
+      )
+  );
   dataset.areaTileProcessRuntimeCheckedCount = String(readiness.checkedCandidateCount);
   dataset.areaTileProcessRuntimeReadyCount = String(readiness.readyCandidateCount);
   dataset.areaTileProcessRuntimeBlockedCount = String(readiness.blockedCandidateCount);
@@ -4599,13 +5141,16 @@ function formatAreaTileProcessRuntimeStatus(
   if (!readiness) {
     return "not checked";
   }
+  const expectedCandidateCount =
+    readiness.expectedCandidateCount ?? readiness.checkedCandidateCount;
   return [
     readiness.status,
-    `ready ${readiness.readyCandidateCount}/${readiness.checkedCandidateCount}`,
-    `source ${readiness.sourceAssetReadyCount}/${readiness.checkedCandidateCount}`,
-    `mdl ${readiness.mdlSourceReadyCount}/${readiness.checkedCandidateCount}`,
-    `glb ${readiness.glbGeometryReadyCount}/${readiness.checkedCandidateCount}`,
-    `loader ${readiness.renderLoaderReadyCount}/${readiness.checkedCandidateCount}`
+    `checked ${readiness.checkedCandidateCount}/${expectedCandidateCount}`,
+    `ready ${readiness.readyCandidateCount}/${expectedCandidateCount}`,
+    `source ${readiness.sourceAssetReadyCount}/${expectedCandidateCount}`,
+    `mdl ${readiness.mdlSourceReadyCount}/${expectedCandidateCount}`,
+    `glb ${readiness.glbGeometryReadyCount}/${expectedCandidateCount}`,
+    `loader ${readiness.renderLoaderReadyCount}/${expectedCandidateCount}`
   ].join(" / ");
 }
 
@@ -4627,10 +5172,13 @@ function formatAreaTileModelLoaderRuntimeStatus(
     readiness.entries.find((entry) => entry.expectedDerivedModelObjectKey)
       ?.expectedDerivedModelObjectKey ??
     "none";
+  const expectedCandidateCount =
+    readiness.expectedCandidateCount ?? readiness.checkedCandidateCount;
 
   return [
-    `ready ${readyModelCount}/${readiness.checkedCandidateCount}`,
-    `blocked ${blockedModelCount}/${readiness.checkedCandidateCount}`,
+    `checked ${readiness.checkedCandidateCount}/${expectedCandidateCount}`,
+    `ready ${readyModelCount}/${expectedCandidateCount}`,
+    `blocked ${blockedModelCount}/${expectedCandidateCount}`,
     `sample ${sample}`
   ].join(" / ");
 }
@@ -4994,6 +5542,11 @@ interface WorkspaceCanvasViewportProps {
   toolbarState: WorkspaceToolbarState;
   userId: string;
   sceneViewportPort: SceneViewportPort;
+  clientAssetCachePort?: ClientAssetCachePort;
+  areaLifecycleFacade?: AreaLifecycleFacade<AreaWorkspaceDraftDocument>;
+  areaDraftSessionRegistry?: AreaDraftSessionRegistry;
+  onAreaDraftPersisted?: () => void;
+  onAreaWorkspaceStatusChange?: (event: AreaWorkspaceStatusEvent) => void;
   viewportFacade?: WorkspaceCanvasViewportFacade;
   trackTelemetryEvent?: WorkspaceCanvasTelemetryTrack;
   commandSignal: WorkspaceCommandSignal | null;
@@ -5027,6 +5580,7 @@ interface WorkspaceCanvasViewportProps {
   workspaceOptions: WorkspaceOptionSettings;
   leftPanelWidthPx: number;
   rightPanelWidthPx: number;
+  viewportFullscreen?: boolean;
   onSceneObjectsSnapshotChange?: (objects: SceneObject[]) => void;
   onSelectionSnapshotChange?: (selectedIds: string[]) => void;
   onObjectAddPlacementModeChange?: (
@@ -5040,7 +5594,9 @@ interface WorkspaceCanvasViewportProps {
   ) => void;
   externalSceneSeed?: AreaScene | null;
   areaEditorMutationSignal?: WorkspaceAreaEditorMutationSignal | null;
+  onAreaEditorMutationApplied?: (revision: number) => void;
   areaEditingTool?: AuroraAreaEditingTool;
+  tileProductionCertification: AreaTileProductionCertificationSource;
   onAreaSceneDraftChange?: (scene: AreaScene) => void;
   onSelectedTileChange?: (tileId: string | null, tileIds: readonly string[]) => void;
   renderObjectIds?: string[] | null;
@@ -5051,11 +5607,127 @@ interface WorkspaceCanvasViewportProps {
   creatureResourceOptions?: Partial<
     Record<"conversation" | "portrait" | "script" | "soundset", CreatureApiResourceOption[]>
   >;
+  creatureAppearanceCatalogFacade?: CreatureAppearanceCatalogFacade;
+  creatureGenderCatalogFacade?: CreatureGenderCatalogFacade;
+  creatureAppendageCatalogFacade?: CreatureAppendageCatalogFacade;
+  creaturePerceptionRangeCatalogFacade?: CreaturePerceptionRangeCatalogFacade;
+  creatureWalkRateCatalogFacade?: CreatureWalkRateCatalogFacade;
+  creatureSoundSetCatalogFacade?: CreatureSoundSetCatalogFacade;
+  creatureStartingPackageCatalogFacade?: CreatureStartingPackageCatalogFacade;
+  creatureClassCatalogFacade?: CreatureClassCatalogFacade;
+  creatureSkillCatalogFacade?: CreatureSkillCatalogFacade;
+  creatureFeatCatalogFacade?: CreatureFeatCatalogFacade;
+  creatureSpecialAbilityCatalogFacade?: CreatureSpecialAbilityCatalogFacade;
+  creaturePhenotypeCatalogFacade?: CreaturePhenotypeCatalogFacade;
+  creatureAppearanceAccessToken?: string | null;
+  creatureTemplateOptions?: readonly SceneObject[];
+  itemTemplateOptions?: SceneObject[];
+  soundTemplateOptions?: readonly SceneObject[];
   placeableAssetAccessToken?: string | null;
+  placeableApiPort?: Pick<PlaceableApiPort, "listPlaceableAppearanceRows">;
+  waypointAppearanceAccessToken?: string | null;
+  waypointApiPort?: Pick<WaypointApiPort, "listWaypointAppearanceRows">;
+  onPlaceableAssetCacheMiss?: (detail: PlaceableAssetCacheMissEventDetail) => void;
   onItemPreviewObjectNeeded?: (object: SceneObject) => Promise<SceneObject>;
   onItemPropertiesApplied?: (object: SceneObject, previousObject: SceneObject) => void;
   onCreaturePropertiesApplied?: (object: SceneObject, previousObject: SceneObject) => void;
   showGizmoModeBadge?: boolean;
+}
+
+interface WorkspacePlaceableAppearanceCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingPlaceableAppearanceCatalog | null;
+}
+
+interface WorkspaceWaypointAppearanceCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingWaypointAppearanceCatalog | null;
+}
+
+interface WorkspaceCreatureAppearanceCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureAppearanceCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureGenderCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureGenderCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureAppendageCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureAppendageCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreaturePerceptionRangeCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreaturePerceptionRangeCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureWalkRateCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureWalkRateCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureSoundSetCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureSoundSetCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureStartingPackageCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureStartingPackageCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureClassCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureClassCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureSkillCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureSkillCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureFeatCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureFeatCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreatureSpecialAbilityCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreatureSpecialAbilityCatalog | null;
+  readonly errorMessage: string | null;
+}
+
+interface WorkspaceCreaturePhenotypeCatalogState {
+  readonly objectId: string;
+  readonly status: "unavailable" | "loading" | "ready" | "error";
+  readonly catalog: ExistingCreaturePhenotypeCatalog | null;
+  readonly errorMessage: string | null;
 }
 
 export interface WorkspaceAreaEditorMutationSignal {
@@ -5085,13 +5757,24 @@ export function resolveWorkspaceAreaEditorMutationSelectedTileId(
 export function shouldApplyWorkspaceExternalSceneSeed(
   previouslyObservedSeed: AreaScene | null | undefined,
   nextSeed: AreaScene | null | undefined,
-  currentScene: AreaScene | null
+  currentScene: AreaScene | null,
+  pendingAreaEditorMutationScene?: AreaScene | null
 ): boolean {
   return Boolean(
     nextSeed &&
       nextSeed !== previouslyObservedSeed &&
-      nextSeed !== currentScene
+      nextSeed !== currentScene &&
+      nextSeed !== pendingAreaEditorMutationScene
   );
+}
+
+export function resolveWorkspaceCommandRevisionAfterSceneReset(
+  handledRevision: number,
+  latestCommandRevision: number | null,
+): number {
+  return latestCommandRevision === null
+    ? handledRevision
+    : Math.max(handledRevision, latestCommandRevision);
 }
 
 export function shouldPublishWorkspaceAreaSceneDraft(
@@ -5141,7 +5824,8 @@ export function useWorkspaceAreaEditorMutationSignal(
   currentSceneId: string,
   sceneViewportPort: Pick<SceneViewportPort, "commitHistory">,
   setSceneHistory: (value: SetStateAction<SceneHistoryState>) => void,
-  setSelectedTileId: (value: SetStateAction<string | null>) => void
+  setSelectedTileId: (value: SetStateAction<string | null>) => void,
+  onApplied?: (revision: number) => void
 ): void {
   const appliedRevisionRef = useRef(0);
 
@@ -5171,7 +5855,17 @@ export function useWorkspaceAreaEditorMutationSignal(
       ).history
     );
     appliedRevisionRef.current = signal.revision;
-  }, [currentSceneId, sceneViewportPort, setSceneHistory, setSelectedTileId, signal]);
+    if (signal.scene.sceneId === currentSceneId) {
+      onApplied?.(signal.revision);
+    }
+  }, [
+    currentSceneId,
+    onApplied,
+    sceneViewportPort,
+    setSceneHistory,
+    setSelectedTileId,
+    signal
+  ]);
 }
 
 interface AdjustLocationDialogState {
@@ -5182,6 +5876,19 @@ interface AdjustLocationDialogState {
   mixedStaticPlaceables: boolean;
   windowX: number;
   windowY: number;
+  collapsed: boolean;
+}
+
+interface AreaObjectPolygonDialogState extends AnchoredDialogPositionState {
+  objectId: string;
+  objectKind: "triggers" | "encounters";
+  snapshotObject: SceneObject;
+  draft: AreaObjectPolygonDraft;
+  validationMessage: string | null;
+  windowX: number;
+  windowY: number;
+  anchorOffsetX: number;
+  anchorOffsetY: number;
   collapsed: boolean;
 }
 
@@ -5198,6 +5905,46 @@ const SOUND_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
 const SOUND_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 520;
 const DOOR_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 760;
 const DOOR_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 520;
+const AREA_OBJECT_POLYGON_DIALOG_FALLBACK_WIDTH_PX = 720;
+const AREA_OBJECT_POLYGON_DIALOG_FALLBACK_HEIGHT_PX = 540;
+const STORE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 620;
+const STORE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 420;
+const WAYPOINT_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX = 520;
+const WAYPOINT_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX = 280;
+
+function countChangedStoreVariableEntries(
+  left: NonNullable<StorePropertiesDraft["variables"]>,
+  right: NonNullable<StorePropertiesDraft["variables"]>,
+): number {
+  const count = Math.max(left.length, right.length);
+  let changed = 0;
+  for (let index = 0; index < count; index += 1) {
+    const source = left[index];
+    const target = right[index];
+    if (!source || !target || source.name !== target.name || source.type !== target.type ||
+      !Object.is(source.value, target.value)) {
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+function countChangedStoreRestrictionEntries(
+  left: NonNullable<StorePropertiesDraft["restrictions"]>,
+  right: NonNullable<StorePropertiesDraft["restrictions"]>,
+): number {
+  const countListChanges = (source: readonly number[], target: readonly number[]) => {
+    const count = Math.max(source.length, target.length);
+    let changed = 0;
+    for (let index = 0; index < count; index += 1) {
+      if (source[index] !== target[index]) changed += 1;
+    }
+    return changed;
+  };
+  return countListChanges(left.willNotBuy, right.willNotBuy) +
+    countListChanges(left.willOnlyBuy, right.willOnlyBuy);
+}
+const AREA_OBJECT_POLYGON_DIALOG_KINDS = ["triggers", "encounters"] as const;
 const ASSET_LOADING_RENDER_INTERVAL_MS = 80;
 const PERF_SNAPSHOT_INTERVAL_MS = 300;
 const AREA_FOCUSED_PERSPECTIVE_CAMERA_EVENT = "aurora:areas:focused-perspective-camera";
@@ -5448,7 +6195,7 @@ export function installAuroraCreatureProofRuntimeHook(runtime: RuntimeState): vo
     const samples = sampleRuntimeObjectAnimationAtTime(runtime, requestedTimeSeconds);
     let dataUrl = "";
     if (includeDataUrl) {
-      runtime.renderer.render(runtime.scene, runtime.camera);
+      renderRuntime(runtime);
       try {
         dataUrl = runtime.renderer.domElement.toDataURL("image/png");
       } catch (error) {
@@ -5643,10 +6390,11 @@ function installAuroraAreaRuntimeCaptureHook(runtime: RuntimeState): void {
         applyTopDownOracleCameraLock(runtime);
       }
       runtime.camera.updateMatrixWorld(true);
-      runtime.renderer.render(runtime.scene, runtime.camera);
+      renderRuntime(runtime);
       const gl = runtime.renderer.getContext();
       gl.flush();
       gl.finish();
+      writeAreaPresentedFrameDataset(runtime.container.dataset);
       return {
         ok: true,
         requestedObjectId: isolatedObjectId ?? requestedObjectIds.join(","),
@@ -5693,7 +6441,7 @@ function installAuroraAreaRuntimeCaptureHook(runtime: RuntimeState): void {
         root.visible = visible;
       });
       if (restoreVisibility.length > 0 || restoreMaterials.length > 0) {
-        runtime.renderer.render(runtime.scene, runtime.camera);
+        renderRuntime(runtime);
       }
     }
   };
@@ -5847,25 +6595,60 @@ function createHiddenAssetLoadOverlayState(): CanvasLoadOverlayState {
   };
 }
 
-function resolveTerrainTileModelOverlayState(
+export function resolveTerrainTileModelOverlayState(
   snapshot: AreaTerrainTileModelRuntimeSnapshot
 ): CanvasLoadOverlayState {
-  const total = Math.max(0, snapshot.contractTileCount);
-  const completed = Math.max(0, snapshot.loadedTileCount + snapshot.failedTileCount);
-  if (snapshot.pendingTileCount > 0) {
+  const total = Math.max(
+    0,
+    snapshot.contractTileCount +
+      (snapshot.materialTextureContractTileCount ?? 0) +
+      (snapshot.supplementalSurfaceContractCount ?? 0)
+  );
+  const completed = Math.max(
+    0,
+    snapshot.loadedTileCount +
+      snapshot.failedTileCount +
+      (snapshot.materialTextureAppliedTileCount ?? 0) +
+      (snapshot.materialTextureFailedTileCount ?? 0) +
+      (snapshot.supplementalSurfaceLoadedCount ?? 0) +
+      (snapshot.supplementalSurfaceFailedCount ?? 0)
+  );
+  const pendingCount = Math.max(
+    0,
+    (snapshot.pendingTileCount ?? 0) +
+      (snapshot.materialTexturePendingTileCount ?? 0) +
+      (snapshot.supplementalSurfacePendingCount ?? 0)
+  );
+  if (pendingCount > 0) {
     return {
       visible: true,
       completed,
       total: Math.max(1, total),
-      inFlight: Math.max(0, snapshot.pendingTileCount),
+      inFlight: pendingCount,
       queued: 0,
       source: "terrain",
       variant: "loading",
-      title: "Modele kafli Areas",
+      title: "Modele i materiały kafli Areas",
       currentLabel: null
     };
   }
-  if (snapshot.failedTileCount > 0 || snapshot.bridgeTileCount > 0) {
+  if (
+    (snapshot.status !== undefined && snapshot.status !== "ready") ||
+    snapshot.failedTileCount > 0 ||
+    snapshot.bridgeTileCount > 0 ||
+    (snapshot.materialTextureFailedTileCount ?? 0) > 0 ||
+    (snapshot.supplementalSurfaceFailedCount ?? 0) > 0
+  ) {
+    const unavailableModelSample = (snapshot.blockedTileSample ?? "")
+      .split("|")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(", ");
+    const unavailableTextureSample = (snapshot.materialTextureFailedTileSample ?? "")
+      .split("|")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(", ");
     return {
       visible: true,
       completed,
@@ -5874,11 +6657,100 @@ function resolveTerrainTileModelOverlayState(
       queued: 0,
       source: "terrain",
       variant: "blocked",
-      title: "Modele kafli Areas",
-      currentLabel: null
+      title: "Niepełny runtime kafli Areas",
+      currentLabel:
+        unavailableModelSample && unavailableModelSample !== "none"
+          ? `Brak modelu w aktywnych źródłach: ${unavailableModelSample}`
+          : unavailableTextureSample && unavailableTextureSample !== "none"
+            ? `Nie udało się przypiąć materiałów: ${unavailableTextureSample}`
+            : snapshot.blockerSummary && snapshot.blockerSummary !== "none"
+              ? snapshot.blockerSummary
+              : "Runtime kafli nie osiągnął stanu ready"
     };
   }
   return createHiddenAssetLoadOverlayState();
+}
+
+export interface AreaPresentedFrameSnapshot {
+  sequence: number;
+  terrainBuildId: string;
+  tileStateDigest: string;
+  cameraTerrainBuildId: string;
+  cameraTileStateDigest: string;
+  cameraCoverageStatus: string;
+  presentedAt: string;
+  settlementToken: string;
+}
+
+export function writeAreaPresentedFrameDataset(
+  dataset: DOMStringMap,
+  presentedAt = new Date().toISOString()
+): AreaPresentedFrameSnapshot {
+  const previousSequence = Number(dataset.areaPresentedFrameSequence ?? 0);
+  const sequence = Number.isFinite(previousSequence)
+    ? Math.max(0, Math.trunc(previousSequence)) + 1
+    : 1;
+  const terrainBuildId =
+    dataset.areaTerrainBuildId ?? "terrain-build-missing";
+  const tileStateDigest =
+    dataset.areaTerrainTileStateDigest ?? "tile-state-digest-missing";
+  const cameraTerrainBuildId =
+    dataset.areaCameraFrameTerrainBuildId ?? "terrain-build-missing";
+  const cameraTileStateDigest =
+    dataset.areaCameraFrameTileStateDigest ?? "tile-state-digest-missing";
+  const cameraCoverageStatus =
+    dataset.areaCameraFrameCoverageStatus ?? "missing";
+  const settlementToken = [
+    "area-presented-frame/v1",
+    sequence,
+    terrainBuildId,
+    tileStateDigest,
+    cameraTerrainBuildId,
+    cameraTileStateDigest,
+    cameraCoverageStatus
+  ].join("|");
+  const snapshot: AreaPresentedFrameSnapshot = {
+    sequence,
+    terrainBuildId,
+    tileStateDigest,
+    cameraTerrainBuildId,
+    cameraTileStateDigest,
+    cameraCoverageStatus,
+    presentedAt,
+    settlementToken
+  };
+  dataset.areaPresentedFrameSequence = String(sequence);
+  dataset.areaPresentedFrameTerrainBuildId = terrainBuildId;
+  dataset.areaPresentedFrameTileStateDigest = tileStateDigest;
+  dataset.areaPresentedFrameCameraTerrainBuildId = cameraTerrainBuildId;
+  dataset.areaPresentedFrameCameraTileStateDigest = cameraTileStateDigest;
+  dataset.areaPresentedFrameCameraCoverageStatus = cameraCoverageStatus;
+  dataset.areaPresentedFramePresentedAt = presentedAt;
+  dataset.areaPresentedFrameSettlementToken = settlementToken;
+  return snapshot;
+}
+
+export function formatTerrainTileModelRuntimeStatus(
+  snapshot: AreaTerrainTileModelRuntimeSnapshot | null
+): string {
+  if (!snapshot) {
+    return "not observed";
+  }
+  const modelStatus = `${snapshot.loadedTileCount}/${snapshot.tileCount}`;
+  const textureStatus =
+    `${snapshot.materialTextureAppliedTileCount}/` +
+    `${snapshot.materialTextureContractTileCount}`;
+  const summary =
+    `${snapshot.status} / models ${modelStatus} / textures ${textureStatus}` +
+    ` / maps ${snapshot.materialMapCount}`;
+  const surfaceSummary =
+    (snapshot.supplementalSurfaceContractCount ?? 0) > 0
+      ? ` / surfaces ${snapshot.supplementalSurfaceLoadedCount}/` +
+        `${snapshot.supplementalSurfaceContractCount}`
+      : "";
+  return snapshot.blockerSummary && snapshot.blockerSummary !== "none"
+    ? `${summary}${surfaceSummary} / blockers ${snapshot.blockerSummary}`
+    : `${summary}${surfaceSummary}`;
 }
 
 function isAreaSharedRendererModelLoadComplete(
@@ -5998,6 +6870,11 @@ export function WorkspaceCanvasViewport({
   toolbarState,
   userId,
   sceneViewportPort,
+  clientAssetCachePort,
+  areaLifecycleFacade,
+  areaDraftSessionRegistry,
+  onAreaDraftPersisted,
+  onAreaWorkspaceStatusChange,
   viewportFacade = defaultViewportFacade,
   trackTelemetryEvent = defaultTrackTelemetryEvent,
   commandSignal,
@@ -6009,12 +6886,15 @@ export function WorkspaceCanvasViewport({
   workspaceOptions,
   leftPanelWidthPx,
   rightPanelWidthPx,
+  viewportFullscreen = false,
   onSceneObjectsSnapshotChange,
   onSelectionSnapshotChange,
   onObjectAddPlacementModeChange,
   externalSceneSeed,
   areaEditorMutationSignal,
+  onAreaEditorMutationApplied,
   areaEditingTool = { kind: "inspect" },
+  tileProductionCertification,
   onAreaSceneDraftChange,
   onSelectedTileChange,
   renderObjectIds,
@@ -6023,12 +6903,59 @@ export function WorkspaceCanvasViewport({
   placeableRenderPayloadByObjectId,
   creatureRenderPayloadByObjectId,
   creatureResourceOptions,
+  creatureAppearanceCatalogFacade,
+  creatureGenderCatalogFacade,
+  creatureAppendageCatalogFacade,
+  creaturePerceptionRangeCatalogFacade,
+  creatureWalkRateCatalogFacade,
+  creatureSoundSetCatalogFacade,
+  creatureStartingPackageCatalogFacade,
+  creatureClassCatalogFacade,
+  creatureSkillCatalogFacade,
+  creatureFeatCatalogFacade,
+  creatureSpecialAbilityCatalogFacade,
+  creaturePhenotypeCatalogFacade,
+  creatureAppearanceAccessToken = null,
+  creatureTemplateOptions = [],
+  itemTemplateOptions = [],
+  soundTemplateOptions = [],
   placeableAssetAccessToken = null,
+  placeableApiPort,
+  waypointAppearanceAccessToken = null,
+  waypointApiPort,
+  onPlaceableAssetCacheMiss,
   onItemPreviewObjectNeeded,
   onItemPropertiesApplied,
   onCreaturePropertiesApplied,
   showGizmoModeBadge = true
 }: WorkspaceCanvasViewportProps) {
+  const encounterCreatureBlueprintOptions = useMemo(() => {
+    const byIdentity = new Map<
+      string,
+      SceneObjectEncounterCreatureListBlueprintTargetEntry
+    >();
+    for (const object of creatureTemplateOptions) {
+      const entry = readEncounterCreatureBlueprintTargetEntry(object);
+      if (!entry) continue;
+      const key = `${entry.templateId}|${entry.sourceSha256}|${entry.sourceObjectKey}`;
+      if (!byIdentity.has(key)) byIdentity.set(key, entry);
+    }
+    return Object.freeze(Array.from(byIdentity.values()).sort((left, right) =>
+      left.resRef.localeCompare(right.resRef)
+      || left.templateId.localeCompare(right.templateId)));
+  }, [creatureTemplateOptions]);
+  const itemInventoryBlueprintOptions = useMemo(
+    () => listExistingItemInventoryBlueprintOptions(itemTemplateOptions),
+    [itemTemplateOptions],
+  );
+  const soundCatalogResRefs = useMemo(
+    () => Array.from(new Set(
+      soundTemplateOptions
+        .filter((object) => object.kind === "sounds" && isAreaSoundResRef(object.resRef))
+        .map((object) => object.resRef),
+    )).sort((left, right) => left.localeCompare(right)),
+    [soundTemplateOptions],
+  );
   const hostRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<RuntimeState | null>(null);
   const sceneRef = useRef<AreaScene | null>(null);
@@ -6042,7 +6969,11 @@ export function WorkspaceCanvasViewport({
   const runtimeSoundNowPlayingBadgesRef = useRef<readonly RuntimeSoundNowPlayingBadge[]>([]);
   const showRuntimeSoundNowPlayingRef = useRef(false);
   const toolbarStateRef = useRef(toolbarState);
-  const commandRevisionRef = useRef(0);
+  const commandRevisionRef = useRef(commandSignal?.revision ?? 0);
+  const latestCommandRevisionRef = useRef<number | null>(
+    commandSignal?.revision ?? null,
+  );
+  latestCommandRevisionRef.current = commandSignal?.revision ?? null;
   const sidebarSelectRevisionRef = useRef<number | null>(null);
   const sidebarContextMenuRevisionRef = useRef<number | null>(null);
   const sidebarPropertiesRevisionRef = useRef<number | null>(null);
@@ -6054,6 +6985,18 @@ export function WorkspaceCanvasViewport({
   const adjustLocationDialogDragRef = useRef<PropertyDialogDragState>({
     ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
+  const areaObjectPolygonDialogRef = useRef<HTMLElement | null>(null);
+  const areaObjectPolygonDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
+  });
+  const storePropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const storePropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
+  });
+  const waypointPropertiesDialogRef = useRef<HTMLElement | null>(null);
+  const waypointPropertiesDialogDragRef = useRef<PropertyDialogDragState>({
+    ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
+  });
   const placeablePropertiesDialogRef = useRef<HTMLElement | null>(null);
   const placeablePropertiesDialogDragRef = useRef<PropertyDialogDragState>({
     ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
@@ -6063,6 +7006,7 @@ export function WorkspaceCanvasViewport({
     ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
   });
   const placeableAssetAccessTokenRef = useRef<string | null>(null);
+  const onPlaceableAssetCacheMissRef = useRef(onPlaceableAssetCacheMiss);
   const doorPropertiesDialogRef = useRef<HTMLElement | null>(null);
   const doorPropertiesDialogDragRef = useRef<PropertyDialogDragState>({
     ...DEFAULT_PROPERTY_DIALOG_DRAG_STATE
@@ -6125,6 +7069,17 @@ export function WorkspaceCanvasViewport({
   const terrainBrush: TerrainBrushKind = "corridor";
   const [objectBrush, setObjectBrush] = useState<SceneObjectKind>("placeables");
   const [lastSavedAtUnixMs, setLastSavedAtUnixMs] = useState<number | null>(null);
+  const [areaWorkspaceDraftStatus, setAreaWorkspaceDraftStatus] =
+    useState<AreaWorkspaceDraftStatusEvent>(() => ({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "draft",
+      state: "dirty",
+      sceneId: sceneHistory.present.sceneId,
+      sceneUpdatedAtUnixMs: sceneHistory.present.updatedAtUnixMs,
+      commandRevision: 0,
+      occurredAtUnixMs: Date.now(),
+      browserRecoveryAvailable: false
+    }));
   const [webglReady, setWebglReady] = useState(false);
   const [webglFallbackReason, setWebglFallbackReason] = useState<string | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBoxState>({
@@ -6137,14 +7092,65 @@ export function WorkspaceCanvasViewport({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [adjustLocationDialog, setAdjustLocationDialog] =
     useState<AdjustLocationDialogState | null>(null);
+  const [areaObjectPolygonDialog, setAreaObjectPolygonDialog] =
+    useState<AreaObjectPolygonDialogState | null>(null);
+  const [storePropertiesDialog, setStorePropertiesDialog] =
+    useState<StorePropertiesDialogState | null>(null);
+  const [waypointPropertiesDialog, setWaypointPropertiesDialog] =
+    useState<WaypointPropertiesDialogState | null>(null);
+  const [waypointAppearanceCatalogState, setWaypointAppearanceCatalogState] =
+    useState<WorkspaceWaypointAppearanceCatalogState | null>(null);
+  const waypointAppearanceCatalogRequestRevisionRef = useRef(0);
   const [placeablePropertiesDialog, setPlaceablePropertiesDialog] =
     useState<PlaceablePropertiesDialogState | null>(null);
+  const [placeableAppearanceCatalogState, setPlaceableAppearanceCatalogState] =
+    useState<WorkspacePlaceableAppearanceCatalogState | null>(null);
+  const placeableAppearanceCatalogRequestRevisionRef = useRef(0);
   const [soundPropertiesDialog, setSoundPropertiesDialog] =
     useState<SoundPropertiesDialogState | null>(null);
   const [doorPropertiesDialog, setDoorPropertiesDialog] =
     useState<DoorPropertiesDialogState | null>(null);
   const [creaturePropertiesDialog, setCreaturePropertiesDialog] =
     useState<CreaturePropertiesDialogState | null>(null);
+  const [creatureAppearanceCatalogState, setCreatureAppearanceCatalogState] =
+    useState<WorkspaceCreatureAppearanceCatalogState | null>(null);
+  const creatureAppearanceCatalogRequestRevisionRef = useRef(0);
+  const [creatureGenderCatalogState, setCreatureGenderCatalogState] =
+    useState<WorkspaceCreatureGenderCatalogState | null>(null);
+  const creatureGenderCatalogRequestRevisionRef = useRef(0);
+  const [creatureWingsCatalogState, setCreatureWingsCatalogState] =
+    useState<WorkspaceCreatureAppendageCatalogState | null>(null);
+  const creatureWingsCatalogRequestRevisionRef = useRef(0);
+  const [creatureTailCatalogState, setCreatureTailCatalogState] =
+    useState<WorkspaceCreatureAppendageCatalogState | null>(null);
+  const creatureTailCatalogRequestRevisionRef = useRef(0);
+  const [creaturePerceptionRangeCatalogState, setCreaturePerceptionRangeCatalogState] =
+    useState<WorkspaceCreaturePerceptionRangeCatalogState | null>(null);
+  const creaturePerceptionRangeCatalogRequestRevisionRef = useRef(0);
+  const [creatureWalkRateCatalogState, setCreatureWalkRateCatalogState] =
+    useState<WorkspaceCreatureWalkRateCatalogState | null>(null);
+  const creatureWalkRateCatalogRequestRevisionRef = useRef(0);
+  const [creatureSoundSetCatalogState, setCreatureSoundSetCatalogState] =
+    useState<WorkspaceCreatureSoundSetCatalogState | null>(null);
+  const creatureSoundSetCatalogRequestRevisionRef = useRef(0);
+  const [creatureStartingPackageCatalogState, setCreatureStartingPackageCatalogState] =
+    useState<WorkspaceCreatureStartingPackageCatalogState | null>(null);
+  const creatureStartingPackageCatalogRequestRevisionRef = useRef(0);
+  const [creatureClassCatalogState, setCreatureClassCatalogState] =
+    useState<WorkspaceCreatureClassCatalogState | null>(null);
+  const creatureClassCatalogRequestRevisionRef = useRef(0);
+  const [creatureSkillCatalogState, setCreatureSkillCatalogState] =
+    useState<WorkspaceCreatureSkillCatalogState | null>(null);
+  const creatureSkillCatalogRequestRevisionRef = useRef(0);
+  const [creatureFeatCatalogState, setCreatureFeatCatalogState] =
+    useState<WorkspaceCreatureFeatCatalogState | null>(null);
+  const creatureFeatCatalogRequestRevisionRef = useRef(0);
+  const [creatureSpecialAbilityCatalogState, setCreatureSpecialAbilityCatalogState] =
+    useState<WorkspaceCreatureSpecialAbilityCatalogState | null>(null);
+  const creatureSpecialAbilityCatalogRequestRevisionRef = useRef(0);
+  const [creaturePhenotypeCatalogState, setCreaturePhenotypeCatalogState] =
+    useState<WorkspaceCreaturePhenotypeCatalogState | null>(null);
+  const creaturePhenotypeCatalogRequestRevisionRef = useRef(0);
   const [itemPropertiesDialog, setItemPropertiesDialog] =
     useState<ItemPropertiesDialogState | null>(null);
   const [creatureFeatsFilter, setCreatureFeatsFilter] = useState<string>(
@@ -6171,16 +7177,40 @@ export function WorkspaceCanvasViewport({
   const [placeableLoadOverlay, setPlaceableLoadOverlay] = useState<CanvasLoadOverlayState>(
     createHiddenAssetLoadOverlayState
   );
+  const [terrainTileModelRuntimeSnapshot, setTerrainTileModelRuntimeSnapshot] =
+    useState<AreaTerrainTileModelRuntimeSnapshot | null>(null);
   const [areaSharedRendererModelLoadComplete, setAreaSharedRendererModelLoadComplete] =
     useState(false);
   const trackTelemetry = trackTelemetryEvent;
   const scene = sceneHistory.present;
+  useEffect(() => {
+    const dirtyEvent: AreaWorkspaceDraftStatusEvent = {
+      schemaVersion: "area-workspace-status.v1",
+      lane: "draft",
+      state: "dirty",
+      sceneId: scene.sceneId,
+      sceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+      commandRevision: commandRevisionRef.current,
+      occurredAtUnixMs: Date.now(),
+      browserRecoveryAvailable: false,
+    };
+    setAreaWorkspaceDraftStatus((current) =>
+      current.sceneId === scene.sceneId &&
+      current.sceneUpdatedAtUnixMs === scene.updatedAtUnixMs
+        ? current
+        : dirtyEvent
+    );
+    setLastSavedAtUnixMs(null);
+    onAreaWorkspaceStatusChange?.(dirtyEvent);
+  }, [onAreaWorkspaceStatusChange, scene.sceneId, scene.updatedAtUnixMs]);
   selectedObjectIdsRef.current = selectedObjectIds;
   placeableRenderPayloadByObjectIdRef.current = placeableRenderPayloadByObjectId ?? null;
+  onPlaceableAssetCacheMissRef.current = onPlaceableAssetCacheMiss;
   creatureRenderPayloadByObjectIdRef.current = creatureRenderPayloadByObjectId ?? null;
   showRuntimeSoundNowPlayingRef.current = workspaceOptions.showRuntimeSoundNowPlaying;
   useEffect(() => {
     setAreaSharedRendererModelLoadComplete(false);
+    setTerrainTileModelRuntimeSnapshot(null);
   }, [scene.sceneId]);
   const areaLoadOverlay = useMemo(
     () => resolveExternalAreaLoadOverlayState(areaCanvasLoading),
@@ -6406,10 +7436,13 @@ export function WorkspaceCanvasViewport({
       }),
     [renderObjectIds, toolbarState.canvasDebug.grid, workspaceOptions.showTileGridOverlay]
   );
-  const terrainRenderStatus = useMemo(() => resolveTerrainRenderStatus(scene), [scene]);
+  const terrainRenderStatus = useMemo(
+    () => resolveTerrainRenderStatus(scene, areaTileProcessReadiness),
+    [areaTileProcessReadiness, scene]
+  );
   const terrainScenePackageReadiness = useMemo(
-    () => resolveTerrainScenePackageReadiness(scene, terrainRenderStatus),
-    [scene, terrainRenderStatus]
+    () => resolveTerrainScenePackageReadiness(scene, terrainRenderStatus, areaTileProcessReadiness),
+    [areaTileProcessReadiness, scene, terrainRenderStatus]
   );
   const objectRenderFilterState = useMemo(
     () => ({
@@ -6530,6 +7563,7 @@ export function WorkspaceCanvasViewport({
     selectedTileId,
     selectedTileIds,
     sceneViewportPort,
+    tileProductionCertification,
     setSceneHistory,
     setSelectedObjectIds,
     setSelectedTileId,
@@ -6576,6 +7610,13 @@ export function WorkspaceCanvasViewport({
       setWebglReady(false);
       trackTelemetry("scene.webgl.init_failed", { userId });
       return;
+    }
+    if (clientAssetCachePort) {
+      installClientAssetCachedFetch(runtime, {
+        cachePort: clientAssetCachePort,
+        scopeKey: userId,
+        onDiagnostic: (event) => trackTelemetry("scene.asset_cache", { ...event }),
+      });
     }
     runtimeRef.current = runtime;
     installAuroraCreatureProofRuntimeHook(runtime);
@@ -6741,12 +7782,27 @@ export function WorkspaceCanvasViewport({
       scheduleAreaSharedRendererRuntimeSnapshotRefresh();
       schedulePlaceableModelLoadQueueProgress(customEvent.detail);
     };
+    const handlePlaceableAssetCacheMiss = (event: Event) => {
+      const detail = (event as CustomEvent<PlaceableAssetCacheMissEventDetail>).detail;
+      if (!detail) {
+        return;
+      }
+      onPlaceableAssetCacheMissRef.current?.(detail);
+    };
     const handleTerrainTileModelRuntimeSnapshot = (event: Event) => {
       const customEvent = event as CustomEvent<AreaTerrainTileModelRuntimeSnapshot>;
       const snapshot = customEvent.detail;
       if (!snapshot) {
         return;
       }
+      if (
+        snapshot.areaId &&
+        sceneRef.current?.sceneId &&
+        snapshot.areaId !== sceneRef.current.sceneId
+      ) {
+        return;
+      }
+      setTerrainTileModelRuntimeSnapshot(snapshot);
       const nextOverlay = resolveTerrainTileModelOverlayState(snapshot);
       setPlaceableLoadOverlay((current) => {
         if (nextOverlay.visible) {
@@ -6754,6 +7810,15 @@ export function WorkspaceCanvasViewport({
         }
         return current.source === "terrain" ? createHiddenAssetLoadOverlayState() : current;
       });
+      if (
+        snapshot.status === "ready" &&
+        snapshot.tileCount > 0 &&
+        snapshot.loadedTileCount === snapshot.tileCount &&
+        snapshot.failedTileCount === 0
+      ) {
+        refitTopDownOracleCameraForVisibleTerrain(runtime);
+        refitFocusedPerspectiveCameraForVisibleTerrain(runtime);
+      }
     };
     const applyOracleCleanCanvasPresentation = (detail?: {
       displayFog?: boolean | null;
@@ -6820,7 +7885,8 @@ export function WorkspaceCanvasViewport({
             runtimeSoundNowPlayingBadgesRef.current,
             showRuntimeSoundNowPlayingRef.current,
             placeableRenderPayloadByObjectIdRef.current,
-            creatureRenderPayloadByObjectIdRef.current
+            creatureRenderPayloadByObjectIdRef.current,
+            activeScene.auroraVfxCollision ?? null
           );
           writePlaceableTwoDaLightRenderDiagnostics(runtime);
           writeAuroraScenePointLightDiagnostics(runtime);
@@ -6880,7 +7946,7 @@ export function WorkspaceCanvasViewport({
       if (customEvent.detail?.cleanCanvas === true) {
         applyOracleCleanCanvasPresentation(customEvent.detail);
       }
-      runtime.renderer.render(runtime.scene, runtime.camera);
+      renderRuntime(runtime);
     };
     const handleFocusedPerspectiveCamera = (event: Event) => {
       const customEvent = event as CustomEvent<{
@@ -6960,7 +8026,7 @@ export function WorkspaceCanvasViewport({
       if (customEvent.detail?.cleanCanvas === true) {
         applyOracleCleanCanvasPresentation(customEvent.detail);
       }
-      runtime.renderer.render(runtime.scene, runtime.camera);
+      renderRuntime(runtime);
     };
     const handleOracleRenderVisibility = (event: Event) => {
       const customEvent = event as CustomEvent<{
@@ -6974,7 +8040,7 @@ export function WorkspaceCanvasViewport({
       runtime.container.dataset.areaOracleRenderVisibilitySource =
         customEvent.detail?.source ?? "runtime";
       applyTopDownOracleCameraLock(runtime);
-      runtime.renderer.render(runtime.scene, runtime.camera);
+      renderRuntime(runtime);
     };
     const handleAreaSharedRendererSnapshot = (event: Event) => {
       const customEvent = event as CustomEvent<AreaSharedRendererRuntimeSnapshot>;
@@ -6995,7 +8061,7 @@ export function WorkspaceCanvasViewport({
       );
       delete runtime.container.dataset.itemVisualProofSnapshotError;
       try {
-        runtime.renderer.render(runtime.scene, runtime.camera);
+        renderRuntime(runtime);
         buildItemVisualProofSnapshot(
           runtime,
           sceneRef.current,
@@ -7023,6 +8089,10 @@ export function WorkspaceCanvasViewport({
     };
     const wheelCaptureOptions: AddEventListenerOptions = { capture: true, passive: false };
     runtime.container.addEventListener(PLACEABLE_MODEL_STATUS_EVENT, handlePlaceableModelStatus);
+    runtime.container.addEventListener(
+      PLACEABLE_ASSET_CACHE_MISS_EVENT,
+      handlePlaceableAssetCacheMiss
+    );
     runtime.container.addEventListener(
       PLACEABLE_MODEL_LOAD_QUEUE_PROGRESS_EVENT,
       handlePlaceableModelLoadQueueProgress
@@ -7074,6 +8144,11 @@ export function WorkspaceCanvasViewport({
         (now - perfFrameRef.current.lastAnimationAt) / 1000;
       perfFrameRef.current.lastAnimationAt = now;
       updateRuntimeObjectAnimationPlaybacks(runtime, animationDeltaSeconds);
+      advanceAuroraWorldTimerRuntime(
+        runtime.scene,
+        sceneRef.current?.auroraWorldTimer,
+        animationDeltaSeconds
+      );
       if (renderAreaGeometry && now - lastAreaSharedRendererEvidenceRefreshAt >= 500) {
         lastAreaSharedRendererEvidenceRefreshAt = now;
         safeRefreshAreaSharedRendererRuntimeSnapshotFromObjectEvidence(runtime);
@@ -7091,7 +8166,7 @@ export function WorkspaceCanvasViewport({
         !assetLoading ||
         now - perfFrameRef.current.lastRenderAt >= ASSET_LOADING_RENDER_INTERVAL_MS;
       if (shouldRenderFrame) {
-        runtime.renderer.render(runtime.scene, runtime.camera);
+        renderRuntime(runtime);
         perfFrameRef.current.lastRenderAt = now;
         perfFrameRef.current.frameCount += 1;
       }
@@ -7133,6 +8208,10 @@ export function WorkspaceCanvasViewport({
       runtime.container.removeEventListener(
         PLACEABLE_MODEL_STATUS_EVENT,
         handlePlaceableModelStatus
+      );
+      runtime.container.removeEventListener(
+        PLACEABLE_ASSET_CACHE_MISS_EVENT,
+        handlePlaceableAssetCacheMiss
       );
       runtime.container.removeEventListener(
         PLACEABLE_MODEL_LOAD_QUEUE_PROGRESS_EVENT,
@@ -7185,7 +8264,42 @@ export function WorkspaceCanvasViewport({
       setWebglReady(false);
       setPlaceableLoadOverlay(createHiddenAssetLoadOverlayState());
     };
-  }, [userId]);
+  }, [clientAssetCachePort, userId]);
+
+  useEffect(() => {
+    if (!viewportFullscreen) {
+      return;
+    }
+    let outerFrame: number | null = null;
+    let innerFrame: number | null = null;
+    const reframeFullscreenViewport = () => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        return;
+      }
+      // The layout first hides the sidebars, then the canvas receives its new
+      // dimensions. Waiting for two frames makes the camera use the expanded
+      // aspect ratio rather than the narrow editor-column ratio used before
+      // Full View was entered.
+      resizeRuntime(runtime);
+      const didRefit = refitFocusedPerspectiveCameraForVisibleTerrain(runtime);
+      runtime.container.dataset.areaCameraFrameFullscreenRefit = didRefit
+        ? "visible-terrain"
+        : "pending-terrain";
+      renderRuntime(runtime);
+    };
+    outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(reframeFullscreenViewport);
+    });
+    return () => {
+      if (outerFrame !== null) {
+        window.cancelAnimationFrame(outerFrame);
+      }
+      if (innerFrame !== null) {
+        window.cancelAnimationFrame(innerFrame);
+      }
+    };
+  }, [viewportFullscreen]);
 
   useEffect(() => {
     applyWorkspaceRuntimeLightBudget(runtimeRef.current, workspaceOptions.runtimeMaxLights);
@@ -7351,7 +8465,10 @@ export function WorkspaceCanvasViewport({
     setSceneHistory(sceneViewportPort.createInitialHistory(userId));
     setSelectedObjectIds([]);
     setSelectedTileId(null);
-    commandRevisionRef.current = 0;
+    commandRevisionRef.current = resolveWorkspaceCommandRevisionAfterSceneReset(
+      commandRevisionRef.current,
+      latestCommandRevisionRef.current,
+    );
   }, [externalSceneSeed, sceneViewportPort, userId]);
 
   useEffect(() => {
@@ -7362,7 +8479,8 @@ export function WorkspaceCanvasViewport({
     const shouldApply = shouldApplyWorkspaceExternalSceneSeed(
       observedExternalSceneSeedRef.current,
       externalSceneSeed,
-      sceneRef.current
+      sceneRef.current,
+      areaEditorMutationSignal?.scene
     );
     observedExternalSceneSeedRef.current = externalSceneSeed;
     if (!shouldApply) {
@@ -7371,21 +8489,25 @@ export function WorkspaceCanvasViewport({
     setSceneHistory(sceneViewportPort.createHistoryFromScene(externalSceneSeed));
     setSelectedObjectIds([]);
     setSelectedTileId(null);
-    commandRevisionRef.current = 0;
+    commandRevisionRef.current = resolveWorkspaceCommandRevisionAfterSceneReset(
+      commandRevisionRef.current,
+      latestCommandRevisionRef.current,
+    );
     const runtime = runtimeRef.current;
     if (runtime) {
       centerCameraForScene(runtime, externalSceneSeed, {
         objectPreview: !shouldRenderAreaGeometry(renderObjectIds)
       });
     }
-  }, [externalSceneSeed, renderObjectIds, sceneViewportPort]);
+  }, [areaEditorMutationSignal?.scene, externalSceneSeed, renderObjectIds, sceneViewportPort]);
 
   useWorkspaceAreaEditorMutationSignal(
     areaEditorMutationSignal,
     scene.sceneId,
     sceneViewportPort,
     setSceneHistory,
-    setSelectedTileId
+    setSelectedTileId,
+    onAreaEditorMutationApplied
   );
 
   useEffect(() => {
@@ -7502,7 +8624,8 @@ export function WorkspaceCanvasViewport({
       runtimeSoundNowPlayingBadges,
       workspaceOptions.showRuntimeSoundNowPlaying,
       placeableRenderPayloadByObjectId ?? null,
-      creatureRenderPayloadByObjectId ?? null
+      creatureRenderPayloadByObjectId ?? null,
+      scene.auroraVfxCollision ?? null
     );
     writePlaceableTwoDaLightRenderDiagnostics(runtime);
     writeAuroraScenePointLightDiagnostics(runtime);
@@ -7681,6 +8804,20 @@ export function WorkspaceCanvasViewport({
     focusCameraOnPoint(runtime, worldX, worldY);
   }, []);
 
+  const handleAreaWorkspaceStatusChange = useCallback(
+    (event: AreaWorkspaceStatusEvent) => {
+      if (event.lane === "draft") {
+        setAreaWorkspaceDraftStatus((current) => {
+          if (current.sceneId !== event.sceneId) return event;
+          if (event.sceneUpdatedAtUnixMs < current.sceneUpdatedAtUnixMs) return current;
+          return event.commandRevision >= current.commandRevision ? event : current;
+        });
+      }
+      onAreaWorkspaceStatusChange?.(event);
+    },
+    [onAreaWorkspaceStatusChange]
+  );
+
   useWorkspaceCommandSignal({
     commandSignal,
     commandRevisionRef,
@@ -7689,16 +8826,22 @@ export function WorkspaceCanvasViewport({
     cameraRuntimePort: workspaceThreeCameraRuntimePort,
     scene,
     sceneViewportPort,
+    areaLifecycleFacade,
+    areaDraftSessionRegistry,
+    onAreaDraftPersisted,
     setSceneHistory,
     setSelectedObjectIds,
     setSelectedTileId,
     setLastSavedAtUnixMs,
+    onAreaWorkspaceStatusChange: handleAreaWorkspaceStatusChange,
     copySelectedObjectsToClipboard: copyWorkspaceSelectionToClipboard,
     deleteSelectedObjects: deleteWorkspaceSelection,
     duplicateObjects,
     isSelectableByActiveFilters,
     renderAreaGeometry,
     selectedObjectIds,
+    selectedTileIds,
+    tileProcessReadiness: areaTileProcessReadiness,
     toolbarState,
     userId,
     visibleObjects,
@@ -7716,7 +8859,13 @@ export function WorkspaceCanvasViewport({
     pasteClipboardObjects: pasteWorkspaceClipboard
   });
 
-  const { handleMouseDown, handleMouseMove, handleMouseUp, handleMouseLeave } = useWorkspacePointerSelection({
+  const {
+    handleMouseDown,
+    handleDoubleClick,
+    handleMouseMove,
+    handleMouseUp,
+    handleMouseLeave
+  } = useWorkspacePointerSelection({
     runtimeRef,
     pointerRuntimePort: workspaceThreePointerRuntimePort,
     anchoredOverlayRuntimePort: workspaceThreeAnchoredOverlayRuntimePort,
@@ -7738,6 +8887,7 @@ export function WorkspaceCanvasViewport({
     objectBrush,
     terrainBrush,
     areaEditingTool,
+    tileProductionCertification,
     syncAuroraAreaPlacementPreview: syncAreaTilePlacementPreviewOverlay,
     clearAuroraAreaPlacementPreview: clearAreaTilePlacementPreviewOverlay,
     onAuroraAreaEditingFeedback: (feedback) => {
@@ -7825,6 +8975,23 @@ export function WorkspaceCanvasViewport({
       blockCanvasPointerWhileLoading,
       handleCanvasObjectAddMouseMove,
       handleMouseMove,
+      shouldBlockCanvasPointerForAssetLoading
+    ]
+  );
+
+  const handleCanvasDoubleClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (shouldBlockCanvasPointerForAssetLoading()) {
+        blockCanvasPointerWhileLoading(event);
+        return;
+      }
+      if (objectAddPlacementMode) return;
+      handleDoubleClick(event);
+    },
+    [
+      blockCanvasPointerWhileLoading,
+      handleDoubleClick,
+      objectAddPlacementMode,
       shouldBlockCanvasPointerForAssetLoading
     ]
   );
@@ -8138,6 +9305,1518 @@ export function WorkspaceCanvasViewport({
     clampPosition: clampAdjustLocationDialogPosition
   });
 
+  const clampAreaObjectPolygonDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) =>
+      clampWorkspaceDialogPosition({
+        hostElement: hostRef.current,
+        panelElement: areaObjectPolygonDialogRef.current,
+        x,
+        y,
+        fallbackWidthPx: AREA_OBJECT_POLYGON_DIALOG_FALLBACK_WIDTH_PX,
+        fallbackHeightPx: AREA_OBJECT_POLYGON_DIALOG_FALLBACK_HEIGHT_PX,
+        marginPx: ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        panelRect,
+      }),
+    [],
+  );
+
+  const openAreaObjectPolygonDialog = useCallback((target: SceneObject) => {
+    const draft = buildAreaObjectPolygonDraft(
+      target,
+      sceneRef.current?.placeableFactionCatalog,
+      sceneRef.current?.encounterDifficultyCatalog,
+    );
+    if (!draft) return;
+    const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+    const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+    const runtime = runtimeRef.current;
+    const position = runtime
+      ? resolveAnchoredContextMenuPosition(
+          runtime,
+          target,
+          target.id,
+          anchorOffsetX,
+          anchorOffsetY,
+          AREA_OBJECT_POLYGON_DIALOG_FALLBACK_WIDTH_PX,
+          AREA_OBJECT_POLYGON_DIALOG_FALLBACK_HEIGHT_PX,
+        )
+      : clampAreaObjectPolygonDialogPosition(
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        );
+    setAreaObjectPolygonDialog({
+      objectId: target.id,
+      objectKind: draft.objectKind,
+      snapshotObject: cloneSceneObject(target),
+      draft,
+      validationMessage: null,
+      windowX: position.x,
+      windowY: position.y,
+      anchorOffsetX,
+      anchorOffsetY,
+      collapsed: false,
+    });
+    trackTelemetry("scene.area_object_polygon.open", {
+      userId,
+      objectId: target.id,
+      objectKind: target.kind,
+      pointCount: draft.points.length,
+    });
+  }, [clampAreaObjectPolygonDialogPosition, trackTelemetry, userId]);
+
+  const updateAreaObjectPolygonPoint = useCallback((
+    pointIndex: number,
+    field: AreaObjectPolygonPointField,
+    value: string,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftPoint(current.draft, pointIndex, field, value),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonTag = useCallback((value: string) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTag(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonActive = useCallback((value: boolean) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftActive(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonPlayerOnly = useCallback((value: boolean) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftPlayerOnly(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonReset = useCallback((value: boolean) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftReset(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonResetTime = useCallback((value: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftResetTime(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonSpawnOption = useCallback((value: 0 | 1) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftSpawnOption(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonRespawnsFinite = useCallback((value: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftRespawnsFinite(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonRespawnsInfinite = useCallback((value: boolean) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftRespawnsInfinite(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonMaximumCreatures = useCallback((value: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftMaximumCreatures(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonMinimumCreatures = useCallback((value: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftMinimumCreatures(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonScriptResRef = useCallback((
+    field: EncounterScriptResRefField,
+    value: string,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftScriptResRef(
+            current.draft,
+            current.snapshotObject.source,
+            field,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonTriggerScriptResRef = useCallback((
+    field: TriggerScriptResRefField,
+    value: string,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTriggerScriptResRef(
+            current.draft,
+            current.snapshotObject.source,
+            field,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonTriggerTransitionStorage = useCallback((
+    value: TriggerTransitionStorage,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTriggerTransitionStorage(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonFaction = useCallback((value: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftFaction(
+            current.draft,
+            current.snapshotObject.source,
+            sceneRef.current?.placeableFactionCatalog,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonDifficulty = useCallback((difficultyIndex: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftDifficulty(
+            current.draft,
+            current.snapshotObject.source,
+            sceneRef.current?.encounterDifficultyCatalog,
+            difficultyIndex,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonLocalizedName = useCallback((value: string) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftLocalizedName(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonTemplateResRef = useCallback((value: string) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftTemplateResRef(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonEditorComment = useCallback((value: string) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftEditorComment(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonVariables = useCallback((
+    value: readonly AuroraVariableTargetEntry[],
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftVariables(
+            current.draft,
+            current.snapshotObject.source,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonCreatureSingleSpawn = useCallback((
+    index: number,
+    value: boolean,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftCreatureSingleSpawn(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const addAreaObjectPolygonCreature = useCallback((
+    entry: SceneObjectEncounterCreatureListBlueprintTargetEntry,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: appendAreaObjectPolygonDraftCreature(
+            current.draft,
+            current.snapshotObject.source,
+            entry,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const replaceAreaObjectPolygonCreature = useCallback((
+    index: number,
+    entry: SceneObjectEncounterCreatureListBlueprintTargetEntry,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: replaceAreaObjectPolygonDraftCreature(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+            entry,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const removeAreaObjectPolygonCreatureEntry = useCallback((index: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: removeAreaObjectPolygonDraftCreature(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const moveAreaObjectPolygonCreatureEntry = useCallback((
+    index: number,
+    direction: -1 | 1,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: moveAreaObjectPolygonDraftCreature(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+            direction,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const updateAreaObjectPolygonSpawnPoint = useCallback((
+    index: number,
+    field: AreaObjectPolygonSpawnPointField,
+    value: number,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: updateAreaObjectPolygonDraftSpawnPoint(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+            field,
+            value,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const addAreaObjectPolygonSpawnPoint = useCallback(() => {
+    setAreaObjectPolygonDialog((current) => {
+      if (!current) return current;
+      const previous = current.draft.spawnPoints?.at(-1);
+      const seed = previous ?? {
+        nativeX: Math.fround(current.snapshotObject.x),
+        nativeY: Math.fround(current.snapshotObject.y),
+        nativeZ: Math.fround(current.snapshotObject.z),
+        orientation: 0,
+      };
+      return {
+        ...current,
+        draft: appendAreaObjectPolygonDraftSpawnPoint(
+          current.draft,
+          current.snapshotObject.source,
+          seed,
+        ),
+        validationMessage: null,
+      };
+    });
+  }, []);
+
+  const removeAreaObjectPolygonSpawnPoint = useCallback((index: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: removeAreaObjectPolygonDraftSpawnPoint(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const moveAreaObjectPolygonSpawnPoint = useCallback((
+    index: number,
+    direction: -1 | 1,
+  ) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: moveAreaObjectPolygonDraftSpawnPoint(
+            current.draft,
+            current.snapshotObject.source,
+            index,
+            direction,
+          ),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const addAreaObjectPolygonPoint = useCallback(() => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: appendAreaObjectPolygonDraftPoint(current.draft),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const removeAreaObjectPolygonPoint = useCallback((pointIndex: number) => {
+    setAreaObjectPolygonDialog((current) => current
+      ? {
+          ...current,
+          draft: removeAreaObjectPolygonDraftPoint(current.draft, pointIndex),
+          validationMessage: null,
+        }
+      : current);
+  }, []);
+
+  const resetAreaObjectPolygonToSource = useCallback(() => {
+    setAreaObjectPolygonDialog((current) => {
+      if (!current) return current;
+      const sourceDraft = buildAreaObjectPolygonDraft({
+        ...current.snapshotObject,
+        polygonGeometry: undefined,
+        ...(current.objectKind === "encounters"
+          ? {
+            encounterActive:
+              current.snapshotObject.source?.encounterActiveStorage,
+            encounterPlayerOnly:
+              current.snapshotObject.source?.encounterPlayerOnlyStorage,
+            encounterReset:
+              current.snapshotObject.source?.encounterResetStorage,
+            encounterResetTime:
+              current.snapshotObject.source?.encounterResetTimeStorage,
+            encounterSpawnOption:
+              current.snapshotObject.source?.encounterSpawnOptionStorage,
+            encounterRespawns:
+              current.snapshotObject.source?.encounterRespawnsStorage,
+            encounterCreatureCounts:
+              current.snapshotObject.source?.encounterCreatureCountsStorage,
+            encounterScriptResRefs:
+              current.snapshotObject.source?.encounterScriptResRefsStorage,
+            encounterFactionId:
+              current.snapshotObject.source?.encounterFaction?.expectedValue,
+            encounterDifficulty:
+              current.snapshotObject.source?.encounterDifficulty?.expectedValue,
+            encounterLocalizedName:
+              readExistingEncounterLocalizedName(current.snapshotObject.source),
+            encounterProperties: {
+              ...current.snapshotObject.encounterProperties,
+              spawnPoints:
+                current.snapshotObject.source?.encounterSpawnPoints?.expectedEntries.map(
+                  ({ sourceIndex: _, ...entry }) => ({ ...entry }),
+              ),
+            },
+          }
+          : current.objectKind === "triggers"
+            ? {
+              triggerScriptResRefs:
+                current.snapshotObject.source?.triggerScriptResRefsStorage,
+              triggerTransitionStorage:
+                current.snapshotObject.source?.triggerTransitionStorage,
+            }
+            : {}),
+      },
+      sceneRef.current?.placeableFactionCatalog,
+      sceneRef.current?.encounterDifficultyCatalog);
+      return sourceDraft
+        ? { ...current, draft: sourceDraft, validationMessage: null }
+        : current;
+    });
+  }, []);
+
+  const applyAreaObjectPolygonDraft = useCallback((closeAfterApply: boolean) => {
+    if (!areaObjectPolygonDialog) return;
+    const geometry = materializeAreaObjectPolygonDraft(areaObjectPolygonDialog.draft);
+    if (!geometry) {
+      setAreaObjectPolygonDialog((current) => current
+        ? {
+            ...current,
+            validationMessage: "Enter 3..1024 finite points with a non-zero signed XY area.",
+          }
+        : current);
+      return;
+    }
+    const objectId = areaObjectPolygonDialog.objectId;
+    const tag = materializeAreaObjectPolygonDraftTag(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.tag,
+    );
+    const encounterActive = materializeAreaObjectPolygonDraftActive(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterActive,
+    );
+    const encounterPlayerOnly = materializeAreaObjectPolygonDraftPlayerOnly(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterPlayerOnly,
+    );
+    const encounterReset = materializeAreaObjectPolygonDraftReset(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterReset,
+    );
+    const encounterResetTime = materializeAreaObjectPolygonDraftResetTime(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterResetTime,
+    );
+    const encounterSpawnOption = materializeAreaObjectPolygonDraftSpawnOption(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterSpawnOption,
+    );
+    const encounterRespawns = materializeAreaObjectPolygonDraftRespawns(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterRespawns,
+    );
+    const encounterCreatureCounts =
+      materializeAreaObjectPolygonDraftCreatureCounts(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        areaObjectPolygonDialog.snapshotObject.encounterCreatureCounts,
+      );
+    const encounterScriptResRefs = materializeAreaObjectPolygonDraftScriptResRefs(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterScriptResRefs,
+    );
+    const encounterScriptResRefsChanged = encounterScriptResRefs !== undefined
+      && !encounterScriptResRefsStoragesEqual(
+        encounterScriptResRefs,
+        areaObjectPolygonDialog.snapshotObject.encounterScriptResRefs,
+      );
+    const triggerScriptResRefs =
+      materializeAreaObjectPolygonDraftTriggerScriptResRefs(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        areaObjectPolygonDialog.snapshotObject.triggerScriptResRefs,
+      );
+    const triggerScriptResRefsChanged = triggerScriptResRefs !== undefined
+      && !triggerScriptResRefsStoragesEqual(
+        triggerScriptResRefs,
+        areaObjectPolygonDialog.snapshotObject.triggerScriptResRefs,
+      );
+    const triggerTransitionStorage =
+      materializeAreaObjectPolygonDraftTriggerTransitionStorage(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        areaObjectPolygonDialog.snapshotObject.triggerTransitionStorage,
+      );
+    const triggerTransitionStorageChanged = triggerTransitionStorage !== undefined
+      && !triggerTransitionStoragesEqual(
+        triggerTransitionStorage,
+        areaObjectPolygonDialog.snapshotObject.triggerTransitionStorage,
+      );
+    const encounterFactionId = materializeAreaObjectPolygonDraftFaction(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterFactionId,
+      sceneRef.current?.placeableFactionCatalog,
+    );
+    const encounterFactionChanged = encounterFactionId !== undefined
+      && encounterFactionId
+        !== areaObjectPolygonDialog.snapshotObject.encounterFactionId;
+    const encounterDifficulty = materializeAreaObjectPolygonDraftDifficulty(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterDifficulty,
+      sceneRef.current?.encounterDifficultyCatalog,
+    );
+    const encounterDifficultyChanged = encounterDifficulty !== undefined && (
+      encounterDifficulty.difficulty
+        !== areaObjectPolygonDialog.snapshotObject.encounterDifficulty?.difficulty ||
+      encounterDifficulty.difficultyIndex
+        !== areaObjectPolygonDialog.snapshotObject.encounterDifficulty?.difficultyIndex
+    );
+    const sourceTemplateResRef = areaObjectPolygonDialog.objectKind === "triggers"
+      ? areaObjectPolygonDialog.snapshotObject.triggerTemplateResRef
+      : areaObjectPolygonDialog.snapshotObject.encounterTemplateResRef;
+    const areaObjectTemplateResRef =
+      materializeAreaObjectPolygonDraftTemplateResRef(
+        areaObjectPolygonDialog.draft,
+        areaObjectPolygonDialog.snapshotObject.source,
+        sourceTemplateResRef,
+      );
+    const areaObjectTemplateResRefChanged = areaObjectTemplateResRef !== undefined
+      && areaObjectTemplateResRef !== sourceTemplateResRef;
+    const sourceLocalizedName = areaObjectPolygonDialog.objectKind === "triggers"
+      ? areaObjectPolygonDialog.snapshotObject.triggerLocalizedName
+      : areaObjectPolygonDialog.snapshotObject.encounterLocalizedName;
+    const areaObjectLocalizedName = materializeAreaObjectPolygonDraftLocalizedName(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      sourceLocalizedName,
+    );
+    const areaObjectLocalizedNameChanged = areaObjectLocalizedName !== undefined
+      && areaObjectLocalizedName !== sourceLocalizedName;
+    const sourceEditorComment = areaObjectPolygonDialog.objectKind === "triggers"
+      ? areaObjectPolygonDialog.snapshotObject.triggerEditorComment
+      : areaObjectPolygonDialog.snapshotObject.encounterProperties?.comments;
+    const areaObjectEditorComment = materializeAreaObjectPolygonDraftEditorComment(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      sourceEditorComment,
+    );
+    const areaObjectEditorCommentChanged = areaObjectEditorComment !== undefined
+      && areaObjectEditorComment !== sourceEditorComment;
+    const encounterEditorCommentChanged = areaObjectPolygonDialog.objectKind === "encounters"
+      && areaObjectEditorCommentChanged;
+    const triggerEditorCommentChanged = areaObjectPolygonDialog.objectKind === "triggers"
+      && areaObjectEditorCommentChanged;
+    const encounterVariables = materializeAreaObjectPolygonDraftVariables(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterProperties?.variables,
+    );
+    const encounterVariablesChanged = encounterVariables !== undefined &&
+      !encounterVariableTargetEntriesEqual(
+        encounterVariables,
+        areaObjectPolygonDialog.snapshotObject.encounterProperties?.variables,
+      );
+    const encounterCreatureList = materializeAreaObjectPolygonDraftCreatureList(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterProperties?.creatureList,
+    );
+    const encounterCreatureListChanged = encounterCreatureList !== undefined &&
+      !encounterCreatureListTargetEntriesEqual(
+        areaObjectPolygonDialog.snapshotObject.encounterProperties?.creatureList,
+        encounterCreatureList,
+      );
+    const encounterSpawnPoints = materializeAreaObjectPolygonDraftSpawnPoints(
+      areaObjectPolygonDialog.draft,
+      areaObjectPolygonDialog.snapshotObject.source,
+      areaObjectPolygonDialog.snapshotObject.encounterProperties?.spawnPoints,
+    );
+    const encounterSpawnPointsChanged = encounterSpawnPoints !== undefined &&
+      !encounterSpawnPointTargetEntriesEqual(
+        areaObjectPolygonDialog.snapshotObject.encounterProperties?.spawnPoints,
+        encounterSpawnPoints,
+      );
+    setSceneHistory((current) => {
+      const polygonScene = sceneViewportPort.setAreaObjectPolygonGeometryById(
+        current.present,
+        objectId,
+        geometry,
+        tag,
+        encounterActive,
+        encounterPlayerOnly,
+        encounterReset,
+        encounterResetTime,
+        encounterSpawnOption,
+        encounterRespawns,
+        encounterCreatureCounts,
+        encounterScriptResRefsChanged ? encounterScriptResRefs : undefined,
+        encounterFactionChanged ? encounterFactionId : undefined,
+        encounterDifficultyChanged ? encounterDifficulty : undefined,
+        areaObjectPolygonDialog.objectKind === "encounters"
+          && areaObjectLocalizedNameChanged
+          ? areaObjectLocalizedName
+          : undefined,
+        encounterEditorCommentChanged ? areaObjectEditorComment : undefined,
+        encounterVariablesChanged ? encounterVariables : undefined,
+        encounterCreatureListChanged ? encounterCreatureList : undefined,
+        encounterSpawnPointsChanged ? encounterSpawnPoints : undefined,
+      );
+      const templateScene = !areaObjectTemplateResRefChanged
+        ? polygonScene
+        : areaObjectPolygonDialog.objectKind === "triggers"
+          ? sceneViewportPort.setExistingTriggerTemplateResRefById(
+              polygonScene,
+              objectId,
+              areaObjectTemplateResRef,
+            )
+          : sceneViewportPort.setExistingEncounterTemplateResRefById(
+              polygonScene,
+              objectId,
+              areaObjectTemplateResRef,
+            );
+      const localizedNameScene = areaObjectPolygonDialog.objectKind === "triggers"
+        && areaObjectLocalizedNameChanged
+        ? sceneViewportPort.setExistingTriggerLocalizedNameById(
+            templateScene,
+            objectId,
+            areaObjectLocalizedName,
+          )
+        : templateScene;
+      const editorCommentScene = triggerEditorCommentChanged
+        ? sceneViewportPort.setExistingTriggerEditorCommentById(
+            localizedNameScene,
+            objectId,
+            areaObjectEditorComment,
+          )
+        : localizedNameScene;
+      const scriptScene = triggerScriptResRefsChanged
+        ? sceneViewportPort.setExistingTriggerScriptResRefsById(
+            editorCommentScene,
+            objectId,
+            triggerScriptResRefs,
+          )
+        : editorCommentScene;
+      const nextScene = triggerTransitionStorageChanged
+        ? sceneViewportPort.setExistingTriggerTransitionStorageById(
+            scriptScene,
+            objectId,
+            triggerTransitionStorage,
+          )
+        : scriptScene;
+      return nextScene === current.present
+        ? current
+        : sceneViewportPort.commitHistory(current, nextScene);
+    });
+    trackTelemetry("scene.area_object_polygon.apply", {
+      userId,
+      objectId,
+      objectKind: areaObjectPolygonDialog.objectKind,
+      pointCount: geometry.points.length,
+      tagChanged: tag !== areaObjectPolygonDialog.snapshotObject.tag,
+      encounterActiveChanged: encounterActive?.activeByte
+        !== areaObjectPolygonDialog.snapshotObject.encounterActive?.activeByte,
+      encounterPlayerOnlyChanged: encounterPlayerOnly?.playerOnlyByte
+        !== areaObjectPolygonDialog.snapshotObject.encounterPlayerOnly?.playerOnlyByte,
+      encounterResetChanged: encounterReset?.resetByte
+        !== areaObjectPolygonDialog.snapshotObject.encounterReset?.resetByte,
+      encounterResetTimeChanged: encounterResetTime?.resetTime
+        !== areaObjectPolygonDialog.snapshotObject.encounterResetTime?.resetTime,
+      encounterSpawnOptionChanged: encounterSpawnOption?.spawnOption
+        !== areaObjectPolygonDialog.snapshotObject.encounterSpawnOption?.spawnOption,
+      encounterRespawnsChanged: encounterRespawns?.respawns
+        !== areaObjectPolygonDialog.snapshotObject.encounterRespawns?.respawns,
+      encounterCreatureCountsChanged:
+        encounterCreatureCounts?.maxCreatures
+          !== areaObjectPolygonDialog.snapshotObject.encounterCreatureCounts?.maxCreatures
+        || encounterCreatureCounts?.recCreatures
+          !== areaObjectPolygonDialog.snapshotObject.encounterCreatureCounts?.recCreatures,
+      encounterScriptResRefsChanged,
+      triggerScriptResRefsChanged,
+      triggerTransitionStorageChanged,
+      encounterFactionChanged,
+      encounterDifficultyChanged,
+      encounterTemplateResRefChanged: areaObjectPolygonDialog.objectKind === "encounters"
+        && areaObjectTemplateResRefChanged,
+      triggerTemplateResRefChanged: areaObjectPolygonDialog.objectKind === "triggers"
+        && areaObjectTemplateResRefChanged,
+      encounterLocalizedNameChanged: areaObjectPolygonDialog.objectKind === "encounters"
+        && areaObjectLocalizedNameChanged,
+      triggerLocalizedNameChanged: areaObjectPolygonDialog.objectKind === "triggers"
+        && areaObjectLocalizedNameChanged,
+      encounterEditorCommentChanged,
+      triggerEditorCommentChanged,
+      encounterVariablesChanged,
+      encounterCreatureListChanged,
+      encounterSpawnPointsChanged,
+      closeAfterApply,
+    });
+    if (closeAfterApply) setAreaObjectPolygonDialog(null);
+  }, [areaObjectPolygonDialog, sceneViewportPort, trackTelemetry, userId]);
+
+  const cancelAreaObjectPolygonDialog = useCallback(() => {
+    setAreaObjectPolygonDialog(null);
+  }, []);
+
+  const toggleAreaObjectPolygonDialogCollapsed = useCallback(() => {
+    setAreaObjectPolygonDialog((current) => current
+      ? { ...current, collapsed: !current.collapsed }
+      : current);
+  }, []);
+
+  const clampWaypointPropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) =>
+      clampWorkspaceDialogPosition({
+        hostElement: hostRef.current,
+        panelElement: waypointPropertiesDialogRef.current,
+        x,
+        y,
+        fallbackWidthPx: WAYPOINT_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+        fallbackHeightPx: WAYPOINT_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX,
+        marginPx: ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        panelRect,
+      }),
+    [],
+  );
+
+  const openWaypointPropertiesDialog = useCallback((target: SceneObject) => {
+    if (target.kind !== "waypoints") return;
+    const draft = buildWaypointPropertiesDraft(target);
+    const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+    const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+    const runtime = runtimeRef.current;
+    const position = runtime
+      ? resolveAnchoredContextMenuPosition(
+          runtime,
+          target,
+          target.id,
+          anchorOffsetX,
+          anchorOffsetY,
+          WAYPOINT_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+          WAYPOINT_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX,
+        )
+      : clampWaypointPropertiesDialogPosition(
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        );
+    setWaypointPropertiesDialog({
+      objectId: target.id,
+      snapshotObject: cloneSceneObject(target),
+      draft,
+      windowX: position.x,
+      windowY: position.y,
+      anchorOffsetX,
+      anchorOffsetY,
+      collapsed: false,
+    });
+    trackTelemetry("scene.waypoint_properties.open", {
+      userId,
+      objectKind: target.kind,
+      editable: draft.tagControlState === "ACTIVE_NOW" ||
+        draft.templateResRefControlState === "ACTIVE_NOW" ||
+        draft.localizedNameControlState === "ACTIVE_NOW" ||
+        draft.descriptionControlState === "ACTIVE_NOW" ||
+        draft.mapNoteControlState === "ACTIVE_NOW" ||
+        draft.appearanceControlState === "ACTIVE_NOW" ||
+        draft.variablesControlState === "ACTIVE_NOW" ||
+        draft.commentsControlState === "ACTIVE_NOW",
+    });
+  }, [clampWaypointPropertiesDialogPosition, trackTelemetry, userId]);
+
+  useEffect(() => {
+    const revision = ++waypointAppearanceCatalogRequestRevisionRef.current;
+    const dialog = waypointPropertiesDialog;
+    if (!dialog || !canEditExistingWaypointAppearance(dialog.snapshotObject.source) ||
+      !waypointApiPort?.listWaypointAppearanceRows || !waypointAppearanceAccessToken) {
+      setWaypointAppearanceCatalogState(dialog
+        ? { objectId: dialog.objectId, status: "unavailable", catalog: null }
+        : null);
+      return;
+    }
+    setWaypointAppearanceCatalogState({
+      objectId: dialog.objectId,
+      status: "loading",
+      catalog: null,
+    });
+    void loadExistingWaypointAppearanceCatalog(
+      waypointApiPort,
+      waypointAppearanceAccessToken,
+      dialog.snapshotObject.source,
+    ).then((catalog) => {
+      if (waypointAppearanceCatalogRequestRevisionRef.current !== revision) return;
+      setWaypointAppearanceCatalogState({
+        objectId: dialog.objectId,
+        status: "ready",
+        catalog,
+      });
+    }).catch(() => {
+      if (waypointAppearanceCatalogRequestRevisionRef.current !== revision) return;
+      setWaypointAppearanceCatalogState({
+        objectId: dialog.objectId,
+        status: "error",
+        catalog: null,
+      });
+    });
+    return () => {
+      if (waypointAppearanceCatalogRequestRevisionRef.current === revision) {
+        waypointAppearanceCatalogRequestRevisionRef.current += 1;
+      }
+    };
+  }, [
+    waypointApiPort,
+    waypointAppearanceAccessToken,
+    waypointPropertiesDialog?.objectId,
+  ]);
+
+  const updateWaypointPropertiesTag = useCallback((value: string) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            tag: reduceExistingWaypointTag(
+              current.snapshotObject.source,
+              current.draft.tag,
+              value,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesTemplateResRef = useCallback((value: string) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            templateResRef: reduceExistingWaypointTemplateResRef(
+              current.snapshotObject.source,
+              current.draft.templateResRef,
+              value,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesLocalizedName = useCallback((value: string) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            localizedName: reduceExistingWaypointLocalizedName(
+              current.snapshotObject.source,
+              current.draft.localizedName,
+              value,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesDescription = useCallback((value: string) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            description: reduceExistingWaypointDescription(
+              current.snapshotObject.source,
+              current.draft.description,
+              value,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesComments = useCallback((value: string) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            comments: reduceExistingWaypointEditorComment(
+              current.snapshotObject.source,
+              current.draft.comments,
+              value,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesMapNote = useCallback((candidate: Readonly<{
+    hasMapNote: boolean;
+    mapNoteText: string;
+    mapNoteEnabled: boolean;
+  }>) => {
+    setWaypointPropertiesDialog((current) => {
+      if (!current) return current;
+      const value = reduceExistingWaypointMapNote(
+        current.snapshotObject.source,
+        {
+          hasMapNote: current.draft.hasMapNote,
+          mapNoteText: current.draft.mapNoteText,
+          mapNoteEnabled: current.draft.mapNoteEnabled,
+        },
+        candidate,
+      );
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          hasMapNote: value.hasMapNote,
+          mapNoteText: value.mapNoteText,
+          mapNoteEnabled: value.mapNoteEnabled,
+        },
+      };
+    });
+  }, []);
+
+  const updateWaypointPropertiesVariables = useCallback((candidate: readonly AuroraVariableTargetEntry[]) => {
+    setWaypointPropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            variables: reduceExistingWaypointVariables(
+              current.snapshotObject.source,
+              current.draft.variables,
+              candidate,
+            ),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateWaypointPropertiesAppearance = useCallback((candidate: number) => {
+    setWaypointPropertiesDialog((current) => {
+      if (!current) return current;
+      const catalog = waypointAppearanceCatalogState?.objectId === current.objectId
+        ? waypointAppearanceCatalogState.catalog
+        : null;
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          appearance: reduceExistingWaypointAppearance(
+            current.snapshotObject.source,
+            current.draft.appearance,
+            candidate,
+            catalog,
+          ) ?? current.draft.appearance,
+        },
+      };
+    });
+  }, [waypointAppearanceCatalogState]);
+
+  const applyWaypointPropertiesDialog = useCallback((closeAfterApply: boolean) => {
+    if (!waypointPropertiesDialog || (
+      waypointPropertiesDialog.draft.tagControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.templateResRefControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.localizedNameControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.descriptionControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.mapNoteControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.appearanceControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.variablesControlState !== "ACTIVE_NOW" &&
+      waypointPropertiesDialog.draft.commentsControlState !== "ACTIVE_NOW"
+    )) {
+      return;
+    }
+    const objectId = waypointPropertiesDialog.objectId;
+    const materialized = materializeWaypointPropertiesDraft(
+      waypointPropertiesDialog.snapshotObject,
+      waypointPropertiesDialog.draft,
+      waypointAppearanceCatalogState?.objectId === waypointPropertiesDialog.objectId
+        ? waypointAppearanceCatalogState.catalog
+        : null,
+    );
+    setSceneHistory((current) => {
+      const nextScene = sceneViewportPort.setExistingWaypointPropertiesById(
+        current.present,
+        objectId,
+        {
+          tag: materialized.tag,
+          templateResRef: materialized.waypointTemplateResRef,
+          localizedName: materialized.waypointLocalizedName,
+          description: materialized.waypointDescription,
+          mapNote: materialized.waypointMapNote,
+          appearance: materialized.waypointAppearance,
+          waypointVariables: materialized.waypointVariables,
+          editorComment: materialized.waypointEditorComment,
+        },
+      );
+      return nextScene === current.present
+        ? current
+        : sceneViewportPort.commitHistory(current, nextScene);
+    });
+    trackTelemetry("scene.waypoint_properties.apply", {
+      userId,
+      objectKind: "waypoints",
+      tagChanged: materialized.tag !== waypointPropertiesDialog.snapshotObject.tag,
+      templateResRefChanged: materialized.waypointTemplateResRef !==
+        waypointPropertiesDialog.snapshotObject.waypointTemplateResRef,
+      localizedNameChanged: materialized.waypointLocalizedName !==
+        waypointPropertiesDialog.snapshotObject.waypointLocalizedName,
+      descriptionChanged: materialized.waypointDescription !==
+        waypointPropertiesDialog.snapshotObject.waypointDescription,
+      mapNoteChanged: JSON.stringify(materialized.waypointMapNote) !==
+        JSON.stringify(waypointPropertiesDialog.snapshotObject.waypointMapNote),
+      appearanceChanged: materialized.waypointAppearance !==
+        waypointPropertiesDialog.snapshotObject.waypointAppearance,
+      variablesChanged: JSON.stringify(materialized.waypointVariables) !==
+        JSON.stringify(waypointPropertiesDialog.snapshotObject.waypointVariables),
+      commentsChanged: materialized.waypointEditorComment !==
+        waypointPropertiesDialog.snapshotObject.waypointEditorComment,
+      closeAfterApply,
+    });
+    if (closeAfterApply) setWaypointPropertiesDialog(null);
+  }, [
+    sceneViewportPort,
+    trackTelemetry,
+    userId,
+    waypointAppearanceCatalogState,
+    waypointPropertiesDialog,
+  ]);
+
+  const cancelWaypointPropertiesDialog = useCallback(() => {
+    if (waypointPropertiesDialog) {
+      const snapshot = waypointPropertiesDialog.snapshotObject;
+      setSceneHistory((current) => {
+        const nextScene = sceneViewportPort.setExistingWaypointPropertiesById(
+          current.present,
+          snapshot.id,
+          {
+            tag: snapshot.tag,
+            templateResRef: snapshot.waypointTemplateResRef,
+            localizedName: snapshot.waypointLocalizedName,
+            description: snapshot.waypointDescription,
+            mapNote: snapshot.waypointMapNote,
+            appearance: snapshot.waypointAppearance,
+            waypointVariables: snapshot.waypointVariables,
+            editorComment: snapshot.waypointEditorComment,
+          },
+        );
+        return nextScene === current.present
+          ? current
+          : sceneViewportPort.commitHistory(current, nextScene);
+      });
+      trackTelemetry("scene.waypoint_properties.cancel", {
+        userId,
+        objectKind: "waypoints",
+      });
+    }
+    setWaypointPropertiesDialog(null);
+  }, [sceneViewportPort, trackTelemetry, userId, waypointPropertiesDialog]);
+
+  const toggleWaypointPropertiesDialogCollapsed = useCallback(() => {
+    setWaypointPropertiesDialog((current) => current
+      ? { ...current, collapsed: !current.collapsed }
+      : current);
+  }, []);
+
+  const {
+    onHeaderPointerDown: startWaypointPropertiesDialogDrag,
+    onHeaderPointerMove: moveWaypointPropertiesDialogDrag,
+    onHeaderPointerUp: endWaypointPropertiesDialogDrag,
+    onHeaderPointerCancel: cancelWaypointPropertiesDialogDrag,
+  } = usePropertyDialogDrag({
+    dialog: waypointPropertiesDialog,
+    setDialog: setWaypointPropertiesDialog,
+    hostRef,
+    panelRef: waypointPropertiesDialogRef,
+    dragRef: waypointPropertiesDialogDragRef,
+    clampPosition: clampWaypointPropertiesDialogPosition,
+    shouldIgnoreTarget: (target) => Boolean(target?.closest("button, input, select, textarea")),
+  });
+
+  const clampStorePropertiesDialogPosition = useCallback(
+    (x: number, y: number, panelRect?: DOMRect | null) =>
+      clampWorkspaceDialogPosition({
+        hostElement: hostRef.current,
+        panelElement: storePropertiesDialogRef.current,
+        x,
+        y,
+        fallbackWidthPx: STORE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+        fallbackHeightPx: STORE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX,
+        marginPx: ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        panelRect,
+      }),
+    [],
+  );
+
+  const openStorePropertiesDialog = useCallback((target: SceneObject) => {
+    if (target.kind !== "stores") return;
+    const anchorOffsetX = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_X_PX;
+    const anchorOffsetY = CONTEXT_MENU_DEFAULT_ANCHOR_OFFSET_Y_PX;
+    const runtime = runtimeRef.current;
+    const position = runtime
+      ? resolveAnchoredContextMenuPosition(
+          runtime,
+          target,
+          target.id,
+          anchorOffsetX,
+          anchorOffsetY,
+          STORE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+          STORE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX,
+        )
+      : clampStorePropertiesDialogPosition(
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+          ADJUST_LOCATION_DIALOG_MARGIN_PX,
+        );
+    const draft = buildStorePropertiesDraft(
+      target,
+      sceneRef.current?.itemBaseItemCatalog,
+    );
+    setStorePropertiesDialog({
+      objectId: target.id,
+      snapshotObject: cloneSceneObject(target),
+      draft,
+      windowX: position.x,
+      windowY: position.y,
+      anchorOffsetX,
+      anchorOffsetY,
+      collapsed: false,
+    });
+    trackTelemetry("scene.store_properties.open", {
+      userId,
+      objectId: target.id,
+      commentControlState: draft.commentControlState,
+      commerceControlState: draft.commerceControlState,
+      scriptControlState: draft.scriptControlState,
+      variableControlState: draft.variableControlState,
+      restrictionControlState: draft.restrictionControlState,
+      inventoryControlState: draft.inventoryControlState,
+    });
+  }, [clampStorePropertiesDialogPosition, trackTelemetry, userId]);
+
+  const updateStorePropertiesComments = useCallback((comments: string) => {
+    setStorePropertiesDialog((current) => current
+      ? { ...current, draft: { ...current.draft, comments } }
+      : current);
+  }, []);
+
+  const updateStorePropertiesCommerce = useCallback((
+    commerce: NonNullable<StorePropertiesDraft["commerce"]>,
+  ) => {
+    setStorePropertiesDialog((current) => current
+      ? { ...current, draft: { ...current.draft, commerce } }
+      : current);
+  }, []);
+
+  const updateStorePropertiesScriptResRefs = useCallback((
+    scriptResRefs: NonNullable<StorePropertiesDraft["scriptResRefs"]>,
+  ) => {
+    setStorePropertiesDialog((current) => current
+      ? { ...current, draft: { ...current.draft, scriptResRefs } }
+      : current);
+  }, []);
+
+  const updateStorePropertiesVariables = useCallback((
+    variables: NonNullable<StorePropertiesDraft["variables"]>,
+  ) => {
+    setStorePropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            variables: variables.map((entry) => ({ ...entry })),
+          },
+        }
+      : current);
+  }, []);
+
+  const updateStorePropertiesRestrictions = useCallback((
+    restrictions: NonNullable<StorePropertiesDraft["restrictions"]>,
+  ) => {
+    setStorePropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            restrictions: {
+              willNotBuy: [...restrictions.willNotBuy],
+              willOnlyBuy: [...restrictions.willOnlyBuy],
+            },
+          },
+        }
+      : current);
+  }, []);
+
+  const updateStorePropertiesInventory = useCallback((
+    inventoryBuckets: NonNullable<StorePropertiesDraft["inventoryBuckets"]>,
+  ) => {
+    setStorePropertiesDialog((current) => current
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            inventoryBuckets: inventoryBuckets.map((bucket) => ({
+              bucketTypeId: bucket.bucketTypeId,
+              entries: bucket.entries.map((entry) => ({ ...entry })),
+            })),
+          },
+        }
+      : current);
+  }, []);
+
+  const applyStorePropertiesDialog = useCallback((closeAfterApply: boolean) => {
+    if (!storePropertiesDialog || (
+      storePropertiesDialog.draft.commentControlState !== "ACTIVE_NOW" &&
+      storePropertiesDialog.draft.commerceControlState !== "ACTIVE_NOW" &&
+      storePropertiesDialog.draft.scriptControlState !== "ACTIVE_NOW" &&
+      storePropertiesDialog.draft.variableControlState !== "ACTIVE_NOW" &&
+      storePropertiesDialog.draft.restrictionControlState !== "ACTIVE_NOW" &&
+      storePropertiesDialog.draft.inventoryControlState !== "ACTIVE_NOW"
+    )) {
+      return;
+    }
+    const objectId = storePropertiesDialog.objectId;
+    const draft = storePropertiesDialog.draft;
+    const baselineDraft = buildStorePropertiesDraft(
+      storePropertiesDialog.snapshotObject,
+      sceneRef.current?.itemBaseItemCatalog,
+    );
+    const changedFieldCount = (
+      draft.commentControlState === "ACTIVE_NOW" &&
+      baselineDraft.comments !== draft.comments
+        ? 1
+        : 0
+    ) + (
+      draft.commerceControlState === "ACTIVE_NOW" &&
+      baselineDraft.commerce !== null &&
+      draft.commerce !== null
+        ? AREA_STORE_COMMERCE_FIELDS.filter(
+            (field) => baselineDraft.commerce?.[field] !== draft.commerce?.[field],
+          ).length
+        : 0
+    ) + (
+      draft.scriptControlState === "ACTIVE_NOW" &&
+      baselineDraft.scriptResRefs !== null &&
+      draft.scriptResRefs !== null
+        ? AREA_STORE_SCRIPT_RESREF_FIELDS.filter(
+            (field) => baselineDraft.scriptResRefs?.[field.key] !==
+              draft.scriptResRefs?.[field.key],
+          ).length
+        : 0
+    ) + (
+      draft.variableControlState === "ACTIVE_NOW" &&
+      baselineDraft.variables !== null &&
+      draft.variables !== null
+        ? countChangedStoreVariableEntries(baselineDraft.variables, draft.variables)
+        : 0
+    ) + (
+      draft.restrictionControlState === "ACTIVE_NOW" &&
+      baselineDraft.restrictions !== null &&
+      draft.restrictions !== null
+        ? countChangedStoreRestrictionEntries(
+            baselineDraft.restrictions,
+            draft.restrictions,
+          )
+        : 0
+    ) + (
+      draft.inventoryControlState === "ACTIVE_NOW" &&
+      baselineDraft.inventoryBuckets !== null &&
+      draft.inventoryBuckets !== null
+        ? countChangedStoreInventoryEntries(
+            baselineDraft.inventoryBuckets,
+            draft.inventoryBuckets,
+          )
+        : 0
+    );
+    setSceneHistory((current) => {
+      const sourceObject = current.present.objects.find((object) => object.id === objectId);
+      if (!sourceObject || sourceObject.kind !== "stores") return current;
+      const catalog = current.present.itemBaseItemCatalog;
+      const materialized = materializeStorePropertiesDraft(sourceObject, draft, catalog);
+      if (areStorePropertiesDraftsEqual(
+        buildStorePropertiesDraft(sourceObject, catalog),
+        buildStorePropertiesDraft(materialized, catalog),
+      )) {
+        return current;
+      }
+      const nextObjects = current.present.objects.map((object) =>
+        object.id === objectId ? materialized : object
+      );
+      return sceneViewportPort.commitHistory(current, {
+        ...current.present,
+        objects: nextObjects,
+      });
+    });
+    trackTelemetry("scene.store_properties.apply", {
+      userId,
+      objectId,
+      changedFieldCount,
+      closeAfterApply,
+    });
+    if (closeAfterApply) setStorePropertiesDialog(null);
+  }, [sceneViewportPort, storePropertiesDialog, trackTelemetry, userId]);
+
+  const cancelStorePropertiesDialog = useCallback(() => {
+    if (storePropertiesDialog) {
+      const snapshot = storePropertiesDialog.snapshotObject;
+      setSceneHistory((current) => {
+        const sourceObject = current.present.objects.find((object) => object.id === snapshot.id);
+        if (!sourceObject || sourceObject.kind !== "stores" || snapshot.kind !== "stores") {
+          return current;
+        }
+        if (areStorePropertiesDraftsEqual(
+          buildStorePropertiesDraft(sourceObject, current.present.itemBaseItemCatalog),
+          buildStorePropertiesDraft(snapshot, current.present.itemBaseItemCatalog),
+        )) {
+          return current;
+        }
+        const nextObjects = current.present.objects.map((object) =>
+          object.id === snapshot.id ? cloneSceneObject(snapshot) : object
+        );
+        return sceneViewportPort.commitHistory(current, {
+          ...current.present,
+          objects: nextObjects,
+        });
+      });
+      trackTelemetry("scene.store_properties.cancel", {
+        userId,
+        objectId: snapshot.id,
+      });
+    }
+    setStorePropertiesDialog(null);
+  }, [sceneViewportPort, storePropertiesDialog, trackTelemetry, userId]);
+
+  const toggleStorePropertiesDialogCollapsed = useCallback(() => {
+    setStorePropertiesDialog((current) => current
+      ? { ...current, collapsed: !current.collapsed }
+      : current);
+  }, []);
+
   const clampPlaceablePropertiesDialogPosition = useCallback(
     (x: number, y: number, panelRect?: DOMRect | null) =>
       clampWorkspaceDialogPosition({
@@ -8151,6 +10830,48 @@ export function WorkspaceCanvasViewport({
         panelRect
       }),
     []
+  );
+
+  const loadPlaceableAppearanceCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++placeableAppearanceCatalogRequestRevisionRef.current;
+      if (!placeableApiPort || !placeableAssetAccessToken) {
+        setPlaceableAppearanceCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null
+        });
+        return;
+      }
+      setPlaceableAppearanceCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null
+      });
+      try {
+        const catalog = await loadExistingPlaceableAppearanceCatalog(
+          placeableApiPort,
+          placeableAssetAccessToken,
+          target.source,
+          query,
+          selectedRowIndex
+        );
+        if (placeableAppearanceCatalogRequestRevisionRef.current !== requestRevision) return;
+        setPlaceableAppearanceCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog
+        });
+      } catch {
+        if (placeableAppearanceCatalogRequestRevisionRef.current !== requestRevision) return;
+        setPlaceableAppearanceCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null
+        });
+      }
+    },
+    [placeableApiPort, placeableAssetAccessToken]
   );
 
   const openPlaceablePropertiesDialog = useCallback(
@@ -8176,10 +10897,11 @@ export function WorkspaceCanvasViewport({
             ADJUST_LOCATION_DIALOG_MARGIN_PX,
             ADJUST_LOCATION_DIALOG_MARGIN_PX
           );
+      const draft = buildPlaceablePropertiesDraft(target);
       setPlaceablePropertiesDialog({
         objectId: target.id,
         snapshotObject: cloneSceneObject(target),
-        draft: buildPlaceablePropertiesDraft(target),
+        draft,
         activeTab: "basic",
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
@@ -8187,12 +10909,19 @@ export function WorkspaceCanvasViewport({
         anchorOffsetY,
         collapsed: false
       });
+      void loadPlaceableAppearanceCatalogForDialog(target, "", draft.appearanceType);
       trackTelemetry("scene.placeable_properties.open", {
         userId,
         objectId: target.id
       });
     },
-    [clampPlaceablePropertiesDialogPosition, cloneSceneObject, trackTelemetry, userId]
+    [
+      clampPlaceablePropertiesDialogPosition,
+      cloneSceneObject,
+      loadPlaceableAppearanceCatalogForDialog,
+      trackTelemetry,
+      userId
+    ]
   );
 
   const updatePlaceablePropertiesDraftField = useCallback(
@@ -8201,6 +10930,7 @@ export function WorkspaceCanvasViewport({
         | "name"
         | "tag"
         | "resRef"
+        | "appearanceType"
         | "isStatic"
         | "plot"
         | "useable"
@@ -8219,6 +10949,143 @@ export function WorkspaceCanvasViewport({
       setPlaceablePropertiesDialog((current) => {
         if (!current) {
           return current;
+        }
+        const source = current.snapshotObject.source;
+        if (
+          field === "isStatic" &&
+          !canEditExistingPlaceableBoolean(source, "isStatic")
+        ) {
+          return current;
+        }
+        if (
+          field === "useable" &&
+          !canEditExistingPlaceableBoolean(source, "useable")
+        ) {
+          return current;
+        }
+        if (
+          (field === "plot" || field === "hasInventory") &&
+          !canEditExistingPlaceableBoolean(source, field)
+        ) {
+          return current;
+        }
+        if (field === "hitPoints") {
+          if (typeof value !== "number") return current;
+          const nextValue = reduceExistingPlaceableHitPoints(
+            source,
+            current.draft.hitPoints,
+            value
+          );
+          if (nextValue === current.draft.hitPoints) return current;
+          return {
+            ...current,
+            draft: { ...current.draft, hitPoints: nextValue }
+          };
+        }
+        if (field === "name" || field === "tag" || field === "resRef") {
+          if (typeof value !== "string") {
+            return current;
+          }
+          const nextValue = field === "tag"
+            ? reduceExistingPlaceableTag(source, current.draft.tag, value)
+            : field === "name"
+              ? reduceExistingPlaceableLocalizedString(
+                  source,
+                  "localizedName",
+                  current.draft.name,
+                  value
+                )
+              : reducePlaceableBasicIdentityField(source, current.draft.resRef, value);
+          if (nextValue === current.draft[field]) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              [field]: nextValue
+            }
+          };
+        }
+        if (field === "appearanceType") {
+          const catalog =
+            placeableAppearanceCatalogState?.objectId === current.objectId &&
+            placeableAppearanceCatalogState.status === "ready"
+              ? placeableAppearanceCatalogState.catalog
+              : null;
+          const nextValue = reduceExistingPlaceableAppearance(
+            source,
+            current.draft.appearanceType,
+            value,
+            catalog
+          );
+          if (nextValue === current.draft.appearanceType) return current;
+          return {
+            ...current,
+            draft: { ...current.draft, appearanceType: nextValue }
+          };
+        }
+        if (field === "comments") {
+          if (typeof value !== "string") {
+            return current;
+          }
+          const nextValue = reduceExistingPlaceableEditorComment(
+            source,
+            current.draft.comments,
+            value
+          );
+          if (nextValue === current.draft.comments) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              comments: nextValue
+            }
+          };
+        }
+        if (field === "description") {
+          if (typeof value !== "string") return current;
+          const nextValue = reduceExistingPlaceableLocalizedString(
+            source,
+            "description",
+            current.draft.description,
+            value
+          );
+          if (nextValue === current.draft.description) return current;
+          return {
+            ...current,
+            draft: { ...current.draft, description: nextValue }
+          };
+        }
+        const durabilitySaveByteField =
+          field === "hardness" ||
+          field === "fortitudeSave" ||
+          field === "reflexSave" ||
+          field === "willSave"
+            ? field
+            : undefined;
+        if (durabilitySaveByteField !== undefined) {
+          if (typeof value !== "number") {
+            return current;
+          }
+          const nextValue = reduceExistingPlaceableDurabilitySaveByte(
+            source,
+            durabilitySaveByteField,
+            current.draft[durabilitySaveByteField],
+            value
+          );
+          if (nextValue === current.draft[durabilitySaveByteField]) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              [durabilitySaveByteField]: nextValue
+            }
+          };
         }
         const nextDraft =
           typeof value === "boolean"
@@ -8240,6 +11107,10 @@ export function WorkspaceCanvasViewport({
     (field: PlaceableScriptSlotKey, value: string) => {
       setPlaceablePropertiesDialog((current) => {
         if (!current) {
+          return current;
+        }
+        const source = current.snapshotObject.source;
+        if (!canEditExistingPlaceableScriptSlot(source, field)) {
           return current;
         }
         if (current.draft.scriptSlots[field] === value) {
@@ -8291,7 +11162,11 @@ export function WorkspaceCanvasViewport({
       value: string | boolean | number
     ) => {
       setPlaceablePropertiesDialog((current) => {
-        if (!current || current.draft.lockSettings[field] === value) {
+        if (
+          !current ||
+          !canEditExistingPlaceableLockField(current.snapshotObject.source, field) ||
+          current.draft.lockSettings[field] === value
+        ) {
           return current;
         }
         return {
@@ -8315,7 +11190,50 @@ export function WorkspaceCanvasViewport({
       value: string | boolean | number
     ) => {
       setPlaceablePropertiesDialog((current) => {
-        if (!current || current.draft.trapSettings[field] === value) {
+        if (!current) {
+          return current;
+        }
+        if (field === "trapTypeRow") {
+          const nextTrapSettings = materializeExistingPlaceableTrapType(
+            current.snapshotObject.source,
+            current.draft.trapSettings,
+            value,
+            sceneRef.current?.placeableTrapTypeCatalog,
+          );
+          if (!nextTrapSettings || nextTrapSettings === current.draft.trapSettings) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              trapSettings: { ...current.draft.trapSettings, ...nextTrapSettings },
+            },
+          };
+        }
+        if (isPlaceableTrapByteField(field)) {
+          const currentValue = current.draft.trapSettings[field];
+          const nextValue = reduceExistingPlaceableTrapByteField(
+            current.snapshotObject.source,
+            field,
+            currentValue,
+            value
+          );
+          if (nextValue === currentValue) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              trapSettings: {
+                ...current.draft.trapSettings,
+                [field]: nextValue
+              }
+            }
+          };
+        }
+        if (
+          (field !== "onDisarmScript" && field !== "onTrapTriggeredScript") ||
+          !canEditExistingPlaceableTrapScript(current.snapshotObject.source, field) ||
+          current.draft.trapSettings[field] === value
+        ) {
           return current;
         }
         return {
@@ -8336,22 +11254,170 @@ export function WorkspaceCanvasViewport({
   const updatePlaceableAdvancedDraftField = useCallback(
     (
       field: keyof PlaceablePropertiesDraft["advancedSettings"],
-      value: string | boolean
+      value: string | boolean | number
     ) => {
       setPlaceablePropertiesDialog((current) => {
         if (!current || current.draft.advancedSettings[field] === value) {
           return current;
         }
-        return {
-          ...current,
-          draft: {
-            ...current.draft,
-            advancedSettings: {
-              ...current.draft.advancedSettings,
-              [field]: value
-            }
+        if (field === "blueprintResRef") {
+          if (typeof value !== "string") {
+            return current;
           }
-        };
+          const nextValue = reduceExistingPlaceableTemplateResRef(
+            current.snapshotObject.source,
+            current.draft.advancedSettings.blueprintResRef,
+            value,
+          );
+          if (nextValue === current.draft.advancedSettings.blueprintResRef) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                blueprintResRef: nextValue,
+              },
+            },
+          };
+        }
+        if (field === "conversation") {
+          if (typeof value !== "string") {
+            return current;
+          }
+          const nextValue = reduceExistingPlaceableConversation(
+            current.snapshotObject.source,
+            current.draft.advancedSettings.conversation,
+            value
+          );
+          if (nextValue === current.draft.advancedSettings.conversation) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                conversation: nextValue
+              }
+            }
+          };
+        }
+        if (field === "noInterrupt") {
+          if (typeof value !== "boolean") {
+            return current;
+          }
+          const nextValue = reduceExistingPlaceableNoInterrupt(
+            current.snapshotObject.source,
+            current.draft.advancedSettings.noInterrupt,
+            value
+          );
+          if (nextValue === current.draft.advancedSettings.noInterrupt) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                noInterrupt: nextValue
+              }
+            }
+          };
+        }
+        if (field === "initialState") {
+          if (typeof value !== "string") {
+            return current;
+          }
+          const nextValue = reduceExistingPlaceableInitialState(
+            current.snapshotObject.source,
+            current.draft.advancedSettings.initialState,
+            value
+          );
+          if (nextValue === current.draft.advancedSettings.initialState) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                initialState: nextValue
+              }
+            }
+          };
+        }
+        if (field === "treasureModelRow") {
+          const nextAdvancedSettings = materializeExistingPlaceableBodyBag(
+            current.snapshotObject.source,
+            current.draft.advancedSettings,
+            value,
+            sceneRef.current?.placeableBodyBagCatalog,
+          );
+          if (!nextAdvancedSettings ||
+            nextAdvancedSettings.treasureModelRow ===
+              current.draft.advancedSettings.treasureModelRow) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                treasureModelRow: nextAdvancedSettings.treasureModelRow,
+              },
+            },
+          };
+        }
+        if (field === "portraitId") {
+          const nextAdvancedSettings = materializeExistingPlaceablePortrait(
+            current.snapshotObject.source,
+            current.draft.advancedSettings,
+            value,
+            sceneRef.current?.placeablePortraitCatalog,
+          );
+          if (!nextAdvancedSettings ||
+            nextAdvancedSettings.portraitId === current.draft.advancedSettings.portraitId) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                ...nextAdvancedSettings,
+              },
+            },
+          };
+        }
+        if (field === "factionId") {
+          const nextAdvancedSettings = materializeExistingPlaceableFaction(
+            current.snapshotObject.source,
+            current.draft.advancedSettings,
+            value,
+            sceneRef.current?.placeableFactionCatalog,
+          );
+          if (!nextAdvancedSettings ||
+            nextAdvancedSettings.factionId === current.draft.advancedSettings.factionId) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                ...nextAdvancedSettings,
+              },
+            },
+          };
+        }
+        return current;
       });
     },
     []
@@ -8359,26 +11425,12 @@ export function WorkspaceCanvasViewport({
 
   const addPlaceableInventoryItem = useCallback(() => {
     setPlaceablePropertiesDialog((current) => {
-      if (!current) {
+      if (!current || !canEditExistingPlaceableInventory(current.snapshotObject.source)) {
         return current;
       }
       return {
         ...current,
-        draft: {
-          ...current.draft,
-          hasInventory: true,
-          inventoryItems: [
-            ...current.draft.inventoryItems,
-            {
-              resRef: "",
-              x: 0,
-              y: 0,
-              dropable: true,
-              pickpocketable: false,
-              infinite: false
-            }
-          ]
-        }
+        draft: appendAdmittedPlaceableInventoryItem(current.draft)
       };
     });
   }, []);
@@ -8386,22 +11438,45 @@ export function WorkspaceCanvasViewport({
   const updatePlaceableInventoryItem = useCallback(
     (
       index: number,
-      field: keyof PlaceablePropertiesDraft["inventoryItems"][number],
-      value: string | number | boolean | undefined
+      field: "x" | "y",
+      value: number
     ) => {
       setPlaceablePropertiesDialog((current) => {
-        if (!current || index < 0 || index >= current.draft.inventoryItems.length) {
+        if (
+          !current ||
+          !canEditExistingPlaceableInventory(current.snapshotObject.source) ||
+          index < 0 ||
+          index >= current.draft.inventoryItems.length
+        ) {
           return current;
         }
-        const inventoryItems = current.draft.inventoryItems.map((entry, entryIndex) =>
-          entryIndex === index ? { ...entry, [field]: value } : entry
+        const draft = updatePlaceableInventoryDraftCoordinate(
+          current.draft,
+          index,
+          field,
+          value
         );
+        if (draft === current.draft) return current;
         return {
           ...current,
-          draft: {
-            ...current.draft,
-            inventoryItems
-          }
+          draft
+        };
+      });
+    },
+    [placeableAppearanceCatalogState]
+  );
+
+  const movePlaceableInventoryItem = useCallback(
+    (index: number, direction: "up" | "down") => {
+      setPlaceablePropertiesDialog((current) => {
+        if (!current || !canEditExistingPlaceableInventory(current.snapshotObject.source)) {
+          return current;
+        }
+        const draft = movePlaceableInventoryDraftItem(current.draft, index, direction);
+        if (draft === current.draft) return current;
+        return {
+          ...current,
+          draft
         };
       });
     },
@@ -8410,18 +11485,80 @@ export function WorkspaceCanvasViewport({
 
   const removePlaceableInventoryItem = useCallback((index: number) => {
     setPlaceablePropertiesDialog((current) => {
-      if (!current || index < 0 || index >= current.draft.inventoryItems.length) {
+      if (
+        !current ||
+        !canEditExistingPlaceableInventory(current.snapshotObject.source) ||
+        index < 0 ||
+        index >= current.draft.inventoryItems.length
+      ) {
         return current;
       }
+      const draft = removePlaceableInventoryDraftItem(current.draft, index);
+      if (draft === current.draft) return current;
       return {
         ...current,
-        draft: {
-          ...current.draft,
-          inventoryItems: current.draft.inventoryItems.filter(
-            (_entry, entryIndex) => entryIndex !== index
-          )
-        }
+        draft
       };
+    });
+  }, []);
+
+  const addPlaceableVariable = useCallback(() => {
+    setPlaceablePropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = appendExistingPlaceableVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const updatePlaceableVariable = useCallback((
+    index: number,
+    entry: PlaceablePropertiesDraft["variables"][number],
+  ) => {
+    setPlaceablePropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = updateExistingPlaceableVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+        index,
+        entry,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const movePlaceableVariable = useCallback((index: number, direction: "up" | "down") => {
+    setPlaceablePropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = moveExistingPlaceableVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+        index,
+        direction,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const removePlaceableVariable = useCallback((index: number) => {
+    setPlaceablePropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = removeExistingPlaceableVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+        index,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
     });
   }, []);
 
@@ -8450,36 +11587,178 @@ export function WorkspaceCanvasViewport({
           return current;
         }
         const sourcePlaceableProperties = sourceObject.placeableProperties;
-        const nextName = draft.name.trim();
-        const nextTag = draft.tag.trim();
-        const nextResRef = draft.resRef.trim();
+        const source = sourceObject.source;
+        const canEditStatic = canEditExistingPlaceableBoolean(source, "isStatic");
+        const canEditUseable = canEditExistingPlaceableBoolean(source, "useable");
+        const canEditPlot = canEditExistingPlaceableBoolean(source, "plot");
+        const canEditHasInventory = canEditExistingPlaceableBoolean(source, "hasInventory");
+        const canEditInventory = canEditExistingPlaceableInventory(source);
+        const nextIsStatic = canEditStatic ? draft.isStatic : sourceObject.isStatic ?? true;
+        const nextPlot = canEditPlot ? draft.plot : sourcePlaceableProperties?.plot ?? false;
+        const nextUseable = canEditUseable
+          ? draft.useable
+          : sourcePlaceableProperties?.useable ?? false;
+        const nextHasInventory = canEditHasInventory
+          ? draft.hasInventory
+          : sourcePlaceableProperties?.hasInventory ?? false;
+        const nextBasicIdentity = materializePlaceableBasicIdentity(sourceObject, draft);
+        const nextTag = nextBasicIdentity.tag;
+        const nextResRef = nextBasicIdentity.resRef;
+        const nextTrapScriptSettings = materializeExistingPlaceableTrapSettings(
+          source,
+          sourcePlaceableProperties?.trapSettings,
+          draft.trapSettings
+        );
+        const nextTrapByteSettings = materializeExistingPlaceableTrapByteSettings(
+          source,
+          nextTrapScriptSettings,
+          draft.trapSettings
+        );
+        const nextTrapSettings = materializeExistingPlaceableTrapType(
+          source,
+          nextTrapByteSettings,
+          draft.trapSettings.trapTypeRow,
+          current.present.placeableTrapTypeCatalog,
+        );
+        const nextLockSettings = materializeExistingPlaceableLockSettings(
+          source,
+          sourcePlaceableProperties?.lockSettings,
+          draft.lockSettings
+        );
+        const nextDurabilitySaveBytes = materializeExistingPlaceableDurabilitySaveBytes(
+          source,
+          {
+            ...(sourcePlaceableProperties?.hardness !== undefined
+              ? { hardness: sourcePlaceableProperties.hardness }
+              : {}),
+            ...(sourcePlaceableProperties?.fortitudeSave !== undefined
+              ? { fortitudeSave: sourcePlaceableProperties.fortitudeSave }
+              : {}),
+            ...(sourcePlaceableProperties?.reflexSave !== undefined
+              ? { reflexSave: sourcePlaceableProperties.reflexSave }
+              : {}),
+            ...(sourcePlaceableProperties?.willSave !== undefined
+              ? { willSave: sourcePlaceableProperties.willSave }
+              : {})
+          },
+          draft
+        );
+        const nextTemplateResRefSettings = materializeExistingPlaceableTemplateResRef(
+          source,
+          sourcePlaceableProperties?.advancedSettings,
+          draft.advancedSettings.blueprintResRef,
+        );
+        const nextConversationInterruptableSettings =
+          materializeExistingPlaceableConversationInterruptable(
+            source,
+            nextTemplateResRefSettings,
+            draft.advancedSettings
+          );
+        const nextAnimationStateSettings = materializeExistingPlaceableAnimationState(
+          source,
+          nextConversationInterruptableSettings,
+          draft.advancedSettings
+        );
+        const nextBodyBagSettings = materializeExistingPlaceableBodyBag(
+          source,
+          nextAnimationStateSettings,
+          draft.advancedSettings.treasureModelRow,
+          current.present.placeableBodyBagCatalog,
+        );
+        const nextPortraitSettings = materializeExistingPlaceablePortrait(
+          source,
+          nextBodyBagSettings,
+          draft.advancedSettings.portraitId,
+          current.present.placeablePortraitCatalog,
+        );
+        const nextAdvancedSettings = materializeExistingPlaceableFaction(
+          source,
+          nextPortraitSettings,
+          draft.advancedSettings.factionId,
+          current.present.placeableFactionCatalog,
+        );
+        const nextVariables = materializeExistingPlaceableVariables(
+          source,
+          sourcePlaceableProperties?.variables,
+          draft.variables,
+        );
+        const nextLongTextProperties = materializeExistingPlaceableComments(
+          source,
+          sourcePlaceableProperties,
+          draft.comments
+        );
+        const nextLocalizedStrings = materializeExistingPlaceableLocalizedStrings(
+          source,
+          sourcePlaceableProperties,
+          { localizedName: draft.name, description: draft.description }
+        );
+        const nextName = nextLocalizedStrings.localizedName ?? nextBasicIdentity.name;
         const nextPlaceableProperties: NonNullable<SceneObject["placeableProperties"]> = {
-          plot: draft.plot,
-          useable: draft.useable,
-          hasInventory: draft.hasInventory,
-          lockSettings: { ...draft.lockSettings },
-          trapSettings: { ...draft.trapSettings },
-          advancedSettings: { ...draft.advancedSettings },
-          description: draft.description,
-          comments: draft.comments
+          plot: nextPlot,
+          useable: nextUseable,
+          hasInventory: nextHasInventory
         };
-        if (draft.scriptSlotsEnabled) {
-          nextPlaceableProperties.scriptSlots = { ...draft.scriptSlots };
+        const appearanceCatalog =
+          placeableAppearanceCatalogState?.objectId === objectId &&
+          placeableAppearanceCatalogState.status === "ready"
+            ? placeableAppearanceCatalogState.catalog
+            : null;
+        const nextAppearanceType = materializeExistingPlaceableAppearance(
+          source,
+          sourcePlaceableProperties?.appearanceType,
+          draft.appearanceType,
+          appearanceCatalog
+        );
+        if (nextAppearanceType !== undefined) {
+          nextPlaceableProperties.appearanceType = nextAppearanceType;
+        }
+        const nextHitPoints = materializeExistingPlaceableHitPoints(
+          source,
+          sourcePlaceableProperties?.hitPoints,
+          draft.hitPoints
+        );
+        if (nextHitPoints !== undefined) {
+          nextPlaceableProperties.hitPoints = nextHitPoints;
+        }
+        Object.assign(nextPlaceableProperties, nextDurabilitySaveBytes);
+        Object.assign(nextPlaceableProperties, nextLongTextProperties);
+        Object.assign(nextPlaceableProperties, nextLocalizedStrings);
+        if (nextAdvancedSettings) {
+          nextPlaceableProperties.advancedSettings = nextAdvancedSettings;
+        }
+        if (nextLockSettings) {
+          nextPlaceableProperties.lockSettings = nextLockSettings;
+        }
+        if (nextTrapSettings) {
+          nextPlaceableProperties.trapSettings = nextTrapSettings;
+        }
+        const nextScriptSlots = materializeExistingPlaceableScriptSlots(
+          source,
+          sourcePlaceableProperties?.scriptSlots,
+          draft.scriptSlots,
+          draft.scriptSlotsEnabled
+        );
+        if (nextScriptSlots) {
+          nextPlaceableProperties.scriptSlots = nextScriptSlots;
         }
         if (draft.disabledFlagsEnabled) {
           nextPlaceableProperties.disabledFlags = { ...draft.disabledFlags };
         }
-        if (
-          draft.inventoryItems.length > 0 ||
-          sourcePlaceableProperties?.inventoryItems !== undefined
-        ) {
+        if (canEditInventory) {
           nextPlaceableProperties.inventoryItems = draft.inventoryItems.map((entry) => ({
             ...entry
           }));
+        } else if (sourcePlaceableProperties?.inventoryItems !== undefined) {
+          nextPlaceableProperties.inventoryItems = sourcePlaceableProperties.inventoryItems.map(
+            (entry) => ({ ...entry })
+          );
         }
-        const isScriptSlotsUnchanged = draft.scriptSlotsEnabled
+        if (nextVariables !== undefined) {
+          nextPlaceableProperties.variables = nextVariables;
+        }
+        const isScriptSlotsUnchanged = nextScriptSlots
           ? sourcePlaceableProperties?.scriptSlots !== undefined &&
-            arePlaceableScriptSlotsEqual(sourcePlaceableProperties.scriptSlots, draft.scriptSlots)
+            arePlaceableScriptSlotsEqual(sourcePlaceableProperties.scriptSlots, nextScriptSlots)
           : sourcePlaceableProperties?.scriptSlots === undefined;
         const isDisabledFlagsUnchanged = draft.disabledFlagsEnabled
           ? sourcePlaceableProperties?.disabledFlags !== undefined &&
@@ -8487,103 +11766,78 @@ export function WorkspaceCanvasViewport({
             sourcePlaceableProperties.disabledFlags.useable === draft.disabledFlags.useable &&
             sourcePlaceableProperties.disabledFlags.hasInventory === draft.disabledFlags.hasInventory
           : sourcePlaceableProperties?.disabledFlags === undefined;
-        const isLockSettingsUnchanged = arePlaceableLockSettingsEqual(
-          {
-            locked: sourcePlaceableProperties?.lockSettings?.locked ?? false,
-            canRelock: sourcePlaceableProperties?.lockSettings?.canRelock ?? false,
-            autoRemoveKeyAfterUse:
-              sourcePlaceableProperties?.lockSettings?.autoRemoveKeyAfterUse ?? false,
-            keyRequiredToUnlockOrLock:
-              sourcePlaceableProperties?.lockSettings?.keyRequiredToUnlockOrLock ?? false,
-            openLockDc: sourcePlaceableProperties?.lockSettings?.openLockDc ?? 18,
-            closeLockDc: sourcePlaceableProperties?.lockSettings?.closeLockDc ?? 0,
-            keyTag: sourcePlaceableProperties?.lockSettings?.keyTag ?? ""
-          },
-          draft.lockSettings
-        );
-        const isTrapSettingsUnchanged = arePlaceableTrapSettingsEqual(
-          {
-            isTrapped: sourcePlaceableProperties?.trapSettings?.isTrapped ?? false,
-            trapType: sourcePlaceableProperties?.trapSettings?.trapType ?? PLACEABLE_TRAP_TYPE_OPTIONS[0]!,
-            detectionDc: sourcePlaceableProperties?.trapSettings?.detectionDc ?? 0,
-            disarmDc: sourcePlaceableProperties?.trapSettings?.disarmDc ?? 15,
-            oneShot: sourcePlaceableProperties?.trapSettings?.oneShot ?? true,
-            detectable: sourcePlaceableProperties?.trapSettings?.detectable ?? true,
-            disarmable: sourcePlaceableProperties?.trapSettings?.disarmable ?? true,
-            onDisarmScript: sourcePlaceableProperties?.trapSettings?.onDisarmScript ?? "",
-            onTrapTriggeredScript:
-              sourcePlaceableProperties?.trapSettings?.onTrapTriggeredScript ?? "",
-            setDc: sourcePlaceableProperties?.trapSettings?.setDc ?? 5,
-            detectDcModWhenSetByRogue:
-              sourcePlaceableProperties?.trapSettings?.detectDcModWhenSetByRogue ?? 10,
-            disarmDcModWhenSetByRogue:
-              sourcePlaceableProperties?.trapSettings?.disarmDcModWhenSetByRogue ?? 22
-          },
-          draft.trapSettings
-        );
+        const isLockSettingsUnchanged = nextLockSettings
+          ? sourcePlaceableProperties?.lockSettings !== undefined &&
+            arePlaceableLockSettingsEqual(
+              sourcePlaceableProperties.lockSettings,
+              nextLockSettings
+            )
+          : sourcePlaceableProperties?.lockSettings === undefined;
+        const isTrapSettingsUnchanged = nextTrapSettings
+          ? sourcePlaceableProperties?.trapSettings !== undefined &&
+            arePlaceableTrapSettingsEqual(sourcePlaceableProperties.trapSettings, nextTrapSettings)
+          : sourcePlaceableProperties?.trapSettings === undefined;
         const isAdvancedSettingsUnchanged = arePlaceableAdvancedSettingsEqual(
-          {
-            blueprintResRef:
-              sourcePlaceableProperties?.advancedSettings?.blueprintResRef ?? sourceObject.resRef,
-            belongsToFaction:
-              sourcePlaceableProperties?.advancedSettings?.belongsToFaction ??
-              PLACEABLE_FACTION_OPTIONS[0]!,
-            conversation: sourcePlaceableProperties?.advancedSettings?.conversation ?? "",
-            noInterrupt: sourcePlaceableProperties?.advancedSettings?.noInterrupt ?? false,
-            portraitResRef: sourcePlaceableProperties?.advancedSettings?.portraitResRef ?? "",
-            initialState:
-              sourcePlaceableProperties?.advancedSettings?.initialState ??
-              PLACEABLE_INITIAL_STATE_OPTIONS[0]!,
-            treasureModel:
-              sourcePlaceableProperties?.advancedSettings?.treasureModel ??
-              PLACEABLE_TREASURE_MODEL_OPTIONS[0]!
-          },
-          draft.advancedSettings
+          sourcePlaceableProperties?.advancedSettings ?? {},
+          nextAdvancedSettings ?? {}
         );
         const isDescriptionUnchanged =
-          (sourcePlaceableProperties?.description ?? "") === draft.description;
-        const isCommentsUnchanged = (sourcePlaceableProperties?.comments ?? "") === draft.comments;
+          sourcePlaceableProperties?.description === nextPlaceableProperties.description;
+        const isLocalizedNameUnchanged =
+          sourcePlaceableProperties?.localizedName === nextPlaceableProperties.localizedName;
+        const isCommentsUnchanged =
+          sourcePlaceableProperties?.comments === nextPlaceableProperties.comments;
         const isInventoryItemsUnchanged =
+          !canEditInventory ||
           stableJsonStringify(sourcePlaceableProperties?.inventoryItems ?? []) ===
-          stableJsonStringify(draft.inventoryItems);
+            stableJsonStringify(draft.inventoryItems);
+        const isVariablesUnchanged =
+          stableJsonStringify(sourcePlaceableProperties?.variables) ===
+            stableJsonStringify(nextVariables);
         const sourceName = sourceObject.name ?? sourceObject.tag;
         const sourceIsStatic = sourceObject.isStatic ?? true;
         if (
           sourceName === nextName &&
           sourceObject.tag === nextTag &&
           sourceObject.resRef === nextResRef &&
-          sourceIsStatic === draft.isStatic &&
-          sourcePlaceableProperties?.plot === draft.plot &&
-          sourcePlaceableProperties?.useable === draft.useable &&
-          sourcePlaceableProperties?.hasInventory === draft.hasInventory &&
+          sourceIsStatic === nextIsStatic &&
+          sourcePlaceableProperties?.plot === nextPlot &&
+          sourcePlaceableProperties?.useable === nextUseable &&
+          sourcePlaceableProperties?.hasInventory === nextHasInventory &&
+          sourcePlaceableProperties?.appearanceType === nextPlaceableProperties.appearanceType &&
+          sourcePlaceableProperties?.hardness === nextPlaceableProperties.hardness &&
+          sourcePlaceableProperties?.hitPoints === nextPlaceableProperties.hitPoints &&
+          sourcePlaceableProperties?.fortitudeSave ===
+            nextPlaceableProperties.fortitudeSave &&
+          sourcePlaceableProperties?.reflexSave === nextPlaceableProperties.reflexSave &&
+          sourcePlaceableProperties?.willSave === nextPlaceableProperties.willSave &&
           isScriptSlotsUnchanged &&
           isDisabledFlagsUnchanged &&
           isLockSettingsUnchanged &&
           isTrapSettingsUnchanged &&
           isAdvancedSettingsUnchanged &&
           isInventoryItemsUnchanged &&
+          isVariablesUnchanged &&
+          isLocalizedNameUnchanged &&
           isDescriptionUnchanged &&
           isCommentsUnchanged
         ) {
           return current;
         }
-        const nextObjects = current.present.objects.map((object) =>
-          object.id === objectId
-            ? {
-                ...object,
-                name: nextName,
-                tag: nextTag,
-                resRef: nextResRef,
-                isStatic: draft.isStatic,
-                placeableProperties: nextPlaceableProperties,
-                soundPositioning: undefined
-              }
-            : object
+        const nextScene = sceneViewportPort.setPlaceablePropertiesByIds(
+          current.present,
+          [objectId],
+          {
+            name: nextName,
+            tag: nextTag,
+            resRef: nextResRef,
+            isStatic: nextIsStatic,
+            placeableProperties: nextPlaceableProperties
+          }
         );
-        const nextScene = {
-          ...current.present,
-          objects: nextObjects
-        };
+        if (nextScene === current.present) {
+          return current;
+        }
         return sceneViewportPort.commitHistory(current, nextScene);
       });
 
@@ -8597,7 +11851,13 @@ export function WorkspaceCanvasViewport({
         setPlaceablePropertiesDialog(null);
       }
     },
-    [placeablePropertiesDialog, sceneViewportPort, trackTelemetry, userId]
+    [
+      placeableAppearanceCatalogState,
+      placeablePropertiesDialog,
+      sceneViewportPort,
+      trackTelemetry,
+      userId
+    ]
   );
 
   const cancelPlaceablePropertiesDialog = useCallback(() => {
@@ -8674,6 +11934,38 @@ export function WorkspaceCanvasViewport({
     },
     [scene.objects, visibleObjectIdsSet]
   );
+
+  const {
+    onHeaderPointerDown: startAreaObjectPolygonDialogDrag,
+    onHeaderPointerMove: moveAreaObjectPolygonDialogDrag,
+    onHeaderPointerUp: endAreaObjectPolygonDialogDrag,
+    onHeaderPointerCancel: cancelAreaObjectPolygonDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: areaObjectPolygonDialog,
+    setDialog: setAreaObjectPolygonDialog,
+    hostRef,
+    panelRef: areaObjectPolygonDialogRef,
+    dragRef: areaObjectPolygonDialogDragRef,
+    clampPosition: clampAreaObjectPolygonDialogPosition,
+    shouldIgnoreTarget: (target) => Boolean(target?.closest("button, input, select, textarea")),
+    mapPosition: mapAnchoredDialogPosition
+  });
+
+  const {
+    onHeaderPointerDown: startStorePropertiesDialogDrag,
+    onHeaderPointerMove: moveStorePropertiesDialogDrag,
+    onHeaderPointerUp: endStorePropertiesDialogDrag,
+    onHeaderPointerCancel: cancelStorePropertiesDialogDrag
+  } = usePropertyDialogDrag({
+    dialog: storePropertiesDialog,
+    setDialog: setStorePropertiesDialog,
+    hostRef,
+    panelRef: storePropertiesDialogRef,
+    dragRef: storePropertiesDialogDragRef,
+    clampPosition: clampStorePropertiesDialogPosition,
+    shouldIgnoreTarget: (target) => Boolean(target?.closest("button, input, select, textarea")),
+    mapPosition: mapAnchoredDialogPosition
+  });
 
   const {
     onHeaderPointerDown: startPlaceablePropertiesDialogDrag,
@@ -8756,10 +12048,13 @@ export function WorkspaceCanvasViewport({
         }
 
         let nextDraft = current.draft;
-        if (field === "maxVolumeDistance") {
-          return current;
-        }
+        const soundProfileEditable =
+          readAreaSoundProfileStorage(
+            current.snapshotObject.source?.soundProfileStorage,
+          ) !== null
+          && readAreaSoundProfileStorage(current.snapshotObject.soundProfile) !== null;
         if (field === "mode") {
+          if (!soundProfileEditable) return current;
           const nextMode = value as SoundPositioningMode;
           nextDraft = {
             ...current.draft,
@@ -8774,7 +12069,20 @@ export function WorkspaceCanvasViewport({
           nextDraft = {
             ...current.draft,
             cutoffDistance: nextCutoffDistance,
-            maxVolumeDistance: deriveMaxVolumeDistanceFromCutoff(nextCutoffDistance)
+            maxVolumeDistance: soundProfileEditable
+              ? Math.min(current.draft.maxVolumeDistance, nextCutoffDistance)
+              : deriveMaxVolumeDistanceFromCutoff(nextCutoffDistance)
+          };
+        } else if (field === "maxVolumeDistance") {
+          if (!soundProfileEditable) return current;
+          const numericValue = parseSoundNumericInput(value);
+          if (numericValue === null) return current;
+          nextDraft = {
+            ...current.draft,
+            maxVolumeDistance: Math.min(
+              Math.max(0, numericValue),
+              current.draft.cutoffDistance,
+            ),
           };
         } else if (
           field === "name" ||
@@ -8941,6 +12249,22 @@ export function WorkspaceCanvasViewport({
         if (!current) {
           return current;
         }
+        if (
+          !(
+            readAreaSoundProfileStorage(
+              current.snapshotObject.source?.soundProfileStorage,
+            ) !== null
+            && readAreaSoundProfileStorage(current.snapshotObject.soundProfile) !== null
+          )
+          && (
+            readAreaSoundPlaybackStorage(
+              current.snapshotObject.source?.soundPlaybackStorage,
+            ) === null
+            || readAreaSoundPlaybackStorage(current.snapshotObject.soundPlayback) === null
+          )
+        ) {
+          return current;
+        }
         const { list, selectedIndex } = recipe(
           [...current.draft.soundList],
           current.draft.selectedSoundIndex
@@ -8968,20 +12292,21 @@ export function WorkspaceCanvasViewport({
 
   const addSoundListEntry = useCallback(() => {
     mutateSoundListDraft((list) => {
-      const nextNameBase = "as_backend_sound";
-      let counter = list.length + 1;
-      let nextValue = `${nextNameBase}${counter}`;
-      while (list.includes(nextValue)) {
-        counter += 1;
-        nextValue = `${nextNameBase}${counter}`;
+      const selectedResRef = soundPropertiesDialog?.draft.catalogSoundResRef ?? "";
+      if (
+        !isAreaSoundResRef(selectedResRef)
+        || !soundCatalogResRefs.includes(selectedResRef)
+        || list.length >= MAX_AREA_SOUND_PLAYBACK_LIST_ENTRIES
+      ) {
+        return { list, selectedIndex: soundPropertiesDialog?.draft.selectedSoundIndex ?? -1 };
       }
-      const nextList = [...list, nextValue];
+      const nextList = [...list, selectedResRef];
       return {
         list: nextList,
         selectedIndex: nextList.length - 1
       };
     });
-  }, [mutateSoundListDraft]);
+  }, [mutateSoundListDraft, soundCatalogResRefs, soundPropertiesDialog]);
 
   const removeSelectedSoundListEntry = useCallback(() => {
     mutateSoundListDraft((list, selectedIndex) => {
@@ -9342,8 +12667,17 @@ export function WorkspaceCanvasViewport({
 
   const updateDoorTransitionDraftField = useCallback(
     (
-      field: "destinationTag" | "destinationType" | "linkedTarget" | "linkedModule" | "linkedWaypoint" | "loadScreen",
-      value: string
+      field:
+        | "destinationTag"
+        | "destinationType"
+        | "linkedTarget"
+        | "linkedModule"
+        | "linkedWaypoint"
+        | "loadScreen"
+        | "linkedTo"
+        | "linkedToFlags"
+        | "loadScreenId",
+      value: string | number
     ) => {
       setDoorPropertiesDialog((current) => {
         if (!current || current.draft[field] === value) {
@@ -9401,47 +12735,38 @@ export function WorkspaceCanvasViewport({
           comments: draft.comments
         };
 
-        const nextFlags = { ...draft.transitionFlags };
-        const hasTransitionFlags = Object.keys(nextFlags).length > 0;
-        const nextDestinationType = draft.destinationType;
-        const nextDestinationTag = draft.destinationTag.trim();
-        const nextLinkedTarget =
-          nextDestinationType === "none"
-            ? ""
-            : draft.linkedTarget.trim().length > 0
-              ? draft.linkedTarget.trim()
-              : nextDestinationType === "door"
-                ? "door"
-                : "waypoint";
-        const nextLinkedModule = draft.linkedModule.trim();
-        const nextLinkedWaypoint =
-          nextDestinationType === "waypoint" ? draft.linkedWaypoint.trim() : "";
-        const nextLoadScreen = draft.loadScreen.trim();
-        const sourceTransitionExtra = sourceObject.doorTransition?.extra;
-        const hasTransitionExtra = Boolean(
-          sourceTransitionExtra && Object.keys(sourceTransitionExtra).length > 0
-        );
-        const shouldClearTransition =
-          nextDestinationType === "none" &&
-          nextDestinationTag.length === 0 &&
-          nextLinkedModule.length === 0 &&
-          nextLinkedWaypoint.length === 0 &&
-          nextLoadScreen.length === 0 &&
-          !hasTransitionFlags &&
-          !hasTransitionExtra;
-        const nextDoorTransition = shouldClearTransition
-          ? undefined
-          : {
-              linkedTarget: nextLinkedTarget,
-              linkedModule: nextLinkedModule,
-              linkedTag: nextDestinationTag,
-              linkedWaypoint: nextLinkedWaypoint,
-              loadScreen: nextLoadScreen,
-              flags: nextFlags,
-              ...(hasTransitionExtra && sourceTransitionExtra
-                ? { extra: { ...sourceTransitionExtra } }
+        const sourceStorage = readExistingDoorTransitionStorageProvenance(sourceObject.source);
+        const materializedTransition = sourceStorage
+          ? materializeExistingDoorTransitionPayload(
+              sourceObject.source,
+              sourceObject.doorTransition,
+              {
+              linkedTo: draft.linkedTo,
+              linkedToFlags: draft.linkedToFlags,
+              loadScreenId: draft.loadScreenId,
+              },
+            )
+          : null;
+        if (sourceStorage && !materializedTransition) {
+          return current;
+        }
+        const sourceTransition = sourceObject.doorTransition;
+        const nextDoorTransition = materializedTransition ?? (sourceTransition
+          ? {
+              linkedTarget: sourceTransition.linkedTarget,
+              linkedModule: sourceTransition.linkedModule,
+              linkedTag: sourceTransition.linkedTag,
+              linkedWaypoint: sourceTransition.linkedWaypoint,
+              loadScreen: sourceTransition.loadScreen,
+              flags: { ...sourceTransition.flags },
+              ...(sourceTransition.storage
+                ? { storage: { ...sourceTransition.storage } }
+                : {}),
+              ...(sourceTransition.extra
+                ? { extra: { ...sourceTransition.extra } }
                 : {})
-            };
+            }
+          : undefined);
 
         const nextObjects = current.present.objects.map((object) =>
           object.id === objectId
@@ -9526,6 +12851,716 @@ export function WorkspaceCanvasViewport({
     []
   );
 
+  const loadCreatureAppearanceCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creatureAppearanceCatalogRequestRevisionRef.current;
+      if (!creatureAppearanceCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureAppearanceCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureAppearanceCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureAppearanceCatalog(
+          creatureAppearanceCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creatureAppearanceCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureAppearanceCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureAppearanceCatalogRequestRevisionRef.current !== requestRevision) return;
+        const errorMessage = error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Creature Appearance rows are unavailable.";
+        setCreatureAppearanceCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage,
+        });
+        trackTelemetry("scene.creature_appearance_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [creatureAppearanceAccessToken, creatureAppearanceCatalogFacade, trackTelemetry, userId],
+  );
+
+  const loadCreatureGenderCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creatureGenderCatalogRequestRevisionRef.current;
+      if (!creatureGenderCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureGenderCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureGenderCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureGenderCatalog(
+          creatureGenderCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creatureGenderCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureGenderCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureGenderCatalogRequestRevisionRef.current !== requestRevision) return;
+        const errorMessage = error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Creature Gender rows are unavailable.";
+        setCreatureGenderCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage,
+        });
+        trackTelemetry("scene.creature_gender_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [creatureAppearanceAccessToken, creatureGenderCatalogFacade, trackTelemetry, userId],
+  );
+
+  const loadCreatureAppendageCatalogForDialog = useCallback(
+    async (
+      target: SceneObject,
+      kind: "wings" | "tail",
+      query: string,
+      selectedRowIndex?: number,
+    ) => {
+      const revisionRef = kind === "wings"
+        ? creatureWingsCatalogRequestRevisionRef
+        : creatureTailCatalogRequestRevisionRef;
+      const setState = kind === "wings"
+        ? setCreatureWingsCatalogState
+        : setCreatureTailCatalogState;
+      const requestRevision = ++revisionRef.current;
+      if (!creatureAppendageCatalogFacade || !creatureAppearanceAccessToken) {
+        setState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureAppendageCatalog(
+          creatureAppendageCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          kind,
+          query,
+          selectedRowIndex,
+        );
+        if (revisionRef.current !== requestRevision) return;
+        setState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (revisionRef.current !== requestRevision) return;
+        const errorMessage = error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : `Creature ${kind} rows are unavailable.`;
+        setState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage,
+        });
+        trackTelemetry("scene.creature_appendage_catalog.error", {
+          userId,
+          objectId: target.id,
+          kind,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [creatureAppearanceAccessToken, creatureAppendageCatalogFacade, trackTelemetry, userId],
+  );
+
+  const loadCreaturePerceptionRangeCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creaturePerceptionRangeCatalogRequestRevisionRef.current;
+      if (!creaturePerceptionRangeCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreaturePerceptionRangeCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreaturePerceptionRangeCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreaturePerceptionRangeCatalog(
+          creaturePerceptionRangeCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creaturePerceptionRangeCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreaturePerceptionRangeCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creaturePerceptionRangeCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreaturePerceptionRangeCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature PerceptionRange rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_perception_range_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creaturePerceptionRangeCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureWalkRateCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creatureWalkRateCatalogRequestRevisionRef.current;
+      if (!creatureWalkRateCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureWalkRateCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureWalkRateCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureWalkRateCatalog(
+          creatureWalkRateCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creatureWalkRateCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureWalkRateCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureWalkRateCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureWalkRateCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature WalkRate rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_walk_rate_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureWalkRateCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureSoundSetCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creatureSoundSetCatalogRequestRevisionRef.current;
+      if (!creatureSoundSetCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureSoundSetCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureSoundSetCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureSoundSetCatalog(
+          creatureSoundSetCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creatureSoundSetCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSoundSetCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureSoundSetCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSoundSetCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature SoundSetFile rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_sound_set_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureSoundSetCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureClassCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndices: readonly number[] = []) => {
+      const requestRevision = ++creatureClassCatalogRequestRevisionRef.current;
+      if (!readExistingCreatureClassIdentityProvenance(target.source) ||
+        !creatureClassCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureClassCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureClassCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureClassCatalog(
+          creatureClassCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndices,
+        );
+        if (creatureClassCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureClassCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureClassCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureClassCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature class rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_class_identity_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureClassCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureStartingPackageCatalogForDialog = useCallback(
+    async (
+      target: SceneObject,
+      query: string,
+      selectedRowIndex?: number,
+      targetClassIds?: readonly number[],
+    ) => {
+      const requestRevision = ++creatureStartingPackageCatalogRequestRevisionRef.current;
+      if (!creatureStartingPackageCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureStartingPackageCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureStartingPackageCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const classCatalog = creatureClassCatalogState?.objectId === target.id &&
+          creatureClassCatalogState.status === "ready"
+          ? creatureClassCatalogState.catalog
+          : null;
+        const catalog = targetClassIds
+          ? await loadCreatureClassIdentityStartingPackageCatalog(
+              creatureStartingPackageCatalogFacade,
+              creatureAppearanceAccessToken,
+              target.source,
+              classCatalog,
+              targetClassIds,
+              query,
+              selectedRowIndex,
+            )
+          : await loadExistingCreatureStartingPackageCatalog(
+              creatureStartingPackageCatalogFacade,
+              creatureAppearanceAccessToken,
+              target.source,
+              query,
+              selectedRowIndex,
+            );
+        if (creatureStartingPackageCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureStartingPackageCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureStartingPackageCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureStartingPackageCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature StartingPackage rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_starting_package_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureClassCatalogState,
+      creatureStartingPackageCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureSkillCatalogForDialog = useCallback(
+    async (target: SceneObject) => {
+      const requestRevision = ++creatureSkillCatalogRequestRevisionRef.current;
+      if (!readExistingCreatureSkillListProvenance(target.source) ||
+        !creatureSkillCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureSkillCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureSkillCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureSkillCatalog(
+          creatureSkillCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+        );
+        if (creatureSkillCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSkillCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureSkillCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSkillCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature SkillList rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_skill_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureSkillCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureFeatCatalogForDialog = useCallback(
+    async (target: SceneObject) => {
+      const requestRevision = ++creatureFeatCatalogRequestRevisionRef.current;
+      if (!readExistingCreatureFeatListProvenance(target.source) ||
+        !creatureFeatCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureFeatCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureFeatCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureFeatCatalog(
+          creatureFeatCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+        );
+        if (creatureFeatCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureFeatCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureFeatCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureFeatCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature FeatList rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_feat_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureFeatCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreatureSpecialAbilityCatalogForDialog = useCallback(
+    async (target: SceneObject) => {
+      const requestRevision = ++creatureSpecialAbilityCatalogRequestRevisionRef.current;
+      if (!readExistingCreatureSpecialAbilityListProvenance(target.source) ||
+        !creatureSpecialAbilityCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreatureSpecialAbilityCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreatureSpecialAbilityCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreatureSpecialAbilityCatalog(
+          creatureSpecialAbilityCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+        );
+        if (creatureSpecialAbilityCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSpecialAbilityCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creatureSpecialAbilityCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreatureSpecialAbilityCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature SpecAbilityList rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_special_ability_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [
+      creatureAppearanceAccessToken,
+      creatureSpecialAbilityCatalogFacade,
+      trackTelemetry,
+      userId,
+    ],
+  );
+
+  const loadCreaturePhenotypeCatalogForDialog = useCallback(
+    async (target: SceneObject, query: string, selectedRowIndex?: number) => {
+      const requestRevision = ++creaturePhenotypeCatalogRequestRevisionRef.current;
+      if (!creaturePhenotypeCatalogFacade || !creatureAppearanceAccessToken) {
+        setCreaturePhenotypeCatalogState({
+          objectId: target.id,
+          status: "unavailable",
+          catalog: null,
+          errorMessage: null,
+        });
+        return;
+      }
+      setCreaturePhenotypeCatalogState({
+        objectId: target.id,
+        status: "loading",
+        catalog: null,
+        errorMessage: null,
+      });
+      try {
+        const catalog = await loadExistingCreaturePhenotypeCatalog(
+          creaturePhenotypeCatalogFacade,
+          creatureAppearanceAccessToken,
+          target.source,
+          query,
+          selectedRowIndex,
+        );
+        if (creaturePhenotypeCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreaturePhenotypeCatalogState({
+          objectId: target.id,
+          status: "ready",
+          catalog,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (creaturePhenotypeCatalogRequestRevisionRef.current !== requestRevision) return;
+        setCreaturePhenotypeCatalogState({
+          objectId: target.id,
+          status: "error",
+          catalog: null,
+          errorMessage: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "Creature Phenotype rows are unavailable.",
+        });
+        trackTelemetry("scene.creature_phenotype_catalog.error", {
+          userId,
+          objectId: target.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    },
+    [creatureAppearanceAccessToken, creaturePhenotypeCatalogFacade, trackTelemetry, userId],
+  );
+
   const openCreaturePropertiesDialog = useCallback(
     (target: SceneObject) => {
       if (target.kind !== "creatures") {
@@ -9549,10 +13584,15 @@ export function WorkspaceCanvasViewport({
             ADJUST_LOCATION_DIALOG_MARGIN_PX,
             ADJUST_LOCATION_DIALOG_MARGIN_PX
           );
+      const draft = buildCreaturePropertiesDraft(
+        target,
+        sceneRef.current?.placeableBodyBagCatalog,
+        sceneRef.current?.placeableFactionCatalog,
+      );
       setCreaturePropertiesDialog({
         objectId: target.id,
         snapshotObject: cloneSceneObject(target),
-        draft: buildCreaturePropertiesDraft(target),
+        draft,
         activeTab: "basic",
         windowX: initialDialogPosition.x,
         windowY: initialDialogPosition.y,
@@ -9560,6 +13600,47 @@ export function WorkspaceCanvasViewport({
         anchorOffsetY,
         collapsed: false
       });
+      void loadCreatureAppearanceCatalogForDialog(target, "", draft.appearanceType);
+      void loadCreatureGenderCatalogForDialog(target, "", draft.genderId);
+      const wingsRowIndex = Number(draft.appearanceParts.wings);
+      const tailRowIndex = Number(draft.appearanceParts.tail);
+      void loadCreatureAppendageCatalogForDialog(
+        target,
+        "wings",
+        "",
+        Number.isSafeInteger(wingsRowIndex) ? wingsRowIndex : undefined,
+      );
+      void loadCreatureAppendageCatalogForDialog(
+        target,
+        "tail",
+        "",
+        Number.isSafeInteger(tailRowIndex) ? tailRowIndex : undefined,
+      );
+      void loadCreaturePerceptionRangeCatalogForDialog(
+        target,
+        "",
+        draft.advancedSettings.perceptionRangeId,
+      );
+      void loadCreatureWalkRateCatalogForDialog(
+        target,
+        "",
+        draft.advancedSettings.walkRateId,
+      );
+      void loadCreatureSoundSetCatalogForDialog(
+        target,
+        "",
+        draft.advancedSettings.soundSetFile,
+      );
+      void loadCreatureStartingPackageCatalogForDialog(
+        target,
+        "",
+        draft.advancedSettings.startingPackageId,
+      );
+      void loadCreatureClassCatalogForDialog(target, "");
+      void loadCreatureSkillCatalogForDialog(target);
+      void loadCreatureFeatCatalogForDialog(target);
+      void loadCreatureSpecialAbilityCatalogForDialog(target);
+      void loadCreaturePhenotypeCatalogForDialog(target, "", draft.phenotypeId);
       setCreatureFeatsFilter(CREATURE_FEAT_FILTER_OPTIONS[0]!);
       setCreatureSpellsLevelFilter(CREATURE_SPELL_LEVEL_FILTER_OPTIONS[0]!);
       setCreatureSpellsMetaMagicFilter(CREATURE_METAMAGIC_FILTER_OPTIONS[0]!);
@@ -9573,6 +13654,18 @@ export function WorkspaceCanvasViewport({
     [
       clampCreaturePropertiesDialogPosition,
       cloneSceneObject,
+      loadCreatureAppearanceCatalogForDialog,
+      loadCreatureGenderCatalogForDialog,
+      loadCreatureAppendageCatalogForDialog,
+      loadCreaturePerceptionRangeCatalogForDialog,
+      loadCreatureWalkRateCatalogForDialog,
+      loadCreatureSoundSetCatalogForDialog,
+      loadCreatureStartingPackageCatalogForDialog,
+      loadCreatureClassCatalogForDialog,
+      loadCreatureSkillCatalogForDialog,
+      loadCreatureFeatCatalogForDialog,
+      loadCreatureSpecialAbilityCatalogForDialog,
+      loadCreaturePhenotypeCatalogForDialog,
       trackTelemetry,
       userId,
       setCreatureFeatsFilter,
@@ -9600,7 +13693,151 @@ export function WorkspaceCanvasViewport({
         if (!current) {
           return current;
         }
-        const nextDraft = { ...current.draft, [field]: value };
+        if (field === "portraitId") {
+          const nextDraft = reduceExistingCreaturePortrait(
+            current.snapshotObject.source,
+            current.draft,
+            value,
+            sceneRef.current?.creaturePortraitCatalog,
+          );
+          return areCreaturePropertiesDraftsEqual(current.draft, nextDraft)
+            ? current
+            : { ...current, draft: nextDraft };
+        }
+        const nextValue = field === "firstName" || field === "lastName"
+          ? reduceExistingCreatureNameLocalizedString(
+              current.snapshotObject.source,
+              field,
+              current.draft[field],
+              value,
+            )
+          : field === "conversation"
+            ? reduceExistingCreatureConversation(
+                current.snapshotObject.source,
+                current.draft.conversation,
+                value,
+              )
+            : field === "noInterrupt"
+              ? reduceExistingCreatureNoInterrupt(
+                  current.snapshotObject.source,
+                  current.draft.noInterrupt,
+                  value,
+                )
+              : field === "appearanceType"
+                ? reduceExistingCreatureAppearance(
+                    current.snapshotObject.source,
+                    current.draft.appearanceType,
+                    value,
+                    creatureAppearanceCatalogState?.objectId === current.objectId &&
+                      creatureAppearanceCatalogState.status === "ready"
+                      ? creatureAppearanceCatalogState.catalog
+                      : null,
+                  )
+                : field === "genderId"
+                  ? reduceExistingCreatureGender(
+                      current.snapshotObject.source,
+                      current.draft.genderId,
+                      value,
+                      creatureGenderCatalogState?.objectId === current.objectId &&
+                        creatureGenderCatalogState.status === "ready"
+                        ? creatureGenderCatalogState.catalog
+                      : null,
+                    )
+                  : field === "phenotypeId"
+                    ? reduceExistingCreaturePhenotype(
+                        current.snapshotObject.source,
+                        current.draft.phenotypeId,
+                        value,
+                        creaturePhenotypeCatalogState?.objectId === current.objectId &&
+                          creaturePhenotypeCatalogState.status === "ready"
+                          ? creaturePhenotypeCatalogState.catalog
+                          : null,
+                      )
+                  : field === "alignment"
+                    ? reduceExistingCreatureAlignment(
+                        current.snapshotObject.source,
+                        current.draft.alignment,
+                        value,
+                      )
+                    : field === "challengeRating"
+                      ? reduceExistingCreatureChallengeRating(
+                          current.snapshotObject.source,
+                          current.draft.challengeRating,
+                          value,
+                        )
+                      : field === "strength" ||
+                        field === "dexterity" ||
+                        field === "constitution" ||
+                        field === "intelligence" ||
+                        field === "wisdom" ||
+                        field === "charisma"
+                      ? reduceExistingCreatureAbilityScore(
+                          current.snapshotObject.source,
+                          field as CreatureAbilityScoreKey,
+                          current.draft[field],
+                          value,
+                        )
+                      : field === "naturalArmorClass"
+                        ? reduceExistingCreatureNaturalArmorClass(
+                            current.snapshotObject.source,
+                            current.draft.naturalArmorClass,
+                            value,
+                          )
+                      : field === "fortitudeBonus" ||
+                          field === "reflexBonus" ||
+                          field === "willBonus"
+                        ? reduceExistingCreatureSavingThrowBonus(
+                            current.snapshotObject.source,
+                            field === "fortitudeBonus"
+                              ? "fortitude"
+                              : field === "reflexBonus"
+                                ? "reflex"
+                                : "will",
+                            current.draft[field],
+                            value,
+                          )
+                    : field === "comments"
+                      ? reduceExistingCreatureEditorComment(
+                          current.snapshotObject.source,
+                          current.draft.comments,
+                          value,
+                        )
+                      : value;
+        let nextDraft = { ...current.draft, [field]: nextValue };
+        if ((field === "constitution" || field === "baseHitPoints") &&
+          current.snapshotObject.source?.type === "aurora_git") {
+          const classLevels = readCreatureHitPointCoupledClassLevels(
+            current.snapshotObject,
+            current.draft.classEntries,
+          );
+          const coupled = reduceExistingCreatureHitPointDraft(
+            current.snapshotObject.source,
+            current.draft,
+            {
+              baseHitPoints: field === "baseHitPoints"
+                ? nextValue
+                : current.draft.baseHitPoints,
+              constitution: field === "constitution"
+                ? nextValue
+                : current.draft.constitution,
+              ...(classLevels ? { classLevels } : {}),
+            },
+          );
+          if (coupled === current.draft) return current;
+          nextDraft = { ...nextDraft, ...coupled };
+        }
+        if (field === "genderId") {
+          const portraitProvenance = readExistingCreaturePortraitProvenance(
+            current.snapshotObject.source,
+          );
+          if (portraitProvenance && nextValue !== portraitProvenance.genderExpectedValue) {
+            nextDraft = {
+              ...nextDraft,
+              portraitId: portraitProvenance.expectedValue,
+              portraitResRef: portraitProvenance.sourceBaseResRef,
+            };
+          }
+        }
         if (areCreaturePropertiesDraftsEqual(current.draft, nextDraft)) {
           return current;
         }
@@ -9610,11 +13847,62 @@ export function WorkspaceCanvasViewport({
         };
       });
     },
-    []
+    [creatureAppearanceCatalogState, creatureGenderCatalogState, creaturePhenotypeCatalogState]
   );
 
   const updateCreatureClassEntry = useCallback(
     (index: number, field: "classId" | "className" | "level", value: string | number) => {
+      if (field === "classId" && creaturePropertiesDialog?.snapshotObject.source?.type ===
+        "aurora_git") {
+        const current = creaturePropertiesDialog;
+        const provenance = readExistingCreatureClassIdentityProvenance(
+          current.snapshotObject.source,
+        );
+        const catalog = creatureClassCatalogState?.objectId === current.objectId &&
+          creatureClassCatalogState.status === "ready"
+          ? creatureClassCatalogState.catalog
+          : null;
+        const rowIndex = Number(value);
+        const row = isExistingCreatureClassCatalogAdmitted(
+          current.snapshotObject.source,
+          catalog,
+        ) && Number.isSafeInteger(rowIndex)
+          ? catalog.items.find((candidate) => candidate.rowIndex === rowIndex)
+          : undefined;
+        if (!provenance || !row || index < 0 || index >= current.draft.classEntries.length ||
+          (current.draft.classEntries.length === provenance.sourceClassIds.length
+            ? current.draft.classEntries.some((entry, entryIndex) =>
+                entry.level !== provenance.sourceLevels[entryIndex])
+            : index < provenance.sourceClassIds.length ||
+              current.draft.classEntries.some((entry, entryIndex) =>
+                entryIndex < provenance.sourceClassIds.length &&
+                (entry.classId !== provenance.sourceClassIds[entryIndex] ||
+                  entry.level !== provenance.sourceLevels[entryIndex])))) return;
+        const nextEntries = current.draft.classEntries.map((entry, entryIndex) =>
+          entryIndex === index
+            ? { ...entry, classId: row.rowIndex, className: row.displayName }
+            : entry
+        );
+        const targetClassIds = nextEntries.map((entry) => entry.classId);
+        if (targetClassIds.some((classId) => !Number.isSafeInteger(classId)) ||
+          new Set(targetClassIds).size !== targetClassIds.length) return;
+        setCreaturePropertiesDialog({
+          ...current,
+          draft: {
+            ...current.draft,
+            classEntries: nextEntries,
+            classIdentityDestructiveSpellClearConfirmed: false,
+            classSlotResizeDestructiveRemovalConfirmed: false,
+          },
+        });
+        void loadCreatureStartingPackageCatalogForDialog(
+          current.snapshotObject,
+          "",
+          current.draft.advancedSettings.startingPackageId,
+          targetClassIds as number[],
+        );
+        return;
+      }
       setCreaturePropertiesDialog((current) => {
         if (!current || index < 0 || index >= current.draft.classEntries.length) {
           return current;
@@ -9622,6 +13910,33 @@ export function WorkspaceCanvasViewport({
         const nextEntries = current.draft.classEntries.map((entry, entryIndex) =>
           entryIndex === index ? { ...entry, [field]: value } : entry
         );
+        if (field === "level" && current.snapshotObject.source?.type === "aurora_git") {
+          const provenance = readExistingCreatureClassIdentityProvenance(
+            current.snapshotObject.source,
+          );
+          if (provenance && current.draft.classEntries.length !==
+            provenance.sourceClassIds.length && index < provenance.sourceClassIds.length) {
+            return current;
+          }
+          const coupled = reduceExistingCreatureHitPointDraft(
+            current.snapshotObject.source,
+            current.draft,
+            {
+              baseHitPoints: current.draft.baseHitPoints,
+              constitution: current.draft.constitution,
+              classLevels: nextEntries.map((entry) => Number(entry.level)),
+            },
+          );
+          if (coupled === current.draft) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              ...coupled,
+              classEntries: nextEntries,
+            },
+          };
+        }
         return {
           ...current,
           draft: {
@@ -9639,6 +13954,17 @@ export function WorkspaceCanvasViewport({
       if (!current || index < 0 || index >= current.draft.skills.length) {
         return current;
       }
+      const source = current.snapshotObject.source;
+      const retainedCreature = source?.type === "aurora_git" && source.sourceKind === "creature";
+      const catalog = creatureSkillCatalogState?.objectId === current.objectId &&
+        creatureSkillCatalogState.status === "ready"
+        ? creatureSkillCatalogState.catalog
+        : null;
+      const skillId = current.draft.skills[index]?.skillId;
+      if (retainedCreature &&
+        (!isExistingCreatureSkillCatalogAdmitted(source, catalog) ||
+          !Number.isSafeInteger(skillId) ||
+          !catalog.items.some((row) => row.rowIndex === skillId))) return current;
       const nextSkills = current.draft.skills.map((entry, entryIndex) =>
         entryIndex === index ? { ...entry, rank } : entry
       );
@@ -9652,18 +13978,105 @@ export function WorkspaceCanvasViewport({
     });
   }, []);
 
-  const updateCreatureScriptSlot = useCallback((field: CreatureScriptSlotKey, value: string) => {
+  const updateCreatureFeatAssigned = useCallback((featId: number, assigned: boolean) => {
     setCreaturePropertiesDialog((current) => {
-      if (!current || current.draft.scriptSlots[field] === value) {
+      if (!current || !Number.isSafeInteger(featId)) return current;
+      const source = current.snapshotObject.source;
+      const retainedCreature = source?.type === "aurora_git" && source.sourceKind === "creature";
+      const catalog = creatureFeatCatalogState?.objectId === current.objectId &&
+        creatureFeatCatalogState.status === "ready"
+        ? creatureFeatCatalogState.catalog
+        : null;
+      const currentFeats = retainedCreature
+        ? materializeExistingCreatureFeats(
+            source,
+            current.snapshotObject.creatureProperties?.feats ?? [],
+            current.draft.feats,
+            catalog,
+          )
+        : current.draft.feats;
+      if (retainedCreature && !isExistingCreatureFeatCatalogAdmitted(source, catalog)) {
         return current;
       }
+      if (!currentFeats.some((entry) => entry.featId === featId)) return current;
+      const nextFeats = currentFeats.map((entry) =>
+        entry.featId === featId ? { ...entry, assigned } : { ...entry });
+      let nextDraft = { ...current.draft, feats: nextFeats };
+      if (retainedCreature && featId === 40) {
+        const classLevels = readCreatureHitPointCoupledClassLevels(
+          current.snapshotObject,
+          current.draft.classEntries,
+        );
+        const coupled = reduceExistingCreatureHitPointDraft(source, current.draft, {
+          baseHitPoints: current.draft.baseHitPoints,
+          constitution: current.draft.constitution,
+          ...(classLevels ? { classLevels } : {}),
+          featRow40Present: assigned,
+        });
+        if (coupled === current.draft) return current;
+        nextDraft = { ...nextDraft, ...coupled };
+      }
+      return areCreaturePropertiesDraftsEqual(current.draft, nextDraft)
+        ? current
+        : { ...current, draft: nextDraft };
+    });
+  }, [creatureFeatCatalogState]);
+
+  const updateCreatureSpecialAbility = useCallback((
+    spellId: number,
+    field: "uses" | "casterLevel",
+    value: number,
+  ) => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current || !Number.isSafeInteger(spellId) || !Number.isFinite(value)) return current;
+      const source = current.snapshotObject.source;
+      const retainedCreature = source?.type === "aurora_git" && source.sourceKind === "creature";
+      const catalog = creatureSpecialAbilityCatalogState?.objectId === current.objectId &&
+        creatureSpecialAbilityCatalogState.status === "ready"
+        ? creatureSpecialAbilityCatalogState.catalog
+        : null;
+      const currentAbilities = retainedCreature
+        ? materializeExistingCreatureSpecialAbilities(
+            source,
+            current.snapshotObject.creatureProperties?.specialAbilities ?? [],
+            current.draft.specialAbilities,
+            catalog,
+          )
+        : current.draft.specialAbilities;
+      if (retainedCreature &&
+        !isExistingCreatureSpecialAbilityCatalogAdmitted(source, catalog)) return current;
+      if (!currentAbilities.some((entry) => entry.spellId === spellId)) return current;
+      const nextAbilities = currentAbilities.map((entry) => {
+        if (entry.spellId !== spellId) return { ...entry };
+        return reduceCreatureSpecialAbilityEntry(entry, field, value);
+      });
+      const nextDraft = { ...current.draft, specialAbilities: nextAbilities };
+      return areCreaturePropertiesDraftsEqual(current.draft, nextDraft)
+        ? current
+        : { ...current, draft: nextDraft };
+    });
+  }, [creatureSpecialAbilityCatalogState]);
+
+  const updateCreatureScriptSlot = useCallback((field: CreatureScriptSlotKey, value: string) => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current) {
+        return current;
+      }
+      const currentValue = current.draft.scriptSlots[field];
+      const nextValue = reduceExistingCreatureScriptResRef(
+        current.snapshotObject.source,
+        field,
+        currentValue,
+        value,
+      );
+      if (currentValue === nextValue) return current;
       return {
         ...current,
         draft: {
           ...current.draft,
           scriptSlots: {
             ...current.draft.scriptSlots,
-            [field]: value
+            [field]: nextValue
           }
         }
       };
@@ -9673,22 +14086,52 @@ export function WorkspaceCanvasViewport({
   const updateCreatureAppearancePart = useCallback(
     (field: keyof CreaturePropertiesDraft["appearanceParts"], value: string) => {
       setCreaturePropertiesDialog((current) => {
-        if (!current || current.draft.appearanceParts[field] === value) {
-          return current;
-        }
+        if (!current) return current;
+        const currentValue = current.draft.appearanceParts[field];
+        const nextValue = current.snapshotObject.source?.type === "aurora_git"
+          ? field === "wings" || field === "tail"
+            ? (() => {
+                const state = field === "wings"
+                  ? creatureWingsCatalogState
+                  : creatureTailCatalogState;
+                const currentRow = /^(?:0|[1-9]\d*)$/u.test(currentValue)
+                  ? Number(currentValue)
+                  : undefined;
+                const candidateRow = /^(?:0|[1-9]\d*)$/u.test(value)
+                  ? Number(value)
+                  : undefined;
+                const reduced = reduceExistingCreatureAppendage(
+                  current.snapshotObject.source,
+                  field,
+                  currentRow,
+                  candidateRow,
+                  state?.objectId === current.objectId && state.status === "ready"
+                    ? state.catalog
+                    : null,
+                );
+                return reduced === undefined ? currentValue : String(reduced);
+              })()
+            : reduceExistingCreatureBodyPart(
+                current.snapshotObject.source,
+                field as CreatureBodyPartKey,
+                currentValue,
+                value,
+              )
+          : value;
+        if (currentValue === nextValue) return current;
         return {
           ...current,
           draft: {
             ...current.draft,
             appearanceParts: {
               ...current.draft.appearanceParts,
-              [field]: value
+              [field]: nextValue
             }
           }
         };
       });
     },
-    []
+    [creatureTailCatalogState, creatureWingsCatalogState]
   );
 
   const updateCreatureAdvancedField = useCallback(
@@ -9697,7 +14140,228 @@ export function WorkspaceCanvasViewport({
       value: string | number | boolean
     ) => {
       setCreaturePropertiesDialog((current) => {
-        if (!current || current.draft.advancedSettings[field] === value) {
+        if (!current) {
+          return current;
+        }
+        const currentValue = current.draft.advancedSettings[field];
+        if (field === "blueprintResRef") {
+          if (typeof currentValue !== "string") {
+            return current;
+          }
+          const nextValue = reduceExistingCreatureTemplateResRef(
+            current.snapshotObject.source,
+            currentValue,
+            value,
+          );
+          if (nextValue === currentValue) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                blueprintResRef: nextValue,
+              },
+            },
+          };
+        }
+        if (field === "subrace" || field === "deity") {
+          if (typeof currentValue !== "string") {
+            return current;
+          }
+          const nextValue = reduceExistingCreatureSpecialIdentityString(
+            current.snapshotObject.source,
+            field,
+            currentValue,
+            value,
+          );
+          if (nextValue === currentValue) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                [field]: nextValue,
+              },
+            },
+          };
+        }
+        if (field === "factionId") {
+          const nextAdvancedSettings = materializeExistingCreatureFaction(
+            current.snapshotObject.source,
+            current.draft.advancedSettings,
+            value,
+            sceneRef.current?.placeableFactionCatalog,
+          );
+          if (!nextAdvancedSettings || (
+            nextAdvancedSettings.factionId === current.draft.advancedSettings.factionId &&
+            nextAdvancedSettings.faction === current.draft.advancedSettings.faction
+          )) {
+            return current;
+          }
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: nextAdvancedSettings,
+            },
+          };
+        }
+        if (field === "perceptionRangeId") {
+          const catalog = creaturePerceptionRangeCatalogState?.objectId === current.objectId &&
+            creaturePerceptionRangeCatalogState.status === "ready"
+            ? creaturePerceptionRangeCatalogState.catalog
+            : null;
+          const nextValue = reduceExistingCreaturePerceptionRange(
+            current.snapshotObject.source,
+            typeof currentValue === "number" ? currentValue : undefined,
+            value,
+            catalog,
+          );
+          if (nextValue === currentValue) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                ...(nextValue === undefined ? {} : { perceptionRangeId: nextValue }),
+              },
+            },
+          };
+        }
+        if (field === "walkRateId") {
+          const catalog = creatureWalkRateCatalogState?.objectId === current.objectId &&
+            creatureWalkRateCatalogState.status === "ready"
+            ? creatureWalkRateCatalogState.catalog
+            : null;
+          const nextValue = reduceExistingCreatureWalkRate(
+            current.snapshotObject.source,
+            typeof currentValue === "number" ? currentValue : undefined,
+            value,
+            catalog,
+          );
+          if (nextValue === currentValue) return current;
+          const nextMovementRate = resolveCreatureWalkRateDisplayName(
+            nextValue,
+            catalog,
+            current.draft.movementRate,
+          );
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              movementRate: nextMovementRate,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                ...(nextValue === undefined ? {} : { walkRateId: nextValue }),
+              },
+            },
+          };
+        }
+        if (field === "soundSetFile" &&
+          current.snapshotObject.source?.type === "aurora_git" &&
+          current.snapshotObject.source.sourceKind === "creature") {
+          const catalog = creatureSoundSetCatalogState?.objectId === current.objectId &&
+            creatureSoundSetCatalogState.status === "ready"
+            ? creatureSoundSetCatalogState.catalog
+            : null;
+          const nextValue = reduceExistingCreatureSoundSetFile(
+            current.snapshotObject.source,
+            typeof currentValue === "number" ? currentValue : undefined,
+            value,
+            catalog,
+          );
+          if (nextValue === currentValue) return current;
+          const nextSoundSet = resolveCreatureSoundSetDisplayName(
+            nextValue,
+            catalog,
+            current.draft.advancedSettings.soundSet,
+          );
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                soundSet: nextSoundSet,
+                ...(nextValue === undefined ? {} : { soundSetFile: nextValue }),
+              },
+            },
+          };
+        }
+        if (field === "startingPackageId" &&
+          current.snapshotObject.source?.type === "aurora_git" &&
+          current.snapshotObject.source.sourceKind === "creature") {
+          const catalog = creatureStartingPackageCatalogState?.objectId === current.objectId &&
+            creatureStartingPackageCatalogState.status === "ready"
+            ? creatureStartingPackageCatalogState.catalog
+            : null;
+          const identityProvenance = readExistingCreatureClassIdentityProvenance(
+            current.snapshotObject.source,
+          );
+          const targetClassIds = current.draft.classEntries.map((entry) => entry.classId);
+          const identityChanged = identityProvenance !== null &&
+            targetClassIds.length === identityProvenance.sourceClassIds.length &&
+            targetClassIds.some((classId, index) =>
+              classId !== identityProvenance.sourceClassIds[index]);
+          const nextValue = identityChanged && targetClassIds.every((classId) =>
+            Number.isSafeInteger(classId))
+            ? reduceExistingCreatureClassIdentityStartingPackageId(
+                current.snapshotObject.source,
+                typeof currentValue === "number" ? currentValue : undefined,
+                value,
+                targetClassIds as number[],
+                catalog,
+              )
+            : reduceExistingCreatureStartingPackageId(
+                current.snapshotObject.source,
+                typeof currentValue === "number" ? currentValue : undefined,
+                value,
+                catalog,
+              );
+          if (nextValue === currentValue) return current;
+          return {
+            ...current,
+            draft: {
+              ...current.draft,
+              advancedSettings: {
+                ...current.draft.advancedSettings,
+                ...(nextValue === undefined ? {} : { startingPackageId: nextValue }),
+              },
+            },
+          };
+        }
+        const advancedFlag = creatureAdvancedFlagForDraftField(field);
+        const nextValue = field === "treasureModelRow"
+          ? materializeExistingCreatureBodyBagRow(
+              current.snapshotObject.source,
+              sceneRef.current?.placeableBodyBagCatalog,
+              typeof currentValue === "number" ? currentValue : undefined,
+              value,
+              current.draft.advancedSettings.leavesLootableCorpse,
+            )
+          : field === "corpseDecayTimeSeconds"
+            ? materializeExistingCreatureDecayTimeSeconds(
+                current.snapshotObject.source,
+                typeof currentValue === "number" ? currentValue : undefined,
+                value,
+                current.draft.advancedSettings.leavesLootableCorpse,
+              )
+            : advancedFlag && typeof currentValue === "boolean"
+              ? reduceExistingCreatureAdvancedFlag(
+                  current.snapshotObject.source,
+                  advancedFlag,
+                  currentValue,
+                  value,
+                )
+              : value;
+        if (currentValue === nextValue) {
           return current;
         }
         return {
@@ -9706,45 +14370,73 @@ export function WorkspaceCanvasViewport({
             ...current.draft,
             advancedSettings: {
               ...current.draft.advancedSettings,
-              [field]: value
+              [field]: nextValue
             }
           }
         };
       });
     },
-    []
+    [
+      creaturePerceptionRangeCatalogState,
+      creatureWalkRateCatalogState,
+      creatureSoundSetCatalogState,
+      creatureStartingPackageCatalogState,
+    ]
+  );
+
+  const updateCreatureAppearanceColor = useCallback(
+    (field: CreatureAppearanceColorKey, value: string) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current) return current;
+        const currentValue = current.draft.appearanceColors[field];
+        const nextValue = reduceExistingCreatureAppearanceColor(
+          current.snapshotObject.source,
+          field,
+          currentValue,
+          value,
+        );
+        if (currentValue === nextValue) return current;
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            appearanceColors: {
+              ...current.draft.appearanceColors,
+              [field]: nextValue,
+            },
+          },
+        };
+      });
+    },
+    [],
   );
 
   const addCreatureVariable = useCallback(() => {
     setCreaturePropertiesDialog((current) => {
-      if (!current) {
-        return current;
-      }
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          variables: [...current.draft.variables, { name: "", type: "int", value: 0 }]
-        }
-      };
+      if (!current) return current;
+      const variables = appendExistingCreatureVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
     });
   }, []);
 
   const updateCreatureVariable = useCallback(
     (index: number, entry: CreaturePropertiesDraft["variables"][number]) => {
       setCreaturePropertiesDialog((current) => {
-        if (!current || index < 0 || index >= current.draft.variables.length) {
-          return current;
-        }
-        return {
-          ...current,
-          draft: {
-            ...current.draft,
-            variables: current.draft.variables.map((currentEntry, entryIndex) =>
-              entryIndex === index ? { ...entry } : currentEntry
-            )
-          }
-        };
+        if (!current) return current;
+        const variables = updateExistingCreatureVariable(
+          current.snapshotObject.source,
+          current.draft.variables,
+          index,
+          entry,
+        );
+        return variables === current.draft.variables
+          ? current
+          : { ...current, draft: { ...current.draft, variables: [...variables] } };
       });
     },
     []
@@ -9752,16 +14444,30 @@ export function WorkspaceCanvasViewport({
 
   const removeCreatureVariable = useCallback((index: number) => {
     setCreaturePropertiesDialog((current) => {
-      if (!current || index < 0 || index >= current.draft.variables.length) {
-        return current;
-      }
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          variables: current.draft.variables.filter((_entry, entryIndex) => entryIndex !== index)
-        }
-      };
+      if (!current) return current;
+      const variables = removeExistingCreatureVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+        index,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const moveCreatureVariable = useCallback((index: number, direction: "up" | "down") => {
+    setCreaturePropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = moveExistingCreatureVariable(
+        current.snapshotObject.source,
+        current.draft.variables,
+        index,
+        direction,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
     });
   }, []);
 
@@ -9772,47 +14478,46 @@ export function WorkspaceCanvasViewport({
       }
       return {
         ...current,
-        draft: {
-          ...current.draft,
-          inventoryItems: [
-            ...current.draft.inventoryItems,
-            {
-              resRef: "",
-              x: 0,
-              y: 0,
-              dropable: true,
-              pickpocketable: false,
-              infinite: false
-            }
-          ]
-        }
+        draft: appendAdmittedCreatureInventoryItem(current.draft)
       };
     });
-  }, []);
+  }, [creatureSkillCatalogState]);
 
   const updateCreatureInventoryItem = useCallback(
     (
       index: number,
-      field: keyof CreaturePropertiesDraft["inventoryItems"][number],
-      value: CreaturePropertiesDraft["inventoryItems"][number][keyof CreaturePropertiesDraft["inventoryItems"][number]]
+      field: "x" | "y" | "dropable" | "pickpocketable",
+      value: number | boolean
     ) => {
       setCreaturePropertiesDialog((current) => {
-        if (!current || index < 0 || index >= current.draft.inventoryItems.length) {
+        if (!current) {
           return current;
         }
-        const inventoryItems = current.draft.inventoryItems.map((entry, entryIndex) =>
-          entryIndex === index ? { ...entry, [field]: value } : entry
-        );
         return {
           ...current,
-          draft: {
-            ...current.draft,
-            inventoryItems
-          }
+          draft: updateCreatureInventoryDraftField(current.draft, index, field, value)
         };
       });
     },
     []
+  );
+
+  const moveCreatureInventoryItem = useCallback(
+    (index: number, direction: "up" | "down") => {
+      setCreaturePropertiesDialog((current) =>
+        current
+          ? {
+              ...current,
+              draft: moveCreatureInventoryDraftItem(current.draft, index, direction)
+            }
+          : current
+      );
+    },
+    [
+      creatureClassCatalogState,
+      creaturePropertiesDialog,
+      loadCreatureStartingPackageCatalogForDialog,
+    ]
   );
 
   const removeCreatureInventoryItem = useCallback((index: number) => {
@@ -9822,80 +14527,172 @@ export function WorkspaceCanvasViewport({
       }
       return {
         ...current,
-        draft: {
-          ...current.draft,
-          inventoryItems: current.draft.inventoryItems.filter(
-            (_entry, entryIndex) => entryIndex !== index
-          )
-        }
+        draft: removeCreatureInventoryDraftItem(current.draft, index)
       };
     });
   }, []);
 
-  const addCreatureEquippedItem = useCallback(() => {
-    setCreaturePropertiesDialog((current) => {
-      if (!current) {
-        return current;
-      }
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          equippedItems: [
-            ...current.draft.equippedItems,
-            {
-              resRef: "",
-              slotMask: 0,
-              dropable: true,
-              pickpocketable: false,
-              infinite: false
-            }
-          ]
-        }
-      };
-    });
-  }, []);
-
-  const updateCreatureEquippedItem = useCallback(
+  const updateCreatureEquipmentItem = useCallback(
     (
       index: number,
-      field: keyof CreaturePropertiesDraft["equippedItems"][number],
-      value: CreaturePropertiesDraft["equippedItems"][number][keyof CreaturePropertiesDraft["equippedItems"][number]]
+      field: "dropable" | "pickpocketable",
+      value: boolean
     ) => {
-      setCreaturePropertiesDialog((current) => {
-        if (!current || index < 0 || index >= current.draft.equippedItems.length) {
-          return current;
-        }
-        const equippedItems = current.draft.equippedItems.map((entry, entryIndex) =>
-          entryIndex === index ? { ...entry, [field]: value } : entry
-        );
-        return {
-          ...current,
-          draft: {
-            ...current.draft,
-            equippedItems
-          }
-        };
-      });
+      setCreaturePropertiesDialog((current) =>
+        current
+          ? {
+              ...current,
+              draft: updateCreatureEquipmentDraftFlag(current.draft, index, field, value)
+            }
+          : current
+      );
     },
-    []
+    [creatureClassCatalogState, creaturePropertiesDialog,
+      loadCreatureStartingPackageCatalogForDialog]
   );
 
-  const removeCreatureEquippedItem = useCallback((index: number) => {
-    setCreaturePropertiesDialog((current) => {
-      if (!current || index < 0 || index >= current.draft.equippedItems.length) {
-        return current;
-      }
-      return {
+  const appendCreatureClassSlot = useCallback(() => {
+    const current = creaturePropertiesDialog;
+    if (!current) return;
+    const retainedCreature = current.snapshotObject.source?.type === "aurora_git" &&
+      current.snapshotObject.source.sourceKind === "creature";
+    const provenance = readExistingCreatureClassIdentityProvenance(
+      current.snapshotObject.source,
+    );
+    const catalog = creatureClassCatalogState?.objectId === current.objectId &&
+      creatureClassCatalogState.status === "ready"
+      ? creatureClassCatalogState.catalog
+      : null;
+    if (!retainedCreature) {
+      if (current.draft.classEntries.length >= 8) return;
+      setCreaturePropertiesDialog({
         ...current,
         draft: {
           ...current.draft,
-          equippedItems: current.draft.equippedItems.filter(
-            (_entry, entryIndex) => entryIndex !== index
-          )
-        }
-      };
+          classEntries: [
+            ...current.draft.classEntries,
+            { className: "", level: 1 },
+          ],
+        },
+      });
+      return;
+    }
+    if (!provenance || !isExistingCreatureClassCatalogAdmitted(
+      current.snapshotObject.source,
+      catalog,
+    ) || current.draft.classEntries.length >= 8 ||
+      current.draft.classEntries.length < provenance.sourceClassIds.length ||
+      current.draft.classEntries.some((entry, index) =>
+        index < provenance.sourceClassIds.length &&
+        (entry.classId !== provenance.sourceClassIds[index] ||
+          entry.level !== provenance.sourceLevels[index]))) return;
+    const usedIds = new Set(current.draft.classEntries.map((entry) => entry.classId));
+    const row = catalog.items.find((candidate) => !usedIds.has(candidate.rowIndex));
+    if (!row) return;
+    const nextEntries = [
+      ...current.draft.classEntries,
+      { classId: row.rowIndex, className: row.displayName, level: 1 },
+    ];
+    const coupled = reduceExistingCreatureHitPointDraft(
+      current.snapshotObject.source,
+      current.draft,
+      {
+        baseHitPoints: current.draft.baseHitPoints,
+        constitution: current.draft.constitution,
+        classLevels: nextEntries.map((entry) => entry.level),
+      },
+    );
+    if (coupled === current.draft) return;
+    setCreaturePropertiesDialog({
+      ...current,
+      draft: {
+        ...current.draft,
+        ...coupled,
+        classEntries: nextEntries,
+        classIdentityDestructiveSpellClearConfirmed: false,
+        classSlotResizeDestructiveRemovalConfirmed: false,
+      },
     });
+    void loadCreatureStartingPackageCatalogForDialog(
+      current.snapshotObject,
+      "",
+      current.draft.advancedSettings.startingPackageId,
+      nextEntries.map((entry) => Number(entry.classId)),
+    );
+  }, [creatureClassCatalogState, creaturePropertiesDialog,
+    loadCreatureStartingPackageCatalogForDialog]);
+
+  const truncateCreatureClassSlot = useCallback(() => {
+    const current = creaturePropertiesDialog;
+    if (!current) return;
+    const retainedCreature = current.snapshotObject.source?.type === "aurora_git" &&
+      current.snapshotObject.source.sourceKind === "creature";
+    const provenance = readExistingCreatureClassIdentityProvenance(
+      current.snapshotObject.source,
+    );
+    const catalog = creatureClassCatalogState?.objectId === current.objectId &&
+      creatureClassCatalogState.status === "ready"
+      ? creatureClassCatalogState.catalog
+      : null;
+    if (!retainedCreature) {
+      if (current.draft.classEntries.length <= 1) return;
+      setCreaturePropertiesDialog({
+        ...current,
+        draft: {
+          ...current.draft,
+          classEntries: current.draft.classEntries.slice(0, -1),
+        },
+      });
+      return;
+    }
+    if (!provenance || !isExistingCreatureClassCatalogAdmitted(
+      current.snapshotObject.source,
+      catalog,
+    ) || current.draft.classEntries.length <= 1 ||
+      current.draft.classEntries.some((entry, index) =>
+        index < Math.min(current.draft.classEntries.length, provenance.sourceClassIds.length) &&
+        (entry.classId !== provenance.sourceClassIds[index] ||
+          entry.level !== provenance.sourceLevels[index]))) return;
+    const nextEntries = current.draft.classEntries.slice(0, -1);
+    const coupled = reduceExistingCreatureHitPointDraft(
+      current.snapshotObject.source,
+      current.draft,
+      {
+        baseHitPoints: current.draft.baseHitPoints,
+        constitution: current.draft.constitution,
+        classLevels: nextEntries.map((entry) => entry.level),
+      },
+    );
+    if (coupled === current.draft) return;
+    setCreaturePropertiesDialog({
+      ...current,
+      draft: {
+        ...current.draft,
+        ...coupled,
+        classEntries: nextEntries,
+        classIdentityDestructiveSpellClearConfirmed: false,
+        classSlotResizeDestructiveRemovalConfirmed:
+          nextEntries.length < provenance.sourceClassIds.length,
+      },
+    });
+    void loadCreatureStartingPackageCatalogForDialog(
+      current.snapshotObject,
+      "",
+      current.draft.advancedSettings.startingPackageId,
+      nextEntries.map((entry) => Number(entry.classId)),
+    );
+  }, [creatureClassCatalogState, creaturePropertiesDialog,
+    loadCreatureStartingPackageCatalogForDialog]);
+
+  const removeCreatureEquipmentItem = useCallback((index: number) => {
+    setCreaturePropertiesDialog((current) =>
+      current
+        ? {
+            ...current,
+            draft: removeCreatureEquipmentDraftItem(current.draft, index)
+          }
+        : current
+    );
   }, []);
 
   const applyCreaturePropertiesDraft = useCallback(
@@ -9913,41 +14710,656 @@ export function WorkspaceCanvasViewport({
           return current;
         }
 
-        const sourceDraft = buildCreaturePropertiesDraft(sourceObject);
+        const sourceDraft = buildCreaturePropertiesDraft(
+          sourceObject,
+          current.present.placeableBodyBagCatalog,
+          current.present.placeableFactionCatalog,
+        );
         if (areCreaturePropertiesDraftsEqual(sourceDraft, draft)) {
           return current;
         }
 
-        const nextTag = draft.tag.trim() || sourceObject.tag;
-        const nextFirstName = draft.firstName.trim() || resolveSceneObjectName(sourceObject);
-        const nextName = [nextFirstName, draft.lastName.trim()].filter((part) => part.length > 0).join(" ");
+        const nextTag = materializeExistingCreatureTag(
+          sourceObject.source,
+          sourceObject.tag,
+          draft.tag
+        );
+        const nextConversation = materializeExistingCreatureConversation(
+          sourceObject.source,
+          sourceObject.creatureProperties?.conversation ?? "",
+          draft.conversation,
+        );
+        const nextNoInterrupt = materializeExistingCreatureNoInterrupt(
+          sourceObject.source,
+          sourceObject.creatureProperties?.noInterrupt ?? false,
+          draft.noInterrupt,
+        );
+        const sourceAdvancedSettings = sourceObject.creatureProperties?.advancedSettings;
+        const isRetainedCreature = sourceObject.source?.type === "aurora_git" &&
+          sourceObject.source.sourceKind === "creature";
+        const hasRetainedTemplateResRefProvenance = isRetainedCreature &&
+          sourceObject.source?.creatureTemplateResRef !== undefined;
+        const nextTemplateResRefAdvancedSettings = hasRetainedTemplateResRefProvenance
+          ? materializeExistingCreatureTemplateResRef(
+              sourceObject.source,
+              sourceAdvancedSettings,
+              draft.advancedSettings.blueprintResRef,
+            )
+          : sourceAdvancedSettings;
+        if (hasRetainedTemplateResRefProvenance && !nextTemplateResRefAdvancedSettings) {
+          return current;
+        }
+        const nextSpecialIdentityAdvancedSettings =
+          sourceObject.source?.creatureSpecialIdentityStrings !== undefined
+            ? materializeExistingCreatureSpecialIdentityStrings(
+                sourceObject.source,
+                sourceAdvancedSettings,
+                {
+                  subrace: draft.advancedSettings.subrace,
+                  deity: draft.advancedSettings.deity,
+                },
+              )
+            : sourceAdvancedSettings;
+        if (
+          sourceObject.source?.creatureSpecialIdentityStrings !== undefined &&
+          !nextSpecialIdentityAdvancedSettings
+        ) {
+          return current;
+        }
+        const hasRetainedFactionProvenance =
+          sourceObject.source?.type === "aurora_git" &&
+          sourceObject.source.sourceKind === "creature" &&
+          sourceObject.source.creatureFaction !== undefined;
+        const nextFactionAdvancedSettings = hasRetainedFactionProvenance
+          ? materializeExistingCreatureFaction(
+              sourceObject.source,
+              sourceAdvancedSettings,
+              draft.advancedSettings.factionId,
+              current.present.placeableFactionCatalog,
+            )
+          : draft.advancedSettings;
+        if (hasRetainedFactionProvenance && !nextFactionAdvancedSettings) {
+          return current;
+        }
+        const nextAdvancedDisarmable = materializeExistingCreatureAdvancedFlag(
+          sourceObject.source,
+          "disarmable",
+          sourceAdvancedSettings?.disarmable ?? false,
+          draft.advancedSettings.disarmable,
+        );
+        const nextAdvancedPlot = materializeExistingCreatureAdvancedFlag(
+          sourceObject.source,
+          "plot",
+          sourceAdvancedSettings?.plot ?? false,
+          draft.advancedSettings.plot,
+        );
+        const nextAdvancedImmortal = materializeExistingCreatureAdvancedFlag(
+          sourceObject.source,
+          "immortal",
+          sourceAdvancedSettings?.immortal ?? false,
+          draft.advancedSettings.immortal,
+        );
+        const nextAdvancedLootable = materializeExistingCreatureAdvancedFlag(
+          sourceObject.source,
+          "lootable",
+          sourceAdvancedSettings?.leavesLootableCorpse ?? false,
+          draft.advancedSettings.leavesLootableCorpse,
+        );
+        const nextAdvancedNoPermanentDeath = materializeExistingCreatureAdvancedFlag(
+          sourceObject.source,
+          "noPermanentDeath",
+          sourceAdvancedSettings?.noPermanentDeath ?? false,
+          draft.advancedSettings.noPermanentDeath,
+        );
+        const nextCreatureBodyBagRow = materializeExistingCreatureBodyBagRow(
+          sourceObject.source,
+          current.present.placeableBodyBagCatalog,
+          sourceAdvancedSettings?.treasureModelRow,
+          draft.advancedSettings.treasureModelRow,
+          nextAdvancedLootable,
+        );
+        const nextCreatureDecayTimeSeconds =
+          materializeExistingCreatureDecayTimeSeconds(
+            sourceObject.source,
+            sourceAdvancedSettings?.corpseDecayTimeSeconds,
+            draft.advancedSettings.corpseDecayTimeSeconds,
+            nextAdvancedLootable,
+          );
+        const appearanceCatalog =
+          creatureAppearanceCatalogState?.objectId === objectId &&
+          creatureAppearanceCatalogState.status === "ready"
+            ? creatureAppearanceCatalogState.catalog
+            : null;
+        const nextAppearanceType = materializeExistingCreatureAppearance(
+          sourceObject.source,
+          sourceObject.creatureProperties?.appearanceType,
+          draft.appearanceType,
+          appearanceCatalog,
+        );
+        const genderCatalog =
+          creatureGenderCatalogState?.objectId === objectId &&
+          creatureGenderCatalogState.status === "ready"
+            ? creatureGenderCatalogState.catalog
+            : null;
+        const nextGenderId = materializeExistingCreatureGender(
+          sourceObject.source,
+          sourceObject.creatureProperties?.genderId,
+          draft.genderId,
+          genderCatalog,
+        );
+        const nextGender = resolveCreatureGenderDisplayName(
+          nextGenderId,
+          genderCatalog,
+          sourceObject.creatureProperties?.gender ?? draft.gender.trim(),
+        );
+        const perceptionRangeCatalog =
+          creaturePerceptionRangeCatalogState?.objectId === objectId &&
+          creaturePerceptionRangeCatalogState.status === "ready"
+            ? creaturePerceptionRangeCatalogState.catalog
+            : null;
+        const nextPerceptionRangeId = materializeExistingCreaturePerceptionRange(
+          sourceObject.source,
+          sourceAdvancedSettings?.perceptionRangeId,
+          draft.advancedSettings.perceptionRangeId,
+          perceptionRangeCatalog,
+        );
+        const nextPerceptionRange = resolveCreaturePerceptionRangeDisplayName(
+          nextPerceptionRangeId,
+          perceptionRangeCatalog,
+          sourceAdvancedSettings?.perceptionRange ?? draft.advancedSettings.perceptionRange,
+        );
+        const walkRateCatalog =
+          creatureWalkRateCatalogState?.objectId === objectId &&
+          creatureWalkRateCatalogState.status === "ready"
+            ? creatureWalkRateCatalogState.catalog
+            : null;
+        const nextWalkRateId = materializeExistingCreatureWalkRate(
+          sourceObject.source,
+          sourceAdvancedSettings?.walkRateId,
+          draft.advancedSettings.walkRateId,
+          walkRateCatalog,
+        );
+        const nextMovementRate = resolveCreatureWalkRateDisplayName(
+          nextWalkRateId,
+          walkRateCatalog,
+          sourceObject.creatureProperties?.statistics?.movementRate ?? draft.movementRate,
+        );
+        const soundSetCatalog =
+          creatureSoundSetCatalogState?.objectId === objectId &&
+          creatureSoundSetCatalogState.status === "ready"
+            ? creatureSoundSetCatalogState.catalog
+            : null;
+        const nextSoundSetFile = isRetainedCreature
+          ? materializeExistingCreatureSoundSetFile(
+              sourceObject.source,
+              sourceAdvancedSettings?.soundSetFile,
+              draft.advancedSettings.soundSetFile,
+              soundSetCatalog,
+            )
+          : draft.advancedSettings.soundSetFile;
+        const nextSoundSet = isRetainedCreature
+          ? resolveCreatureSoundSetDisplayName(
+              nextSoundSetFile,
+              soundSetCatalog,
+              sourceAdvancedSettings?.soundSet ?? draft.advancedSettings.soundSet,
+            )
+          : draft.advancedSettings.soundSet;
+        const startingPackageCatalog =
+          creatureStartingPackageCatalogState?.objectId === objectId &&
+          creatureStartingPackageCatalogState.status === "ready"
+            ? creatureStartingPackageCatalogState.catalog
+            : null;
+        const regularNextStartingPackageId = isRetainedCreature
+          ? materializeExistingCreatureStartingPackageId(
+              sourceObject.source,
+              sourceAdvancedSettings?.startingPackageId,
+              draft.advancedSettings.startingPackageId,
+              startingPackageCatalog,
+            )
+          : draft.advancedSettings.startingPackageId;
+        const skillCatalog = creatureSkillCatalogState?.objectId === objectId &&
+          creatureSkillCatalogState.status === "ready"
+          ? creatureSkillCatalogState.catalog
+          : null;
+        const nextSkills = isRetainedCreature
+          ? materializeExistingCreatureSkills(
+              sourceObject.source,
+              sourceObject.creatureProperties?.skills ?? [],
+              draft.skills,
+              skillCatalog,
+            )
+          : draft.skills;
+        const featCatalog = creatureFeatCatalogState?.objectId === objectId &&
+          creatureFeatCatalogState.status === "ready"
+          ? creatureFeatCatalogState.catalog
+          : null;
+        const nextFeats = isRetainedCreature
+          ? materializeExistingCreatureFeats(
+              sourceObject.source,
+              sourceObject.creatureProperties?.feats ?? [],
+              draft.feats,
+              featCatalog,
+            )
+          : draft.feats;
+        const specialAbilityCatalog =
+          creatureSpecialAbilityCatalogState?.objectId === objectId &&
+          creatureSpecialAbilityCatalogState.status === "ready"
+            ? creatureSpecialAbilityCatalogState.catalog
+            : null;
+        const nextSpecialAbilities = isRetainedCreature
+          ? materializeExistingCreatureSpecialAbilities(
+              sourceObject.source,
+              sourceObject.creatureProperties?.specialAbilities ?? [],
+              draft.specialAbilities,
+              specialAbilityCatalog,
+            )
+          : draft.specialAbilities;
+        const requestedClassEntries = draft.classEntries
+          .filter(
+            (entry) => entry.className.trim().length > 0 || typeof entry.classId === "number",
+          )
+          .map((entry) => ({
+            ...(typeof entry.classId === "number"
+              ? {
+                  classId: isRetainedCreature
+                    ? Math.max(0, Math.trunc(entry.classId))
+                    : Math.max(0, Math.min(255, Math.trunc(entry.classId))),
+                }
+              : {}),
+            className: entry.className.trim(),
+            level: Math.max(1, Math.trunc(entry.level)),
+          }));
+        const classCatalog = creatureClassCatalogState?.objectId === objectId &&
+          creatureClassCatalogState.status === "ready"
+          ? creatureClassCatalogState.catalog
+          : null;
+        const classSlotResize = isRetainedCreature
+          ? materializeExistingCreatureClassSlotResize(
+              sourceObject.source,
+              sourceObject.creatureProperties?.classEntries ?? [],
+              requestedClassEntries,
+              draft.advancedSettings.startingPackageId,
+              draft.classSlotResizeDestructiveRemovalConfirmed,
+              classCatalog,
+              startingPackageCatalog,
+            )
+          : null;
+        const classIdentity = isRetainedCreature && !classSlotResize
+          ? materializeExistingCreatureClassIdentity(
+              sourceObject.source,
+              sourceObject.creatureProperties?.classEntries ?? [],
+              requestedClassEntries,
+              draft.advancedSettings.startingPackageId,
+              draft.classIdentityDestructiveSpellClearConfirmed,
+              classCatalog,
+              startingPackageCatalog,
+            )
+          : null;
+        const nextClassEntries = classSlotResize?.classEntries ??
+          classIdentity?.classEntries ?? (isRetainedCreature
+          ? materializeExistingCreatureClassEntries(
+              sourceObject.source,
+              sourceObject.creatureProperties?.classEntries ?? [],
+              requestedClassEntries,
+            )
+          : requestedClassEntries);
+        const nextStartingPackageId = classSlotResize?.startingPackageId ??
+          classIdentity?.startingPackageId ??
+          regularNextStartingPackageId;
+        const nextSkillListTruncationConfirmed = isRetainedCreature &&
+          isExistingCreatureSkillCatalogAdmitted(sourceObject.source, skillCatalog)
+          ? draft.skillListTruncationConfirmed
+          : false;
+        const phenotypeCatalog =
+          creaturePhenotypeCatalogState?.objectId === objectId &&
+          creaturePhenotypeCatalogState.status === "ready"
+            ? creaturePhenotypeCatalogState.catalog
+            : null;
+        const nextPhenotypeId = materializeExistingCreaturePhenotype(
+          sourceObject.source,
+          sourceObject.creatureProperties?.phenotypeId,
+          draft.phenotypeId,
+          phenotypeCatalog,
+        );
+        const nextPhenotype = resolveCreaturePhenotypeDisplayName(
+          nextPhenotypeId,
+          phenotypeCatalog,
+          sourceObject.creatureProperties?.phenotype ?? draft.phenotype.trim(),
+        );
+        const portraitProvenance = readExistingCreaturePortraitProvenance(sourceObject.source);
+        const requestedPortraitId = portraitProvenance &&
+          nextGenderId !== portraitProvenance.genderExpectedValue
+          ? portraitProvenance.expectedValue
+          : draft.portraitId;
+        const nextPortraitDraft = portraitProvenance &&
+          requestedPortraitId === portraitProvenance.expectedValue
+          ? {
+              ...draft,
+              portraitId: portraitProvenance.expectedValue,
+              portraitResRef: portraitProvenance.sourceBaseResRef,
+            }
+          : portraitProvenance
+            ? materializeExistingCreaturePortrait(
+                sourceObject.source,
+                draft,
+                requestedPortraitId,
+                current.present.creaturePortraitCatalog,
+              )
+            : draft;
+        if (portraitProvenance && requestedPortraitId !== portraitProvenance.expectedValue &&
+          nextPortraitDraft === draft) return current;
+        const nextChallengeRating = materializeExistingCreatureChallengeRating(
+          sourceObject.source,
+          sourceObject.creatureProperties?.challengeRating ?? draft.challengeRating,
+          draft.challengeRating,
+        );
+        const nextAbilityScores = materializeExistingCreatureAbilityScores(
+          sourceObject.source,
+          sourceObject.creatureProperties?.statistics?.abilityScores ?? {
+            strength: draft.strength,
+            dexterity: draft.dexterity,
+            constitution: draft.constitution,
+            intelligence: draft.intelligence,
+            wisdom: draft.wisdom,
+            charisma: draft.charisma,
+          },
+          {
+            strength: draft.strength,
+            dexterity: draft.dexterity,
+            constitution: draft.constitution,
+            intelligence: draft.intelligence,
+            wisdom: draft.wisdom,
+            charisma: draft.charisma,
+          },
+        );
+        const nextAppearanceColors = materializeExistingCreatureAppearanceColors(
+          sourceObject.source,
+          sourceObject.creatureProperties?.appearanceSettings?.colors ?? {
+            skin: draft.appearanceColors.skin,
+            hair: draft.appearanceColors.hair,
+            tattoo1: draft.appearanceColors.tattoo1,
+            tattoo2: draft.appearanceColors.tattoo2,
+          },
+          draft.appearanceColors,
+        );
+        const sourceAppearanceSettings = sourceObject.creatureProperties?.appearanceSettings;
+        const bodyPartAppearanceSettings = materializeExistingCreatureBodyParts(
+          sourceObject.source,
+          sourceObject.source?.type === "aurora_git" && sourceAppearanceSettings
+            ? { ...sourceAppearanceSettings, colors: nextAppearanceColors }
+            : {
+                partBasedAppearance: draft.appearancePartBased,
+                ...draft.appearanceParts,
+                colors: nextAppearanceColors,
+                sourceOnlyParts: { ...draft.appearanceSourceOnlyParts },
+              },
+          draft.appearanceParts,
+          draft.appearanceSourceOnlyParts,
+        );
+        const wingsCatalog =
+          creatureWingsCatalogState?.objectId === objectId &&
+          creatureWingsCatalogState.status === "ready"
+            ? creatureWingsCatalogState.catalog
+            : null;
+        const tailCatalog =
+          creatureTailCatalogState?.objectId === objectId &&
+          creatureTailCatalogState.status === "ready"
+            ? creatureTailCatalogState.catalog
+            : null;
+        const currentWingsRow = Number(bodyPartAppearanceSettings.wings);
+        const draftWingsRow = Number(draft.appearanceParts.wings);
+        const currentTailRow = Number(bodyPartAppearanceSettings.tail);
+        const draftTailRow = Number(draft.appearanceParts.tail);
+        const nextWingsRow = materializeExistingCreatureAppendage(
+          sourceObject.source,
+          "wings",
+          Number.isSafeInteger(currentWingsRow) ? currentWingsRow : undefined,
+          Number.isSafeInteger(draftWingsRow) ? draftWingsRow : undefined,
+          wingsCatalog,
+        );
+        const nextTailRow = materializeExistingCreatureAppendage(
+          sourceObject.source,
+          "tail",
+          Number.isSafeInteger(currentTailRow) ? currentTailRow : undefined,
+          Number.isSafeInteger(draftTailRow) ? draftTailRow : undefined,
+          tailCatalog,
+        );
+        const nextAppearanceSettings = sourceObject.source?.type === "aurora_git"
+          ? {
+              ...bodyPartAppearanceSettings,
+              ...(nextWingsRow !== undefined ? { wings: String(nextWingsRow) } : {}),
+              ...(nextTailRow !== undefined ? { tail: String(nextTailRow) } : {}),
+            }
+          : bodyPartAppearanceSettings;
+        const sourceStatistics = sourceObject.creatureProperties?.statistics;
+        const currentHitPointDraft = {
+          constitution: sourceStatistics?.abilityScores.constitution ?? draft.constitution,
+          baseHitPoints: sourceStatistics?.baseHitPoints ?? draft.baseHitPoints,
+          hitPointBonuses: sourceStatistics?.hitPointBonuses ?? draft.hitPointBonuses,
+          currentHitPoints: sourceStatistics?.currentHitPoints ??
+            sourceStatistics?.maxHitPoints ?? draft.currentHitPoints,
+          maxHitPoints: sourceStatistics?.maxHitPoints ?? draft.maxHitPoints,
+        };
+        const hitPointClassLevels = isRetainedCreature
+          ? readCreatureHitPointCoupledClassLevels(sourceObject, nextClassEntries)
+          : undefined;
+        const nextHitPointDraft = isRetainedCreature
+          ? materializeExistingCreatureHitPointDraft(
+              sourceObject.source,
+              currentHitPointDraft,
+              {
+                baseHitPoints: draft.baseHitPoints,
+                constitution: nextAbilityScores.constitution,
+                ...(hitPointClassLevels ? { classLevels: hitPointClassLevels } : {}),
+              },
+            )
+          : {
+              constitution: nextAbilityScores.constitution,
+              baseHitPoints: draft.baseHitPoints,
+              hitPointBonuses: draft.hitPointBonuses,
+              currentHitPoints: draft.currentHitPoints,
+              maxHitPoints: draft.maxHitPoints,
+            };
+        const coupledAbilityScores = nextAbilityScores.constitution ===
+          nextHitPointDraft.constitution
+          ? nextAbilityScores
+          : { ...nextAbilityScores, constitution: nextHitPointDraft.constitution };
+        const nextNaturalArmorClass = materializeExistingCreatureNaturalArmorClass(
+          sourceObject.source,
+          sourceObject.creatureProperties?.statistics?.naturalArmorClass ??
+            draft.naturalArmorClass,
+          draft.naturalArmorClass,
+        );
+        const nextSavingThrowBonuses = materializeExistingCreatureSavingThrowBonuses(
+          sourceObject.source,
+          {
+            fortitude: sourceObject.creatureProperties?.statistics?.saves.fortitudeBonus ??
+              draft.fortitudeBonus,
+            reflex: sourceObject.creatureProperties?.statistics?.saves.reflexBonus ??
+              draft.reflexBonus,
+            will: sourceObject.creatureProperties?.statistics?.saves.willBonus ??
+              draft.willBonus,
+          },
+          {
+            fortitude: draft.fortitudeBonus,
+            reflex: draft.reflexBonus,
+            will: draft.willBonus,
+          },
+        );
+        const nextAlignment = materializeExistingCreatureAlignment(
+          sourceObject.source,
+          sourceObject.creatureProperties?.alignment ?? draft.alignment,
+          draft.alignment,
+        );
+        const nextLocalizedNames = materializeExistingCreatureNameLocalizedStrings(
+          sourceObject.source,
+          sourceObject.creatureProperties,
+          {
+            firstName: draft.firstName,
+            lastName: draft.lastName,
+            description: draft.description,
+          },
+        );
+        const nextFirstName = nextLocalizedNames.firstName
+          ?? sourceObject.creatureProperties?.firstName
+          ?? resolveSceneObjectName(sourceObject);
+        const nextLastName = nextLocalizedNames.lastName
+          ?? sourceObject.creatureProperties?.lastName
+          ?? "";
+        const nextDescription = nextLocalizedNames.description
+          ?? sourceObject.creatureProperties?.description
+          ?? "";
+        const nextName = [nextFirstName.trim(), nextLastName.trim()]
+          .filter((part) => part.length > 0)
+          .join(" ");
         const requestedBlueprintResRef = draft.advancedSettings.blueprintResRef.trim();
-        const nextResRef = /^[A-Za-z0-9_]{1,16}$/u.test(requestedBlueprintResRef)
-          ? requestedBlueprintResRef.toLowerCase()
-          : sourceObject.resRef;
+        const nextResRef = isRetainedCreature
+          ? sourceObject.resRef
+          : /^[A-Za-z0-9_]{1,16}$/u.test(requestedBlueprintResRef)
+            ? requestedBlueprintResRef.toLowerCase()
+            : sourceObject.resRef;
+        const materializedInventory = draft.inventoryControlState === "ACTIVE_NOW"
+          ? materializeExistingCreatureInventory(sourceObject, draft)
+          : undefined;
+        if (draft.inventoryControlState === "ACTIVE_NOW" && materializedInventory === null) {
+          return current;
+        }
+        const materializedEquipment = draft.equippedItemsControlState === "ACTIVE_NOW"
+          ? materializeExistingCreatureEquipment(sourceObject, draft)
+          : undefined;
+        if (
+          draft.equippedItemsControlState === "ACTIVE_NOW" &&
+          materializedEquipment === null
+        ) {
+          return current;
+        }
+        const nextInventoryItems = materializedInventory !== undefined
+          ? materializedInventory?.map((entry) => ({ ...entry }))
+          : sourceObject.creatureProperties?.inventoryItems?.map((entry) => ({
+              ...entry,
+              ...(entry.embeddedItem
+                ? {
+                    embeddedItem: {
+                      ...entry.embeddedItem,
+                      itemPropertyListEntries: entry.embeddedItem.itemPropertyListEntries?.map(
+                        (propertyEntry) => ({ ...propertyEntry })
+                      )
+                    }
+                  }
+                : {})
+            }));
+        const nextEquippedItems = materializedEquipment !== undefined
+          ? materializedEquipment?.map((entry) => ({ ...entry }))
+          : sourceObject.creatureProperties?.equippedItems?.map((entry) => ({
+              ...entry,
+              ...(entry.embeddedItem
+                ? {
+                    embeddedItem: {
+                      ...entry.embeddedItem,
+                      itemPropertyListEntries: entry.embeddedItem.itemPropertyListEntries?.map(
+                        (propertyEntry) => ({ ...propertyEntry })
+                      )
+                    }
+                  }
+                : {})
+            }));
+        const nextScriptSlots =
+          sourceObject.source?.creatureScriptResRefs !== undefined
+            ? materializeExistingCreatureScriptResRefs(
+                sourceObject.source,
+                sourceObject.creatureProperties?.scriptSlots,
+                draft.scriptSlots,
+              )
+            : sourceObject.creatureProperties?.scriptSlots;
+
+        const nextCreatureAdvancedSettings = {
+          ...draft.advancedSettings,
+          blueprintResRef: nextTemplateResRefAdvancedSettings?.blueprintResRef ?? nextResRef,
+          disarmable: nextAdvancedDisarmable,
+          plot: nextAdvancedPlot,
+          immortal: nextAdvancedImmortal,
+          leavesLootableCorpse: nextAdvancedLootable,
+          noPermanentDeath: nextAdvancedNoPermanentDeath,
+          faction: nextFactionAdvancedSettings?.faction ?? draft.advancedSettings.faction,
+          subrace: nextSpecialIdentityAdvancedSettings?.subrace ??
+            draft.advancedSettings.subrace,
+          deity: nextSpecialIdentityAdvancedSettings?.deity ?? draft.advancedSettings.deity,
+          soundSet: nextSoundSet,
+          perceptionRange: nextPerceptionRange,
+        };
+        if (nextPerceptionRangeId === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "perceptionRangeId");
+        } else {
+          nextCreatureAdvancedSettings.perceptionRangeId = nextPerceptionRangeId;
+        }
+        if (nextWalkRateId === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "walkRateId");
+        } else {
+          nextCreatureAdvancedSettings.walkRateId = nextWalkRateId;
+        }
+        if (nextSoundSetFile === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "soundSetFile");
+        } else {
+          nextCreatureAdvancedSettings.soundSetFile = nextSoundSetFile;
+        }
+        if (nextStartingPackageId === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "startingPackageId");
+        } else {
+          nextCreatureAdvancedSettings.startingPackageId = nextStartingPackageId;
+        }
+        if (nextFactionAdvancedSettings?.factionId === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "factionId");
+        } else {
+          nextCreatureAdvancedSettings.factionId = nextFactionAdvancedSettings.factionId;
+        }
+        if (nextCreatureBodyBagRow === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "treasureModelRow");
+        } else {
+          nextCreatureAdvancedSettings.treasureModelRow = nextCreatureBodyBagRow;
+        }
+        if (nextCreatureDecayTimeSeconds === undefined) {
+          Reflect.deleteProperty(nextCreatureAdvancedSettings, "corpseDecayTimeSeconds");
+        } else {
+          nextCreatureAdvancedSettings.corpseDecayTimeSeconds =
+            nextCreatureDecayTimeSeconds;
+        }
+
+        const nextCreatureVariables = sourceObject.source?.type === "aurora_git"
+          ? canEditExistingCreatureVariables(sourceObject.source)
+            ? readCreatureVariableTargetEntries(draft.variables)?.map((entry) => ({ ...entry }))
+              ?? sourceObject.creatureProperties?.variables?.map((entry) => ({ ...entry }))
+              ?? []
+            : sourceObject.creatureProperties?.variables?.map((entry) => ({ ...entry })) ?? []
+          : draft.variables
+              .map((entry) => ({ ...entry, name: entry.name.trim() }))
+              .filter((entry) => entry.name.length > 0);
+        const nextCreatureComments = materializeExistingCreatureComments(
+          sourceObject.source,
+          sourceObject.creatureProperties?.comments ?? "",
+          draft.comments,
+        );
 
         const nextCreatureProperties = {
           firstName: nextFirstName,
-          lastName: draft.lastName.trim(),
+          lastName: nextLastName,
           race: draft.race.trim(),
           appearance: draft.appearance.trim(),
-          phenotype: draft.phenotype.trim(),
-          gender: draft.gender.trim(),
-          description: draft.description,
-          challengeRating: Math.max(0, draft.challengeRating),
-          portraitResRef: draft.portraitResRef.trim(),
-          conversation: draft.conversation.trim(),
-          noInterrupt: draft.noInterrupt,
-          alignment: draft.alignment,
+          ...(nextAppearanceType !== undefined ? { appearanceType: nextAppearanceType } : {}),
+          phenotype: nextPhenotype,
+          ...(nextPhenotypeId !== undefined ? { phenotypeId: nextPhenotypeId } : {}),
+          gender: nextGender,
+          ...(nextGenderId !== undefined ? { genderId: nextGenderId } : {}),
+          description: nextDescription,
+          challengeRating: nextChallengeRating,
+          portraitResRef: nextPortraitDraft.portraitResRef.trim(),
+          ...(nextPortraitDraft.portraitId === undefined
+            ? {}
+            : { portraitId: nextPortraitDraft.portraitId }),
+          conversation: nextConversation,
+          noInterrupt: nextNoInterrupt,
+          alignment: nextAlignment,
           statistics: {
-            abilityScores: {
-              strength: draft.strength,
-              dexterity: draft.dexterity,
-              constitution: draft.constitution,
-              intelligence: draft.intelligence,
-              wisdom: draft.wisdom,
-              charisma: draft.charisma
-            },
+            abilityScores: coupledAbilityScores,
             racialModifiers: {
               strength: draft.strRacial,
               dexterity: draft.dexRacial,
@@ -9958,28 +15370,23 @@ export function WorkspaceCanvasViewport({
             },
             saves: {
               fortitudeBase: draft.fortitudeBase,
-              fortitudeBonus: draft.fortitudeBonus,
+              fortitudeBonus: nextSavingThrowBonuses.fortitude,
               reflexBase: draft.reflexBase,
-              reflexBonus: draft.reflexBonus,
+              reflexBonus: nextSavingThrowBonuses.reflex,
               willBase: draft.willBase,
-              willBonus: draft.willBonus
+              willBonus: nextSavingThrowBonuses.will
             },
-            naturalArmorClass: draft.naturalArmorClass,
+            naturalArmorClass: nextNaturalArmorClass,
             baseArmorClass: draft.baseArmorClass,
             dexterityBonus: draft.dexterityBonus,
             sizeModifier: draft.sizeModifier,
-            baseHitPoints: draft.baseHitPoints,
-            hitPointBonuses: draft.hitPointBonuses,
-            currentHitPoints: draft.currentHitPoints,
-            maxHitPoints: draft.maxHitPoints,
-            movementRate: draft.movementRate
+            baseHitPoints: nextHitPointDraft.baseHitPoints,
+            hitPointBonuses: nextHitPointDraft.hitPointBonuses,
+            currentHitPoints: nextHitPointDraft.currentHitPoints,
+            maxHitPoints: nextHitPointDraft.maxHitPoints,
+            movementRate: nextMovementRate
           },
-          appearanceSettings: {
-            partBasedAppearance: draft.appearancePartBased,
-            ...draft.appearanceParts,
-            colors: { ...draft.appearanceColors },
-            sourceOnlyParts: { ...draft.appearanceSourceOnlyParts }
-          },
+          appearanceSettings: nextAppearanceSettings,
           ...(sourceObject.creatureProperties?.appearanceProfile
             ? { appearanceProfile: { ...sourceObject.creatureProperties.appearanceProfile } }
             : {}),
@@ -9995,64 +15402,27 @@ export function WorkspaceCanvasViewport({
           ...(sourceObject.creatureProperties?.localizedStrings
             ? { localizedStrings: { ...sourceObject.creatureProperties.localizedStrings } }
             : {}),
-          classEntries: draft.classEntries
-            .filter(
-              (entry) => entry.className.trim().length > 0 || typeof entry.classId === "number"
-            )
-            .map((entry) => ({
-              ...(typeof entry.classId === "number"
-                ? { classId: Math.max(0, Math.min(255, Math.trunc(entry.classId))) }
-                : {}),
-              className: entry.className.trim(),
-              level: Math.max(1, Math.trunc(entry.level))
-            })),
+          classEntries: nextClassEntries.map((entry) => ({ ...entry })),
+          classIdentityDestructiveSpellClearConfirmed:
+            classIdentity?.destructiveSpellClearConfirmed ?? false,
+          classSlotResizeDestructiveRemovalConfirmed:
+            classSlotResize?.destructiveRemovedSlotsConfirmed ?? false,
           templateEntries: draft.templateEntries.map((entry) => ({ ...entry })),
-          skills: draft.skills.map((entry) => ({
+          skills: nextSkills.map((entry) => ({
+            ...(typeof entry.skillId === "number" ? { skillId: entry.skillId } : {}),
             skill: entry.skill,
-            rank: Math.max(0, Math.trunc(entry.rank))
+            rank: Math.max(0, Math.min(255, Math.trunc(entry.rank)))
           })),
-          scriptSlots: { ...draft.scriptSlots },
-          advancedSettings: {
-            ...draft.advancedSettings,
-            blueprintResRef: nextResRef,
-            corpseDecayTimeSeconds: Math.max(
-              0,
-              Math.trunc(draft.advancedSettings.corpseDecayTimeSeconds)
-            )
-          },
-          feats: draft.feats.map((entry) => ({ ...entry })),
+          skillListTruncationConfirmed: nextSkillListTruncationConfirmed,
+          ...(nextScriptSlots ? { scriptSlots: { ...nextScriptSlots } } : {}),
+          advancedSettings: nextCreatureAdvancedSettings,
+          feats: nextFeats.map((entry) => ({ ...entry })),
           spells: draft.spells.map((entry) => ({ ...entry })),
-          specialAbilities: draft.specialAbilities.map((entry) => ({ ...entry })),
-          variables: draft.variables
-            .map((entry) => ({ ...entry, name: entry.name.trim() }))
-            .filter((entry) => entry.name.length > 0),
-          inventoryItems: draft.inventoryItems.map((entry) => ({
-            ...entry,
-            embeddedItem: entry.embeddedItem
-              ? {
-                  ...entry.embeddedItem,
-                  itemPropertyListEntries: entry.embeddedItem.itemPropertyListEntries
-                    ? entry.embeddedItem.itemPropertyListEntries.map((propertyEntry) => ({
-                        ...propertyEntry
-                      }))
-                    : undefined
-                }
-              : undefined
-          })),
-          equippedItems: draft.equippedItems.map((entry) => ({
-            ...entry,
-            embeddedItem: entry.embeddedItem
-              ? {
-                  ...entry.embeddedItem,
-                  itemPropertyListEntries: entry.embeddedItem.itemPropertyListEntries
-                    ? entry.embeddedItem.itemPropertyListEntries.map((propertyEntry) => ({
-                        ...propertyEntry
-                      }))
-                    : undefined
-                }
-              : undefined
-          })),
-          comments: draft.comments
+          specialAbilities: nextSpecialAbilities.map((entry) => ({ ...entry })),
+          variables: nextCreatureVariables,
+          ...(nextInventoryItems !== undefined ? { inventoryItems: nextInventoryItems } : {}),
+          ...(nextEquippedItems !== undefined ? { equippedItems: nextEquippedItems } : {}),
+          comments: nextCreatureComments
         };
 
         previousObject = cloneSceneObject(sourceObject);
@@ -10061,6 +15431,7 @@ export function WorkspaceCanvasViewport({
           name: nextName.length > 0 ? nextName : nextTag,
           tag: nextTag,
           resRef: nextResRef,
+          source: sourceObject.source,
           creatureProperties: nextCreatureProperties,
           placeableProperties: undefined,
           encounterProperties: undefined,
@@ -10088,11 +15459,50 @@ export function WorkspaceCanvasViewport({
         onCreaturePropertiesApplied?.(appliedObject, previousObject ?? appliedObject);
       }
       if (closeAfterApply) {
+        creatureAppearanceCatalogRequestRevisionRef.current += 1;
+        setCreatureAppearanceCatalogState(null);
+        creatureGenderCatalogRequestRevisionRef.current += 1;
+        setCreatureGenderCatalogState(null);
+        creatureWingsCatalogRequestRevisionRef.current += 1;
+        setCreatureWingsCatalogState(null);
+        creatureTailCatalogRequestRevisionRef.current += 1;
+        setCreatureTailCatalogState(null);
+        creaturePerceptionRangeCatalogRequestRevisionRef.current += 1;
+        setCreaturePerceptionRangeCatalogState(null);
+        creatureWalkRateCatalogRequestRevisionRef.current += 1;
+        setCreatureWalkRateCatalogState(null);
+        creatureSoundSetCatalogRequestRevisionRef.current += 1;
+        setCreatureSoundSetCatalogState(null);
+        creatureStartingPackageCatalogRequestRevisionRef.current += 1;
+        setCreatureStartingPackageCatalogState(null);
+        creatureClassCatalogRequestRevisionRef.current += 1;
+        setCreatureClassCatalogState(null);
+        creatureSkillCatalogRequestRevisionRef.current += 1;
+        setCreatureSkillCatalogState(null);
+        creatureFeatCatalogRequestRevisionRef.current += 1;
+        setCreatureFeatCatalogState(null);
+        creatureSpecialAbilityCatalogRequestRevisionRef.current += 1;
+        setCreatureSpecialAbilityCatalogState(null);
+        creaturePhenotypeCatalogRequestRevisionRef.current += 1;
+        setCreaturePhenotypeCatalogState(null);
         setCreaturePropertiesDialog(null);
       }
     },
     [
       cloneSceneObject,
+      creatureAppearanceCatalogState,
+      creatureGenderCatalogState,
+      creatureWingsCatalogState,
+      creatureTailCatalogState,
+      creaturePerceptionRangeCatalogState,
+      creatureWalkRateCatalogState,
+      creatureSoundSetCatalogState,
+      creatureStartingPackageCatalogState,
+      creatureClassCatalogState,
+      creatureSkillCatalogState,
+      creatureFeatCatalogState,
+      creatureSpecialAbilityCatalogState,
+      creaturePhenotypeCatalogState,
       creaturePropertiesDialog,
       onCreaturePropertiesApplied,
       sceneViewportPort,
@@ -10109,8 +15519,16 @@ export function WorkspaceCanvasViewport({
         if (!sourceObject || sourceObject.kind !== "creatures" || snapshot.kind !== "creatures") {
           return current;
         }
-        const sourceDraft = buildCreaturePropertiesDraft(sourceObject);
-        const snapshotDraft = buildCreaturePropertiesDraft(snapshot);
+        const sourceDraft = buildCreaturePropertiesDraft(
+          sourceObject,
+          current.present.placeableBodyBagCatalog,
+          current.present.placeableFactionCatalog,
+        );
+        const snapshotDraft = buildCreaturePropertiesDraft(
+          snapshot,
+          current.present.placeableBodyBagCatalog,
+          current.present.placeableFactionCatalog,
+        );
         if (areCreaturePropertiesDraftsEqual(sourceDraft, snapshotDraft)) {
           return current;
         }
@@ -10127,6 +15545,32 @@ export function WorkspaceCanvasViewport({
         objectId: snapshot.id
       });
     }
+    creatureAppearanceCatalogRequestRevisionRef.current += 1;
+    setCreatureAppearanceCatalogState(null);
+    creatureGenderCatalogRequestRevisionRef.current += 1;
+    setCreatureGenderCatalogState(null);
+    creatureWingsCatalogRequestRevisionRef.current += 1;
+    setCreatureWingsCatalogState(null);
+    creatureTailCatalogRequestRevisionRef.current += 1;
+    setCreatureTailCatalogState(null);
+    creaturePerceptionRangeCatalogRequestRevisionRef.current += 1;
+    setCreaturePerceptionRangeCatalogState(null);
+    creatureWalkRateCatalogRequestRevisionRef.current += 1;
+    setCreatureWalkRateCatalogState(null);
+    creatureSoundSetCatalogRequestRevisionRef.current += 1;
+    setCreatureSoundSetCatalogState(null);
+    creatureStartingPackageCatalogRequestRevisionRef.current += 1;
+    setCreatureStartingPackageCatalogState(null);
+    creatureClassCatalogRequestRevisionRef.current += 1;
+    setCreatureClassCatalogState(null);
+    creatureSkillCatalogRequestRevisionRef.current += 1;
+    setCreatureSkillCatalogState(null);
+    creatureFeatCatalogRequestRevisionRef.current += 1;
+    setCreatureFeatCatalogState(null);
+    creatureSpecialAbilityCatalogRequestRevisionRef.current += 1;
+    setCreatureSpecialAbilityCatalogState(null);
+    creaturePhenotypeCatalogRequestRevisionRef.current += 1;
+    setCreaturePhenotypeCatalogState(null);
     setCreaturePropertiesDialog(null);
   }, [cloneSceneObject, creaturePropertiesDialog, sceneViewportPort, trackTelemetry, userId]);
 
@@ -10265,7 +15709,61 @@ export function WorkspaceCanvasViewport({
         if (!current) {
           return current;
         }
-        const nextDraft = { ...current.draft, [field]: value };
+        if (field === "baseItem" &&
+          !isItemWizardBlueprintEditorObject(current.snapshotObject)) {
+          const nextDraft = reduceExistingItemBaseItemDraft(
+            current.snapshotObject.source,
+            current.draft,
+            value,
+            sceneRef.current?.itemBaseItemCatalog,
+          );
+          return areItemPropertiesDraftsEqual(current.draft, nextDraft)
+            ? current
+            : { ...current, draft: nextDraft };
+        }
+        const nextValue = field === "tag"
+          ? reduceExistingItemTag(
+              current.snapshotObject.source,
+              current.draft.tag,
+              value,
+            )
+          : field === "resRef"
+            ? reduceExistingItemTemplateResRef(
+                current.snapshotObject.source,
+                current.draft.resRef,
+                value,
+              )
+          : field === "comments"
+            ? reduceExistingItemEditorComment(
+              current.snapshotObject.source,
+              current.draft.comments,
+              value,
+            )
+          : field === "localizedName"
+              || field === "description"
+              || field === "identifiedDescription"
+            ? reduceExistingItemLocalizedString(
+                current.snapshotObject.source,
+                field,
+                current.draft[field],
+                value,
+              )
+          : field === "charges"
+              || field === "cost"
+              || field === "stolen"
+              || field === "stackSize"
+              || field === "plot"
+              || field === "addCost"
+              || field === "identified"
+              || field === "cursed"
+            ? reduceExistingItemInstanceStateField(
+                current.snapshotObject.source,
+                field,
+                current.draft[field],
+                value,
+              )
+            : value;
+        const nextDraft = { ...current.draft, [field]: nextValue };
         if (areItemPropertiesDraftsEqual(current.draft, nextDraft)) {
           return current;
         }
@@ -10343,20 +15841,22 @@ export function WorkspaceCanvasViewport({
 
   const addItemPropertyEntry = useCallback(() => {
     setItemPropertiesDialog((current) => {
-      if (!current) {
-        return current;
-      }
+      if (!current) return current;
+      const propertyList = isItemWizardBlueprintEditorObject(current.snapshotObject)
+        ? [
+            ...current.draft.propertyList,
+            { propertyLabel: "", chanceAppear: 100 },
+          ]
+        : appendExistingItemProperty(
+            current.snapshotObject.source,
+            current.draft.propertyList,
+          );
+      if (propertyList === current.draft.propertyList) return current;
       return {
         ...current,
         draft: {
           ...current.draft,
-          propertyList: [
-            ...current.draft.propertyList,
-            {
-              propertyLabel: "",
-              chanceAppear: 100
-            }
-          ]
+          propertyList: [...propertyList]
         }
       };
     });
@@ -10372,99 +15872,346 @@ export function WorkspaceCanvasViewport({
         if (!current || index < 0 || index >= current.draft.propertyList.length) {
           return current;
         }
-        const nextPropertyList = current.draft.propertyList.map((entry, entryIndex) =>
-          entryIndex === index ? { ...entry, [field]: value } : entry
-        );
+        const nextPropertyList = isItemWizardBlueprintEditorObject(current.snapshotObject)
+          ? current.draft.propertyList.map((entry, entryIndex) =>
+              entryIndex === index ? { ...entry, [field]: value } : entry
+            )
+          : updateExistingItemPropertyField(
+              current.snapshotObject.source,
+              current.draft.propertyList,
+              index,
+              field,
+              value,
+            );
+        if (nextPropertyList === current.draft.propertyList) return current;
         return {
           ...current,
           draft: {
             ...current.draft,
-            propertyList: nextPropertyList
+            propertyList: [...nextPropertyList]
           }
         };
       });
     },
     []
   );
+
+  const updateCreatureAppearanceSourceOnlyPart = useCallback(
+    (
+      field: keyof CreaturePropertiesDraft["appearanceSourceOnlyParts"],
+      value: string,
+    ) => {
+      setCreaturePropertiesDialog((current) => {
+        if (!current) return current;
+        const currentValue = current.draft.appearanceSourceOnlyParts[field];
+        const nextValue = field === "robe"
+          ? currentValue
+          : current.snapshotObject.source?.type === "aurora_git"
+            ? reduceExistingCreatureBodyPart(
+                current.snapshotObject.source,
+                field,
+                currentValue,
+                value,
+              )
+            : value;
+        if (currentValue === nextValue) return current;
+        return {
+          ...current,
+          draft: {
+            ...current.draft,
+            appearanceSourceOnlyParts: {
+              ...current.draft.appearanceSourceOnlyParts,
+              [field]: nextValue,
+            },
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  const moveItemPropertyEntry = useCallback((index: number, direction: "up" | "down") => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      let propertyList: readonly ItemPropertiesDraft["propertyList"][number][];
+      if (isItemWizardBlueprintEditorObject(current.snapshotObject)) {
+        const target = direction === "up" ? index - 1 : index + 1;
+        if (
+          index < 0 || index >= current.draft.propertyList.length ||
+          target < 0 || target >= current.draft.propertyList.length
+        ) return current;
+        const reordered = [...current.draft.propertyList];
+        [reordered[index], reordered[target]] = [reordered[target]!, reordered[index]!];
+        propertyList = reordered;
+      } else {
+        propertyList = moveExistingItemProperty(
+          current.snapshotObject.source,
+          current.draft.propertyList,
+          index,
+          direction,
+        );
+      }
+      return propertyList === current.draft.propertyList
+        ? current
+        : { ...current, draft: { ...current.draft, propertyList: [...propertyList] } };
+    });
+  }, []);
 
   const removeItemPropertyEntry = useCallback((index: number) => {
     setItemPropertiesDialog((current) => {
       if (!current || index < 0 || index >= current.draft.propertyList.length) {
         return current;
       }
+      const propertyList = isItemWizardBlueprintEditorObject(current.snapshotObject)
+        ? current.draft.propertyList.filter((_entry, entryIndex) => entryIndex !== index)
+        : removeExistingItemProperty(
+            current.snapshotObject.source,
+            current.draft.propertyList,
+            index,
+          );
+      if (propertyList === current.draft.propertyList) return current;
       return {
         ...current,
         draft: {
           ...current.draft,
-          propertyList: current.draft.propertyList.filter(
-            (_entry, entryIndex) => entryIndex !== index
-          )
+          propertyList: [...propertyList]
         }
       };
     });
   }, []);
 
-  const addItemScriptEntry = useCallback(() => {
+  const addItemVariable = useCallback(() => {
     setItemPropertiesDialog((current) => {
-      if (!current) {
-        return current;
-      }
-      const usedKeys = new Set(Object.keys(current.draft.scripts));
-      let nextIndex = usedKeys.size + 1;
-      let nextKey = `script_${nextIndex}`;
-      while (usedKeys.has(nextKey)) {
-        nextIndex += 1;
-        nextKey = `script_${nextIndex}`;
-      }
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          scripts: {
-            ...current.draft.scripts,
-            [nextKey]: ""
-          }
-        }
-      };
+      if (!current) return current;
+      const variables = appendEditableItemVariable(
+        current.snapshotObject,
+        current.draft.variables,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
     });
   }, []);
 
-  const updateItemScriptEntry = useCallback(
-    (scriptKey: string, nextKey: string, value: string) => {
-      setItemPropertiesDialog((current) => {
-        if (!current) {
-          return current;
-        }
-        const resolvedKey = nextKey.trim().length > 0 ? nextKey.trim() : scriptKey;
-        const scripts = { ...current.draft.scripts };
-        delete scripts[scriptKey];
-        scripts[resolvedKey] = value;
-        return {
-          ...current,
-          draft: {
-            ...current.draft,
-            scripts
-          }
-        };
-      });
-    },
-    []
-  );
-
-  const removeItemScriptEntry = useCallback((scriptKey: string) => {
+  const addItemBlueprintInventoryEntry = useCallback(() => {
     setItemPropertiesDialog((current) => {
-      if (!current || !(scriptKey in current.draft.scripts)) {
-        return current;
-      }
-      const scripts = { ...current.draft.scripts };
-      delete scripts[scriptKey];
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          scripts
-        }
-      };
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const inventory = appendWizardItemInventoryEntry(
+        current.draft.blueprintInventoryItems,
+        current.draft.blueprintEquippedItems,
+      );
+      return inventory === current.draft.blueprintInventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintInventoryItems: [...inventory] } };
+    });
+  }, []);
+
+  const updateItemBlueprintInventoryEntry = useCallback((
+    index: number,
+    field: "resRef" | "x" | "y",
+    value: string | number,
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const inventory = updateWizardItemInventoryEntry(
+        current.draft.blueprintInventoryItems,
+        index,
+        field,
+        value,
+      );
+      return inventory === current.draft.blueprintInventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintInventoryItems: [...inventory] } };
+    });
+  }, []);
+
+  const moveItemBlueprintInventoryEntry = useCallback((
+    index: number,
+    direction: "up" | "down",
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const inventory = moveWizardItemInventoryEntry(
+        current.draft.blueprintInventoryItems,
+        index,
+        direction,
+      );
+      return inventory === current.draft.blueprintInventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintInventoryItems: [...inventory] } };
+    });
+  }, []);
+
+  const removeItemBlueprintInventoryEntry = useCallback((index: number) => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const inventory = removeWizardItemInventoryEntry(
+        current.draft.blueprintInventoryItems,
+        index,
+      );
+      return inventory === current.draft.blueprintInventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintInventoryItems: [...inventory] } };
+    });
+  }, []);
+
+  const addItemBlueprintEquipmentEntry = useCallback(() => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const equipment = appendWizardItemEquipmentEntry(
+        current.draft.blueprintInventoryItems,
+        current.draft.blueprintEquippedItems,
+      );
+      return equipment === current.draft.blueprintEquippedItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintEquippedItems: [...equipment] } };
+    });
+  }, []);
+
+  const updateItemBlueprintEquipmentEntry = useCallback((
+    index: number,
+    field: "resRef" | "slotMask",
+    value: string | number,
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const equipment = updateWizardItemEquipmentEntry(
+        current.draft.blueprintEquippedItems,
+        index,
+        field,
+        value,
+      );
+      return equipment === current.draft.blueprintEquippedItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintEquippedItems: [...equipment] } };
+    });
+  }, []);
+
+  const removeItemBlueprintEquipmentEntry = useCallback((index: number) => {
+    setItemPropertiesDialog((current) => {
+      if (!current || !isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const equipment = removeWizardItemEquipmentEntry(
+        current.draft.blueprintEquippedItems,
+        index,
+      );
+      return equipment === current.draft.blueprintEquippedItems
+        ? current
+        : { ...current, draft: { ...current.draft, blueprintEquippedItems: [...equipment] } };
+    });
+  }, []);
+
+  const updateItemInventoryCoordinate = useCallback((
+    index: number,
+    field: "x" | "y",
+    value: number,
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const inventoryItems = updateExistingItemInventoryCoordinate(
+        current.snapshotObject.source,
+        current.draft.inventoryItems,
+        index,
+        field,
+        value,
+      );
+      return inventoryItems === current.draft.inventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, inventoryItems: [...inventoryItems] } };
+    });
+  }, []);
+
+  const moveItemInventoryEntry = useCallback((
+    index: number,
+    direction: "up" | "down",
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const inventoryItems = moveExistingItemInventoryEntry(
+        current.snapshotObject.source,
+        current.draft.inventoryItems,
+        index,
+        direction,
+      );
+      return inventoryItems === current.draft.inventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, inventoryItems: [...inventoryItems] } };
+    });
+  }, []);
+
+  const removeItemInventoryEntry = useCallback((index: number) => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const inventoryItems = removeExistingItemInventoryEntry(
+        current.snapshotObject.source,
+        current.draft.inventoryItems,
+        index,
+      );
+      return inventoryItems === current.draft.inventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, inventoryItems: [...inventoryItems] } };
+    });
+  }, []);
+
+  const addItemInventoryBlueprintEntry = useCallback((templateObjectId: string) => {
+    const template = itemTemplateOptions.find((candidate) => candidate.id === templateObjectId);
+    if (!template) return;
+    setItemPropertiesDialog((current) => {
+      if (!current || isItemWizardBlueprintEditorObject(current.snapshotObject)) return current;
+      const inventoryItems = appendExistingItemInventoryBlueprintEntry(
+        current.snapshotObject.source,
+        current.draft.inventoryItems,
+        template,
+      );
+      return inventoryItems === current.draft.inventoryItems
+        ? current
+        : { ...current, draft: { ...current.draft, inventoryItems: [...inventoryItems] } };
+    });
+  }, [itemTemplateOptions]);
+
+  const updateItemVariable = useCallback((
+    index: number,
+    entry: ItemPropertiesDraft["variables"][number],
+  ) => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = updateEditableItemVariable(
+        current.snapshotObject,
+        current.draft.variables,
+        index,
+        entry,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const moveItemVariable = useCallback((index: number, direction: "up" | "down") => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = moveEditableItemVariable(
+        current.snapshotObject,
+        current.draft.variables,
+        index,
+        direction,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
+    });
+  }, []);
+
+  const removeItemVariable = useCallback((index: number) => {
+    setItemPropertiesDialog((current) => {
+      if (!current) return current;
+      const variables = removeEditableItemVariable(
+        current.snapshotObject,
+        current.draft.variables,
+        index,
+      );
+      return variables === current.draft.variables
+        ? current
+        : { ...current, draft: { ...current.draft, variables: [...variables] } };
     });
   }, []);
 
@@ -10478,6 +16225,7 @@ export function WorkspaceCanvasViewport({
       const objectId = itemPropertiesDialog.objectId;
       let appliedObject: SceneObject | null = null;
       let previousObject: SceneObject | null = null;
+      let materializationPolicy: "wizard_blueprint" | "retained_exact_only" | null = null;
       setSceneHistory((current) => {
         const sourceObject = current.present.objects.find((object) => object.id === objectId);
         if (!sourceObject || sourceObject.kind !== "items") {
@@ -10489,108 +16237,34 @@ export function WorkspaceCanvasViewport({
           return current;
         }
 
-        const modelParts = [draft.modelPart1, draft.modelPart2, draft.modelPart3].filter(
-          (entry): entry is number => typeof entry === "number" && Number.isFinite(entry)
+        const materialized = materializeItemPropertiesDraft(
+          sourceObject,
+          draft,
+          current.present.itemBaseItemCatalog,
         );
-        const armorParts: ItemPropertiesDraft["armorParts"] = {};
-        for (const [key, value] of Object.entries(draft.armorParts) as Array<
-          [keyof ItemPropertiesDraft["armorParts"], number | undefined]
-        >) {
-          if (typeof value === "number" && Number.isFinite(value)) {
-            armorParts[key] = Math.trunc(value);
-          }
-        }
-        const materialColors: ItemPropertiesDraft["materialColors"] = {};
-        for (const [key, value] of Object.entries(draft.materialColors) as Array<
-          [keyof ItemPropertiesDraft["materialColors"], number | undefined]
-        >) {
-          if (typeof value === "number" && Number.isFinite(value)) {
-            materialColors[key] = Math.max(0, Math.min(255, Math.trunc(value)));
-          }
-        }
-        const scripts = Object.fromEntries(
-          Object.entries(draft.scripts)
-            .map(
-              ([key, value]) =>
-                [key.trim().slice(0, 16), value.trim().slice(0, 16)] as const
-            )
-            .filter(([key]) => key.length > 0)
-        );
-        const armorPreviewContextInput = draft.armorPreviewContext;
-        const armorPreviewContext: NonNullable<SceneObject["itemProperties"]>["armorPreviewContext"] = {
-          modelPrefix: armorPreviewContextInput.modelPrefix.trim()
-        };
-        const contextLabel = armorPreviewContextInput.label.trim();
-        const contextRaceModel = armorPreviewContextInput.raceModel.trim();
-        const contextGender = Number.parseInt(armorPreviewContextInput.gender.trim(), 10);
-        const contextPhenotype = Number.parseInt(armorPreviewContextInput.phenotype.trim(), 10);
-        if (contextLabel.length > 0) {
-          armorPreviewContext.label = contextLabel;
-        }
-        if (contextRaceModel.length > 0) {
-          armorPreviewContext.raceModel = contextRaceModel;
-        }
-        if (Number.isFinite(contextGender)) {
-          armorPreviewContext.gender = contextGender;
-        }
-        if (Number.isFinite(contextPhenotype)) {
-          armorPreviewContext.phenotype = contextPhenotype;
-        }
-
-        const nextItemProperties: NonNullable<SceneObject["itemProperties"]> = {
-          ...(sourceObject.itemProperties ?? {}),
-          localizedName: draft.localizedName,
-          localizedNameStrRef: draft.localizedNameStrRef,
-          description: draft.description,
-          descriptionStrRef: draft.descriptionStrRef,
-          identifiedDescription: draft.identifiedDescription,
-          identifiedDescriptionStrRef: draft.identifiedDescriptionStrRef,
-          comments: draft.comments,
-          paletteId: draft.paletteId,
-          baseItem: draft.baseItem,
-          modelPart1: draft.modelPart1,
-          modelPart2: draft.modelPart2,
-          modelPart3: draft.modelPart3,
-          modelParts,
-          armorPreviewContext,
-          cloakModelRow: draft.cloakModelRow,
-          cloakModel: draft.cloakModel,
-          cloakTexture: draft.cloakTexture,
-          cloakIcon: draft.cloakIcon,
-          cloakModelResRef: draft.cloakModelResRef.trim() || undefined,
-          cloakTextureResRef: draft.cloakTextureResRef.trim() || undefined,
-          cloakIconResRef: draft.cloakIconResRef.trim() || undefined,
-          armorParts,
-          materialColors,
-          cost: draft.cost,
-          addCost: draft.addCost,
-          costTable: draft.costTable,
-          costValue: draft.costValue,
-          charges: draft.charges,
-          stackSize: draft.stackSize,
-          identified: draft.identified,
-          stolen: draft.stolen,
-          plot: draft.plot,
-          cursed: draft.cursed,
-          propertyList: draft.propertyList.map((entry) => ({ ...entry })),
-          scripts
-        };
-        const nextName = draft.name.trim();
-        const nextTag = draft.tag.trim();
-        const nextResRef = draft.resRef.trim();
+        materializationPolicy = materialized.policy;
         previousObject = cloneSceneObject(sourceObject);
         const updatedObject: SceneObject = {
-          ...sourceObject,
-          name: nextName || nextTag || nextResRef || sourceObject.name,
-          tag: nextTag || sourceObject.tag,
-          resRef: nextResRef || sourceObject.resRef,
-          itemProperties: nextItemProperties,
+          ...materialized.object,
           placeableProperties: undefined,
           creatureProperties: undefined,
           encounterProperties: undefined,
           soundPositioning: undefined,
           doorTransition: undefined
         };
+        if (
+          updatedObject.name === sourceObject.name &&
+          updatedObject.tag === sourceObject.tag &&
+          updatedObject.resRef === sourceObject.resRef &&
+          areItemPropertiesDraftsEqual(
+            sourceDraft,
+            buildItemPropertiesDraft(updatedObject),
+          )
+        ) {
+          previousObject = null;
+          materializationPolicy = null;
+          return current;
+        }
         appliedObject = cloneSceneObject(updatedObject);
         const nextObjects = current.present.objects.map((object) =>
           object.id === objectId ? updatedObject : object
@@ -10604,7 +16278,8 @@ export function WorkspaceCanvasViewport({
       trackTelemetry("scene.item_properties.apply", {
         userId,
         objectId,
-        closeAfterApply
+        closeAfterApply,
+        materializationPolicy: materializationPolicy ?? "no_effective_change",
       });
       if (appliedObject) {
         onItemPropertiesApplied?.(appliedObject, previousObject ?? appliedObject);
@@ -10688,17 +16363,23 @@ export function WorkspaceCanvasViewport({
     duplicateObjects,
     focusCameraOnWorldPoint,
     openAdjustLocationDialog,
+    openAreaObjectPolygonDialog,
+    openWaypointPropertiesDialog,
     openPlaceablePropertiesDialog,
     openSoundPropertiesDialog,
     openDoorPropertiesDialog,
     openCreaturePropertiesDialog,
     openItemPropertiesDialog,
+    openStorePropertiesDialog,
     clearAdjustLocationDialog: () => setAdjustLocationDialog(null),
+    clearAreaObjectPolygonDialog: () => setAreaObjectPolygonDialog(null),
+    clearWaypointPropertiesDialog: () => setWaypointPropertiesDialog(null),
     clearPlaceablePropertiesDialog: () => setPlaceablePropertiesDialog(null),
     clearSoundPropertiesDialog: () => setSoundPropertiesDialog(null),
     clearDoorPropertiesDialog: () => setDoorPropertiesDialog(null),
     clearCreaturePropertiesDialog: () => setCreaturePropertiesDialog(null),
-    clearItemPropertiesDialog: () => setItemPropertiesDialog(null)
+    clearItemPropertiesDialog: () => setItemPropertiesDialog(null),
+    clearStorePropertiesDialog: () => setStorePropertiesDialog(null)
   });
 
   useEffect(() => {
@@ -10725,7 +16406,17 @@ export function WorkspaceCanvasViewport({
       selectedObject.kind !== "sounds" &&
       selectedObject.kind !== "doors" &&
       selectedObject.kind !== "creatures" &&
-      selectedObject.kind !== "items"
+      selectedObject.kind !== "items" &&
+      selectedObject.kind !== "stores" &&
+      selectedObject.kind !== "triggers" &&
+      selectedObject.kind !== "encounters" &&
+      selectedObject.kind !== "waypoints"
+    ) {
+      return;
+    }
+    if (
+      (selectedObject.kind === "triggers" || selectedObject.kind === "encounters")
+      && !buildAreaObjectPolygonDraft(selectedObject)
     ) {
       return;
     }
@@ -10737,35 +16428,77 @@ export function WorkspaceCanvasViewport({
     setAdjustLocationDialog(null);
 
     if (selectedObject.kind === "placeables") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
       setSoundPropertiesDialog(null);
       setDoorPropertiesDialog(null);
       setCreaturePropertiesDialog(null);
       setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
       openPlaceablePropertiesDialog(selectedObject);
     } else if (selectedObject.kind === "sounds") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
       setPlaceablePropertiesDialog(null);
       setDoorPropertiesDialog(null);
       setCreaturePropertiesDialog(null);
       setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
       openSoundPropertiesDialog(selectedObject);
     } else if (selectedObject.kind === "doors") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
       setPlaceablePropertiesDialog(null);
       setSoundPropertiesDialog(null);
       setCreaturePropertiesDialog(null);
       setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
       openDoorPropertiesDialog(selectedObject);
     } else if (selectedObject.kind === "creatures") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
       setPlaceablePropertiesDialog(null);
       setSoundPropertiesDialog(null);
       setDoorPropertiesDialog(null);
       setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
       openCreaturePropertiesDialog(selectedObject);
-    } else {
+    } else if (selectedObject.kind === "items") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
       setPlaceablePropertiesDialog(null);
       setSoundPropertiesDialog(null);
       setDoorPropertiesDialog(null);
       setCreaturePropertiesDialog(null);
+      setStorePropertiesDialog(null);
       openItemPropertiesDialog(selectedObject);
+    } else if (selectedObject.kind === "stores") {
+      setAreaObjectPolygonDialog(null);
+      setWaypointPropertiesDialog(null);
+      setPlaceablePropertiesDialog(null);
+      setSoundPropertiesDialog(null);
+      setDoorPropertiesDialog(null);
+      setCreaturePropertiesDialog(null);
+      setItemPropertiesDialog(null);
+      openStorePropertiesDialog(selectedObject);
+    } else if (selectedObject.kind === "waypoints") {
+      setAreaObjectPolygonDialog(null);
+      setPlaceablePropertiesDialog(null);
+      setSoundPropertiesDialog(null);
+      setDoorPropertiesDialog(null);
+      setCreaturePropertiesDialog(null);
+      setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
+      openWaypointPropertiesDialog(selectedObject);
+    } else {
+      setWaypointPropertiesDialog(null);
+      setPlaceablePropertiesDialog(null);
+      setSoundPropertiesDialog(null);
+      setDoorPropertiesDialog(null);
+      setCreaturePropertiesDialog(null);
+      setItemPropertiesDialog(null);
+      setStorePropertiesDialog(null);
+      openAreaObjectPolygonDialog(selectedObject);
     }
 
     trackTelemetry("scene.properties.open_from_scene_object_list", {
@@ -10778,8 +16511,11 @@ export function WorkspaceCanvasViewport({
     openCreaturePropertiesDialog,
     openDoorPropertiesDialog,
     openItemPropertiesDialog,
+    openAreaObjectPolygonDialog,
+    openWaypointPropertiesDialog,
     openPlaceablePropertiesDialog,
     openSoundPropertiesDialog,
+    openStorePropertiesDialog,
     renderObjectIds,
     scene.objects,
     sidebarPropertiesSignal,
@@ -10787,6 +16523,35 @@ export function WorkspaceCanvasViewport({
     trackTelemetry,
     userId
   ]);
+
+  useEffect(() => {
+    if (!areaObjectPolygonDialog) return;
+    const target = scene.objects.find(
+      (object) => object.id === areaObjectPolygonDialog.objectId,
+    );
+    const isLogicalPolygonTarget =
+      target?.kind === "triggers" || target?.kind === "encounters";
+    if (
+      !target
+      || (!isLogicalPolygonTarget && !visibleObjectIdsSet.has(target.id))
+      || !buildAreaObjectPolygonDraft(target)
+    ) {
+      setAreaObjectPolygonDialog(null);
+    }
+  }, [areaObjectPolygonDialog, scene.objects, visibleObjectIdsSet]);
+
+  useEffect(() => {
+    if (!waypointPropertiesDialog) return;
+    const target = scene.objects.find(
+      (object) => object.id === waypointPropertiesDialog.objectId,
+    );
+    // A retained Waypoint remains a logical Area record even while its canvas
+    // marker is hidden. The exact-provenance draft controls editability, so
+    // canvas render membership must not close a dialog opened from the list.
+    if (!target || target.kind !== "waypoints") {
+      setWaypointPropertiesDialog(null);
+    }
+  }, [scene.objects, waypointPropertiesDialog]);
 
   useEffect(() => {
     if (!canvasCreateObjectSignal) {
@@ -10811,6 +16576,34 @@ export function WorkspaceCanvasViewport({
     fallbackWidthPx: CONTEXT_MENU_FALLBACK_WIDTH_PX,
     fallbackHeightPx: CONTEXT_MENU_FALLBACK_HEIGHT_PX,
     onEscape: closeContextMenu
+  });
+
+  useAnchoredObjectDialogSync({
+    dialog: areaObjectPolygonDialog,
+    setDialog: setAreaObjectPolygonDialog,
+    runtimeRef,
+    anchoredOverlayRuntimePort: workspaceThreeAnchoredOverlayRuntimePort,
+    panelRef: areaObjectPolygonDialogRef,
+    sceneObjects: scene.objects,
+    visibleObjectIdsSet,
+    objectKind: AREA_OBJECT_POLYGON_DIALOG_KINDS,
+    fallbackWidthPx: AREA_OBJECT_POLYGON_DIALOG_FALLBACK_WIDTH_PX,
+    fallbackHeightPx: AREA_OBJECT_POLYGON_DIALOG_FALLBACK_HEIGHT_PX,
+    layoutKey: areaObjectPolygonDialog?.collapsed,
+  });
+
+  useAnchoredObjectDialogSync({
+    dialog: storePropertiesDialog,
+    setDialog: setStorePropertiesDialog,
+    runtimeRef,
+    anchoredOverlayRuntimePort: workspaceThreeAnchoredOverlayRuntimePort,
+    panelRef: storePropertiesDialogRef,
+    sceneObjects: scene.objects,
+    visibleObjectIdsSet,
+    objectKind: "stores",
+    fallbackWidthPx: STORE_PROPERTIES_DIALOG_FALLBACK_WIDTH_PX,
+    fallbackHeightPx: STORE_PROPERTIES_DIALOG_FALLBACK_HEIGHT_PX,
+    layoutKey: storePropertiesDialog?.collapsed,
   });
 
   useAnchoredObjectDialogSync({
@@ -10964,15 +16757,20 @@ export function WorkspaceCanvasViewport({
     .filter(Boolean)
     .join(", ");
 
-  const saveStatus = lastSavedAtUnixMs
-    ? `Saved ${new Date(lastSavedAtUnixMs).toLocaleTimeString()}`
-    : "Not saved yet";
+  const saveStatus = `${formatAreaWorkspaceDraftStatus(areaWorkspaceDraftStatus)}${
+    areaWorkspaceDraftStatus.state === "saved" && lastSavedAtUnixMs
+      ? ` at ${new Date(lastSavedAtUnixMs).toLocaleTimeString()}`
+      : ""
+  }`;
   const controlPresetLabel = "Aurora Classic";
   const inputHint =
-    "LMB select/paint | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: 1 world move / 2 world bearing / 3 VT rotate / 4 VT offset / 5 VT scale | Canvas menu: gizmo/snap/layers/debug";
-  const hudLeftPx = leftPanelWidthPx + 14;
-  const hudRightPx = rightPanelWidthPx + 14;
-  const hudMaxWidth = `calc(100% - ${leftPanelWidthPx + rightPanelWidthPx + 28}px)`;
+    "LMB select/paint | Double LMB connected terrain | Alt+LMB add object | Ctrl+LMB multi | Shift drag box | MMB rotate | Ctrl+RMB pan | RMB object menu | Wheel zoom | Arrows move selected | Ctrl/Cmd+C copy | Ctrl/Cmd+X cut | Ctrl/Cmd+V paste | Del delete | Gizmo: 1 world move / 2 world bearing / 3 VT rotate / 4 VT offset / 5 VT scale | Canvas menu: gizmo/snap/layers/debug";
+  // The canvas stage lives between the floating sidebars.  Keep every HUD control
+  // relative to that same rectangle: using the full workspace here made Three.js
+  // frame terrain for pixels that were actually covered by the panels.
+  const hudLeftPx = 14;
+  const hudRightPx = 14;
+  const hudMaxWidth = "calc(100% - 28px)";
   const controlsHintBottomPx = 14;
 
   useEffect(() => {
@@ -11010,11 +16808,16 @@ export function WorkspaceCanvasViewport({
     contextObject?.kind === "sounds" ||
     contextObject?.kind === "doors" ||
     contextObject?.kind === "creatures" ||
-    contextObject?.kind === "items";
+    contextObject?.kind === "items" ||
+    contextObject?.kind === "stores" ||
+    contextObject?.kind === "waypoints" ||
+    ((contextObject?.kind === "triggers" || contextObject?.kind === "encounters")
+      && buildAreaObjectPolygonDraft(contextObject) !== null);
 
   return (
     <section
       className="canvas-stage-real"
+      style={{ left: `${leftPanelWidthPx}px`, right: `${rightPanelWidthPx}px` }}
       onDragOver={handleCanvasDragOver}
       onDragLeave={handleCanvasDragLeave}
       onDrop={handleCanvasDrop}
@@ -11065,6 +16868,7 @@ export function WorkspaceCanvasViewport({
         data-external-scene-object-count={externalSceneSeed?.objects.length ?? ""}
         onMouseDown={handleCanvasMouseDown}
         onClick={handleCanvasClick}
+        onDoubleClick={handleCanvasDoubleClick}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseLeave}
@@ -11181,6 +16985,122 @@ export function WorkspaceCanvasViewport({
         />
       ) : null}
 
+      {areaObjectPolygonDialog ? (
+        <AreaObjectPolygonDialog
+          dialog={areaObjectPolygonDialog}
+          articleRef={areaObjectPolygonDialogRef}
+          onToggleCollapsed={toggleAreaObjectPolygonDialogCollapsed}
+          onClose={cancelAreaObjectPolygonDialog}
+          onTagChange={updateAreaObjectPolygonTag}
+          onActiveChange={updateAreaObjectPolygonActive}
+          onPlayerOnlyChange={updateAreaObjectPolygonPlayerOnly}
+          onResetChange={updateAreaObjectPolygonReset}
+          onResetTimeChange={updateAreaObjectPolygonResetTime}
+          onSpawnOptionChange={updateAreaObjectPolygonSpawnOption}
+          onRespawnsFiniteChange={updateAreaObjectPolygonRespawnsFinite}
+          onRespawnsInfiniteChange={updateAreaObjectPolygonRespawnsInfinite}
+          onMaximumCreaturesChange={updateAreaObjectPolygonMaximumCreatures}
+          onMinimumCreaturesChange={updateAreaObjectPolygonMinimumCreatures}
+          onScriptResRefChange={updateAreaObjectPolygonScriptResRef}
+          onTriggerScriptResRefChange={updateAreaObjectPolygonTriggerScriptResRef}
+          onTriggerTransitionStorageChange={
+            updateAreaObjectPolygonTriggerTransitionStorage
+          }
+          encounterFactionCatalog={sceneHistory.present.placeableFactionCatalog ?? null}
+          onFactionChange={updateAreaObjectPolygonFaction}
+          encounterDifficultyCatalog={sceneHistory.present.encounterDifficultyCatalog ?? null}
+          onDifficultyChange={updateAreaObjectPolygonDifficulty}
+          onTemplateResRefChange={updateAreaObjectPolygonTemplateResRef}
+          onLocalizedNameChange={updateAreaObjectPolygonLocalizedName}
+          onEditorCommentChange={updateAreaObjectPolygonEditorComment}
+          onVariablesChange={updateAreaObjectPolygonVariables}
+          creatureBlueprintOptions={encounterCreatureBlueprintOptions}
+          onCreatureSingleSpawnChange={updateAreaObjectPolygonCreatureSingleSpawn}
+          onAddCreature={addAreaObjectPolygonCreature}
+          onReplaceCreature={replaceAreaObjectPolygonCreature}
+          onRemoveCreature={removeAreaObjectPolygonCreatureEntry}
+          onMoveCreature={moveAreaObjectPolygonCreatureEntry}
+          onSpawnPointChange={updateAreaObjectPolygonSpawnPoint}
+          onAddSpawnPoint={addAreaObjectPolygonSpawnPoint}
+          onRemoveSpawnPoint={removeAreaObjectPolygonSpawnPoint}
+          onMoveSpawnPoint={moveAreaObjectPolygonSpawnPoint}
+          onPointChange={updateAreaObjectPolygonPoint}
+          onAddPoint={addAreaObjectPolygonPoint}
+          onRemovePoint={removeAreaObjectPolygonPoint}
+          onResetToSource={resetAreaObjectPolygonToSource}
+          onApply={applyAreaObjectPolygonDraft}
+          onHeaderPointerDown={startAreaObjectPolygonDialogDrag}
+          onHeaderPointerMove={moveAreaObjectPolygonDialogDrag}
+          onHeaderPointerUp={endAreaObjectPolygonDialogDrag}
+          onHeaderPointerCancel={cancelAreaObjectPolygonDialogDrag}
+        />
+      ) : null}
+
+      {waypointPropertiesDialog ? (
+        <WaypointPropertiesDialog
+          dialog={waypointPropertiesDialog}
+          articleRef={waypointPropertiesDialogRef}
+          onToggleCollapsed={toggleWaypointPropertiesDialogCollapsed}
+          onClose={cancelWaypointPropertiesDialog}
+          onTagChange={updateWaypointPropertiesTag}
+          onTemplateResRefChange={updateWaypointPropertiesTemplateResRef}
+          onLocalizedNameChange={updateWaypointPropertiesLocalizedName}
+          onDescriptionChange={updateWaypointPropertiesDescription}
+          onHasMapNoteChange={(hasMapNote) => updateWaypointPropertiesMapNote({
+            hasMapNote,
+            mapNoteText: waypointPropertiesDialog.draft.mapNoteText,
+            mapNoteEnabled: waypointPropertiesDialog.draft.mapNoteEnabled,
+          })}
+          onMapNoteTextChange={(mapNoteText) => updateWaypointPropertiesMapNote({
+            hasMapNote: waypointPropertiesDialog.draft.hasMapNote,
+            mapNoteText,
+            mapNoteEnabled: waypointPropertiesDialog.draft.mapNoteEnabled,
+          })}
+          onMapNoteEnabledChange={(mapNoteEnabled) => updateWaypointPropertiesMapNote({
+            hasMapNote: waypointPropertiesDialog.draft.hasMapNote,
+            mapNoteText: waypointPropertiesDialog.draft.mapNoteText,
+            mapNoteEnabled,
+          })}
+          appearanceCatalog={waypointAppearanceCatalogState?.objectId ===
+            waypointPropertiesDialog.objectId
+            ? waypointAppearanceCatalogState.catalog
+            : null}
+          appearanceCatalogStatus={waypointAppearanceCatalogState?.objectId ===
+            waypointPropertiesDialog.objectId
+            ? waypointAppearanceCatalogState.status
+            : "unavailable"}
+          onAppearanceChange={updateWaypointPropertiesAppearance}
+          onVariablesChange={updateWaypointPropertiesVariables}
+          onCommentsChange={updateWaypointPropertiesComments}
+          onApply={applyWaypointPropertiesDialog}
+          onHeaderPointerDown={startWaypointPropertiesDialogDrag}
+          onHeaderPointerMove={moveWaypointPropertiesDialogDrag}
+          onHeaderPointerUp={endWaypointPropertiesDialogDrag}
+          onHeaderPointerCancel={cancelWaypointPropertiesDialogDrag}
+        />
+      ) : null}
+
+      {storePropertiesDialog ? (
+        <StorePropertiesDialog
+          dialog={storePropertiesDialog}
+          articleRef={storePropertiesDialogRef}
+          onToggleCollapsed={toggleStorePropertiesDialogCollapsed}
+          onClose={cancelStorePropertiesDialog}
+          onCommentsChange={updateStorePropertiesComments}
+          onCommerceChange={updateStorePropertiesCommerce}
+          onScriptResRefsChange={updateStorePropertiesScriptResRefs}
+          onVariablesChange={updateStorePropertiesVariables}
+          itemBaseItemCatalog={sceneHistory.present.itemBaseItemCatalog ?? null}
+          onRestrictionsChange={updateStorePropertiesRestrictions}
+          onInventoryChange={updateStorePropertiesInventory}
+          onApply={applyStorePropertiesDialog}
+          onHeaderPointerDown={startStorePropertiesDialogDrag}
+          onHeaderPointerMove={moveStorePropertiesDialogDrag}
+          onHeaderPointerUp={endStorePropertiesDialogDrag}
+          onHeaderPointerCancel={cancelStorePropertiesDialogDrag}
+        />
+      ) : null}
+
       {placeablePropertiesDialog ? (
         <PlaceablePropertiesDialog
           placeablePropertiesDialog={placeablePropertiesDialog}
@@ -11188,6 +17108,27 @@ export function WorkspaceCanvasViewport({
             placeableRenderPayloadByObjectId?.[placeablePropertiesDialog.objectId] ?? null
           }
           placeablePropertiesDialogRef={placeablePropertiesDialogRef}
+          placeableAppearanceCatalog={
+            placeableAppearanceCatalogState?.objectId === placeablePropertiesDialog.objectId
+              ? placeableAppearanceCatalogState.catalog
+              : null
+          }
+          placeableAppearanceCatalogStatus={
+            placeableAppearanceCatalogState?.objectId === placeablePropertiesDialog.objectId
+              ? placeableAppearanceCatalogState.status
+              : "unavailable"
+          }
+          placeableTrapTypeCatalog={sceneHistory.present.placeableTrapTypeCatalog ?? null}
+          placeableBodyBagCatalog={sceneHistory.present.placeableBodyBagCatalog ?? null}
+          placeablePortraitCatalog={sceneHistory.present.placeablePortraitCatalog ?? null}
+          placeableFactionCatalog={sceneHistory.present.placeableFactionCatalog ?? null}
+          onPlaceableAppearanceSearch={(query) => {
+            void loadPlaceableAppearanceCatalogForDialog(
+              placeablePropertiesDialog.snapshotObject,
+              query,
+              placeablePropertiesDialog.draft.appearanceType
+            );
+          }}
           togglePlaceablePropertiesDialogCollapsed={togglePlaceablePropertiesDialogCollapsed}
           cancelPlaceablePropertiesDialog={cancelPlaceablePropertiesDialog}
           setPlaceablePropertiesActiveTab={setPlaceablePropertiesActiveTab}
@@ -11199,7 +17140,12 @@ export function WorkspaceCanvasViewport({
           updatePlaceableAdvancedDraftField={updatePlaceableAdvancedDraftField}
           addPlaceableInventoryItem={addPlaceableInventoryItem}
           updatePlaceableInventoryItem={updatePlaceableInventoryItem}
+          movePlaceableInventoryItem={movePlaceableInventoryItem}
           removePlaceableInventoryItem={removePlaceableInventoryItem}
+          addPlaceableVariable={addPlaceableVariable}
+          updatePlaceableVariable={updatePlaceableVariable}
+          movePlaceableVariable={movePlaceableVariable}
+          removePlaceableVariable={removePlaceableVariable}
           applyPlaceablePropertiesDraft={applyPlaceablePropertiesDraft}
           startPlaceablePropertiesDialogDrag={startPlaceablePropertiesDialogDrag}
           movePlaceablePropertiesDialogDrag={movePlaceablePropertiesDialogDrag}
@@ -11211,25 +17157,324 @@ export function WorkspaceCanvasViewport({
       {creaturePropertiesDialog ? (
         <CreaturePropertiesDialog
           creaturePropertiesDialog={creaturePropertiesDialog}
+          creatureBodyBagCatalog={sceneHistory.present.placeableBodyBagCatalog ?? null}
+          creatureFactionCatalog={sceneHistory.present.placeableFactionCatalog ?? null}
+          creatureAppearanceCatalog={
+            creatureAppearanceCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureAppearanceCatalogState.catalog
+              : null
+          }
+          creatureAppearanceCatalogStatus={
+            creatureAppearanceCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureAppearanceCatalogState.status
+              : "unavailable"
+          }
+          creatureAppearanceCatalogError={
+            creatureAppearanceCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureAppearanceCatalogState.errorMessage
+              : null
+          }
+          onCreatureAppearanceSearch={(query) => {
+            void loadCreatureAppearanceCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.appearanceType,
+            );
+          }}
+          creatureGenderCatalog={
+            creatureGenderCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureGenderCatalogState.catalog
+              : null
+          }
+          creatureGenderCatalogStatus={
+            creatureGenderCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureGenderCatalogState.status
+              : "unavailable"
+          }
+          creatureGenderCatalogError={
+            creatureGenderCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureGenderCatalogState.errorMessage
+              : null
+          }
+          onCreatureGenderSearch={(query) => {
+            void loadCreatureGenderCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.genderId,
+            );
+          }}
+          creatureWingsCatalog={
+            creatureWingsCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWingsCatalogState.catalog
+              : null
+          }
+          creatureWingsCatalogStatus={
+            creatureWingsCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWingsCatalogState.status
+              : "unavailable"
+          }
+          creatureWingsCatalogError={
+            creatureWingsCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWingsCatalogState.errorMessage
+              : null
+          }
+          onCreatureWingsSearch={(query) => {
+            const selectedRowIndex = Number(creaturePropertiesDialog.draft.appearanceParts.wings);
+            void loadCreatureAppendageCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              "wings",
+              query,
+              Number.isSafeInteger(selectedRowIndex) ? selectedRowIndex : undefined,
+            );
+          }}
+          creatureTailCatalog={
+            creatureTailCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureTailCatalogState.catalog
+              : null
+          }
+          creatureTailCatalogStatus={
+            creatureTailCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureTailCatalogState.status
+              : "unavailable"
+          }
+          creatureTailCatalogError={
+            creatureTailCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureTailCatalogState.errorMessage
+              : null
+          }
+          onCreatureTailSearch={(query) => {
+            const selectedRowIndex = Number(creaturePropertiesDialog.draft.appearanceParts.tail);
+            void loadCreatureAppendageCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              "tail",
+              query,
+              Number.isSafeInteger(selectedRowIndex) ? selectedRowIndex : undefined,
+            );
+          }}
+          creaturePerceptionRangeCatalog={
+            creaturePerceptionRangeCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creaturePerceptionRangeCatalogState.catalog
+              : null
+          }
+          creaturePerceptionRangeCatalogStatus={
+            creaturePerceptionRangeCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creaturePerceptionRangeCatalogState.status
+              : "unavailable"
+          }
+          creaturePerceptionRangeCatalogError={
+            creaturePerceptionRangeCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creaturePerceptionRangeCatalogState.errorMessage
+              : null
+          }
+          onCreaturePerceptionRangeSearch={(query) => {
+            void loadCreaturePerceptionRangeCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.advancedSettings.perceptionRangeId,
+            );
+          }}
+          creatureWalkRateCatalog={
+            creatureWalkRateCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWalkRateCatalogState.catalog
+              : null
+          }
+          creatureWalkRateCatalogStatus={
+            creatureWalkRateCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWalkRateCatalogState.status
+              : "unavailable"
+          }
+          creatureWalkRateCatalogError={
+            creatureWalkRateCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureWalkRateCatalogState.errorMessage
+              : null
+          }
+          onCreatureWalkRateSearch={(query) => {
+            void loadCreatureWalkRateCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.advancedSettings.walkRateId,
+            );
+          }}
+          creatureSoundSetCatalog={
+            creatureSoundSetCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSoundSetCatalogState.catalog
+              : null
+          }
+          creatureSoundSetCatalogStatus={
+            creatureSoundSetCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSoundSetCatalogState.status
+              : "unavailable"
+          }
+          creatureSoundSetCatalogError={
+            creatureSoundSetCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSoundSetCatalogState.errorMessage
+              : null
+          }
+          onCreatureSoundSetSearch={(query) => {
+            void loadCreatureSoundSetCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.advancedSettings.soundSetFile,
+            );
+          }}
+          creatureStartingPackageCatalog={
+            creatureStartingPackageCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creatureStartingPackageCatalogState.catalog
+              : null
+          }
+          creatureStartingPackageCatalogStatus={
+            creatureStartingPackageCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creatureStartingPackageCatalogState.status
+              : "unavailable"
+          }
+          creatureStartingPackageCatalogError={
+            creatureStartingPackageCatalogState?.objectId ===
+              creaturePropertiesDialog.objectId
+              ? creatureStartingPackageCatalogState.errorMessage
+              : null
+          }
+          onCreatureStartingPackageSearch={(query) => {
+            const provenance = readExistingCreatureClassIdentityProvenance(
+              creaturePropertiesDialog.snapshotObject.source,
+            );
+            const targetClassIds = creaturePropertiesDialog.draft.classEntries.flatMap(
+              (entry) => Number.isSafeInteger(entry.classId) ? [Number(entry.classId)] : [],
+            );
+            const changed = provenance !== null &&
+              targetClassIds.length === provenance.sourceClassIds.length &&
+              targetClassIds.some((classId, index) =>
+                classId !== provenance.sourceClassIds[index]);
+            void loadCreatureStartingPackageCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.advancedSettings.startingPackageId,
+              changed ? targetClassIds : undefined,
+            );
+          }}
+          creatureClassCatalog={
+            creatureClassCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureClassCatalogState.catalog
+              : null
+          }
+          creatureClassCatalogStatus={
+            creatureClassCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureClassCatalogState.status
+              : "unavailable"
+          }
+          creatureClassCatalogError={
+            creatureClassCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureClassCatalogState.errorMessage
+              : null
+          }
+          onCreatureClassSearch={(query) => {
+            const selected = creaturePropertiesDialog.draft.classEntries.flatMap(
+              (entry) => Number.isSafeInteger(entry.classId) ? [Number(entry.classId)] : [],
+            );
+            void loadCreatureClassCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              selected,
+            );
+          }}
+          creatureSkillCatalog={
+            creatureSkillCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSkillCatalogState.catalog
+              : null
+          }
+          creatureSkillCatalogStatus={
+            creatureSkillCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSkillCatalogState.status
+              : "unavailable"
+          }
+          creatureSkillCatalogError={
+            creatureSkillCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSkillCatalogState.errorMessage
+              : null
+          }
+          creatureFeatCatalog={
+            creatureFeatCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureFeatCatalogState.catalog
+              : null
+          }
+          creatureFeatCatalogStatus={
+            creatureFeatCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureFeatCatalogState.status
+              : "unavailable"
+          }
+          creatureFeatCatalogError={
+            creatureFeatCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureFeatCatalogState.errorMessage
+              : null
+          }
+          creatureSpecialAbilityCatalog={
+            creatureSpecialAbilityCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSpecialAbilityCatalogState.catalog
+              : null
+          }
+          creatureSpecialAbilityCatalogStatus={
+            creatureSpecialAbilityCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSpecialAbilityCatalogState.status
+              : "unavailable"
+          }
+          creatureSpecialAbilityCatalogError={
+            creatureSpecialAbilityCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creatureSpecialAbilityCatalogState.errorMessage
+              : null
+          }
+          creaturePhenotypeCatalog={
+            creaturePhenotypeCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creaturePhenotypeCatalogState.catalog
+              : null
+          }
+          creaturePhenotypeCatalogStatus={
+            creaturePhenotypeCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creaturePhenotypeCatalogState.status
+              : "unavailable"
+          }
+          creaturePhenotypeCatalogError={
+            creaturePhenotypeCatalogState?.objectId === creaturePropertiesDialog.objectId
+              ? creaturePhenotypeCatalogState.errorMessage
+              : null
+          }
+          creaturePortraitCatalog={sceneHistory.present.creaturePortraitCatalog ?? null}
+          onCreaturePhenotypeSearch={(query) => {
+            void loadCreaturePhenotypeCatalogForDialog(
+              creaturePropertiesDialog.snapshotObject,
+              query,
+              creaturePropertiesDialog.draft.phenotypeId,
+            );
+          }}
           creaturePropertiesDialogRef={creaturePropertiesDialogRef}
           toggleCreaturePropertiesDialogCollapsed={toggleCreaturePropertiesDialogCollapsed}
           cancelCreaturePropertiesDialog={cancelCreaturePropertiesDialog}
           setCreaturePropertiesActiveTab={setCreaturePropertiesActiveTab}
           updateCreaturePropertiesDraftField={updateCreaturePropertiesDraftField}
           updateCreatureClassEntry={updateCreatureClassEntry}
+          appendCreatureClassSlot={appendCreatureClassSlot}
+          truncateCreatureClassSlot={truncateCreatureClassSlot}
           updateCreatureSkillRank={updateCreatureSkillRank}
+          updateCreatureFeatAssigned={updateCreatureFeatAssigned}
+          updateCreatureSpecialAbility={updateCreatureSpecialAbility}
           updateCreatureScriptSlot={updateCreatureScriptSlot}
           updateCreatureAppearancePart={updateCreatureAppearancePart}
+          updateCreatureAppearanceSourceOnlyPart={updateCreatureAppearanceSourceOnlyPart}
+          updateCreatureAppearanceColor={updateCreatureAppearanceColor}
           updateCreatureAdvancedField={updateCreatureAdvancedField}
           addCreatureVariable={addCreatureVariable}
           updateCreatureVariable={updateCreatureVariable}
+          moveCreatureVariable={moveCreatureVariable}
           removeCreatureVariable={removeCreatureVariable}
           addCreatureInventoryItem={addCreatureInventoryItem}
           updateCreatureInventoryItem={updateCreatureInventoryItem}
+          moveCreatureInventoryItem={moveCreatureInventoryItem}
           removeCreatureInventoryItem={removeCreatureInventoryItem}
-          addCreatureEquippedItem={addCreatureEquippedItem}
-          updateCreatureEquippedItem={updateCreatureEquippedItem}
-          removeCreatureEquippedItem={removeCreatureEquippedItem}
+          updateCreatureEquipmentItem={updateCreatureEquipmentItem}
+          removeCreatureEquipmentItem={removeCreatureEquipmentItem}
           creatureResourceOptions={creatureResourceOptions}
           applyCreaturePropertiesDraft={applyCreaturePropertiesDraft}
           creatureFeatsFilter={creatureFeatsFilter}
@@ -11262,12 +17507,27 @@ export function WorkspaceCanvasViewport({
           updateItemMaterialColorDraftField={updateItemMaterialColorDraftField}
           addItemPropertyEntry={addItemPropertyEntry}
           updateItemPropertyEntry={updateItemPropertyEntry}
+          moveItemPropertyEntry={moveItemPropertyEntry}
           removeItemPropertyEntry={removeItemPropertyEntry}
-          addItemScriptEntry={addItemScriptEntry}
-          updateItemScriptEntry={updateItemScriptEntry}
-          removeItemScriptEntry={removeItemScriptEntry}
+          updateItemInventoryCoordinate={updateItemInventoryCoordinate}
+          moveItemInventoryEntry={moveItemInventoryEntry}
+          removeItemInventoryEntry={removeItemInventoryEntry}
+          itemInventoryBlueprintOptions={itemInventoryBlueprintOptions}
+          addItemInventoryBlueprintEntry={addItemInventoryBlueprintEntry}
+          addItemBlueprintInventoryEntry={addItemBlueprintInventoryEntry}
+          updateItemBlueprintInventoryEntry={updateItemBlueprintInventoryEntry}
+          moveItemBlueprintInventoryEntry={moveItemBlueprintInventoryEntry}
+          removeItemBlueprintInventoryEntry={removeItemBlueprintInventoryEntry}
+          addItemBlueprintEquipmentEntry={addItemBlueprintEquipmentEntry}
+          updateItemBlueprintEquipmentEntry={updateItemBlueprintEquipmentEntry}
+          removeItemBlueprintEquipmentEntry={removeItemBlueprintEquipmentEntry}
+          addItemVariable={addItemVariable}
+          updateItemVariable={updateItemVariable}
+          moveItemVariable={moveItemVariable}
+          removeItemVariable={removeItemVariable}
           applyItemPropertiesDraft={applyItemPropertiesDraft}
           itemAssetAccessToken={placeableAssetAccessToken}
+          itemBaseItemCatalog={sceneHistory.present.itemBaseItemCatalog ?? null}
           startItemPropertiesDialogDrag={startItemPropertiesDialogDrag}
           moveItemPropertiesDialogDrag={moveItemPropertiesDialogDrag}
           endItemPropertiesDialogDrag={endItemPropertiesDialogDrag}
@@ -11295,6 +17555,7 @@ export function WorkspaceCanvasViewport({
           moveSoundListEntryUp={moveSoundListEntryUp}
           moveSoundListEntryDown={moveSoundListEntryDown}
           applySoundPropertiesDraft={applySoundPropertiesDraft}
+          soundCatalogResRefs={soundCatalogResRefs}
           startSoundPropertiesDialogDrag={startSoundPropertiesDialogDrag}
           moveSoundPropertiesDialogDrag={moveSoundPropertiesDialogDrag}
           endSoundPropertiesDialogDrag={endSoundPropertiesDialogDrag}
@@ -11373,7 +17634,11 @@ export function WorkspaceCanvasViewport({
               </strong>
             </p>
             <p>
-              Tile render: <strong>{terrainRenderStatus.label}</strong>
+              Tile render:{" "}
+              <strong>
+                {terrainRenderStatus.label} / runtime{" "}
+                {formatTerrainTileModelRuntimeStatus(terrainTileModelRuntimeSnapshot)}
+              </strong>
             </p>
             <p>
               Scene package: <strong>{terrainScenePackageReadiness.status}</strong>

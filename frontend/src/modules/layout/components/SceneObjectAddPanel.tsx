@@ -41,6 +41,7 @@ interface SceneObjectAddPanelProps {
   thumbnailRenderEnabled?: boolean;
   onObjectPreviewSelect?: (object: SceneObject) => void;
   onObjectCreate?: (object: SceneObject) => void;
+  onActiveTypeChange?: (type: ConcreteSceneObjectCatalogType) => void;
   activeCreateObjectId?: string | null;
   itemPaletteTree?: ItemApiPaletteTreeResult | null;
   heading?: string;
@@ -444,6 +445,7 @@ export function SceneObjectAddPanel({
   thumbnailRenderEnabled = true,
   onObjectPreviewSelect,
   onObjectCreate,
+  onActiveTypeChange,
   activeCreateObjectId,
   itemPaletteTree,
   heading = "Add Objects",
@@ -534,6 +536,10 @@ export function SceneObjectAddPanel({
       setActiveType(resolvedDefaultType);
     }
   }, [activeType, allowedTypeSet, forcedActiveType, resolvedDefaultType]);
+
+  useEffect(() => {
+    onActiveTypeChange?.(activeType);
+  }, [activeType, onActiveTypeChange]);
 
   const catalogViewModel = useMemo(
     () =>

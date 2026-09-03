@@ -64,7 +64,16 @@ import {
   selectAuroraLightManagerPreviewBudget,
   type AuroraLightManagerPreviewScore
 } from "./auroraLightManagerPreview";
-import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
+import {
+  AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_FORMULA,
+  AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_PROOF_STATUS,
+  AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
+  AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS,
+  AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+  installAuroraLinearLightFalloffShaderChunk,
+  resolveAuroraEnhancedPerformancePointLightProjection,
+  resolveAuroraThreePointLightDecay
+} from "./auroraThreeLightFalloff";
 
 export const PLACEABLE_MODEL_STATUS_EVENT = "workspace:placeable-model-status";
 const AURORA_ALPHA_COMPANION_BASE_ALPHA_COLOR_SCALE = 0.55;
@@ -102,11 +111,11 @@ const AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS =
 const AURORA_MDL_LIGHT_SHADOW_MAP_BLUR_SOURCE =
   "Three.PointLight.shadow.radius is a shadow-map blur preview value; retail projection radius is tracked separately as auroraLightShadowProjectionRadiusWorldDistance";
 const AURORA_LIGHT_LINEAR_FALLOFF_SOURCE =
-  "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 FUN_00a423d8 adds active light color as max(0,1-distance/radius)*color*fade";
+  "Active retail inc_lighting.shd GAMMA_CORRECTION==0 surface branch plus C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 lightQuadraticAtten=9/(max(radius,0.1)^2*2); selected retail gamma profile remains parity-pending";
 const AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS =
-  "source-backed-active-light-linear-radius-falloff";
-const AURORA_LIGHT_LINEAR_FALLOFF_DECAY = 1;
-const AURORA_LIGHT_LINEAR_FALLOFF_FORMULA = "max(0,1-distance/radius)";
+  "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending";
+const AURORA_LIGHT_LINEAR_FALLOFF_FORMULA =
+  "1/(1+4.5*(distance/radius)^2)";
 const AURORA_LIGHT_SOURCE_RADIUS_UNITS = "aurora-model-units";
 const AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE =
   "Aurora Web source-unit scale for source MDL light nodes; catalog/model preview uses max(objectRadius,0.5)";
@@ -118,7 +127,7 @@ const PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS = 10;
 const PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS = 15;
 const PLACEABLE_TWO_DA_LIGHT_SOURCE_VERTICAL_DISPLACEMENT = 3;
 const PLACEABLE_TWO_DA_LIGHT_DISTANCE_SOURCE =
-  "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units";
+  "nwmain.exe CNWCArea::AddPlaceableObjectLight uses fx_placeable01/AuroraLight01 radius controller 0x58; GetLightAdjustedRadius 0x14007f480..0x14007f501 multiplies localized source radius by light multiplier, max RGB when above 1, and active cutoff-range multiplier 2";
 const PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE =
   "nwmain.exe CNWCArea::AddPlaceableObjectLight() string context names fx_placeable01/AuroraLight01; C:/Projects/New Folder/export/decompiled_all.c:883051-883080 maps radius/radiuskey/radiusbezierkey to controller 0x58; nwn_base.key fx_placeable01.mdl AuroraLight01 controller 0x58 = 10";
 const PLACEABLE_TWO_DA_LIGHT_RADIUS_UNITS = "aurora-model-units";
@@ -137,9 +146,9 @@ const PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_SOURCE =
 const PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_PROOF_STATUS =
   "source-backed-lightcolor-rgb-vector";
 const PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE =
-  "Preview adapter only: Aurora source stores/passes the RGB vector, while Three.PointLight stores normalized RGB in color and max RGB in intensity so color*intensity reconstructs lightcolor.2da RGB";
+  "nwmain.exe GetLightAdjustedColor 0x14007f380..0x14007f470 normalizes localized HDR RGB by max RGB when above 1; GetLightAdjustedRadius folds max RGB into effective range, so the Three adapter uses unit light intensity";
 const PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS =
-  "preview-adapter-rgb-max-intensity-no-source-intensity-field";
+  "retail-binary-backed-adjusted-color-unit-intensity";
 const PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_SOURCE =
   "lightcolor.2da TOOLSETRED/GREEN/BLUE used for visible Toolset emitter tint";
 const PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_EVIDENCE =
@@ -264,6 +273,7 @@ interface PlaceableTwoDaLightPreviewOptions {
   sourceUnitScaleSource?: string;
   displayShadows?: boolean;
   showPreviewReceiver?: boolean;
+  showPresentationHalo?: boolean;
   showDiagnosticGizmos?: boolean;
   areaShadowOpacity?: number | null;
   areaShadowOpacitySource?: string;
@@ -1174,6 +1184,8 @@ function shouldForceVfxBlackKeyFromBlendMode(blendMode: unknown): boolean {
 
 type AuroraEmitterBlendBucket = "normal" | "punch_through" | "fallback_mode_2";
 
+const AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD = 0.2;
+
 interface ResolvedAuroraEmitterBlendMode {
   raw?: string;
   normalized: string;
@@ -1360,7 +1372,7 @@ interface AuroraEmitterMaterialBlendState {
     | "aurora-blend-fallback-mode-2-non-punch-adapter"
     | "aurora-blend-lighten-mode-2-src-alpha-one"
     | "aurora-blend-fallback-mode-2-src-alpha-one"
-    | "aurora-blend-punch-through-alpha-test"
+    | "aurora-blend-punch-through-alpha-discard-0.2"
     | "aurora-blend-normal-non-punch-adapter";
   auroraBlendMode: ResolvedAuroraEmitterBlendMode;
 }
@@ -1400,8 +1412,10 @@ interface AuroraParticleDrawRecord {
   indexedBuffer: false;
   drawApiCandidate: "glDrawArrays";
   drawModeArg: 3;
-  drawModeEnumCaptured: false;
-  drawModePreview: "triangle-list-shaped-six-vertex-quad";
+  drawModeEnumCaptured: true;
+  drawModeEnum: "GL_TRIANGLES";
+  drawModeGlEnum: 0x0004;
+  drawModeProof: "confirmed_draw_wrapper_table_index_3_gl_triangles";
   previewMode:
     | "aurora-textured-particle-draw-array-record"
     | "aurora-linked-particle-segment-draw-array-record";
@@ -1488,16 +1502,17 @@ function buildAuroraParticleDrawRecord(
     indexedBuffer: false,
     drawApiCandidate: "glDrawArrays",
     drawModeArg: 3,
-    drawModeEnumCaptured: false,
-    drawModePreview: "triangle-list-shaped-six-vertex-quad",
+    drawModeEnumCaptured: true,
+    drawModeEnum: "GL_TRIANGLES",
+    drawModeGlEnum: 0x0004,
+    drawModeProof: "confirmed_draw_wrapper_table_index_3_gl_triangles",
     previewMode: options.linked
       ? "aurora-linked-particle-segment-draw-array-record"
       : "aurora-textured-particle-draw-array-record",
     diagnostics: [
       "VFX_PARTICLE_DRAW_RECORD_REQUIRED",
       "VFX_PARTICLE_DRAW_NON_INDEXED_ARRAYS_REQUIRED",
-      "VFX_PARTICLE_DRAW_MODE_ARG3_ENUM_TABLE_CAPTURE_REQUIRED",
-      "VFX_PARTICLE_DRAW_TRIANGLE_INFERENCE_NOT_ENUM_PROOF",
+      "VFX_PARTICLE_DRAW_GL_TRIANGLES_CONFIRMED",
       ...(options.linked ? ["VFX_LINKED_DRAW_COUNT_ACTIVE_PARTICLES_MINUS_ONE"] : [])
     ]
   };
@@ -1520,7 +1535,9 @@ function applyAuroraParticleDrawRecordUserData(
     auroraParticleDrawApiCandidate: record.drawApiCandidate,
     auroraParticleDrawModeArg: record.drawModeArg,
     auroraParticleDrawModeEnumCaptured: record.drawModeEnumCaptured,
-    auroraParticleDrawModePreview: record.drawModePreview,
+    auroraParticleDrawModeEnum: record.drawModeEnum,
+    auroraParticleDrawModeGlEnum: record.drawModeGlEnum,
+    auroraParticleDrawModeProof: record.drawModeProof,
     auroraParticleDrawDiagnostics: record.diagnostics
   };
 }
@@ -1533,9 +1550,9 @@ function resolveAuroraEmitterMaterialBlendState(
     return {
       blending: THREE.NormalBlending,
       depthWrite: true,
-      transparent: true,
-      alphaTest: 0.5,
-      previewMode: "aurora-blend-punch-through-alpha-test",
+      transparent: false,
+      alphaTest: AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD,
+      previewMode: "aurora-blend-punch-through-alpha-discard-0.2",
       auroraBlendMode
     };
   }
@@ -1613,6 +1630,14 @@ function applyAuroraEmitterMaterialBlendState(
     auroraParticleTwoSidedCullState3: renderState.twoSidedCullState3,
     auroraParticleLightingState5Restore: renderState.lightingState5Restore,
     auroraParticleRequestedDepthWrite: renderState.requestedDepthWrite,
+    auroraParticleAlphaDiscardValue:
+      renderState.punchThroughState1
+        ? AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD
+        : null,
+    auroraParticleAlphaDiscardSource:
+      renderState.punchThroughState1
+        ? "nwtoolset-1.5.0.5-fAlphaDiscardValue-state1-disassembly"
+        : "not-applicable-non-punch",
     auroraParticleShaderVariantFlag: renderState.particleShaderVariantFlag,
     auroraParticleNonPunchVariantFlag: renderState.particleNonPunchVariantFlag,
     auroraParticleBlendFuncWrapperInvoked: renderState.blendFuncWrapperInvoked,
@@ -3175,12 +3200,14 @@ function createAuroraTexturedParticleQuadGeometry(
     auroraParticleDrawIndexedBuffer: false,
     auroraParticleDrawApiCandidate: "glDrawArrays",
     auroraParticleDrawModeArg: 3,
-    auroraParticleDrawModeEnumCaptured: false,
+    auroraParticleDrawModeEnumCaptured: true,
+    auroraParticleDrawModeEnum: "GL_TRIANGLES",
+    auroraParticleDrawModeGlEnum: 0x0004,
+    auroraParticleDrawModeProof: "confirmed_draw_wrapper_table_index_3_gl_triangles",
     auroraParticleDrawVerticesPerParticle: 6,
-    auroraParticleDrawModePreview: "triangle-list-shaped-six-vertex-quad",
     auroraParticleDrawDiagnostics: [
       "VFX_PARTICLE_DRAW_NON_INDEXED_ARRAYS_REQUIRED",
-      "VFX_PARTICLE_DRAW_MODE_ARG3_ENUM_TABLE_CAPTURE_REQUIRED"
+      "VFX_PARTICLE_DRAW_GL_TRIANGLES_CONFIRMED"
     ],
     auroraVfxParticleVertexColor: true,
     auroraVfxParticleVertexColorLayout: "rgba-per-vertex-packed-color-preview",
@@ -3706,68 +3733,13 @@ function lerpNumber(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
 }
 
-function resolveAuroraEmitterCurvePercent(
-  profile: PlaceableVfxPreviewProfile,
-  key: "percentStart" | "percentMid" | "percentEnd",
-  fallback: number,
-  elapsedSeconds: number | undefined
-): number {
-  const profileValue =
-    key === "percentStart"
-      ? profile.particlePercentStart
-      : key === "percentMid"
-        ? profile.particlePercentMid
-        : profile.particlePercentEnd;
-  return clampNumber(
-    sampleAuroraEmitterProfileTimeline(profile, key, elapsedSeconds) ?? profileValue ?? fallback,
-    0,
-    1
-  );
-}
-
-function resolveAuroraEmitterCurvePercents(
-  profile: PlaceableVfxPreviewProfile,
-  elapsedSeconds: number | undefined
-): { start: number; mid: number; end: number } {
-  let start = resolveAuroraEmitterCurvePercent(profile, "percentStart", 0, elapsedSeconds);
-  let end = resolveAuroraEmitterCurvePercent(profile, "percentEnd", 1, elapsedSeconds);
-  if (end < start) {
-    [start, end] = [end, start];
-  }
-  const mid = clampNumber(
-    resolveAuroraEmitterCurvePercent(profile, "percentMid", (start + end) * 0.5, elapsedSeconds),
-    start,
-    end
-  );
-  return { start, mid, end };
-}
-
-function sampleAuroraEmitterNumberCurve(
-  profile: PlaceableVfxPreviewProfile,
+function sampleAuroraEmitterStartEndNumber(
   start: number,
-  mid: number | undefined,
   end: number,
-  normalizedAge: number,
-  elapsedSeconds: number | undefined
+  normalizedAge: number
 ): number {
   const age = clampNumber(normalizedAge, 0, 1);
-  const percents = resolveAuroraEmitterCurvePercents(profile, elapsedSeconds);
-  if (age <= percents.start) {
-    return start;
-  }
-  if (age >= percents.end) {
-    return end;
-  }
-  if (typeof mid !== "number" || !Number.isFinite(mid)) {
-    const span = Math.max(percents.end - percents.start, 1e-6);
-    return lerpNumber(start, end, clampNumber((age - percents.start) / span, 0, 1));
-  }
-  if (age <= percents.mid) {
-    const span = Math.max(percents.mid - percents.start, 1e-6);
-    return lerpNumber(start, mid, clampNumber((age - percents.start) / span, 0, 1));
-  }
-  const span = Math.max(percents.end - percents.mid, 1e-6);
-  return lerpNumber(mid, end, clampNumber((age - percents.mid) / span, 0, 1));
+  return lerpNumber(start, end, age);
 }
 
 function sampleAuroraEmitterNumberKeyframesAtElapsed(
@@ -3865,32 +3837,13 @@ function lerpAuroraColorVector(
   ];
 }
 
-function sampleAuroraEmitterColorCurve(
-  profile: PlaceableVfxPreviewProfile,
+function sampleAuroraEmitterStartEndColor(
   start: [number, number, number],
-  mid: [number, number, number] | undefined,
   end: [number, number, number],
-  normalizedAge: number,
-  elapsedSeconds: number | undefined
+  normalizedAge: number
 ): [number, number, number] {
   const age = clampNumber(normalizedAge, 0, 1);
-  const percents = resolveAuroraEmitterCurvePercents(profile, elapsedSeconds);
-  if (age <= percents.start) {
-    return start;
-  }
-  if (age >= percents.end) {
-    return end;
-  }
-  if (!mid) {
-    const span = Math.max(percents.end - percents.start, 1e-6);
-    return lerpAuroraColorVector(start, end, clampNumber((age - percents.start) / span, 0, 1));
-  }
-  if (age <= percents.mid) {
-    const span = Math.max(percents.mid - percents.start, 1e-6);
-    return lerpAuroraColorVector(start, mid, clampNumber((age - percents.start) / span, 0, 1));
-  }
-  const span = Math.max(percents.end - percents.mid, 1e-6);
-  return lerpAuroraColorVector(mid, end, clampNumber((age - percents.mid) / span, 0, 1));
+  return lerpAuroraColorVector(start, end, age);
 }
 
 function sampleAuroraEmitterColorKeyframesAtElapsed(
@@ -3994,30 +3947,19 @@ function resolveVfxParticleOpacity(
   elapsedSeconds?: number
 ): number {
   const timelineStart = sampleAuroraEmitterProfileTimeline(profile, "alphaStart", elapsedSeconds);
-  const timelineMid = sampleAuroraEmitterProfileTimeline(profile, "alphaMid", elapsedSeconds);
   const timelineEnd = sampleAuroraEmitterProfileTimeline(profile, "alphaEnd", elapsedSeconds);
   const hasAlphaCurve =
     typeof timelineStart === "number" ||
-    typeof timelineMid === "number" ||
     typeof timelineEnd === "number" ||
     typeof profile.particleAlphaStart === "number" ||
-    typeof profile.particleAlphaMid === "number" ||
     typeof profile.particleAlphaEnd === "number";
   if (!hasAlphaCurve) {
     return fallbackOpacity;
   }
   const start = timelineStart ?? profile.particleAlphaStart ?? profile.baseOpacity;
-  const mid = timelineMid ?? profile.particleAlphaMid;
   const end = timelineEnd ?? profile.particleAlphaEnd ?? start;
   const sourceAlpha = clampNumber(
-    sampleAuroraEmitterNumberCurve(
-      profile,
-      start,
-      mid,
-      end,
-      normalizedAge,
-      elapsedSeconds
-    ),
+    sampleAuroraEmitterStartEndNumber(start, end, normalizedAge),
     0,
     1
   );
@@ -4703,9 +4645,6 @@ function resolveAuroraParticleColorSampleAtAge(
     const start =
       sampleAuroraEmitterProfileColorTimeline(profile, "colorStart", elapsedSeconds) ??
       profile.particleColorStart;
-    const mid =
-      sampleAuroraEmitterProfileColorTimeline(profile, "colorMid", elapsedSeconds) ??
-      profile.particleColorMid;
     const end =
       sampleAuroraEmitterProfileColorTimeline(profile, "colorEnd", elapsedSeconds) ??
       profile.particleColorEnd ??
@@ -4715,14 +4654,7 @@ function resolveAuroraParticleColorSampleAtAge(
       vertexColorMode = "semantic-fallback-vertex-color";
     } else {
       resolvedColor = createAuroraColorFromVector(
-        sampleAuroraEmitterColorCurve(
-          profile,
-          start,
-          mid,
-          end,
-          normalizedAge,
-          elapsedSeconds
-        )
+        sampleAuroraEmitterStartEndColor(start, end, normalizedAge)
       );
       vertexColorMode =
         material.userData?.auroraEmitterIsTinted === false
@@ -4830,22 +4762,12 @@ function resolveVfxParticleSizeAtAge(
     sampleAuroraEmitterProfileSizeTimeline(profile, "sizeStart", elapsedSeconds) ??
     profile.particleSizeStart ??
     fallbackSize;
-  const mid =
-    sampleAuroraEmitterProfileSizeTimeline(profile, "sizeMid", elapsedSeconds) ??
-    profile.particleSizeMid;
   const end =
     sampleAuroraEmitterProfileSizeTimeline(profile, "sizeEnd", elapsedSeconds) ??
     profile.particleSizeEnd ??
     start;
   return clampNumber(
-    sampleAuroraEmitterNumberCurve(
-      profile,
-      start,
-      mid,
-      end,
-      normalizedAge,
-      elapsedSeconds
-    ),
+    sampleAuroraEmitterStartEndNumber(start, end, normalizedAge),
     0.001,
     profile.sizeMax * 2
   );
@@ -4880,9 +4802,6 @@ function resolveVfxParticleSizeYAtAge(
     sampleAuroraEmitterProfileSizeTimeline(profile, "sizeStart", elapsedSeconds) ??
     profile.particleSizeStart ??
     fallbackSize;
-  const xMid =
-    sampleAuroraEmitterProfileSizeTimeline(profile, "sizeMid", elapsedSeconds) ??
-    profile.particleSizeMid;
   const xEnd =
     sampleAuroraEmitterProfileSizeTimeline(profile, "sizeEnd", elapsedSeconds) ??
     profile.particleSizeEnd ??
@@ -4894,13 +4813,6 @@ function resolveVfxParticleSizeYAtAge(
     ) ??
     resolveAuroraParticleSizeYSourceValue(profile, profile.particleSizeYStart) ??
     xStart;
-  const mid =
-    resolveAuroraParticleSizeYSourceValue(
-      profile,
-      sampleAuroraEmitterProfileSizeTimeline(profile, "sizeMidY", elapsedSeconds)
-    ) ??
-    resolveAuroraParticleSizeYSourceValue(profile, profile.particleSizeYMid) ??
-    xMid;
   const end =
     resolveAuroraParticleSizeYSourceValue(
       profile,
@@ -4910,14 +4822,7 @@ function resolveVfxParticleSizeYAtAge(
     xEnd ??
     start;
   return clampNumber(
-    sampleAuroraEmitterNumberCurve(
-      profile,
-      start,
-      mid,
-      end,
-      normalizedAge,
-      elapsedSeconds
-    ),
+    sampleAuroraEmitterStartEndNumber(start, end, normalizedAge),
     profile.bubblePreviewMode === "source-bubble-particle-preview" ? 0 : 0.001,
     profile.sizeMax * 3
   );
@@ -6117,10 +6022,22 @@ export function createPlaceableTwoDaLightPreviewGroup(
   }
 
   const colorEnergy = resolvePlaceableTwoDaLightColorEnergy(metadata.color);
+  const sourceUnitScale = resolvePlaceableTwoDaLightSourceUnitScale(objectRadius, options);
+  const sourceRadiusWorldDistance = resolvePlaceableTwoDaLightDistance(
+    objectRadius,
+    metadata.shadowSize,
+    sourceUnitScale
+  );
+  const lightProjection = resolveAuroraEnhancedPerformancePointLightProjection({
+    color: metadata.color,
+    multiplier: 1,
+    sourceRadiusWorld: sourceRadiusWorldDistance,
+    ambientOnly: false
+  });
   const color = new THREE.Color(
-    clampNumber(metadata.color[0] / colorEnergy, 0, 1),
-    clampNumber(metadata.color[1] / colorEnergy, 0, 1),
-    clampNumber(metadata.color[2] / colorEnergy, 0, 1)
+    lightProjection.adjustedColor[0],
+    lightProjection.adjustedColor[1],
+    lightProjection.adjustedColor[2]
   );
   const displayColor = resolvePlaceableTwoDaLightDisplayColor(
     color,
@@ -6128,19 +6045,14 @@ export function createPlaceableTwoDaLightPreviewGroup(
     metadata.toolsetColor
   );
   const offsetScale = options.offsetScale ?? Math.max(objectRadius, 0.5);
-  const sourceUnitScale = resolvePlaceableTwoDaLightSourceUnitScale(objectRadius, options);
   const sourceUnitScaleSource =
     options.sourceUnitScaleSource ?? PLACEABLE_TWO_DA_LIGHT_SOURCE_UNIT_SCALE_SOURCE;
   const worldOffset = mapAuroraVectorToThree(metadata.offset).multiplyScalar(offsetScale);
   const energyScale = Math.sqrt(colorEnergy);
-  const distance = resolvePlaceableTwoDaLightDistance(
-    objectRadius,
-    metadata.shadowSize,
-    sourceUnitScale
-  );
+  const distance = lightProjection.effectiveRange;
   const retailScore = resolveAuroraLightManagerPreviewScore({
     position: worldOffset,
-    sourceRadius: distance,
+    sourceRadius: sourceRadiusWorldDistance,
     activeSelectionRadiusOverride:
       PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS * sourceUnitScale,
     multiplier: colorEnergy,
@@ -6160,9 +6072,9 @@ export function createPlaceableTwoDaLightPreviewGroup(
 
   const pointLight = new THREE.PointLight(
     color,
-    colorEnergy,
+    lightProjection.intensity,
     distance,
-    AURORA_LIGHT_LINEAR_FALLOFF_DECAY
+    lightProjection.decay
   );
   pointLight.userData = {
     placeableTwoDaLightPreviewStatus: "active",
@@ -6201,7 +6113,8 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightToolsetColorProofStatus: metadata.toolsetColor
       ? PLACEABLE_TWO_DA_LIGHT_TOOLSET_COLOR_PROOF_STATUS
       : undefined,
-    placeableTwoDaLightIntensity: colorEnergy,
+    placeableTwoDaLightIntensity: lightProjection.intensity,
+    placeableTwoDaLightSourceMaxColor: colorEnergy,
     placeableTwoDaLightIntensitySource: PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE,
     placeableTwoDaLightIntensityProofStatus: PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS,
     placeableTwoDaLightDistance: distance,
@@ -6213,7 +6126,7 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightSourceRadiusSource: PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE,
     placeableTwoDaLightSourceUnitScale: sourceUnitScale,
     placeableTwoDaLightSourceUnitScaleSource: sourceUnitScaleSource,
-    placeableTwoDaLightSourceRadiusWorldDistance: distance,
+    placeableTwoDaLightSourceRadiusWorldDistance: sourceRadiusWorldDistance,
     placeableTwoDaLightSourceRadiusWorldDistanceSource:
       PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
     placeableTwoDaLightSourceShadowRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS,
@@ -6225,15 +6138,22 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightSourceVerticalDisplacementSource:
       PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE,
     placeableTwoDaLightRadiusProofStatus: PLACEABLE_TWO_DA_LIGHT_RADIUS_PROOF_STATUS,
-    placeableTwoDaLightFalloffMode: "linear-radius-clamped",
-    placeableTwoDaLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
-    placeableTwoDaLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
-    placeableTwoDaLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightEffectiveRange: distance,
+    placeableTwoDaLightFalloffMode: "enhanced-performance",
+    placeableTwoDaLightFalloffFormula:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_FORMULA,
+    placeableTwoDaLightFalloffSource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffProofStatus:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_PROOF_STATUS,
     placeableTwoDaLightFalloffRendererPatchStatus: falloffShaderPatch.status,
-    placeableTwoDaLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
-    placeableTwoDaLightFalloffRendererSource: falloffShaderPatch.source,
-    placeableTwoDaLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
-    placeableTwoDaLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffRendererProofStatus:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightFalloffRendererSource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
+    placeableTwoDaLightPointLightDecay: lightProjection.decay,
+    placeableTwoDaLightPointLightDecaySource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
     placeableTwoDaLightQuadraticAtten: resolveAuroraLightQuadraticAttenuation(
       PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS
     ),
@@ -6250,7 +6170,8 @@ export function createPlaceableTwoDaLightPreviewGroup(
   };
   group.add(pointLight);
 
-  const haloTexture = getAuroraLightHaloTexture();
+  const showPresentationHalo = options.showPresentationHalo !== false;
+  const haloTexture = showPresentationHalo ? getAuroraLightHaloTexture() : null;
   const haloMaterial = haloTexture
     ? new THREE.SpriteMaterial({
         map: haloTexture,
@@ -6389,7 +6310,8 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightColorProofStatus: "source-backed-lightcolor-2da",
     placeableTwoDaLightRgbVectorSource: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_SOURCE,
     placeableTwoDaLightRgbVectorProofStatus: PLACEABLE_TWO_DA_LIGHT_RGB_VECTOR_PROOF_STATUS,
-    placeableTwoDaLightIntensity: colorEnergy,
+    placeableTwoDaLightIntensity: lightProjection.intensity,
+    placeableTwoDaLightSourceMaxColor: colorEnergy,
     placeableTwoDaLightIntensitySource: PLACEABLE_TWO_DA_LIGHT_INTENSITY_SOURCE,
     placeableTwoDaLightIntensityProofStatus: PLACEABLE_TWO_DA_LIGHT_INTENSITY_PROOF_STATUS,
     placeableTwoDaLightDistance: distance,
@@ -6400,7 +6322,7 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightSourceRadiusSource: PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE,
     placeableTwoDaLightSourceUnitScale: sourceUnitScale,
     placeableTwoDaLightSourceUnitScaleSource: sourceUnitScaleSource,
-    placeableTwoDaLightSourceRadiusWorldDistance: distance,
+    placeableTwoDaLightSourceRadiusWorldDistance: sourceRadiusWorldDistance,
     placeableTwoDaLightSourceRadiusWorldDistanceSource:
       PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE,
     placeableTwoDaLightSourceShadowRadius: PLACEABLE_TWO_DA_LIGHT_SOURCE_SHADOW_RADIUS,
@@ -6412,15 +6334,22 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightSourceVerticalDisplacementSource:
       PLACEABLE_TWO_DA_LIGHT_VERTICAL_DISPLACEMENT_SOURCE,
     placeableTwoDaLightRadiusProofStatus: PLACEABLE_TWO_DA_LIGHT_RADIUS_PROOF_STATUS,
-    placeableTwoDaLightFalloffMode: "linear-radius-clamped",
-    placeableTwoDaLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
-    placeableTwoDaLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
-    placeableTwoDaLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightEffectiveRange: distance,
+    placeableTwoDaLightFalloffMode: "enhanced-performance",
+    placeableTwoDaLightFalloffFormula:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_FORMULA,
+    placeableTwoDaLightFalloffSource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffProofStatus:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_PROOF_STATUS,
     placeableTwoDaLightFalloffRendererPatchStatus: falloffShaderPatch.status,
-    placeableTwoDaLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
-    placeableTwoDaLightFalloffRendererSource: falloffShaderPatch.source,
-    placeableTwoDaLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
-    placeableTwoDaLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+    placeableTwoDaLightFalloffRendererProofStatus:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_PROOF_STATUS,
+    placeableTwoDaLightFalloffRendererSource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
+    placeableTwoDaLightPointLightDecay: lightProjection.decay,
+    placeableTwoDaLightPointLightDecaySource:
+      AURORA_THREE_ENHANCED_PERFORMANCE_LIGHT_FALLOFF_SOURCE,
     placeableTwoDaLightQuadraticAtten: resolveAuroraLightQuadraticAttenuation(
       PLACEABLE_TWO_DA_LIGHT_SOURCE_RADIUS
     ),
@@ -6442,6 +6371,11 @@ export function createPlaceableTwoDaLightPreviewGroup(
     placeableTwoDaLightReceiverSource: receiver
       ? PLACEABLE_TWO_DA_LIGHT_RECEIVER_SOURCE
       : undefined,
+    placeableTwoDaLightHaloStatus: halo
+      ? "active-preview-only"
+      : options.showPresentationHalo === false
+        ? "suppressed-in-area-source-lighting"
+        : "missing",
     placeableTwoDaFastShadowStatus: fastShadow
       ? "active"
       : options.displayShadows === false
@@ -8142,6 +8076,7 @@ function createPlaceableVfxLightPreviewGroup(
 
   acceptedEntries.forEach((budgetEntry, index) => {
     const light = budgetEntry.light;
+    const ambientOnly = light.ambientOnly === true;
     const animation = resolveAuroraLightAnimationSelection(payload, light);
     const initialColor = toAuroraLightThreeColor(
       sampleAuroraLightColorKeyframesAtElapsed(animation?.colorTimeline, 0, true) ?? light.color
@@ -8171,7 +8106,7 @@ function createPlaceableVfxLightPreviewGroup(
       initialColor,
       initialMultiplier,
       initialRadius,
-      AURORA_LIGHT_LINEAR_FALLOFF_DECAY
+      resolveAuroraThreePointLightDecay(ambientOnly)
     );
     const sourceShadowEnabled = light.shadow === true;
     pointLight.castShadow = sourceShadowEnabled;
@@ -8207,15 +8142,23 @@ function createPlaceableVfxLightPreviewGroup(
       auroraLightQuadraticAtten: initialQuadraticAtten,
       auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
       auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-      auroraLightFalloffMode: "linear-radius-clamped",
+      auroraLightFalloffMode: "gamma0-quadratic-surface",
       auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
       auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
       auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
       auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
       auroraLightFalloffRendererSource: falloffShaderPatch.source,
-      auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+      auroraLightPointLightDecay: pointLight.decay,
       auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      auroraLightAmbientOnly: ambientOnly,
+      auroraLightChannelMappingStatus: ambientOnly
+        ? AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS
+        : "source-backed-localized-diffuse-channel-point-light-adapter",
+      auroraLightChannelMappingSource: AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+      auroraLightShaderChannelMarkerRole: ambientOnly
+        ? "negative-decay-localized-ambient-marker"
+        : "positive-decay-localized-diffuse",
       auroraLightMultiplier: light.multiplier,
       auroraLightAnimatedMultiplier: initialMultiplier,
       auroraLightShadowRadius: light.shadowRadius,
@@ -8351,11 +8294,12 @@ function createPlaceableVfxLightPreviewGroup(
       const quadraticAtten = resolveAuroraLightQuadraticAttenuation(sourceRadius);
       const multiplier = resolveAuroraLightMultiplier(light, animation, elapsed);
       lightNode.position.copy(
-        resolveAuroraLightWorldPosition(light, animation, elapsed, objectRadius)
+        resolvePlaceableVfxLightAttachedModelNodePosition(lightNode) ??
+          resolveAuroraLightWorldPosition(light, animation, elapsed, objectRadius)
       );
       pointLight.color.copy(color);
       pointLight.distance = radius;
-      pointLight.decay = AURORA_LIGHT_LINEAR_FALLOFF_DECAY;
+      pointLight.decay = resolveAuroraThreePointLightDecay(ambientOnly);
       pointLight.intensity = multiplier;
       const shadowRadius = resolveAuroraLightShadowRadius(light, animation, elapsed) ?? 0;
       const shadowProjectionSourceRadius =
@@ -8421,14 +8365,14 @@ function createPlaceableVfxLightPreviewGroup(
         auroraLightQuadraticAtten: quadraticAtten,
         auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
         auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-        auroraLightFalloffMode: "linear-radius-clamped",
+        auroraLightFalloffMode: "gamma0-quadratic-surface",
         auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
         auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
         auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
         auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
         auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
         auroraLightFalloffRendererSource: falloffShaderPatch.source,
-        auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+        auroraLightPointLightDecay: pointLight.decay,
         auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
         auroraLightAnimatedMultiplier: multiplier,
         auroraLightAnimatedShadowRadius: shadowRadius,
@@ -8462,14 +8406,14 @@ function createPlaceableVfxLightPreviewGroup(
         auroraLightQuadraticAtten: quadraticAtten,
         auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
         auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-        auroraLightFalloffMode: "linear-radius-clamped",
+        auroraLightFalloffMode: "gamma0-quadratic-surface",
         auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
         auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
         auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
         auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
         auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
         auroraLightFalloffRendererSource: falloffShaderPatch.source,
-        auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+        auroraLightPointLightDecay: pointLight.decay,
         auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
         auroraLightAnimatedMultiplier: multiplier,
         auroraLightAnimatedShadowRadius: shadowRadius,
@@ -8525,14 +8469,14 @@ function createPlaceableVfxLightPreviewGroup(
       auroraLightQuadraticAtten: initialQuadraticAtten,
       auroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
       auroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-      auroraLightFalloffMode: "linear-radius-clamped",
+      auroraLightFalloffMode: "gamma0-quadratic-surface",
       auroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
       auroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       auroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
       auroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
       auroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
       auroraLightFalloffRendererSource: falloffShaderPatch.source,
-      auroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+      auroraLightPointLightDecay: pointLight.decay,
       auroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       auroraLightShadowRadius: light.shadowRadius,
       auroraLightVerticalDisplacement: light.verticalDisplacement,
@@ -8550,7 +8494,14 @@ function createPlaceableVfxLightPreviewGroup(
         AURORA_MDL_LIGHT_SHADOW_PROJECTION_RADIUS_PROOF_STATUS,
       auroraLightAnimatedVerticalDisplacement: initialVerticalDisplacement,
       auroraLightColor: light.color,
-      auroraLightAmbientOnly: light.ambientOnly,
+      auroraLightAmbientOnly: ambientOnly,
+      auroraLightChannelMappingStatus: ambientOnly
+        ? AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS
+        : "source-backed-localized-diffuse-channel-point-light-adapter",
+      auroraLightChannelMappingSource: AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+      auroraLightShaderChannelMarkerRole: ambientOnly
+        ? "negative-decay-localized-ambient-marker"
+        : "positive-decay-localized-diffuse",
       auroraLightDynamicType: light.dynamicType,
       auroraLightAffectDynamic: light.affectDynamic,
       auroraLightShadow: light.shadow,
@@ -8660,6 +8611,19 @@ function createPlaceableVfxLightPreviewGroup(
   return group;
 }
 
+function resolvePlaceableVfxLightAttachedModelNodePosition(
+  lightNode: THREE.Object3D
+): THREE.Vector3 | null {
+  const attachmentNode = lightNode.userData?.auroraLightSourceModelAttachmentNode;
+  if (!(attachmentNode instanceof THREE.Object3D) || !lightNode.parent) {
+    return null;
+  }
+  attachmentNode.updateWorldMatrix(true, false);
+  const worldPosition = new THREE.Vector3();
+  attachmentNode.getWorldPosition(worldPosition);
+  return lightNode.parent.worldToLocal(worldPosition);
+}
+
 interface PlaceableVfxPreviewGroupOptions {
   particleTexture?: THREE.Texture | null;
   textureDeliveryUrl?: string | null;
@@ -8670,6 +8634,8 @@ interface PlaceableVfxPreviewGroupOptions {
   showLightDiagnosticGizmos?: boolean;
   lightPreviewActiveSlotCap?: number;
   lightPreviewConfiguredMaxLights?: number;
+  /** Build only source-MDL light siblings when the same payload also has emitters. */
+  lightNodesOnly?: boolean;
   emitterPreviewBudget?: PlaceableVfxEmitterPreviewBudgetOptions;
 }
 
@@ -8702,9 +8668,23 @@ export function createPlaceableVfxPreviewGroup(
   colorHex: string,
   options: PlaceableVfxPreviewGroupOptions = {}
 ): THREE.Group {
+  const auroraLights = resolveAuroraLightsForPreview(payload);
+  if (options.lightNodesOnly) {
+    if (auroraLights.length > 0) {
+      return createPlaceableVfxLightPreviewGroup(
+        payload,
+        objectRadius,
+        options.showLightDiagnosticGizmos === true,
+        {
+          activeSlotCap: options.lightPreviewActiveSlotCap,
+          configuredMaxLights: options.lightPreviewConfiguredMaxLights
+        }
+      );
+    }
+    return new THREE.Group();
+  }
   const auroraEmitters = resolveAuroraEmittersForPreview(payload);
   if (auroraEmitters.length === 0) {
-    const auroraLights = resolveAuroraLightsForPreview(payload);
     if (auroraLights.length > 0) {
       return createPlaceableVfxLightPreviewGroup(
         payload,
@@ -9554,7 +9534,7 @@ function createPlaceableVfxEmitterPreviewGroup(
       profile.simulationTimeline?.alphaMid ||
       profile.simulationTimeline?.sizeMid ||
       profile.simulationTimeline?.sizeMidY
-        ? "particle-mid-runtime-curve-preview"
+        ? "particle-mid-source-preserved-renderer-ignored"
         : undefined,
     auroraEmitterPercentCurvePreviewMode:
       profile.particlePercentStart !== undefined ||
@@ -9563,7 +9543,7 @@ function createPlaceableVfxEmitterPreviewGroup(
       profile.simulationTimeline?.percentStart ||
       profile.simulationTimeline?.percentMid ||
       profile.simulationTimeline?.percentEnd
-        ? "particle-percent-runtime-curve-preview"
+        ? "particle-percent-source-preserved-renderer-ignored"
         : undefined,
     auroraEmitterParticleVelocity: profile.particleVelocity,
     auroraEmitterParticleVelocityTimeline: profile.simulationTimeline?.velocity,
@@ -12641,6 +12621,7 @@ interface PlaceableVfxPreviewProfile {
   particleCountPreviewMode?:
     | "birthrate-lifetime-source-count"
     | "birthrate-lifetime-preview-capped"
+    | "explosion-truncated-birthrate-source-count"
     | "zero-motion-world-z-symbol-single-draw"
     | "soft-alpha-preview-capped"
     | "emitter-preview-budget-capped"
@@ -13002,8 +12983,14 @@ function buildAuroraEmitterFramebufferRenderLaneUserData(
       auroraEmitterFramebufferRenderLaneSource: "sample_framebuffer",
       auroraEmitterFramebufferRenderLaneDiagnostics: [
         "VFX_SAMPLE_FRAMEBUFFER_MODE2_RUNTIME_LANE_6_REQUIRED",
-        "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED"
-      ]
+        "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+        "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
+      ],
+      auroraEmitterFramebufferCaptureScope: "mainscene",
+      auroraEmitterFramebufferCaptureDestinationSlot: 6,
+      auroraEmitterFramebufferAttachmentBindingMask: 3,
+      auroraEmitterFramebufferColorTextureUnit: 11,
+      auroraEmitterFramebufferDepthTextureUnit: 12
     };
   }
   if (sampleFramebuffer === 1) {
@@ -13014,8 +13001,14 @@ function buildAuroraEmitterFramebufferRenderLaneUserData(
       auroraEmitterFramebufferRenderLaneSource: "sample_framebuffer",
       auroraEmitterFramebufferRenderLaneDiagnostics: [
         "VFX_SAMPLE_FRAMEBUFFER_MODE1_RUNTIME_LANE_5_REQUIRED",
-        "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED"
-      ]
+        "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+        "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
+      ],
+      auroraEmitterFramebufferCaptureScope: "mainscene",
+      auroraEmitterFramebufferCaptureDestinationSlot: 1,
+      auroraEmitterFramebufferAttachmentBindingMask: 3,
+      auroraEmitterFramebufferColorTextureUnit: 11,
+      auroraEmitterFramebufferDepthTextureUnit: 12
     };
   }
   if (volumetric) {
@@ -13026,8 +13019,14 @@ function buildAuroraEmitterFramebufferRenderLaneUserData(
       auroraEmitterFramebufferRenderLaneSource: "volumetric",
       auroraEmitterFramebufferRenderLaneDiagnostics: [
         "VFX_VOLUMETRIC_RUNTIME_LANE_5_REQUIRED",
-        "VFX_SAMPLE_FRAMEBUFFER_VOLUME_BRANCH_CAPTURE_REQUIRED"
-      ]
+        "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+        "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
+      ],
+      auroraEmitterFramebufferCaptureScope: "mainscene",
+      auroraEmitterFramebufferCaptureDestinationSlot: 1,
+      auroraEmitterFramebufferAttachmentBindingMask: 3,
+      auroraEmitterFramebufferColorTextureUnit: 11,
+      auroraEmitterFramebufferDepthTextureUnit: 12
     };
   }
   return {
@@ -13054,7 +13053,15 @@ function buildAuroraEmitterTwoSidedMaterialRenderLaneUserData(
       auroraEmitterTwoSidedMaterialRuntimeLane:
         "two_sided_material_volumetric_runtime_arg0",
       auroraEmitterTwoSidedMaterialRuntimeLaneSource:
-        "mdl-material-twosided-runtime-branch",
+        "mtr-material-twosided-runtime-branch",
+      auroraEmitterTwoSidedMaterialCullState3: "enabled",
+      auroraEmitterTwoSidedMaterialCullFaceMode: "GL_BACK",
+      auroraEmitterTwoSidedMaterialFrontFaceWinding:
+        "not_modified_by_render_wrapper",
+      auroraEmitterTwoSidedMaterialParticleOverride:
+        "twosidedtex_live_read_after_render_wrapper",
+      auroraEmitterTwoSidedMaterialExactGlStateSource:
+        "nwtoolset-1.5.0.5-scene-queue-cull-disassembly",
       auroraEmitterTwoSidedMaterialRuntimeLaneDiagnostics: [
         "VFX_TWOSIDED_MATERIAL_VOLUMETRIC_ARG0_REQUIRED"
       ]
@@ -13065,7 +13072,15 @@ function buildAuroraEmitterTwoSidedMaterialRenderLaneUserData(
     auroraEmitterTwoSidedMaterialRuntimeLane:
       "two_sided_material_non_volumetric_runtime_arg1",
     auroraEmitterTwoSidedMaterialRuntimeLaneSource:
-      "mdl-material-twosided-runtime-branch",
+      "mtr-material-twosided-runtime-branch",
+    auroraEmitterTwoSidedMaterialCullState3: "disabled",
+    auroraEmitterTwoSidedMaterialCullFaceMode: "GL_BACK",
+    auroraEmitterTwoSidedMaterialFrontFaceWinding:
+      "not_modified_by_render_wrapper",
+    auroraEmitterTwoSidedMaterialParticleOverride:
+      "twosidedtex_live_read_after_render_wrapper",
+    auroraEmitterTwoSidedMaterialExactGlStateSource:
+      "nwtoolset-1.5.0.5-scene-queue-cull-disassembly",
     auroraEmitterTwoSidedMaterialRuntimeLaneDiagnostics: [
       "VFX_TWOSIDED_MATERIAL_RUNTIME_ARG1_REQUIRED"
     ]
@@ -13088,7 +13103,7 @@ function resolveAuroraEmitterThreeRenderOrder(
   const renderOrderShort = resolveAuroraEmitterRenderOrderShort(emitter);
   const sourceOrder = renderOrderShort === null
     ? PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER
-    : PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER - renderOrderShort;
+    : PLACEABLE_VFX_DEFAULT_THREE_RENDER_ORDER + renderOrderShort;
   return isAuroraEmitterFlameLightenOverlayCandidate(emitter) &&
     !hasSourceMdlEmitterPayloadSignal(emitter)
     ? Math.max(sourceOrder, AURORA_FLAME_LIGHTEN_THREE_RENDER_ORDER)
@@ -13135,9 +13150,9 @@ function buildAuroraEmitterRenderOrderAdapterUserData(
     auroraEmitterThreeRenderOrder: resolveAuroraEmitterThreeRenderOrder(emitter),
     auroraEmitterRenderOrderAdapterPreviewMode: "aurora-source-renderorder-short-adapter",
     auroraEmitterRenderOrderAdapterDirection:
-      "lower-aurora-renderorder-renders-later-preview",
+      "lower-aurora-renderorder-renders-first-when-adapter-keys-tie",
     auroraEmitterRenderOrderAdapterDiagnostic:
-      "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED",
+      "VFX_RENDERORDER_CONTEXTUAL_TIE_BREAK_CONFIRMED",
     ...(flameLightenOverlay
       ? {
           auroraEmitterFlameLightenRenderLayer:
@@ -13298,13 +13313,18 @@ function mapAuroraVectorToThree(value: [number, number, number]): THREE.Vector3 
   return new THREE.Vector3(value[0], value[2], value[1]);
 }
 
+function mapAuroraRotationAxisToThree(value: [number, number, number]): THREE.Vector3 {
+  // C=(x,z,y) reflects handedness, so C*R(a)*C^-1 uses -C*a at the same angle.
+  return mapAuroraVectorToThree(value).negate();
+}
+
 function resolveAuroraEmitterTransformQuaternion(
   transform: ResolvedAuroraEmitterTransform | null
 ): THREE.Quaternion | null {
   if (!transform?.orientation) {
     return null;
   }
-  const mappedAxis = mapAuroraVectorToThree(transform.orientation.axis).normalize();
+  const mappedAxis = mapAuroraRotationAxisToThree(transform.orientation.axis).normalize();
   if (mappedAxis.lengthSq() <= 1e-12) {
     return null;
   }
@@ -13968,7 +13988,7 @@ function applyAuroraEmitterTransformToGroup(
         ? resolveThreeAxisAngleFromQuaternion(timelineOrientationQuaternion)
         : transform.orientation
           ? {
-              axis: mapAuroraVectorToThree(transform.orientation.axis).normalize(),
+              axis: mapAuroraRotationAxisToThree(transform.orientation.axis).normalize(),
               angleRadians: transform.orientation.angleRadians
             }
           : null;
@@ -14556,9 +14576,11 @@ function applyAuroraEmitterUpdateModeToPreviewProfile(
       evaluatedBirthrate > 0 &&
       evaluatedLifeSeconds !== undefined &&
       evaluatedLifeSeconds > 0
-        ? Math.round(clampNumber(evaluatedBirthrate * evaluatedLifeSeconds, 0, 48))
+        ? Math.max(0, Math.trunc(evaluatedBirthrate))
         : 0;
     next.explosionRequestedSpawnCount = sourceBurstCount;
+    next.particleCountSource = sourceBurstCount;
+    next.particleCountPreviewMode = "explosion-truncated-birthrate-source-count";
     next.kind = "spark";
     next.emissionMode = "burst";
     next.loopEmission = false;
@@ -14569,7 +14591,7 @@ function applyAuroraEmitterUpdateModeToPreviewProfile(
       if (sourceBurstCount <= 0) {
         next.count = 0;
         next.particleCountSource = 0;
-        next.particleCountPreviewMode = "birthrate-lifetime-source-count";
+        next.particleCountPreviewMode = "explosion-truncated-birthrate-source-count";
         next.detonateEvents = detonateEvents;
         next.requiresDetonateEvent = false;
         next.detonatePreviewMode = "detonate-event-scheduled-muted-zero-spawn";
@@ -16529,4 +16551,25 @@ export function writePlaceableModelDebugStatus(
       })
     );
   }
+}
+
+export function writePlaceableFastShadowTextureDebugStatus(
+  runtime: {
+    container?: {
+      dataset?: DOMStringMap | Record<string, string | undefined>;
+    };
+  },
+  details: {
+    status: "applied" | "missing";
+    url: string;
+    source: string;
+  }
+): void {
+  const dataset = runtime.container?.dataset;
+  if (!dataset) {
+    return;
+  }
+  dataset.placeableFastShadowTextureStatus = details.status;
+  dataset.placeableFastShadowTextureUrl = details.url;
+  dataset.placeableFastShadowTextureSource = details.source;
 }

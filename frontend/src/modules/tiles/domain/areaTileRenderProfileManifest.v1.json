@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "revision": "aurora-area-tile-render-profile-v1-2026-09-01",
+  "entries": [
+    {
+      "mdlSourceContentSha256": "d2e9e820f3dcbf0a8aca4a461e45a9fca86892ed54c94c1de4b6ebe69394303a",
+      "profileId": "all-black-void-hide-source-masks-v1",
+      "evidenceStatus": "offline-source-calibration-pending-live-visual-recertification",
+      "evidenceReference": ".codex-tmp/module-blob-mirror/modules/current/__aurora/sources/tiles/hak/_sic11/sic11_a00_00.mdl",
+      "blackMaterialPolicy": "hide-all-black-materials",
+      "sourceCropMaskPolicy": "hide"
+    },
+    {
+      "mdlSourceContentSha256": "0e6ca4c04b1548bcf71111cf3ddb1e9d7c3255aaf15816940852278588cca731",
+      "profileId": "all-black-void-preserve-source-masks-v1",
+      "evidenceStatus": "offline-source-calibration-pending-live-visual-recertification",
+      "evidenceReference": ".codex-tmp/module-blob-mirror/modules/current/__aurora/sources/vanilla/models/tni01_o20_01.mdl",
+      "blackMaterialPolicy": "hide-all-black-materials",
+      "sourceCropMaskPolicy": "preserve"
+    },
+    {
+      "mdlSourceContentSha256": "0e84d5a36c2b3d0ab5bedbd4ade4f3e2d58b94c5840207fc529a11165874efe5",
+      "profileId": "black-crop-material-preserve-source-masks-v1",
+      "evidenceStatus": "offline-source-calibration-pending-live-visual-recertification",
+      "evidenceReference": ".codex-tmp/module-blob-mirror/modules/current/__aurora/sources/tiles/hak/q_tilesets/gin11_s01_02.mdl",
+      "blackMaterialPolicy": "hide-all-black-materials",
+      "sourceCropMaskPolicy": "preserve"
+    }
+  ]
+}

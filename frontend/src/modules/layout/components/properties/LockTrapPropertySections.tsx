@@ -1,5 +1,6 @@
 import { useId } from "react";
 import type { ReactNode } from "react";
+import { PLACEABLE_KEY_NAME_MAX_LENGTH } from "../../../scene/domain/placeableKeyName";
 
 export interface SharedLockSettings {
   locked: boolean;
@@ -78,12 +79,17 @@ export interface SharedLockSectionProps {
     disableLockDetailsWhenUnlocked?: boolean;
     disableAutoRemoveKeyUnlessLockedAndRelockable?: boolean;
   };
+  isFieldDisabled?: (field: keyof SharedLockSettings) => boolean;
 }
 
 export interface SharedTrapSectionProps {
   value: SharedTrapSettings;
   onChange: SharedTrapFieldUpdater;
   trapTypeOptions: readonly string[];
+  trapTypeRowOptions?: readonly Readonly<{ value: number; label: string }>[];
+  trapTypeRowValue?: number;
+  trapTypeRowDisabled?: boolean;
+  onTrapTypeRowChange?: (value: number) => void;
   disabled?: boolean;
   legend?: ReactNode;
   trapSettingsLegend?: ReactNode;
@@ -91,6 +97,7 @@ export interface SharedTrapSectionProps {
   behavior?: {
     disableTrapDetailsWhenUntrapped?: boolean;
   };
+  isFieldDisabled?: (field: keyof SharedTrapSettings) => boolean;
   scriptActionButtons?: Partial<Record<SharedTrapScriptField, SharedTrapScriptActionButton[]>>;
 }
 
@@ -110,12 +117,15 @@ export function SharedLockPropertySection({
   disabled = false,
   legend,
   classNames,
-  behavior
+  behavior,
+  isFieldDisabled
 }: SharedLockSectionProps) {
+  const fieldDisabled = (field: keyof SharedLockSettings): boolean =>
+    disabled || Boolean(isFieldDisabled?.(field));
   const lockDetailsDisabled =
     disabled || Boolean(behavior?.disableLockDetailsWhenUnlocked && !value.locked);
   const autoRemoveKeyDisabled =
-    disabled ||
+    fieldDisabled("autoRemoveKeyAfterUse") ||
     Boolean(
       behavior?.disableAutoRemoveKeyUnlessLockedAndRelockable &&
         (!value.locked || !value.canRelock)
@@ -128,7 +138,7 @@ export function SharedLockPropertySection({
         <input
           type="checkbox"
           checked={value.locked}
-          disabled={disabled}
+          disabled={fieldDisabled("locked")}
           onChange={(event) => onChange("locked", event.target.checked)}
         />
         Locked
@@ -137,7 +147,7 @@ export function SharedLockPropertySection({
         <input
           type="checkbox"
           checked={value.canRelock}
-          disabled={disabled}
+          disabled={fieldDisabled("canRelock")}
           onChange={(event) => onChange("canRelock", event.target.checked)}
         />
         Can be relocked
@@ -155,7 +165,7 @@ export function SharedLockPropertySection({
         <input
           type="checkbox"
           checked={value.keyRequiredToUnlockOrLock}
-          disabled={lockDetailsDisabled}
+          disabled={lockDetailsDisabled || fieldDisabled("keyRequiredToUnlockOrLock")}
           onChange={(event) => onChange("keyRequiredToUnlockOrLock", event.target.checked)}
         />
         Key required to unlock or lock
@@ -167,7 +177,9 @@ export function SharedLockPropertySection({
             <input
               type="number"
               step="1"
-              disabled={lockDetailsDisabled}
+              min="0"
+              max="255"
+              disabled={lockDetailsDisabled || fieldDisabled("openLockDc")}
               value={value.openLockDc}
               onChange={(event) => onChange("openLockDc", parseNumericInputValue(event.target.value))}
             />
@@ -179,7 +191,9 @@ export function SharedLockPropertySection({
             <input
               type="number"
               step="1"
-              disabled={lockDetailsDisabled}
+              min="0"
+              max="255"
+              disabled={lockDetailsDisabled || fieldDisabled("closeLockDc")}
               value={value.closeLockDc}
               onChange={(event) =>
                 onChange("closeLockDc", parseNumericInputValue(event.target.value))
@@ -193,7 +207,8 @@ export function SharedLockPropertySection({
         <div className={classNames?.fieldControl}>
           <input
             type="text"
-            disabled={lockDetailsDisabled}
+            maxLength={PLACEABLE_KEY_NAME_MAX_LENGTH}
+            disabled={lockDetailsDisabled || fieldDisabled("keyTag")}
             value={value.keyTag}
             onChange={(event) => onChange("keyTag", event.target.value)}
           />
@@ -207,16 +222,23 @@ export function SharedTrapPropertySection({
   value,
   onChange,
   trapTypeOptions,
+  trapTypeRowOptions,
+  trapTypeRowValue,
+  trapTypeRowDisabled = false,
+  onTrapTypeRowChange,
   disabled = false,
   legend,
   trapSettingsLegend = "Trap Settings",
   classNames,
   behavior,
+  isFieldDisabled,
   scriptActionButtons
 }: SharedTrapSectionProps) {
   const generatedId = useId();
   const nestedSettingsDisabled =
     disabled || Boolean((behavior?.disableTrapDetailsWhenUntrapped ?? true) && !value.isTrapped);
+  const fieldDisabled = (field: keyof SharedTrapSettings): boolean =>
+    nestedSettingsDisabled || Boolean(isFieldDisabled?.(field));
 
   const renderScriptRow = (
     field: SharedTrapScriptField,
@@ -233,6 +255,7 @@ export function SharedTrapPropertySection({
         <input
           id={inputId}
           type="text"
+          disabled={fieldDisabled(field)}
           value={inputValue}
           onChange={(event) => onInputChange(event.target.value)}
         />
@@ -242,7 +265,7 @@ export function SharedTrapPropertySection({
             type="button"
             title={action.title}
             className={action.className}
-            disabled={nestedSettingsDisabled || Boolean(action.disabled)}
+            disabled={fieldDisabled(field) || Boolean(action.disabled)}
             onClick={() => action.onClick?.(field)}
           >
             {action.label}
@@ -259,26 +282,38 @@ export function SharedTrapPropertySection({
         <input
           type="checkbox"
           checked={value.isTrapped}
-          disabled={disabled}
+          disabled={disabled || Boolean(isFieldDisabled?.("isTrapped"))}
           onChange={(event) => onChange("isTrapped", event.target.checked)}
         />
         Is Trapped
       </label>
-      <fieldset className={classNames?.nested} disabled={nestedSettingsDisabled}>
+      <fieldset className={classNames?.nested}>
         <legend>{trapSettingsLegend}</legend>
         <label className={classNames?.fieldRow}>
           <span>Trap Type</span>
           <div className={classNames?.fieldControl}>
-            <select
-              value={value.trapType}
-              onChange={(event) => onChange("trapType", event.target.value)}
-            >
-              {trapTypeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            {trapTypeRowOptions ? (
+              <select
+                aria-label="Trap Type"
+                disabled={nestedSettingsDisabled || trapTypeRowDisabled}
+                value={trapTypeRowValue ?? ""}
+                onChange={(event) => onTrapTypeRowChange?.(Number(event.target.value))}
+              >
+                {trapTypeRowOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                disabled={fieldDisabled("trapType")}
+                value={value.trapType}
+                onChange={(event) => onChange("trapType", event.target.value)}
+              >
+                {trapTypeOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            )}
           </div>
         </label>
         <div className={classNames?.dualFields}>
@@ -288,6 +323,7 @@ export function SharedTrapPropertySection({
               <input
                 type="number"
                 step="1"
+                disabled={fieldDisabled("detectionDc")}
                 value={value.detectionDc}
                 onChange={(event) =>
                   onChange("detectionDc", parseNumericInputValue(event.target.value))
@@ -301,6 +337,7 @@ export function SharedTrapPropertySection({
               <input
                 type="number"
                 step="1"
+                disabled={fieldDisabled("disarmDc")}
                 value={value.disarmDc}
                 onChange={(event) => onChange("disarmDc", parseNumericInputValue(event.target.value))}
               />
@@ -312,6 +349,7 @@ export function SharedTrapPropertySection({
             <input
               type="checkbox"
               checked={value.oneShot}
+              disabled={fieldDisabled("oneShot")}
               onChange={(event) => onChange("oneShot", event.target.checked)}
             />
             One Shot
@@ -320,6 +358,7 @@ export function SharedTrapPropertySection({
             <input
               type="checkbox"
               checked={value.detectable}
+              disabled={fieldDisabled("detectable")}
               onChange={(event) => onChange("detectable", event.target.checked)}
             />
             Detectable
@@ -328,6 +367,7 @@ export function SharedTrapPropertySection({
             <input
               type="checkbox"
               checked={value.disarmable}
+              disabled={fieldDisabled("disarmable")}
               onChange={(event) => onChange("disarmable", event.target.checked)}
             />
             Disarmable
@@ -349,6 +389,7 @@ export function SharedTrapPropertySection({
               <input
                 type="number"
                 step="1"
+                disabled={fieldDisabled("setDc")}
                 value={value.setDc}
                 onChange={(event) => onChange("setDc", parseNumericInputValue(event.target.value))}
               />
@@ -361,6 +402,7 @@ export function SharedTrapPropertySection({
             <input
               type="number"
               step="1"
+              disabled={fieldDisabled("detectDcModWhenSetByRogue")}
               value={value.detectDcModWhenSetByRogue}
               onChange={(event) =>
                 onChange("detectDcModWhenSetByRogue", parseNumericInputValue(event.target.value))
@@ -374,6 +416,7 @@ export function SharedTrapPropertySection({
             <input
               type="number"
               step="1"
+              disabled={fieldDisabled("disarmDcModWhenSetByRogue")}
               value={value.disarmDcModWhenSetByRogue}
               onChange={(event) =>
                 onChange("disarmDcModWhenSetByRogue", parseNumericInputValue(event.target.value))

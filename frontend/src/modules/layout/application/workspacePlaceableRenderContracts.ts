@@ -10,6 +10,7 @@ import {
 import type { PlaceableApiProcessPayload } from "../../placeables/contracts";
 import { resolveWorkspaceBackendApiBaseUrl } from "../../shared/workspaceBackendApiBaseUrl";
 import type { SceneObject, SceneObjectKind } from "../contracts";
+import { readExistingPlaceableAppearanceProvenance } from "./placeableAppearanceProvenance";
 
 export const SHARED_PLACEABLES_RENDERER_PATH = "shared-placeables-renderer";
 const AREA_INSTANCE_RENDER_ROW_CACHE_KEY_PREFIX = "area-instance-render-row";
@@ -138,6 +139,25 @@ export function isAreaSharedPlaceablesRendererSceneObject(object: SceneObject): 
   return object.source?.type === "aurora_git" && isSharedPlaceablesRendererSceneObject(object);
 }
 
+export function resolveSceneObjectRenderAppearanceType(object: SceneObject): number | undefined {
+  const provenance = object.kind === "placeables"
+    ? readExistingPlaceableAppearanceProvenance(object.source)
+    : null;
+  const target = object.placeableProperties?.appearanceType;
+  if (
+    provenance &&
+    Number.isSafeInteger(target) &&
+    Number(target) >= 0 &&
+    Number(target) < provenance.rowCount
+  ) {
+    return Number(target);
+  }
+  const sourceAppearanceType = object.source?.appearanceType;
+  return Number.isFinite(sourceAppearanceType)
+    ? Number(sourceAppearanceType)
+    : undefined;
+}
+
 export function resolvePlaceableRenderPayloadLookup(
   object: SceneObject
 ): PlaceableRenderPayloadLookup {
@@ -151,7 +171,7 @@ export function resolvePlaceableRenderPayloadLookup(
       : object.source?.type === "aurora_git" && object.kind === "placeables" && !isAuroraGitVfxLikePlaceable(object)
         ? "generic"
         : undefined;
-  const sourceAppearanceType = object.source?.appearanceType;
+  const sourceAppearanceType = resolveSceneObjectRenderAppearanceType(object);
   const sourceGenericType = object.source?.genericType;
   const sourceTag =
     object.source?.type === "aurora_git" && object.tag.trim().length > 0

@@ -17,6 +17,18 @@ export interface SoundGuideEditorOverlayOptions {
   readonly locked?: boolean;
 }
 
+export const SOUND_GUIDE_WORLD_GEOMETRY_REVISION =
+  "aurora-sound-guide-world-geometry.v1" as const;
+
+export interface SoundGuideWorldGeometry {
+  readonly metersToWorldScale: number;
+  readonly elevationOffsetWorld: number;
+  readonly maxVolumeRadiusWorld: number;
+  readonly cutoffRadiusWorld: number;
+  readonly randomRangeHalfWidthWorld: number;
+  readonly randomRangeHalfDepthWorld: number;
+}
+
 export type SoundGuideNonSerializableKey =
   | "__soundGuideOverlayState"
   | "__soundGuideGeometryCache"
@@ -81,12 +93,9 @@ export function normalizeSoundGuidePositioning(
     : isMode(fallback?.mode)
       ? fallback.mode
       : DEFAULT_SOUND_GUIDE_POSITIONING.mode;
-  const nextElevation = clampMin(
-    asFiniteNumber(
-      raw?.elevation,
-      asFiniteNumber(fallback?.elevation, DEFAULT_SOUND_GUIDE_POSITIONING.elevation)
-    ),
-    0
+  const nextElevation = asFiniteNumber(
+    raw?.elevation,
+    asFiniteNumber(fallback?.elevation, DEFAULT_SOUND_GUIDE_POSITIONING.elevation)
   );
   const nextMaxVolumeDistance = clampMin(
     asFiniteNumber(
@@ -168,6 +177,27 @@ export function resolveSoundGuideOverlayFlagsFromPositioning(
     return { ...EMPTY_OVERLAY_FLAGS };
   }
   return resolveSoundGuideOverlayFlags(positioning.mode);
+}
+
+export function resolveSoundGuideWorldGeometry(
+  positioning: Partial<Record<keyof SceneObjectSoundPositioning, unknown>> | null | undefined,
+  unitsPerTile: number
+): SoundGuideWorldGeometry {
+  const normalized = normalizeSoundGuidePositioning(positioning);
+  const safeUnitsPerTile = Number.isFinite(unitsPerTile)
+    ? Math.max(1, unitsPerTile)
+    : 1;
+  const metersToWorldScale = 1 / safeUnitsPerTile;
+  return {
+    metersToWorldScale,
+    elevationOffsetWorld: normalized.elevation * metersToWorldScale,
+    maxVolumeRadiusWorld: normalized.maxVolumeDistance * metersToWorldScale,
+    cutoffRadiusWorld: normalized.cutoffDistance * metersToWorldScale,
+    randomRangeHalfWidthWorld:
+      normalized.randomRangeWestEast * metersToWorldScale * 0.5,
+    randomRangeHalfDepthWorld:
+      normalized.randomRangeNorthSouth * metersToWorldScale * 0.5
+  };
 }
 
 export function resolveEditorSoundGuideOverlayFlags(

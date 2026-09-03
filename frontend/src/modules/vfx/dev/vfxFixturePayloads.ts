@@ -3,9 +3,30 @@ import type { AuroraVfxPayload } from "../../scene/contracts";
 export const DEV_VFX_DEFAULT_FIXTURE_ID =
   "vfx-retail-dm-visualeffect-row-68-duration-0";
 export const DEV_VFX_TEXTURE_REFERENCE = "fx_canonical_fire";
+export const DEV_VFX_CHUNK_MODEL_FIXTURE_RESOURCE_KEY =
+  "progfx_type9_chunk_model_pending.local.glb";
 export const DEV_VFX_ORACLE = "render-contract-local-diagnostic";
 
 type DevVfxDrawLane = "textured_quad" | "linked_textured_quad" | "chunk_model";
+
+export type DevVfxAnalysisFeature =
+  | "explosion-detonate-particle-pair"
+  | "fountain-atlas-particles"
+  | "gravity-reference-arc"
+  | "plt-layer-color-order"
+  | "purple-pale-particle-pair"
+  | "source-target-beam-segments"
+  | "warm-turquoise-particle-pair";
+
+export interface DevVfxAnalysisProfile {
+  version: "aurora-vfx-analysis-profile/v1";
+  features: readonly DevVfxAnalysisFeature[];
+}
+
+export interface DevVfxDiagnosticSceneProfile {
+  version: "aurora-vfx-diagnostic-scene/v1";
+  recipe: "cross-lane-light-probes";
+}
 
 interface DevProgFxType4LightFixture {
   rowId: number;
@@ -80,12 +101,20 @@ interface DevVfxFixtureDefinition {
   constructorKind: string;
   applicationMode: string;
   rawInvocation: string;
+  diagnosticScene?: DevVfxDiagnosticSceneProfile;
+  analysisFeatures?: readonly DevVfxAnalysisFeature[];
   drawParticleCount?: number;
   activeParticleCount?: number;
   drawLane?: DevVfxDrawLane;
   chunkName?: string;
+  chunkResourceKey?: string;
+  chunkResourceLayer?: string;
+  chunkResourcePath?: string;
+  chunkResourceHash?: string;
+  chunkResourceCandidateId?: string;
   linkedChain?: boolean;
   p2pGravity?: boolean;
+  motionBlur?: boolean;
   beamEffect?: boolean;
   progFxType4Light?: DevProgFxType4LightFixture;
   progFxType4Requests?: readonly DevProgFxType4LightFixture[];
@@ -140,6 +169,7 @@ export interface DevVfxFixturePayloadResult {
   comparisonResult: "local-visible";
   canonicalParityPromoted: false;
   textureReference: typeof DEV_VFX_TEXTURE_REFERENCE;
+  diagnosticScene?: DevVfxDiagnosticSceneProfile;
   payload: AuroraVfxPayload;
 }
 
@@ -261,6 +291,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     constructorKind: "dm_visualeffect",
     applicationMode: "object",
     rawInvocation: "dm_visualeffect 68 0",
+    analysisFeatures: ["warm-turquoise-particle-pair"],
     palette: [
       { r: 1, g: 0.35, b: 0.22 },
       { r: 0.28, g: 0.95, b: 0.82 }
@@ -276,6 +307,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     applicationMode: "object",
     rawInvocation:
       "ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectVisualEffect(VFX_IMP_DEATH), oTarget);",
+    analysisFeatures: ["purple-pale-particle-pair"],
     palette: [
       { r: 0.72, g: 0.5, b: 1 },
       { r: 0.9, g: 0.9, b: 1 }
@@ -298,6 +330,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     bodyNode: "BODY_NODE_CHEST",
     drawParticleCount: 5,
     beamEffect: true,
+    analysisFeatures: ["source-target-beam-segments"],
     diagnostics: [
       {
         bucket: "sourceRows",
@@ -335,6 +368,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     constructorKind: "EffectVisualEffect",
     applicationMode: "location",
     rawInvocation: "EffectVisualEffect(VFX_FNF_FIREBALL) plus MDL animation event detonate",
+    analysisFeatures: ["explosion-detonate-particle-pair"],
     palette: [
       { r: 1, g: 0.68, b: 0.18 },
       { r: 1, g: 0.18, b: 0.1 }
@@ -351,6 +385,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     rawInvocation:
       "backend/tmp_cot_fx01.mdl emitter fire!03 Fountain atlas xgrid/ygrid/fps/framestart/frameend/random",
     drawParticleCount: 6,
+    analysisFeatures: ["fountain-atlas-particles"],
     fountainAtlas: {
       textureRef: "fx_canonical_fire",
       xgrid: 4,
@@ -380,6 +415,12 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     drawParticleCount: 0,
     drawLane: "chunk_model",
     chunkName: "progfx_type9_chunk_model_pending",
+    chunkResourceKey: DEV_VFX_CHUNK_MODEL_FIXTURE_RESOURCE_KEY,
+    chunkResourceLayer: "dev-fixture-local-template",
+    chunkResourcePath:
+      "frontend/src/modules/vfx/dev/VfxFixtureRunner.tsx#createFixtureChunkModelTemplates",
+    chunkResourceHash: "local-template-no-retail-resource-hash",
+    chunkResourceCandidateId: "dev-fixture:progfx-type9-local-template",
     diagnostics: [
       {
         bucket: "sourceRows",
@@ -390,10 +431,10 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
       },
       {
         bucket: "dependencyGraph",
-        code: "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
+        code: "VFX_CHUNK_MODEL_RETAIL_RESOURCE_REQUIRED",
         severity: "warn",
         message:
-          "Chunk-particle lane requires a resolved chunk-model resource before canonical retail parity can be claimed."
+          "Chunk-particle lane uses a local model-template candidate; retail resource dump and Toolset/NWN comparison are still required before canonical parity can be claimed."
       },
       {
         bucket: "renderContract",
@@ -788,6 +829,10 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     applicationMode: "scene",
     rawInvocation:
       "Diagnostic scene with tile/placeable/source-mdl/item-property PointLight lanes plus ProgFX Type 4 request; coverage only, not retail insertion ordering.",
+    diagnosticScene: {
+      version: "aurora-vfx-diagnostic-scene/v1",
+      recipe: "cross-lane-light-probes"
+    },
     drawParticleCount: 4,
     activeParticleCount: 4,
     progFxType4Light: {
@@ -863,7 +908,8 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     constructorKind: "MDL_EMITTER",
     applicationMode: "source_only",
     rawInvocation: "Linked particle chain retail fixture required",
-    drawParticleCount: 5,
+    drawParticleCount: 4,
+    activeParticleCount: 5,
     drawLane: "linked_textured_quad",
     linkedChain: true,
     diagnostics: [
@@ -879,7 +925,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
         code: "VFX_DEV_LINKED_CHAIN_DIAGNOSTIC_ONLY",
         severity: "warn",
         message:
-          "Dev fixture preserves linked_textured_quad lane selection; local quads cannot prove Aurora linked segment-buffer parity."
+          "Dev fixture preserves linked_textured_quad lane selection with local contiguous segments; this cannot prove Aurora linked segment-buffer parity."
       },
       {
         bucket: "payload",
@@ -905,6 +951,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     rawInvocation: "P2P gravity with target/reference-node context retail fixture required",
     drawParticleCount: 7,
     p2pGravity: true,
+    analysisFeatures: ["gravity-reference-arc"],
     diagnostics: [
       {
         bucket: "sourceRows",
@@ -931,6 +978,46 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     palette: [
       { r: 0.4, g: 0.74, b: 1 },
       { r: 1, g: 0.7, b: 0.22 }
+    ]
+  },
+  {
+    fixtureId: "vfx-retail-motion-blur-velocity-basis",
+    title: "Motion Blur velocity-basis local diagnostic",
+    rowId: 9014,
+    label: "motion_blur_velocity_basis_diagnostic",
+    sourceAuthority: "source-token-backed-local-diagnostic",
+    constructorKind: "MDL_EMITTER",
+    applicationMode: "source_only",
+    rawInvocation:
+      "Motion_Blur render-mode token is present in C:/Projects/New Folder/export/strings.tsv:15617 and selected in decompiled_all.c:853936; retail timing/endpoints still required",
+    drawParticleCount: 4,
+    motionBlur: true,
+    diagnostics: [
+      {
+        bucket: "sourceRows",
+        code: "VFX_MOTION_BLUR_RENDER_MODE_TOKEN_SOURCE_BACKED",
+        severity: "info",
+        message:
+          "Aurora reference export contains the Motion_Blur render-mode token at strings.tsv:15617 and decompiled_all.c:853936."
+      },
+      {
+        bucket: "renderContract",
+        code: "VFX_DEV_MOTION_BLUR_VELOCITY_BASIS_DIAGNOSTIC_ONLY",
+        severity: "warn",
+        message:
+          "Dev fixture preserves Motion_Blur render mode and exercises local velocity-aligned geometry; this is not an Aurora retail endpoint/timing proof."
+      },
+      {
+        bucket: "payload",
+        code: "VFX_MOTION_BLUR_RETAIL_ENDPOINT_TIMING_REQUIRED",
+        severity: "warn",
+        message:
+          "Canonical Motion_Blur parity requires retail runtime previous/current endpoints, blurLength, timing, and screenshot comparison evidence."
+      }
+    ],
+    palette: [
+      { r: 0.34, g: 0.88, b: 1 },
+      { r: 1, g: 0.52, b: 0.2 }
     ]
   },
   {
@@ -987,6 +1074,7 @@ const DEV_VFX_FIXTURES: readonly DevVfxFixtureDefinition[] = [
     applicationMode: "source_only",
     rawInvocation: "PLT visual with known layer colors retail fixture required",
     drawParticleCount: 4,
+    analysisFeatures: ["plt-layer-color-order"],
     pltLayerColors: [
       { layer: "skin", color: { r: 1, g: 0.66, b: 0.42 } },
       { layer: "hair", color: { r: 0.62, g: 0.32, b: 0.08 } },
@@ -1124,16 +1212,22 @@ export function createDevAuroraVfxPayload(
   const drawParticleCount = Math.trunc(
     clampFinite(fixture.drawParticleCount, 2, drawLane === "chunk_model" ? 0 : 1, 24)
   );
+  const activeParticleCount = Math.trunc(
+    clampFinite(
+      fixture.activeParticleCount,
+      drawLane === "linked_textured_quad" ? drawParticleCount + 1 : drawParticleCount,
+      0,
+      24
+    )
+  );
   const drawRecords =
     drawLane === "chunk_model"
       ? []
       : Array.from({ length: drawParticleCount }, (_, particleIndex) =>
-          createDrawRecord(fixture, drawLane, particleIndex, drawParticleCount, timeSeconds, seed)
+          createDrawRecord(fixture, drawLane, particleIndex, activeParticleCount, timeSeconds, seed)
         );
-  const activeParticleCount = Math.trunc(
-    clampFinite(fixture.activeParticleCount, drawRecords.length, 0, 24)
-  );
   const verticesPerDrawParticle = drawLane === "chunk_model" ? 0 : 6;
+  const drawVertexCount = drawRecords.length * verticesPerDrawParticle;
   const fixtureDiagnostics = createFixtureDiagnostics(fixture);
   const progFxType4PrimaryLight = resolveFixturePrimaryProgFxType4Light(fixture);
   const progFxType4Requests = resolveFixtureProgFxType4Requests(fixture);
@@ -1149,6 +1243,8 @@ export function createDevAuroraVfxPayload(
     version: "aurora-vfx-payload/v1",
     canonicalStatus: "canonical",
     backendCanonical: true,
+    rendererEligibility: "source_backed",
+    retailParityStatus: "blocked",
     sourceKind: "effect_instance",
     previewMode: "none",
     diagnostics: {
@@ -1248,17 +1344,21 @@ export function createDevAuroraVfxPayload(
         activeParticleCount,
         drawParticleCount: drawRecords.length,
         verticesPerDrawParticle,
-        drawVertexCount: drawRecords.length * verticesPerDrawParticle,
+        drawVertexCount,
         drawLane,
         renderMode: {
           enum:
-            drawLane === "chunk_model"
+            fixture.motionBlur
+              ? "motion_blur"
+              : drawLane === "chunk_model"
               ? "chunk_model"
               : drawLane === "linked_textured_quad"
                 ? "linked_billboard"
                 : "billboard_to_world_z",
           rawToken:
-            drawLane === "chunk_model"
+            fixture.motionBlur
+              ? "Motion_Blur"
+              : drawLane === "chunk_model"
               ? "Chunk"
               : drawLane === "linked_textured_quad"
                 ? "Linked"
@@ -1279,6 +1379,10 @@ export function createDevAuroraVfxPayload(
           value: 7,
           rawValue: 7
         },
+        analysisProfile: {
+          version: "aurora-vfx-analysis-profile/v1",
+          features: [...(fixture.analysisFeatures ?? [])]
+        },
         drawRecords,
         diagnostics: [
           {
@@ -1293,7 +1397,27 @@ export function createDevAuroraVfxPayload(
               chunkLane: {
                 lane: "chunk_model",
                 chunkName: fixture.chunkName ?? "chunk_model_pending",
-                canonicalResourceResolved: false
+                activeParticleCount,
+                texturedQuadCanonical: false,
+                collapseAttempted: true,
+                canonicalResourceResolved: Boolean(fixture.chunkResourceKey),
+                resourceResolveStatus: fixture.chunkResourceKey ? "resolved" : "unresolved",
+                ...(fixture.chunkResourceKey
+                  ? {
+                      resolvedResource: {
+                        requestedRef: fixture.chunkName ?? "chunk_model_pending",
+                        resourceKey: fixture.chunkResourceKey,
+                        sourceLayer: fixture.chunkResourceLayer ?? "dev-fixture-local-template",
+                        sourcePath: fixture.chunkResourcePath ?? fixture.chunkResourceKey,
+                        resourceHash:
+                          fixture.chunkResourceHash ?? "local-template-no-retail-resource-hash",
+                        candidateId:
+                          fixture.chunkResourceCandidateId ??
+                          `dev-fixture:${fixture.chunkResourceKey}`,
+                        resolutionSource: "dev-fixture-local-template"
+                      }
+                    }
+                  : {})
               }
             }
           : {}),
@@ -1368,6 +1492,9 @@ export function createDevAuroraVfxPayload(
     comparisonResult: "local-visible",
     canonicalParityPromoted: false,
     textureReference: DEV_VFX_TEXTURE_REFERENCE,
+    ...(fixture.diagnosticScene
+      ? { diagnosticScene: { ...fixture.diagnosticScene } }
+      : {}),
     payload
   };
 }
@@ -1393,12 +1520,21 @@ function createFixtureDiagnostics(fixture: DevVfxFixtureDefinition) {
 
 function createDependencyEdges(fixture: DevVfxFixtureDefinition, drawLane: DevVfxDrawLane) {
   if (drawLane === "chunk_model") {
+    const selectedCandidate = fixture.chunkResourceKey
+      ? {
+          candidateId: fixture.chunkResourceCandidateId ?? `dev-fixture:${fixture.chunkResourceKey}`,
+          resourceKey: fixture.chunkResourceKey,
+          sourceLayer: fixture.chunkResourceLayer ?? "dev-fixture-local-template",
+          sourcePath: fixture.chunkResourcePath ?? fixture.chunkResourceKey,
+          resourceHash: fixture.chunkResourceHash ?? "local-template-no-retail-resource-hash"
+        }
+      : null;
     return [
       {
         edgeType: "chunk_model",
         requestedResourceClass: "chunk_model",
         requestedRef: fixture.chunkName ?? "chunk_model_pending",
-        selectedCandidate: null
+        selectedCandidate
       }
     ];
   }
@@ -1464,9 +1600,18 @@ function createDrawRecord(
   const linkedPhase = timeSeconds * Math.PI + seed * 0.011;
   const linkedX = (normalizedIndex - 0.5) * 0.78;
   const linkedY = Math.sin(normalizedIndex * Math.PI * 2 + linkedPhase) * 0.16;
+  const linkedNextNormalizedIndex =
+    particleCount <= 1 ? 0.5 : Math.min(1, (particleIndex + 1) / (particleCount - 1));
+  const linkedNextX = (linkedNextNormalizedIndex - 0.5) * 0.78;
+  const linkedNextY =
+    Math.sin(linkedNextNormalizedIndex * Math.PI * 2 + linkedPhase) * 0.16;
   const p2pX = -0.48 + normalizedIndex * 0.96;
   const p2pArc = 4 * normalizedIndex * (1 - normalizedIndex);
   const p2pY = -0.2 + p2pArc * 0.46 - normalizedIndex * normalizedIndex * 0.18;
+  const motionBlurX = -0.34 + normalizedIndex * 0.68;
+  const motionBlurY = -0.16 + normalizedIndex * 0.32;
+  const motionBlurVelocityX = 0.9 + normalizedIndex * 0.7;
+  const motionBlurVelocityY = 0.35 + normalizedIndex * 0.25;
   const beamX = -0.62 + normalizedIndex * 1.24;
   const beamY = -0.08 + normalizedIndex * 0.24 + Math.sin(normalizedIndex * Math.PI) * 0.04;
   const progFxType4Light = resolveFixturePrimaryProgFxType4Light(fixture);
@@ -1487,6 +1632,12 @@ function createDrawRecord(
     lane: drawLane === "linked_textured_quad" ? "linked_textured_quad" : "textured_quad",
     particleId: fixture.rowId * 10 + particleIndex,
     particleIndex,
+    ...(drawLane === "linked_textured_quad"
+      ? {
+          linkedNextParticleId: fixture.rowId * 10 + particleIndex + 1,
+          linkedNextPosition: { x: linkedNextX, y: linkedNextY, z: 0 }
+        }
+      : {}),
     verticesPerParticle: 6,
     vertexCount: 6,
     drawRoute: {
@@ -1494,12 +1645,24 @@ function createDrawRecord(
       indexed: false,
       drawModeArgument: 3,
       drawModeArgumentSource: "aurora-draw-wrapper-mode-arg3",
-      enumTableCaptured: false,
-      triangleListInferenceProof: "diagnostic_pending"
+      enumTableCaptured: true,
+      glPrimitiveMode: "GL_TRIANGLES",
+      glPrimitiveModeEnum: 0x0004,
+      triangleListInferenceProof: "confirmed_draw_wrapper_table_index_3_gl_triangles",
+      primitiveModeSource: "nwtoolset-1.5.0.5-disassembly",
+      binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
     },
     renderMode: {
-      enum: drawLane === "linked_textured_quad" ? "linked_billboard" : "billboard_to_world_z",
-      rawToken: drawLane === "linked_textured_quad" ? "Linked" : "Billboard_to_World_Z"
+      enum: fixture.motionBlur
+        ? "motion_blur"
+        : drawLane === "linked_textured_quad"
+          ? "linked_billboard"
+          : "billboard_to_world_z",
+      rawToken: fixture.motionBlur
+        ? "Motion_Blur"
+        : drawLane === "linked_textured_quad"
+          ? "Linked"
+          : "Billboard_to_World_Z"
     },
     blendMode: {
       enum: blendMode.enum,
@@ -1513,6 +1676,8 @@ function createDrawRecord(
     position: {
       x: fixture.p2pGravity
         ? p2pX
+        : fixture.motionBlur
+          ? motionBlurX
         : fixture.beamEffect
           ? beamX
           : progFxType4Light
@@ -1526,6 +1691,8 @@ function createDrawRecord(
         : side * (0.14 + 0.04 * Math.sin(phase)) + (normalizedIndex - 0.5) * 0.18,
       y: fixture.p2pGravity
         ? p2pY
+        : fixture.motionBlur
+          ? motionBlurY
         : fixture.beamEffect
           ? beamY
         : progFxType4Light
@@ -1542,6 +1709,8 @@ function createDrawRecord(
     velocity: {
       x: fixture.p2pGravity
         ? 0.12
+        : fixture.motionBlur
+          ? motionBlurVelocityX
         : fixture.beamEffect
           ? 0.18
           : progFxType4Light
@@ -1555,6 +1724,8 @@ function createDrawRecord(
             : side * 0.03,
       y: fixture.p2pGravity
         ? 0.16 - normalizedIndex * 0.22
+        : fixture.motionBlur
+          ? motionBlurVelocityY
         : fixture.beamEffect
           ? 0.04
         : progFxType4Light
@@ -1576,6 +1747,8 @@ function createDrawRecord(
     size: {
       x: fixture.p2pGravity
         ? 0.18 + 0.04 * Math.sin(phase)
+        : fixture.motionBlur
+          ? 0.12 + 0.03 * normalizedIndex
         : fixture.beamEffect
           ? 0.34
           : progFxType4Light
@@ -1589,6 +1762,8 @@ function createDrawRecord(
         : 0.34 + 0.08 * (1 - normalizedIndex) + 0.04 * Math.sin(phase),
       y: fixture.p2pGravity
         ? 0.22 + 0.04 * Math.cos(phase)
+        : fixture.motionBlur
+          ? 0.24 + 0.04 * Math.cos(phase)
         : fixture.beamEffect
           ? 0.12 + 0.02 * Math.sin(phase)
         : progFxType4Light

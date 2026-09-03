@@ -54,7 +54,7 @@ interface UseAnchoredObjectDialogSyncArgs<
   panelRef: { current: HTMLElement | null };
   sceneObjects: SceneObject[];
   visibleObjectIdsSet: ReadonlySet<string>;
-  objectKind: SceneObjectKind;
+  objectKind: SceneObjectKind | readonly SceneObjectKind[];
   fallbackWidthPx: number;
   fallbackHeightPx: number;
   layoutKey?: unknown;
@@ -127,7 +127,7 @@ export function useDialogEscape({ enabled, onEscape }: UseDialogEscapeArgs) {
 
 export function resolveAnchoredDialogTargetObject(input: {
   objectId: string;
-  objectKind: SceneObjectKind;
+  objectKind: SceneObjectKind | readonly SceneObjectKind[];
   sceneObjects: readonly SceneObject[];
   visibleObjectIdsSet: ReadonlySet<string>;
 }): SceneObject | null {
@@ -136,7 +136,12 @@ export function resolveAnchoredDialogTargetObject(input: {
   }
   const targetObject =
     input.sceneObjects.find((object) => object.id === input.objectId) ?? null;
-  if (!targetObject || targetObject.kind !== input.objectKind) {
+  const acceptsKind = targetObject
+    ? typeof input.objectKind === "string"
+      ? targetObject.kind === input.objectKind
+      : input.objectKind.includes(targetObject.kind)
+    : false;
+  if (!targetObject || !acceptsKind) {
     return null;
   }
   return targetObject;

@@ -3,7 +3,7 @@ export const AURORA_PLT_PALETTE_ROW_COUNT = 176;
 export const AURORA_PLT_PALETTE_ROW_MAX = AURORA_PLT_PALETTE_ROW_COUNT - 1;
 export const AURORA_PLT_PALETTE_COLOR_COUNT = 256;
 
-export const AURORA_PLT_PALETTE_CHANNEL_COUNT = 3;
+export const AURORA_PLT_PALETTE_CHANNEL_COUNT = 4;
 const AURORA_PLT_PALETTE_TABLE_BYTE_LENGTH =
   AURORA_PLT_PALETTE_ROW_COUNT *
   AURORA_PLT_PALETTE_COLOR_COUNT *
@@ -68,7 +68,7 @@ function buildAuroraPltPaletteTables(
       return;
     }
     const decoded = decodeBase64ToBytes(encodedTable);
-    if (!decoded || decoded.byteLength < AURORA_PLT_PALETTE_TABLE_BYTE_LENGTH) {
+    if (!decoded || decoded.byteLength !== AURORA_PLT_PALETTE_TABLE_BYTE_LENGTH) {
       return;
     }
     decodedTables.set(layerIndex, decoded);
@@ -85,11 +85,11 @@ export function isAuroraPltPaletteDataReady(): boolean {
   return Boolean(auroraPltPaletteTablesByLayer && auroraPltPaletteTablesByLayer.size > 0);
 }
 
-export function resolveAuroraPltPaletteRgbSync(
+export function resolveAuroraPltPaletteRgbaSync(
   layerIndex: number,
   row: number,
   colorIndex: number
-): [number, number, number] | null {
+): [number, number, number, number] | null {
   if (!isValidPaletteLayerIndex(layerIndex) || !auroraPltPaletteTablesByLayer) {
     return null;
   }
@@ -103,11 +103,16 @@ export function resolveAuroraPltPaletteRgbSync(
   const offset =
     (safeRow * AURORA_PLT_PALETTE_COLOR_COUNT + safeColorIndex) *
     AURORA_PLT_PALETTE_CHANNEL_COUNT;
-  if (offset + 2 >= table.byteLength) {
+  if (offset + 3 >= table.byteLength) {
     return null;
   }
 
-  return [table[offset] ?? 0, table[offset + 1] ?? 0, table[offset + 2] ?? 0];
+  return [
+    table[offset] ?? 0,
+    table[offset + 1] ?? 0,
+    table[offset + 2] ?? 0,
+    table[offset + 3] ?? 0
+  ];
 }
 
 export function ensureAuroraPltPaletteDataLoaded(): Promise<boolean> {
@@ -134,7 +139,10 @@ export function installAuroraPltPaletteDataForTests(
   const decodedTables = new Map<number, Uint8Array>();
   Object.entries(tablesByLayer).forEach(([layerKey, table]) => {
     const layerIndex = Number(layerKey);
-    if (!isValidPaletteLayerIndex(layerIndex) || table.byteLength < AURORA_PLT_PALETTE_TABLE_BYTE_LENGTH) {
+    if (
+      !isValidPaletteLayerIndex(layerIndex) ||
+      table.byteLength !== AURORA_PLT_PALETTE_TABLE_BYTE_LENGTH
+    ) {
       return;
     }
     decodedTables.set(layerIndex, table);

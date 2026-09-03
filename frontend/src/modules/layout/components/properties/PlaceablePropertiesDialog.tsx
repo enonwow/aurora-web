@@ -1,5 +1,11 @@
-import type { PointerEventHandler, Ref } from "react";
-import type { SceneObject } from "../../contracts";
+import { useState, type PointerEventHandler, type Ref } from "react";
+import type {
+  SceneObject,
+  ScenePlaceableBodyBagCatalog,
+  ScenePlaceableFactionCatalog,
+  ScenePlaceablePortraitCatalog,
+  ScenePlaceableTrapTypeCatalog,
+} from "../../contracts";
 import {
   SharedAdvancedSettingsSection,
   SharedDialogActionsFooter,
@@ -26,16 +32,64 @@ import {
   type PlaceablePropertiesTab,
   type PlaceableScriptSlotKey
 } from "../../application/workspaceObjectPropertyDrafts";
+import { canEditExistingPlaceableScriptSlot } from "../../application/placeableScriptProvenance";
+import { canEditExistingPlaceableTrapScript } from "../../application/placeableTrapScriptProvenance";
+import {
+  canEditExistingPlaceableTrapByteField,
+  isPlaceableTrapByteField
+} from "../../application/placeableTrapByteProvenance";
+import { canEditExistingPlaceableBoolean } from "../../application/placeableBooleanProvenance";
+import { canEditExistingPlaceableLockField } from "../../application/placeableLockProvenance";
+import { canEditExistingPlaceableDurabilitySaveByte } from "../../application/placeableDurabilitySaveProvenance";
+import {
+  canEditExistingPlaceableConversation,
+  canEditExistingPlaceableInterruptable
+} from "../../application/placeableConversationInterruptableProvenance";
+import { canEditExistingPlaceableAnimationState } from "../../application/placeableAnimationStateProvenance";
+import { canEditExistingPlaceableEditorComment } from "../../application/placeableEditorCommentProvenance";
+import {
+  formatPreservedPlaceableAppearanceType,
+  mustPreserveAuroraGitPlaceableBasicIdentity,
+  resolvePreservedPlaceableAppearanceDword
+} from "../../application/placeableBasicIdentityPreservation";
+import { PLACEABLE_EDITOR_COMMENT_MAX_CODE_UNITS } from "../../../scene/domain/placeableEditorComment";
+import {
+  ADMITTED_PLACEABLE_INVENTORY_TEMPLATE_RESREF,
+  PLACEABLE_INVENTORY_COORDINATE_MAX,
+  canEditExistingPlaceableInventory
+} from "../../application/placeableInventoryProvenance";
 import {
   resolvePlaceableRenderContractState,
   type PlaceableRenderContractState
 } from "../../application/workspacePlaceableRenderContracts";
 import type { PlaceableViewportRenderPayload } from "../../../placeables/application/placeableRenderPayloadResolver";
+import {
+  canEditExistingPlaceableAppearance,
+  isExistingPlaceableAppearanceCatalogAdmitted,
+  type ExistingPlaceableAppearanceCatalog
+} from "../../application/placeableAppearanceProvenance";
+import { canEditExistingPlaceableHitPoints } from "../../application/placeableHitPointProvenance";
+import { canEditExistingPlaceableTrapType } from "../../application/placeableTrapTypeProvenance";
+import { canEditExistingPlaceableBodyBag } from "../../application/placeableBodyBagProvenance";
+import { canEditExistingPlaceablePortrait } from "../../application/placeablePortraitProvenance";
+import { canEditExistingPlaceableFaction } from "../../application/placeableFactionProvenance";
+import { canEditExistingPlaceableVariables } from "../../application/placeableVariableProvenance";
+import { AuroraVariableTableEditor } from "./AuroraVariableTableEditor";
+import { canEditExistingPlaceableTemplateResRef } from "../../application/placeableTemplateResRefProvenance";
+import { PLACEABLE_TEMPLATE_RESREF_MAX_CODE_UNITS } from "../../../scene/domain/placeableTemplateResRef";
+import { canEditExistingPlaceableTag } from "../../application/placeableTagProvenance";
+import { MAX_PLACEABLE_TAG_CODE_UNITS } from "../../../scene/domain/placeableTag";
+import { canEditExistingPlaceableLocalizedString } from "../../application/placeableLocalizedStringProvenance";
+import {
+  MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES,
+  MAX_PLACEABLE_LOC_NAME_ASCII_BYTES
+} from "../../../scene/domain/placeableLocalizedStrings";
 
 type PlaceablePropertiesEditableField =
   | "name"
   | "tag"
   | "resRef"
+  | "appearanceType"
   | "isStatic"
   | "plot"
   | "useable"
@@ -53,6 +107,13 @@ type PlaceablePropertiesEditableField =
 interface PlaceablePropertiesDialogProps {
   placeablePropertiesDialog: PlaceablePropertiesDialogState;
   placeableRenderPayload?: PlaceableViewportRenderPayload | null;
+  placeableAppearanceCatalog?: ExistingPlaceableAppearanceCatalog | null;
+  placeableAppearanceCatalogStatus?: "unavailable" | "loading" | "ready" | "error";
+  placeableTrapTypeCatalog?: ScenePlaceableTrapTypeCatalog | null;
+  placeableBodyBagCatalog?: ScenePlaceableBodyBagCatalog | null;
+  placeablePortraitCatalog?: ScenePlaceablePortraitCatalog | null;
+  placeableFactionCatalog?: ScenePlaceableFactionCatalog | null;
+  onPlaceableAppearanceSearch?: (query: string) => void;
   placeablePropertiesDialogRef?: Ref<HTMLElement>;
   togglePlaceablePropertiesDialogCollapsed: () => void;
   cancelPlaceablePropertiesDialog: () => void;
@@ -76,15 +137,23 @@ interface PlaceablePropertiesDialogProps {
   ) => void;
   updatePlaceableAdvancedDraftField: (
     field: keyof PlaceablePropertiesDraft["advancedSettings"],
-    value: string | boolean
+    value: string | boolean | number
   ) => void;
   addPlaceableInventoryItem: () => void;
   updatePlaceableInventoryItem: (
     index: number,
-    field: keyof PlaceablePropertiesDraft["inventoryItems"][number],
-    value: string | number | boolean | undefined
+    field: "x" | "y",
+    value: number
   ) => void;
+  movePlaceableInventoryItem: (index: number, direction: "up" | "down") => void;
   removePlaceableInventoryItem: (index: number) => void;
+  addPlaceableVariable?: () => void;
+  updatePlaceableVariable?: (
+    index: number,
+    entry: PlaceablePropertiesDraft["variables"][number]
+  ) => void;
+  movePlaceableVariable?: (index: number, direction: "up" | "down") => void;
+  removePlaceableVariable?: (index: number) => void;
   applyPlaceablePropertiesDraft: (closeAfterApply: boolean) => void;
   startPlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
   movePlaceablePropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
@@ -97,45 +166,6 @@ function formatObjectNumber(value: number, fractionDigits: number): string {
     return "0";
   }
   return value.toFixed(fractionDigits);
-}
-
-function formatOptionalText(value: string | undefined): string {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : "-";
-}
-
-function formatLinkedItemText(entry: {
-  itemResRef?: string;
-  itemTemplateId?: string;
-  embeddedItem?: {
-    templateResRef?: string;
-    tag?: string;
-    localizedName?: string;
-    baseItem?: number;
-    itemPropertyListCount?: number;
-  };
-}): string {
-  const linked = formatOptionalText(entry.itemResRef ?? entry.itemTemplateId);
-  if (linked !== "-") {
-    return linked;
-  }
-  const embedded = entry.embeddedItem;
-  if (!embedded) {
-    return "-";
-  }
-  const identifier = embedded.templateResRef ?? embedded.tag ?? embedded.localizedName ?? "Item";
-  const details = [
-    embedded.localizedName && embedded.localizedName !== identifier
-      ? embedded.localizedName
-      : undefined,
-    typeof embedded.baseItem === "number" ? `Base ${embedded.baseItem}` : undefined,
-    typeof embedded.itemPropertyListCount === "number"
-      ? `${embedded.itemPropertyListCount} props`
-      : undefined
-  ].filter((value): value is string => Boolean(value));
-  return details.length > 0
-    ? `Embedded ${identifier} (${details.join(", ")})`
-    : `Embedded ${identifier}`;
 }
 
 function parseIntegerInput(value: string, fallback: number): number {
@@ -323,6 +353,13 @@ function resolvePlaceablePocBlocker(
 export function PlaceablePropertiesDialog({
   placeablePropertiesDialog,
   placeableRenderPayload = null,
+  placeableAppearanceCatalog = null,
+  placeableAppearanceCatalogStatus = "unavailable",
+  placeableTrapTypeCatalog = null,
+  placeableBodyBagCatalog = null,
+  placeablePortraitCatalog = null,
+  placeableFactionCatalog = null,
+  onPlaceableAppearanceSearch,
   placeablePropertiesDialogRef,
   togglePlaceablePropertiesDialogCollapsed,
   cancelPlaceablePropertiesDialog,
@@ -335,7 +372,12 @@ export function PlaceablePropertiesDialog({
   updatePlaceableAdvancedDraftField,
   addPlaceableInventoryItem,
   updatePlaceableInventoryItem,
+  movePlaceableInventoryItem,
   removePlaceableInventoryItem,
+  addPlaceableVariable = () => undefined,
+  updatePlaceableVariable = () => undefined,
+  movePlaceableVariable = () => undefined,
+  removePlaceableVariable = () => undefined,
   applyPlaceablePropertiesDraft,
   startPlaceablePropertiesDialogDrag,
   movePlaceablePropertiesDialogDrag,
@@ -343,6 +385,102 @@ export function PlaceablePropertiesDialog({
   cancelPlaceablePropertiesDialogDrag
 }: PlaceablePropertiesDialogProps) {
   const sourceObject = placeablePropertiesDialog.snapshotObject;
+  const [appearanceQuery, setAppearanceQuery] = useState(
+    placeableAppearanceCatalog?.query ?? ""
+  );
+  const [showVariables, setShowVariables] = useState(false);
+  const canEditStatic = canEditExistingPlaceableBoolean(sourceObject.source, "isStatic");
+  const canEditUseable = canEditExistingPlaceableBoolean(sourceObject.source, "useable");
+  const canEditPlot = canEditExistingPlaceableBoolean(sourceObject.source, "plot");
+  const canEditHasInventory = canEditExistingPlaceableBoolean(
+    sourceObject.source,
+    "hasInventory"
+  );
+  const canEditInventory = canEditExistingPlaceableInventory(sourceObject.source);
+  const canEditVariables = canEditExistingPlaceableVariables(sourceObject.source);
+  const canEditHardness = canEditExistingPlaceableDurabilitySaveByte(
+    sourceObject.source,
+    "hardness"
+  );
+  const canEditHitPoints = canEditExistingPlaceableHitPoints(sourceObject.source);
+  const canEditFortitudeSave = canEditExistingPlaceableDurabilitySaveByte(
+    sourceObject.source,
+    "fortitudeSave"
+  );
+  const canEditReflexSave = canEditExistingPlaceableDurabilitySaveByte(
+    sourceObject.source,
+    "reflexSave"
+  );
+  const canEditWillSave = canEditExistingPlaceableDurabilitySaveByte(
+    sourceObject.source,
+    "willSave"
+  );
+  const canEditConversation = canEditExistingPlaceableConversation(sourceObject.source);
+  const canEditInterruptable = canEditExistingPlaceableInterruptable(sourceObject.source);
+  const canEditAnimationState = canEditExistingPlaceableAnimationState(sourceObject.source);
+  const canEditTemplateResRef = canEditExistingPlaceableTemplateResRef(sourceObject.source);
+  const canEditEditorComment = canEditExistingPlaceableEditorComment(sourceObject.source);
+  const preserveBasicIdentity = mustPreserveAuroraGitPlaceableBasicIdentity(
+    sourceObject.source
+  );
+  const canEditTag = canEditExistingPlaceableTag(sourceObject.source);
+  const canEditLocalizedName = canEditExistingPlaceableLocalizedString(
+    sourceObject.source,
+    "localizedName"
+  );
+  const canEditDescription = canEditExistingPlaceableLocalizedString(
+    sourceObject.source,
+    "description"
+  );
+  const hasEditableAppearanceProvenance = canEditExistingPlaceableAppearance(
+    sourceObject.source
+  );
+  const canEditAppearance =
+    placeableAppearanceCatalogStatus === "ready" &&
+    isExistingPlaceableAppearanceCatalogAdmitted(
+      sourceObject.source,
+      placeableAppearanceCatalog
+    );
+  const canEditTrapType = canEditExistingPlaceableTrapType(
+    sourceObject.source,
+    placeableTrapTypeCatalog,
+  );
+  const trapTypeRowOptions = canEditTrapType
+    ? placeableTrapTypeCatalog!.rows.map((row) => ({
+        value: row.rowIndex,
+        label: `${row.rowIndex}: ${row.displayName}`,
+      }))
+    : undefined;
+  const canEditBodyBag = canEditExistingPlaceableBodyBag(
+    sourceObject.source,
+    placeableBodyBagCatalog,
+  );
+  const bodyBagRowOptions = canEditBodyBag
+    ? placeableBodyBagCatalog!.rows.map((row) => ({
+        value: row.rowIndex,
+        label: `${row.rowIndex}: ${row.displayName}`,
+      }))
+    : undefined;
+  const canEditPortrait = canEditExistingPlaceablePortrait(
+    sourceObject.source,
+    placeablePortraitCatalog,
+  );
+  const portraitRowOptions = canEditPortrait
+    ? placeablePortraitCatalog!.rows.map((row) => ({
+        value: row.rowIndex,
+        label: `${row.rowIndex}: ${row.baseResRef}`,
+      }))
+    : undefined;
+  const canEditFaction = canEditExistingPlaceableFaction(
+    sourceObject.source,
+    placeableFactionCatalog,
+  );
+  const factionRowOptions = canEditFaction
+    ? placeableFactionCatalog!.rows.map((row) => ({
+        value: row.factionId,
+        label: `${row.factionId}: ${row.name}`,
+      }))
+    : undefined;
   const renderState = placeableRenderPayload
     ? resolvePlaceableRenderContractState(placeableRenderPayload)
     : null;
@@ -491,12 +629,24 @@ export function PlaceablePropertiesDialog({
                       <span>Name</span>
                       <div className="canvas-placeable-properties-field-control">
                         <input
+                          aria-label="Name"
                           type="text"
+                          disabled={preserveBasicIdentity && !canEditLocalizedName}
+                          maxLength={canEditLocalizedName
+                            ? MAX_PLACEABLE_LOC_NAME_ASCII_BYTES
+                            : undefined}
                           value={placeablePropertiesDialog.draft.name}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("name", event.target.value)
-                          }
+                          onChange={(event) => {
+                            if (!preserveBasicIdentity || canEditLocalizedName) {
+                              updatePlaceablePropertiesDraftField("name", event.target.value);
+                            }
+                          }}
                         />
+                        {canEditLocalizedName ? (
+                          <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        ) : preserveBasicIdentity ? (
+                          <span className="canvas-accessibility-hidden">PRESERVE_ONLY</span>
+                        ) : null}
                         <button type="button" disabled aria-label="Browse name">
                           ...
                         </button>
@@ -506,24 +656,105 @@ export function PlaceablePropertiesDialog({
                       <span>Tag</span>
                       <div className="canvas-placeable-properties-field-control">
                         <input
+                          aria-label="Tag"
                           type="text"
+                          disabled={preserveBasicIdentity && !canEditTag}
+                          maxLength={canEditTag ? MAX_PLACEABLE_TAG_CODE_UNITS : undefined}
                           value={placeablePropertiesDialog.draft.tag}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("tag", event.target.value)
-                          }
+                          onChange={(event) => {
+                            if (!preserveBasicIdentity || canEditTag) {
+                              updatePlaceablePropertiesDraftField("tag", event.target.value);
+                            }
+                          }}
                         />
+                        {canEditTag ? (
+                          <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        ) : preserveBasicIdentity ? (
+                          <span className="canvas-accessibility-hidden">PRESERVE_ONLY</span>
+                        ) : null}
+                      </div>
+                    </label>
+                    <label className="canvas-placeable-properties-field-row">
+                      <span>Template ResRef</span>
+                      <div className="canvas-placeable-properties-field-control">
+                        <input
+                          aria-label="Template ResRef"
+                          type="text"
+                          disabled={preserveBasicIdentity}
+                          value={placeablePropertiesDialog.draft.resRef}
+                          onChange={(event) => {
+                            if (!preserveBasicIdentity) {
+                              updatePlaceablePropertiesDraftField("resRef", event.target.value);
+                            }
+                          }}
+                        />
+                        {preserveBasicIdentity ? (
+                          <span className="canvas-accessibility-hidden">PRESERVE_ONLY</span>
+                        ) : null}
                       </div>
                     </label>
                     <label className="canvas-placeable-properties-field-row">
                       <span>Appearance Type</span>
                       <div className="canvas-placeable-properties-field-control">
-                        <input
-                          type="text"
-                          value={placeablePropertiesDialog.draft.resRef}
-                          onChange={(event) =>
-                            updatePlaceablePropertiesDraftField("resRef", event.target.value)
-                          }
-                        />
+                        {canEditAppearance && placeableAppearanceCatalog ? (
+                          <>
+                            <select
+                              aria-label="Appearance Type"
+                              value={placeablePropertiesDialog.draft.appearanceType ?? ""}
+                              onChange={(event) => {
+                                const rowIndex = Number(event.target.value);
+                                if (Number.isSafeInteger(rowIndex)) {
+                                  updatePlaceablePropertiesDraftField("appearanceType", rowIndex);
+                                }
+                              }}
+                            >
+                              {placeableAppearanceCatalog.items.map((item) => (
+                                <option key={item.rowIndex} value={item.rowIndex}>
+                                  {item.rowIndex} — {item.displayName}
+                                </option>
+                              ))}
+                            </select>
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                onPlaceableAppearanceSearch?.(appearanceQuery);
+                              }}
+                            >
+                              <input
+                                aria-label="Appearance Search"
+                                type="search"
+                                maxLength={128}
+                                value={appearanceQuery}
+                                onChange={(event) => setAppearanceQuery(event.target.value)}
+                              />
+                              <button
+                                type="submit"
+                                aria-label="Search Appearance rows"
+                                disabled={!onPlaceableAppearanceSearch}
+                              >
+                                Search
+                              </button>
+                            </form>
+                            <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              aria-label="Appearance Type"
+                              type="text"
+                              disabled
+                              value={formatPreservedPlaceableAppearanceType(
+                                resolvePreservedPlaceableAppearanceDword(sourceObject.source)
+                              )}
+                              readOnly
+                            />
+                            <span className="canvas-accessibility-hidden">PRESERVE_ONLY</span>
+                            {hasEditableAppearanceProvenance &&
+                            placeableAppearanceCatalogStatus === "loading" ? (
+                              <span role="status">Loading Appearance rows</span>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </label>
                   </div>
@@ -534,8 +765,12 @@ export function PlaceablePropertiesDialog({
                         <span>Hardness</span>
                         <div className="canvas-placeable-properties-field-control">
                           <input
+                            aria-label="Hardness"
                             type="number"
+                            min="0"
+                            max="255"
                             step="1"
+                            disabled={!canEditHardness}
                             value={placeablePropertiesDialog.draft.hardness}
                             onChange={(event) =>
                               updatePlaceablePropertiesDraftField(
@@ -544,14 +779,21 @@ export function PlaceablePropertiesDialog({
                               )
                             }
                           />
+                          <span className="canvas-accessibility-hidden">
+                            {canEditHardness ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                          </span>
                         </div>
                       </label>
                       <label className="canvas-placeable-properties-field-row">
                         <span>Hit Points</span>
                         <div className="canvas-placeable-properties-field-control">
                           <input
+                            aria-label="Hit Points"
                             type="number"
+                            min="1"
+                            max="10000"
                             step="1"
+                            disabled={!canEditHitPoints}
                             value={placeablePropertiesDialog.draft.hitPoints}
                             onChange={(event) =>
                               updatePlaceablePropertiesDraftField(
@@ -560,14 +802,21 @@ export function PlaceablePropertiesDialog({
                               )
                             }
                           />
+                          <span className="canvas-accessibility-hidden">
+                            {canEditHitPoints ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                          </span>
                         </div>
                       </label>
                       <label className="canvas-placeable-properties-field-row">
                         <span>Fortitude Save</span>
                         <div className="canvas-placeable-properties-field-control">
                           <input
+                            aria-label="Fortitude Save"
                             type="number"
+                            min="0"
+                            max="255"
                             step="1"
+                            disabled={!canEditFortitudeSave}
                             value={placeablePropertiesDialog.draft.fortitudeSave}
                             onChange={(event) =>
                               updatePlaceablePropertiesDraftField(
@@ -576,14 +825,21 @@ export function PlaceablePropertiesDialog({
                               )
                             }
                           />
+                          <span className="canvas-accessibility-hidden">
+                            {canEditFortitudeSave ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                          </span>
                         </div>
                       </label>
                       <label className="canvas-placeable-properties-field-row">
                         <span>Reflex Save</span>
                         <div className="canvas-placeable-properties-field-control">
                           <input
+                            aria-label="Reflex Save"
                             type="number"
+                            min="0"
+                            max="255"
                             step="1"
+                            disabled={!canEditReflexSave}
                             value={placeablePropertiesDialog.draft.reflexSave}
                             onChange={(event) =>
                               updatePlaceablePropertiesDraftField(
@@ -592,14 +848,21 @@ export function PlaceablePropertiesDialog({
                               )
                             }
                           />
+                          <span className="canvas-accessibility-hidden">
+                            {canEditReflexSave ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                          </span>
                         </div>
                       </label>
                       <label className="canvas-placeable-properties-field-row">
                         <span>Will Save</span>
                         <div className="canvas-placeable-properties-field-control">
                           <input
+                            aria-label="Will Save"
                             type="number"
+                            min="0"
+                            max="255"
                             step="1"
+                            disabled={!canEditWillSave}
                             value={placeablePropertiesDialog.draft.willSave}
                             onChange={(event) =>
                               updatePlaceablePropertiesDraftField(
@@ -608,6 +871,9 @@ export function PlaceablePropertiesDialog({
                               )
                             }
                           />
+                          <span className="canvas-accessibility-hidden">
+                            {canEditWillSave ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                          </span>
                         </div>
                       </label>
                     </div>
@@ -616,48 +882,57 @@ export function PlaceablePropertiesDialog({
                         <input
                           type="checkbox"
                           checked={placeablePropertiesDialog.draft.plot}
+                          disabled={!canEditPlot}
                           onChange={(event) =>
                             updatePlaceablePropertiesDraftField("plot", event.target.checked)
                           }
                         />
                         Plot
-                        <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        <span className="canvas-accessibility-hidden">
+                          {canEditPlot ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                        </span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
                         <input
                           type="checkbox"
                           checked={placeablePropertiesDialog.draft.useable}
+                          disabled={!canEditUseable}
                           onChange={(event) =>
                             updatePlaceablePropertiesDraftField("useable", event.target.checked)
                           }
                         />
                         Useable
-                        <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        <span className="canvas-accessibility-hidden">
+                          {canEditUseable ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                        </span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
                         <input
                           type="checkbox"
                           checked={placeablePropertiesDialog.draft.hasInventory}
+                          disabled={!canEditHasInventory}
                           onChange={(event) =>
-                            updatePlaceablePropertiesDraftField(
-                              "hasInventory",
-                              event.target.checked
-                            )
+                            updatePlaceablePropertiesDraftField("hasInventory", event.target.checked)
                           }
                         />
                         Has Inventory
-                        <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        <span className="canvas-accessibility-hidden">
+                          {canEditHasInventory ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                        </span>
                       </label>
                       <label className="canvas-placeable-properties-toggle">
                         <input
                           type="checkbox"
                           checked={placeablePropertiesDialog.draft.isStatic}
+                          disabled={!canEditStatic}
                           onChange={(event) =>
                             updatePlaceablePropertiesDraftField("isStatic", event.target.checked)
                           }
                         />
                         Static
-                        <span className="canvas-accessibility-hidden">ACTIVE_NOW</span>
+                        <span className="canvas-accessibility-hidden">
+                          {canEditStatic ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -669,72 +944,44 @@ export function PlaceablePropertiesDialog({
                   <fieldset className="canvas-placeable-properties-group">
                     <legend>ItemList</legend>
                     <div className="canvas-creature-properties-section-actions">
-                      <button type="button" onClick={addPlaceableInventoryItem}>
-                        Add ItemList Entry
+                      <button
+                        type="button"
+                        disabled={!canEditInventory}
+                        onClick={addPlaceableInventoryItem}
+                      >
+                        Add admitted UTI: {ADMITTED_PLACEABLE_INVENTORY_TEMPLATE_RESREF}
                       </button>
+                      <span className="canvas-accessibility-hidden">
+                        {canEditInventory ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                      </span>
                     </div>
                     <table className="canvas-creature-properties-table">
                       <thead>
                         <tr>
-                          <th scope="col">ResRef</th>
-                          <th scope="col">Random ResRef</th>
-                          <th scope="col">Random List</th>
-                          <th scope="col">Linked UTI</th>
+                          <th scope="col">Identity</th>
+                          <th scope="col">Origin</th>
                           <th scope="col">Repo X</th>
                           <th scope="col">Repo Y</th>
-                          <th scope="col">Flags</th>
+                          <th scope="col">Order</th>
                           <th scope="col">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {placeablePropertiesDialog.draft.inventoryItems.length > 0 ? (
                           placeablePropertiesDialog.draft.inventoryItems.map((entry, index) => (
-                            <tr key={`placeable_inventory_${index + 1}_${entry.resRef ?? "item"}`}>
+                            <tr
+                              key={`placeable_inventory_${index + 1}_${entry.sourceIndex ?? entry.itemSourceObjectKey ?? "item"}`}
+                            >
                               <td>
-                                <input
-                                  type="text"
-                                  aria-label={`Placeable inventory item ${index + 1} resref`}
-                                  value={entry.resRef ?? ""}
-                                  onChange={(event) =>
-                                    updatePlaceableInventoryItem(
-                                      index,
-                                      "resRef",
-                                      event.target.value
-                                    )
-                                  }
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  type="text"
-                                  aria-label={`Placeable inventory item ${index + 1} random resref`}
-                                  value={entry.randomResRef ?? ""}
-                                  onChange={(event) =>
-                                    updatePlaceableInventoryItem(
-                                      index,
-                                      "randomResRef",
-                                      event.target.value
-                                    )
-                                  }
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  type="text"
-                                  aria-label={`Placeable inventory item ${index + 1} random list`}
-                                  value={entry.randomList ?? ""}
-                                  onChange={(event) =>
-                                    updatePlaceableInventoryItem(
-                                      index,
-                                      "randomList",
-                                      event.target.value
-                                    )
-                                  }
-                                />
+                                <span className="canvas-creature-properties-cell-value">
+                                  {entry.resRef ?? "-"}
+                                </span>
                               </td>
                               <td>
                                 <span className="canvas-creature-properties-cell-value">
-                                  {formatLinkedItemText(entry)}
+                                  {entry.sourceIndex !== undefined
+                                    ? `Existing native #${entry.sourceIndex}`
+                                    : `Admitted UTI ${entry.itemResRef ?? entry.resRef ?? "-"}`}
                                 </span>
                               </td>
                               <td>
@@ -742,6 +989,8 @@ export function PlaceablePropertiesDialog({
                                   type="number"
                                   step="1"
                                   min={0}
+                                  max={PLACEABLE_INVENTORY_COORDINATE_MAX}
+                                  disabled={!canEditInventory}
                                   aria-label={`Placeable inventory item ${index + 1} repo x`}
                                   value={entry.x ?? 0}
                                   onChange={(event) =>
@@ -758,6 +1007,8 @@ export function PlaceablePropertiesDialog({
                                   type="number"
                                   step="1"
                                   min={0}
+                                  max={PLACEABLE_INVENTORY_COORDINATE_MAX}
+                                  disabled={!canEditInventory}
                                   aria-label={`Placeable inventory item ${index + 1} repo y`}
                                   value={entry.y ?? 0}
                                   onChange={(event) =>
@@ -770,57 +1021,32 @@ export function PlaceablePropertiesDialog({
                                 />
                               </td>
                               <td>
-                                <div className="canvas-creature-properties-item-flags">
-                                  <label>
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Placeable inventory item ${index + 1} dropable`}
-                                      checked={Boolean(entry.dropable)}
-                                      onChange={(event) =>
-                                        updatePlaceableInventoryItem(
-                                          index,
-                                          "dropable",
-                                          event.target.checked
-                                        )
-                                      }
-                                    />
-                                    Drop
-                                  </label>
-                                  <label>
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Placeable inventory item ${index + 1} pickpocketable`}
-                                      checked={Boolean(entry.pickpocketable)}
-                                      onChange={(event) =>
-                                        updatePlaceableInventoryItem(
-                                          index,
-                                          "pickpocketable",
-                                          event.target.checked
-                                        )
-                                      }
-                                    />
-                                    Pick
-                                  </label>
-                                  <label>
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Placeable inventory item ${index + 1} infinite`}
-                                      checked={Boolean(entry.infinite)}
-                                      onChange={(event) =>
-                                        updatePlaceableInventoryItem(
-                                          index,
-                                          "infinite",
-                                          event.target.checked
-                                        )
-                                      }
-                                    />
-                                    Infinite
-                                  </label>
+                                <div className="canvas-creature-properties-section-actions">
+                                  <button
+                                    type="button"
+                                    aria-label={`Move item ${index + 1} up`}
+                                    disabled={!canEditInventory || index === 0}
+                                    onClick={() => movePlaceableInventoryItem(index, "up")}
+                                  >
+                                    Up
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Move item ${index + 1} down`}
+                                    disabled={
+                                      !canEditInventory ||
+                                      index === placeablePropertiesDialog.draft.inventoryItems.length - 1
+                                    }
+                                    onClick={() => movePlaceableInventoryItem(index, "down")}
+                                  >
+                                    Down
+                                  </button>
                                 </div>
                               </td>
                               <td>
                                 <button
                                   type="button"
+                                  disabled={!canEditInventory}
                                   onClick={() => removePlaceableInventoryItem(index)}
                                 >
                                   Remove
@@ -830,7 +1056,7 @@ export function PlaceablePropertiesDialog({
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={8}>No inventory entries</td>
+                            <td colSpan={6}>No inventory entries</td>
                           </tr>
                         )}
                       </tbody>
@@ -855,6 +1081,9 @@ export function PlaceablePropertiesDialog({
                     disableLockDetailsWhenUnlocked: true,
                     disableAutoRemoveKeyUnlessLockedAndRelockable: true
                   }}
+                  isFieldDisabled={(field) =>
+                    !canEditExistingPlaceableLockField(sourceObject.source, field)
+                  }
                 />
               ) : null}
 
@@ -863,6 +1092,10 @@ export function PlaceablePropertiesDialog({
                   value={placeablePropertiesDialog.draft.trapSettings}
                   onChange={updatePlaceableTrapDraftField}
                   trapTypeOptions={PLACEABLE_TRAP_TYPE_OPTIONS}
+                  trapTypeRowOptions={trapTypeRowOptions}
+                  trapTypeRowValue={placeablePropertiesDialog.draft.trapSettings.trapTypeRow}
+                  trapTypeRowDisabled={!canEditTrapType}
+                  onTrapTypeRowChange={(value) => updatePlaceableTrapDraftField("trapTypeRow", value)}
                   classNames={{
                     root: "canvas-placeable-properties-group",
                     nested: "canvas-placeable-properties-group canvas-placeable-properties-nested",
@@ -875,7 +1108,16 @@ export function PlaceablePropertiesDialog({
                     scriptRow: "canvas-placeable-properties-script-row"
                   }}
                   behavior={{
-                    disableTrapDetailsWhenUntrapped: true
+                    disableTrapDetailsWhenUntrapped: false
+                  }}
+                  isFieldDisabled={(field) => {
+                    if (isPlaceableTrapByteField(field)) {
+                      return !canEditExistingPlaceableTrapByteField(sourceObject.source, field);
+                    }
+                    if (field === "onDisarmScript" || field === "onTrapTriggeredScript") {
+                      return !canEditExistingPlaceableTrapScript(sourceObject.source, field);
+                    }
+                    return true;
                   }}
                   scriptActionButtons={{
                     onDisarmScript: [{ label: "...", disabled: true }, { label: "Edit", disabled: true }],
@@ -894,6 +1136,11 @@ export function PlaceablePropertiesDialog({
                   values={placeablePropertiesDialog.draft.scriptSlots}
                   onChange={updatePlaceableScriptSlotDraftField}
                   inputIdPrefix="placeable-script"
+                  inputMaxLength={16}
+                  inputPattern="[A-Za-z0-9_]*"
+                  isSlotDisabled={(slot) =>
+                    !canEditExistingPlaceableScriptSlot(sourceObject.source, slot)
+                  }
                   hiddenLabelSuffix={<span className="canvas-accessibility-hidden"> Script</span>}
                   showInlineActionButtons
                   inlineBrowseDisabled
@@ -922,30 +1169,52 @@ export function PlaceablePropertiesDialog({
                   portraitPreviewClassName="canvas-placeable-properties-portrait-preview"
                   variablesRowClassName="canvas-placeable-properties-variables-row"
                   blueprintResRef={placeablePropertiesDialog.draft.advancedSettings.blueprintResRef}
+                  blueprintResRefDisabled={!canEditTemplateResRef}
+                  blueprintResRefMaxLength={PLACEABLE_TEMPLATE_RESREF_MAX_CODE_UNITS}
                   onBlueprintResRefChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("blueprintResRef", nextValue)
                   }
                   belongsToFaction={placeablePropertiesDialog.draft.advancedSettings.belongsToFaction}
                   factionOptions={PLACEABLE_FACTION_OPTIONS}
+                  belongsToFactionDisabled={!canEditFaction}
                   onBelongsToFactionChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("belongsToFaction", nextValue)
                   }
+                  factionId={canEditFaction
+                    ? placeablePropertiesDialog.draft.advancedSettings.factionId
+                    : undefined}
+                  factionIdOptions={factionRowOptions}
+                  onFactionIdChange={(nextValue) =>
+                    updatePlaceableAdvancedDraftField("factionId", nextValue)
+                  }
                   conversation={placeablePropertiesDialog.draft.advancedSettings.conversation}
+                  conversationDisabled={!canEditConversation}
                   onConversationChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("conversation", nextValue)
                   }
                   showConversationActions
                   noInterrupt={placeablePropertiesDialog.draft.advancedSettings.noInterrupt}
+                  noInterruptDisabled={!canEditInterruptable}
                   onNoInterruptChange={(checked) =>
                     updatePlaceableAdvancedDraftField("noInterrupt", checked)
                   }
                   portraitResRef={placeablePropertiesDialog.draft.advancedSettings.portraitResRef}
+                  portraitResRefDisabled
+                  portraitId={canEditPortrait
+                    ? placeablePropertiesDialog.draft.advancedSettings.portraitId
+                    : undefined}
+                  portraitIdOptions={portraitRowOptions}
+                  portraitIdDisabled={!canEditPortrait}
+                  onPortraitIdChange={(nextValue) =>
+                    updatePlaceableAdvancedDraftField("portraitId", nextValue)
+                  }
                   onPortraitResRefChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("portraitResRef", nextValue)
                   }
                   showPortraitBrowseAction
                   initialState={placeablePropertiesDialog.draft.advancedSettings.initialState}
                   initialStateOptions={PLACEABLE_INITIAL_STATE_OPTIONS}
+                  initialStateDisabled={!canEditAnimationState}
                   onInitialStateChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("initialState", nextValue)
                   }
@@ -954,7 +1223,41 @@ export function PlaceablePropertiesDialog({
                   onTreasureModelChange={(nextValue) =>
                     updatePlaceableAdvancedDraftField("treasureModel", nextValue)
                   }
+                  treasureModelRow={canEditBodyBag
+                    ? placeablePropertiesDialog.draft.advancedSettings.treasureModelRow
+                    : undefined}
+                  treasureModelRowOptions={bodyBagRowOptions}
+                  onTreasureModelRowChange={(nextValue) =>
+                    updatePlaceableAdvancedDraftField("treasureModelRow", nextValue)
+                  }
+                  treasureModelDisabled={!canEditBodyBag}
+                  showVariablesButton={false}
                 >
+                  <div className="canvas-placeable-properties-variables-row">
+                    <button
+                      type="button"
+                      aria-expanded={showVariables}
+                      disabled={!canEditVariables}
+                      onClick={() => setShowVariables((current) => !current)}
+                    >
+                      Variables ({placeablePropertiesDialog.draft.variables.length})
+                    </button>
+                    <span className="canvas-placeable-properties-provenance-state">
+                      {canEditVariables ? "ACTIVE_NOW" : "PRESERVE_ONLY"}
+                    </span>
+                  </div>
+                  {showVariables && canEditVariables ? (
+                    <AuroraVariableTableEditor
+                      entries={placeablePropertiesDialog.draft.variables}
+                      editable={canEditVariables}
+                      ariaLabelPrefix="Placeable variable"
+                      actionAriaLabelPrefix="placeable variable"
+                      onAdd={addPlaceableVariable}
+                      onUpdate={updatePlaceableVariable}
+                      onMove={movePlaceableVariable}
+                      onRemove={removePlaceableVariable}
+                    />
+                  ) : null}
                   <details className="canvas-placeable-properties-preserve-note">
                     <summary>Preserve-only payload flags</summary>
                     <label className="canvas-placeable-properties-toggle">
@@ -1018,6 +1321,8 @@ export function PlaceablePropertiesDialog({
                   labelClassName="canvas-placeable-properties-fulltext"
                   label="Description"
                   value={placeablePropertiesDialog.draft.description}
+                  disabled={!canEditDescription}
+                  maxLength={MAX_PLACEABLE_DESCRIPTION_ASCII_BYTES}
                   onChange={(nextValue) =>
                     updatePlaceablePropertiesDraftField("description", nextValue)
                   }
@@ -1030,6 +1335,8 @@ export function PlaceablePropertiesDialog({
                   labelClassName="canvas-placeable-properties-fulltext"
                   label="Comments"
                   value={placeablePropertiesDialog.draft.comments}
+                  disabled={!canEditEditorComment}
+                  maxLength={PLACEABLE_EDITOR_COMMENT_MAX_CODE_UNITS}
                   onChange={(nextValue) =>
                     updatePlaceablePropertiesDraftField("comments", nextValue)
                   }

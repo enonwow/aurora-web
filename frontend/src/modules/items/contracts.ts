@@ -60,6 +60,22 @@ export interface ItemApiBlueprintPropertyEntry {
   chanceAppear?: number;
 }
 
+export type ItemApiBlueprintVariableEntry =
+  | { name: string; type: "int"; value: number }
+  | { name: string; type: "float"; value: number }
+  | { name: string; type: "string"; value: string };
+
+export interface ItemApiBlueprintInventoryEntry {
+  resRef: string;
+  x: number;
+  y: number;
+}
+
+export interface ItemApiBlueprintEquipmentEntry {
+  resRef: string;
+  slotMask: number;
+}
+
 export interface ItemApiBlueprintCreatePayload {
   templateResRef: string;
   name: string;
@@ -77,8 +93,6 @@ export interface ItemApiBlueprintCreatePayload {
   modelPart3?: number;
   cost?: number;
   addCost?: number;
-  costTable?: number;
-  costValue?: number;
   charges?: number;
   stackSize?: number;
   identified?: boolean;
@@ -89,7 +103,9 @@ export interface ItemApiBlueprintCreatePayload {
   armorParts?: ItemApiVisualOverride["armorParts"];
   materialColors?: ItemApiVisualOverride["materialColors"];
   propertyList?: ItemApiBlueprintPropertyEntry[];
-  scripts?: Record<string, string>;
+  variableListEntries?: ItemApiBlueprintVariableEntry[];
+  inventoryItemListEntries?: ItemApiBlueprintInventoryEntry[];
+  equipItemListEntries?: ItemApiBlueprintEquipmentEntry[];
   overwrite?: boolean;
 }
 

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { PlaceableViewportRenderPayload } from "../../../placeables/application/placeableRenderPayloadResolver";
 import type {
+  PlaceableRenderPackageAuroraModelGraph,
   PlaceableRenderPackageAuroraMaterial,
   PlaceableRenderPackageTextureBinding,
   PlaceableRenderPackageTextureTxiState
@@ -11,7 +12,7 @@ import {
   ensureAuroraPltPaletteDataLoaded,
   isAuroraPltPaletteDataReady,
   normalizeAuroraPltPaletteRow,
-  resolveAuroraPltPaletteRgbSync
+  resolveAuroraPltPaletteRgbaSync
 } from "../../../placeables/adapters/aurora/auroraPltPalette";
 import type { CreatureViewportRenderPayload } from "../../../creatures/application/creatureRenderPayloadResolver";
 import {
@@ -55,12 +56,12 @@ import {
   createAuroraSourceDanglymeshRuntime,
   createAuroraSourceSelfIllumColorRuntime,
   createAuroraSourceSkinningRuntime,
-  createAuroraTextureCycleRuntime,
   ensureNormalizedPlaceableModel,
   ensurePlaceableModel,
   ensurePlaceableTexture,
   ensurePlaceableTexturesByReference,
   ensurePlaceableTexturesByReferenceProgressive,
+  getCachedPlaceableTexture,
   getPlaceableMissingTextureFallbackTexture,
   isAuroraSupermodelRetargetedAnimationClip,
   normalizePlaceableModelToObjectRadius,
@@ -70,22 +71,32 @@ import {
   PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG,
   PLACEABLE_SHARED_MODEL_MATERIAL_FLAG,
   type PlaceableTextureApplicationOptions,
+  type PlaceableTextureLoadOptions,
   readPlaceableModelAnimationClips,
   resolvePlaceableNormalizedModelPresentationMetrics
 } from "../../../placeables/adapters/three/placeableThreeAssetLoader";
-import { resolvePlaceableAssetDeliveryUrl } from "../../../placeables/application/placeableRenderAssetResolver";
+import {
+  resolvePlaceableAssetDeliveryUrl,
+  resolveUnsupportedModelCandidateReason
+} from "../../../placeables/application/placeableRenderAssetResolver";
 import { normalizePlaceableTextureReference } from "../../../placeables/application/placeableTextureReferences";
 import type { RuntimeSoundNowPlayingBadge } from "../../runtimeSoundPlaybackState";
+import { applyAuroraAreaModelSpaceScale } from "../../../shared/adapters/three/auroraAreaModelSpace";
 import { SOUND_NOW_PLAYING_BADGE_LABEL } from "../../application/workspaceObjectPropertyDrafts";
 import type { SceneObject, SceneObjectKind } from "../../contracts";
 import type {
+  AuroraAreaVfxCollisionContract,
+  AuroraVfxPayload,
   SceneObjectItemMaterialColors,
   SceneObjectItemModelAssetCandidate,
   SceneObjectItemPropertyEntry
 } from "../../../scene/contracts";
+import { resolveAuroraVfxSceneRuntimePayload } from "./auroraVfxSceneRuntime";
 import {
   normalizeSoundGuidePositioning,
-  resolveEditorSoundGuideOverlayFlags
+  resolveEditorSoundGuideOverlayFlags,
+  resolveSoundGuideWorldGeometry,
+  SOUND_GUIDE_WORLD_GEOMETRY_REVISION
 } from "../../soundGuideDomain";
 import { isVisualTransformAppliedToObject } from "../../visualTransformGizmoRules";
 import {
@@ -96,6 +107,7 @@ import {
   type DebugState,
   type ObjectRenderStatus
 } from "../../application/workspaceSceneInteraction";
+import { resolveAreaObjectPolygonRenderOffsets } from "../../application/areaObjectPolygonRenderGeometry";
 import {
   isAreaSharedPlaceablesRendererSceneObject,
   isAreaPreviewOnlyAuroraVfxPayload,
@@ -112,8 +124,17 @@ import {
 } from "./workspaceCanvasSprites";
 import {
   createAuroraVfxCanonicalRenderGroup,
-  isCanonicalAuroraVfxRenderablePayload
+  isCanonicalAuroraVfxRenderablePayload,
+  resolveAuroraVfxCanonicalPltPaletteResolution,
+  resolveAuroraVfxCanonicalPltPaletteRows,
+  type AuroraVfxCanonicalModelGraph
 } from "./auroraVfxCanonicalRenderer";
+import {
+  applyCanonicalSourceMdlLightFallbackPolicy,
+  resolveCanonicalSourceMdlLightFallbackPolicy,
+  writeSourceMdlLightFallbackDiagnostics,
+  type CanonicalSourceMdlLightFallbackPolicy
+} from "./canonicalSourceMdlLightFallbackPolicy";
 import { clearObjectLayer } from "./workspaceObjectLayerDisposal";
 import {
   resolveAuroraAreaRenderYaw,
@@ -135,6 +156,7 @@ import {
   resolvePlaceableVfxColor,
   resolvePlaceableVfxTextureReference,
   summarizePlaceableTextureSourceFormats,
+  writePlaceableFastShadowTextureDebugStatus,
   writePlaceableModelDebugStatus
 } from "./workspacePlaceableModelPresentation";
 import {
@@ -146,11 +168,17 @@ import {
   selectAuroraLightManagerPreviewBudget,
   type AuroraLightManagerPreviewScore
 } from "./auroraLightManagerPreview";
-import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
+import {
+  AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS,
+  AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+  installAuroraLinearLightFalloffShaderChunk,
+  resolveAuroraThreePointLightDecay
+} from "./auroraThreeLightFalloff";
 import type { RuntimeState } from "./workspaceThreeRuntime";
 import {
   buildRuntimeObjectAnimationRunUserData,
   clearRuntimeObjectAnimationPlayback,
+  registerRuntimeAuroraTextureCyclePlayback,
   registerRuntimeObjectAnimationPlayback,
   writeRuntimeObjectAnimationDataset
 } from "./workspaceThreeRuntime";
@@ -202,11 +230,12 @@ const AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE =
 const AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS =
   "source-backed-mdl-radius-quadratic-attenuation";
 const AURORA_LIGHT_LINEAR_FALLOFF_SOURCE =
-  "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 FUN_00a423d8 adds active light color as max(0,1-distance/radius)*color*fade";
+  "Active retail inc_lighting.shd GAMMA_CORRECTION==0 surface branch plus C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 lightQuadraticAtten=9/(max(radius,0.1)^2*2); selected retail gamma profile remains parity-pending";
 const AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS =
-  "source-backed-active-light-linear-radius-falloff";
+  "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending";
 const AURORA_LIGHT_LINEAR_FALLOFF_DECAY = 1;
-const AURORA_LIGHT_LINEAR_FALLOFF_FORMULA = "max(0,1-distance/radius)";
+const AURORA_LIGHT_LINEAR_FALLOFF_FORMULA =
+  "1/(1+4.5*(distance/radius)^2)";
 const CREATURE_AURORA_LIGHT_SOURCE_RADIUS_UNITS = "aurora-model-units";
 const CREATURE_AURORA_LIGHT_SOURCE_UNIT_SCALE = 1;
 const CREATURE_AURORA_LIGHT_SOURCE_UNIT_SCALE_SOURCE =
@@ -216,6 +245,7 @@ const CREATURE_AURORA_LIGHT_SOURCE_RADIUS_WORLD_DISTANCE_SOURCE =
 const CREATURE_AURORA_LIGHT_RADIUS_PROOF_STATUS =
   "source-backed-creature-mdl-light-radius-controller";
 const PLACEABLE_MODEL_TEXTURE_REFERENCE_TIMEOUT_MS = 60_000;
+const CANONICAL_VFX_TEXTURE_LOAD_CONCURRENCY = 2;
 const CREATURE_EQUIPMENT_MODEL_PART_LOAD_TIMEOUT_MS = 12_000;
 const CREATURE_HELD_LONG_MELEE_MODEL_TYPES = new Set([
   "waxgr",
@@ -271,7 +301,7 @@ const ITEM_PROPERTY_LIGHT_CORE_ROLE = "item-property-light-core";
 const ITEM_PROPERTY_LIGHT_HALO_ROLE = "item-property-light-halo";
 const ITEM_PROPERTY_LIGHT_RANGE_ROLE = "item-property-light-range";
 const ITEM_PROPERTY_LIGHT_FALLOFF_PROOF_STATUS =
-  "source-family-backed-fx_light_clr-mdl-radius-linear-falloff-itemproperty-scheduler-unverified";
+  "source-family-backed-fx_light_clr-mdl-radius-gamma0-quadratic-surface-profile-parity-pending";
 const ITEM_PROPERTY_LIGHT_POINT_LIGHT_DECAY = AURORA_LIGHT_LINEAR_FALLOFF_DECAY;
 const LOOPING_VISUAL_EFFECT_MESSAGE_UPDATE_PROOF_SOURCE =
   "backend/scripts/audit-retail-light-function-disasm.py extracts nwmain.exe CNWSMessage::UpdateLastUpdateObject 0x1404e5700..0x1404e6305 proofStatus=source-backed-cnwsmessage-lastupdate-visual-transform-and-looping-vfx-list-store, copying CNWSObject.loopingVisualEffects at +0x160 into CLastUpdateObject.loopingVisualEffectsSnapshot at +0x108 via helper 0x1404c76b0 and calling CLastUpdateObject::SetVisualTransformData at 0x1404e584e; CNWSMessage::ComputeUpdateRequired 0x1404ca840..0x1404cba1a proofStatus=source-backed-cnwsmessage-computeupdate-looping-vfx-list-compare-offsets-0x108-0x160, comparing CLastUpdateObject+0x108 against CNWSObject+0x160 through CompareVisualEffectLists calls at 0x1404caac1 and 0x1404cb4cb; both message/update functions report blocked-no-direct-render-light-call-from-message-update-function";
@@ -280,9 +310,9 @@ const LOOPING_VISUAL_EFFECT_NETWORK_UPDATE_PROOF_SOURCE =
 const LOOPING_VISUAL_EFFECT_CLIENT_RECEIVE_RENDER_PROOF_SOURCE =
   "backend/scripts/audit-retail-light-function-disasm.py extracts nwmain.exe clientVisualEffectReceiveRenderEvidence proofStatus=source-backed-cnwcmessage-client-vfx-receive-vtable-add-newcaurobject-mdl-gob-light-path: CNWCMessage dispatch calls HandleServerToPlayerGameObjectUpdate at 0x1407a4843, HandleServerToPlayerUpdate_Update at 0x14079be47, and HandleServerToPlayerUpdateVisualEffects from generic/creature update paths at 0x14079cd60/0x140782fb1; HandleServerToPlayerUpdateVisualEffects 0x1407b1f00..0x1407b23db reads count/action/visualEffectId/objectId/subtype/ObjectVisualTransformData through ReadWORD/ReadBYTE/client object-id/helper calls, maps actions 0x41/0x44 to client object vtable slots +0x178/+0x180; CNWCObject/CNWCCreature/CNWCDoor/CNWCTrigger/CNWCPlaceable/CNWCVisualEffect/CNWCAreaOfEffectObject vtables resolve those slots to 0x140762180/0x140762ad0, with CNWCItem also exposing item-specific slots 0x140765b00/0x140765bd0; slot +0x178 calls CNWCVisualEffectOnObject::LoadVisualEffect 0x14096cf10 then CExoLinkedListInternal::AddTail at 0x1407622c6 and refresh/node-attach helpers, while visual-effect loaders create CAurObject/Gob instances through NewCAurObject for fxground/fximpact/fxhead and fx_light; generic MdlNodeLight::InternalCreateInstance proof in the same report proves MDL AuroraLight nodes create PartLight and attach to Gob+0x470";
 const ITEM_PROPERTY_LIGHT_POINT_LIGHT_DECAY_SOURCE =
-  "fx_light_clr.mdl AuroraLight01 radius controller plus active-light linear falloff; retail ApplyLight bridge, object-level looping VFX owner add/remove, CNWSMessage last-update copy/diff, CNWSMessage game-object update serialization, client receive/render/Gob instantiation, and generic MdlNodeLight PartLight creation/Gob-list attach are recovered";
+  "fx_light_clr.mdl AuroraLight01 radius controller plus active inc_lighting.shd GAMMA_CORRECTION==0 quadratic surface branch; selected retail gamma profile, cross-lane ordering, and parity remain pending";
 const ITEM_PROPERTY_LIGHT_FALLOFF_FORMULA =
-  "source-family max(0,1-distance/13.3)";
+  "source-family 1/(1+4.5*(distance/13.3)^2)";
 const ITEM_PROPERTY_LIGHT_RUNTIME_SCHEDULER_PROOF_SOURCE =
   "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwserver.exe exports CNWSItemPropertyHandler::ApplyLight at 0x140405e40 plus CNWSEffectListHandler::OnApplyLight 0x1403c28d0 and OnRemoveLight 0x1403cb370; nwmain.exe exports the same light handlers at 0x140472270/0x14042ed70/0x140437810 and LightManager Add/Prioritize/Remove/Update at 0x14007dbd0/0x14007ff60/0x1400802d0/0x140081100; backend/scripts/audit-retail-light-function-disasm.py disassembles nwmain.exe ApplyLight 0x140472270..0x1404723e4 sha256 f8f65f048d2955e1e99a74c96a10d397950d68d0ec9c35909d20e611a6796376 and extracts applyLightItemPropertyBridge: color byte [CNWItemProperty+9] jump-table maps iprp_color values 0..6 to VFX_DUR_LIGHT base rows 153/157/161/165/177/169/173 for Blue/Yellow/Purple/Red/Green/Orange/White, brightness word [CNWItemProperty+6] adds 0..3 for Dim/Low/Normal/Bright, createdCGameEffectSizeBytes=272, and internalApplyTargetVa=0x14048e350; the same script extracts nwmain.exe OnApplyVisualEffect 0x140434fc0..0x140435635 reading CGameEffect GetObjectID(0), GetInteger(0/1/2), GetFloat(0), GetVector(0/1), calling CNWSObject::AddLoopingVisualEffect at 0x140435400 and CNWSMessage::SendServerToPlayerGameObjUpdateVisEffect at 0x140435598; OnRemoveVisualEffect 0x140439730..0x140439ac7 calls CNWSObject::RemoveLoopingVisualEffect at 0x140439a75; CNWSObject::AddLoopingVisualEffect 0x14048da00..0x14048db90 writes 32-byte CLoopingVisualEffect records to the owner list at CNWSObject+0x160 with count +0x168 and capacity +0x16c, while RemoveLoopingVisualEffect 0x140498960..0x140498ae1 removes from the same list; CLoopingVisualEffect layout stores visualEffectId +0x0, objectId +0x4, subtype/flags +0x8, transform data +0x10, default object id 0x7f000000; the same script extracts mdlNodeLightPartLightLifecycle from nwmain.exe MdlNodeLight::InternalCreateInstance 0x140091980 with createdPartLightSizeBytes=192, inlinePartLightVtableWriteCount=2, gobPartLightListOffsets=0x470, and partLightListAddCalls CExoArrayList<PartLight>::Add at 0x140091acc, plus Gob::CollectLights evidence with AsPartLight vtable call 0x14008cdba and recursive PartLight list writes; OnRemoveLight disassembles via linear fallback to mov eax,1; ret in nwserver.exe 0x1403cb370..0x1403cb376 and nwmain.exe 0x140437810..0x140437816, so this export does not contain client PartLight removal; C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/data/nwn_base.key -> base_2da.bif contains itempropdef.2da row 44 costtable=18/param1=9, iprp_costtable.2da row 18 IPRP_LIGHTCOST ClientLoad=1, iprp_paramtable.2da row 9 IPRP_COLOR, iprp_lightcost.2da rows 1..4 Dim 5m/Low 10m/Normal 15m/Bright 20m, and iprp_color.2da rows 0..6 Blue/Yellow/Purple/Red/Green/Orange/White; retail resources map VFX_DUR_LIGHT visualeffects.2da rows 153..180 to explicit progfx.2da Type 4 normal rows 300..327/fade rows 350..377 and fx_light_clr.mdl animations; progfx.2da Type 4 Param3 provides item-light cast-shadow toggle with 5m rows=0 and 10m/15m/20m rows=1; object-level looping VFX owner add/remove, message diff/serialization, client receive/render/Gob instantiation, and generic MDL light-node PartLight creation/Gob-list attach are recovered for the fx_light_clr.mdl source family; cross-lane ordering and retail shadow-volume projection parity are still unrecovered";
 const ITEM_PROPERTY_LIGHT_RUNTIME_SCHEDULER_BLOCKER =
@@ -323,6 +353,34 @@ function ensurePlaceableTextureReferenceWithTimeout(
       globalThis.clearTimeout(timeout);
     }
   });
+}
+
+async function ensurePlaceableTexturesWithConcurrency(
+  runtime: RuntimeState,
+  textureDeliveryUrls: readonly string[],
+  options: PlaceableTextureLoadOptions,
+  concurrency = CANONICAL_VFX_TEXTURE_LOAD_CONCURRENCY
+): Promise<Array<THREE.Texture | null>> {
+  const resolvedTextures = new Array<THREE.Texture | null>(textureDeliveryUrls.length).fill(null);
+  const workerCount = Math.min(
+    textureDeliveryUrls.length,
+    Math.max(1, Math.floor(concurrency))
+  );
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < textureDeliveryUrls.length) {
+        const textureIndex = nextIndex;
+        nextIndex += 1;
+        resolvedTextures[textureIndex] = await ensurePlaceableTexture(
+          runtime,
+          textureDeliveryUrls[textureIndex]!,
+          options
+        );
+      }
+    })
+  );
+  return resolvedTextures;
 }
 
 function markSoundEditorGuide(node: THREE.Object3D, objectId: string, role: string): void {
@@ -2377,17 +2435,16 @@ function createCreatureAuroraLightPreviewGroup(
     lightNode.name = `creature_aurora_light_${light.nodeName}`;
     lightNode.position.copy(resolveCreatureAuroraLightAnimatedPosition(light, animation, 0));
 
-    const previewLight = light.ambientOnly
-      ? new THREE.AmbientLight(color, multiplier * 0.25)
-      : new THREE.PointLight(
-          color,
-          multiplier,
-          radius,
-          AURORA_LIGHT_LINEAR_FALLOFF_DECAY
-        );
+    const ambientOnly = light.ambientOnly === true;
+    const previewLight = new THREE.PointLight(
+      color,
+      multiplier,
+      radius,
+      resolveAuroraThreePointLightDecay(ambientOnly)
+    );
     previewLight.userData = {
-      creatureAuroraLightPreviewRole: light.ambientOnly
-        ? "source-mdl-ambient-light"
+      creatureAuroraLightPreviewRole: ambientOnly
+        ? "source-mdl-localized-ambient-point-light"
         : "source-mdl-point-light",
       creatureAuroraLightNodeName: light.nodeName,
       creatureAuroraLightSourceNodeKind: light.sourceNodeKind,
@@ -2408,25 +2465,24 @@ function createCreatureAuroraLightPreviewGroup(
       creatureAuroraLightQuadraticAtten: quadraticAtten,
       creatureAuroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
       creatureAuroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-      creatureAuroraLightFalloffMode: "linear-radius-clamped",
+      creatureAuroraLightFalloffMode: "gamma0-quadratic-surface",
       creatureAuroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
       creatureAuroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       creatureAuroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
-      creatureAuroraLightFalloffRendererPatchStatus: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.status,
-      creatureAuroraLightFalloffRendererProofStatus: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.proofStatus,
-      creatureAuroraLightFalloffRendererSource: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.source,
-      creatureAuroraLightPointLightDecay: light.ambientOnly
-        ? undefined
-        : AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
-      creatureAuroraLightPointLightDecaySource: light.ambientOnly
-        ? undefined
-        : AURORA_LIGHT_LINEAR_FALLOFF_SOURCE
+      creatureAuroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+      creatureAuroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+      creatureAuroraLightFalloffRendererSource: falloffShaderPatch.source,
+      creatureAuroraLightPointLightDecay: previewLight.decay,
+      creatureAuroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      creatureAuroraLightAmbientOnly: ambientOnly,
+      creatureAuroraLightChannelMappingStatus: ambientOnly
+        ? AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS
+        : "source-backed-localized-diffuse-channel-point-light-adapter",
+      creatureAuroraLightChannelMappingSource:
+        AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+      creatureAuroraLightShaderChannelMarkerRole: ambientOnly
+        ? "negative-decay-localized-ambient-marker"
+        : "positive-decay-localized-diffuse"
     };
     lightNode.add(previewLight);
 
@@ -2501,30 +2557,28 @@ function createCreatureAuroraLightPreviewGroup(
       creatureAuroraLightQuadraticAtten: quadraticAtten,
       creatureAuroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
       creatureAuroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-      creatureAuroraLightFalloffMode: "linear-radius-clamped",
+      creatureAuroraLightFalloffMode: "gamma0-quadratic-surface",
       creatureAuroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
       creatureAuroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       creatureAuroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
-      creatureAuroraLightFalloffRendererPatchStatus: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.status,
-      creatureAuroraLightFalloffRendererProofStatus: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.proofStatus,
-      creatureAuroraLightFalloffRendererSource: light.ambientOnly
-        ? undefined
-        : falloffShaderPatch.source,
-      creatureAuroraLightPointLightDecay: light.ambientOnly
-        ? undefined
-        : AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
-      creatureAuroraLightPointLightDecaySource: light.ambientOnly
-        ? undefined
-        : AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
+      creatureAuroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
+      creatureAuroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
+      creatureAuroraLightFalloffRendererSource: falloffShaderPatch.source,
+      creatureAuroraLightPointLightDecay: previewLight.decay,
+      creatureAuroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
       creatureAuroraLightMultiplier: light.multiplier,
       creatureAuroraLightAnimatedMultiplier: multiplier,
       creatureAuroraLightColor: light.color,
       creatureAuroraLightPreviewColor: [color.r, color.g, color.b],
-      creatureAuroraLightAmbientOnly: light.ambientOnly,
+      creatureAuroraLightAmbientOnly: ambientOnly,
+      creatureAuroraLightChannelMappingStatus: ambientOnly
+        ? AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_PROOF_STATUS
+        : "source-backed-localized-diffuse-channel-point-light-adapter",
+      creatureAuroraLightChannelMappingSource:
+        AURORA_THREE_LOCALIZED_AMBIENT_LIGHT_SOURCE,
+      creatureAuroraLightShaderChannelMarkerRole: ambientOnly
+        ? "negative-decay-localized-ambient-marker"
+        : "positive-decay-localized-diffuse",
       creatureAuroraLightSourceDefinition: light,
       creatureAuroraLightAnimationDefinition: animation,
       creatureAuroraLightSelectedAnimationName: animation?.animationName,
@@ -2732,7 +2786,6 @@ interface CreatureAuroraSourceLightRuntimeEntry {
   animation: CreatureAuroraLightAnimation;
   objectRadius: number;
   pointLight: THREE.PointLight | null;
-  ambientLight: THREE.AmbientLight | null;
   radiusGizmo: THREE.Mesh | null;
   colorMaterials: Array<THREE.Material & { color: THREE.Color }>;
 }
@@ -2773,14 +2826,10 @@ function resolveCreatureAuroraSourceLightRuntimeEntry(
   }
 
   let pointLight: THREE.PointLight | null = null;
-  let ambientLight: THREE.AmbientLight | null = null;
   let radiusGizmo: THREE.Mesh | null = null;
   node.traverse((child) => {
     if (!pointLight && child instanceof THREE.PointLight) {
       pointLight = child;
-    }
-    if (!ambientLight && child instanceof THREE.AmbientLight) {
-      ambientLight = child;
     }
     if (
       !radiusGizmo &&
@@ -2801,7 +2850,6 @@ function resolveCreatureAuroraSourceLightRuntimeEntry(
         ? node.userData.creatureAuroraLightObjectRadius
         : 1,
     pointLight,
-    ambientLight,
     radiusGizmo,
     colorMaterials: collectCreatureAuroraLightColorMaterials(node)
   };
@@ -2875,7 +2923,9 @@ function createCreatureAuroraSourceLightRuntime(
       if (entry.pointLight) {
         entry.pointLight.color.copy(color);
         entry.pointLight.distance = radius;
-        entry.pointLight.decay = AURORA_LIGHT_LINEAR_FALLOFF_DECAY;
+        entry.pointLight.decay = resolveAuroraThreePointLightDecay(
+          entry.light.ambientOnly === true
+        );
         entry.pointLight.intensity = multiplier;
         entry.pointLight.userData = {
           ...entry.pointLight.userData,
@@ -2899,20 +2949,16 @@ function createCreatureAuroraSourceLightRuntime(
           creatureAuroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
           creatureAuroraLightQuadraticAttenProofStatus:
             AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-          creatureAuroraLightFalloffMode: "linear-radius-clamped",
+          creatureAuroraLightFalloffMode: "gamma0-quadratic-surface",
           creatureAuroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
           creatureAuroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
           creatureAuroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
           creatureAuroraLightFalloffRendererPatchStatus: falloffShaderPatch.status,
           creatureAuroraLightFalloffRendererProofStatus: falloffShaderPatch.proofStatus,
           creatureAuroraLightFalloffRendererSource: falloffShaderPatch.source,
-          creatureAuroraLightPointLightDecay: AURORA_LIGHT_LINEAR_FALLOFF_DECAY,
+          creatureAuroraLightPointLightDecay: entry.pointLight.decay,
           creatureAuroraLightPointLightDecaySource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE
         };
-      }
-      if (entry.ambientLight) {
-        entry.ambientLight.color.copy(color);
-        entry.ambientLight.intensity = multiplier * 0.25;
       }
       if (entry.radiusGizmo) {
         entry.radiusGizmo.scale.setScalar(
@@ -2944,12 +2990,12 @@ function createCreatureAuroraSourceLightRuntime(
           resolveCreatureAuroraLightQuadraticAttenuation(radius),
         creatureAuroraLightQuadraticAttenSource: AURORA_LIGHT_QUADRATIC_ATTEN_SOURCE,
         creatureAuroraLightQuadraticAttenProofStatus: AURORA_LIGHT_QUADRATIC_ATTEN_PROOF_STATUS,
-        creatureAuroraLightFalloffMode: "linear-radius-clamped",
+        creatureAuroraLightFalloffMode: "gamma0-quadratic-surface",
         creatureAuroraLightFalloffFormula: AURORA_LIGHT_LINEAR_FALLOFF_FORMULA,
         creatureAuroraLightFalloffSource: AURORA_LIGHT_LINEAR_FALLOFF_SOURCE,
         creatureAuroraLightFalloffProofStatus: AURORA_LIGHT_LINEAR_FALLOFF_PROOF_STATUS,
         creatureAuroraLightPointLightDecay: entry.pointLight
-          ? AURORA_LIGHT_LINEAR_FALLOFF_DECAY
+          ? entry.pointLight.decay
           : undefined,
         creatureAuroraLightPointLightDecaySource: entry.pointLight
           ? AURORA_LIGHT_LINEAR_FALLOFF_SOURCE
@@ -3674,7 +3720,7 @@ interface CreaturePltTextureBridgeResult {
 type CreaturePltTextureBridgeMode = "retail-palette" | "hsl-layer-row";
 
 interface CreaturePltLayerPixelColorResult {
-  rgb: [number, number, number];
+  rgba: [number, number, number, number];
   mode: CreaturePltTextureBridgeMode;
 }
 
@@ -3686,16 +3732,16 @@ function resolveCreaturePltLayerPixelColor(
   const channel = CREATURE_TINT_CHANNELS.find((entry) => entry.layerIndex === layerIndex);
   if (!channel || layerRows[channel.key] === undefined) {
     return {
-      rgb: [colorIndex, colorIndex, colorIndex],
+      rgba: [colorIndex, colorIndex, colorIndex, 255],
       mode: "hsl-layer-row"
     };
   }
 
   const row = layerRows[channel.key] ?? 0;
-  const retailPaletteRgb = resolveAuroraPltPaletteRgbSync(layerIndex, row, colorIndex);
-  if (retailPaletteRgb) {
+  const retailPaletteRgba = resolveAuroraPltPaletteRgbaSync(layerIndex, row, colorIndex);
+  if (retailPaletteRgba) {
     return {
-      rgb: retailPaletteRgb,
+      rgba: retailPaletteRgba,
       mode: "retail-palette"
     };
   }
@@ -3708,10 +3754,11 @@ function resolveCreaturePltLayerPixelColor(
     Math.max(0.05, Math.min(0.94, channel.lightness * (0.42 + shadeRatio * 0.92)))
   );
   return {
-    rgb: [
+    rgba: [
       Math.round(color.r * 255),
       Math.round(color.g * 255),
-      Math.round(color.b * 255)
+      Math.round(color.b * 255),
+      255
     ],
     mode: "hsl-layer-row"
   };
@@ -3746,11 +3793,11 @@ function writeCreaturePltLayerTextureData(
       if (resolvedColor.mode === "retail-palette") {
         bridgeMode = "retail-palette";
       }
-      const [red, green, blue] = resolvedColor.rgb;
+      const [red, green, blue, alpha] = resolvedColor.rgba;
       target[targetOffset] = red;
       target[targetOffset + 1] = green;
       target[targetOffset + 2] = blue;
-      target[targetOffset + 3] = 255;
+      target[targetOffset + 3] = alpha;
     }
   }
   return bridgeMode;
@@ -3765,7 +3812,7 @@ function writeCreaturePltTextureUserData(
     creaturePltTextureBridgeMode: mode,
     creaturePltPaletteReady: mode === "retail-palette",
     creaturePltPaletteSource:
-      mode === "retail-palette" ? "nwn_mdl_webviewer" : "aurora-web-hsl-fallback"
+      mode === "retail-palette" ? "aurora-retail-key-bif" : "aurora-web-hsl-fallback"
   };
 }
 
@@ -3831,16 +3878,25 @@ function createCreaturePltLayerTexture(
     THREE.RGBAFormat
   );
   texture.name = sourceTexture.name ? `${sourceTexture.name}:creature-plt` : "creature-plt";
-  texture.colorSpace = sourceTexture.colorSpace;
+  texture.colorSpace = THREE.NoColorSpace;
   texture.flipY = false;
-  texture.wrapS = sourceTexture.wrapS;
-  texture.wrapT = sourceTexture.wrapT;
-  texture.magFilter = sourceTexture.magFilter;
-  texture.minFilter = sourceTexture.minFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
   texture.anisotropy = sourceTexture.anisotropy;
   texture.needsUpdate = true;
   texture.userData = {
     ...sourceTexture.userData,
+    auroraPltGeneratedTargetFormat: "rgba8-linear",
+    auroraPltSamplerState: {
+      wrapS: "repeat",
+      wrapT: "repeat",
+      magFilter: "linear",
+      minFilter: "linear-mipmap-linear",
+      generateMipmaps: true
+    },
     creaturePltTextureBridgeApplied: true,
     creaturePltLayerRows: layerRows,
     creaturePltPaletteRowMax: CREATURE_PLT_PALETTE_ROW_MAX
@@ -7920,7 +7976,7 @@ function resolveCreatureRuntimeAmmunitionAim(
         ? drawAxisDirection.dot(crossbowMeshAxis)
         : null;
       crossbowAxisInverted =
-        !crossbowMeshAxis || crossbowAxisDot < 0;
+        !crossbowMeshAxis || crossbowAxisDot === null || crossbowAxisDot < 0;
       crossbowAxisSelection = !crossbowMeshAxis
         ? "fallback-inverted-no-crossbow-mesh-axis"
         : crossbowAxisInverted
@@ -11242,7 +11298,11 @@ function applyItemSourceRuntimeEffectsToRoot(
   const sourceDanglymesh = createAuroraSourceDanglymeshRuntime(root, clips);
   const sourceAlpha = createAuroraSourceAlphaRuntime(root, clips);
   const sourceSelfIllum = createAuroraSourceSelfIllumColorRuntime(root, clips);
-  const textureCycle = createAuroraTextureCycleRuntime(root);
+  const textureCycle = registerRuntimeAuroraTextureCyclePlayback(
+    runtime,
+    objectId,
+    root
+  );
   const hasRuntimeEffects = Boolean(
     sourceAnimmesh || sourceDanglymesh || sourceAlpha || sourceSelfIllum || textureCycle
   );
@@ -11301,12 +11361,18 @@ function applyItemSourceRuntimeEffectsToRoot(
     registerRuntimeObjectAnimationPlayback(runtime, objectId, root, [], {
       autoplay: true,
       applyInitialPose: true,
-      afterUpdate: (deltaSeconds?: number, elapsedSeconds?: number): void => {
+      afterUpdate: (
+        deltaSeconds?: number,
+        elapsedSeconds?: number,
+        _animationTimeSeconds?: number,
+        _animationCompleted?: boolean,
+        _rendererFrameSerial?: number,
+        _rendererDeltaSeconds?: number
+      ): void => {
         sourceAnimmesh?.apply(deltaSeconds, elapsedSeconds);
         sourceDanglymesh?.apply(deltaSeconds, elapsedSeconds);
         sourceAlpha?.apply(deltaSeconds, elapsedSeconds);
         sourceSelfIllum?.apply(deltaSeconds, elapsedSeconds);
-        textureCycle?.apply(deltaSeconds, elapsedSeconds);
       }
     });
   }
@@ -12534,7 +12600,11 @@ function applyCreatureAnimationPlaybackToModel(
     : null;
   const sourceAlpha = createAuroraSourceAlphaRuntime(root, clips);
   const sourceSelfIllum = createAuroraSourceSelfIllumColorRuntime(root, clips);
-  const textureCycle = createAuroraTextureCycleRuntime(root);
+  const textureCycle = registerRuntimeAuroraTextureCyclePlayback(
+    runtime,
+    object.id,
+    root
+  );
   const sourceLight = createCreatureAuroraSourceLightRuntime(root);
   const explicitAnimationName = resolveCreatureSelectedAnimationName(object);
   const animationState = resolveCreatureRequestedAnimationState(object);
@@ -12812,7 +12882,9 @@ function applyCreatureAnimationPlaybackToModel(
     deltaSeconds?: number,
     elapsedSeconds?: number,
     animationTimeSeconds?: number,
-    animationCompleted?: boolean
+    animationCompleted?: boolean,
+    _rendererFrameSerial?: number,
+    _rendererDeltaSeconds?: number
   ): void => {
     sourceSkinning?.apply();
     if (sourceSkinning) {
@@ -12825,7 +12897,6 @@ function applyCreatureAnimationPlaybackToModel(
     sourceDanglymesh?.apply(deltaSeconds, elapsedSeconds);
     sourceAlpha?.apply(deltaSeconds, elapsedSeconds);
     sourceSelfIllum?.apply(deltaSeconds, elapsedSeconds);
-    textureCycle?.apply(deltaSeconds, elapsedSeconds);
     sourceLight?.apply(deltaSeconds, elapsedSeconds);
     invokeCreatureRuntimeEquipmentVisualUpdate(
       root,
@@ -13240,7 +13311,10 @@ function resolveInstancedFallbackSelectedColor(baseColorHex: string, selected: b
 }
 
 function applySourceMdlEmitterAreaModelSpaceScale(group: THREE.Object3D): void {
-  group.scale.multiplyScalar(PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE);
+  applyAuroraAreaModelSpaceScale(
+    group,
+    PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE
+  );
   group.userData = {
     ...group.userData,
     sourceMdlEmitterAreaModelSpaceHost: true,
@@ -13262,6 +13336,114 @@ function createSourceMdlEmitterAreaModelSpaceRoot(group: THREE.Group): THREE.Gro
     sourceMdlEmitterAreaModelSpaceHostAttached: true
   };
   return root;
+}
+
+function toAuroraVfxCanonicalModelGraph(
+  modelGraph: PlaceableRenderPackageAuroraModelGraph | undefined
+): AuroraVfxCanonicalModelGraph | undefined {
+  return Array.isArray(modelGraph?.nodes) ? { nodes: modelGraph.nodes } : undefined;
+}
+
+function syncCanonicalSourceMdlLightNodesFromLoadedModel(input: {
+  model: THREE.Object3D;
+  lightGroup: THREE.Object3D;
+  modelGraph: PlaceableRenderPackageAuroraModelGraph | undefined;
+}): { matchedNodeNames: string[]; unmatchedNodeNames: string[]; graphStatus: string } {
+  const graphNodes = input.modelGraph?.nodes;
+  if (!Array.isArray(graphNodes)) {
+    return {
+      matchedNodeNames: [],
+      unmatchedNodeNames: [],
+      graphStatus: "legacy-model-graph-nodes-unavailable"
+    };
+  }
+  const graphLightNames = new Set(
+    graphNodes
+      .filter((node) => node.nodeKind === "light")
+      .map((node) => normalizeAuroraMdlGraphNodeName(node.nodeName))
+      .filter(Boolean)
+  );
+  if (graphLightNames.size === 0) {
+    return {
+      matchedNodeNames: [],
+      unmatchedNodeNames: [],
+      graphStatus: "source-mdl-graph-has-no-light-nodes"
+    };
+  }
+
+  const modelNodesByName = new Map<string, THREE.Object3D>();
+  input.model.traverse((node) => {
+    const normalizedName = normalizeAuroraMdlGraphNodeName(node.name);
+    if (normalizedName && !modelNodesByName.has(normalizedName)) {
+      modelNodesByName.set(normalizedName, node);
+    }
+  });
+
+  const matchedNodeNames: string[] = [];
+  const unmatchedNodeNames: string[] = [];
+  input.lightGroup.traverse((node) => {
+    const isLegacyPreviewLight = node.userData?.vfxPreviewRole === "aurora-light-node";
+    const isCanonicalSourceMdlLight = node.userData?.auroraVfxCanonicalSourceMdlLight === true;
+    if (!isLegacyPreviewLight && !isCanonicalSourceMdlLight) {
+      return;
+    }
+    const nodeName =
+      typeof node.userData?.auroraLightNodeName === "string"
+        ? node.userData.auroraLightNodeName
+        : typeof node.userData?.auroraVfxCanonicalSourceMdlLightNodeName === "string"
+          ? node.userData.auroraVfxCanonicalSourceMdlLightNodeName
+        : "";
+    const normalizedName = normalizeAuroraMdlGraphNodeName(nodeName);
+    if (!normalizedName || !graphLightNames.has(normalizedName)) {
+      return;
+    }
+    const sourceModelNode = modelNodesByName.get(normalizedName);
+    if (!sourceModelNode) {
+      unmatchedNodeNames.push(nodeName);
+      node.userData = {
+        ...node.userData,
+        auroraVfxCanonicalLightGraphAttachment: "source-node-not-present-in-loaded-model",
+        auroraVfxCanonicalLightGraphNodeName: nodeName,
+        auroraVfxCanonicalLightGraphRetailProof: false
+      };
+      return;
+    }
+    input.model.updateWorldMatrix(true, true);
+    sourceModelNode.updateWorldMatrix(true, false);
+    const worldPosition = new THREE.Vector3();
+    sourceModelNode.getWorldPosition(worldPosition);
+    const localPosition = node.parent
+      ? node.parent.worldToLocal(worldPosition.clone())
+      : worldPosition.clone();
+    node.position.copy(localPosition);
+    node.userData = {
+      ...node.userData,
+      auroraLightSourceModelAttachmentNode: sourceModelNode,
+      auroraVfxCanonicalLightGraphAttachment: "matched-loaded-model-node",
+      auroraVfxCanonicalLightGraphNodeName: nodeName,
+      auroraVfxCanonicalLightGraphWorldPosition: [
+        worldPosition.x,
+        worldPosition.y,
+        worldPosition.z
+      ],
+      auroraVfxCanonicalLightGraphLocalPosition: [
+        localPosition.x,
+        localPosition.y,
+        localPosition.z
+      ],
+      auroraVfxCanonicalLightGraphRetailProof: false
+    };
+    matchedNodeNames.push(nodeName);
+  });
+  return {
+    matchedNodeNames,
+    unmatchedNodeNames,
+    graphStatus: "source-mdl-graph-light-nodes-checked"
+  };
+}
+
+function normalizeAuroraMdlGraphNodeName(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_]/gu, "");
 }
 
 function composeAreaObjectSourceFootprintInstanceMatrix(
@@ -13564,16 +13746,175 @@ function resolveVfxAlphaCompanionTexture(
 
 function collectCachedPlaceableTexturesByReference(
   runtime: RuntimeState,
-  textureUrlsByReference: Map<string, string>
+  textureUrlsByReference: Map<string, string>,
+  loadOptions: PlaceableTextureLoadOptions = {},
+  blockPltWithoutTargetContext = false
 ): Map<string, THREE.Texture> {
   const texturesByReference = new Map<string, THREE.Texture>();
   textureUrlsByReference.forEach((textureDeliveryUrl, reference) => {
-    const cachedTexture = runtime.placeableTextureCacheByUrl.get(textureDeliveryUrl);
+    if (blockPltWithoutTargetContext && isAuroraPltTextureDeliveryUrl(textureDeliveryUrl)) {
+      return;
+    }
+    const cachedTexture = getCachedPlaceableTexture(runtime, textureDeliveryUrl, loadOptions);
     if (cachedTexture) {
       texturesByReference.set(reference, cachedTexture);
     }
   });
   return texturesByReference;
+}
+
+function isAuroraPltTextureDeliveryUrl(textureDeliveryUrl: string): boolean {
+  return /\.plt(?:[?#]|$)/iu.test(textureDeliveryUrl);
+}
+
+function hasCanonicalSourceMdlLights(group: THREE.Object3D | null): boolean {
+  let found = false;
+  group?.traverse((node) => {
+    if (node.userData?.auroraVfxCanonicalSourceMdlLight === true) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function applyCanonicalSourceMdlLightPolicyAfterRefresh(
+  currentCanonicalGroup: THREE.Object3D,
+  refreshedCanonicalGroup: THREE.Object3D,
+  policy: CanonicalSourceMdlLightFallbackPolicy | null | undefined
+): void {
+  if (!policy) {
+    return;
+  }
+  applyCanonicalSourceMdlLightFallbackPolicy(refreshedCanonicalGroup, policy);
+  const fallbackChildren = currentCanonicalGroup.children.filter(
+    (child) => child.userData?.auroraVfxSourceMdlLightFallbackActive === true
+  );
+  fallbackChildren.forEach((fallbackChild) => refreshedCanonicalGroup.add(fallbackChild));
+}
+
+function collectCanonicalVfxChunkModelDeliveryUrlsByResourceKey(
+  payload: PlaceableViewportRenderPayload | null | undefined,
+  canonicalPayload: AuroraVfxPayload | null | undefined
+): Map<string, string> {
+  if (!payload || !canonicalPayload) {
+    return new Map();
+  }
+  const resourceKeys = collectCanonicalVfxChunkModelResourceKeys(canonicalPayload);
+  if (resourceKeys.length === 0) {
+    return new Map();
+  }
+  const resourceKeyByNormalizedName = new Map(
+    resourceKeys.map((resourceKey) => [normalizeCanonicalVfxChunkModelResourceName(resourceKey), resourceKey])
+  );
+  const assetById = new Map(
+    payload.placeable.assetManifest.assets.map((asset) => [String(asset.assetId ?? "").trim(), asset])
+  );
+  const urlsByResourceKey = new Map<string, string>();
+  payload.assetContracts.assets.forEach((assetContract) => {
+    const assetId = String(assetContract.assetId ?? "").trim();
+    const asset = assetById.get(assetId);
+    const normalizedNames = [
+      normalizeCanonicalVfxChunkModelResourceName(asset?.fileName),
+      normalizeCanonicalVfxChunkModelResourceName(asset?.objectKey),
+      normalizeCanonicalVfxChunkModelResourceName(assetContract.deliveryUrl)
+    ].filter((entry) => entry.length > 0);
+    const matchedResourceKey = normalizedNames
+      .map((name) => resourceKeyByNormalizedName.get(name))
+      .find((entry): entry is string => Boolean(entry));
+    const deliveryUrl =
+      typeof assetContract.deliveryUrl === "string" ? assetContract.deliveryUrl.trim() : "";
+    if (
+      !matchedResourceKey ||
+      deliveryUrl.length === 0 ||
+      urlsByResourceKey.has(matchedResourceKey) ||
+      resolveUnsupportedModelCandidateReason(deliveryUrl) !== null
+    ) {
+      return;
+    }
+    urlsByResourceKey.set(matchedResourceKey, resolveCanonicalVfxChunkModelDeliveryUrl(deliveryUrl));
+  });
+  return urlsByResourceKey;
+}
+
+function collectCachedCanonicalVfxChunkModelsByResourceKey(
+  runtime: RuntimeState,
+  urlsByResourceKey: Map<string, string>
+): Map<string, THREE.Object3D> {
+  const modelsByResourceKey = new Map<string, THREE.Object3D>();
+  urlsByResourceKey.forEach((deliveryUrl, resourceKey) => {
+    const cachedModel = runtime.placeableModelCacheByUrl.get(deliveryUrl);
+    if (cachedModel) {
+      modelsByResourceKey.set(resourceKey, cachedModel);
+    }
+  });
+  return modelsByResourceKey;
+}
+
+function resolveCanonicalVfxChunkModelDeliveryUrl(url: string): string {
+  try {
+    return resolvePlaceableAssetDeliveryUrl(url);
+  } catch {
+    return url;
+  }
+}
+
+function collectCanonicalVfxChunkModelResourceKeys(payload: AuroraVfxPayload): string[] {
+  const contracts = [
+    payload.contracts.renderContract,
+    ...(Array.isArray(payload.contracts.runtimeEmitters)
+      ? payload.contracts.runtimeEmitters.map((entry) =>
+          typeof entry === "object" && entry !== null
+            ? (entry as { renderContract?: unknown }).renderContract
+            : undefined
+        )
+      : [])
+  ];
+  const resourceKeys: string[] = [];
+  contracts.forEach((contract) => {
+    collectCanonicalVfxChunkModelResourceKeysFromContract(contract).forEach((resourceKey) => {
+      if (!resourceKeys.includes(resourceKey)) {
+        resourceKeys.push(resourceKey);
+      }
+    });
+  });
+  return resourceKeys;
+}
+
+function collectCanonicalVfxChunkModelResourceKeysFromContract(contract: unknown): string[] {
+  if (!contract || typeof contract !== "object") {
+    return [];
+  }
+  const record = contract as {
+    chunkLane?: unknown;
+    chunkLanes?: unknown;
+  };
+  const lanes = [
+    record.chunkLane,
+    ...(Array.isArray(record.chunkLanes) ? record.chunkLanes : [])
+  ];
+  return lanes
+    .map((lane) => {
+      if (!lane || typeof lane !== "object") {
+        return "";
+      }
+      const resolvedResource = (lane as { resolvedResource?: unknown }).resolvedResource;
+      if (!resolvedResource || typeof resolvedResource !== "object") {
+        return "";
+      }
+      const resourceKey = (resolvedResource as { resourceKey?: unknown }).resourceKey;
+      return typeof resourceKey === "string" ? resourceKey.trim() : "";
+    })
+    .filter((resourceKey) => resourceKey.length > 0);
+}
+
+function normalizeCanonicalVfxChunkModelResourceName(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim().replace(/\\/gu, "/").toLowerCase();
+  const withoutQuery = normalized.split(/[?#]/u)[0] ?? "";
+  const fileName = withoutQuery.split("/").filter(Boolean).pop() ?? "";
+  return fileName.replace(/\.(mdl|mdb|glb|gltf)$/iu, "");
 }
 
 function resolveVfxModelFallbackTexture(
@@ -16227,6 +16568,40 @@ function updateInstancedFallbackProxySelection(
   );
 }
 
+export const AREA_OBJECT_POLYGON_GUIDE_ROLE = "aurora-area-object-polygon-guide";
+
+export function createAreaObjectPolygonGuide(
+  object: SceneObject,
+  worldAnchor: Readonly<{ x: number; y: number; z: number }>,
+  selected: boolean,
+): THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial> | null {
+  const offsets = resolveAreaObjectPolygonRenderOffsets(object);
+  if (!offsets) return null;
+  const geometry = new THREE.BufferGeometry().setFromPoints(offsets.map((offset) =>
+    new THREE.Vector3(
+      worldAnchor.x + offset.x,
+      worldAnchor.y + offset.y,
+      worldAnchor.z + offset.z,
+    )));
+  const material = new THREE.LineBasicMaterial({
+    color: new THREE.Color(object.kind === "triggers" ? "#f6b44d" : "#d875ff"),
+    transparent: true,
+    opacity: selected ? 1 : 0.82,
+    depthWrite: false,
+  });
+  const guide = new THREE.Line(geometry, material);
+  guide.renderOrder = 15;
+  guide.raycast = () => undefined;
+  guide.userData = {
+    role: AREA_OBJECT_POLYGON_GUIDE_ROLE,
+    objectId: object.id,
+    objectKind: object.kind,
+    coordinateSpace: "native_local",
+    pointCount: offsets.length - 1,
+  };
+  return guide;
+}
+
 export function updateObjectMeshSelectionState(
   runtime: RuntimeState,
   objects: SceneObject[],
@@ -16263,6 +16638,140 @@ export function updateObjectMeshSelectionState(
   });
 }
 
+interface CanonicalVfxAreaCollisionRefreshInput {
+  runtime: RuntimeState;
+  object: SceneObject;
+  objectLabel: string;
+  objectRadius: number;
+  payload: AuroraVfxPayload;
+  areaCollision: AuroraAreaVfxCollisionContract;
+  renderAreaGeometry: boolean;
+  sourceMdlPlaceableEmitter: boolean;
+  particleTextureUrlsByReference: Map<string, string>;
+  particleTextureLoadOptions: PlaceableTextureLoadOptions;
+  blockPltWithoutTargetContext: boolean;
+  chunkModelUrlsByResourceKey: Map<string, string>;
+  chunkModelAuroraMaterial?: PlaceableRenderPackageAuroraMaterial | null;
+  chunkModelTextureBindings?: PlaceableRenderPackageTextureBinding[] | null;
+  modelGraph?: AuroraVfxCanonicalModelGraph;
+  sourceMdlLightPolicy?: CanonicalSourceMdlLightFallbackPolicy | null;
+}
+
+async function refreshCanonicalVfxWithAreaCollision(
+  input: CanonicalVfxAreaCollisionRefreshInput
+): Promise<void> {
+  const textureUrls = input.blockPltWithoutTargetContext
+    ? []
+    : [...new Set(input.particleTextureUrlsByReference.values())];
+  const modelUrls = [...new Set(input.chunkModelUrlsByResourceKey.values())];
+  await Promise.all([
+    ...textureUrls.map((url) =>
+      ensurePlaceableTexture(input.runtime, url, input.particleTextureLoadOptions)
+    ),
+    ...modelUrls.map((url) => ensurePlaceableModel(input.runtime, url))
+  ]);
+
+  const refreshedPayload = await resolveAuroraVfxSceneRuntimePayload({
+    runtimeKey: input.runtime,
+    fetchFn: input.runtime.placeableModelFetch as unknown as typeof fetch,
+    requestHeaders: input.runtime.placeableModelRequestHeader,
+    payload: input.payload,
+    areaCollision: input.areaCollision,
+    object: input.object
+  });
+  const latestRoot = input.runtime.objectMeshById.get(input.object.id);
+  if (!latestRoot) {
+    return;
+  }
+  if (!refreshedPayload) {
+    latestRoot.userData = {
+      ...latestRoot.userData,
+      auroraVfxSceneCollisionStatus: "not-applied"
+    };
+    return;
+  }
+
+  const currentCanonicalGroup = findCurrentCanonicalVfxGroup(latestRoot);
+  if (!currentCanonicalGroup) {
+    return;
+  }
+  const refreshedGroup = createAuroraVfxCanonicalRenderGroup(refreshedPayload, {
+    objectRadius: input.objectRadius,
+    particleTexturesByReference: collectCachedPlaceableTexturesByReference(
+      input.runtime,
+      input.particleTextureUrlsByReference,
+      input.particleTextureLoadOptions,
+      input.blockPltWithoutTargetContext
+    ),
+    chunkModelsByResourceKey: collectCachedCanonicalVfxChunkModelsByResourceKey(
+      input.runtime,
+      input.chunkModelUrlsByResourceKey
+    ),
+    chunkModelDeliveryUrlsByResourceKey: input.chunkModelUrlsByResourceKey,
+    chunkModelAuroraMaterial: input.chunkModelAuroraMaterial,
+    chunkModelTextureBindings: input.chunkModelTextureBindings,
+    modelGraph: input.modelGraph,
+    referencedObjectContextKey: input.object.id,
+    sourceCoordinateSpace: "aurora-z-up"
+  });
+  applyCanonicalSourceMdlLightPolicyAfterRefresh(
+    currentCanonicalGroup,
+    refreshedGroup,
+    input.sourceMdlLightPolicy
+  );
+  if (
+    input.renderAreaGeometry &&
+    input.sourceMdlPlaceableEmitter
+  ) {
+    applySourceMdlEmitterAreaModelSpaceScale(refreshedGroup);
+  }
+  decoratePlaceableModelForObjectSelection(
+    refreshedGroup,
+    input.object.id,
+    input.object.kind,
+    input.objectLabel
+  );
+  refreshedGroup.position.copy(currentCanonicalGroup.position);
+  refreshedGroup.quaternion.copy(currentCanonicalGroup.quaternion);
+  refreshedGroup.scale.copy(currentCanonicalGroup.scale);
+  refreshedGroup.userData = {
+    ...currentCanonicalGroup.userData,
+    ...refreshedGroup.userData,
+    objectId: input.object.id,
+    objectKind: input.object.kind,
+    objectLabel: input.objectLabel,
+    auroraVfxSceneCollisionStatus: "backend-area-wok-runtime-applied",
+    auroraVfxSceneCollisionFingerprint: input.areaCollision.fingerprint
+  };
+
+  if (currentCanonicalGroup === latestRoot) {
+    input.runtime.objectLayer.remove(latestRoot);
+    input.runtime.objectLayer.add(refreshedGroup);
+    input.runtime.objectMeshById.set(input.object.id, refreshedGroup);
+    return;
+  }
+  const parent = currentCanonicalGroup.parent;
+  if (!parent) {
+    return;
+  }
+  parent.remove(currentCanonicalGroup);
+  parent.add(refreshedGroup);
+  latestRoot.userData = {
+    ...latestRoot.userData,
+    ...refreshedGroup.userData
+  };
+}
+
+function findCurrentCanonicalVfxGroup(root: THREE.Object3D): THREE.Object3D | null {
+  if (root.userData?.auroraVfxCanonicalRenderer === true) {
+    return root;
+  }
+  return (
+    root.children.find((child) => child.userData?.auroraVfxCanonicalRenderer === true) ??
+    null
+  );
+}
+
 export function rebuildObjectMeshes(
   runtime: RuntimeState,
   objects: SceneObject[],
@@ -16276,7 +16785,11 @@ export function rebuildObjectMeshes(
   runtimeSoundNowPlayingBadges: readonly RuntimeSoundNowPlayingBadge[],
   showRuntimeSoundNowPlaying: boolean,
   placeableRenderPayloadByObjectId: Record<string, PlaceableViewportRenderPayload> | null,
-  creatureRenderPayloadByObjectId: Record<string, CreatureViewportRenderPayload> | null = null
+  creatureRenderPayloadByObjectId: Record<string, CreatureViewportRenderPayload> | null = null,
+  auroraVfxAreaCollision: AuroraAreaVfxCollisionContract | null = null,
+  modelPresentation: {
+    creatureModelPresentationMode?: "default" | "source-model-units";
+  } = {}
 ): void {
   if (typeof (areaHeight as unknown) === "boolean") {
     const legacyRenderAreaGeometry = areaHeight as unknown as boolean;
@@ -16306,6 +16819,11 @@ export function rebuildObjectMeshes(
     ? runtimeSoundNowPlayingBadges
     : [];
 
+  const creatureModelPresentationMode =
+    modelPresentation.creatureModelPresentationMode ?? "default";
+  const preserveCreatureSourceModelUnits =
+    creatureModelPresentationMode === "source-model-units";
+
   clearObjectLayer(runtime);
   applyAuroraAreaObjectLayerRenderFrame(runtime, renderAreaGeometry, areaWidth);
   writePlaceableModelDebugStatus(runtime, "idle", {
@@ -16320,9 +16838,11 @@ export function rebuildObjectMeshes(
   );
   const markerScale = resolveSceneObjectRenderScale(sceneScale, renderAreaGeometry);
   const placeableModelTargetMaxAxisFactor = PLACEABLE_PREVIEW_MODEL_TARGET_MAX_AXIS_FACTOR;
-  const placeableModelPresentationKey = renderAreaGeometry
-    ? `area-aurora-unit-scale:${PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE.toFixed(6)}`
-    : `normalized:${PLACEABLE_PREVIEW_MODEL_TARGET_MAX_AXIS_FACTOR.toFixed(6)}`;
+  const placeableModelPresentationKey = preserveCreatureSourceModelUnits
+    ? "creature-source-model-units"
+    : renderAreaGeometry
+      ? `area-aurora-unit-scale:${PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE.toFixed(6)}`
+      : `normalized:${PLACEABLE_PREVIEW_MODEL_TARGET_MAX_AXIS_FACTOR.toFixed(6)}`;
   const soundMetersToWorldScale = 1 / Math.max(1, soundUnitsPerTile);
   const auroraLightRuntimeBudget = resolveAuroraRuntimeLightBudgetSelection(runtime);
   const objectRadius = 0.24 * markerScale;
@@ -16337,7 +16857,6 @@ export function rebuildObjectMeshes(
   const labelScale = markerScale;
   const labelHeight = objectRadius + 0.08 * markerScale;
   const objectBaseY = objectRadius + 0.012;
-  const toWorldSoundDistance = (meters: number) => Math.max(0, meters) * soundMetersToWorldScale;
   let areaPrimitiveFallbackCandidateCount = 0;
   let areaPrimitiveFallbackRenderedCount = 0;
   let areaPrimitiveFallbackSuppressedCount = 0;
@@ -16357,6 +16876,8 @@ export function rebuildObjectMeshes(
     );
 
   objects.forEach((object) => {
+    const preserveCreatureSourceModelUnitsForObject =
+      preserveCreatureSourceModelUnits && object.kind === "creatures";
     const renderObjectX = object.x;
     const renderObjectZ = renderAreaGeometry
       ? resolveAuroraAreaRenderZ(object.y, areaHeight)
@@ -16478,9 +16999,19 @@ export function rebuildObjectMeshes(
     const isStatusMapped =
       debugState.statusMap !== "off" &&
       usesStatusMapForKind(debugState.statusMap, object.kind);
+    const renderPayloadVfxPayload =
+      object.kind === "placeables" && placeableRenderPayload
+        ? buildVfxPayloadFromRenderPayload(placeableRenderPayload)
+        : undefined;
     const isRenderPayloadVfxPlaceable =
       object.kind === "placeables" &&
-      Boolean(placeableRenderPayload && isPlaceableVfxPayload(placeableRenderPayload));
+      Boolean(
+        placeableRenderPayload &&
+          (
+            isPlaceableVfxPayload(placeableRenderPayload) ||
+            renderPayloadVfxPayload?.flags.backendCanonical === true
+          )
+      );
     const previewVfxPayload = object.kind === "placeables" ? object.vfxPayload : undefined;
     const inferredPreviewVfxPayload =
       !placeableRenderPayload && !previewVfxPayload
@@ -16491,12 +17022,28 @@ export function rebuildObjectMeshes(
       Boolean(!placeableRenderPayload && (previewVfxPayload || inferredPreviewVfxPayload));
     const auroraVfxPayload =
       isRenderPayloadVfxPlaceable && placeableRenderPayload
-        ? buildVfxPayloadFromRenderPayload(placeableRenderPayload)
+        ? renderPayloadVfxPayload
         : previewVfxPayload ?? inferredPreviewVfxPayload;
     const canonicalAuroraVfxPayload = auroraVfxPayload?.auroraPayload;
     const shouldUseCanonicalVfxRenderer = isCanonicalAuroraVfxRenderablePayload(
       canonicalAuroraVfxPayload
     );
+    const canonicalVfxPltPaletteResolution = canonicalAuroraVfxPayload
+      ? resolveAuroraVfxCanonicalPltPaletteResolution(canonicalAuroraVfxPayload)
+      : { status: "not-applicable" as const };
+    const canonicalVfxPltPaletteRowsByLayer = canonicalAuroraVfxPayload
+      ? resolveAuroraVfxCanonicalPltPaletteRows(canonicalAuroraVfxPayload)
+      : undefined;
+    const canonicalVfxTextureLoadOptions: PlaceableTextureLoadOptions =
+      canonicalVfxPltPaletteRowsByLayer
+        ? {
+            paletteRowsByLayer: canonicalVfxPltPaletteRowsByLayer,
+            label: "canonical-vfx-plt"
+          }
+        : {};
+    const canonicalVfxBlocksPltWithoutTargetContext =
+      canonicalVfxPltPaletteResolution.status === "missing-target-context" ||
+      canonicalVfxPltPaletteResolution.status === "conflicting-context";
     if (isStatusMapped) {
       colorHex = STATUS_COLOR[effectiveRenderStatus];
     } else if (isVfxPlaceable && placeableRenderPayload) {
@@ -16529,24 +17076,44 @@ export function rebuildObjectMeshes(
       hasRenderableSourceMdlPlaceableEmitter && isSourceMdlPlaceableEmitterPayload;
     const shouldRenderPlaceableEmitterPreview =
       hasRenderableVfxEmitter || hasRenderableSourceMdlEmitterOverlay;
+    const hasSourceMdlStaticGeometry =
+      (placeableRenderPayload?.renderPackage?.auroraModelGraph?.staticGeometryNodes.length ?? 0) >
+      0;
+    // Aurora attaches trimesh, emitter and light nodes to the same MDL tree.
+    // A source-MDL emitter is therefore an overlay on source-proven static
+    // geometry, but an arbitrary preview GLB is not enough to prove that it
+    // belongs to the same model tree.
     const shouldRenderVfxAsStaticModel =
       isVfxPlaceable &&
       !shouldUseCanonicalVfxRenderer &&
-      Boolean(placeableRenderPayload) &&
-      !shouldRenderPlaceableEmitterPreview &&
-      !hasRenderableVfxLight &&
+      (hasSourceMdlStaticGeometry ||
+        (!shouldRenderPlaceableEmitterPreview && !hasRenderableVfxLight)) &&
       Boolean(
         placeableRenderContractState?.modelUrl &&
           !placeableRenderContractState.fallbackToPrimitive
       );
+    const canLoadPlaceableModel = Boolean(
+      placeableRenderContractState?.modelUrl &&
+        !placeableRenderContractState.fallbackToPrimitive
+    );
+    const shouldUseCanonicalSourceMdlComposition =
+      shouldUseCanonicalVfxRenderer && hasSourceMdlStaticGeometry && canLoadPlaceableModel;
+    const canonicalSourceMdlCompositionReason = shouldUseCanonicalSourceMdlComposition
+      ? "ready"
+      : !shouldUseCanonicalVfxRenderer
+        ? "canonical-renderer-inactive"
+        : !hasSourceMdlStaticGeometry
+          ? "missing-source-mdl-static-geometry"
+          : !canLoadPlaceableModel
+            ? "missing-loadable-source-mdl-model"
+            : "canonical-source-mdl-composition-unavailable";
     const shouldUsePlaceableModel =
       !shouldUseCanonicalVfxRenderer &&
       (!isVfxPlaceable || shouldRenderVfxAsStaticModel) &&
-      Boolean(
-        placeableRenderContractState?.modelUrl &&
-          !placeableRenderContractState.fallbackToPrimitive
-      ) &&
+      canLoadPlaceableModel &&
       (object.kind === "placeables" || object.kind === "doors");
+    const shouldLoadPlaceableModel =
+      shouldUsePlaceableModel || shouldUseCanonicalSourceMdlComposition;
     const creatureDirectSourceModelResRef =
       object.kind === "creatures"
         ? (creatureRenderPayload?.renderPackage?.sourceModelCandidates?.find(
@@ -16576,7 +17143,7 @@ export function rebuildObjectMeshes(
       !shouldUseCreaturePartModels &&
       Boolean(creatureSkeletonModelResolution?.modelUrl);
     const shouldUseModelObject =
-      shouldUsePlaceableModel ||
+      shouldLoadPlaceableModel ||
       shouldUseCreatureModel ||
       shouldUseCreaturePartModels ||
       shouldUseCreatureSkeletonModel;
@@ -16584,7 +17151,7 @@ export function rebuildObjectMeshes(
       sharedRendererTarget,
       payload: placeableRenderPayload,
       renderState: placeableRenderContractState,
-      isPending: shouldUsePlaceableModel
+      isPending: shouldLoadPlaceableModel
     });
     const sharedRendererGeometryStatus: AreaObjectSharedRendererGeometryStatus =
       !sharedRendererTarget
@@ -16872,35 +17439,102 @@ export function rebuildObjectMeshes(
       );
     }
     const vfxTextureUrlsForLoading =
-      shouldRenderPlaceableEmitterPreview && !hasVfxNullTextureReference
+      (shouldRenderPlaceableEmitterPreview || shouldUseCanonicalVfxRenderer) &&
+      !hasVfxNullTextureReference
       ? Array.from(
           new Set([
             ...Array.from(placeableTextureUrlsByReference.values()),
             ...(vfxTextureUrl ? [vfxTextureUrl] : [])
           ])
+        ).filter(
+          (textureDeliveryUrl) =>
+            !canonicalVfxBlocksPltWithoutTargetContext ||
+            !isAuroraPltTextureDeliveryUrl(textureDeliveryUrl)
         )
       : [];
     const missingVfxTextureUrls = vfxTextureUrlsForLoading.filter(
-      (textureDeliveryUrl) => !runtime.placeableTextureCacheByUrl.has(textureDeliveryUrl)
+      (textureDeliveryUrl) =>
+        !getCachedPlaceableTexture(
+          runtime,
+          textureDeliveryUrl,
+          shouldUseCanonicalVfxRenderer ? canonicalVfxTextureLoadOptions : {}
+        )
     );
     const canonicalVfxParticleTexturesByReference =
       shouldUseCanonicalVfxRenderer && placeableRenderPayload
-        ? collectCachedPlaceableTexturesByReference(runtime, placeableTextureUrlsByReference)
+        ? collectCachedPlaceableTexturesByReference(
+            runtime,
+            placeableTextureUrlsByReference,
+            canonicalVfxTextureLoadOptions,
+            canonicalVfxBlocksPltWithoutTargetContext
+          )
         : new Map<string, THREE.Texture>();
+    const canonicalVfxChunkModelUrlsByResourceKey =
+      shouldUseCanonicalVfxRenderer && placeableRenderPayload
+        ? collectCanonicalVfxChunkModelDeliveryUrlsByResourceKey(
+            placeableRenderPayload,
+            canonicalAuroraVfxPayload
+          )
+        : new Map<string, string>();
+    const canonicalVfxChunkModelsByResourceKey =
+      shouldUseCanonicalVfxRenderer && canonicalVfxChunkModelUrlsByResourceKey.size > 0
+        ? collectCachedCanonicalVfxChunkModelsByResourceKey(
+            runtime,
+            canonicalVfxChunkModelUrlsByResourceKey
+          )
+        : new Map<string, THREE.Object3D>();
     const canonicalVfxGroup =
       shouldUseCanonicalVfxRenderer && canonicalAuroraVfxPayload
         ? createAuroraVfxCanonicalRenderGroup(canonicalAuroraVfxPayload, {
             objectRadius,
-            particleTexturesByReference: canonicalVfxParticleTexturesByReference
+            particleTexturesByReference: canonicalVfxParticleTexturesByReference,
+            chunkModelsByResourceKey: canonicalVfxChunkModelsByResourceKey,
+            chunkModelDeliveryUrlsByResourceKey: canonicalVfxChunkModelUrlsByResourceKey,
+            chunkModelAuroraMaterial: placeableRenderPayload?.renderPackage?.auroraMaterial,
+            chunkModelTextureBindings: placeableRenderPayload?.renderPackage?.textureBindings,
+            sourceModel: shouldUseCanonicalSourceMdlComposition
+              ? runtime.placeableModelCacheByUrl.get(
+                  placeableRenderContractState?.modelUrl ?? ""
+                )
+              : undefined,
+            sourceModelTexturesByReference: canonicalVfxParticleTexturesByReference,
+            sourceModelTextureBindings:
+              placeableRenderPayload?.renderPackage?.textureBindings,
+            modelGraph: toAuroraVfxCanonicalModelGraph(
+              placeableRenderPayload?.renderPackage?.auroraModelGraph
+            ),
+            referencedObjectContextKey: object.id,
+            sourceCoordinateSpace: "aurora-z-up"
           })
         : null;
+    if (canonicalVfxGroup && renderAreaGeometry && isSourceMdlPlaceableEmitterPayload) {
+      applySourceMdlEmitterAreaModelSpaceScale(canonicalVfxGroup);
+      canonicalVfxGroup.userData = {
+        ...canonicalVfxGroup.userData,
+        auroraVfxCanonicalAreaModelSpaceScale: PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE,
+        auroraVfxCanonicalAreaModelSpaceScaleSource:
+          "source-MDL canonical emitter uses the same Aurora-unit-to-area-tile scale as its owning placeable model"
+      };
+    }
+    const sourceMdlLights = placeableRenderPayload?.renderPackage?.auroraLight?.lights ?? [];
+    const sourceMdlLightPolicy =
+      shouldUseCanonicalVfxRenderer && sourceMdlLights.length > 0
+        ? resolveCanonicalSourceMdlLightFallbackPolicy(
+            canonicalAuroraVfxPayload?.contracts.sourceMdlLightFeatureManifest,
+            sourceMdlLights,
+            canonicalVfxGroup
+          )
+        : null;
+    const suppressedCanonicalSourceMdlLightCount = sourceMdlLightPolicy
+      ? applyCanonicalSourceMdlLightFallbackPolicy(canonicalVfxGroup, sourceMdlLightPolicy)
+      : 0;
+    const canonicalVfxCarriesSourceMdlLights = hasCanonicalSourceMdlLights(canonicalVfxGroup);
     const vfxPreviewGroup =
       isVfxPlaceable &&
       !hasRenderableSourceMdlEmitterOverlay &&
       !shouldUseCanonicalVfxRenderer &&
       placeableRenderPayload &&
-      !debugState.wireframe &&
-      !shouldRenderVfxAsStaticModel
+      !debugState.wireframe
         ? createPlaceableVfxPreviewGroup(placeableRenderPayload, objectRadius, colorHex, {
             particleTexture: vfxParticleTexture,
             textureDeliveryUrl: vfxTextureUrl,
@@ -16914,18 +17548,30 @@ export function rebuildObjectMeshes(
           })
         : null;
     const sourceMdlLightPreviewGroup =
-      !isVfxPlaceable &&
+      (!isVfxPlaceable ||
+        hasRenderableSourceMdlEmitterOverlay ||
+        sourceMdlLightPolicy?.requiresFallback === true) &&
       placeableRenderPayload &&
       hasRenderableSourceMdlPlaceableLight &&
+      !canonicalVfxCarriesSourceMdlLights &&
       !debugState.wireframe
         ? createPlaceableVfxPreviewGroup(placeableRenderPayload, objectRadius, colorHex, {
+            lightNodesOnly: true,
             showLightDiagnosticGizmos: debugState.showNonRenderMeshes,
             lightPreviewActiveSlotCap: auroraLightRuntimeBudget.activeSlotCap,
           lightPreviewConfiguredMaxLights: auroraLightRuntimeBudget.configuredMaxLights
         })
       : null;
+    if (sourceMdlLightPreviewGroup && sourceMdlLightPolicy?.requiresFallback) {
+      writeSourceMdlLightFallbackDiagnostics(
+        sourceMdlLightPreviewGroup,
+        sourceMdlLightPolicy,
+        suppressedCanonicalSourceMdlLightCount
+      );
+    }
     const sourceMdlEmitterPreviewGroup =
       hasRenderableSourceMdlEmitterOverlay &&
+      !shouldUseCanonicalVfxRenderer &&
       placeableRenderPayload &&
       !debugState.wireframe
         ? createPlaceableVfxPreviewGroup(placeableRenderPayload, objectRadius, colorHex, {
@@ -17173,10 +17819,10 @@ export function rebuildObjectMeshes(
           })
         );
         if (missingVfxTextureUrls.length > 0) {
-          await Promise.all(
-            missingVfxTextureUrls.map((textureDeliveryUrl) =>
-              ensurePlaceableTexture(runtime, textureDeliveryUrl)
-            )
+          await ensurePlaceableTexturesWithConcurrency(
+            runtime,
+            missingVfxTextureUrls,
+            canonicalVfxTextureLoadOptions
           );
         }
         return resolvedEntries;
@@ -17290,6 +17936,303 @@ export function rebuildObjectMeshes(
         });
       });
     }
+    const missingCanonicalVfxChunkModelEntries =
+      canonicalVfxGroup && canonicalVfxChunkModelUrlsByResourceKey.size > 0
+        ? Array.from(canonicalVfxChunkModelUrlsByResourceKey.entries()).filter(
+            ([, modelDeliveryUrl]) => !runtime.placeableModelCacheByUrl.has(modelDeliveryUrl)
+          )
+        : [];
+    if (
+      canonicalVfxGroup &&
+      canonicalAuroraVfxPayload &&
+      missingCanonicalVfxChunkModelEntries.length > 0
+    ) {
+      writePlaceableModelDebugStatus(runtime, "loading", {
+        objectId: object.id,
+        url: missingCanonicalVfxChunkModelEntries[0]?.[1] ?? null,
+        loadPhase: "canonical-vfx-chunk-model",
+        loadCompleted: 0,
+        loadTotal: missingCanonicalVfxChunkModelEntries.length,
+        textureStatus: "chunk-model-loading",
+        textureCount: 0,
+        textureLoaded: 0,
+        textureSource: null
+      });
+      void (async () => {
+        const resolvedEntries = await Promise.all(
+          missingCanonicalVfxChunkModelEntries.map(async ([resourceKey, modelDeliveryUrl]) => {
+            const resolvedModel = await ensurePlaceableModel(runtime, modelDeliveryUrl);
+            return resolvedModel ? ([resourceKey, modelDeliveryUrl, resolvedModel] as const) : null;
+          })
+        );
+        if (missingVfxTextureUrls.length > 0) {
+          await ensurePlaceableTexturesWithConcurrency(
+            runtime,
+            missingVfxTextureUrls,
+            canonicalVfxTextureLoadOptions
+          );
+        }
+        return resolvedEntries;
+      })().then((resolvedEntries) => {
+        const latestRoot = runtime.objectMeshById.get(object.id);
+        const canonicalGroupIsLatestRoot = latestRoot === canonicalVfxGroup;
+        const canonicalGroupIsAttachedToLatestRoot = canonicalVfxGroup.parent === latestRoot;
+        if (!latestRoot || (!canonicalGroupIsLatestRoot && !canonicalGroupIsAttachedToLatestRoot)) {
+          return;
+        }
+        const chunkModelsByResourceKey = collectCachedCanonicalVfxChunkModelsByResourceKey(
+          runtime,
+          canonicalVfxChunkModelUrlsByResourceKey
+        );
+        resolvedEntries.forEach((entry) => {
+          if (!entry) {
+            return;
+          }
+          chunkModelsByResourceKey.set(entry[0], entry[2]);
+        });
+        if (chunkModelsByResourceKey.size === 0) {
+          canonicalVfxGroup.userData = {
+            ...canonicalVfxGroup.userData,
+            auroraVfxCanonicalChunkLaneModelPreviewStatus: "missing-model-delivery"
+          };
+          writePlaceableModelDebugStatus(runtime, "missing", {
+            objectId: object.id,
+            url: missingCanonicalVfxChunkModelEntries[0]?.[1] ?? null,
+            loadPhase: "canonical-vfx-chunk-model",
+            loadCompleted: missingCanonicalVfxChunkModelEntries.length,
+            loadTotal: missingCanonicalVfxChunkModelEntries.length,
+            textureStatus: "chunk-model-missing",
+            textureCount: 0,
+            textureLoaded: 0,
+            textureSource: null
+          });
+          return;
+        }
+        const refreshedGroup = createAuroraVfxCanonicalRenderGroup(canonicalAuroraVfxPayload, {
+          objectRadius,
+          particleTexturesByReference: collectCachedPlaceableTexturesByReference(
+            runtime,
+            placeableTextureUrlsByReference,
+            canonicalVfxTextureLoadOptions,
+            canonicalVfxBlocksPltWithoutTargetContext
+          ),
+          chunkModelsByResourceKey,
+          chunkModelDeliveryUrlsByResourceKey: canonicalVfxChunkModelUrlsByResourceKey,
+          chunkModelAuroraMaterial: placeableRenderPayload?.renderPackage?.auroraMaterial,
+          chunkModelTextureBindings: placeableRenderPayload?.renderPackage?.textureBindings,
+          sourceModel: shouldUseCanonicalSourceMdlComposition
+            ? runtime.placeableModelCacheByUrl.get(
+                placeableRenderContractState?.modelUrl ?? ""
+              )
+            : undefined,
+          sourceModelTexturesByReference: collectCachedPlaceableTexturesByReference(
+            runtime,
+            placeableTextureUrlsByReference,
+            canonicalVfxTextureLoadOptions,
+            canonicalVfxBlocksPltWithoutTargetContext
+          ),
+          sourceModelTextureBindings:
+            placeableRenderPayload?.renderPackage?.textureBindings,
+          modelGraph: toAuroraVfxCanonicalModelGraph(
+            placeableRenderPayload?.renderPackage?.auroraModelGraph
+          ),
+          referencedObjectContextKey: object.id,
+          sourceCoordinateSpace: "aurora-z-up"
+        });
+        applyCanonicalSourceMdlLightPolicyAfterRefresh(
+          canonicalVfxGroup,
+          refreshedGroup,
+          sourceMdlLightPolicy
+        );
+        decoratePlaceableModelForObjectSelection(
+          refreshedGroup,
+          object.id,
+          object.kind,
+          objectLabel
+        );
+        refreshedGroup.position.copy(canonicalVfxGroup.position);
+        refreshedGroup.quaternion.copy(canonicalVfxGroup.quaternion);
+        refreshedGroup.scale.copy(canonicalVfxGroup.scale);
+        refreshedGroup.userData = {
+          ...refreshedGroup.userData,
+          objectId: object.id,
+          objectKind: object.kind,
+          objectLabel,
+          ...(auroraVfxPayload
+            ? {
+                auroraVfxPayload,
+                auroraVfxCanonicalStatus: auroraVfxPayload.canonicalStatus,
+                auroraVfxPreviewMode: auroraVfxPayload.previewMode,
+                auroraVfxDiagnosticCodes: auroraVfxPayload.diagnostics.map(
+                  (diagnostic) => diagnostic.code
+                )
+              }
+            : {})
+        };
+        markAreaObjectSharedRendererRuntimeEvidence(
+          refreshedGroup,
+          sharedRendererRuntimeEvidence
+        );
+        if (canonicalGroupIsLatestRoot) {
+          runtime.objectLayer.remove(latestRoot);
+          runtime.objectLayer.add(refreshedGroup);
+          runtime.objectMeshById.set(object.id, refreshedGroup);
+        } else {
+          latestRoot.remove(canonicalVfxGroup);
+          latestRoot.add(refreshedGroup);
+          latestRoot.userData = {
+            ...latestRoot.userData,
+            ...refreshedGroup.userData
+          };
+        }
+        writePlaceableModelDebugStatus(runtime, "loaded", {
+          objectId: object.id,
+          url: missingCanonicalVfxChunkModelEntries[0]?.[1] ?? null,
+          loadPhase: "canonical-vfx-chunk-model",
+          loadCompleted: missingCanonicalVfxChunkModelEntries.length,
+          loadTotal: missingCanonicalVfxChunkModelEntries.length,
+          textureStatus: "chunk-model-applied",
+          textureCount: 0,
+          textureLoaded: 0,
+          textureSource: null
+        });
+      });
+    }
+    if (
+      canonicalVfxGroup &&
+      canonicalAuroraVfxPayload &&
+      missingVfxTextureUrls.length > 0 &&
+      missingCanonicalVfxChunkModelEntries.length === 0
+    ) {
+      writePlaceableModelDebugStatus(runtime, "loading", {
+        objectId: object.id,
+        url: missingVfxTextureUrls[0] ?? null,
+        loadPhase: "canonical-vfx-texture",
+        loadCompleted: 0,
+        loadTotal: missingVfxTextureUrls.length,
+        textureStatus: "loading",
+        textureCount: vfxTextureUrlsForLoading.length,
+        textureLoaded: 0,
+        textureSource: null
+      });
+      void ensurePlaceableTexturesWithConcurrency(
+        runtime,
+        missingVfxTextureUrls,
+        canonicalVfxTextureLoadOptions
+      ).then(() => {
+        const latestRoot = runtime.objectMeshById.get(object.id);
+        const canonicalGroupIsLatestRoot = latestRoot === canonicalVfxGroup;
+        const canonicalGroupIsAttachedToLatestRoot = canonicalVfxGroup.parent === latestRoot;
+        if (!latestRoot || (!canonicalGroupIsLatestRoot && !canonicalGroupIsAttachedToLatestRoot)) {
+          return;
+        }
+        const refreshedTexturesByReference = collectCachedPlaceableTexturesByReference(
+          runtime,
+          placeableTextureUrlsByReference,
+          canonicalVfxTextureLoadOptions,
+          canonicalVfxBlocksPltWithoutTargetContext
+        );
+        const refreshedGroup = createAuroraVfxCanonicalRenderGroup(canonicalAuroraVfxPayload, {
+          objectRadius,
+          particleTexturesByReference: refreshedTexturesByReference,
+          chunkModelsByResourceKey: canonicalVfxChunkModelsByResourceKey,
+          chunkModelDeliveryUrlsByResourceKey: canonicalVfxChunkModelUrlsByResourceKey,
+          chunkModelAuroraMaterial: placeableRenderPayload?.renderPackage?.auroraMaterial,
+          chunkModelTextureBindings: placeableRenderPayload?.renderPackage?.textureBindings,
+          sourceModel: shouldUseCanonicalSourceMdlComposition
+            ? runtime.placeableModelCacheByUrl.get(
+                placeableRenderContractState?.modelUrl ?? ""
+              )
+            : undefined,
+          sourceModelTexturesByReference: refreshedTexturesByReference,
+          sourceModelTextureBindings:
+            placeableRenderPayload?.renderPackage?.textureBindings,
+          modelGraph: toAuroraVfxCanonicalModelGraph(
+            placeableRenderPayload?.renderPackage?.auroraModelGraph
+          ),
+          referencedObjectContextKey: object.id,
+          sourceCoordinateSpace: "aurora-z-up"
+        });
+        applyCanonicalSourceMdlLightPolicyAfterRefresh(
+          canonicalVfxGroup,
+          refreshedGroup,
+          sourceMdlLightPolicy
+        );
+        decoratePlaceableModelForObjectSelection(
+          refreshedGroup,
+          object.id,
+          object.kind,
+          objectLabel
+        );
+        refreshedGroup.position.copy(canonicalVfxGroup.position);
+        refreshedGroup.quaternion.copy(canonicalVfxGroup.quaternion);
+        refreshedGroup.scale.copy(canonicalVfxGroup.scale);
+        refreshedGroup.userData = {
+          ...refreshedGroup.userData,
+          objectId: object.id,
+          objectKind: object.kind,
+          objectLabel,
+          ...(auroraVfxPayload
+            ? {
+                auroraVfxPayload,
+                auroraVfxCanonicalStatus: auroraVfxPayload.canonicalStatus,
+                auroraVfxPreviewMode: auroraVfxPayload.previewMode,
+                auroraVfxDiagnosticCodes: auroraVfxPayload.diagnostics.map(
+                  (diagnostic) => diagnostic.code
+                )
+              }
+            : {})
+        };
+        markAreaObjectSharedRendererRuntimeEvidence(
+          refreshedGroup,
+          sharedRendererRuntimeEvidence
+        );
+        if (canonicalGroupIsLatestRoot) {
+          runtime.objectLayer.remove(latestRoot);
+          runtime.objectLayer.add(refreshedGroup);
+          runtime.objectMeshById.set(object.id, refreshedGroup);
+        } else {
+          latestRoot.remove(canonicalVfxGroup);
+          latestRoot.add(refreshedGroup);
+          latestRoot.userData = {
+            ...latestRoot.userData,
+            ...refreshedGroup.userData,
+            ...(shouldUseCanonicalSourceMdlComposition
+              ? {
+                  auroraVfxCanonicalPlaceableComposition: true,
+                  auroraVfxCanonicalPlaceableCompositionMode:
+                    "source-mdl-static-emitter-light"
+                }
+              : {})
+          };
+        }
+        const loadedTextures = vfxTextureUrlsForLoading
+          .map((textureDeliveryUrl) =>
+            getCachedPlaceableTexture(
+              runtime,
+              textureDeliveryUrl,
+              canonicalVfxTextureLoadOptions
+            )
+          )
+          .filter(
+          (texture): texture is THREE.Texture => Boolean(texture)
+          );
+        const canonicalTexturesSettled =
+          vfxTextureUrlsForLoading.length > 0 &&
+          loadedTextures.length === vfxTextureUrlsForLoading.length;
+        writePlaceableModelDebugStatus(runtime, "loaded", {
+          objectId: object.id,
+          url: missingVfxTextureUrls[0] ?? null,
+          loadPhase: "canonical-vfx-texture",
+          loadCompleted: missingVfxTextureUrls.length,
+          loadTotal: missingVfxTextureUrls.length,
+          textureStatus: canonicalTexturesSettled ? "applied" : "missing",
+          textureCount: vfxTextureUrlsForLoading.length,
+          textureLoaded: loadedTextures.length,
+          textureSource: summarizePlaceableTextureSourceFormats(loadedTextures)
+        });
+      });
+    }
     if (primitiveFallbackMesh) {
       if (shouldUseModelObject) {
         primitiveFallbackMesh.position.y = resolveSceneObjectRenderBaseY(
@@ -17323,6 +18266,10 @@ export function rebuildObjectMeshes(
         primitiveFallbackMesh ??
         pendingVfxRoot ??
         new THREE.Mesh(geometry, material);
+    objectRoot.userData = {
+      ...objectRoot.userData,
+      auroraVfxCanonicalPlaceableCompositionReason: canonicalSourceMdlCompositionReason
+    };
     const objectRenderRequestToken = ++objectMeshLayerRenderRequestSequence;
     if (vfxPreviewGroup && primitiveFallbackMesh && !shouldUsePlaceableModel) {
       primitiveFallbackMesh.material.transparent = true;
@@ -17342,6 +18289,21 @@ export function rebuildObjectMeshes(
         objectLabel
       );
       objectRoot.add(vfxPreviewGroup);
+    }
+    if (shouldUseCanonicalSourceMdlComposition && canonicalVfxGroup) {
+      decoratePlaceableModelForObjectSelection(
+        canonicalVfxGroup,
+        object.id,
+        object.kind,
+        objectLabel
+      );
+      objectRoot.add(canonicalVfxGroup);
+      objectRoot.userData = {
+        ...objectRoot.userData,
+        ...canonicalVfxGroup.userData,
+        auroraVfxCanonicalPlaceableComposition: true,
+        auroraVfxCanonicalPlaceableCompositionMode: "source-mdl-static-emitter-light"
+      };
     }
     if (sourceMdlEmitterPreviewGroup) {
       decoratePlaceableModelForObjectSelection(
@@ -17625,6 +18587,15 @@ export function rebuildObjectMeshes(
       }
     }
     if (sourceMdlLightPreviewGroup) {
+      if (shouldUseCanonicalVfxRenderer) {
+        sourceMdlLightPreviewGroup.userData = {
+          ...sourceMdlLightPreviewGroup.userData,
+          auroraVfxCanonicalLightSibling: true,
+          auroraVfxCanonicalLightSiblingMode: "source-mdl-light-thin-host-child",
+          auroraVfxCanonicalLightSiblingRenderer: "placeable-source-mdl-light-preview",
+          auroraVfxCanonicalLightSiblingRetailProof: false
+        };
+      }
       decoratePlaceableModelForObjectSelection(
         sourceMdlLightPreviewGroup,
         object.id,
@@ -17661,7 +18632,7 @@ export function rebuildObjectMeshes(
       object.kind === "creatures"
         ? (resolveCreatureSelectedAnimationName(object) ?? "auto")
         : "";
-    const objectRenderPackageModelUrl = shouldUsePlaceableModel
+    const objectRenderPackageModelUrl = shouldLoadPlaceableModel
       ? placeableRenderContractState?.modelUrl
       : shouldUseCreatureModel
         ? creatureRenderModelResolution?.modelUrl
@@ -17670,7 +18641,7 @@ export function rebuildObjectMeshes(
           : shouldUseCreatureSkeletonModel
             ? creatureSkeletonModelResolution?.modelUrl
             : null;
-    const objectRenderPackageModelCacheKey = shouldUsePlaceableModel
+    const objectRenderPackageModelCacheKey = shouldLoadPlaceableModel
       ? (placeableRenderContractState?.modelCacheKey ?? objectRenderPackageModelUrl)
       : shouldUseCreatureModel
         ? (creatureRenderModelResolution?.modelCacheKey ?? objectRenderPackageModelUrl)
@@ -17684,22 +18655,22 @@ export function rebuildObjectMeshes(
         ? `${objectRenderPackageModelUrl}:animation:${creatureAnimationRequestSignature}`
         : objectRenderPackageModelUrl;
     if (shouldUseModelObject) {
-      const modelTextureUrlsByReference = shouldUsePlaceableModel
+      const modelTextureUrlsByReference = shouldLoadPlaceableModel
         ? placeableTextureUrlsByReference
         : object.kind === "creatures"
           ? creatureTextureUrlsByReference
           : EMPTY_TEXTURE_URLS_BY_REFERENCE;
-      const modelTextureBindings = shouldUsePlaceableModel
+      const modelTextureBindings = shouldLoadPlaceableModel
         ? placeableRenderPayload?.renderPackage?.textureBindings
         : object.kind === "creatures"
           ? creatureRenderPayload?.renderPackage?.textureBindings
           : undefined;
-      const modelAuroraMaterial = shouldUsePlaceableModel
+      const modelAuroraMaterial = shouldLoadPlaceableModel
         ? placeableRenderPayload?.renderPackage?.auroraMaterial
         : object.kind === "creatures"
           ? creatureRenderPayload?.renderPackage?.auroraMaterial
           : undefined;
-      const modelFallbackTextureUrl = shouldUsePlaceableModel
+      const modelFallbackTextureUrl = shouldLoadPlaceableModel
         ? placeableRenderContractState?.textureDeliveryUrl
         : null;
           const objectTextureSignature = resolvePlaceableModelTextureSignature(
@@ -17716,7 +18687,7 @@ export function rebuildObjectMeshes(
         placeableModelPresentationKey
       );
       const canShareTexturedModelMaterials =
-        shouldUsePlaceableModel &&
+        shouldLoadPlaceableModel &&
         !debugState.wireframe &&
         Boolean(objectTextureSignature) &&
         Boolean(texturedModelMaterialSharingKey) &&
@@ -17726,11 +18697,21 @@ export function rebuildObjectMeshes(
         objectId: object.id,
         objectKind: object.kind,
         objectLabel: objectLabel,
+        auroraVfxCanonicalPlaceableCompositionReason:
+          canonicalSourceMdlCompositionReason,
         renderPackageModelUrl: objectRenderPackageModelUrl,
         renderPackageModelCacheKey: objectRenderPackageModelCacheKey,
         renderPackageModelRequestSignature: objectRenderPackageModelRequestSignature,
         renderPackageModelRequestToken: objectRenderRequestToken,
         ...buildSourceMdlEmitterPreviewUserData(),
+        ...(canonicalVfxGroup?.userData ?? {}),
+        ...(sourceMdlLightPreviewGroup?.userData ?? {}),
+        ...(shouldUseCanonicalSourceMdlComposition
+          ? {
+              auroraVfxCanonicalPlaceableComposition: true,
+              auroraVfxCanonicalPlaceableCompositionMode: "source-mdl-static-emitter-light"
+            }
+          : {}),
         ...(auroraVfxPayload
           ? {
               auroraVfxPayload,
@@ -17754,6 +18735,12 @@ export function rebuildObjectMeshes(
                   : shouldUseCreatureSkeletonModel
                     ? "skeleton-fallback"
                     : "primitive-fallback",
+              creatureModelPresentationMode:
+                preserveCreatureSourceModelUnitsForObject
+                  ? "source-model-units"
+                  : renderAreaGeometry
+                    ? "area-aurora-unit-scale"
+                    : "catalog-normalized",
               creatureRenderDirectModelBypassReason:
                 shouldPreferCreaturePartModelsForEmptyDriver
                   ? "empty-driver-with-part-models"
@@ -18230,7 +19217,7 @@ export function rebuildObjectMeshes(
             "creaturePartModelGroupLoaded",
             partGroup
           );
-          if (!renderAreaGeometry) {
+          if (!renderAreaGeometry && !preserveCreatureSourceModelUnitsForObject) {
             normalizePlaceableModelToObjectRadius(objectRadius, partGroup, {
               targetMaxAxisFactor: placeableModelTargetMaxAxisFactor
             });
@@ -18450,7 +19437,7 @@ export function rebuildObjectMeshes(
           }
 
           let creaturePartGroupScaledForArea = false;
-          if (renderAreaGeometry) {
+          if (renderAreaGeometry && !preserveCreatureSourceModelUnitsForObject) {
             partGroup.scale.multiplyScalar(PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE);
             creaturePartGroupScaledForArea = true;
           }
@@ -18883,7 +19870,7 @@ export function rebuildObjectMeshes(
             writeRuntimeObjectAnimationDataset(runtime);
           }
 
-          if (renderAreaGeometry) {
+          if (renderAreaGeometry && !preserveCreatureSourceModelUnitsForObject) {
             if (!creaturePartGroupScaledForArea) {
               partGroup.scale.multiplyScalar(PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE);
               creaturePartGroupScaledForArea = true;
@@ -19130,7 +20117,7 @@ export function rebuildObjectMeshes(
         });
       } else if (objectRenderPackageModelUrl) {
         const shouldCloneModelMaterials =
-          (shouldUsePlaceableModel || object.kind === "creatures") &&
+          (shouldLoadPlaceableModel || object.kind === "creatures") &&
           !canShareTexturedModelMaterials &&
           !debugState.wireframe &&
           (modelTextureUrlsByReference.size > 0 || Boolean(modelFallbackTextureUrl));
@@ -19142,7 +20129,8 @@ export function rebuildObjectMeshes(
           loadCompleted: 0,
           loadTotal: 1
         });
-        const placeableModelRequest = renderAreaGeometry
+        const placeableModelRequest =
+          renderAreaGeometry || preserveCreatureSourceModelUnitsForObject
           ? ensurePlaceableModel(runtime, objectRenderPackageModelUrl, {
               cloneMaterials: shouldCloneModelMaterials,
               cacheKey: objectRenderPackageModelCacheKey,
@@ -19288,7 +20276,7 @@ export function rebuildObjectMeshes(
                     creatureRenderModelResolution?.supermodelChainResRefs ?? []
                 }
               : {};
-          if (renderAreaGeometry) {
+          if (renderAreaGeometry && !preserveCreatureSourceModelUnitsForObject) {
             resolvedModel.scale.multiplyScalar(
               PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE
             );
@@ -19865,7 +20853,7 @@ export function rebuildObjectMeshes(
               modelTextureUrlsByReference,
               { auroraMaterial: modelAuroraMaterial }
             );
-          const visibleMaterialMapTextureUrlsByReference = shouldUsePlaceableModel
+          const visibleMaterialMapTextureUrlsByReference = shouldLoadPlaceableModel
             ? resolvePlaceableModelVisibleMaterialMapTextureUrlsByReference(
                 resolvedModel,
                 modelTextureUrlsByReference,
@@ -19935,6 +20923,13 @@ export function rebuildObjectMeshes(
                   skipMesh: shouldSkipCreatureSourcePreviewTextureApplication
                 }
               );
+              if (object.kind === "placeables" || object.kind === "doors") {
+                registerRuntimeAuroraTextureCyclePlayback(
+                  runtime,
+                  object.id,
+                  latestRoot
+                );
+              }
               if (object.kind === "creatures") {
                 clearCreatureAuroraEmitterNonEmitterTextureMaps(resolvedModel);
               }
@@ -19995,9 +20990,9 @@ export function rebuildObjectMeshes(
             });
           };
           const hasMissingTextureDiagnostic =
-            shouldUsePlaceableModel && hasPlaceableMissingTextureDiagnostic(placeableRenderPayload);
+            shouldLoadPlaceableModel && hasPlaceableMissingTextureDiagnostic(placeableRenderPayload);
           const shouldApplyMissingTextureFallback =
-            shouldUsePlaceableModel &&
+            shouldLoadPlaceableModel &&
             hasMissingTextureDiagnostic &&
             !debugState.wireframe &&
             !sharedRendererTarget;
@@ -20143,6 +21138,13 @@ export function rebuildObjectMeshes(
                     skipMesh: shouldSkipCreatureSourcePreviewTextureApplication
                   }
                 );
+                if (object.kind === "placeables" || object.kind === "doors") {
+                  registerRuntimeAuroraTextureCyclePlayback(
+                    runtime,
+                    object.id,
+                    latestRoot
+                  );
+                }
                 clearCreatureAuroraEmitterNonEmitterTextureMaps(resolvedModel);
                 if (object.kind === "creatures") {
                   const materialTextureEvidence = summarizeCreatureMaterialTextureEvidence(
@@ -20518,7 +21520,142 @@ export function rebuildObjectMeshes(
             applyAreaObjectToolsetLayering(resolvedModel, object);
             copyAreaObjectModelSurfaceEvidence(latestObjectRoot, resolvedModel);
           }
-          latestObjectRoot.add(resolvedModel);
+          let canonicalSourceModelComposed = false;
+          if (
+            shouldUseCanonicalSourceMdlComposition &&
+            canonicalAuroraVfxPayload
+          ) {
+            const activeCanonicalGroup = latestObjectRoot.children.find(
+              (child): child is THREE.Group =>
+                child instanceof THREE.Group &&
+                child.userData.auroraVfxCanonicalRenderer === true
+            );
+            if (activeCanonicalGroup) {
+              const refreshedCanonicalGroup = createAuroraVfxCanonicalRenderGroup(
+                canonicalAuroraVfxPayload,
+                {
+                  objectRadius,
+                  particleTexturesByReference:
+                    collectCachedPlaceableTexturesByReference(
+                      runtime,
+                      placeableTextureUrlsByReference,
+                      canonicalVfxTextureLoadOptions,
+                      canonicalVfxBlocksPltWithoutTargetContext
+                    ),
+                  chunkModelsByResourceKey:
+                    collectCachedCanonicalVfxChunkModelsByResourceKey(
+                      runtime,
+                      canonicalVfxChunkModelUrlsByResourceKey
+                    ),
+                  chunkModelDeliveryUrlsByResourceKey:
+                    canonicalVfxChunkModelUrlsByResourceKey,
+                  chunkModelAuroraMaterial:
+                    placeableRenderPayload?.renderPackage?.auroraMaterial,
+                  chunkModelTextureBindings:
+                    placeableRenderPayload?.renderPackage?.textureBindings,
+                  sourceModel: resolvedModel,
+                  sourceModelTexturesByReference:
+                    collectCachedPlaceableTexturesByReference(
+                      runtime,
+                      placeableTextureUrlsByReference,
+                      canonicalVfxTextureLoadOptions,
+                      canonicalVfxBlocksPltWithoutTargetContext
+                    ),
+                  sourceModelTextureBindings:
+                    placeableRenderPayload?.renderPackage?.textureBindings,
+                  modelGraph: toAuroraVfxCanonicalModelGraph(
+                    placeableRenderPayload?.renderPackage?.auroraModelGraph
+                  ),
+                  referencedObjectContextKey: object.id,
+                  sourceCoordinateSpace: "aurora-z-up"
+                }
+              );
+              applyCanonicalSourceMdlLightPolicyAfterRefresh(
+                activeCanonicalGroup,
+                refreshedCanonicalGroup,
+                sourceMdlLightPolicy
+              );
+              const refreshedLightGroup = hasCanonicalSourceMdlLights(
+                refreshedCanonicalGroup
+              )
+                ? refreshedCanonicalGroup
+                : sourceMdlLightPreviewGroup;
+              const lightGraphAttachment = refreshedLightGroup
+                ? syncCanonicalSourceMdlLightNodesFromLoadedModel({
+                    model: resolvedModel,
+                    lightGroup: refreshedLightGroup,
+                    modelGraph:
+                      placeableRenderPayload?.renderPackage?.auroraModelGraph
+                  })
+                : {
+                    matchedNodeNames: [],
+                    unmatchedNodeNames: [],
+                    graphStatus: "source-mdl-light-group-unavailable"
+                  };
+              decoratePlaceableModelForObjectSelection(
+                refreshedCanonicalGroup,
+                object.id,
+                object.kind,
+                objectLabel
+              );
+              refreshedCanonicalGroup.position.copy(activeCanonicalGroup.position);
+              refreshedCanonicalGroup.quaternion.copy(activeCanonicalGroup.quaternion);
+              refreshedCanonicalGroup.scale.copy(activeCanonicalGroup.scale);
+              latestObjectRoot.remove(activeCanonicalGroup);
+              latestObjectRoot.add(refreshedCanonicalGroup);
+              latestObjectRoot.userData = {
+                ...latestObjectRoot.userData,
+                ...refreshedCanonicalGroup.userData,
+                auroraVfxCanonicalPlaceableComposition: true,
+                auroraVfxCanonicalPlaceableCompositionMode:
+                  "source-mdl-static-emitter-light",
+                auroraVfxCanonicalSourceModelDeliveryStatus:
+                  "source-graph-bound",
+                auroraVfxCanonicalLightGraphAttachmentStatus:
+                  lightGraphAttachment.graphStatus,
+                auroraVfxCanonicalLightGraphAttachmentMatchedNodeNames:
+                  lightGraphAttachment.matchedNodeNames,
+                auroraVfxCanonicalLightGraphAttachmentUnmatchedNodeNames:
+                  lightGraphAttachment.unmatchedNodeNames,
+                auroraVfxCanonicalLightGraphAttachmentMatchedCount:
+                  lightGraphAttachment.matchedNodeNames.length,
+                auroraVfxCanonicalLightGraphAttachmentUnmatchedCount:
+                  lightGraphAttachment.unmatchedNodeNames.length
+              };
+              canonicalSourceModelComposed = true;
+            }
+          }
+          if (!canonicalSourceModelComposed) {
+            latestObjectRoot.add(resolvedModel);
+          }
+          if (
+            !canonicalSourceModelComposed &&
+            shouldUseCanonicalSourceMdlComposition &&
+            (canonicalVfxCarriesSourceMdlLights
+              ? canonicalVfxGroup
+              : sourceMdlLightPreviewGroup) &&
+            placeableRenderPayload
+          ) {
+            const lightGraphAttachment = syncCanonicalSourceMdlLightNodesFromLoadedModel({
+              model: resolvedModel,
+              lightGroup: canonicalVfxCarriesSourceMdlLights
+                ? canonicalVfxGroup!
+                : sourceMdlLightPreviewGroup!,
+              modelGraph: placeableRenderPayload.renderPackage?.auroraModelGraph
+            });
+            latestObjectRoot.userData = {
+              ...latestObjectRoot.userData,
+              auroraVfxCanonicalLightGraphAttachmentStatus: lightGraphAttachment.graphStatus,
+              auroraVfxCanonicalLightGraphAttachmentMatchedNodeNames:
+                lightGraphAttachment.matchedNodeNames,
+              auroraVfxCanonicalLightGraphAttachmentUnmatchedNodeNames:
+                lightGraphAttachment.unmatchedNodeNames,
+              auroraVfxCanonicalLightGraphAttachmentMatchedCount:
+                lightGraphAttachment.matchedNodeNames.length,
+              auroraVfxCanonicalLightGraphAttachmentUnmatchedCount:
+                lightGraphAttachment.unmatchedNodeNames.length
+            };
+          }
           markAreaObjectSharedRendererRuntimeEvidence(
             latestObjectRoot,
             sharedRendererModelReadyRuntimeEvidence
@@ -20665,6 +21802,7 @@ export function rebuildObjectMeshes(
             sourceUnitScaleSource: placeableTwoDaLightSourceUnitScaleSource,
             displayShadows: debugState.displayShadows,
             showPreviewReceiver: !renderAreaGeometry,
+            showPresentationHalo: !renderAreaGeometry,
             showDiagnosticGizmos: debugState.showNonRenderMeshes,
             areaShadowOpacity,
             areaShadowOpacitySource,
@@ -20711,16 +21849,10 @@ export function rebuildObjectMeshes(
           if (!bound) {
             return;
           }
-          writePlaceableModelDebugStatus(runtime, "loaded", {
-            objectId: object.id,
+          writePlaceableFastShadowTextureDebugStatus(runtime, {
+            status: "applied",
             url: placeableFastShadowTextureUrl,
-            loadPhase: "placeable-fast-shadow-texture",
-            loadCompleted: 1,
-            loadTotal: 1,
-            textureStatus: "applied",
-            textureCount: 1,
-            textureLoaded: 1,
-            textureSource: "fxpa_dot01-fast-shadow"
+            source: "fxpa_dot01-fast-shadow"
           });
         });
       }
@@ -20824,6 +21956,9 @@ export function rebuildObjectMeshes(
 
     const soundPositioning =
       object.kind === "sounds" ? normalizeSoundGuidePositioning(object.soundPositioning) : null;
+    const soundGuideGeometry = soundPositioning
+      ? resolveSoundGuideWorldGeometry(soundPositioning, soundUnitsPerTile)
+      : null;
     const soundOverlayFlags =
       object.kind === "sounds"
         ? resolveEditorSoundGuideOverlayFlags(soundPositioning, {
@@ -20846,6 +21981,16 @@ export function rebuildObjectMeshes(
       renderBaseY + object.z,
       renderObjectZ
     );
+    if (renderAreaGeometry) {
+      const polygonGuide = createAreaObjectPolygonGuide(
+        object,
+        { x: renderObjectX, y: object.z + 0.018, z: renderObjectZ },
+        selectedSet.has(object.id),
+      );
+      if (polygonGuide) {
+        runtime.objectLayer.add(polygonGuide);
+      }
+    }
     applyObjectVisualTransformToRenderNode({
       node: renderNode,
       position: renderNodeBasePosition,
@@ -20921,7 +22066,7 @@ export function rebuildObjectMeshes(
 
       const physicalAnchorY = objectBaseY + object.z;
       const elevatedAnchorY =
-        physicalAnchorY + toWorldSoundDistance(soundGuidePositioning.elevation);
+        physicalAnchorY + (soundGuideGeometry?.elevationOffsetWorld ?? 0);
       if (soundOverlayFlags?.anchor) {
         const physicalAnchorMesh = new THREE.Mesh(
           new THREE.SphereGeometry(objectRadius * 0.32, 12, 12),
@@ -20965,11 +22110,8 @@ export function rebuildObjectMeshes(
       }
 
       if (soundOverlayFlags?.range) {
-        const maxRange = toWorldSoundDistance(soundGuidePositioning.maxVolumeDistance);
-        const cutoffRange = Math.max(
-          maxRange,
-          toWorldSoundDistance(soundGuidePositioning.cutoffDistance)
-        );
+        const maxRange = soundGuideGeometry?.maxVolumeRadiusWorld ?? 0;
+        const cutoffRange = soundGuideGeometry?.cutoffRadiusWorld ?? maxRange;
         const rangeOpacity = selectedSet.has(object.id) ? 0.84 : 0.64;
         const createHorizontalRing = (
           radius: number,
@@ -21103,8 +22245,8 @@ export function rebuildObjectMeshes(
         soundGuidePositioning.randomRangeWestEast > 0 &&
         soundGuidePositioning.randomRangeNorthSouth > 0
       ) {
-        const halfWidth = toWorldSoundDistance(soundGuidePositioning.randomRangeWestEast) / 2;
-        const halfHeight = toWorldSoundDistance(soundGuidePositioning.randomRangeNorthSouth) / 2;
+        const halfWidth = soundGuideGeometry?.randomRangeHalfWidthWorld ?? 0;
+        const halfHeight = soundGuideGeometry?.randomRangeHalfDepthWorld ?? 0;
         const randomRangePoints = [
           new THREE.Vector3(renderObjectX - halfWidth, elevatedAnchorY, renderObjectZ - halfHeight),
           new THREE.Vector3(renderObjectX + halfWidth, elevatedAnchorY, renderObjectZ - halfHeight),
@@ -21196,7 +22338,20 @@ export function rebuildObjectMeshes(
         : {}),
       ...(object.kind === "sounds"
         ? {
-            soundRenderDiagnosticRole: SOUND_MARKER_DIAGNOSTIC_ROLE
+            soundRenderDiagnosticRole: SOUND_MARKER_DIAGNOSTIC_ROLE,
+            soundGuideGeometryRevision: SOUND_GUIDE_WORLD_GEOMETRY_REVISION,
+            soundGuideMode: soundPositioning?.mode ?? "missing",
+            soundGuideElevationMeters: soundPositioning?.elevation ?? null,
+            soundGuideElevationOffsetWorld:
+              soundGuideGeometry?.elevationOffsetWorld ?? null,
+            soundGuideMaxVolumeRadiusWorld:
+              soundGuideGeometry?.maxVolumeRadiusWorld ?? null,
+            soundGuideCutoffRadiusWorld:
+              soundGuideGeometry?.cutoffRadiusWorld ?? null,
+            soundGuideRandomRangeHalfWidthWorld:
+              soundGuideGeometry?.randomRangeHalfWidthWorld ?? null,
+            soundGuideRandomRangeHalfDepthWorld:
+              soundGuideGeometry?.randomRangeHalfDepthWorld ?? null
           }
         : {}),
       ...(object.kind === "items"
@@ -21412,6 +22567,28 @@ export function rebuildObjectMeshes(
 
     runtime.objectLayer.add(renderNode);
     runtime.objectMeshById.set(object.id, renderNode);
+    if (canonicalAuroraVfxPayload && auroraVfxAreaCollision && canonicalVfxGroup) {
+      void refreshCanonicalVfxWithAreaCollision({
+        runtime,
+        object,
+        objectLabel,
+        objectRadius,
+        payload: canonicalAuroraVfxPayload,
+        areaCollision: auroraVfxAreaCollision,
+        renderAreaGeometry,
+        sourceMdlPlaceableEmitter: Boolean(isSourceMdlPlaceableEmitterPayload),
+        particleTextureUrlsByReference: placeableTextureUrlsByReference,
+        particleTextureLoadOptions: canonicalVfxTextureLoadOptions,
+        blockPltWithoutTargetContext: canonicalVfxBlocksPltWithoutTargetContext,
+        chunkModelUrlsByResourceKey: canonicalVfxChunkModelUrlsByResourceKey,
+        chunkModelAuroraMaterial: placeableRenderPayload?.renderPackage?.auroraMaterial,
+        chunkModelTextureBindings: placeableRenderPayload?.renderPackage?.textureBindings,
+        modelGraph: toAuroraVfxCanonicalModelGraph(
+          placeableRenderPayload?.renderPackage?.auroraModelGraph
+        ),
+        sourceMdlLightPolicy
+      });
+    }
 
     if (debugState.objectLabels) {
       const labelSprite = createTextSprite(OBJECT_LABELS[object.kind], labelScale);

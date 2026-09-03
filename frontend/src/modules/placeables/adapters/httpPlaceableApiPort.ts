@@ -7,6 +7,8 @@ import type {
   PlaceableRenderPackage,
   PlaceableRenderPackageAssetRefs,
   PlaceableApiAssetRole,
+  PlaceableApiAppearanceRowsQuery,
+  PlaceableApiAppearanceRowsResult,
   PlaceableApiBlueprintCreatePayload,
   PlaceableApiBlueprintCreateResult,
   PlaceableApiBlueprintDeleteResult,
@@ -126,6 +128,67 @@ const placeableRenderPackageDiagnosticSchema = z.object({
   severity: z.enum(["info", "warn", "error"]),
   message: z.string().min(1)
 });
+
+const boundedDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const boundedRowLabelSchema = z.string().min(1).max(256)
+  .refine((value) => !value.includes("\0"));
+const placeableAppearanceRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(999999),
+    displayName: boundedDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    strRef: z.number().int().min(0).max(0xffff_ffff),
+    label: boundedRowLabelSchema.optional()
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(999999),
+    displayName: boundedDisplayNameSchema,
+    displaySource: z.literal("label"),
+    strRef: z.number().int().min(0).max(0xffff_ffff).optional(),
+    label: boundedRowLabelSchema
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== value.label) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "label fallback must be exact" });
+    }
+  }),
+  z.object({
+    rowIndex: z.number().int().min(0).max(999999),
+    displayName: boundedDisplayNameSchema,
+    displaySource: z.literal("row_index"),
+    strRef: z.number().int().min(0).max(0xffff_ffff).optional()
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `Row ${value.rowIndex}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "row-index fallback must be exact" });
+    }
+  })
+]);
+const placeableAppearanceRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("placeables.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(placeableAppearanceRowSchema).max(256),
+    total: z.number().int().min(0).max(1_000_000),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999999)
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "filtered total exceeds row count", path: ["total"] });
+    }
+    if (value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "page exceeds requested limit", path: ["items"] });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  })
+}).strict();
 
 const placeableAuroraEmitterAtlasSchema = z
   .object({
@@ -329,6 +392,17 @@ const placeableAuroraEmitterAnimationEventSchema = z
   })
   .passthrough();
 
+const placeableAuroraEmitterControllerRowSchema = z
+  .object({
+    property: z.string().min(1),
+    rawToken: z.string().min(1),
+    rowKind: z.enum(["direct", "key", "bezier-key"]),
+    values: z.array(z.number().finite()),
+    sourceLineNumber: z.number().int().positive().optional(),
+    binaryControllerType: z.number().int().nonnegative().optional()
+  })
+  .passthrough();
+
 const placeableAuroraEmitterAnimationSchema = z
   .object({
     animationName: z.string().min(1),
@@ -336,6 +410,25 @@ const placeableAuroraEmitterAnimationSchema = z
     transitionSeconds: z.number().nonnegative().optional(),
     simulation: placeableAuroraEmitterSimulationSchema.optional(),
     transform: placeableAuroraEmitterTransformSchema.optional()
+  })
+  .passthrough();
+
+const placeableAuroraEmitterAnimationPassSchema = z
+  .object({
+    animationName: z.string().min(1),
+    lengthSeconds: z.number().nonnegative().optional(),
+    transitionSeconds: z.number().nonnegative().optional(),
+    emitterState: z
+      .object({
+        simulation: placeableAuroraEmitterSimulationSchema.optional(),
+        transform: placeableAuroraEmitterTransformSchema.optional(),
+        directRows: z.array(placeableAuroraEmitterControllerRowSchema).optional(),
+        keyRows: z.array(placeableAuroraEmitterControllerRowSchema).optional(),
+        bezierKeyRows: z.array(placeableAuroraEmitterControllerRowSchema).optional()
+      })
+      .passthrough()
+      .optional(),
+    events: z.array(placeableAuroraEmitterAnimationEventSchema).optional()
   })
   .passthrough();
 
@@ -359,12 +452,17 @@ const placeableAuroraEmitterSourceStateSchema = z
   })
   .passthrough();
 
+const placeableSourceModelSha256Schema = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/u);
+
 const placeableAuroraEmitterNodeSchema = z
   .object({
     source: z.enum(["aurora-mdl-binary", "aurora-mdl-ascii"]),
     sourceModelAssetId: z.string().min(1),
     sourceModelFileName: z.string().min(1),
     sourceModelObjectKey: z.string().min(1),
+    sourceModelHash: placeableSourceModelSha256Schema.optional(),
     nodeName: z.string().min(1),
     texture: z.string().min(1).optional(),
     chunkName: z.string().min(1).optional(),
@@ -380,6 +478,10 @@ const placeableAuroraEmitterNodeSchema = z
     referenceNodes: z.array(placeableAuroraEmitterReferenceNodeSchema).optional(),
     events: z.array(placeableAuroraEmitterAnimationEventSchema).optional(),
     animations: z.array(placeableAuroraEmitterAnimationSchema).optional(),
+    animationPasses: z.array(placeableAuroraEmitterAnimationPassSchema).optional(),
+    directRows: z.array(placeableAuroraEmitterControllerRowSchema).optional(),
+    keyRows: z.array(placeableAuroraEmitterControllerRowSchema).optional(),
+    bezierKeyRows: z.array(placeableAuroraEmitterControllerRowSchema).optional(),
     sourceState: placeableAuroraEmitterSourceStateSchema.optional()
   })
   .passthrough();
@@ -433,6 +535,7 @@ const placeableAuroraLightNodeSchema = z
     sourceModelAssetId: z.string().min(1),
     sourceModelFileName: z.string().min(1),
     sourceModelObjectKey: z.string().min(1),
+    sourceModelHash: placeableSourceModelSha256Schema.optional(),
     nodeName: z.string().min(1),
     sourceNodeKind: z.string().min(1).optional(),
     parentNodeName: z.string().min(1).optional(),
@@ -467,6 +570,60 @@ const placeableAuroraLightSchema = z
   })
   .passthrough();
 
+const placeableAuroraShaderSourceSchema = z
+  .object({
+    resref: z.string().min(1),
+    source: z.string().min(1),
+    includeRefs: z.array(z.string().min(1)),
+    sourceAssetId: z.string().min(1).optional(),
+    sourceObjectKey: z.string().min(1).optional()
+  })
+  .passthrough();
+
+const placeableAuroraShaderProgramSchema = z
+  .object({
+    version: z.literal("aurora-shader-program-source/v1"),
+    status: z.enum(["complete", "incomplete"]),
+    stageRoots: z
+      .object({
+        vertex: z.string().min(1).optional(),
+        fragment: z.string().min(1).optional(),
+        geometry: z.string().min(1).optional()
+      })
+      .passthrough(),
+    sources: z.array(placeableAuroraShaderSourceSchema),
+    unresolvedRefs: z.array(z.string().min(1))
+  })
+  .passthrough();
+
+const placeableAuroraMaterialShaderParameterSchema = z
+  .object({
+    name: z.string().min(1),
+    kind: z.enum(["float", "int"]),
+    values: z.array(z.number().finite()).min(1).max(4),
+    arity: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+  })
+  .passthrough()
+  .superRefine((parameter, context) => {
+    if (parameter.values.length !== parameter.arity) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["values"],
+        message: "MTR parameter value count must match arity."
+      });
+    }
+    if (
+      parameter.kind === "int" &&
+      (parameter.arity !== 1 || !Number.isInteger(parameter.values[0]))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["values"],
+        message: "MTR int parameters require exactly one integer value."
+      });
+    }
+  });
+
 const placeableAuroraMaterialStateSchema = z
   .object({
     blending: z.enum(["additive", "punchthrough"]).optional(),
@@ -479,8 +636,16 @@ const placeableAuroraMaterialStateSchema = z
     customShaderVS: z.string().min(1).optional(),
     customShaderFS: z.string().min(1).optional(),
     customShaderGS: z.string().min(1).optional(),
+    customShaderProgram: placeableAuroraShaderProgramSchema.optional(),
+    parameters: z.array(placeableAuroraMaterialShaderParameterSchema).optional(),
+    sampleFramebuffer: z.number().int().optional(),
+    volumetric: z.boolean().optional(),
     roughness: z.number().optional(),
     specularity: z.number().optional(),
+    bumpmaptexture: z.string().min(1).optional(),
+    bumpyshinytexture: z.string().min(1).optional(),
+    envmaptexture: z.string().min(1).optional(),
+    bumpreplacementtexture: z.string().min(1).optional(),
     textureSlots: z
       .array(
         z
@@ -517,6 +682,144 @@ const placeableAuroraMaterialSchema = z
   .object({
     source: z.literal("mtr"),
     materials: z.array(placeableAuroraMaterialNodeSchema),
+    diagnostics: z.array(placeableRenderPackageDiagnosticSchema)
+  })
+  .passthrough();
+
+const placeableAuroraModelGraphStaticGeometryNodeSchema = z
+  .object({
+    source: z.enum(["aurora-mdl-binary", "aurora-mdl-ascii"]),
+    sourceModelAssetId: z.string().min(1),
+    sourceModelFileName: z.string().min(1),
+    sourceModelObjectKey: z.string().min(1),
+    sourceModelHash: placeableSourceModelSha256Schema.optional(),
+    nodeName: z.string().min(1),
+    sourceNodeKind: z.enum(["trimesh", "animmesh", "danglymesh", "skin", "binary-mesh"]),
+    parentNodeName: z.string().min(1).optional(),
+    transform: placeableAuroraEmitterTransformSchema.optional(),
+    animationTracks: z
+      .array(
+        z
+          .object({
+            animationName: z.string().min(1),
+            lengthSeconds: z.number().nonnegative().optional(),
+            transitionSeconds: z.number().nonnegative().optional(),
+            transform: placeableAuroraEmitterTransformSchema
+          })
+          .passthrough()
+      )
+      .optional(),
+    meshMaterialState: z
+      .object({
+        alpha: z.number().optional(),
+        alphaTimeline: z.array(placeableAuroraEmitterNumberKeyframeSchema).optional()
+      })
+      .passthrough()
+      .optional(),
+    meshMaterialAnimationTracks: z
+      .array(
+        z
+          .object({
+            animationName: z.string().min(1),
+            lengthSeconds: z.number().nonnegative().optional(),
+            transitionSeconds: z.number().nonnegative().optional(),
+            state: z
+              .object({
+                alpha: z.number().optional(),
+                alphaTimeline: z
+                  .array(placeableAuroraEmitterNumberKeyframeSchema)
+                  .optional()
+              })
+              .passthrough()
+          })
+          .passthrough()
+      )
+      .optional()
+  })
+  .passthrough();
+
+const placeableAuroraModelGraphNodeSchema = z
+  .object({
+    source: z.enum(["aurora-mdl-binary", "aurora-mdl-ascii"]),
+    sourceModelAssetId: z.string().min(1),
+    sourceModelFileName: z.string().min(1),
+    sourceModelObjectKey: z.string().min(1),
+    sourceModelHash: placeableSourceModelSha256Schema.optional(),
+    nodeKind: z.enum(["transform", "static-geometry", "emitter", "light", "reference", "shadowblob"]),
+    nodeName: z.string().min(1),
+    parentNodeName: z.string().min(1).optional(),
+    sourceNodeKind: z.string().min(1).optional(),
+    transform: placeableAuroraEmitterTransformSchema.optional(),
+    animationTracks: z
+      .array(
+        z
+          .object({
+            animationName: z.string().min(1),
+            lengthSeconds: z.number().nonnegative().optional(),
+            transitionSeconds: z.number().nonnegative().optional(),
+            transform: placeableAuroraEmitterTransformSchema
+          })
+          .passthrough()
+      )
+      .optional(),
+    meshMaterialState: z
+      .object({
+        alpha: z.number().optional(),
+        alphaTimeline: z.array(placeableAuroraEmitterNumberKeyframeSchema).optional()
+      })
+      .passthrough()
+      .optional(),
+    meshMaterialAnimationTracks: z
+      .array(
+        z
+          .object({
+            animationName: z.string().min(1),
+            lengthSeconds: z.number().nonnegative().optional(),
+            transitionSeconds: z.number().nonnegative().optional(),
+            state: z
+              .object({
+                alpha: z.number().optional(),
+                alphaTimeline: z
+                  .array(placeableAuroraEmitterNumberKeyframeSchema)
+                  .optional()
+              })
+              .passthrough()
+          })
+          .passthrough()
+      )
+      .optional()
+  })
+  .passthrough();
+
+const placeableAuroraModelGraphPropagationEventSchema = z
+  .object({
+    token: z.string().min(1),
+    sourceNodeName: z.string().min(1).optional(),
+    sourceNodeKind: z.string().min(1).optional(),
+    proofStatus: z.literal("source-only-model-graph-propagation-no-render-policy")
+  })
+  .passthrough();
+
+const placeableAuroraModelGraphAnimationEventSchema = z
+  .object({
+    source: z.enum(["aurora-mdl-binary", "aurora-mdl-ascii"]),
+    sourceModelAssetId: z.string().min(1),
+    sourceModelFileName: z.string().min(1),
+    sourceModelObjectKey: z.string().min(1),
+    sourceModelHash: placeableSourceModelSha256Schema.optional(),
+    time: z.number().nonnegative(),
+    type: z.string().min(1),
+    animationName: z.string().min(1).optional()
+  })
+  .passthrough();
+
+const placeableAuroraModelGraphSchema = z
+  .object({
+    source: z.literal("source-mdl"),
+    staticGeometryNodes: z.array(placeableAuroraModelGraphStaticGeometryNodeSchema),
+    nodes: z.array(placeableAuroraModelGraphNodeSchema).optional(),
+    animationEvents: z.array(placeableAuroraModelGraphAnimationEventSchema).optional(),
+    propagationEvents: z.array(placeableAuroraModelGraphPropagationEventSchema).optional(),
     diagnostics: z.array(placeableRenderPackageDiagnosticSchema)
   })
   .passthrough();
@@ -558,7 +861,9 @@ const placeableRenderPackageSchema = z
     textureBindings: z.array(placeableRenderPackageTextureBindingSchema).optional(),
     auroraEmitter: placeableAuroraEmitterSchema.optional(),
     auroraLight: placeableAuroraLightSchema.optional(),
-    auroraMaterial: placeableAuroraMaterialSchema.optional()
+    auroraModelGraph: placeableAuroraModelGraphSchema.optional(),
+    auroraMaterial: placeableAuroraMaterialSchema.optional(),
+    auroraVfxPayload: z.unknown().optional()
   })
   .passthrough();
 
@@ -1145,8 +1450,12 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
                       ? { scaleTimeline: animation.transform.scaleTimeline }
                       : {})
                   }
-                : undefined
+                  : undefined
             })),
+            animationPasses: emitter.animationPasses,
+            directRows: emitter.directRows,
+            keyRows: emitter.keyRows,
+            bezierKeyRows: emitter.bezierKeyRows,
             sourceState: emitter.sourceState
               ? {
                   renderOrder: emitter.sourceState.renderOrder,
@@ -1263,6 +1572,51 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
           }))
         }
       : undefined,
+    auroraModelGraph: input.auroraModelGraph
+      ? {
+          source: input.auroraModelGraph.source,
+          staticGeometryNodes: input.auroraModelGraph.staticGeometryNodes.map((node) => ({
+            source: node.source,
+            sourceModelAssetId: node.sourceModelAssetId,
+            sourceModelFileName: node.sourceModelFileName,
+            sourceModelObjectKey: node.sourceModelObjectKey,
+            sourceModelHash: node.sourceModelHash,
+            nodeName: node.nodeName,
+            sourceNodeKind: node.sourceNodeKind,
+            parentNodeName: node.parentNodeName,
+            transform: node.transform,
+            animationTracks: node.animationTracks,
+            meshMaterialState: node.meshMaterialState,
+            meshMaterialAnimationTracks: node.meshMaterialAnimationTracks
+          })),
+          nodes: input.auroraModelGraph.nodes?.map((node) => ({
+            source: node.source,
+            sourceModelAssetId: node.sourceModelAssetId,
+            sourceModelFileName: node.sourceModelFileName,
+            sourceModelObjectKey: node.sourceModelObjectKey,
+            sourceModelHash: node.sourceModelHash,
+            nodeKind: node.nodeKind,
+            nodeName: node.nodeName,
+            parentNodeName: node.parentNodeName,
+            sourceNodeKind: node.sourceNodeKind,
+            transform: node.transform,
+            animationTracks: node.animationTracks,
+            meshMaterialState: node.meshMaterialState,
+            meshMaterialAnimationTracks: node.meshMaterialAnimationTracks
+          })),
+          propagationEvents: input.auroraModelGraph.propagationEvents?.map((event) => ({
+            token: event.token,
+            sourceNodeName: event.sourceNodeName,
+            sourceNodeKind: event.sourceNodeKind,
+            proofStatus: event.proofStatus
+          })),
+          diagnostics: input.auroraModelGraph.diagnostics.map((diagnostic) => ({
+            code: diagnostic.code,
+            severity: diagnostic.severity,
+            message: diagnostic.message
+          }))
+        }
+      : undefined,
     auroraMaterial: input.auroraMaterial
       ? {
           source: input.auroraMaterial.source,
@@ -1282,8 +1636,39 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
               customShaderVS: material.state.customShaderVS,
               customShaderFS: material.state.customShaderFS,
               customShaderGS: material.state.customShaderGS,
+              customShaderProgram: material.state.customShaderProgram
+                ? {
+                    version: material.state.customShaderProgram.version,
+                    status: material.state.customShaderProgram.status,
+                    stageRoots: {
+                      vertex: material.state.customShaderProgram.stageRoots.vertex,
+                      fragment: material.state.customShaderProgram.stageRoots.fragment,
+                      geometry: material.state.customShaderProgram.stageRoots.geometry
+                    },
+                    sources: material.state.customShaderProgram.sources.map((source) => ({
+                      resref: source.resref,
+                      source: source.source,
+                      includeRefs: [...source.includeRefs],
+                      sourceAssetId: source.sourceAssetId,
+                      sourceObjectKey: source.sourceObjectKey
+                    })),
+                    unresolvedRefs: [...material.state.customShaderProgram.unresolvedRefs]
+                  }
+                : undefined,
+              parameters: material.state.parameters?.map((parameter) => ({
+                name: parameter.name,
+                kind: parameter.kind,
+                values: [...parameter.values],
+                arity: parameter.arity
+              })),
+              sampleFramebuffer: material.state.sampleFramebuffer,
+              volumetric: material.state.volumetric,
               roughness: material.state.roughness,
               specularity: material.state.specularity,
+              bumpmaptexture: material.state.bumpmaptexture,
+              bumpyshinytexture: material.state.bumpyshinytexture,
+              envmaptexture: material.state.envmaptexture,
+              bumpreplacementtexture: material.state.bumpreplacementtexture,
               textureSlots: material.state.textureSlots?.map((slot) => ({
                 slot: slot.slot,
                 role: slot.role,
@@ -1297,8 +1682,24 @@ function mapRenderPackage(input: z.infer<typeof placeableRenderPackageSchema>): 
             message: diagnostic.message
           }))
         }
-      : undefined
+      : undefined,
+    auroraVfxPayload: input.auroraVfxPayload
   };
+}
+
+function toAppearanceRowsQueryString(query: PlaceableApiAppearanceRowsQuery): string {
+  const search = new URLSearchParams();
+  search.set("tableSha256", query.tableSha256);
+  if (query.query) {
+    search.set("query", query.query);
+  }
+  if (typeof query.limit === "number") {
+    search.set("limit", String(query.limit));
+  }
+  if (typeof query.offset === "number") {
+    search.set("offset", String(query.offset));
+  }
+  return `?${search.toString()}`;
 }
 
 function mapRenderPackageAssetRefs(
@@ -1493,6 +1894,72 @@ export class HttpPlaceableApiPort implements PlaceableApiPort {
         hits: item.cache.hits,
         placeable: mapProcessedPayload(item.placeable)
       }))
+    };
+  }
+
+  async listPlaceableAppearanceRows(
+    accessToken: string,
+    query: PlaceableApiAppearanceRowsQuery
+  ): Promise<PlaceableApiAppearanceRowsResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/placeables/appearances${toAppearanceRowsQueryString(query)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableAppearanceRowsEnvelopeSchema.parse(payload).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new PlaceableApiRequestError(
+        "The returned placeables.2da digest does not match the requested table.",
+        409,
+        "PLACEABLE_APPEARANCE_TABLE_STALE"
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new PlaceableApiRequestError(
+        "The returned Appearance row page does not match the requested pagination.",
+        502,
+        "PLACEABLE_APPEARANCE_PAGE_INVALID"
+      );
+    }
+    return {
+      resourceName: parsed.resourceName,
+      sha256: parsed.sha256,
+      rowCount: parsed.rowCount,
+      items: parsed.items.map((row) => ({ ...row })),
+      total: parsed.total,
+      limit: parsed.limit,
+      offset: parsed.offset
+    };
+  }
+
+  async getProcessedPlaceable(
+    accessToken: string,
+    cacheKey: string,
+    options?: PlaceableApiRequestOptions
+  ): Promise<PlaceableApiProcessResult> {
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/placeables/cache/${encodeURIComponent(cacheKey)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        signal: options?.signal
+      }
+    );
+    const payload = await parseResponseOrThrow(response);
+    const parsed = placeableProcessEnvelopeSchema.parse(payload);
+    return {
+      cacheKey: parsed.data.cache.key,
+      cacheHit: parsed.data.cache.hit,
+      storedAt: parsed.data.cache.storedAt,
+      hits: parsed.data.cache.hits,
+      placeable: mapProcessedPayload(parsed.data.placeable)
     };
   }
 

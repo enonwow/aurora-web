@@ -1,5 +1,29 @@
 import { z } from "zod";
 import type {
+  CreatureApiAppearanceRowsQuery,
+  CreatureApiAppearanceRowsResult,
+  CreatureApiGenderRowsQuery,
+  CreatureApiGenderRowsResult,
+  CreatureApiAppendageRowsQuery,
+  CreatureApiAppendageRowsResult,
+  CreatureApiPerceptionRangeRowsQuery,
+  CreatureApiPerceptionRangeRowsResult,
+  CreatureApiWalkRateRowsQuery,
+  CreatureApiWalkRateRowsResult,
+  CreatureApiSoundSetRowsQuery,
+  CreatureApiSoundSetRowsResult,
+  CreatureApiStartingPackageRowsQuery,
+  CreatureApiStartingPackageRowsResult,
+  CreatureApiClassRowsQuery,
+  CreatureApiClassRowsResult,
+  CreatureApiSkillRowsQuery,
+  CreatureApiSkillRowsResult,
+  CreatureApiFeatRowsQuery,
+  CreatureApiFeatRowsResult,
+  CreatureApiSpecialAbilityRowsQuery,
+  CreatureApiSpecialAbilityRowsResult,
+  CreatureApiPhenotypeRowsQuery,
+  CreatureApiPhenotypeRowsResult,
   CreatureApiBlueprintCreatePayload,
   CreatureApiBlueprintCreateResult,
   CreatureApiBlueprintDeleteResult,
@@ -50,6 +74,536 @@ const creatureListEnvelopeSchema = z.object({
     offset: z.number().int().nonnegative()
   })
 });
+
+const boundedAppearanceDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const boundedAppearanceLabelSchema = z.string().min(1).max(256)
+  .refine((value) => !value.includes("\0"));
+const creatureAppearanceRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedAppearanceDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    strRef: z.number().int().min(1).max(0xffff_fffe),
+    label: boundedAppearanceLabelSchema.optional(),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedAppearanceDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    strRef: z.number().int().min(1).max(0xffff_fffe),
+    label: boundedAppearanceLabelSchema.optional(),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.strRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedAppearanceDisplayNameSchema,
+    displaySource: z.literal("label"),
+    label: boundedAppearanceLabelSchema,
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== value.label) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "label fallback must be exact" });
+    }
+  }),
+]);
+const creatureAppearanceRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("appearance.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(creatureAppearanceRowSchema).max(256),
+    total: z.number().int().min(0).max(1_000_000),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Appearance page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const boundedGenderDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const boundedGenderTokenSchema = z.string().min(1).max(64)
+  .refine((value) => !value.includes("\0"));
+const boundedGenderConstantSchema = z.string().min(1).max(256)
+  .refine((value) => !value.includes("\0"));
+const creatureGenderRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff),
+    displayName: boundedGenderDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    genderToken: boundedGenderTokenSchema,
+    constant: boundedGenderConstantSchema.optional(),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff),
+    displayName: boundedGenderDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    genderToken: boundedGenderTokenSchema,
+    constant: boundedGenderConstantSchema.optional(),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+]);
+const creatureGenderRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("gender.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(creatureGenderRowSchema).max(256),
+    total: z.number().int().min(0).max(1_000_000),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Gender page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const creatureAppendageRowSchema = z.object({
+  rowIndex: z.number().int().min(0).max(0xffff_ffff),
+  displayName: z.string().min(1).max(1024).refine((value) => !value.includes("\0")),
+}).strict();
+const creatureAppendageRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.enum(["wingmodel.2da", "tailmodel.2da"]),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(creatureAppendageRowSchema).max(256),
+    total: z.number().int().min(0).max(1_000_000),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Appendage page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const perceptionRangeRowIndexSchema = z.union([
+  z.literal(8), z.literal(9), z.literal(10), z.literal(11),
+]);
+const boundedPerceptionRangeDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const creaturePerceptionRangeRowSchema = z.union([
+  z.object({
+    rowIndex: perceptionRangeRowIndexSchema,
+    displayName: boundedPerceptionRangeDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+  }).strict(),
+  z.object({
+    rowIndex: perceptionRangeRowIndexSchema,
+    displayName: boundedPerceptionRangeDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+]);
+const creaturePerceptionRangeRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("ranges.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(12).max(1_000_000),
+    items: z.array(creaturePerceptionRangeRowSchema).max(4),
+    total: z.number().int().min(0).max(4),
+    limit: z.number().int().min(1).max(16),
+    offset: z.number().int().min(0).max(4),
+  }).strict().superRefine((value, context) => {
+    if (value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "PerceptionRange page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const boundedWalkRateDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const boundedWalkRateTwoDaNameSchema = z.string().min(1).max(128)
+  .refine((value) => value !== "****" && !value.includes("\0"));
+const creatureWalkRateRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(1).max(999_999),
+    displayName: boundedWalkRateDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    twoDaName: boundedWalkRateTwoDaNameSchema,
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(1).max(999_999),
+    displayName: boundedWalkRateDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    twoDaName: boundedWalkRateTwoDaNameSchema,
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+]);
+const creatureWalkRateRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("creaturespeed.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(2).max(1_000_000),
+    items: z.array(creatureWalkRateRowSchema).max(256),
+    total: z.number().int().min(0).max(999_999),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999_999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount - 1 || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "WalkRate page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const boundedSoundSetDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const creatureSoundSetRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedSoundSetDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    resRef: z.string().regex(/^[a-z0-9_]{1,16}$/u),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedSoundSetDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    resRef: z.string().regex(/^[a-z0-9_]{1,16}$/u),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xffff),
+    displayName: boundedSoundSetDisplayNameSchema,
+    displaySource: z.literal("label"),
+    nameStrRef: z.null(),
+    resRef: z.string().regex(/^[a-z0-9_]{1,16}$/u),
+  }).strict(),
+]);
+const creatureSoundSetRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("soundset.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(creatureSoundSetRowSchema).max(256),
+    total: z.number().int().min(0).max(65_536),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999_999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > Math.min(value.rowCount, 65_536) || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "SoundSetFile page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const boundedStartingPackageDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const creatureStartingPackageRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff),
+    classId: z.number().int().min(0).max(0x7fff_ffff),
+    displayName: boundedStartingPackageDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(0).max(0xffff_ffff),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff),
+    classId: z.number().int().min(0).max(0x7fff_ffff),
+    displayName: boundedStartingPackageDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(0).max(0xffff_ffff),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff),
+    classId: z.number().int().min(0).max(0x7fff_ffff),
+    displayName: boundedStartingPackageDisplayNameSchema,
+    displaySource: z.literal("label"),
+    nameStrRef: z.null(),
+  }).strict(),
+]);
+const creatureStartingPackageRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("packages.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(256),
+    classIds: z.array(z.number().int().min(0).max(0x7fff_ffff)).min(1).max(8),
+    items: z.array(creatureStartingPackageRowSchema).max(256),
+    total: z.number().int().min(0).max(256),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(255),
+  }).strict().superRefine((value, context) => {
+    if (new Set(value.classIds).size !== value.classIds.length ||
+      value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StartingPackage page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount || !value.classIds.includes(row.classId)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row is outside the requested class-bound table", path: ["items", index] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
+
+const creatureClassRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(65_535),
+    displayName: z.string().min(1).max(1_024).refine((value) => !value.includes("\0")),
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(0).max(0xffff_ffff),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(65_535),
+    displayName: z.string().min(1).max(1_024).refine((value) => !value.includes("\0")),
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(0).max(0xffff_ffff),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+]);
+const creatureClassRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("classes.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(65_536),
+    items: z.array(creatureClassRowSchema).max(256),
+    total: z.number().int().min(0).max(65_536),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(65_535),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Class page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount ||
+        (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Class rows must be in-table and strictly ascending",
+          path: ["items", index, "rowIndex"],
+        });
+      }
+    });
+  }),
+}).strict();
+
+const creatureSkillRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("skills.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(4_096),
+    items: z.array(z.object({
+      rowIndex: z.number().int().min(0).max(4_095),
+      nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+      displayName: z.string().min(1).max(1_024).refine((value) => !value.includes("\0")),
+    }).strict()).max(128),
+    total: z.number().int().min(0).max(4_096),
+    limit: z.number().int().min(1).max(128),
+    offset: z.number().int().min(0).max(4_095),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Skill page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount ||
+        (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Skill rows must be in-table and strictly ascending",
+          path: ["items", index, "rowIndex"],
+        });
+      }
+    });
+  }),
+}).strict();
+
+const creatureFeatRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("feat.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(65_536),
+    items: z.array(z.object({
+      rowIndex: z.number().int().min(0).max(65_535),
+      featNameStrRef: z.number().int().min(1).max(0xffff_fffe),
+      descriptionStrRef: z.number().int().min(1).max(0xffff_fffe).optional(),
+      toolsCategory: z.number().int().min(0).max(255),
+      displayName: z.string().min(1).max(1_024).refine((value) => !value.includes("\0")),
+    }).strict()).max(128),
+    total: z.number().int().min(0).max(65_536),
+    limit: z.number().int().min(1).max(128),
+    offset: z.number().int().min(0).max(65_535),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Feat page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount ||
+        (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Feat rows must be in-table and strictly ascending",
+          path: ["items", index, "rowIndex"],
+        });
+      }
+    });
+  }),
+}).strict();
+
+const creatureSpecialAbilityRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("spells.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(65_536),
+    items: z.array(z.object({
+      rowIndex: z.number().int().min(0).max(65_535),
+      nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+      spellDescStrRef: z.number().int().min(1).max(0xffff_fffe).optional(),
+      userType: z.union([z.literal(1), z.literal(2)]),
+      displayName: z.string().min(1).max(1_024).refine((value) => !value.includes("\0")),
+    }).strict()).max(256),
+    total: z.number().int().min(0).max(65_536),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(65_535),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Special-ability page cardinality is invalid",
+      });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount ||
+        (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Special-ability rows must be in-table and strictly ascending",
+          path: ["items", index, "rowIndex"],
+        });
+      }
+    });
+  }),
+}).strict();
+
+const boundedPhenotypeDisplayNameSchema = z.string().min(1).max(1024)
+  .refine((value) => !value.includes("\0"));
+const boundedPhenotypeLabelSchema = z.string().min(1).max(256)
+  .refine((value) => !value.includes("\0"));
+const creaturePhenotypeRowSchema = z.union([
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff).refine((value) => value !== 1),
+    displayName: boundedPhenotypeDisplayNameSchema,
+    displaySource: z.literal("strref"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    label: boundedPhenotypeLabelSchema.optional(),
+  }).strict(),
+  z.object({
+    rowIndex: z.number().int().min(0).max(0xff).refine((value) => value !== 1),
+    displayName: boundedPhenotypeDisplayNameSchema,
+    displaySource: z.literal("strref_id"),
+    nameStrRef: z.number().int().min(1).max(0xffff_fffe),
+    label: boundedPhenotypeLabelSchema.optional(),
+  }).strict().superRefine((value, context) => {
+    if (value.displayName !== `StringRef ${value.nameStrRef}`) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "StringRef fallback must be exact" });
+    }
+  }),
+]);
+const creaturePhenotypeRowsEnvelopeSchema = z.object({
+  data: z.object({
+    resourceName: z.literal("phenotype.2da"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    rowCount: z.number().int().min(1).max(1_000_000),
+    items: z.array(creaturePhenotypeRowSchema).max(256),
+    total: z.number().int().min(0).max(1_000_000),
+    limit: z.number().int().min(1).max(256),
+    offset: z.number().int().min(0).max(999999),
+  }).strict().superRefine((value, context) => {
+    if (value.total > value.rowCount || value.items.length > value.limit) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Phenotype page cardinality is invalid" });
+    }
+    value.items.forEach((row, index) => {
+      if (row.rowIndex >= value.rowCount) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "row ordinal is outside table", path: ["items", index, "rowIndex"] });
+      }
+      if (index > 0 && value.items[index - 1]!.rowIndex >= row.rowIndex) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "rows must be strictly ascending", path: ["items", index, "rowIndex"] });
+      }
+    });
+  }),
+}).strict();
 
 const creatureRenderSchema = z.object({
   backendType: z.literal("creature"),
@@ -797,6 +1351,438 @@ export class HttpCreatureApiPort implements CreatureApiPort {
   ) {
     this.fetchFn = fetchFn;
     this.baseUrl = baseUrl.replace(/\/+$/u, "");
+  }
+
+  async listCreatureAppearanceRows(
+    accessToken: string,
+    query: CreatureApiAppearanceRowsQuery,
+  ): Promise<CreatureApiAppearanceRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/appearances?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureAppearanceRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned appearance.2da digest does not match the requested table.",
+        409,
+        "CREATURE_APPEARANCE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature Appearance row page does not match the request.",
+        502,
+        "CREATURE_APPEARANCE_PAGE_INVALID",
+      );
+    }
+    return {
+      ...parsed,
+      items: parsed.items.map((row) => ({ ...row })),
+    };
+  }
+
+  async listCreatureGenderRows(
+    accessToken: string,
+    query: CreatureApiGenderRowsQuery,
+  ): Promise<CreatureApiGenderRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/genders?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureGenderRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned gender.2da digest does not match the requested table.",
+        409,
+        "CREATURE_GENDER_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature Gender row page does not match the request.",
+        502,
+        "CREATURE_GENDER_PAGE_INVALID",
+      );
+    }
+    return {
+      ...parsed,
+      items: parsed.items.map((row) => ({ ...row })),
+    };
+  }
+
+  async listCreatureAppendageRows(
+    accessToken: string,
+    query: CreatureApiAppendageRowsQuery,
+  ): Promise<CreatureApiAppendageRowsResult> {
+    const search = new URLSearchParams({
+      kind: query.kind,
+      tableSha256: query.tableSha256,
+    });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/appendages?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureAppendageRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    const expectedResourceName = query.kind === "wings" ? "wingmodel.2da" : "tailmodel.2da";
+    if (parsed.resourceName !== expectedResourceName) {
+      throw new CreatureApiRequestError(
+        "The returned Creature appendage table does not match the requested kind.",
+        409,
+        "CREATURE_APPENDAGE_TABLE_MISMATCH",
+      );
+    }
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned Creature appendage table digest does not match the requested table.",
+        409,
+        "CREATURE_APPENDAGE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature appendage row page does not match the request.",
+        502,
+        "CREATURE_APPENDAGE_PAGE_INVALID",
+      );
+    }
+    return {
+      ...parsed,
+      items: parsed.items.map((row) => ({ ...row })),
+    };
+  }
+
+  async listCreaturePerceptionRangeRows(
+    accessToken: string,
+    query: CreatureApiPerceptionRangeRowsQuery,
+  ): Promise<CreatureApiPerceptionRangeRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/perception-ranges?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creaturePerceptionRangeRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned ranges.2da digest does not match the requested table.",
+        409,
+        "CREATURE_PERCEPTION_RANGE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 16;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature PerceptionRange row page does not match the request.",
+        502,
+        "CREATURE_PERCEPTION_RANGE_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureWalkRateRows(
+    accessToken: string,
+    query: CreatureApiWalkRateRowsQuery,
+  ): Promise<CreatureApiWalkRateRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/walk-rates?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureWalkRateRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned creaturespeed.2da digest does not match the requested table.",
+        409,
+        "CREATURE_WALK_RATE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature WalkRate row page does not match the request.",
+        502,
+        "CREATURE_WALK_RATE_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureSoundSetRows(
+    accessToken: string,
+    query: CreatureApiSoundSetRowsQuery,
+  ): Promise<CreatureApiSoundSetRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/sound-sets?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureSoundSetRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned soundset.2da digest does not match the requested table.",
+        409,
+        "CREATURE_SOUND_SET_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature SoundSetFile row page does not match the request.",
+        502,
+        "CREATURE_SOUND_SET_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureStartingPackageRows(
+    accessToken: string,
+    query: CreatureApiStartingPackageRowsQuery,
+  ): Promise<CreatureApiStartingPackageRowsResult> {
+    const search = new URLSearchParams({
+      tableSha256: query.tableSha256,
+      classIds: query.classIds.join(","),
+    });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/starting-packages?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureStartingPackageRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256 ||
+      parsed.classIds.length !== query.classIds.length ||
+      parsed.classIds.some((classId, index) => classId !== query.classIds[index])) {
+      throw new CreatureApiRequestError(
+        "The returned packages.2da identity or ClassList does not match the request.",
+        409,
+        "CREATURE_STARTING_PACKAGE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature StartingPackage row page does not match the request.",
+        502,
+        "CREATURE_STARTING_PACKAGE_PAGE_INVALID",
+      );
+    }
+    return {
+      ...parsed,
+      classIds: [...parsed.classIds],
+      items: parsed.items.map((row) => ({ ...row })),
+    };
+  }
+
+  async listCreatureClassRows(
+    accessToken: string,
+    query: CreatureApiClassRowsQuery,
+  ): Promise<CreatureApiClassRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/classes?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureClassRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.sha256 !== query.tableSha256 || parsed.limit !== expectedLimit ||
+      parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature classes.2da row page does not match the request.",
+        parsed.sha256 !== query.tableSha256 ? 409 : 502,
+        parsed.sha256 !== query.tableSha256
+          ? "CREATURE_CLASSES_TABLE_STALE"
+          : "CREATURE_CLASS_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureSkillRows(
+    accessToken: string,
+    query: CreatureApiSkillRowsQuery,
+  ): Promise<CreatureApiSkillRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/skills?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureSkillRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.sha256 !== query.tableSha256 || parsed.limit !== expectedLimit ||
+      parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature SkillList row page does not match the request.",
+        502,
+        "CREATURE_SKILL_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureFeatRows(
+    accessToken: string,
+    query: CreatureApiFeatRowsQuery,
+  ): Promise<CreatureApiFeatRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/feats?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureFeatRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.sha256 !== query.tableSha256 || parsed.limit !== expectedLimit ||
+      parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature FeatList row page does not match the request.",
+        502,
+        "CREATURE_FEAT_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreatureSpecialAbilityRows(
+    accessToken: string,
+    query: CreatureApiSpecialAbilityRowsQuery,
+  ): Promise<CreatureApiSpecialAbilityRowsResult> {
+    const search = new URLSearchParams({ tableSha256: query.tableSha256 });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/special-abilities?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creatureSpecialAbilityRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.sha256 !== query.tableSha256 || parsed.limit !== expectedLimit ||
+      parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature SpecAbilityList row page does not match the request.",
+        502,
+        "CREATURE_SPECIAL_ABILITY_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
+  }
+
+  async listCreaturePhenotypeRows(
+    accessToken: string,
+    query: CreatureApiPhenotypeRowsQuery,
+  ): Promise<CreatureApiPhenotypeRowsResult> {
+    const search = new URLSearchParams({
+      tableSha256: query.tableSha256,
+      appearanceTableSha256: query.appearanceTableSha256,
+      appearanceRowCount: String(query.appearanceRowCount),
+      appearanceType: String(query.appearanceType),
+    });
+    if (query.rowIndex !== undefined) search.set("rowIndex", String(query.rowIndex));
+    if (query.query) search.set("query", query.query);
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+    if (query.offset !== undefined) search.set("offset", String(query.offset));
+    const response = await this.fetchFn(
+      `${this.baseUrl}/catalog/creatures/phenotypes?${search.toString()}`,
+      { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = creaturePhenotypeRowsEnvelopeSchema.parse(
+      await parseResponseOrThrow(response),
+    ).data;
+    if (parsed.sha256 !== query.tableSha256) {
+      throw new CreatureApiRequestError(
+        "The returned phenotype.2da digest does not match the requested table.",
+        409,
+        "CREATURE_PHENOTYPE_TABLE_STALE",
+      );
+    }
+    const expectedLimit = query.limit ?? 100;
+    const expectedOffset = query.offset ?? 0;
+    if (parsed.limit !== expectedLimit || parsed.offset !== expectedOffset) {
+      throw new CreatureApiRequestError(
+        "The returned Creature Phenotype row page does not match the request.",
+        502,
+        "CREATURE_PHENOTYPE_PAGE_INVALID",
+      );
+    }
+    return { ...parsed, items: parsed.items.map((row) => ({ ...row })) };
   }
 
   async listCreatures(

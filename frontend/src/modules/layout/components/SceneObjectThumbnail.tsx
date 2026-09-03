@@ -14,6 +14,7 @@ import {
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
 import {
   applyPlaceableAssetRequestHeaders,
+  createAuroraGltfLoadingManager,
   type PlaceableAssetRequestHeaderRuntime
 } from "../adapters/three/workspaceThreeRuntime";
 import type { SceneObject, SceneObjectKind } from "../contracts";
@@ -243,7 +244,7 @@ function getThumbnailRuntime(): ThumbnailRuntime {
   }
 
   sharedThumbnailRuntime = {
-    placeableModelLoader: new GLTFLoader(),
+    placeableModelLoader: new GLTFLoader(createAuroraGltfLoadingManager()),
     placeableModelCacheByUrl: new Map(),
     placeableModelPendingByUrl: new Map(),
     placeableNormalizedModelCacheByKey: new Map(),
@@ -1036,7 +1037,7 @@ export function SceneObjectThumbnail({
     setItemThumbnailLoadError("");
 
     void (async () => {
-      const loader = new GLTFLoader();
+      const loader = new GLTFLoader(createAuroraGltfLoadingManager());
       if (placeableAssetAccessToken) {
         loader.setRequestHeader({ Authorization: `Bearer ${placeableAssetAccessToken}` });
         loader.setWithCredentials(false);

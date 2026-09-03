@@ -23,6 +23,8 @@ interface SharedDialogActionsFooterProps {
   onApply: () => void;
   onOk: () => void;
   onCancel: () => void;
+  applyDisabled?: boolean;
+  okDisabled?: boolean;
 }
 
 interface SharedLongTextPropertySectionProps {
@@ -33,6 +35,8 @@ interface SharedLongTextPropertySectionProps {
   value: string;
   onChange: (nextValue: string) => void;
   rows?: number;
+  disabled?: boolean;
+  maxLength?: number;
 }
 
 interface SharedObjectPreviewPaneProps {
@@ -59,28 +63,46 @@ interface SharedAdvancedSettingsSectionProps {
   variablesRowClassName?: string;
   blueprintResRef: string;
   onBlueprintResRefChange: (nextValue: string) => void;
+  blueprintResRefDisabled?: boolean;
+  blueprintResRefMaxLength?: number;
   belongsToFaction: string;
   factionOptions: readonly string[];
   onBelongsToFactionChange: (nextValue: string) => void;
+  belongsToFactionDisabled?: boolean;
+  factionId?: number;
+  factionIdOptions?: readonly Readonly<{ value: number; label: string }>[];
+  onFactionIdChange?: (nextValue: number) => void;
   conversation: string;
   onConversationChange: (nextValue: string) => void;
+  conversationDisabled?: boolean;
   showConversationActions?: boolean;
   conversationBrowseDisabled?: boolean;
   conversationEditDisabled?: boolean;
   noInterrupt: boolean;
   onNoInterruptChange: (checked: boolean) => void;
+  noInterruptDisabled?: boolean;
   portraitResRef: string;
   portraitPreviewFallback?: string;
   onPortraitResRefChange: (nextValue: string) => void;
+  portraitResRefDisabled?: boolean;
+  portraitId?: number;
+  portraitIdOptions?: readonly Readonly<{ value: number; label: string }>[];
+  onPortraitIdChange?: (nextValue: number) => void;
+  portraitIdDisabled?: boolean;
   showPortraitPreview?: boolean;
   showPortraitBrowseAction?: boolean;
   portraitBrowseDisabled?: boolean;
   initialState: string;
   initialStateOptions: readonly string[];
   onInitialStateChange: (nextValue: string) => void;
+  initialStateDisabled?: boolean;
   treasureModel?: string;
   treasureModelOptions?: readonly string[];
   onTreasureModelChange?: (nextValue: string) => void;
+  treasureModelDisabled?: boolean;
+  treasureModelRow?: number;
+  treasureModelRowOptions?: readonly Readonly<{ value: number; label: string }>[];
+  onTreasureModelRowChange?: (nextValue: number) => void;
   showVariablesButton?: boolean;
   variablesButtonDisabled?: boolean;
   variablesButtonLabel?: ReactNode;
@@ -99,6 +121,11 @@ interface SharedScriptSlotSectionProps<TSlotKey extends string> {
   onChange: (slot: TSlotKey, nextValue: string) => void;
   inputIdPrefix: string;
   inputListId?: string;
+  inputMaxLength?: number;
+  inputPattern?: string;
+  isSlotDisabled?: (slot: TSlotKey) => boolean;
+  slotStatus?: (slot: TSlotKey) => ReactNode;
+  slotStatusClassName?: string;
   hiddenLabelSuffix?: ReactNode;
   showInlineActionButtons?: boolean;
   inlineBrowseDisabled?: boolean;
@@ -168,14 +195,16 @@ export function SharedDialogActionsFooter({
   className,
   onApply,
   onOk,
-  onCancel
+  onCancel,
+  applyDisabled = false,
+  okDisabled = false,
 }: SharedDialogActionsFooterProps) {
   return (
     <footer className={className}>
-      <button type="button" onClick={onApply}>
+      <button type="button" onClick={onApply} disabled={applyDisabled}>
         Apply
       </button>
-      <button type="button" onClick={onOk}>
+      <button type="button" onClick={onOk} disabled={okDisabled}>
         OK
       </button>
       <button type="button" onClick={onCancel}>
@@ -270,14 +299,26 @@ export function SharedLongTextPropertySection({
   labelClassName,
   value,
   onChange,
-  rows
+  rows,
+  disabled = false,
+  maxLength
 }: SharedLongTextPropertySectionProps) {
   return (
     <fieldset className={sectionClassName}>
       {legend ? <legend>{legend}</legend> : null}
       <label className={labelClassName}>
         <span>{label}</span>
-        <textarea value={value} rows={rows} onChange={(event) => onChange(event.target.value)} />
+        <textarea
+          aria-label={label}
+          value={value}
+          rows={rows}
+          disabled={disabled}
+          maxLength={maxLength}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span className="canvas-accessibility-hidden">
+          {disabled ? "PRESERVE_ONLY" : "ACTIVE_NOW"}
+        </span>
       </label>
     </fieldset>
   );
@@ -322,28 +363,46 @@ export function SharedAdvancedSettingsSection({
   variablesRowClassName,
   blueprintResRef,
   onBlueprintResRefChange,
+  blueprintResRefDisabled = false,
+  blueprintResRefMaxLength,
   belongsToFaction,
   factionOptions,
   onBelongsToFactionChange,
+  belongsToFactionDisabled = false,
+  factionId,
+  factionIdOptions,
+  onFactionIdChange,
   conversation,
   onConversationChange,
+  conversationDisabled = false,
   showConversationActions = false,
   conversationBrowseDisabled = true,
   conversationEditDisabled = true,
   noInterrupt,
   onNoInterruptChange,
+  noInterruptDisabled = false,
   portraitResRef,
   portraitPreviewFallback = "Portrait",
   onPortraitResRefChange,
+  portraitResRefDisabled = false,
+  portraitId,
+  portraitIdOptions,
+  onPortraitIdChange,
+  portraitIdDisabled = false,
   showPortraitPreview = true,
   showPortraitBrowseAction = false,
   portraitBrowseDisabled = true,
   initialState,
   initialStateOptions,
   onInitialStateChange,
+  initialStateDisabled = false,
   treasureModel,
   treasureModelOptions,
   onTreasureModelChange,
+  treasureModelDisabled = false,
+  treasureModelRow,
+  treasureModelRowOptions,
+  onTreasureModelRowChange,
   showVariablesButton = true,
   variablesButtonDisabled = true,
   variablesButtonLabel = "Variables",
@@ -353,10 +412,19 @@ export function SharedAdvancedSettingsSection({
     <div className={fieldControlClassName}>{childrenToRender}</div>
   );
 
+  const shouldRenderTreasureModelRowField =
+    treasureModelRow !== undefined &&
+    treasureModelRowOptions !== undefined &&
+    onTreasureModelRowChange !== undefined;
   const shouldRenderTreasureModelField =
+    !shouldRenderTreasureModelRowField &&
     treasureModel !== undefined &&
     treasureModelOptions !== undefined &&
     onTreasureModelChange !== undefined;
+  const shouldRenderPortraitIdField = portraitId !== undefined &&
+    portraitIdOptions !== undefined && onPortraitIdChange !== undefined;
+  const shouldRenderFactionIdField = factionId !== undefined &&
+    factionIdOptions !== undefined && onFactionIdChange !== undefined;
 
   return (
     <fieldset className={sectionClassName}>
@@ -364,26 +432,57 @@ export function SharedAdvancedSettingsSection({
       <label className={fieldRowClassName}>
         <span>Blueprint ResRef</span>
         {renderFieldControl(
-          <input
-            type="text"
-            value={blueprintResRef}
-            onChange={(event) => onBlueprintResRefChange(event.target.value)}
-          />
+          <>
+            <input
+              aria-label="Blueprint ResRef"
+              type="text"
+              maxLength={blueprintResRefMaxLength}
+              pattern="[a-z0-9_]{1,16}"
+              disabled={blueprintResRefDisabled}
+              value={blueprintResRef}
+              onChange={(event) => onBlueprintResRefChange(event.target.value)}
+            />
+            <span className="canvas-accessibility-hidden">
+              {blueprintResRefDisabled ? "PRESERVE_ONLY" : "ACTIVE_NOW"}
+            </span>
+          </>
         )}
       </label>
       <label className={fieldRowClassName}>
         <span>Belongs To Faction</span>
         {renderFieldControl(
-          <select
-            value={belongsToFaction}
-            onChange={(event) => onBelongsToFactionChange(event.target.value)}
-          >
-            {factionOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+          <>
+            {shouldRenderFactionIdField ? (
+              <select
+                aria-label="Belongs To Faction"
+                value={factionId}
+                disabled={belongsToFactionDisabled}
+                onChange={(event) => onFactionIdChange(Number(event.target.value))}
+              >
+                {factionIdOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                aria-label="Belongs To Faction"
+                value={belongsToFaction}
+                disabled={belongsToFactionDisabled}
+                onChange={(event) => onBelongsToFactionChange(event.target.value)}
+              >
+                {factionOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="canvas-accessibility-hidden">
+              {belongsToFactionDisabled ? "PRESERVE_ONLY" : "ACTIVE_NOW"}
+            </span>
+          </>
         )}
       </label>
       <label className={fieldRowClassName}>
@@ -391,10 +490,17 @@ export function SharedAdvancedSettingsSection({
         {renderFieldControl(
           <>
             <input
+              aria-label="Conversation"
               type="text"
+              maxLength={16}
+              pattern="[A-Za-z0-9_]{0,16}"
+              disabled={conversationDisabled}
               value={conversation}
               onChange={(event) => onConversationChange(event.target.value)}
             />
+            <span className="canvas-accessibility-hidden">
+              {conversationDisabled ? "PRESERVE_ONLY" : "ACTIVE_NOW"}
+            </span>
             {showConversationActions ? (
               <>
                 <button type="button" disabled={conversationBrowseDisabled} aria-label="Browse conversation">
@@ -410,11 +516,16 @@ export function SharedAdvancedSettingsSection({
       </label>
       <label className={toggleClassName}>
         <input
+          aria-label="No Interrupt"
           type="checkbox"
           checked={noInterrupt}
+          disabled={noInterruptDisabled}
           onChange={(event) => onNoInterruptChange(event.target.checked)}
         />
         No Interrupt
+        <span className="canvas-accessibility-hidden">
+          {noInterruptDisabled ? "PRESERVE_ONLY" : "ACTIVE_NOW"}
+        </span>
       </label>
       <div className={portraitRowClassName}>
         {showPortraitPreview ? (
@@ -426,12 +537,32 @@ export function SharedAdvancedSettingsSection({
           <span>Portrait</span>
           {renderFieldControl(
             <>
-              <input
-                type="text"
-                value={portraitResRef}
-                onChange={(event) => onPortraitResRefChange(event.target.value)}
-              />
-              {showPortraitBrowseAction ? (
+              {shouldRenderPortraitIdField ? (
+                <select
+                  aria-label="Portrait"
+                  disabled={portraitIdDisabled}
+                  value={portraitId}
+                  onChange={(event) => onPortraitIdChange(Number(event.target.value))}
+                >
+                  {portraitIdOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  aria-label="Portrait ResRef"
+                  type="text"
+                  disabled={portraitResRefDisabled}
+                  value={portraitResRef}
+                  onChange={(event) => onPortraitResRefChange(event.target.value)}
+                />
+              )}
+              <span className="canvas-accessibility-hidden">
+                {(shouldRenderPortraitIdField ? portraitIdDisabled : portraitResRefDisabled)
+                  ? "PRESERVE_ONLY"
+                  : "ACTIVE_NOW"}
+              </span>
+              {showPortraitBrowseAction && !shouldRenderPortraitIdField ? (
                 <button type="button" disabled={portraitBrowseDisabled} aria-label="Browse portrait">
                   ...
                 </button>
@@ -443,7 +574,11 @@ export function SharedAdvancedSettingsSection({
       <label className={fieldRowClassName}>
         <span>Initial State</span>
         {renderFieldControl(
-          <select value={initialState} onChange={(event) => onInitialStateChange(event.target.value)}>
+          <select
+            value={initialState}
+            disabled={initialStateDisabled}
+            onChange={(event) => onInitialStateChange(event.target.value)}
+          >
             {initialStateOptions.map((option) => (
               <option key={option} value={option}>
                 {option}
@@ -452,12 +587,30 @@ export function SharedAdvancedSettingsSection({
           </select>
         )}
       </label>
-      {shouldRenderTreasureModelField ? (
+      {shouldRenderTreasureModelRowField ? (
+        <label className={fieldRowClassName}>
+          <span>Treasure Model</span>
+          {renderFieldControl(
+            <select
+              value={treasureModelRow}
+              disabled={treasureModelDisabled}
+              onChange={(event) => onTreasureModelRowChange(Number(event.target.value))}
+            >
+              {treasureModelRowOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+      ) : shouldRenderTreasureModelField ? (
         <label className={fieldRowClassName}>
           <span>Treasure Model</span>
           {renderFieldControl(
             <select
               value={treasureModel}
+              disabled={treasureModelDisabled}
               onChange={(event) => onTreasureModelChange(event.target.value)}
             >
               {treasureModelOptions.map((option) => (
@@ -493,6 +646,11 @@ export function SharedScriptSlotSection<TSlotKey extends string>({
   onChange,
   inputIdPrefix,
   inputListId,
+  inputMaxLength,
+  inputPattern,
+  isSlotDisabled,
+  slotStatus,
+  slotStatusClassName,
   hiddenLabelSuffix,
   showInlineActionButtons = false,
   inlineBrowseDisabled = false,
@@ -522,8 +680,12 @@ export function SharedScriptSlotSection<TSlotKey extends string>({
           <>
             <input
               id={inputId}
+              aria-label={slotStatus ? labels[slot] : undefined}
               type="text"
               list={inputListId}
+              maxLength={inputMaxLength}
+              pattern={inputPattern}
+              disabled={isSlotDisabled?.(slot) ?? false}
               value={values[slot]}
               onChange={(event) => onChange(slot, event.target.value)}
             />
@@ -543,7 +705,11 @@ export function SharedScriptSlotSection<TSlotKey extends string>({
         return (
           <div key={slot} className={rowClassName}>
             <label htmlFor={inputId} className={rowLabelClassName}>
-              {labels[slot]}
+              {slotStatus ? (
+                <span className={slotStatusClassName}>
+                  {labels[slot]}: {slotStatus(slot)}
+                </span>
+              ) : labels[slot]}
               {hiddenLabelSuffix}
             </label>
             {rowControlClassName ? <div className={rowControlClassName}>{rowControls}</div> : rowControls}

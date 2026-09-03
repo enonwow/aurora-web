@@ -1,5 +1,6 @@
 import type { WorkspaceToolbarState } from "./application/workspaceChromeFacade";
 import type { SceneObject, SceneObjectKind, SceneObjectVisualTransform } from "./contracts";
+import { canEditRetainedItemVisualTransform } from "../scene/domain/itemVisualTransform";
 
 export type CanvasGizmoMode = WorkspaceToolbarState["canvasDebug"]["gizmoMode"];
 export type CanvasDebugState = WorkspaceToolbarState["canvasDebug"];
@@ -37,7 +38,8 @@ export const VT_GIZMO_COLORS = {
 };
 
 export function isVisualTransformEditableForObject(object: SceneObject): boolean {
-  return VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind);
+  return VISUAL_TRANSFORM_EDITABLE_KINDS.has(object.kind)
+    && (object.kind !== "items" || canEditRetainedItemVisualTransform(object));
 }
 
 export function canUseVisualTransformGizmoForObject(object: SceneObject): boolean {

@@ -9,10 +9,14 @@ import {
   type AuroraScenePointLightDiagnostics
 } from "../../layout/adapters/three/workspaceSceneLightDiagnostics";
 import { installAuroraLinearLightFalloffShaderChunk } from "../../layout/adapters/three/auroraThreeLightFalloff";
+import { AuroraRetailBloomPass } from "../../layout/adapters/three/auroraRetailBloomPass";
+import { installAuroraVfxRenderQueueSort } from "../../layout/adapters/three/auroraVfxRenderQueue";
 import {
   createDevAuroraVfxPayload,
+  DEV_VFX_CHUNK_MODEL_FIXTURE_RESOURCE_KEY,
   DEV_VFX_DEFAULT_FIXTURE_ID,
-  DEV_VFX_TEXTURE_REFERENCE
+  DEV_VFX_TEXTURE_REFERENCE,
+  type DevVfxDiagnosticSceneProfile
 } from "./vfxFixturePayloads";
 
 const DEV_VFX_ROUTE_PREFIX = "/dev/vfx-fixture";
@@ -24,8 +28,6 @@ const DEV_VFX_ATLAS_ROWS = 4;
 const DEV_VFX_ATLAS_CELL_SIZE = 32;
 const DEV_VFX_TEXTURE_WIDTH = DEV_VFX_ATLAS_COLUMNS * DEV_VFX_ATLAS_CELL_SIZE;
 const DEV_VFX_TEXTURE_HEIGHT = DEV_VFX_ATLAS_ROWS * DEV_VFX_ATLAS_CELL_SIZE;
-const DEV_VFX_CROSS_LANE_ALL_LIGHT_LANES_FIXTURE_ID =
-  "vfx-retail-cross-lane-all-light-lanes-policy";
 const DEV_VFX_CROSS_LANE_PROOF_SOURCE =
   "local dev fixture adds source-backed diagnostic PointLight lanes for terrain tile, placeables.2da, source MDL, and item-property light, plus the ProgFX Type 4 request preserved by the canonical VFX payload; this proves Aurora Web runtime lane coverage, not retail insertion order";
 const DEV_VFX_CROSS_LANE_ORDERING_BLOCKER =
@@ -158,6 +160,18 @@ interface VfxRenderStatus {
   objectPixelCount: number;
   renderedDrawParticles: number;
   renderedVertices: number;
+  renderedChunkModelCount: number;
+  renderedChunkLaneCount: number;
+  renderedChunkLaneResourceResolveStatus: string;
+  renderedChunkLaneChunkName: string;
+  renderedChunkLaneActiveParticleCount: number;
+  renderedChunkLaneResolvedResourceKey: string;
+  renderedChunkLaneResolvedResourceLayer: string;
+  renderedChunkLaneResolvedResourcePath: string;
+  renderedChunkLaneResolvedResourceHash: string;
+  renderedChunkLaneResolvedResourceCandidateId: string;
+  renderedChunkLaneRendererPending: string;
+  renderedChunkLaneModelPreviewStatus: string;
   renderedDrawRecordIds: string[];
   renderedEmitterNodeNames: string[];
   renderedDrawRecordLanes: string[];
@@ -192,6 +206,12 @@ interface VfxRenderStatus {
   renderedAtlasUvV1: number[];
   renderedGeometryNonIndexedDrawArrays: string;
   renderedGeometryIndexedDrawArrays: string;
+  renderedGeometryLinkedSegmentTopology: string;
+  renderedGeometryLinkedSegmentCount: number;
+  renderedGeometryLinkedSegmentSource: string;
+  renderedGeometryRenderModeBasisModes: string[];
+  renderedGeometryRenderModeBasisSources: string[];
+  renderedGeometryRenderModeUsesVelocityBasis: string;
   renderedGeometryDrawModeArgument: number;
   renderedGeometryDrawModeArgumentSource: string;
   renderedGeometryVerticesPerParticle: number;
@@ -695,11 +715,7 @@ function addCrossLaneRuntimeProbeLight(
   group.add(createCrossLaneRuntimeProbeMarker(`${name}_marker`, color, position));
 }
 
-function addCrossLaneRuntimeProbeLights(scene: THREE.Scene, fixtureId: string): void {
-  if (fixtureId !== DEV_VFX_CROSS_LANE_ALL_LIGHT_LANES_FIXTURE_ID) {
-    return;
-  }
-
+function addCrossLaneRuntimeProbeLights(scene: THREE.Scene): void {
   const group = new THREE.Group();
   group.name = "cross_lane_runtime_probe_lights";
   group.userData.crossLaneRuntimeProbeStatus =
@@ -881,6 +897,23 @@ function addCrossLaneRuntimeProbeLights(scene: THREE.Scene, fixtureId: string): 
   scene.add(group);
 }
 
+const DEV_VFX_DIAGNOSTIC_SCENE_MATERIALIZERS: Readonly<
+  Record<
+    DevVfxDiagnosticSceneProfile["recipe"],
+    (scene: THREE.Scene) => void
+  >
+> = Object.freeze({
+  "cross-lane-light-probes": addCrossLaneRuntimeProbeLights
+});
+
+export function materializeDevVfxDiagnosticScene(
+  scene: THREE.Scene,
+  profile: DevVfxDiagnosticSceneProfile | undefined
+): void {
+  if (!profile) return;
+  DEV_VFX_DIAGNOSTIC_SCENE_MATERIALIZERS[profile.recipe](scene);
+}
+
 export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
   const request = useMemo(
     () =>
@@ -898,6 +931,18 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
     objectPixelCount: 0,
     renderedDrawParticles: 0,
     renderedVertices: 0,
+    renderedChunkModelCount: 0,
+    renderedChunkLaneCount: 0,
+    renderedChunkLaneResourceResolveStatus: "pending",
+    renderedChunkLaneChunkName: "",
+    renderedChunkLaneActiveParticleCount: 0,
+    renderedChunkLaneResolvedResourceKey: "",
+    renderedChunkLaneResolvedResourceLayer: "",
+    renderedChunkLaneResolvedResourcePath: "",
+    renderedChunkLaneResolvedResourceHash: "",
+    renderedChunkLaneResolvedResourceCandidateId: "",
+    renderedChunkLaneRendererPending: "pending",
+    renderedChunkLaneModelPreviewStatus: "pending",
     renderedDrawRecordIds: [],
     renderedEmitterNodeNames: [],
     renderedDrawRecordLanes: [],
@@ -932,6 +977,12 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
     renderedAtlasUvV1: [],
     renderedGeometryNonIndexedDrawArrays: "pending",
     renderedGeometryIndexedDrawArrays: "pending",
+    renderedGeometryLinkedSegmentTopology: "pending",
+    renderedGeometryLinkedSegmentCount: 0,
+    renderedGeometryLinkedSegmentSource: "pending",
+    renderedGeometryRenderModeBasisModes: [],
+    renderedGeometryRenderModeBasisSources: [],
+    renderedGeometryRenderModeUsesVelocityBasis: "pending",
     renderedGeometryDrawModeArgument: 0,
     renderedGeometryDrawModeArgumentSource: "pending",
     renderedGeometryVerticesPerParticle: 0,
@@ -1045,13 +1096,17 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
     }
     if (import.meta.env.MODE === "test") {
       const texture = createFixtureTexture();
+      const chunkModelsByResourceKey = createFixtureChunkModelTemplates();
+      const chunkModelDeliveryUrlsByResourceKey = createFixtureChunkModelDeliveryUrls();
       const scene = new THREE.Scene();
       const group = createAuroraVfxCanonicalRenderGroup(fixture.payload, {
         particleTexturesByReference: new Map([[DEV_VFX_TEXTURE_REFERENCE, texture]]),
+        chunkModelsByResourceKey,
+        chunkModelDeliveryUrlsByResourceKey,
         objectRadius: 0.32
       });
       scene.add(group);
-      addCrossLaneRuntimeProbeLights(scene, fixture.fixtureId);
+      materializeDevVfxDiagnosticScene(scene, fixture.diagnosticScene);
       setSceneLightDiagnostics(
         toSceneLightDiagnosticSnapshot(resolveAuroraScenePointLightDiagnostics(scene))
       );
@@ -1073,6 +1128,39 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         objectPixelCount: 0,
         renderedDrawParticles: 0,
         renderedVertices: 0,
+        renderedChunkModelCount:
+          readNumber(group.userData.auroraVfxCanonicalRenderedChunkModelCount) ?? 0,
+        renderedChunkLaneCount:
+          readNumber(group.userData.auroraVfxCanonicalChunkLaneCount) ?? 0,
+        renderedChunkLaneResourceResolveStatus: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResourceResolveStatus
+        ),
+        renderedChunkLaneChunkName: readString(
+          group.userData.auroraVfxCanonicalChunkLaneChunkName
+        ),
+        renderedChunkLaneActiveParticleCount:
+          readNumber(group.userData.auroraVfxCanonicalChunkLaneActiveParticleCount) ?? 0,
+        renderedChunkLaneResolvedResourceKey: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceKey
+        ),
+        renderedChunkLaneResolvedResourceLayer: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceLayer
+        ),
+        renderedChunkLaneResolvedResourcePath: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourcePath
+        ),
+        renderedChunkLaneResolvedResourceHash: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceHash
+        ),
+        renderedChunkLaneResolvedResourceCandidateId: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceCandidateId
+        ),
+        renderedChunkLaneRendererPending: readBooleanString(
+          group.userData.auroraVfxCanonicalChunkLaneRendererPending
+        ),
+        renderedChunkLaneModelPreviewStatus: readString(
+          group.userData.auroraVfxCanonicalChunkLaneModelPreviewStatus
+        ),
         renderedDrawRecordIds: [],
         renderedEmitterNodeNames: [],
         renderedDrawRecordLanes: [],
@@ -1107,6 +1195,12 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         renderedAtlasUvV1: [],
         renderedGeometryNonIndexedDrawArrays: "skipped-test",
         renderedGeometryIndexedDrawArrays: "skipped-test",
+        renderedGeometryLinkedSegmentTopology: "skipped-test",
+        renderedGeometryLinkedSegmentCount: 0,
+        renderedGeometryLinkedSegmentSource: "skipped-test",
+        renderedGeometryRenderModeBasisModes: [],
+        renderedGeometryRenderModeBasisSources: [],
+        renderedGeometryRenderModeUsesVelocityBasis: "skipped-test",
         renderedGeometryDrawModeArgument: 0,
         renderedGeometryDrawModeArgumentSource: "skipped-test",
         renderedGeometryVerticesPerParticle: 0,
@@ -1241,6 +1335,7 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
     camera.lookAt(0, 0, 0);
 
     let renderer: THREE.WebGLRenderer | null = null;
+    let bloomPass: AuroraRetailBloomPass | null = null;
     try {
       installAuroraLinearLightFalloffShaderChunk();
       renderer = new THREE.WebGLRenderer({
@@ -1249,19 +1344,25 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         antialias: true,
         preserveDrawingBuffer: true
       });
+      installAuroraVfxRenderQueueSort(renderer);
       renderer.setPixelRatio(1);
       renderer.setSize(RENDER_WIDTH, RENDER_HEIGHT, false);
       renderer.setClearColor("#071018", 1);
+      bloomPass = new AuroraRetailBloomPass();
+      const chunkModelsByResourceKey = createFixtureChunkModelTemplates();
+      const chunkModelDeliveryUrlsByResourceKey = createFixtureChunkModelDeliveryUrls();
       const group = createAuroraVfxCanonicalRenderGroup(fixture.payload, {
         particleTexturesByReference: new Map([[DEV_VFX_TEXTURE_REFERENCE, texture]]),
+        chunkModelsByResourceKey,
+        chunkModelDeliveryUrlsByResourceKey,
         objectRadius: 0.32
       });
       scene.add(group);
-      addCrossLaneRuntimeProbeLights(scene, fixture.fixtureId);
+      materializeDevVfxDiagnosticScene(scene, fixture.diagnosticScene);
       setSceneLightDiagnostics(
         toSceneLightDiagnosticSnapshot(resolveAuroraScenePointLightDiagnostics(scene))
       );
-      renderer.render(scene, camera);
+      bloomPass.render(renderer, scene, camera);
       const probe = readObjectPixelSignal(renderer, RENDER_WIDTH, RENDER_HEIGHT);
       const dataUrl = request.captureDataUrl ? canvas.toDataURL("image/png") : null;
       if (dataUrl) {
@@ -1276,6 +1377,39 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         renderedDrawParticles:
           readNumber(group.userData.auroraVfxCanonicalRenderedDrawParticleCount) ?? 0,
         renderedVertices: readNumber(group.userData.auroraVfxCanonicalRenderedVertexCount) ?? 0,
+        renderedChunkModelCount:
+          readNumber(group.userData.auroraVfxCanonicalRenderedChunkModelCount) ?? 0,
+        renderedChunkLaneCount:
+          readNumber(group.userData.auroraVfxCanonicalChunkLaneCount) ?? 0,
+        renderedChunkLaneResourceResolveStatus: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResourceResolveStatus
+        ),
+        renderedChunkLaneChunkName: readString(
+          group.userData.auroraVfxCanonicalChunkLaneChunkName
+        ),
+        renderedChunkLaneActiveParticleCount:
+          readNumber(group.userData.auroraVfxCanonicalChunkLaneActiveParticleCount) ?? 0,
+        renderedChunkLaneResolvedResourceKey: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceKey
+        ),
+        renderedChunkLaneResolvedResourceLayer: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceLayer
+        ),
+        renderedChunkLaneResolvedResourcePath: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourcePath
+        ),
+        renderedChunkLaneResolvedResourceHash: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceHash
+        ),
+        renderedChunkLaneResolvedResourceCandidateId: readString(
+          group.userData.auroraVfxCanonicalChunkLaneResolvedResourceCandidateId
+        ),
+        renderedChunkLaneRendererPending: readBooleanString(
+          group.userData.auroraVfxCanonicalChunkLaneRendererPending
+        ),
+        renderedChunkLaneModelPreviewStatus: readString(
+          group.userData.auroraVfxCanonicalChunkLaneModelPreviewStatus
+        ),
         renderedDrawRecordIds: readStringList(group.userData.auroraVfxCanonicalDrawRecordIds),
         renderedEmitterNodeNames: readStringList(group.userData.auroraVfxCanonicalEmitterNodeNames),
         renderedDrawRecordLanes: readStringList(group.userData.auroraVfxCanonicalDrawRecordLanes),
@@ -1324,6 +1458,23 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         ),
         renderedGeometryIndexedDrawArrays: readBooleanString(
           drawMesh?.geometry.userData.auroraVfxCanonicalIndexedDrawArrays
+        ),
+        renderedGeometryLinkedSegmentTopology: readBooleanString(
+          drawMesh?.geometry.userData.auroraVfxCanonicalLinkedSegmentTopology
+        ),
+        renderedGeometryLinkedSegmentCount:
+          readNumber(drawMesh?.geometry.userData.auroraVfxCanonicalLinkedSegmentCount) ?? 0,
+        renderedGeometryLinkedSegmentSource: readString(
+          drawMesh?.geometry.userData.auroraVfxCanonicalLinkedSegmentSource
+        ),
+        renderedGeometryRenderModeBasisModes: readStringList(
+          drawMesh?.geometry.userData.auroraVfxCanonicalRenderModeBasisModes
+        ),
+        renderedGeometryRenderModeBasisSources: readStringList(
+          drawMesh?.geometry.userData.auroraVfxCanonicalRenderModeBasisSources
+        ),
+        renderedGeometryRenderModeUsesVelocityBasis: readBooleanString(
+          drawMesh?.geometry.userData.auroraVfxCanonicalRenderModeUsesVelocityBasis
         ),
         renderedGeometryDrawModeArgument:
           readNumber(drawMesh?.geometry.userData.auroraVfxCanonicalDrawModeArgument) ?? 0,
@@ -1594,6 +1745,18 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         objectPixelCount: 0,
         renderedDrawParticles: 0,
         renderedVertices: 0,
+        renderedChunkModelCount: 0,
+        renderedChunkLaneCount: 0,
+        renderedChunkLaneResourceResolveStatus: "error",
+        renderedChunkLaneChunkName: "",
+        renderedChunkLaneActiveParticleCount: 0,
+        renderedChunkLaneResolvedResourceKey: "",
+        renderedChunkLaneResolvedResourceLayer: "",
+        renderedChunkLaneResolvedResourcePath: "",
+        renderedChunkLaneResolvedResourceHash: "",
+        renderedChunkLaneResolvedResourceCandidateId: "",
+        renderedChunkLaneRendererPending: "error",
+        renderedChunkLaneModelPreviewStatus: "error",
         renderedDrawRecordIds: [],
         renderedEmitterNodeNames: [],
         renderedDrawRecordLanes: [],
@@ -1628,6 +1791,12 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         renderedAtlasUvV1: [],
         renderedGeometryNonIndexedDrawArrays: "error",
         renderedGeometryIndexedDrawArrays: "error",
+        renderedGeometryLinkedSegmentTopology: "error",
+        renderedGeometryLinkedSegmentCount: 0,
+        renderedGeometryLinkedSegmentSource: "error",
+        renderedGeometryRenderModeBasisModes: [],
+        renderedGeometryRenderModeBasisSources: [],
+        renderedGeometryRenderModeUsesVelocityBasis: "error",
         renderedGeometryDrawModeArgument: 0,
         renderedGeometryDrawModeArgumentSource: "error",
         renderedGeometryVerticesPerParticle: 0,
@@ -1744,6 +1913,7 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
         }
       });
       texture.dispose();
+      bloomPass?.dispose();
       renderer?.dispose();
     };
   }, [fixture]);
@@ -2242,6 +2412,34 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
       }
       data-rendered-draw-particles={renderStatus.renderedDrawParticles}
       data-rendered-vertices={renderStatus.renderedVertices}
+      data-rendered-chunk-model-count={renderStatus.renderedChunkModelCount}
+      data-rendered-chunk-lane-count={renderStatus.renderedChunkLaneCount}
+      data-rendered-chunk-lane-resource-resolve-status={
+        renderStatus.renderedChunkLaneResourceResolveStatus
+      }
+      data-rendered-chunk-lane-chunk-name={renderStatus.renderedChunkLaneChunkName}
+      data-rendered-chunk-lane-active-particle-count={
+        renderStatus.renderedChunkLaneActiveParticleCount
+      }
+      data-rendered-chunk-lane-resolved-resource-key={
+        renderStatus.renderedChunkLaneResolvedResourceKey
+      }
+      data-rendered-chunk-lane-resolved-resource-layer={
+        renderStatus.renderedChunkLaneResolvedResourceLayer
+      }
+      data-rendered-chunk-lane-resolved-resource-path={
+        renderStatus.renderedChunkLaneResolvedResourcePath
+      }
+      data-rendered-chunk-lane-resolved-resource-hash={
+        renderStatus.renderedChunkLaneResolvedResourceHash
+      }
+      data-rendered-chunk-lane-resolved-resource-candidate-id={
+        renderStatus.renderedChunkLaneResolvedResourceCandidateId
+      }
+      data-rendered-chunk-lane-renderer-pending={renderStatus.renderedChunkLaneRendererPending}
+      data-rendered-chunk-lane-model-preview-status={
+        renderStatus.renderedChunkLaneModelPreviewStatus
+      }
       data-rendered-draw-record-ids={renderStatus.renderedDrawRecordIds.join(",")}
       data-rendered-emitter-node-names={renderStatus.renderedEmitterNodeNames.join(",")}
       data-rendered-draw-record-lanes={renderStatus.renderedDrawRecordLanes.join(",")}
@@ -2282,6 +2480,22 @@ export function VfxFixtureRunner({ pathname, search }: VfxFixtureRunnerProps) {
       }
       data-rendered-geometry-indexed-draw-arrays={
         renderStatus.renderedGeometryIndexedDrawArrays
+      }
+      data-rendered-geometry-linked-segment-topology={
+        renderStatus.renderedGeometryLinkedSegmentTopology
+      }
+      data-rendered-geometry-linked-segment-count={renderStatus.renderedGeometryLinkedSegmentCount}
+      data-rendered-geometry-linked-segment-source={
+        renderStatus.renderedGeometryLinkedSegmentSource
+      }
+      data-rendered-geometry-render-mode-basis-modes={
+        renderStatus.renderedGeometryRenderModeBasisModes.join(",")
+      }
+      data-rendered-geometry-render-mode-basis-sources={
+        renderStatus.renderedGeometryRenderModeBasisSources.join(",")
+      }
+      data-rendered-geometry-render-mode-uses-velocity-basis={
+        renderStatus.renderedGeometryRenderModeUsesVelocityBasis
       }
       data-rendered-geometry-draw-mode-argument={renderStatus.renderedGeometryDrawModeArgument}
       data-rendered-geometry-draw-mode-argument-source={
@@ -2612,6 +2826,37 @@ function createFixtureTexture(): THREE.DataTexture {
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
   return texture;
+}
+
+function createFixtureChunkModelTemplates(): ReadonlyMap<string, THREE.Object3D> {
+  const group = new THREE.Group();
+  group.userData = {
+    source: "dev-vfx-fixture-local-chunk-model-template",
+    auroraVfxRetailParityProof: false
+  };
+
+  const core = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.28, 0.18),
+    new THREE.MeshBasicMaterial({ color: "#ffc15a" })
+  );
+  core.position.y = 0.04;
+  const cap = new THREE.Mesh(
+    new THREE.BoxGeometry(0.26, 0.06, 0.26),
+    new THREE.MeshBasicMaterial({ color: "#fff2c5" })
+  );
+  cap.position.y = 0.22;
+  group.add(core, cap);
+
+  return new Map([[DEV_VFX_CHUNK_MODEL_FIXTURE_RESOURCE_KEY, group]]);
+}
+
+function createFixtureChunkModelDeliveryUrls(): ReadonlyMap<string, string> {
+  return new Map([
+    [
+      DEV_VFX_CHUNK_MODEL_FIXTURE_RESOURCE_KEY,
+      "local://dev-vfx-fixture/progfx_type9_chunk_model_pending.local.glb"
+    ]
+  ]);
 }
 
 function readObjectPixelSignal(

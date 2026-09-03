@@ -3,8 +3,25 @@ import type { TileApiProcessResult } from "../contracts";
 import type { TileApiPort } from "../ports/tileApiPort";
 
 const TILE_PROCESS_CONTRACT_SUMMARY_SAMPLE_LIMIT = 6;
-const TILE_PROCESS_CONTRACT_QUEUE_CONCURRENCY = 12;
+// A cold tile request may scan HAKs, extract its texture dependencies, and
+// invoke the MDL -> GLB converter.  Submitting a whole Area as one batch made
+// those native-source operations contend with each other and left the canvas
+// in a half-restored state.  Keep this deliberately small: later tiles are
+// published incrementally, so the viewport can render the proven ones first.
+export const TILE_PROCESS_CONTRACT_BATCH_SIZE = 1;
 export const DEFAULT_TILE_PROCESS_CONTRACT_TIMEOUT_MS = 120_000;
+
+export type AreaTileProcessCandidateDisposition =
+  | "process"
+  | "blocked"
+  | "excluded";
+
+export interface AreaTileProcessContractCandidateInput {
+  modelResRef?: string | null;
+  tileDefinitionId?: number;
+  disposition: AreaTileProcessCandidateDisposition;
+  reasonCode?: string;
+}
 
 export type AreaTileMdlSourceAssetStatus =
   | "mdl_source_object_key_proven"
@@ -42,6 +59,7 @@ export interface AreaTileProcessContractEntry {
   sourceObjectExtension?: string;
   sourceAssetOrigin?: string;
   sourceAssetRole?: string;
+  mdlSourceContentSha256?: string;
   textureAtlasObjectKey?: string;
   textureAtlasContentType?: string;
   textureAtlasSizeBytes?: number;
@@ -53,12 +71,15 @@ export interface AreaTileProcessContractEntry {
   modelDeliveryUrl?: string;
   modelAssetObjectKey?: string;
   modelAssetExtension?: "glb" | "gltf";
+  modelAssetContentSha256?: string;
   materialTextureAssets?: Array<{
     reference: string;
     deliveryUrl: string;
     resref: string;
     extension: string;
     objectKey: string;
+    source: "module" | "hak" | "vanilla";
+    contentSha256?: string;
   }>;
   expectedDerivedModelObjectKey?: string;
   renderAssetContractBlockers: string;
@@ -70,6 +91,10 @@ export interface AreaTileProcessContractEntry {
 export interface AreaTileProcessContractReadiness {
   status: "ready" | "partial" | "blocked";
   areaId: string;
+  /** Full unique process-or-blocked model set for the current scene. */
+  expectedCandidateCount?: number;
+  /** Candidates not checked yet while incremental batches are still running. */
+  pendingCandidateCount?: number;
   checkedCandidateCount: number;
   readyCandidateCount: number;
   blockedCandidateCount: number;
@@ -91,13 +116,24 @@ export interface AreaTileProcessContractReadiness {
   textureMaterialBlockerSummary: string;
   renderAssetContractBlockerSummary: string;
   mdlGlbMaterialBlockerSummary: string;
+  excludedTileDefinitionIds: number[];
+  excludedTileDefinitionCount: number;
   entries: AreaTileProcessContractEntry[];
 }
 
 export interface AreaTileProcessContractReadinessOptions {
   bypassCache?: boolean;
   timeoutMs?: number;
+  /** Called after each safe tile batch, with the currently proven contracts. */
+  onProgress?: (readiness: AreaTileProcessContractReadiness) => void;
 }
+
+type AreaTileProcessContractWorkerOptions = Omit<
+  AreaTileProcessContractReadinessOptions,
+  "onProgress"
+> & {
+  onEntriesProgress?: (entries: readonly AreaTileProcessContractEntry[]) => void;
+};
 
 export interface AreaTileProcessContractSource {
   areaId: string;
@@ -139,6 +175,34 @@ export function buildAreaTileProcessContractSceneKey(
   return `${areaId}\u0000${normalized.join("\u0000")}`;
 }
 
+export function buildAreaTileProcessContractSceneKeyForCandidates(
+  areaId: string,
+  candidates: readonly AreaTileProcessContractCandidateInput[]
+): string {
+  const tokens = Array.from(
+    new Set(
+      candidates.map((candidate) => {
+        const modelResRef = normalizeTileModelResRef(candidate.modelResRef) || "missing";
+        const tileDefinitionId = normalizeTileDefinitionId(candidate.tileDefinitionId);
+        const reasonCode = candidate.reasonCode?.trim() || "none";
+        return [
+          candidate.disposition,
+          modelResRef,
+          tileDefinitionId === null ? "missing" : String(tileDefinitionId),
+          ...(candidate.disposition === "process" ? [] : [reasonCode])
+        ].join(":");
+      })
+    )
+  ).sort();
+  return `${areaId}\u0000${tokens.join("\u0000")}`;
+}
+
+export function countAreaTileProcessContractCandidates(
+  candidates: readonly AreaTileProcessContractCandidateInput[]
+): number {
+  return resolveAreaTileProcessCandidatePlan(candidates).candidates.length;
+}
+
 export function resolveAreaTileProcessReadinessPublicationDecision(input: {
   currentSceneKey: string | null;
   acceptedSceneKey: string | null;
@@ -172,50 +236,112 @@ export function shouldRequestAreaTileProcessReadiness(input: {
   return input.inFlightSceneKey !== input.currentSceneKey;
 }
 
+export function isAreaTileProcessReadinessCompleteForExpectedCandidates(
+  readiness: AreaTileProcessContractReadiness | null,
+  expectedCandidateCount: number
+): boolean {
+  if (!readiness) return false;
+  return (
+    readiness.status === "ready" &&
+    readiness.blockedCandidateCount === 0 &&
+    (readiness.pendingCandidateCount ?? 0) === 0 &&
+    readiness.checkedCandidateCount === expectedCandidateCount &&
+    readiness.readyCandidateCount === expectedCandidateCount
+  );
+}
+
 export async function resolveAreaTileProcessContractReadiness(
   tileApiPort: TileApiPort,
   accessToken: string,
   detail: AreaTileProcessContractSource,
   options: AreaTileProcessContractReadinessOptions = {}
 ): Promise<AreaTileProcessContractReadiness> {
-  const candidates = resolveTileProcessCandidates(detail.tiles ?? []);
-  if (candidates.length === 0) {
-    return {
-      status: "blocked",
-      areaId: detail.areaId,
-      checkedCandidateCount: 0,
-      readyCandidateCount: 0,
-      blockedCandidateCount: 0,
-      candidateSample: "none",
-      readySample: "none",
-      sourceObjectKeySample: "none",
-      sourceAssetContractSample: "none",
-      blockerSummary: "blocked_no_tile_model_resrefs",
-      sourceAssetReadyCount: 0,
-      sourceAssetBlockedCount: 0,
-      mdlSourceReadyCount: 0,
-      mdlSourceBlockedCount: 0,
-      glbGeometryReadyCount: 0,
-      glbGeometryBlockedCount: 0,
-      materialTextureContractReadyCount: 0,
-      materialBindingBlockedCount: 0,
-      renderLoaderReadyCount: 0,
-      renderLoaderBlockedCount: 0,
-      textureMaterialBlockerSummary: "blocked_no_tile_model_resrefs",
-      renderAssetContractBlockerSummary: "blocked_no_tile_model_resrefs",
-      mdlGlbMaterialBlockerSummary: "blocked_no_tile_model_resrefs",
-      entries: []
-    };
+  return resolveAreaTileProcessContractReadinessForCandidates(
+    tileApiPort,
+    accessToken,
+    detail.areaId,
+    (detail.tiles ?? []).map((tile) => ({
+      modelResRef: tile.modelResRef,
+      disposition: "process"
+    })),
+    options
+  );
+}
+
+export async function resolveAreaTileProcessContractReadinessForCandidates(
+  tileApiPort: TileApiPort,
+  accessToken: string,
+  areaId: string,
+  inputs: readonly AreaTileProcessContractCandidateInput[],
+  options: AreaTileProcessContractReadinessOptions = {}
+): Promise<AreaTileProcessContractReadiness> {
+  const plan = resolveAreaTileProcessCandidatePlan(inputs);
+  const expectedCandidateCount = plan.candidates.length;
+  if (expectedCandidateCount === 0) {
+    return buildEmptyAreaTileProcessContractReadiness(
+      areaId,
+      plan.excludedTileDefinitionIds
+    );
   }
 
-  const entries = await withTileProcessContractTimeout(
-    processTileContractCandidates(tileApiPort, accessToken, candidates, options),
-    candidates,
-    options.timeoutMs
+  const blockedEntries = plan.candidates
+    .filter((candidate) => candidate.disposition === "blocked")
+    .map((candidate) =>
+      buildTileProcessContractEntryFromFailure(candidate, {
+        code: candidate.reasonCode ?? "TILE_MODEL_SOURCE_UNAVAILABLE",
+        message: "Tile model processing is blocked by immutable certification."
+      })
+    );
+  const processCandidates = plan.candidates.filter(
+    (candidate): candidate is ResolvedAreaTileProcessCandidate & { disposition: "process" } =>
+      candidate.disposition === "process"
+  );
+  if (blockedEntries.length > 0) {
+    options.onProgress?.(
+      buildAreaTileProcessContractReadiness(
+        areaId,
+        blockedEntries,
+        expectedCandidateCount,
+        plan.excludedTileDefinitionIds
+      )
+    );
+  }
+
+  const processedEntries = await processTileContractCandidates(
+    tileApiPort,
+    accessToken,
+    processCandidates,
+    {
+      ...options,
+      onEntriesProgress: (progressEntries) =>
+        options.onProgress?.(
+          buildAreaTileProcessContractReadiness(
+            areaId,
+            [...blockedEntries, ...progressEntries],
+            expectedCandidateCount,
+            plan.excludedTileDefinitionIds
+          )
+        )
+    }
   );
 
+  return buildAreaTileProcessContractReadiness(
+    areaId,
+    [...blockedEntries, ...processedEntries],
+    expectedCandidateCount,
+    plan.excludedTileDefinitionIds
+  );
+}
+
+function buildAreaTileProcessContractReadiness(
+  areaId: string,
+  entries: AreaTileProcessContractEntry[],
+  expectedCandidateCount: number = entries.length,
+  excludedTileDefinitionIds: number[] = []
+): AreaTileProcessContractReadiness {
   const readyCandidateCount = entries.filter((entry) => entry.status === "ready").length;
   const blockedCandidateCount = entries.length - readyCandidateCount;
+  const pendingCandidateCount = Math.max(expectedCandidateCount - entries.length, 0);
   const sourceAssetReadyCount = entries.filter(
     (entry) => entry.sourceAssetContractStatus === "ready"
   ).length;
@@ -235,15 +361,31 @@ export async function resolveAreaTileProcessContractReadiness(
     (entry) => !entry.renderLoaderHandoffStatus.startsWith("blocked_")
   ).length;
   const status =
-    readyCandidateCount === entries.length
+    pendingCandidateCount === 0 &&
+    entries.length === expectedCandidateCount &&
+    readyCandidateCount === expectedCandidateCount
       ? "ready"
       : readyCandidateCount > 0
         ? "partial"
         : "blocked";
+  const checkedBlockerSummary = formatEntrySample(
+    entries.filter((entry) => entry.status === "blocked"),
+    (entry) => `${entry.tileId}:${formatTileContractEntryBlocker(entry)}`,
+    " | "
+  );
+  const blockerSummary =
+    pendingCandidateCount > 0
+      ? [
+          `pending_tile_process_contracts:${pendingCandidateCount}/${expectedCandidateCount}`,
+          ...(checkedBlockerSummary === "none" ? [] : [checkedBlockerSummary])
+        ].join(" | ")
+      : checkedBlockerSummary;
 
   return {
     status,
-    areaId: detail.areaId,
+    areaId,
+    expectedCandidateCount,
+    pendingCandidateCount,
     checkedCandidateCount: entries.length,
     readyCandidateCount,
     blockedCandidateCount,
@@ -267,12 +409,7 @@ export async function resolveAreaTileProcessContractReadiness(
           `${entry.tileId}:${entry.sourceAssetContractStatus}:${entry.sourceAssetRole ?? "missing"}:${entry.sourceObjectExtension ?? "missing"}`,
         ", "
       ),
-    blockerSummary:
-      formatEntrySample(
-        entries.filter((entry) => entry.status === "blocked"),
-        (entry) => `${entry.tileId}:${formatTileContractEntryBlocker(entry)}`,
-        " | "
-      ),
+    blockerSummary,
     sourceAssetReadyCount,
     sourceAssetBlockedCount: entries.length - sourceAssetReadyCount,
     mdlSourceReadyCount,
@@ -304,6 +441,8 @@ export async function resolveAreaTileProcessContractReadiness(
         (entry) => `${entry.tileId}:${entry.mdlGlbMaterialBlockers}`,
         " | "
       ),
+    excludedTileDefinitionIds,
+    excludedTileDefinitionCount: excludedTileDefinitionIds.length,
     entries
   };
 }
@@ -316,15 +455,11 @@ export function resolveAreaTileProcessContractReadinessForModelResRefs(
   modelResRefs: readonly (string | null | undefined)[],
   options: AreaTileProcessContractReadinessOptions = {}
 ): Promise<AreaTileProcessContractReadiness> {
-  return resolveAreaTileProcessContractReadiness(
+  return resolveAreaTileProcessContractReadinessForCandidates(
     tileApiPort,
     accessToken,
-    {
-      areaId,
-      tiles: modelResRefs.map((modelResRef) => ({
-        ...(modelResRef?.trim() ? { modelResRef } : {})
-      }))
-    },
+    areaId,
+    modelResRefs.map((modelResRef) => ({ modelResRef, disposition: "process" })),
     options
   );
 }
@@ -371,33 +506,32 @@ async function processTileContractCandidates(
   tileApiPort: TileApiPort,
   accessToken: string,
   candidates: Array<{ modelResRef: string; tileId: string }>,
-  options: AreaTileProcessContractReadinessOptions
+  options: AreaTileProcessContractWorkerOptions
 ): Promise<AreaTileProcessContractEntry[]> {
   if (tileApiPort.processTiles) {
     return processTileContractCandidatesBatch(tileApiPort, accessToken, candidates, options);
   }
 
   const entries: AreaTileProcessContractEntry[] = new Array(candidates.length);
-  let cursor = 0;
-  const runWorker = async (): Promise<void> => {
-    while (cursor < candidates.length) {
-      const index = cursor;
-      cursor += 1;
-      const candidate = candidates[index];
-      if (!candidate) {
-        continue;
-      }
-      entries[index] = await resolveTileProcessContractEntry(
+  for (const [index, candidate] of candidates.entries()) {
+    const [entry] = await withTileProcessContractTimeout(
+      resolveTileProcessContractEntry(
         tileApiPort,
         accessToken,
         candidate,
         options
-      );
-    }
-  };
-
-  const workerCount = Math.min(TILE_PROCESS_CONTRACT_QUEUE_CONCURRENCY, candidates.length);
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+      ).then((resolvedEntry) => [resolvedEntry]),
+      [candidate],
+      options.timeoutMs
+    );
+    entries[index] =
+      entry ??
+      buildTileProcessContractEntryFromFailure(candidate, {
+        code: "TILE_PROCESS_CONTRACT_RESULT_MISSING",
+        message: "Tile process contract readiness returned no result."
+      });
+    options.onEntriesProgress?.(entries.slice(0, index + 1));
+  }
   return entries;
 }
 
@@ -405,29 +539,41 @@ async function processTileContractCandidatesBatch(
   tileApiPort: TileApiPort,
   accessToken: string,
   candidates: Array<{ modelResRef: string; tileId: string }>,
-  options: AreaTileProcessContractReadinessOptions
+  options: AreaTileProcessContractWorkerOptions
 ): Promise<AreaTileProcessContractEntry[]> {
-  const batch = await tileApiPort.processTiles!(
-    accessToken,
-    candidates.map((candidate) => ({
-      tileId: candidate.tileId,
-      bypassCache: options.bypassCache ?? false
-    }))
-  );
-  const itemsByTileId = new Map(batch.items.map((item) => [item.tileId, item]));
-  return candidates.map((candidate) => {
-    const item = itemsByTileId.get(candidate.tileId);
-    if (item?.status === "ready") {
-      return buildTileProcessContractEntryFromProcessed(candidate, item.result);
-    }
-    return buildTileProcessContractEntryFromFailure(candidate, {
-      code: item?.status === "blocked" ? item.error.code : "TILE_BATCH_RESULT_MISSING",
-      message:
-        item?.status === "blocked"
-          ? item.error.message
-          : "Tile batch result was not returned."
-    });
-  });
+  const entries: AreaTileProcessContractEntry[] = [];
+  for (let offset = 0; offset < candidates.length; offset += TILE_PROCESS_CONTRACT_BATCH_SIZE) {
+    const batchCandidates = candidates.slice(offset, offset + TILE_PROCESS_CONTRACT_BATCH_SIZE);
+    const batchEntries = await withTileProcessContractTimeout(
+      tileApiPort.processTiles!(
+        accessToken,
+        batchCandidates.map((candidate) => ({
+          tileId: candidate.tileId,
+          bypassCache: options.bypassCache ?? false
+        }))
+      ).then((batch) => {
+        const itemsByTileId = new Map(batch.items.map((item) => [item.tileId, item]));
+        return batchCandidates.map((candidate) => {
+          const item = itemsByTileId.get(candidate.tileId);
+          if (item?.status === "ready") {
+            return buildTileProcessContractEntryFromProcessed(candidate, item.result);
+          }
+          return buildTileProcessContractEntryFromFailure(candidate, {
+            code: item?.status === "blocked" ? item.error.code : "TILE_BATCH_RESULT_MISSING",
+            message:
+              item?.status === "blocked"
+                ? item.error.message
+                : "Tile batch result was not returned."
+          });
+        });
+      }),
+      batchCandidates,
+      options.timeoutMs
+    );
+    entries.push(...batchEntries);
+    options.onEntriesProgress?.(entries);
+  }
+  return entries;
 }
 
 function formatEntrySample(
@@ -496,6 +642,7 @@ function buildTileProcessContractEntryFromProcessed(
     sourceObjectExtension: sourceEvidence.sourceObjectExtension,
     sourceAssetOrigin: sourceEvidence.sourceAssetOrigin,
     sourceAssetRole: sourceEvidence.sourceAssetRole,
+    mdlSourceContentSha256: renderAssetEvidence.mdlSourceContentSha256,
     textureAtlasObjectKey: processed.tile.textureAtlas.objectKey,
     textureAtlasContentType: processed.tile.textureAtlas.contentType,
     textureAtlasSizeBytes: processed.tile.textureAtlas.sizeBytes,
@@ -506,6 +653,7 @@ function buildTileProcessContractEntryFromProcessed(
     modelDeliveryUrl: renderAssetEvidence.modelDeliveryUrl,
     modelAssetObjectKey: renderAssetEvidence.modelAssetObjectKey,
     modelAssetExtension: renderAssetEvidence.modelAssetExtension,
+    modelAssetContentSha256: renderAssetEvidence.modelAssetContentSha256,
     materialTextureAssets: renderAssetEvidence.materialTextureAssets,
     expectedDerivedModelObjectKey: renderAssetEvidence.expectedDerivedModelObjectKey,
     renderAssetContractBlockers: renderAssetEvidence.renderAssetContractBlockers,
@@ -548,23 +696,101 @@ function buildTileProcessContractEntryFromFailure(
   };
 }
 
-function resolveTileProcessCandidates(
-  tiles: readonly Pick<AreaApiTileInstance, "modelResRef">[]
-): Array<{ modelResRef: string; tileId: string }> {
-  const seen = new Set<string>();
-  const candidates: Array<{ modelResRef: string; tileId: string }> = [];
-  for (const tile of tiles) {
-    const modelResRef = tile.modelResRef?.trim().toLowerCase() ?? "";
-    if (!modelResRef || seen.has(modelResRef)) {
-      continue;
+interface ResolvedAreaTileProcessCandidate {
+  modelResRef: string;
+  tileId: string;
+  tileDefinitionId: number | null;
+  disposition: "process" | "blocked";
+  reasonCode?: string;
+}
+
+function resolveAreaTileProcessCandidatePlan(
+  inputs: readonly AreaTileProcessContractCandidateInput[]
+): {
+  candidates: ResolvedAreaTileProcessCandidate[];
+  excludedTileDefinitionIds: number[];
+} {
+  const excludedTileDefinitionIds = Array.from(
+    new Set(
+      inputs
+        .filter((candidate) => candidate.disposition === "excluded")
+        .map((candidate) => normalizeTileDefinitionId(candidate.tileDefinitionId))
+        .filter((tileId): tileId is number => tileId !== null)
+    )
+  ).sort((left, right) => left - right);
+  const candidatesByIdentity = new Map<string, ResolvedAreaTileProcessCandidate>();
+
+  for (const input of inputs) {
+    if (input.disposition === "excluded") continue;
+    const tileDefinitionId = normalizeTileDefinitionId(input.tileDefinitionId);
+    const modelResRef = normalizeTileModelResRef(input.modelResRef);
+    if (!modelResRef && input.disposition === "process") continue;
+    const identity = modelResRef || `missing_model_resref:${tileDefinitionId ?? "unknown"}`;
+    const candidate: ResolvedAreaTileProcessCandidate = {
+      modelResRef: identity,
+      tileId: buildTileCatalogCandidateId(identity),
+      tileDefinitionId,
+      disposition: input.disposition,
+      ...(input.reasonCode?.trim() ? { reasonCode: input.reasonCode.trim() } : {})
+    };
+    const current = candidatesByIdentity.get(identity);
+    if (!current || (current.disposition === "process" && candidate.disposition === "blocked")) {
+      candidatesByIdentity.set(identity, candidate);
     }
-    seen.add(modelResRef);
-    candidates.push({
-      modelResRef,
-      tileId: buildTileCatalogCandidateId(modelResRef)
-    });
   }
-  return candidates;
+
+  return {
+    candidates: Array.from(candidatesByIdentity.values()),
+    excludedTileDefinitionIds
+  };
+}
+
+function buildEmptyAreaTileProcessContractReadiness(
+  areaId: string,
+  excludedTileDefinitionIds: number[]
+): AreaTileProcessContractReadiness {
+  const hasExcludedDefinitions = excludedTileDefinitionIds.length > 0;
+  const blocker = hasExcludedDefinitions ? "none" : "blocked_no_tile_model_resrefs";
+  return {
+    status: hasExcludedDefinitions ? "ready" : "blocked",
+    areaId,
+    expectedCandidateCount: 0,
+    pendingCandidateCount: 0,
+    checkedCandidateCount: 0,
+    readyCandidateCount: 0,
+    blockedCandidateCount: 0,
+    candidateSample: "none",
+    readySample: "none",
+    sourceObjectKeySample: "none",
+    sourceAssetContractSample: "none",
+    blockerSummary: blocker,
+    sourceAssetReadyCount: 0,
+    sourceAssetBlockedCount: 0,
+    mdlSourceReadyCount: 0,
+    mdlSourceBlockedCount: 0,
+    glbGeometryReadyCount: 0,
+    glbGeometryBlockedCount: 0,
+    materialTextureContractReadyCount: 0,
+    materialBindingBlockedCount: 0,
+    renderLoaderReadyCount: 0,
+    renderLoaderBlockedCount: 0,
+    textureMaterialBlockerSummary: blocker,
+    renderAssetContractBlockerSummary: blocker,
+    mdlGlbMaterialBlockerSummary: blocker,
+    excludedTileDefinitionIds,
+    excludedTileDefinitionCount: excludedTileDefinitionIds.length,
+    entries: []
+  };
+}
+
+function normalizeTileModelResRef(modelResRef: string | null | undefined): string {
+  return modelResRef?.trim().toLowerCase() ?? "";
+}
+
+function normalizeTileDefinitionId(tileDefinitionId: number | undefined): number | null {
+  return Number.isInteger(tileDefinitionId) && (tileDefinitionId ?? -1) >= 0
+    ? tileDefinitionId ?? null
+    : null;
 }
 
 function buildTileCatalogCandidateId(modelResRef: string): string {
@@ -628,12 +854,16 @@ function resolveProcessedTileRenderAssetEvidence(
   modelDeliveryUrl?: string;
   modelAssetObjectKey?: string;
   modelAssetExtension?: "glb" | "gltf";
+  mdlSourceContentSha256?: string;
+  modelAssetContentSha256?: string;
   materialTextureAssets: Array<{
     reference: string;
     deliveryUrl: string;
     resref: string;
     extension: string;
     objectKey: string;
+    source: "module" | "hak" | "vanilla";
+    contentSha256?: string;
   }>;
   expectedDerivedModelObjectKey?: string;
   renderAssetContractBlockers: string;
@@ -653,13 +883,17 @@ function resolveProcessedTileRenderAssetEvidence(
     modelDeliveryUrl: renderAssetContract?.modelAsset?.deliveryUrl,
     modelAssetObjectKey: renderAssetContract?.modelAsset?.objectKey,
     modelAssetExtension: renderAssetContract?.modelAsset?.extension,
+    mdlSourceContentSha256: renderAssetContract?.mdlSourceContentSha256,
+    modelAssetContentSha256: renderAssetContract?.modelAsset?.contentSha256,
     materialTextureAssets:
       renderAssetContract?.materialTextureAssets?.map((asset) => ({
         reference: asset.reference,
         deliveryUrl: asset.deliveryUrl,
         resref: asset.resref,
         extension: asset.extension,
-        objectKey: asset.objectKey
+        objectKey: asset.objectKey,
+        source: asset.source,
+        contentSha256: asset.contentSha256
       })) ?? [],
     expectedDerivedModelObjectKey: renderAssetContract?.expectedDerivedModelObjectKey,
     renderAssetContractBlockers:
@@ -702,7 +936,8 @@ function resolveAreaTileProcessEntryStatus(input: {
     input.glbGeometryStatus !== "ready" ||
     input.renderLoaderHandoffStatus.startsWith("blocked_") ||
     input.materialReadinessStatus === "blocked_tile_texture_delivery_contract_missing" ||
-    input.materialReadinessStatus === "blocked_tile_texture_contract_derived_model_only"
+    input.materialReadinessStatus === "blocked_tile_texture_contract_derived_model_only" ||
+    isAreaTileMaterialBindingBlocked(input.materialReadinessStatus)
   ) {
     return "blocked";
   }

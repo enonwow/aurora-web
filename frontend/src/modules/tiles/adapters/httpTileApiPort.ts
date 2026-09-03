@@ -52,6 +52,7 @@ const tileRenderAssetContractSchema = z.object({
   sourceAssetStatus: z.enum(["ready", "blocked"]),
   mdlSourceStatus: z.enum(["ready", "blocked"]),
   mdlSourceObjectKey: z.string().optional(),
+  mdlSourceContentSha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   glbGeometryStatus: z.enum([
     "ready",
     "blocked_tile_process_contract_missing_glb_geometry"
@@ -76,6 +77,7 @@ const tileRenderAssetContractSchema = z.object({
       contentType: z.enum(["model/gltf-binary", "model/gltf+json"]),
       sizeBytes: z.number().int().nonnegative(),
       etag: z.string().optional(),
+      contentSha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
       deliveryPath: z.string().min(1),
       deliveryUrl: z.string().min(1)
     })
@@ -90,6 +92,7 @@ const tileRenderAssetContractSchema = z.object({
         extension: z.string().min(1),
         contentType: z.string().min(1),
         sizeBytes: z.number().int().nonnegative(),
+        contentSha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
         source: z.enum(["module", "hak", "vanilla"]),
         sourcePath: z.string().min(1),
         deliveryPath: z.string().min(1),

@@ -1,3 +1,5 @@
+import { drawAuroraNativeRandom } from "./auroraAreaRandom";
+
 export const AURORA_AREA_CORNERS = [
   "topLeft",
   "topRight",
@@ -26,6 +28,9 @@ export interface AuroraAreaTilesetTile {
   terrain: Partial<Record<AuroraAreaCorner, string>>;
   crossers: Partial<Record<AuroraAreaEdge, string>>;
   cornerHeights: Partial<Record<AuroraAreaCorner, number>>;
+  /** Every SET palette group that can legitimately use this tile. */
+  groupIds?: readonly string[];
+  /** Primary compatibility membership retained for older hydrated payloads. */
   groupId?: string;
   mainLight1?: number;
   mainLight2?: number;
@@ -34,6 +39,17 @@ export interface AuroraAreaTilesetTile {
   animLoop1?: number;
   animLoop2?: number;
   animLoop3?: number;
+  /** Native `[TILEnDOORm]` hook records in exact SET order. */
+  doorHooks?: readonly AuroraAreaTilesetDoorHook[];
+}
+
+export interface AuroraAreaTilesetDoorHook {
+  index: number;
+  type: number;
+  x: number;
+  y: number;
+  z: number;
+  orientationDegrees: number;
 }
 
 export interface AuroraAreaTilesetGroup {
@@ -41,7 +57,8 @@ export interface AuroraAreaTilesetGroup {
   name: string;
   rows: number;
   columns: number;
-  tileIds: readonly number[];
+  /** SET `TileN=-1` entries are intentional holes in a group footprint. */
+  tileIds: readonly (number | null)[];
 }
 
 export interface AuroraAreaTilesetNamedType {
@@ -62,12 +79,18 @@ export interface AuroraAreaTilesetDefinitionDiagnostic {
   code: string;
   message: string;
   section: string;
-  severity: "warning" | "error";
+  severity: "info" | "warning" | "error";
 }
 
 export interface AuroraAreaTilesetDefinition {
   schemaVersion?: 1;
   tilesetResRef: string;
+  /** Raw SET [GENERAL].Name; a fallback when its localized picker label is unavailable. */
+  name?: string;
+  /** Raw SET [GENERAL].UnlocalizedName; Aurora's fallback picker label. */
+  unlocalizedName?: string;
+  /** Raw SET [GENERAL].DisplayName string reference. */
+  displayNameStrRef?: number;
   fingerprint: string;
   /** Full SET [GENERAL] authoring defaults. Optional for local/legacy fixtures. */
   defaults?: AuroraAreaTilesetDefaults;
@@ -301,8 +324,7 @@ export function hydrateAuroraAreaEditingState(input: {
     const tile: AuroraAreaEditableTile = {
       ...sourceTile,
       sourceRow: sourceTile.sourceRow ?? sourceTile.row,
-      sourceCol: sourceTile.sourceCol ?? sourceTile.col,
-      groupId: definitionTile.groupId
+      sourceCol: sourceTile.sourceCol ?? sourceTile.col
     };
     replaceTile(state, tile);
     writeTileTopology(state.topology, tile, definitionTile);
@@ -425,7 +447,7 @@ export function placeAuroraAreaGroup(
   }
   const changedTileIds: string[] = [];
   placements.forEach((placement, index) => {
-    const tileId = group.tileIds[index];
+    const tileId = placement.tileId;
     const tileDefinition = definition.tiles.find((tile) => tile.tileId === tileId);
     if (!tileDefinition) {
       throw new Error(`Invalid tileset group ${group.id}: Tile${tileId} is missing.`);
@@ -454,7 +476,12 @@ export function placeAuroraAreaGroup(
     cells: placements.map(({ row, col }) => ({ row, col })),
     underlay
   });
-  const retiled = retileUngrouped(next, definition, selector);
+  const retiled = retileUngroupedCells(
+    next,
+    definition,
+    expandAffectedCells(next, placements),
+    selector
+  );
   return retiled.ok
     ? { ok: true, state: retiled.state, changedTileIds: unique([...changedTileIds, ...retiled.changedTileIds]) }
     : retiled;
@@ -525,6 +552,290 @@ export function changeAuroraAreaTileHeight(
 }
 
 /**
+ * Replaces one loose ARE Tile_List cell with an explicit TILEn record from
+ * the selected SET. This is the direct Tile_ID operation exposed by Aurora's
+ * tileset palette: the cell keeps its ARE-owned orientation, base height,
+ * lighting and animation bytes, while its terrain/corner signature is
+ * rewritten from the requested SET tile and neighbouring loose cells are
+ * reconciled against that shared topology.
+ */
+export function replaceAuroraAreaTileId(
+  state: AuroraAreaEditingState,
+  definition: AuroraAreaTilesetDefinition,
+  cell: AuroraAreaCell,
+  tileId: number,
+  selector?: AuroraAreaCandidateSelector
+): AuroraAreaCommandResult {
+  const prepared = pruneStaleGroupMembers(state);
+  const current = tileAt(prepared, cell.row, cell.col);
+  if (!current) {
+    return failure("TILE_UNKNOWN", "No tile exists at the selected cell.");
+  }
+  if (!Number.isInteger(tileId)) {
+    return failure("TILE_UNKNOWN", "Tile_ID must be an integer from the selected SET.");
+  }
+  if (resolveAuroraAreaGroupInstanceAtCell(prepared, cell)) {
+    return failure(
+      "GROUP_LOCKED",
+      "A placed group member cannot be replaced as a loose tile; place or edit the complete SET group."
+    );
+  }
+  const definitionTile = definition.tiles.find((tile) => tile.tileId === tileId);
+  if (!definitionTile) {
+    return failure("TILE_UNKNOWN", `Tile_ID ${tileId} is missing from the selected SET.`);
+  }
+  if (tileHasMultiCellGroupMembership(definition, definitionTile)) {
+    return failure(
+      "GROUP_LOCKED",
+      `Tile_ID ${tileId} belongs to a multi-cell SET group and must be placed through that complete group.`
+    );
+  }
+
+  const currentSignature = readCellSignature(prepared.topology, cell.row, cell.col);
+  const compatibleOrientation = ([0, 1, 2, 3] as const).find((orientation) =>
+    signaturesMatch(currentSignature, orientTile(definitionTile, orientation))
+  );
+  const next = cloneState(prepared);
+  const replacement: AuroraAreaEditableTile = {
+    ...current,
+    id: makeTileId(cell.row, cell.col, tileId),
+    tileId,
+    ...(compatibleOrientation === undefined ? {} : { orientation: compatibleOrientation })
+  };
+  replaceTile(next, replacement);
+  // Exact Tile_ID variants with an orientation matching the cell's current
+  // topology are a local edit. Retiling the complete source Area here can make
+  // an unrelated, historically non-canonical cell block an otherwise lossless
+  // replacement. Preserve the shared topology and every neighbouring tile.
+  if (compatibleOrientation !== undefined) {
+    return success(next, [replacement.id]);
+  }
+  writeTileTopology(next.topology, replacement, definitionTile);
+  const retiled = retileUngrouped(next, definition, selector);
+  return retiled.ok
+    ? { ok: true, state: retiled.state, changedTileIds: unique([replacement.id, ...retiled.changedTileIds]) }
+    : retiled;
+}
+
+/**
+ * Development-only gallery fixture: installs one explicit loose Tile_ID and
+ * its unrotated SET topology without asking the normal editor reconciliation
+ * pass to substitute a compatible variant. It is not an Aurora Toolset
+ * behaviour claim; callers expose it only in a clearly labelled transient
+ * diagnostic Area so visual proof can show the requested source Tile_ID.
+ */
+export function placeAuroraAreaDiagnosticFixtureTileId(
+  state: AuroraAreaEditingState,
+  definition: AuroraAreaTilesetDefinition,
+  cell: AuroraAreaCell,
+  tileId: number
+): AuroraAreaCommandResult {
+  const prepared = pruneStaleGroupMembers(state);
+  const current = tileAt(prepared, cell.row, cell.col);
+  if (!current || !Number.isInteger(tileId)) {
+    return failure("TILE_UNKNOWN", "Tile_ID must identify an existing loose tile cell.");
+  }
+  if (resolveAuroraAreaGroupInstanceAtCell(prepared, cell)) {
+    return failure(
+      "GROUP_LOCKED",
+      "A placed group member cannot be replaced by an individual diagnostic tile fixture."
+    );
+  }
+  const definitionTile = definition.tiles.find((tile) => tile.tileId === tileId);
+  if (!definitionTile) {
+    return failure("TILE_UNKNOWN", `Tile_ID ${tileId} is missing from the tileset.`);
+  }
+  if (tileHasMultiCellGroupMembership(definition, definitionTile)) {
+    return failure(
+      "GROUP_LOCKED",
+      `Tile_ID ${tileId} belongs to a multi-cell SET group and must be shown through that complete group.`
+    );
+  }
+  const next = cloneState(prepared);
+  const replacement: AuroraAreaEditableTile = {
+    ...current,
+    id: makeTileId(cell.row, cell.col, tileId),
+    tileId,
+    orientation: 0
+  };
+  replaceTile(next, replacement);
+  writeTileTopology(next.topology, replacement, definitionTile);
+  return success(next, [replacement.id]);
+}
+
+/** Applies a complete transient diagnostic gallery atomically. See the single
+ * fixture command above: this intentionally bypasses auto-retile and is never
+ * a claim about native Toolset placement semantics. */
+export function placeAuroraAreaDiagnosticFixtureTiles(
+  state: AuroraAreaEditingState,
+  definition: AuroraAreaTilesetDefinition,
+  fixtures: ReadonlyArray<{ row: number; col: number; tileId: number }>
+): AuroraAreaCommandResult {
+  const prepared = pruneStaleGroupMembers(state);
+  if (fixtures.length === 0) {
+    return failure("TILE_UNKNOWN", "Diagnostic fixture batch must contain at least one Tile_ID placement.");
+  }
+  const cells = new Set<string>();
+  const validated = [] as Array<{ current: AuroraAreaEditableTile; definitionTile: AuroraAreaTilesetTile }>;
+  for (const fixture of fixtures) {
+    const cellKey = `${fixture.row}:${fixture.col}`;
+    if (cells.has(cellKey)) {
+      return failure("TILE_UNKNOWN", `Diagnostic fixture batch repeats cell (${fixture.row},${fixture.col}).`);
+    }
+    cells.add(cellKey);
+    const current = tileAt(prepared, fixture.row, fixture.col);
+    const definitionTile = definition.tiles.find((tile) => tile.tileId === fixture.tileId);
+    if (!current || !Number.isInteger(fixture.tileId) || !definitionTile) {
+      return failure("TILE_UNKNOWN", `Tile_ID ${fixture.tileId} is unavailable at (${fixture.row},${fixture.col}).`);
+    }
+    if (resolveAuroraAreaGroupInstanceAtCell(prepared, fixture)) {
+      return failure("GROUP_LOCKED", "A placed group member cannot be replaced by an individual diagnostic fixture.");
+    }
+    if (tileHasMultiCellGroupMembership(definition, definitionTile)) {
+      return failure(
+        "GROUP_LOCKED",
+        `Tile_ID ${fixture.tileId} belongs to a multi-cell SET group and must be shown through that complete group.`
+      );
+    }
+    validated.push({ current, definitionTile });
+  }
+  const next = cloneState(prepared);
+  const changedTileIds: string[] = [];
+  for (let index = 0; index < fixtures.length; index += 1) {
+    const fixture = fixtures[index];
+    const { current, definitionTile } = validated[index];
+    const replacement: AuroraAreaEditableTile = {
+      ...current,
+      id: makeTileId(fixture.row, fixture.col, fixture.tileId),
+      tileId: fixture.tileId,
+      orientation: 0
+    };
+    replaceTile(next, replacement);
+    writeTileTopology(next.topology, replacement, definitionTile);
+    changedTileIds.push(replacement.id);
+  }
+  return success(next, unique(changedTileIds));
+}
+
+/**
+ * Development-only gallery fixture for complete multi-cell SET groups. This
+ * preserves the editor's ordinary member lock by creating an actual group
+ * instance with the declared ordered TileN layout; it intentionally omits the
+ * normal loose-neighbour reconciliation pass so a proof gallery can read back
+ * the exact source layout. It is not an Aurora Toolset behaviour claim.
+ */
+export function placeAuroraAreaDiagnosticFixtureGroups(
+  state: AuroraAreaEditingState,
+  definition: AuroraAreaTilesetDefinition,
+  fixtures: ReadonlyArray<{
+    groupId: string;
+    row: number;
+    col: number;
+    orientation: 0 | 1 | 2 | 3;
+  }>
+): AuroraAreaCommandResult {
+  const prepared = pruneStaleGroupMembers(state);
+  if (fixtures.length === 0) {
+    return failure("GROUP_UNKNOWN", "Diagnostic group fixture batch must contain at least one SET group.");
+  }
+  const reservedCells = new Set<string>();
+  const validated: Array<{
+    group: AuroraAreaTilesetGroup;
+    anchor: AuroraAreaCell;
+    orientation: 0 | 1 | 2 | 3;
+    placements: AuroraAreaGroupPlacement[];
+    underlay: NonNullable<AuroraAreaGroupInstance["underlay"]>;
+    footprintHeight: number;
+  }> = [];
+
+  for (const fixture of fixtures) {
+    const groupId = fixture.groupId.trim().toLowerCase();
+    const group = definition.groups.find((candidate) => candidate.id === groupId);
+    if (!group || groupMemberCount(group) <= 1) {
+      return failure(
+        "GROUP_UNKNOWN",
+        `Diagnostic group fixture requires a declared multi-cell SET group; received "${fixture.groupId}".`
+      );
+    }
+    if (!Number.isInteger(fixture.row) || !Number.isInteger(fixture.col) || ![0, 1, 2, 3].includes(fixture.orientation)) {
+      return failure("GROUP_OUT_OF_BOUNDS", "Diagnostic group fixtures require an in-bounds integer anchor and orientation 0..3.");
+    }
+    const placements = rotateGroupCells(group, { row: fixture.row, col: fixture.col }, fixture.orientation);
+    if (placements.some((placement) => !hasCell(prepared, placement.row, placement.col))) {
+      return failure("GROUP_OUT_OF_BOUNDS", "Diagnostic group fixture falls outside the Area bounds.");
+    }
+    if (
+      placements.some((placement) => {
+        const tile = tileAt(prepared, placement.row, placement.col);
+        return (tile ? isGroupedTile(prepared, tile) : false) || reservedCells.has(cellKey(placement));
+      })
+    ) {
+      return failure("GROUP_OVERLAP", "Diagnostic group fixtures overlap an existing or requested group.");
+    }
+    const underlay = captureGroupUnderlay(prepared, placements);
+    const footprintHeight = resolveCommonTileHeight(underlay.tiles);
+    if (footprintHeight === null) {
+      return failure(
+        "GROUP_LOCKED",
+        "Diagnostic group placement requires one common base height across its complete footprint."
+      );
+    }
+    for (const placement of placements) {
+      const tileDefinition = definition.tiles.find((tile) => tile.tileId === placement.tileId);
+      if (!tileDefinition) {
+        throw new Error(`Invalid tileset group ${group.id}: Tile${placement.tileId} is missing.`);
+      }
+      reservedCells.add(cellKey(placement));
+    }
+    validated.push({
+      group,
+      anchor: { row: fixture.row, col: fixture.col },
+      orientation: fixture.orientation,
+      placements,
+      underlay,
+      footprintHeight
+    });
+  }
+
+  const next = cloneState(prepared);
+  const changedTileIds: string[] = [];
+  for (const fixture of validated) {
+    const groupTileIds: string[] = [];
+    fixture.placements.forEach((placement, index) => {
+      const tileDefinition = definition.tiles.find((tile) => tile.tileId === placement.tileId);
+      if (!tileDefinition) {
+        throw new Error(`Invalid tileset group ${fixture.group.id}: Tile${placement.tileId} is missing.`);
+      }
+      const tile: AuroraAreaEditableTile = {
+        id: makeTileId(placement.row, placement.col, placement.tileId),
+        row: placement.row,
+        col: placement.col,
+        ...copyTileSourceProvenance(fixture.underlay.tiles[index]),
+        tileId: placement.tileId,
+        orientation: normalizeOrientation((tileDefinition.orientation ?? 0) + fixture.orientation),
+        height: fixture.footprintHeight,
+        groupId: fixture.group.id,
+        ...copyTileRuntimeFields(tileDefinition)
+      };
+      replaceTile(next, tile);
+      writeTileTopology(next.topology, tile, tileDefinition);
+      groupTileIds.push(tile.id);
+      changedTileIds.push(tile.id);
+    });
+    next.groupInstances.push({
+      groupId: fixture.group.id,
+      anchorRow: fixture.anchor.row,
+      anchorCol: fixture.anchor.col,
+      orientation: fixture.orientation,
+      tileIds: groupTileIds,
+      cells: fixture.placements.map(({ row, col }) => ({ row, col })),
+      underlay: fixture.underlay
+    });
+  }
+  return success(next, unique(changedTileIds));
+}
+
+/**
  * Chooses another SET tile compatible with the cell's existing topology.
  *
  * Reroll is intentionally topology-neutral: it only replaces Tile_ID and
@@ -564,8 +875,8 @@ export function rerollAuroraAreaTileVariant(
     );
   }
 
-  const selected = alternatives[selectCandidate(alternatives.length, selector)];
   const next = cloneState(prepared);
+  const selected = alternatives[selectCandidateForState(alternatives.length, next, selector)];
   const rerolled: AuroraAreaEditableTile = {
     ...current,
     id: makeTileId(cell.row, cell.col, selected.tile.tileId),
@@ -702,7 +1013,7 @@ export function pasteAuroraAreaTilesFromClipboard(
       return failure("GROUP_UNKNOWN", `Clipboard SET group "${group.groupId}" does not exist.`);
     }
     if (
-      group.memberTileIndexes.length !== groupDefinition.tileIds.length ||
+      group.memberTileIndexes.length !== groupMemberCount(groupDefinition) ||
       group.memberTileIndexes.some(
         (index) =>
           !Number.isInteger(index) ||
@@ -723,8 +1034,8 @@ export function pasteAuroraAreaTilesFromClipboard(
       const expected = expectedCells[memberIndex];
       const tileDefinition = definition.tiles.find((tile) => tile.tileId === entry.tile.tileId);
       return (
-        entry.tile.tileId === groupDefinition.tileIds[memberIndex] &&
-        tileDefinition?.groupId === group.groupId &&
+        entry.tile.tileId === expected.tileId &&
+        tileBelongsToGroup(tileDefinition, group.groupId) &&
         entry.relativeRow === expected.row &&
         entry.relativeCol === expected.col
       );
@@ -739,7 +1050,7 @@ export function pasteAuroraAreaTilesFromClipboard(
   }
   const orphanedGroupTile = payload.tiles.some((entry, index) => {
     const tileDefinition = definition.tiles.find((tile) => tile.tileId === entry.tile.tileId);
-    return Boolean(tileDefinition?.groupId) !== claimedIndexes.has(index);
+    return tileHasMultiCellGroupMembership(definition, tileDefinition) !== claimedIndexes.has(index);
   });
   if (orphanedGroupTile) {
     return failure(
@@ -989,7 +1300,7 @@ export function rotateAuroraAreaGroupAtCell(
 
   const changedTileIds: string[] = [];
   placements.forEach((placement, index) => {
-    const tileId = group.tileIds[index];
+    const tileId = placement.tileId;
     const definitionTile = definition.tiles.find((candidate) => candidate.tileId === tileId);
     if (!definitionTile) {
       throw new Error(`Invalid tileset group ${group.id}: Tile${tileId} is missing.`);
@@ -1224,7 +1535,10 @@ function restoreGroupInstances(
 ): { ok: true } | { ok: false; message: string } {
   const occupied = new Set<string>();
   for (const group of definition.groups) {
-    const memberTiles = state.tiles.filter((tile) => tile.groupId === group.id);
+    const memberTiles = state.tiles.filter((tile) => {
+      const definitionTile = definition.tiles.find((candidate) => candidate.tileId === tile.tileId);
+      return tileBelongsToGroup(definitionTile, group.id);
+    });
     if (memberTiles.length === 0) {
       continue;
     }
@@ -1240,12 +1554,16 @@ function restoreGroupInstances(
           ) {
             continue;
           }
-          const matches = cells.every((cell, index) => {
+          const matches = cells.every((cell) => {
             const tile = tileAt(state, cell.row, cell.col);
-            const definitionTile = definition.tiles.find((candidate) => candidate.tileId === group.tileIds[index]);
+            const definitionTile = definition.tiles.find((candidate) => candidate.tileId === cell.tileId);
             return (
-              tile?.groupId === group.id &&
-              tile.tileId === group.tileIds[index] &&
+              tile !== undefined &&
+              tileBelongsToGroup(
+                definition.tiles.find((candidate) => candidate.tileId === tile?.tileId),
+                group.id
+              ) &&
+              tile.tileId === cell.tileId &&
               Boolean(definitionTile) &&
               tile.orientation === normalizeOrientation((definitionTile?.orientation ?? 0) + orientation)
             );
@@ -1253,30 +1571,30 @@ function restoreGroupInstances(
           if (!matches) {
             continue;
           }
-          cells.forEach((cell) => occupied.add(`${cell.row}:${cell.col}`));
+          const restoredTileIds = cells.map((cell) => {
+            const tile = tileAt(state, cell.row, cell.col);
+            if (!tile) {
+              throw new Error("Cannot restore a group without all of its member tiles.");
+            }
+            tile.groupId = group.id;
+            occupied.add(`${cell.row}:${cell.col}`);
+            return tile.id;
+          });
           state.groupInstances.push({
             groupId: group.id,
             anchorRow: row,
             anchorCol: col,
             orientation,
-            tileIds: cells.map((cell) => {
-              const tile = tileAt(state, cell.row, cell.col);
-              if (!tile) {
-                throw new Error("Cannot restore a group without all of its member tiles.");
-              }
-              return tile.id;
-            }),
+            tileIds: restoredTileIds,
             cells
           });
         }
       }
     }
-    if (memberTiles.some((tile) => !occupied.has(`${tile.row}:${tile.col}`))) {
-      return {
-        ok: false,
-        message: `Tiles from ${group.name} do not form a complete rectangular group placement.`
-      };
-    }
+    // A SET Tile_ID may be used loose in a source ARE even when the same tile
+    // also participates in a palette group. Only exact rectangular matches
+    // are reconstructed as locked group instances; unmatched occurrences stay
+    // source-preserving loose tiles and must not disable Area editing.
   }
   return { ok: true };
 }
@@ -1286,45 +1604,83 @@ function retileUngrouped(
   definition: AuroraAreaTilesetDefinition,
   selector: AuroraAreaCandidateSelector | undefined
 ): AuroraAreaCommandResult {
+  const cells: AuroraAreaCell[] = [];
+  for (let row = 0; row < state.height; row += 1) {
+    for (let col = 0; col < state.width; col += 1) {
+      cells.push({ row, col });
+    }
+  }
+  return retileUngroupedCells(state, definition, cells, selector);
+}
+
+function expandAffectedCells(
+  state: AuroraAreaEditingState,
+  changedCells: readonly AuroraAreaCell[]
+): AuroraAreaCell[] {
+  const cells = new Map<string, AuroraAreaCell>();
+  for (const changed of changedCells) {
+    for (let row = changed.row - 1; row <= changed.row + 1; row += 1) {
+      for (let col = changed.col - 1; col <= changed.col + 1; col += 1) {
+        if (hasCell(state, row, col)) {
+          cells.set(`${row}:${col}`, { row, col });
+        }
+      }
+    }
+  }
+  return [...cells.values()].sort((left, right) => left.row - right.row || left.col - right.col);
+}
+
+function retileUngroupedCells(
+  state: AuroraAreaEditingState,
+  definition: AuroraAreaTilesetDefinition,
+  cells: readonly AuroraAreaCell[],
+  selector: AuroraAreaCandidateSelector | undefined
+): AuroraAreaCommandResult {
   const next = pruneStaleGroupMembers(state);
   const changed: string[] = [];
-  for (let row = 0; row < next.height; row += 1) {
-    for (let col = 0; col < next.width; col += 1) {
-      const current = tileAt(next, row, col);
-      if (current && isGroupedTile(next, current)) {
-        continue;
-      }
-      const signature = readCellSignature(next.topology, row, col);
-      const candidates = findMatchingTiles(definition, signature);
-      if (candidates.length === 0) {
-        return failure("NO_MATCHING_TILE", `No SET tile matches topology at (${row},${col}).`);
-      }
-      const currentCandidateIndex = current
-        ? candidates.findIndex(
-            (candidate) =>
-              candidate.tile.tileId === current.tileId &&
-              candidate.orientation === current.orientation
-          )
-        : -1;
-      const selected = candidates[
-        currentCandidateIndex >= 0
-          ? currentCandidateIndex
-          : selectCandidate(candidates.length, selector)
-      ];
-      const height = Math.min(...Object.values(readCellHeights(next.topology, row, col)));
-      const tile: AuroraAreaEditableTile = {
-        id: makeTileId(row, col, selected.tile.tileId),
-        row,
-        col,
-        ...(current ? copyTileSourceProvenance(current) : {}),
-        tileId: selected.tile.tileId,
-        orientation: selected.orientation,
-        height,
-        ...(current ? copyEditableTileRuntimeFields(current) : copyTileRuntimeFields(selected.tile))
-      };
-      replaceTile(next, tile);
-      changed.push(tile.id);
+  const uniqueCells = new Map<string, AuroraAreaCell>();
+  for (const cell of cells) {
+    if (hasCell(next, cell.row, cell.col)) {
+      uniqueCells.set(`${cell.row}:${cell.col}`, cell);
     }
+  }
+  for (const { row, col } of [...uniqueCells.values()].sort(
+    (left, right) => left.row - right.row || left.col - right.col
+  )) {
+    const current = tileAt(next, row, col);
+    if (current && isGroupedTile(next, current)) {
+      continue;
+    }
+    const signature = readCellSignature(next.topology, row, col);
+    const candidates = findMatchingTiles(definition, signature);
+    if (candidates.length === 0) {
+      return failure("NO_MATCHING_TILE", `No SET tile matches topology at (${row},${col}).`);
+    }
+    const currentCandidateIndex = current
+      ? candidates.findIndex(
+          (candidate) =>
+            candidate.tile.tileId === current.tileId &&
+            candidate.orientation === current.orientation
+        )
+      : -1;
+    const selected = candidates[
+      currentCandidateIndex >= 0
+        ? currentCandidateIndex
+        : selectCandidateForState(candidates.length, next, selector)
+    ];
+    const height = Math.min(...Object.values(readCellHeights(next.topology, row, col)));
+    const tile: AuroraAreaEditableTile = {
+      id: makeTileId(row, col, selected.tile.tileId),
+      row,
+      col,
+      ...(current ? copyTileSourceProvenance(current) : {}),
+      tileId: selected.tile.tileId,
+      orientation: selected.orientation,
+      height,
+      ...(current ? copyEditableTileRuntimeFields(current) : copyTileRuntimeFields(selected.tile))
+    };
+    replaceTile(next, tile);
+    changed.push(tile.id);
   }
   return success(next, changed);
 }
@@ -1335,7 +1691,7 @@ function findMatchingTiles(
 ): Array<{ tile: AuroraAreaTilesetTile; orientation: 0 | 1 | 2 | 3 }> {
   const matches: Array<{ tile: AuroraAreaTilesetTile; orientation: 0 | 1 | 2 | 3 }> = [];
   for (const tile of definition.tiles) {
-    if (tile.groupId) {
+    if (tileHasMultiCellGroupMembership(definition, tile)) {
       continue;
     }
     for (const orientation of [0, 1, 2, 3] as const) {
@@ -1589,7 +1945,7 @@ function resolveUniqueTopologyDefaultTile(
   }
   const matches: Array<{ tile: AuroraAreaTilesetTile; orientation: 0 | 1 | 2 | 3 }> = [];
   for (const tile of definition.tiles) {
-    if (tile.groupId) continue;
+    if (tileHasMultiCellGroupMembership(definition, tile)) continue;
     const orientation = ([0, 1, 2, 3] as const).find((candidate) => {
       const signature = orientTile(tile, candidate);
       return (
@@ -1769,17 +2125,55 @@ function readCellHeights(topology: AuroraAreaTopology, row: number, col: number)
   ) as Record<AuroraAreaCorner, number>;
 }
 
+interface AuroraAreaGroupPlacement extends AuroraAreaCell {
+  /** Position in the SET's rectangular TileN layout, including skipped holes. */
+  memberIndex: number;
+  tileId: number;
+}
+
 function rotateGroupCells(
   group: AuroraAreaTilesetGroup,
   anchor: AuroraAreaCell,
   orientation: 0 | 1 | 2 | 3
-): AuroraAreaCell[] {
-  return group.tileIds.map((_tileId, index) => {
+): AuroraAreaGroupPlacement[] {
+  const placements: AuroraAreaGroupPlacement[] = [];
+  group.tileIds.forEach((tileId, index) => {
+    if (tileId === null) {
+      return;
+    }
     const sourceRow = Math.floor(index / group.columns);
     const sourceCol = index % group.columns;
     const rotated = rotateCell(sourceRow, sourceCol, group.columns, group.rows, orientation);
-    return { row: anchor.row + rotated.row, col: anchor.col + rotated.col };
+    placements.push({ row: anchor.row + rotated.row, col: anchor.col + rotated.col, memberIndex: index, tileId });
   });
+  return placements;
+}
+
+function groupMemberCount(group: AuroraAreaTilesetGroup): number {
+  return group.tileIds.filter((tileId): tileId is number => tileId !== null).length;
+}
+
+function tileHasGroupMembership(tile: AuroraAreaTilesetTile | undefined): boolean {
+  return Boolean(tile?.groupId || tile?.groupIds?.length);
+}
+
+function tileHasMultiCellGroupMembership(
+  definition: AuroraAreaTilesetDefinition,
+  tile: AuroraAreaTilesetTile | undefined
+): boolean {
+  if (!tileHasGroupMembership(tile)) {
+    return false;
+  }
+  return definition.groups.some(
+    (group) => groupMemberCount(group) > 1 && group.tileIds.includes(tile?.tileId ?? Number.NaN)
+  );
+}
+
+function tileBelongsToGroup(
+  tile: AuroraAreaTilesetTile | undefined,
+  groupId: string
+): boolean {
+  return tile?.groupId === groupId || tile?.groupIds?.includes(groupId) === true;
 }
 
 /**
@@ -1793,7 +2187,7 @@ function resolveGroupAnchorFromOrderedCells(
   cells: readonly AuroraAreaCell[],
   orientation: 0 | 1 | 2 | 3
 ): AuroraAreaCell | null {
-  if (cells.length !== group.tileIds.length || cells.length === 0) {
+  if (cells.length !== groupMemberCount(group) || cells.length === 0) {
     return null;
   }
   const offsets = rotateGroupCells(group, { row: 0, col: 0 }, orientation);
@@ -1932,6 +2326,25 @@ function withinAreaLimits(width: number, height: number): boolean {
 function selectCandidate(count: number, selector: AuroraAreaCandidateSelector | undefined): number {
   const value = selector ? selector(count) : Math.floor(Math.random() * count);
   return Math.min(count - 1, Math.max(0, Math.floor(value)));
+}
+
+/**
+ * Aurora resolves a compatible SET-tile tie with the process LCG.  The editor
+ * persists a local seed so new Areas and later rerolls do not depend on the
+ * browser's non-repeatable `Math.random()` sequence.  An injected selector is
+ * retained for narrow oracle fixtures and intentionally does not consume RNG.
+ */
+function selectCandidateForState(
+  count: number,
+  state: AuroraAreaEditingState,
+  selector: AuroraAreaCandidateSelector | undefined
+): number {
+  if (selector || state.randomSeed === undefined) {
+    return selectCandidate(count, selector);
+  }
+  const draw = drawAuroraNativeRandom(state.randomSeed);
+  state.randomSeed = draw.seed;
+  return draw.value % count;
 }
 
 function normalizeOrientation(value: number): 0 | 1 | 2 | 3 {

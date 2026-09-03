@@ -1,30 +1,35 @@
-import type { AuroraAreaEditingState } from "../../scene/domain/auroraAreaEditing";
+import type {
+  AreaEditingDraftRequest,
+  AreaEditingExportArtifact,
+  AreaEditingTransferPort,
+  AreaEditingVerificationResult,
+} from "../ports/areaEditingPort";
+
+export type { AreaEditingVerificationResult } from "../ports/areaEditingPort";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type AreaEditingHttpRequest = AreaEditingDraftRequest & {
+  readonly fetchFn?: FetchLike;
+  readonly baseUrl?: string;
+};
 
-export interface AreaEditingVerificationResult {
-  valid: boolean;
-  issues: Array<{
-    severity: "error" | "warning";
-    code: string;
-    message: string;
-    row?: number;
-    col?: number;
-    tileId?: number;
-  }>;
-  stats: {
-    width: number;
-    height: number;
-    expectedTileCount: number;
-    tileCount: number;
-    uniqueTileIds: number;
-    groupTileCount: number;
-    sourceProvenanceTileCount: number;
-    modelResolvedTileCount: number;
-    minHeight: number;
-    maxHeight: number;
-  };
-  tilesetFingerprint: string;
+export interface AreaEditingRequestErrorDetail {
+  path: string;
+  reason: string;
+}
+
+export class AreaEditingRequestError extends Error {
+  readonly name = "AreaEditingRequestError";
+
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+    readonly details: readonly AreaEditingRequestErrorDetail[],
+    readonly retryable: boolean
+  ) {
+    super(message);
+  }
 }
 
 export interface NewAreaPersistenceResult {
@@ -39,13 +44,9 @@ export interface NewAreaPersistenceResult {
   }>;
 }
 
-export async function exportAuroraAreaEditingAre(input: {
-  accessToken: string;
-  name: string;
-  state: AuroraAreaEditingState;
-  fetchFn?: FetchLike;
-  baseUrl?: string;
-}): Promise<{ bytes: ArrayBuffer; contentType: string; fileName: string }> {
+export async function exportAuroraAreaEditingAre(
+  input: AreaEditingHttpRequest,
+): Promise<AreaEditingExportArtifact> {
   const fetchFn = input.fetchFn ?? fetch.bind(globalThis);
   const baseUrl = (input.baseUrl ?? resolveBaseUrl()).replace(/\/+$/u, "");
   const response = await fetchFn(`${baseUrl}/areas/editing/export/area.are`, {
@@ -54,14 +55,11 @@ export async function exportAuroraAreaEditingAre(input: {
       Authorization: `Bearer ${input.accessToken}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(buildAreaEditingDraftPayload(input.name, input.state))
+    body: JSON.stringify(buildAreaEditingDraftPayload(input))
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    const message = payload && typeof payload === "object" && "error" in payload
-      ? String((payload as { error?: unknown }).error ?? "Area export failed.")
-      : `Area export failed (${response.status}).`;
-    throw new Error(message);
+    throw readAreaEditingRequestError(payload, response.status, "Area export failed");
   }
   return {
     bytes: await response.arrayBuffer(),
@@ -70,26 +68,18 @@ export async function exportAuroraAreaEditingAre(input: {
   };
 }
 
-export async function verifyAuroraAreaEditing(input: {
-  accessToken: string;
-  name: string;
-  state: AuroraAreaEditingState;
-  fetchFn?: FetchLike;
-  baseUrl?: string;
-}): Promise<AreaEditingVerificationResult> {
+export async function verifyAuroraAreaEditing(
+  input: AreaEditingHttpRequest,
+): Promise<AreaEditingVerificationResult> {
   return postAreaEditingJson<AreaEditingVerificationResult>(
     input,
     "/areas/editing/verify"
   );
 }
 
-export async function persistNewAuroraArea(input: {
-  accessToken: string;
-  name: string;
-  state: AuroraAreaEditingState;
-  fetchFn?: FetchLike;
-  baseUrl?: string;
-}): Promise<NewAreaPersistenceResult> {
+export async function persistNewAuroraArea(
+  input: AreaEditingHttpRequest,
+): Promise<NewAreaPersistenceResult> {
   if (input.state.sourceAreaFingerprint) {
     throw new Error("Only a new local Area draft can be persisted as a new module resource triplet.");
   }
@@ -112,14 +102,22 @@ export function downloadAreaEditingAre(exported: {
   URL.revokeObjectURL(url);
 }
 
+export function createHttpAreaEditingTransferPort(
+  fetchFn: FetchLike = fetch.bind(globalThis),
+  baseUrl = resolveBaseUrl(),
+): AreaEditingTransferPort {
+  return Object.freeze({
+    verify(input: AreaEditingDraftRequest) {
+      return verifyAuroraAreaEditing({ ...input, fetchFn, baseUrl });
+    },
+    exportAre(input: AreaEditingDraftRequest) {
+      return exportAuroraAreaEditingAre({ ...input, fetchFn, baseUrl });
+    },
+  });
+}
+
 async function postAreaEditingJson<T>(
-  input: {
-    accessToken: string;
-    name: string;
-    state: AuroraAreaEditingState;
-    fetchFn?: FetchLike;
-    baseUrl?: string;
-  },
+  input: AreaEditingHttpRequest,
   path: string
 ): Promise<T> {
   const fetchFn = input.fetchFn ?? fetch.bind(globalThis);
@@ -130,20 +128,17 @@ async function postAreaEditingJson<T>(
       Authorization: `Bearer ${input.accessToken}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(buildAreaEditingDraftPayload(input.name, input.state))
+    body: JSON.stringify(buildAreaEditingDraftPayload(input))
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const record = asRecord(payload);
-    const message = typeof record.error === "string"
-      ? record.error
-      : `Area editing request failed (${response.status}).`;
-    throw new Error(message);
+    throw readAreaEditingRequestError(payload, response.status, "Area editing request failed");
   }
   return asRecord(payload).data as T;
 }
 
-function buildAreaEditingDraftPayload(name: string, state: AuroraAreaEditingState) {
+function buildAreaEditingDraftPayload(input: AreaEditingDraftRequest) {
+  const { name, state } = input;
   return {
     areaResRef: state.areaResRef,
     name,
@@ -152,6 +147,127 @@ function buildAreaEditingDraftPayload(name: string, state: AuroraAreaEditingStat
     tilesetResRef: state.tilesetResRef,
     tilesetFingerprint: state.tilesetFingerprint,
     areaFingerprint: state.sourceAreaFingerprint,
+    ...(input.comments ? { comments: { ...input.comments } } : {}),
+    ...(input.eventScripts
+      ? {
+          eventScripts: Object.fromEntries(
+            Object.entries(input.eventScripts).map(([slot, mutation]) => [
+              slot,
+              mutation ? { ...mutation } : mutation,
+            ]),
+          ),
+        }
+      : {}),
+    ...(input.basicIdentity
+      ? {
+          basicIdentity: Object.fromEntries(
+            Object.entries(input.basicIdentity).map(([field, mutation]) => [
+              field,
+              mutation
+                ? {
+                    ...mutation,
+                    ...(mutation.expectedEntries
+                      ? {
+                          expectedEntries: mutation.expectedEntries.map(
+                            (entry: { languageId: number; text: string }) => ({ ...entry }),
+                          ),
+                        }
+                      : {}),
+                    ...(mutation.valueEntries
+                      ? {
+                          valueEntries: mutation.valueEntries.map(
+                            (entry: { languageId: number; text: string }) => ({ ...entry }),
+                          ),
+                        }
+                      : {}),
+                  }
+                : mutation,
+            ]),
+          ),
+        }
+      : {}),
+    ...(input.advancedFlags
+      ? {
+          advancedFlags: Object.fromEntries(
+            Object.entries(input.advancedFlags).map(([field, mutation]) => [
+              field,
+              mutation
+                ? {
+                    ...mutation,
+                    ...(field === "terrainType"
+                      ? {
+                          expectedValue: { ...mutation.expectedValue as object },
+                          value: { ...mutation.value as object },
+                        }
+                      : {}),
+                  }
+                : mutation,
+            ]),
+          ),
+        }
+      : {}),
+    ...(input.visualEnvironment
+      ? {
+          visualEnvironment: {
+            expectedValue: {
+              ...input.visualEnvironment.expectedValue,
+              sun: { ...input.visualEnvironment.expectedValue.sun },
+              moon: { ...input.visualEnvironment.expectedValue.moon },
+            },
+            value: {
+              ...input.visualEnvironment.value,
+              sun: { ...input.visualEnvironment.value.sun },
+              moon: { ...input.visualEnvironment.value.moon },
+            },
+          },
+        }
+      : {}),
+    ...(input.visualEnvironmentScalarControls
+      ? {
+          visualEnvironmentScalarControls: {
+            expectedValue: { ...input.visualEnvironmentScalarControls.expectedValue },
+            value: { ...input.visualEnvironmentScalarControls.value },
+          },
+        }
+      : {}),
+    ...(input.visualEnvironmentCatalogSelection
+      ? {
+          visualEnvironmentCatalogSelection: {
+            catalogIdentity: {
+              ...input.visualEnvironmentCatalogSelection.catalogIdentity,
+            },
+            expectedValue: {
+              ...input.visualEnvironmentCatalogSelection.expectedValue,
+              visualEnvironment: cloneVisualEnvironment(
+                input.visualEnvironmentCatalogSelection.expectedValue.visualEnvironment,
+              ),
+              visualEnvironmentScalarControls: {
+                ...input.visualEnvironmentCatalogSelection.expectedValue
+                  .visualEnvironmentScalarControls,
+              },
+            },
+            value: {
+              ...input.visualEnvironmentCatalogSelection.value,
+              ...(input.visualEnvironmentCatalogSelection.value.visualEnvironmentOverride
+                ? {
+                    visualEnvironmentOverride: cloneVisualEnvironment(
+                      input.visualEnvironmentCatalogSelection.value.visualEnvironmentOverride,
+                    ),
+                  }
+                : {}),
+              ...(input.visualEnvironmentCatalogSelection.value
+                .visualEnvironmentScalarControlsOverride
+                ? {
+                    visualEnvironmentScalarControlsOverride: {
+                      ...input.visualEnvironmentCatalogSelection.value
+                        .visualEnvironmentScalarControlsOverride,
+                    },
+                  }
+                : {}),
+            },
+          },
+        }
+      : {}),
     tiles: state.tiles.map((tile) => ({
       row: tile.row,
       col: tile.col,
@@ -171,8 +287,43 @@ function buildAreaEditingDraftPayload(name: string, state: AuroraAreaEditingStat
   };
 }
 
+function cloneVisualEnvironment<T extends {
+  readonly sun: object;
+  readonly moon: object;
+}>(value: T): T {
+  return {
+    ...value,
+    sun: { ...value.sun },
+    moon: { ...value.moon },
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function readAreaEditingRequestError(
+  payload: unknown,
+  status: number,
+  fallback: string
+): AreaEditingRequestError {
+  const envelope = asRecord(payload);
+  const error = asRecord(envelope.error);
+  const legacyMessage = typeof envelope.error === "string" ? envelope.error : undefined;
+  const message = typeof error.message === "string"
+    ? error.message
+    : legacyMessage ?? `${fallback} (${status}).`;
+  const code = typeof error.code === "string" ? error.code : `HTTP_${status}`;
+  const retryable = error.retryable === true;
+  const details = Array.isArray(error.details)
+    ? error.details.flatMap((entry): AreaEditingRequestErrorDetail[] => {
+        const detail = asRecord(entry);
+        return typeof detail.path === "string" && typeof detail.reason === "string"
+          ? [{ path: detail.path, reason: detail.reason }]
+          : [];
+      })
+    : [];
+  return new AreaEditingRequestError(message, status, code, details, retryable);
 }
 
 function resolveBaseUrl(): string {

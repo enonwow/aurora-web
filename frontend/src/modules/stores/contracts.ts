@@ -59,7 +59,11 @@ export interface StoreApiBlueprintCreatePayload {
   markDown?: number;
   blackMarket?: boolean;
   bmMarkDown?: number;
+  identifyPrice?: number;
+  maxBuyPrice?: number;
+  storeGold?: number;
   onOpenStore?: string;
+  onStoreClosed?: string;
   storeId?: number;
   storeListEntries?: StoreApiBlueprintBucketEntry[];
   willNotBuyBaseItems?: number[];

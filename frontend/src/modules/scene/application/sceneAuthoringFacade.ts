@@ -1,4 +1,5 @@
 import type {
+  AreaScene,
   SceneObject,
   SceneObjectKind
 } from "../contracts";
@@ -8,6 +9,7 @@ import {
   type CopyPoint2D
 } from "../domain/copyPlacement";
 import {
+  createNewDoorHookSceneObject,
   createNewSceneObject,
   createSeedAreaScene,
   LEGACY_SEED_SCENE_HEIGHT_TILES,
@@ -29,6 +31,7 @@ interface CopyTranslationParams {
 
 export interface SceneAuthoringFacade {
   createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject;
+  createDoorAtHook(scene: AreaScene, x: number, y: number, sequence: number): SceneObject | undefined;
   resolveCopyAnchor(params: CopyAnchorParams): CopyPoint2D | null;
   computeCopyTranslation(params: CopyTranslationParams): CopyPoint2D | null;
   createSeedObjectsSnapshot(): SceneObject[];
@@ -43,6 +46,9 @@ export function createSceneAuthoringFacade(): SceneAuthoringFacade {
   return {
     createObject(kind: SceneObjectKind, x: number, y: number, sequence: number): SceneObject {
       return createNewSceneObject(kind, x, y, sequence);
+    },
+    createDoorAtHook(scene: AreaScene, x: number, y: number, sequence: number): SceneObject | undefined {
+      return createNewDoorHookSceneObject(scene, x, y, sequence);
     },
     resolveCopyAnchor(params: CopyAnchorParams): CopyPoint2D | null {
       return resolveCopyAnchorPoint(params);

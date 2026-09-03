@@ -14,6 +14,9 @@ import type {
   SceneObjectItemPropertyEntry
 } from "../../scene/contracts";
 import { createNewSceneObject } from "../../scene/domain/sceneFactory";
+import { readItemVariableTargetEntries } from "../../scene/domain/itemVariableTable";
+import { readItemBlueprintReferenceLists } from
+  "../../scene/domain/itemBlueprintInventory";
 import { calculateAuroraItemCostBreakdown } from "./itemCostCalculator";
 import { formatItemEquipSlotMask } from "./itemEquipSlots";
 
@@ -397,6 +400,18 @@ function cloneItemProperties(
     materialColors: properties?.materialColors ? { ...properties.materialColors } : undefined,
     propertyList: properties?.propertyList
       ? properties.propertyList.map((entry) => ({ ...entry }))
+      : undefined,
+    inventoryItems: properties?.inventoryItems
+      ? properties.inventoryItems.map((entry) => ({ ...entry }))
+      : undefined,
+    blueprintInventoryItems: properties?.blueprintInventoryItems
+      ? properties.blueprintInventoryItems.map((entry) => ({ ...entry }))
+      : undefined,
+    blueprintEquippedItems: properties?.blueprintEquippedItems
+      ? properties.blueprintEquippedItems.map((entry) => ({ ...entry }))
+      : undefined,
+    variables: properties?.variables
+      ? properties.variables.map((entry) => ({ ...entry }))
       : undefined,
     scripts: properties?.scripts ? { ...properties.scripts } : undefined
   };
@@ -1377,6 +1392,18 @@ export function buildItemBlueprintCreatePayloadFromWizardSceneObject(
   const propertyList = (properties.propertyList ?? [])
     .map(mapSceneObjectItemPropertyEntryToBlueprintPayload)
     .filter((entry): entry is ItemApiBlueprintPropertyEntry => Boolean(entry));
+  const variableListEntries = readItemVariableTargetEntries(properties.variables ?? []);
+  if (!variableListEntries) {
+    return null;
+  }
+  const blueprintReferenceLists = readItemBlueprintReferenceLists(
+    properties.blueprintInventoryItems ?? [],
+    properties.blueprintEquippedItems ?? [],
+    resRef,
+  );
+  if (!blueprintReferenceLists) {
+    return null;
+  }
   const payload: ItemApiBlueprintCreatePayload = {
     templateResRef: resRef,
     name: properties.localizedName?.trim() || (object.name ?? "").trim() || tag,
@@ -1409,8 +1436,6 @@ export function buildItemBlueprintCreatePayloadFromWizardSceneObject(
   setOptionalBlueprintPayloadValue(payload, "modelPart3", properties.modelPart3);
   setOptionalBlueprintPayloadValue(payload, "cost", properties.cost);
   setOptionalBlueprintPayloadValue(payload, "addCost", properties.addCost);
-  setOptionalBlueprintPayloadValue(payload, "costTable", properties.costTable);
-  setOptionalBlueprintPayloadValue(payload, "costValue", properties.costValue);
   setOptionalBlueprintPayloadValue(payload, "charges", properties.charges);
   setOptionalBlueprintPayloadValue(payload, "stackSize", properties.stackSize);
   if (properties.armorParts) {
@@ -1425,9 +1450,18 @@ export function buildItemBlueprintCreatePayloadFromWizardSceneObject(
   if (propertyList.length > 0) {
     payload.propertyList = propertyList;
   }
-  const scripts = mapSceneObjectItemScriptsToBlueprintPayload(properties.scripts);
-  if (Object.keys(scripts).length > 0) {
-    payload.scripts = scripts;
+  if (variableListEntries.length > 0) {
+    payload.variableListEntries = variableListEntries.map((entry) => ({ ...entry }));
+  }
+  if (blueprintReferenceLists.inventory.length > 0) {
+    payload.inventoryItemListEntries = blueprintReferenceLists.inventory.map((entry) => ({
+      ...entry,
+    }));
+  }
+  if (blueprintReferenceLists.equipment.length > 0) {
+    payload.equipItemListEntries = blueprintReferenceLists.equipment.map((entry) => ({
+      ...entry,
+    }));
   }
 
   return payload;
@@ -1437,27 +1471,6 @@ function resolveBlueprintModelPart1(
   properties: SceneObjectItemProperties
 ): number | undefined {
   return properties.modelPart1 ?? properties.modelParts?.[0] ?? properties.cloakModelRow;
-}
-
-function mapSceneObjectItemScriptsToBlueprintPayload(
-  scripts: Record<string, string> | undefined
-): Record<string, string> {
-  if (!scripts) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(scripts)
-      .map(([key, value]) => [normalizeItemScriptSlotLabel(key), value.trim()] as const)
-      .filter(([key, value]) => /^[a-z0-9_]{1,16}$/u.test(key) && /^[A-Za-z0-9_]{1,16}$/u.test(value))
-  );
-}
-
-function normalizeItemScriptSlotLabel(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "oninventorydisturbed") {
-    return "oninvdisturbed";
-  }
-  return normalized;
 }
 
 function mapSceneObjectItemPropertyEntryToBlueprintPayload(

@@ -66,7 +66,10 @@ export function rotateSourceAuroraAreaGroupConservatively(
   return placed.ok
     ? {
         ok: true,
-        state: placed.state,
+        // The recovered source-group path consumes its exact candidate draw in
+        // the Eraser closure. Group placement itself must not advance that
+        // seed again while rebuilding the already-selected loose underlay.
+        state: { ...placed.state, randomSeed: erased.state.randomSeed },
         changedTileIds: [...new Set([...erased.changedTileIds, ...placed.changedTileIds])]
       }
     : placed;

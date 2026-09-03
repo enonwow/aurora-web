@@ -5,7 +5,6 @@ import {
   SharedPropertyTabsNav
 } from "./SharedPropertyDialogSections";
 import {
-  deriveMaxVolumeDistanceFromCutoff,
   formatSoundFixed,
   formatSoundSeconds,
   parseSoundHourMask,
@@ -20,6 +19,25 @@ import {
   type SoundPropertiesTab,
   type SoundWhenToPlay
 } from "../../application/workspaceObjectPropertyDrafts";
+import {
+  MAX_AREA_SOUND_INTERVAL_VARIATION_MILLISECONDS,
+  MAX_AREA_SOUND_VOLUME_VARIATION_BYTE,
+  readAreaSoundIntervalVariationStorage,
+} from "../../../areas/domain/areaSoundIntervalVariationStorage";
+import {
+  MAX_AREA_SOUND_VOLUME_BYTE,
+  readAreaSoundVolumeStorage,
+} from "../../../areas/domain/areaSoundVolumeStorage";
+import { readAreaSoundScheduleStorage } from "../../../areas/domain/areaSoundScheduleStorage";
+import { readAreaSoundActiveStorage } from "../../../areas/domain/areaSoundActiveStorage";
+import { readAreaSoundPlayOrderStorage } from "../../../areas/domain/areaSoundPlayOrderStorage";
+import { readAreaSoundPlayStyleStorage } from "../../../areas/domain/areaSoundPlayStyleStorage";
+import {
+  isAreaSoundResRef,
+  MAX_AREA_SOUND_PLAYBACK_LIST_ENTRIES,
+  readAreaSoundPlaybackStorage,
+} from "../../../areas/domain/areaSoundPlaybackStorage";
+import { readAreaSoundProfileStorage } from "../../../areas/domain/areaSoundProfileStorage";
 
 interface SoundPropertiesDialogProps {
   soundPropertiesDialog: SoundPropertiesDialogState;
@@ -36,6 +54,7 @@ interface SoundPropertiesDialogProps {
   playSelectedSoundPreview: () => void;
   stopSoundPreviewPlayback: () => void;
   addSoundListEntry: () => void;
+  soundCatalogResRefs: readonly string[];
   removeSelectedSoundListEntry: () => void;
   moveSoundListEntryUp: () => void;
   moveSoundListEntryDown: () => void;
@@ -61,6 +80,7 @@ export function SoundPropertiesDialog({
   playSelectedSoundPreview,
   stopSoundPreviewPlayback,
   addSoundListEntry,
+  soundCatalogResRefs,
   removeSelectedSoundListEntry,
   moveSoundListEntryUp,
   moveSoundListEntryDown,
@@ -70,10 +90,17 @@ export function SoundPropertiesDialog({
   endSoundPropertiesDialogDrag,
   cancelSoundPropertiesDialogDrag
 }: SoundPropertiesDialogProps) {
+  const soundProfileEditable =
+    readAreaSoundProfileStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundProfileStorage,
+    ) !== null
+    && readAreaSoundProfileStorage(
+      soundPropertiesDialog.snapshotObject.soundProfile,
+    ) !== null;
   const soundPositioningMode = soundPropertiesDialog.draft.mode;
   const soundGating = {
-    positioningDisabled: soundPositioningMode === "everywhere",
-    randomRangeEnabled: soundPositioningMode === "random"
+    positioningDisabled: !soundProfileEditable || soundPositioningMode === "everywhere",
+    randomRangeEnabled: soundProfileEditable && soundPositioningMode === "random"
   };
   const soundRandomRangeDisplay = {
     westEast:
@@ -92,8 +119,63 @@ export function SoundPropertiesDialog({
     soundPropertiesDialog.draft.hoursStart,
     soundPropertiesDialog.draft.hoursEnd
   );
+  const soundIntervalVariationEditable =
+    readAreaSoundIntervalVariationStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundIntervalVariationStorage,
+    ) !== null
+    && readAreaSoundIntervalVariationStorage(
+      soundPropertiesDialog.snapshotObject.soundIntervalVariation,
+    ) !== null;
+  const soundVolumeEditable =
+    readAreaSoundVolumeStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundVolumeStorage,
+    ) !== null
+    && readAreaSoundVolumeStorage(soundPropertiesDialog.snapshotObject.soundVolume) !== null;
+  const soundScheduleEditable =
+    readAreaSoundScheduleStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundScheduleStorage,
+    ) !== null
+    && readAreaSoundScheduleStorage(
+      soundPropertiesDialog.snapshotObject.soundSchedule,
+    ) !== null;
+  const soundActiveEditable =
+    readAreaSoundActiveStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundActiveStorage,
+    ) !== null
+    && readAreaSoundActiveStorage(soundPropertiesDialog.snapshotObject.soundActive) !== null;
+  const soundPlayOrderEditable =
+    readAreaSoundPlayOrderStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundPlayOrderStorage,
+    ) !== null
+    && readAreaSoundPlayOrderStorage(
+      soundPropertiesDialog.snapshotObject.soundPlayOrder,
+    ) !== null;
+  const soundPlaybackEditable = soundProfileEditable || (
+    readAreaSoundPlaybackStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundPlaybackStorage,
+    ) !== null
+    && readAreaSoundPlaybackStorage(
+      soundPropertiesDialog.snapshotObject.soundPlayback,
+    ) !== null
+  );
+  const soundPlayStyleEditable = soundProfileEditable || soundPlaybackEditable || (
+    readAreaSoundPlayStyleStorage(
+      soundPropertiesDialog.snapshotObject.source?.soundPlayStyleStorage,
+    ) !== null
+    && readAreaSoundPlayStyleStorage(
+      soundPropertiesDialog.snapshotObject.soundPlayStyle,
+    ) !== null
+  );
+  const admittedSoundCatalogResRefs = Array.from(new Set(
+    soundCatalogResRefs.filter(isAreaSoundResRef),
+  )).sort((left, right) => left.localeCompare(right));
+  const canAddSoundListEntry = soundPlaybackEditable
+    && isAreaSoundResRef(soundPropertiesDialog.draft.catalogSoundResRef)
+    && admittedSoundCatalogResRefs.includes(soundPropertiesDialog.draft.catalogSoundResRef)
+    && soundPropertiesDialog.draft.soundList.length < MAX_AREA_SOUND_PLAYBACK_LIST_ENTRIES;
   const soundAdvancedWhenToPlay = soundPropertiesDialog.draft.whenToPlay;
-  const isSoundSpecificHoursEnabled = soundAdvancedWhenToPlay === "hours";
+  const isSoundSpecificHoursEnabled =
+    soundScheduleEditable && soundAdvancedWhenToPlay === "hours";
 
   return (
     <SharedPropertyDialogChrome
@@ -187,6 +269,21 @@ export function SoundPropertiesDialog({
                   </select>
                 </label>
                 <div className="canvas-sound-properties-sound-actions">
+                  <label>
+                    <span>Available Sound</span>
+                    <select
+                      value={soundPropertiesDialog.draft.catalogSoundResRef}
+                      disabled={!soundPlaybackEditable}
+                      onChange={(event) =>
+                        updateSoundPropertiesDraftField("catalogSoundResRef", event.target.value)
+                      }
+                    >
+                      <option value="">Select...</option>
+                      {admittedSoundCatalogResRefs.map((resRef) => (
+                        <option key={resRef} value={resRef}>{resRef}</option>
+                      ))}
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={() => playSelectedSoundPreview()}
@@ -197,20 +294,30 @@ export function SoundPropertiesDialog({
                   <button type="button" onClick={() => stopSoundPreviewPlayback()}>
                     Stop
                   </button>
-                  <button type="button" onClick={() => addSoundListEntry()}>
+                  <button
+                    type="button"
+                    onClick={() => addSoundListEntry()}
+                    disabled={!canAddSoundListEntry}
+                  >
                     Add Sounds...
                   </button>
                   <button
                     type="button"
                     onClick={() => removeSelectedSoundListEntry()}
-                    disabled={soundPropertiesDialog.draft.selectedSoundIndex < 0}
+                    disabled={
+                      !soundPlaybackEditable
+                      || soundPropertiesDialog.draft.selectedSoundIndex < 0
+                    }
                   >
                     Remove
                   </button>
                   <button
                     type="button"
                     onClick={() => moveSoundListEntryUp()}
-                    disabled={soundPropertiesDialog.draft.selectedSoundIndex <= 0}
+                    disabled={
+                      !soundPlaybackEditable
+                      || soundPropertiesDialog.draft.selectedSoundIndex <= 0
+                    }
                   >
                     Move Up
                   </button>
@@ -218,6 +325,7 @@ export function SoundPropertiesDialog({
                     type="button"
                     onClick={() => moveSoundListEntryDown()}
                     disabled={
+                      !soundPlaybackEditable ||
                       soundPropertiesDialog.draft.selectedSoundIndex < 0 ||
                       soundPropertiesDialog.draft.selectedSoundIndex >=
                         soundPropertiesDialog.draft.soundList.length - 1
@@ -228,23 +336,32 @@ export function SoundPropertiesDialog({
                 </div>
               </div>
               <div className="canvas-sound-properties-basic-bottom">
-                <label className="canvas-sound-properties-volume-slider">
+                <label
+                  className="canvas-sound-properties-volume-slider"
+                  title={soundVolumeEditable
+                    ? "Exact native Sound base-volume storage is available."
+                    : "Preserve-only: exact native Sound base-volume storage is unavailable."}
+                >
                   <span>Volume</span>
                   <div>
                     <input
                       type="range"
                       min={0}
-                      max={10}
-                      step={0.1}
-                      value={Math.min(10, Math.max(0, soundPropertiesDialog.draft.volume * 10))}
+                      max={MAX_AREA_SOUND_VOLUME_BYTE}
+                      step={1}
+                      disabled={!soundVolumeEditable}
+                      value={Math.min(
+                        MAX_AREA_SOUND_VOLUME_BYTE,
+                        Math.max(0, Math.round(soundPropertiesDialog.draft.volume * 127)),
+                      )}
                       onChange={(event) =>
                         updateSoundPropertiesDraftField(
                           "volume",
-                          Number(event.target.value) / 10
+                          Number(event.target.value) / 127
                         )
                       }
                     />
-                    <span className="canvas-sound-properties-volume-scale">0 5 10</span>
+                    <span className="canvas-sound-properties-volume-scale">0 64 127</span>
                   </div>
                 </label>
                 <section
@@ -285,7 +402,13 @@ export function SoundPropertiesDialog({
 
           {soundPropertiesDialog.activeTab === "positioning" ? (
             <section className="canvas-sound-properties-shell canvas-sound-properties-shell-positioning">
-              <fieldset className="canvas-sound-properties-group">
+              <fieldset
+                className="canvas-sound-properties-group"
+                disabled={!soundProfileEditable}
+                title={soundProfileEditable
+                  ? "Exact native Sound spatial profile storage is available."
+                  : "Preserve-only: exact native Sound spatial profile storage is unavailable."}
+              >
                 <legend>Mode</legend>
                 <label className="canvas-sound-properties-mode">
                   <input
@@ -344,15 +467,16 @@ export function SoundPropertiesDialog({
                       Max Volume Distance (m)
                       <input
                         type="text"
+                        inputMode="decimal"
                         aria-label="Max Volume Distance"
-                        value={formatSoundFixed(
-                          deriveMaxVolumeDistanceFromCutoff(
-                            soundPropertiesDialog.draft.cutoffDistance
-                          ),
-                          1
-                        )}
-                        disabled
-                        readOnly
+                        value={formatSoundFixed(soundPropertiesDialog.draft.maxVolumeDistance, 1)}
+                        disabled={soundGating.positioningDisabled}
+                        onChange={(event) =>
+                          updateSoundPropertiesDraftField(
+                            "maxVolumeDistance",
+                            event.target.value,
+                          )
+                        }
                       />
                     </label>
                   </div>
@@ -454,16 +578,28 @@ export function SoundPropertiesDialog({
                 </button>
               </div>
 
-              <label className="canvas-sound-properties-mode canvas-sound-properties-active-toggle">
+              <label
+                className="canvas-sound-properties-mode canvas-sound-properties-active-toggle"
+                title={soundActiveEditable
+                  ? "Exact native Sound Active storage is available."
+                  : "Preserve-only: exact native Sound Active storage is unavailable."}
+              >
                 <input
                   type="checkbox"
                   checked={soundPropertiesDialog.draft.active}
+                  disabled={!soundActiveEditable}
                   onChange={() => toggleSoundPropertiesActive()}
                 />
                 Active
               </label>
 
-              <fieldset className="canvas-sound-properties-group">
+              <fieldset
+                className="canvas-sound-properties-group"
+                disabled={!soundScheduleEditable}
+                title={soundScheduleEditable
+                  ? "Exact native Sound Hours/Times storage is available."
+                  : "Preserve-only: exact native Sound Hours/Times storage is unavailable."}
+              >
                 <legend>When to play</legend>
                 <label className="canvas-sound-properties-mode">
                   <input
@@ -542,7 +678,13 @@ export function SoundPropertiesDialog({
               </fieldset>
 
               <div className="canvas-sound-properties-advanced-grid">
-                <fieldset className="canvas-sound-properties-group">
+                <fieldset
+                  className="canvas-sound-properties-group"
+                  disabled={!soundPlayStyleEditable}
+                  title={soundPlayStyleEditable
+                    ? "Exact native Sound Play Style and derived Priority storage is available."
+                    : "Preserve-only: exact native Sound Play Style and derived Priority storage is unavailable."}
+                >
                   <legend>Play Style</legend>
                   <label className="canvas-sound-properties-mode">
                     <input
@@ -573,7 +715,13 @@ export function SoundPropertiesDialog({
                   </label>
                 </fieldset>
 
-                <fieldset className="canvas-sound-properties-group">
+                <fieldset
+                  className="canvas-sound-properties-group"
+                  disabled={!soundPlayOrderEditable}
+                  title={soundPlayOrderEditable
+                    ? "Exact native Sound Play Order storage is available."
+                    : "Preserve-only: exact native Sound Play Order storage is unavailable."}
+                >
                   <legend>Play Order</legend>
                   <label className="canvas-sound-properties-mode">
                     <input
@@ -596,7 +744,13 @@ export function SoundPropertiesDialog({
                 </fieldset>
               </div>
 
-              <fieldset className="canvas-sound-properties-group">
+              <fieldset
+                className="canvas-sound-properties-group"
+                disabled={!soundIntervalVariationEditable}
+                title={soundIntervalVariationEditable
+                  ? "Exact native Sound interval storage is available."
+                  : "Preserve-only: exact native Sound interval storage is unavailable."}
+              >
                 <legend>Interval</legend>
                 <label>
                   Interval between playing sounds (seconds)
@@ -606,10 +760,17 @@ export function SoundPropertiesDialog({
                     value={formatSoundSeconds(soundPropertiesDialog.draft.intervalMs)}
                     onChange={(event) => {
                       const seconds = parseSoundNumericInput(event.target.value);
-                      if (seconds === null || seconds < 0) {
+                      const milliseconds = seconds === null ? Number.NaN : Math.round(seconds * 1000);
+                      if (
+                        seconds === null
+                        || seconds < 0
+                        || milliseconds > MAX_AREA_SOUND_INTERVAL_VARIATION_MILLISECONDS
+                        || milliseconds % 10 !== 0
+                        || Math.abs(milliseconds - seconds * 1000) > Number.EPSILON * 1000
+                      ) {
                         return;
                       }
-                      updateSoundPropertiesDraftField("intervalMs", seconds * 1000);
+                      updateSoundPropertiesDraftField("intervalMs", milliseconds);
                     }}
                   />
                 </label>
@@ -621,16 +782,29 @@ export function SoundPropertiesDialog({
                     value={formatSoundSeconds(soundPropertiesDialog.draft.intervalVariationMs)}
                     onChange={(event) => {
                       const seconds = parseSoundNumericInput(event.target.value);
-                      if (seconds === null || seconds < 0) {
+                      const milliseconds = seconds === null ? Number.NaN : Math.round(seconds * 1000);
+                      if (
+                        seconds === null
+                        || seconds < 0
+                        || milliseconds > MAX_AREA_SOUND_INTERVAL_VARIATION_MILLISECONDS
+                        || milliseconds % 10 !== 0
+                        || Math.abs(milliseconds - seconds * 1000) > Number.EPSILON * 1000
+                      ) {
                         return;
                       }
-                      updateSoundPropertiesDraftField("intervalVariationMs", seconds * 1000);
+                      updateSoundPropertiesDraftField("intervalVariationMs", milliseconds);
                     }}
                   />
                 </label>
               </fieldset>
 
-              <fieldset className="canvas-sound-properties-group">
+              <fieldset
+                className="canvas-sound-properties-group"
+                disabled={!soundIntervalVariationEditable}
+                title={soundIntervalVariationEditable
+                  ? "Exact native Sound variation storage is available."
+                  : "Preserve-only: exact native Sound variation storage is unavailable."}
+              >
                 <legend>Variation</legend>
                 <label className="canvas-sound-properties-volume-slider">
                   <span>Volume Variation</span>
@@ -638,17 +812,23 @@ export function SoundPropertiesDialog({
                     <input
                       type="range"
                       min={0}
-                      max={10}
-                      step={0.1}
-                      value={Math.min(10, Math.max(0, soundPropertiesDialog.draft.volumeVariation * 10))}
+                      max={MAX_AREA_SOUND_VOLUME_VARIATION_BYTE}
+                      step={1}
+                      value={Math.min(
+                        MAX_AREA_SOUND_VOLUME_VARIATION_BYTE,
+                        Math.max(
+                          0,
+                          Math.round(soundPropertiesDialog.draft.volumeVariation * 127),
+                        ),
+                      )}
                       onChange={(event) =>
                         updateSoundPropertiesDraftField(
                           "volumeVariation",
-                          Number(event.target.value) / 10
+                          Number(event.target.value) / 127
                         )
                       }
                     />
-                    <span className="canvas-sound-properties-volume-scale">0 5 10</span>
+                    <span className="canvas-sound-properties-volume-scale">0 64 127</span>
                   </div>
                 </label>
                 <label className="canvas-sound-properties-pitch-variation">
@@ -658,9 +838,16 @@ export function SoundPropertiesDialog({
                       type="text"
                       inputMode="decimal"
                       value={formatSoundFixed(soundPropertiesDialog.draft.pitchVariation, 2)}
-                      onChange={(event) =>
-                        updateSoundPropertiesDraftField("pitchVariation", event.target.value)
-                      }
+                      onChange={(event) => {
+                        const value = parseSoundNumericInput(event.target.value);
+                        if (
+                          value === null
+                          || value < 0
+                          || value > 1
+                          || value !== Math.round(value * 100) / 100
+                        ) return;
+                        updateSoundPropertiesDraftField("pitchVariation", value);
+                      }}
                     />
                     <input
                       type="range"

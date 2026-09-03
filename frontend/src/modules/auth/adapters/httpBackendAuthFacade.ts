@@ -23,6 +23,16 @@ interface HttpBackendAuthFacadeOptions {
 export interface BackendHealthProbeResult {
   available: boolean;
   service: string | null;
+  runtimeBuild: BackendRuntimeBuildIdentity | null;
+}
+
+export interface BackendRuntimeBuildIdentity {
+  commit: string | null;
+  imageDigest: string | null;
+  builtAt: string | null;
+  processStartedAt: string | null;
+  contractVersion: string | null;
+  vfxRuntimeRevision: string | null;
 }
 
 class BackendAuthRequestError extends Error {
@@ -65,8 +75,34 @@ const meEnvelopeSchema = z.object({
 
 const healthSchema = z.object({
   status: z.string().min(1),
-  service: z.string().optional()
+  service: z.string().optional(),
+  runtimeBuild: z
+    .object({
+      commit: z.string().nullable().optional(),
+      imageDigest: z.string().nullable().optional(),
+      builtAt: z.string().nullable().optional(),
+      processStartedAt: z.string().nullable().optional(),
+      contractVersion: z.string().nullable().optional(),
+      vfxRuntimeRevision: z.string().nullable().optional()
+    })
+    .optional()
 });
+
+function readHealthRuntimeBuild(
+  value: z.infer<typeof healthSchema>["runtimeBuild"]
+): BackendRuntimeBuildIdentity | null {
+  if (!value) return null;
+  const field = (candidate: string | null | undefined) =>
+    typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+  return {
+    commit: field(value.commit),
+    imageDigest: field(value.imageDigest),
+    builtAt: field(value.builtAt),
+    processStartedAt: field(value.processStartedAt),
+    contractVersion: field(value.contractVersion),
+    vfxRuntimeRevision: field(value.vfxRuntimeRevision)
+  };
+}
 
 function resolveBaseUrl(): string {
   const candidate = import.meta.env.VITE_BACKEND_API_BASE_URL as string | undefined;
@@ -127,12 +163,14 @@ export async function probeBackendHealth(
     const parsed = healthSchema.parse(payload);
     return {
       available: parsed.status.toLowerCase() === "ok",
-      service: parsed.service ?? null
+      service: parsed.service ?? null,
+      runtimeBuild: readHealthRuntimeBuild(parsed.runtimeBuild)
     };
   } catch {
     return {
       available: false,
-      service: null
+      service: null,
+      runtimeBuild: null
     };
   }
 }

@@ -30,6 +30,7 @@ import {
   useClampedDialogBounds,
   useDialogEscape
 } from "./useWorkspaceDialogLifecycle";
+import { cloneSceneObject } from "./workspaceSceneObjectClone";
 
 export interface AdjustLocationDialogState {
   objectIds: string[];
@@ -128,13 +129,21 @@ export function reconcileItemPropertiesDialogWithScene(input: {
   }
 
   const nextDraft = buildItemPropertiesDraft(liveObject);
-  if (areItemPropertiesDraftsEqual(current.draft, nextDraft)) {
+  const draftMatchesLiveObject = areItemPropertiesDraftsEqual(current.draft, nextDraft);
+  const snapshotMatchesLiveObject = areItemPropertiesDraftsEqual(
+    buildItemPropertiesDraft(current.snapshotObject),
+    nextDraft
+  );
+  if (draftMatchesLiveObject && snapshotMatchesLiveObject) {
     return current;
   }
 
   return {
     ...current,
-    draft: nextDraft
+    draft: draftMatchesLiveObject ? current.draft : nextDraft,
+    snapshotObject: snapshotMatchesLiveObject
+      ? current.snapshotObject
+      : cloneSceneObject(liveObject)
   };
 }
 
@@ -326,7 +335,11 @@ export function useWorkspaceObjectDialogEffects({
         return null;
       }
 
-      const nextDraft = buildCreaturePropertiesDraft(liveObject);
+      const nextDraft = buildCreaturePropertiesDraft(
+        liveObject,
+        scene.placeableBodyBagCatalog,
+        scene.placeableFactionCatalog,
+      );
       if (areCreaturePropertiesDraftsEqual(current.draft, nextDraft)) {
         return current;
       }
@@ -336,7 +349,7 @@ export function useWorkspaceObjectDialogEffects({
         draft: nextDraft
       };
     });
-  }, [scene.objects, setCreaturePropertiesDialog]);
+  }, [scene.objects, scene.placeableBodyBagCatalog, setCreaturePropertiesDialog]);
 
   useEffect(() => {
     setItemPropertiesDialog((current) => {

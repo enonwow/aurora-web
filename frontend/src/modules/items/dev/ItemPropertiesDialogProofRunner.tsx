@@ -31,7 +31,7 @@ function resolveDialogProofTab(value: string | null): ItemPropertiesTab {
     value === "visual" ||
     value === "colors" ||
     value === "properties" ||
-    value === "scripts" ||
+    value === "variables" ||
     value === "comments"
     ? value
     : "colors";
@@ -193,10 +193,24 @@ export function ItemPropertiesDialogProofRunner() {
           updateItemMaterialColorDraftField={() => undefined}
           addItemPropertyEntry={() => undefined}
           updateItemPropertyEntry={() => undefined}
+          moveItemPropertyEntry={() => undefined}
           removeItemPropertyEntry={() => undefined}
-          addItemScriptEntry={() => undefined}
-          updateItemScriptEntry={() => undefined}
-          removeItemScriptEntry={() => undefined}
+          updateItemInventoryCoordinate={() => undefined}
+          moveItemInventoryEntry={() => undefined}
+          removeItemInventoryEntry={() => undefined}
+          itemInventoryBlueprintOptions={[]}
+          addItemInventoryBlueprintEntry={() => undefined}
+          addItemBlueprintInventoryEntry={() => undefined}
+          updateItemBlueprintInventoryEntry={() => undefined}
+          moveItemBlueprintInventoryEntry={() => undefined}
+          removeItemBlueprintInventoryEntry={() => undefined}
+          addItemBlueprintEquipmentEntry={() => undefined}
+          updateItemBlueprintEquipmentEntry={() => undefined}
+          removeItemBlueprintEquipmentEntry={() => undefined}
+          addItemVariable={() => undefined}
+          updateItemVariable={() => undefined}
+          moveItemVariable={() => undefined}
+          removeItemVariable={() => undefined}
           applyItemPropertiesDraft={() => undefined}
           itemAssetAccessToken={proof.accessToken}
         />

@@ -12,6 +12,10 @@ import {
   type AuroraAreaTilesetGroup
 } from "./auroraAreaEditing";
 import { createConservativeAuroraAreaEraserPlan } from "./auroraAreaEraser";
+import {
+  collectChangedAuroraAreaTileDefinitionIds as changedAreaTileDefinitionIds,
+  collectChangedAuroraAreaTopologyTiles,
+} from "./auroraAreaTileTopology";
 
 /** The palette item being evaluated at the pointer's current Area cell. */
 export type AuroraAreaPalettePlacement =
@@ -88,6 +92,7 @@ export interface AuroraAreaPlacementPreview {
   anchor: AuroraAreaCell;
   orientation?: 0 | 1 | 2 | 3;
   targetCells: AuroraAreaCell[];
+  resultTileIds: number[];
   valid: boolean;
   status: AuroraAreaPlacementPreviewStatus;
   code: AuroraAreaPlacementPreviewCode;
@@ -131,6 +136,9 @@ export function resolveAuroraAreaPlacementPreview(
           kind: "eraser",
           anchor,
           targetCells: result.plan.affectedCells,
+          resultTileIds: result.plan.replacements.map(
+            (replacement) => replacement.tile.tileId,
+          ),
           valid: true,
           status: "valid",
           code: "OK",
@@ -223,7 +231,12 @@ function resolveCrosserPreview(
   );
   const changedCells = result.ok ? changedAreaCells(payload.state, result.state) : [];
   return result.ok
-    ? validPreview("crosser", anchor, changedCells.length > 0 ? changedCells : targetCells)
+    ? validPreview(
+        "crosser",
+        anchor,
+        changedCells.length > 0 ? changedCells : targetCells,
+        changedAreaTileDefinitionIds(payload.state, result.state),
+      )
     : commandFailurePreview("crosser", anchor, targetCells, result);
 }
 
@@ -255,7 +268,12 @@ function resolveHeightPreview(
             ? "Tile height is already at Aurora's maximum of 32."
             : "Tile height is already at Aurora's minimum of 0."
         })
-      : validPreview("height", anchor, changedCells.length > 0 ? changedCells : [anchor])
+      : validPreview(
+          "height",
+          anchor,
+          changedCells.length > 0 ? changedCells : [anchor],
+          changedAreaTileDefinitionIds(payload.state, result.state),
+        )
     : commandFailurePreview("height", anchor, [anchor], result);
 }
 
@@ -303,7 +321,12 @@ function resolveTerrainPreview(
   }
   const changedCells = result.ok ? changedAreaCells(payload.state, result.state) : [];
   return result.ok
-    ? validPreview("terrain", anchor, changedCells.length > 0 ? changedCells : [anchor])
+    ? validPreview(
+        "terrain",
+        anchor,
+        changedCells.length > 0 ? changedCells : [anchor],
+        changedAreaTileDefinitionIds(payload.state, result.state),
+      )
     : commandFailurePreview("terrain", anchor, [anchor], result);
 }
 
@@ -311,18 +334,7 @@ function changedAreaCells(
   before: AuroraAreaEditingState,
   after: AuroraAreaEditingState
 ): AuroraAreaCell[] {
-  const beforeByCell = new Map(
-    before.tiles.map((tile) => [`${tile.row}:${tile.col}`, tile])
-  );
-  return after.tiles
-    .filter((tile) => {
-      const previous = beforeByCell.get(`${tile.row}:${tile.col}`);
-      return !previous ||
-        previous.tileId !== tile.tileId ||
-        previous.orientation !== tile.orientation ||
-        previous.height !== tile.height ||
-        previous.groupId !== tile.groupId;
-    })
+  return collectChangedAuroraAreaTopologyTiles(before, after)
     .map((tile) => ({ row: tile.row, col: tile.col }));
 }
 
@@ -337,7 +349,13 @@ function resolveGroupPreview(
   const targetCells = group ? groupCells(group, anchor, orientation) : [anchor];
   const result = placeAuroraAreaGroup(payload.state, payload.definition, groupId, anchor, orientation, selector);
   return result.ok
-    ? validPreview("group", anchor, targetCells, orientation)
+    ? validPreview(
+        "group",
+        anchor,
+        targetCells,
+        changedAreaTileDefinitionIds(payload.state, result.state),
+        orientation,
+      )
     : commandFailurePreview("group", anchor, targetCells, result, orientation);
 }
 
@@ -345,6 +363,7 @@ function validPreview(
   kind: AuroraAreaPalettePlacement["kind"],
   anchor: AuroraAreaCell,
   targetCells: AuroraAreaCell[],
+  resultTileIds: number[],
   orientation?: 0 | 1 | 2 | 3
 ): AuroraAreaPlacementPreview {
   return preview({
@@ -353,6 +372,7 @@ function validPreview(
     anchor,
     ...(orientation === undefined ? {} : { orientation }),
     targetCells,
+    resultTileIds,
     valid: true,
     status: "valid",
     code: "OK",
@@ -409,7 +429,10 @@ function groupCells(
   anchor: AuroraAreaCell,
   orientation: 0 | 1 | 2 | 3
 ): AuroraAreaCell[] {
-  return group.tileIds.map((_tileId, index) => {
+  return group.tileIds.flatMap((tileId, index) => {
+    if (tileId === null) {
+      return [];
+    }
     const row = Math.floor(index / group.columns);
     const col = index % group.columns;
     const rotated = rotateCell(row, col, group.columns, group.rows, orientation);
@@ -434,11 +457,21 @@ function withinBounds(state: AuroraAreaEditingState, cell: AuroraAreaCell): bool
   return cell.row >= 0 && cell.col >= 0 && cell.row < state.height && cell.col < state.width;
 }
 
-function preview(value: AuroraAreaPlacementPreview): AuroraAreaPlacementPreview {
+type AuroraAreaPlacementPreviewDraft = Omit<
+  AuroraAreaPlacementPreview,
+  "resultTileIds"
+> & {
+  resultTileIds?: number[];
+};
+
+function preview(value: AuroraAreaPlacementPreviewDraft): AuroraAreaPlacementPreview {
   return {
     ...value,
     anchor: copyCell(value.anchor),
-    targetCells: value.targetCells.map(copyCell)
+    targetCells: value.targetCells.map(copyCell),
+    resultTileIds: [...new Set(value.resultTileIds ?? [])].sort(
+      (left, right) => left - right,
+    ),
   };
 }
 

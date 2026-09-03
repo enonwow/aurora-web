@@ -236,7 +236,12 @@ function resolveDevProxiedDeliveryUrl(deliveryUrl: string, deliveryOrigin: strin
   if (!import.meta.env.DEV || !deliveryUrl.startsWith("/api/")) {
     return deliveryUrl;
   }
-  if (!isViteDevServerOrigin(deliveryOrigin)) {
+  // The default asset origin deliberately remains the direct backend so cache
+  // identities stay stable.  In a Vite page, though, relative /api delivery
+  // paths have to use the same-origin proxy; the browser cannot assume it may
+  // reach that loopback origin directly.
+  const browserOrigin = globalThis.location?.origin;
+  if (!isViteDevServerOrigin(browserOrigin) && !isViteDevServerOrigin(deliveryOrigin)) {
     return deliveryUrl;
   }
   return deliveryUrl.replace(/^\/api/u, DEV_BACKEND_PROXY_PREFIX);

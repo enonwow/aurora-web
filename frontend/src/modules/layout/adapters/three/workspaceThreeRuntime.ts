@@ -9,33 +9,68 @@ import type { AreaScene } from "../../contracts";
 import {
   clearPlaceableModelLoadQueue,
   clearPlaceableTextureLoadQueue,
+  createAuroraTextureCycleRuntime,
   PLACEABLE_TEXTURE_ANISOTROPY_CAP,
   PLACEABLE_MODEL_LOAD_CONCURRENCY_LIMIT,
   PLACEABLE_MODEL_LOAD_STARTS_PER_FRAME_LIMIT,
   PLACEABLE_SHARED_MODEL_GEOMETRY_FLAG,
   PLACEABLE_SHARED_MODEL_MATERIAL_FLAG,
+  type AuroraTextureCycleRuntime,
   type PlaceableModelFetch,
   type PlaceableTextureFetch
 } from "../../../placeables/adapters/three/placeableThreeAssetLoader";
 import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
+import { AuroraRetailBloomPass } from "./auroraRetailBloomPass";
+import {
+  advanceAuroraVfxCanonicalRuntimePlayback,
+  seekAuroraVfxCanonicalRuntimePlayback,
+  updateAuroraVfxCanonicalCameraBillboards
+} from "./auroraVfxCanonicalRenderer";
+import { installAuroraVfxRenderQueueSort } from "./auroraVfxRenderQueue";
 import { disposeGridLayer } from "./workspaceGridLayer";
+import { resolveAuroraAreaRenderTileHeight } from "./workspaceAreaRenderCoordinates";
 
 const MIN_ZOOM_DISTANCE = 1.2;
 const MAX_ZOOM_DISTANCE = 220;
 const LIGHT_COLOR = 0xffffff;
 const BACKGROUND_COLOR = 0x0c1420;
+const AUTH_PROTECTED_GLTF_TEXTURE_DEPENDENCY_PATTERN =
+  /\/(?:_aurora\/v1|api\/v1)\/settings\/runtime\/module-cache\/textures\//u;
+const CONTRACT_DDS_TEXTURE_PLACEHOLDER_DATA_URL =
+  "data:image/vnd-ms.dds;base64,RERTIHwAAAAPEAAAAQAAAAEAAAAEAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAABBAAAAAAAAACAAAAAAAP8AAP8AAP8AAAAAAAD/ABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ORBIT_MOUSE_DISABLED = -1 as unknown as THREE.MOUSE;
 const ORBIT_CONTROLS_Y_UP = new THREE.Vector3(0, 1, 0);
 const DEFAULT_CAMERA_FOV_DEGREES = 55;
 const TOP_DOWN_ORACLE_CAMERA_FOV_DEGREES = 5;
 const TOP_DOWN_ORACLE_AREA_FRAME_MARGIN = 1.12;
+const CAMERA_FRAME_FOV_DENOMINATOR_EPSILON = 1e-6;
+const AREA_CAMERA_BOUNDS_POLICY =
+  "footprint_xz_connected_visible_terrain/v1";
+const AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON = 1e-6;
+const AREA_CAMERA_EXCLUDED_MESH_SAMPLE_LIMIT = 8;
+
+function resolvePerspectiveFrameDistance(
+  span: number,
+  fieldOfViewRadians: number
+): number {
+  return span / Math.max(
+    CAMERA_FRAME_FOV_DENOMINATOR_EPSILON,
+    2 * Math.tan(fieldOfViewRadians / 2)
+  );
+}
 const WORKSPACE_PLACEABLE_MODEL_LOAD_CONCURRENCY_LIMIT =
   PLACEABLE_MODEL_LOAD_CONCURRENCY_LIMIT;
 const WORKSPACE_PLACEABLE_MODEL_LOAD_STARTS_PER_FRAME_LIMIT =
   PLACEABLE_MODEL_LOAD_STARTS_PER_FRAME_LIMIT;
 
+// Keep the framing distance expressed as the real camera-to-target distance.
+// The previous per-axis multipliers made the actual orbit radius ~37% larger
+// than the calculated distance, which left small Aurora areas visibly under-framed.
+const SCENE_FRAME_CAMERA_DIRECTION = new THREE.Vector3(0.78, 0.82, 0.78).normalize();
+
 export interface RuntimeState {
   renderer: THREE.WebGLRenderer;
+  auroraRetailBloomPass?: AuroraRetailBloomPass;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
@@ -49,6 +84,10 @@ export interface RuntimeState {
   objectLayer: THREE.Group;
   objectMeshById: Map<string, THREE.Object3D>;
   objectAnimationMixersById: Map<string, RuntimeObjectAnimationPlayback>;
+  auroraTextureCycleRuntimesByObjectId: Map<
+    string,
+    RuntimeAuroraTextureCyclePlayback
+  >;
   objectPrimitiveGeometryCache: Map<string, THREE.BufferGeometry>;
   boundsLayer: THREE.Group;
   boundsHelpers: THREE.BoxHelper[];
@@ -75,6 +114,7 @@ export interface RuntimeState {
   placeableModelLoadStartsPerFrameLimit: number;
   axesHelper: THREE.AxesHelper;
   frameId: number | null;
+  auroraTextureCycleFrameSerial: number;
   resizeObserver: ResizeObserver | null;
 }
 
@@ -95,8 +135,15 @@ export interface RuntimeObjectAnimationPlayback {
     deltaSeconds?: number,
     elapsedSeconds?: number,
     animationTimeSeconds?: number,
-    animationCompleted?: boolean
+    animationCompleted?: boolean,
+    rendererFrameSerial?: number,
+    rendererDeltaSeconds?: number
   ) => void;
+}
+
+export interface RuntimeAuroraTextureCyclePlayback {
+  root: THREE.Object3D;
+  runtime: AuroraTextureCycleRuntime;
 }
 
 export interface RuntimeObjectAnimationClipRun {
@@ -388,14 +435,32 @@ interface SceneCameraFramingOptions {
   topDownDistance?: number;
 }
 
-interface SceneFrameBounds {
+export interface SceneFrameBounds {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
   minZ: number;
   maxZ: number;
-  source: "aurora_tile_list_and_git_objects" | "scene_dimensions" | "runtime_object_bounds";
+  source:
+    | "aurora_tile_list_and_git_objects"
+    | "scene_dimensions"
+    | "runtime_object_bounds"
+    | "runtime_terrain_bounds";
+}
+
+export interface CameraFrameCoverage {
+  status: "pass" | "failed";
+  clippedCornerCount: number;
+  minimumNdcMargin: number;
+}
+
+interface VisibleTerrainBoundsResolution {
+  cameraBounds: THREE.Box3;
+  observedBounds: THREE.Box3;
+  excludedMeshCount: number;
+  excludedMeshSample: string[];
+  expansionRatio: number;
 }
 
 interface OrbitControlsCameraUpCache {
@@ -431,6 +496,36 @@ export function applyPlaceableAssetRequestHeaders(
   if ("placeableModelRequestHeader" in runtime) {
     runtime.placeableModelRequestHeader = requestHeader;
   }
+}
+
+export function resolveAuroraGltfTextureDependencyUrl(url: string): string {
+  // GLTFLoader falls back to TextureLoader/ImageLoader when createImageBitmap
+  // is unavailable (including some proof/browser environments). ImageLoader
+  // cannot attach our Bearer header, so protected external texture URIs emit a
+  // 401 even though the Aurora render contract subsequently binds the same
+  // material through the authenticated shared texture pipeline. Substitute a
+  // neutral decodeable DDS pixel for that redundant GLTF dependency. Aurora
+  // GLBs declare these URIs through MSFT_texture_dds, so a PNG would still be
+  // sent through DDSLoader and corrupt its parser. The contract
+  // texture application remains authoritative and is covered by runtime map
+  // readiness.
+  return AUTH_PROTECTED_GLTF_TEXTURE_DEPENDENCY_PATTERN.test(url)
+    ? CONTRACT_DDS_TEXTURE_PLACEHOLDER_DATA_URL
+    : url;
+}
+
+export function createAuroraGltfLoadingManager(
+  onProtectedTextureDependency?: (url: string) => void
+): THREE.LoadingManager {
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) => {
+    const resolvedUrl = resolveAuroraGltfTextureDependencyUrl(url);
+    if (resolvedUrl !== url) {
+      onProtectedTextureDependency?.(url);
+    }
+    return resolvedUrl;
+  });
+  return manager;
 }
 
 export function applyOrbitPointerBindings(
@@ -477,6 +572,7 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
     stencil: true,
     powerPreference: "high-performance"
   });
+  installAuroraVfxRenderQueueSort(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(BACKGROUND_COLOR, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -513,6 +609,14 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
 
   const ambient = new THREE.AmbientLight(LIGHT_COLOR, 0.68);
   const directional = new THREE.DirectionalLight(LIGHT_COLOR, 0.78);
+  ambient.name = "workspace-default-preview-ambient-light";
+  directional.name = "workspace-default-preview-directional-light";
+  ambient.userData.auroraWorkspaceDefaultPreviewLight = true;
+  directional.userData.auroraWorkspaceDefaultPreviewLight = true;
+  ambient.userData.auroraWorkspaceDefaultPreviewLightSource =
+    "Aurora Web workspace visibility helper; not an Aurora runtime light";
+  directional.userData.auroraWorkspaceDefaultPreviewLightSource =
+    "Aurora Web workspace visibility helper; not an Aurora runtime light";
   directional.position.set(16, 26, 10);
   scene.add(ambient);
   scene.add(directional);
@@ -545,8 +649,22 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
   gizmoLayer.name = "scene-gizmo-overlay";
   scene.add(gizmoLayer);
 
+  const placeableModelLoadingManager = createAuroraGltfLoadingManager((url) => {
+    const previousCount = Number(
+      container.dataset.placeableModelProtectedTextureDependencySubstitutionCount ?? 0
+    );
+    container.dataset.placeableModelProtectedTextureDependencySubstitutionCount = String(
+      previousCount + 1
+    );
+    container.dataset.placeableModelProtectedTextureDependencySubstitutionStatus =
+      "contract-texture-pipeline-authoritative";
+    container.dataset.placeableModelProtectedTextureDependencySample =
+      url.split("?")[0]?.slice(-160) ?? "protected-texture";
+  });
+
   const runtime: RuntimeState = {
     renderer,
+    auroraRetailBloomPass: new AuroraRetailBloomPass(),
     scene,
     camera,
     controls,
@@ -560,6 +678,10 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
     objectLayer,
     objectMeshById: new Map<string, THREE.Object3D>(),
     objectAnimationMixersById: new Map<string, RuntimeObjectAnimationPlayback>(),
+    auroraTextureCycleRuntimesByObjectId: new Map<
+      string,
+      RuntimeAuroraTextureCyclePlayback
+    >(),
     objectPrimitiveGeometryCache: new Map<string, THREE.BufferGeometry>(),
     boundsLayer,
     boundsHelpers: [],
@@ -578,7 +700,7 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
     ),
     placeableTextureCacheByUrl: new Map<string, THREE.Texture>(),
     placeableTexturePendingByUrl: new Map<string, Promise<THREE.Texture | null>>(),
-    placeableModelLoader: new GLTFLoader(),
+    placeableModelLoader: new GLTFLoader(placeableModelLoadingManager),
     placeableModelFetch: window.fetch.bind(window),
     placeableModelRequestHeader: {},
     placeableModelCacheByUrl: new Map<string, THREE.Object3D>(),
@@ -589,6 +711,7 @@ export function createRuntime(container: HTMLDivElement): RuntimeState {
     placeableModelLoadStartsPerFrameLimit: WORKSPACE_PLACEABLE_MODEL_LOAD_STARTS_PER_FRAME_LIMIT,
     axesHelper,
     frameId: null,
+    auroraTextureCycleFrameSerial: 0,
     resizeObserver: null
   };
   return runtime;
@@ -603,13 +726,68 @@ function ensureRuntimeObjectAnimationMixerMap(
   return runtime.objectAnimationMixersById;
 }
 
+function ensureRuntimeAuroraTextureCycleMap(
+  runtime: RuntimeState
+): Map<string, RuntimeAuroraTextureCyclePlayback> {
+  if (!runtime.auroraTextureCycleRuntimesByObjectId) {
+    runtime.auroraTextureCycleRuntimesByObjectId = new Map<
+      string,
+      RuntimeAuroraTextureCyclePlayback
+    >();
+  }
+  return runtime.auroraTextureCycleRuntimesByObjectId;
+}
+
+function writeRuntimeAuroraTextureCyclePlaybackUserData(
+  playback: RuntimeAuroraTextureCyclePlayback
+): void {
+  const snapshots = playback.runtime.snapshots();
+  playback.root.userData = {
+    ...playback.root.userData,
+    auroraTextureCycleRuntimeStatus: "active",
+    auroraTextureCycleRuntimeMode: "aurora-global-resource-frame-clock",
+    auroraTextureCycleRuntimeTextureCount: playback.runtime.textureCount,
+    auroraTextureCycleRuntimeMaterialCount: playback.runtime.materialCount,
+    auroraTextureCycleRuntimeReferences: playback.runtime.references,
+    auroraTextureCycleRuntimeSnapshots: snapshots,
+    auroraTextureCycleRuntimeFrameIndices: snapshots.map(
+      (snapshot) => snapshot.frameIndex
+    ),
+    auroraTextureCycleRuntimeAccumulators: snapshots.map(
+      (snapshot) => snapshot.accumulatorSeconds
+    ),
+    auroraTextureCycleRuntimeLastRendererFrameSerials: snapshots.map(
+      (snapshot) => snapshot.lastRendererFrameSerial
+    ),
+    auroraTextureCycleRuntimeFrameAdvanceCounts: snapshots.map(
+      (snapshot) => snapshot.frameAdvanceCount
+    )
+  };
+}
+
 export function writeRuntimeObjectAnimationDataset(runtime: RuntimeState): void {
   const registry = ensureRuntimeObjectAnimationMixerMap(runtime);
+  const textureCycleRegistry = ensureRuntimeAuroraTextureCycleMap(runtime);
   const playbacks = Array.from(registry.entries());
   const creatureRuntimeRoots = Array.from(runtime.objectMeshById.entries()).filter(
     ([, root]) => root.userData?.objectKind === "creatures"
   );
   runtime.container.dataset.objectAnimationMixerCount = String(registry.size);
+  runtime.container.dataset.auroraTextureCycleRuntimeObjectCount = String(
+    textureCycleRegistry.size
+  );
+  runtime.container.dataset.auroraTextureCycleRuntimeObjectIds = Array.from(
+    textureCycleRegistry.keys()
+  ).join("|");
+  runtime.container.dataset.auroraTextureCycleRuntimeReferences = Array.from(
+    new Set(
+      Array.from(textureCycleRegistry.values()).flatMap(
+        (entry) => entry.runtime.references
+      )
+    )
+  )
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
   runtime.container.dataset.objectAnimationMixerActionNames = playbacks
     .flatMap(([, entry]) => entry.actionNames)
     .join("|");
@@ -1341,7 +1519,30 @@ export function clearRuntimeObjectAnimationPlaybacks(runtime: RuntimeState): voi
     entry.mixer.uncacheRoot(entry.root);
   });
   registry.clear();
+  ensureRuntimeAuroraTextureCycleMap(runtime).clear();
   writeRuntimeObjectAnimationDataset(runtime);
+}
+
+export function registerRuntimeAuroraTextureCyclePlayback(
+  runtime: RuntimeState,
+  objectId: string,
+  root: THREE.Object3D
+): AuroraTextureCycleRuntime | null {
+  const textureCycleRuntime = createAuroraTextureCycleRuntime(root);
+  const registry = ensureRuntimeAuroraTextureCycleMap(runtime);
+  if (!textureCycleRuntime) {
+    registry.delete(objectId);
+    return null;
+  }
+  const playback: RuntimeAuroraTextureCyclePlayback = {
+    root,
+    runtime: textureCycleRuntime
+  };
+  registry.set(objectId, playback);
+  textureCycleRuntime.apply(0, 0);
+  writeRuntimeAuroraTextureCyclePlaybackUserData(playback);
+  writeRuntimeObjectAnimationDataset(runtime);
+  return textureCycleRuntime;
 }
 
 export function registerRuntimeObjectAnimationPlayback(
@@ -1550,6 +1751,15 @@ export function updateRuntimeObjectAnimationPlaybacks(
   }
   const registry = ensureRuntimeObjectAnimationMixerMap(runtime);
   const clampedDeltaSeconds = Math.min(deltaSeconds, 0.1);
+  runtime.auroraTextureCycleFrameSerial =
+    (Number.isFinite(runtime.auroraTextureCycleFrameSerial)
+      ? runtime.auroraTextureCycleFrameSerial
+      : 0) + 1;
+  const rendererFrameSerial = runtime.auroraTextureCycleFrameSerial;
+  ensureRuntimeAuroraTextureCycleMap(runtime).forEach((entry) => {
+    entry.runtime.apply(deltaSeconds, undefined, rendererFrameSerial);
+    writeRuntimeAuroraTextureCyclePlaybackUserData(entry);
+  });
   registry.forEach((entry) => {
     if (!entry.autoplay && entry.clipCount > 0) {
       if (entry.applyInitialPose) {
@@ -1559,7 +1769,9 @@ export function updateRuntimeObjectAnimationPlaybacks(
           0,
           entry.elapsedSeconds,
           effectTiming.animationTimeSeconds,
-          effectTiming.animationCompleted
+          effectTiming.animationCompleted,
+          rendererFrameSerial,
+          deltaSeconds
         );
       }
       return;
@@ -1577,7 +1789,9 @@ export function updateRuntimeObjectAnimationPlaybacks(
       clampedDeltaSeconds,
       nextElapsedSeconds,
       effectTiming.animationTimeSeconds,
-      effectTiming.animationCompleted
+      effectTiming.animationCompleted,
+      rendererFrameSerial,
+      deltaSeconds
     );
     entry.elapsedSeconds = nextElapsedSeconds;
     entry.root.userData = {
@@ -1587,7 +1801,291 @@ export function updateRuntimeObjectAnimationPlaybacks(
     };
     mirrorRuntimeObjectAnimationRunUserData(entry);
   });
+  runtime.objectLayer.traverse((object) => {
+    advanceAuroraVfxCanonicalRuntimePlayback(
+      object,
+      clampedDeltaSeconds,
+      rendererFrameSerial,
+      deltaSeconds
+    );
+  });
   writeRuntimeObjectAnimationDataset(runtime);
+}
+
+export interface RuntimeAuroraVfxCanonicalPlaybackState {
+  rootCount: number;
+  frameCount: number;
+  frameIndex: number;
+  elapsedSeconds: number;
+  durationSeconds: number;
+  visibleFrameCount: number;
+  visibleDrawMeshCount: number;
+  visibleDrawParticleCount: number;
+  visibleMappedMaterialCount: number;
+  visibleAlphaMappedMaterialCount: number;
+  visibleTextureReferences: string[];
+  visibleDrawBoundsCenter: number[];
+  visibleDrawBoundsSize: number[];
+  playbackRootSamples: Array<Record<string, unknown>>;
+  visibleDrawMeshSamples: Array<Record<string, unknown>>;
+  completed: boolean;
+}
+
+export function seekRuntimeAuroraVfxCanonicalPlaybacks(
+  runtime: RuntimeState,
+  elapsedSeconds: number
+): number {
+  let soughtRootCount = 0;
+  runtime.objectLayer.traverse((object) => {
+    if (seekAuroraVfxCanonicalRuntimePlayback(object, elapsedSeconds)) {
+      soughtRootCount += 1;
+    }
+  });
+  return soughtRootCount;
+}
+
+export function readRuntimeAuroraVfxCanonicalPlaybackState(
+  runtime: RuntimeState
+): RuntimeAuroraVfxCanonicalPlaybackState {
+  let rootCount = 0;
+  let frameCount = 0;
+  let frameIndex = 0;
+  let elapsedSeconds = 0;
+  let durationSeconds = 0;
+  let visibleFrameCount = 0;
+  let visibleDrawMeshCount = 0;
+  let visibleDrawParticleCount = 0;
+  let visibleMappedMaterialCount = 0;
+  let visibleAlphaMappedMaterialCount = 0;
+  const visibleTextureReferences = new Set<string>();
+  const visibleDrawBounds = new THREE.Box3();
+  const playbackRootSamples: Array<Record<string, unknown>> = [];
+  const visibleDrawMeshSamples: Array<Record<string, unknown>> = [];
+  runtime.camera.updateMatrixWorld(true);
+  const cameraFrustum = new THREE.Frustum().setFromProjectionMatrix(
+    new THREE.Matrix4().multiplyMatrices(
+      runtime.camera.projectionMatrix,
+      runtime.camera.matrixWorldInverse
+    )
+  );
+  let completed = false;
+  runtime.objectLayer.traverse((object) => {
+    const runtimeFrames = object.children.filter(
+      (child) => child.userData.auroraVfxCanonicalRuntimeFrame === true
+    );
+    if (
+      object.userData.auroraVfxCanonicalRuntimePlayback !== true ||
+      runtimeFrames.length === 0
+    ) {
+      return;
+    }
+    rootCount += 1;
+    playbackRootSamples.push({
+      name: object.name,
+      visible: object.visible,
+      parentName: object.parent?.name ?? "",
+      runtimeFrameCount: runtimeFrames.length,
+      visibleRuntimeFrameCount: runtimeFrames.filter((frame) => frame.visible).length
+    });
+    frameCount = Math.max(
+      frameCount,
+      Number(object.userData.auroraVfxCanonicalRuntimePlaybackFrameCount) || 0
+    );
+    frameIndex = Math.max(
+      frameIndex,
+      Number(object.userData.auroraVfxCanonicalRuntimePlaybackFrameIndex) || 0
+    );
+    elapsedSeconds = Math.max(
+      elapsedSeconds,
+      Number(object.userData.auroraVfxCanonicalRuntimePlaybackElapsedSeconds) || 0
+    );
+    durationSeconds = Math.max(
+      durationSeconds,
+      Number(object.userData.auroraVfxCanonicalRuntimePlaybackDurationSeconds) || 0
+    );
+    const visibleFrames = runtimeFrames.filter((child) => child.visible);
+    visibleFrameCount += visibleFrames.length;
+    visibleFrames.forEach((frame) => {
+      frame.traverse((node) => {
+        if (!(node instanceof THREE.Mesh) || !node.visible) return;
+        if (node.userData.auroraVfxCanonicalDrawMesh !== true) return;
+        visibleDrawMeshCount += 1;
+        visibleDrawParticleCount +=
+          Number(node.userData.auroraVfxCanonicalDrawParticleCount) || 0;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        const primaryMap = (
+          materials[0] as THREE.Material & { map?: THREE.Texture | null }
+        )?.map ?? null;
+        const textureImage = primaryMap?.image as
+          | { width?: unknown; height?: unknown; data?: unknown }
+          | undefined;
+        const textureImageDataCandidate = textureImage?.data;
+        const textureImageData =
+          ArrayBuffer.isView(textureImageDataCandidate) &&
+          !(textureImageDataCandidate instanceof DataView)
+            ? (textureImageDataCandidate as unknown as ArrayLike<number>)
+            : null;
+        let textureImageChannelMin = Number.POSITIVE_INFINITY;
+        let textureImageChannelMax = Number.NEGATIVE_INFINITY;
+        const textureImageComponentMin = [
+          Number.POSITIVE_INFINITY,
+          Number.POSITIVE_INFINITY,
+          Number.POSITIVE_INFINITY,
+          Number.POSITIVE_INFINITY
+        ];
+        const textureImageComponentMax = [
+          Number.NEGATIVE_INFINITY,
+          Number.NEGATIVE_INFINITY,
+          Number.NEGATIVE_INFINITY,
+          Number.NEGATIVE_INFINITY
+        ];
+        if (textureImageData) {
+          for (let index = 0; index < textureImageData.length; index += 1) {
+            const value = Number(textureImageData[index]);
+            textureImageChannelMin = Math.min(textureImageChannelMin, value);
+            textureImageChannelMax = Math.max(textureImageChannelMax, value);
+            const component = index % 4;
+            textureImageComponentMin[component] = Math.min(
+              textureImageComponentMin[component]!,
+              value
+            );
+            textureImageComponentMax[component] = Math.max(
+              textureImageComponentMax[component]!,
+              value
+            );
+          }
+        }
+        materials.forEach((material) => {
+          const mappedMaterial = material as THREE.Material & {
+            map?: THREE.Texture | null;
+            alphaMap?: THREE.Texture | null;
+          };
+          if (mappedMaterial.map) visibleMappedMaterialCount += 1;
+          if (mappedMaterial.alphaMap) visibleAlphaMappedMaterialCount += 1;
+        });
+        const textureReference = node.userData.auroraVfxCanonicalTextureReference;
+        if (typeof textureReference === "string" && textureReference.length > 0) {
+          visibleTextureReferences.add(textureReference);
+        }
+        visibleDrawBounds.expandByObject(node, true);
+        node.geometry.computeBoundingSphere();
+        node.updateWorldMatrix(true, false);
+        const worldSphere = node.geometry.boundingSphere
+          ?.clone()
+          .applyMatrix4(node.matrixWorld);
+        const position = node.geometry.getAttribute("position");
+        let firstTriangleFacingDot: number | null = null;
+        if (position && position.count >= 3) {
+          const first = new THREE.Vector3()
+            .fromBufferAttribute(position, 0)
+            .applyMatrix4(node.matrixWorld);
+          const second = new THREE.Vector3()
+            .fromBufferAttribute(position, 1)
+            .applyMatrix4(node.matrixWorld);
+          const third = new THREE.Vector3()
+            .fromBufferAttribute(position, 2)
+            .applyMatrix4(node.matrixWorld);
+          const frontNormal = new THREE.Vector3()
+            .crossVectors(second.clone().sub(first), third.clone().sub(first));
+          const triangleCenter = first.clone().add(second).add(third).multiplyScalar(1 / 3);
+          const towardCamera = runtime.camera.position.clone().sub(triangleCenter);
+          if (frontNormal.lengthSq() > 1e-16 && towardCamera.lengthSq() > 1e-16) {
+            firstTriangleFacingDot = frontNormal.normalize().dot(towardCamera.normalize());
+          }
+        }
+        visibleDrawMeshSamples.push({
+          name: node.name,
+          parentName: node.parent?.name ?? "",
+          ancestorChain: buildObjectAncestorChain(node),
+          frustumCulled: node.frustumCulled,
+          intersectsCameraFrustum: cameraFrustum.intersectsObject(node),
+          layersMask: node.layers.mask,
+          cameraLayersMask: runtime.camera.layers.mask,
+          materialVisible: materials.every((material) => material.visible),
+          worldBoundingSphereCenter: worldSphere?.center.toArray() ?? [],
+          worldBoundingSphereRadius: worldSphere?.radius ?? 0,
+          worldMatrixDeterminant: node.matrixWorld.determinant(),
+          parentWorldMatrixDeterminant: node.parent?.matrixWorld.determinant() ?? null,
+          parentWorldScale:
+            node.parent?.getWorldScale(new THREE.Vector3()).toArray() ?? [],
+          textureRepeat: primaryMap?.repeat.toArray() ?? [],
+          textureOffset: primaryMap?.offset.toArray() ?? [],
+          textureCenter: primaryMap?.center.toArray() ?? [],
+          textureRotation: primaryMap?.rotation ?? null,
+          textureMatrixAutoUpdate: primaryMap?.matrixAutoUpdate ?? null,
+          textureImageWidth: Number(textureImage?.width ?? 0),
+          textureImageHeight: Number(textureImage?.height ?? 0),
+          textureImageDataLength: textureImageData?.length ?? 0,
+          textureImageChannelMin: Number.isFinite(textureImageChannelMin)
+            ? textureImageChannelMin
+            : null,
+          textureImageChannelMax: Number.isFinite(textureImageChannelMax)
+            ? textureImageChannelMax
+            : null,
+          textureImageComponentMin: textureImageComponentMin.map((value) =>
+            Number.isFinite(value) ? value : null
+          ),
+          textureImageComponentMax: textureImageComponentMax.map((value) =>
+            Number.isFinite(value) ? value : null
+          ),
+          textureAtlasTransformOwnership:
+            primaryMap?.userData.auroraVfxCanonicalParticleAtlasTransformOwnership ?? "",
+          uvRange: {
+            uMin: Number(node.geometry.userData.auroraVfxCanonicalUvAttributeUMin ?? 0),
+            uMax: Number(node.geometry.userData.auroraVfxCanonicalUvAttributeUMax ?? 0),
+            vMin: Number(node.geometry.userData.auroraVfxCanonicalUvAttributeVMin ?? 0),
+            vMax: Number(node.geometry.userData.auroraVfxCanonicalUvAttributeVMax ?? 0)
+          },
+          alphaRange: {
+            min: Number(node.geometry.userData.auroraVfxCanonicalAlphaAttributeMin ?? 0),
+            max: Number(node.geometry.userData.auroraVfxCanonicalAlphaAttributeMax ?? 0)
+          },
+          firstTriangleFacingDot,
+          effectiveFrontFacingDot:
+            firstTriangleFacingDot === null
+              ? null
+              : firstTriangleFacingDot * Math.sign(node.matrixWorld.determinant()),
+          renderOrder: node.renderOrder
+        });
+      });
+    });
+    completed =
+      completed || object.userData.auroraVfxCanonicalRuntimePlaybackCompleted === true;
+  });
+  const visibleDrawBoundsCenter = new THREE.Vector3();
+  const visibleDrawBoundsSize = new THREE.Vector3();
+  if (!visibleDrawBounds.isEmpty()) {
+    visibleDrawBounds.getCenter(visibleDrawBoundsCenter);
+    visibleDrawBounds.getSize(visibleDrawBoundsSize);
+  }
+  return {
+    rootCount,
+    frameCount,
+    frameIndex,
+    elapsedSeconds,
+    durationSeconds,
+    visibleFrameCount,
+    visibleDrawMeshCount,
+    visibleDrawParticleCount,
+    visibleMappedMaterialCount,
+    visibleAlphaMappedMaterialCount,
+    visibleTextureReferences: Array.from(visibleTextureReferences),
+    visibleDrawBoundsCenter: visibleDrawBoundsCenter.toArray(),
+    visibleDrawBoundsSize: visibleDrawBoundsSize.toArray(),
+    playbackRootSamples,
+    visibleDrawMeshSamples,
+    completed
+  };
+}
+
+function buildObjectAncestorChain(object: THREE.Object3D): string[] {
+  const chain: string[] = [];
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    chain.push(`${current.name || current.type}:visible=${current.visible}`);
+    current = current.parent;
+  }
+  return chain;
 }
 
 function advanceRuntimeObjectAnimationRunBlendWeights(
@@ -2079,6 +2577,7 @@ export function disposeRuntime(runtime: RuntimeState): void {
   runtime.scene.remove(runtime.transformAnchor);
 
   runtime.controls.dispose();
+  runtime.auroraRetailBloomPass?.dispose();
   runtime.renderer.dispose();
   runtime.renderer.domElement.remove();
 }
@@ -2087,8 +2586,28 @@ export function resizeRuntime(runtime: RuntimeState): void {
   const width = Math.max(1, Math.floor(runtime.container.clientWidth));
   const height = Math.max(1, Math.floor(runtime.container.clientHeight));
   runtime.renderer.setSize(width, height, false);
+  runtime.renderer.getDrawingBufferSize(runtimeDrawingBufferSize);
+  runtime.auroraRetailBloomPass?.setSize(
+    runtimeDrawingBufferSize.x,
+    runtimeDrawingBufferSize.y
+  );
   runtime.camera.aspect = width / height;
   runtime.camera.updateProjectionMatrix();
+}
+
+const runtimeDrawingBufferSize = new THREE.Vector2();
+
+export function renderRuntime(runtime: RuntimeState): void {
+  if (runtime.auroraRetailBloomPass) {
+    runtime.auroraRetailBloomPass.render(runtime.renderer, runtime.scene, runtime.camera);
+    return;
+  }
+  renderRuntimeWithoutPostprocess(runtime);
+}
+
+export function renderRuntimeWithoutPostprocess(runtime: RuntimeState): void {
+  updateAuroraVfxCanonicalCameraBillboards(runtime.scene, runtime.camera);
+  runtime.renderer.render(runtime.scene, runtime.camera);
 }
 
 export function centerCameraForScene(
@@ -2138,11 +2657,9 @@ export function centerCameraForScene(
 
   runtime.controls.target.set(centerX, targetHeight, centerY);
   setRuntimeCameraUp(runtime, 0, 1, 0);
-  runtime.camera.position.set(
-    centerX + distance * 0.78,
-    targetHeight + distance * 0.82,
-    centerY + distance * 0.78
-  );
+  runtime.camera.position
+    .copy(runtime.controls.target)
+    .addScaledVector(SCENE_FRAME_CAMERA_DIRECTION, distance);
   runtime.camera.near = Math.max(0.05, Math.min(0.25, runtime.controls.minDistance * 0.24));
   runtime.camera.far = Math.max(1000, runtime.controls.maxDistance * 6);
   runtime.camera.updateProjectionMatrix();
@@ -2156,6 +2673,11 @@ export function centerCameraForScene(
     targetY: targetHeight,
     targetZ: centerY
   });
+  // A repeated Fit Area must use already-loaded GLB bounds immediately; the
+  // ready-event path below performs the same refit when models arrive later.
+  if (auroraAreaFrame) {
+    refitFocusedPerspectiveCameraForVisibleTerrain(runtime);
+  }
 }
 
 export function centerCameraForRuntimeObjectPreview(runtime: RuntimeState): boolean {
@@ -2178,9 +2700,11 @@ export function centerCameraForRuntimeObjectPreview(runtime: RuntimeState): bool
       : Math.max(0.35, runtime.container.clientWidth / Math.max(1, runtime.container.clientHeight));
   const verticalFov = THREE.MathUtils.degToRad(runtime.camera.fov);
   const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
-  const verticalDistance = sizeY / Math.max(0.1, 2 * Math.tan(verticalFov / 2));
-  const horizontalDistance =
-    Math.max(sizeX, sizeZ) / Math.max(0.1, 2 * Math.tan(horizontalFov / 2));
+  const verticalDistance = resolvePerspectiveFrameDistance(sizeY, verticalFov);
+  const horizontalDistance = resolvePerspectiveFrameDistance(
+    Math.max(sizeX, sizeZ),
+    horizontalFov
+  );
   const distance = Math.max(1.45, verticalDistance, horizontalDistance, span * 1.2) * 1.7;
   const direction = new THREE.Vector3(0.78, 0.82, 0.78).normalize();
 
@@ -2248,8 +2772,14 @@ export function setTopDownOracleCameraForScene(
       : Math.max(0.35, runtime.container.clientWidth / Math.max(1, runtime.container.clientHeight));
   const verticalFov = THREE.MathUtils.degToRad(runtime.camera.fov);
   const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
-  const horizontalDistance = sizeX / Math.max(0.1, 2 * Math.tan(horizontalFov / 2));
-  const verticalDistance = sizeZ / Math.max(0.1, 2 * Math.tan(verticalFov / 2));
+  const horizontalDistance = resolvePerspectiveFrameDistance(
+    sizeX,
+    horizontalFov
+  );
+  const verticalDistance = resolvePerspectiveFrameDistance(
+    sizeZ,
+    verticalFov
+  );
   const targetHeight =
     typeof options.topDownTargetY === "number" && Number.isFinite(options.topDownTargetY)
       ? options.topDownTargetY
@@ -2304,6 +2834,309 @@ export function applyTopDownOracleCameraLock(runtime: RuntimeState): boolean {
   runtime.camera.updateMatrixWorld(true);
   writeCameraFramePoseDataset(runtime);
   return true;
+}
+
+/**
+ * Once source-backed terrain GLBs are loaded, their geometry can extend below
+ * or beyond the logical 1x1 tile footprint (pits, bridges and cave entries).
+ * The initial camera frame only knows the ARE grid, so reframe from visible
+ * terrain bounds to keep an oracle top-down view from clipping those models.
+ */
+export function refitTopDownOracleCameraForVisibleTerrain(runtime: RuntimeState): boolean {
+  if (runtime.container.dataset.areaCameraFrameMode !== "top_down_oracle") {
+    return false;
+  }
+  const terrainBounds = resolveVisibleTerrainBounds(runtime);
+  if (!terrainBounds) return false;
+  const bounds = terrainBounds.cameraBounds;
+
+  const sizeX = Math.max(0.4, bounds.max.x - bounds.min.x);
+  const sizeZ = Math.max(0.4, bounds.max.z - bounds.min.z);
+  const targetX = (bounds.min.x + bounds.max.x) / 2;
+  const targetZ = (bounds.min.z + bounds.max.z) / 2;
+  const previousTarget = parseCameraFrameTarget(runtime.container.dataset.areaCameraFrameTarget);
+  const targetY = previousTarget?.y ?? 0;
+  setRuntimeCameraFov(runtime, TOP_DOWN_ORACLE_CAMERA_FOV_DEGREES);
+  const aspect = runtime.camera.aspect > 0 ? runtime.camera.aspect : 1;
+  const verticalFov = THREE.MathUtils.degToRad(runtime.camera.fov);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+  const horizontalDistance = resolvePerspectiveFrameDistance(
+    sizeX,
+    horizontalFov
+  );
+  const verticalDistance = resolvePerspectiveFrameDistance(
+    sizeZ,
+    verticalFov
+  );
+  const footprintDistance =
+    Math.max(horizontalDistance, verticalDistance) * TOP_DOWN_ORACLE_AREA_FRAME_MARGIN;
+  const distance = Math.max(
+    4.2,
+    footprintDistance + Math.max(0, bounds.max.y - targetY)
+  );
+  runtime.controls.minDistance = Math.max(0.55, Math.max(sizeX, sizeZ) * 0.08);
+  runtime.controls.maxDistance = Math.max(512, Math.max(sizeX, sizeZ) * 32, distance * 12);
+  runtime.controls.target.set(targetX, targetY, targetZ);
+  setRuntimeCameraUp(runtime, 0, 0, 1);
+  runtime.camera.position.set(targetX, targetY + distance, targetZ);
+  runtime.camera.lookAt(targetX, targetY, targetZ);
+  runtime.camera.near = Math.max(0.05, Math.min(0.25, runtime.controls.minDistance * 0.24));
+  runtime.camera.far = Math.max(1000, runtime.controls.maxDistance * 6);
+  runtime.camera.updateProjectionMatrix();
+  writeSceneFrameDataset(
+    runtime,
+    {
+      minX: bounds.min.x,
+      maxX: bounds.max.x,
+      minY: bounds.min.y,
+      maxY: bounds.max.y,
+      minZ: bounds.min.z,
+      maxZ: bounds.max.z,
+      source: "runtime_terrain_bounds"
+    },
+    {
+      distance,
+      mode: "top_down_oracle",
+      sizeX,
+      sizeZ,
+      targetX,
+      targetY,
+      targetZ
+    }
+  );
+  writeVisibleTerrainBoundsPolicyDataset(runtime, terrainBounds);
+  runtime.controls.update();
+  return true;
+}
+
+/**
+ * The proof runner can request a deliberately angled view of one newly placed
+ * group.  Aurora tile models routinely extend beyond the 1x1 ARE footprint
+ * (particularly trees, cave entrances and overhangs), so retaining the
+ * requested distance after model loading can clip valid geometry at the
+ * viewport edge.  Refit that focused perspective to the full visible terrain
+ * sphere while retaining the requested yaw and elevation.
+ */
+export function refitFocusedPerspectiveCameraForVisibleTerrain(runtime: RuntimeState): boolean {
+  const frameMode = runtime.container.dataset.areaCameraFrameMode;
+  if (frameMode !== "focused_perspective" && frameMode !== "perspective_orbit") {
+    return false;
+  }
+  const terrainBounds = resolveVisibleTerrainBounds(runtime);
+  if (!terrainBounds) return false;
+  const bounds = terrainBounds.cameraBounds;
+
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const radius = Math.max(0.35, sphere.radius);
+  const offset = runtime.camera.position.clone().sub(runtime.controls.target);
+  const viewDirection = offset.lengthSq() > 0.000001
+    ? offset.normalize()
+    : new THREE.Vector3(1, 1, 1).normalize();
+  const aspect = runtime.camera.aspect > 0 ? runtime.camera.aspect : 1;
+  const verticalFov = THREE.MathUtils.degToRad(runtime.camera.fov);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+  const limitingHalfFov = Math.max(THREE.MathUtils.degToRad(2), Math.min(verticalFov, horizontalFov) / 2);
+  // The bounding-sphere distance is the minimum distance that guarantees the
+  // complete terrain bounds fit at the current aspect ratio. Multiplying it by
+  // less than one made wide Areas appear ready while their corners were
+  // visibly clipped after Full View resized the canvas (for example a 32x20
+  // scv01 Area at aspect ~= 1). Keep a small proof-safe margin for Area
+  // framing; focused object captures retain their wider allowance.
+  const frameAllowance = frameMode === "perspective_orbit" ? 1.04 : 1.16;
+  const distance = Math.max(0.9, (radius / Math.sin(limitingHalfFov)) * frameAllowance);
+
+  runtime.controls.minDistance = Math.max(0.55, radius * 0.12);
+  runtime.controls.maxDistance = Math.max(512, radius * 64, distance * 12);
+  runtime.controls.target.copy(sphere.center);
+  setRuntimeCameraUp(runtime, 0, 1, 0);
+  runtime.camera.position.copy(sphere.center).addScaledVector(viewDirection, distance);
+  runtime.camera.lookAt(sphere.center);
+  runtime.camera.near = Math.max(0.05, Math.min(0.25, distance * 0.04));
+  runtime.camera.far = Math.max(1000, distance * 48);
+  runtime.camera.updateProjectionMatrix();
+  runtime.camera.updateMatrixWorld(true);
+  runtime.container.dataset.areaCameraFrameStatus =
+    frameMode === "perspective_orbit"
+      ? "fit-selected-area-visible-terrain"
+      : "focused-perspective-visible-terrain";
+  const frameSource = runtime.container.dataset.areaCameraFrameSource ?? "runtime";
+  runtime.container.dataset.areaCameraFrameSource = frameSource.includes("+visible-terrain-bounds")
+    ? frameSource
+    : `${frameSource}+visible-terrain-bounds`;
+  runtime.container.dataset.areaCameraFrameTarget = formatFrameVector(sphere.center);
+  runtime.container.dataset.areaCameraFrameDistance = distance.toFixed(3);
+  runtime.container.dataset.areaCameraFrameAllowance = frameAllowance.toFixed(2);
+  runtime.container.dataset.areaCameraFrameSize = `${(bounds.max.x - bounds.min.x).toFixed(3)}x${(bounds.max.z - bounds.min.z).toFixed(3)}`;
+  runtime.container.dataset.areaCameraFrameZoomRange = `${runtime.controls.minDistance.toFixed(3)}..${runtime.controls.maxDistance.toFixed(3)}`;
+  runtime.container.dataset.areaCameraFrameRuntimeBounds = `${formatFrameVector(bounds.min)}..${formatFrameVector(bounds.max)}`;
+  writeCameraFramePoseDataset(runtime);
+  writeCameraFrameTerrainBindingDataset(runtime, {
+    minX: bounds.min.x,
+    maxX: bounds.max.x,
+    minY: bounds.min.y,
+    maxY: bounds.max.y,
+    minZ: bounds.min.z,
+    maxZ: bounds.max.z,
+    source: "runtime_terrain_bounds"
+  });
+  writeVisibleTerrainBoundsPolicyDataset(runtime, terrainBounds);
+  runtime.controls.update();
+  return true;
+}
+
+function resolveVisibleTerrainBounds(
+  runtime: RuntimeState
+): VisibleTerrainBoundsResolution | null {
+  runtime.container.dataset.areaCameraFrameBoundsPolicy =
+    AREA_CAMERA_BOUNDS_POLICY;
+  const footprintLayer = runtime.scene.getObjectByName(
+    "terrain-area-extent-footprint"
+  );
+  if (!footprintLayer) {
+    writeMissingTerrainFootprintPolicyDataset(runtime);
+    return null;
+  }
+
+  const footprintBounds = resolveVisibleLayerBounds(footprintLayer);
+  if (!footprintBounds) {
+    writeMissingTerrainFootprintPolicyDataset(runtime);
+    return null;
+  }
+
+  const cameraBounds = footprintBounds.clone();
+  const observedBounds = footprintBounds.clone();
+  let excludedMeshCount = 0;
+  const excludedMeshSample: string[] = [];
+  const terrainLayer = runtime.scene.getObjectByName(
+    "terrain-backend-tile-models"
+  );
+  if (terrainLayer) {
+    terrainLayer.updateWorldMatrix(true, true);
+    terrainLayer.traverse((node) => {
+      if (!(node instanceof THREE.Mesh) || !isObjectHierarchyVisible(node, terrainLayer)) {
+        return;
+      }
+      const meshBounds = resolveMeshWorldBounds(node);
+      if (!meshBounds) return;
+      observedBounds.union(meshBounds);
+      if (boundsIntersectInXZ(meshBounds, footprintBounds)) {
+        // A connected overhang, bridge, cave mouth or other legitimate Aurora
+        // mesh contributes its complete 3D extent once any part of its XZ AABB
+        // meets the logical Area footprint.
+        cameraBounds.union(meshBounds);
+        return;
+      }
+      excludedMeshCount += 1;
+      if (excludedMeshSample.length < AREA_CAMERA_EXCLUDED_MESH_SAMPLE_LIMIT) {
+        excludedMeshSample.push(
+          `${node.name || "<unnamed>"}:${formatFrameVector(meshBounds.min)}..${formatFrameVector(meshBounds.max)}`
+        );
+      }
+    });
+  }
+
+  const cameraSpanX = Math.max(
+    AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON,
+    cameraBounds.max.x - cameraBounds.min.x
+  );
+  const cameraSpanZ = Math.max(
+    AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON,
+    cameraBounds.max.z - cameraBounds.min.z
+  );
+  const expansionRatio = Math.max(
+    (observedBounds.max.x - observedBounds.min.x) / cameraSpanX,
+    (observedBounds.max.z - observedBounds.min.z) / cameraSpanZ
+  );
+  return {
+    cameraBounds,
+    observedBounds,
+    excludedMeshCount,
+    excludedMeshSample,
+    expansionRatio
+  };
+}
+
+function resolveVisibleLayerBounds(layer: THREE.Object3D): THREE.Box3 | null {
+  const bounds = new THREE.Box3();
+  let hasVisibleMesh = false;
+  layer.updateWorldMatrix(true, true);
+  layer.traverse((node) => {
+    if (!(node instanceof THREE.Mesh) || !isObjectHierarchyVisible(node, layer)) {
+      return;
+    }
+    const meshBounds = resolveMeshWorldBounds(node);
+    if (!meshBounds) return;
+    bounds.union(meshBounds);
+    hasVisibleMesh = true;
+  });
+  return hasVisibleMesh && !bounds.isEmpty() ? bounds : null;
+}
+
+function resolveMeshWorldBounds(mesh: THREE.Mesh): THREE.Box3 | null {
+  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  if (!mesh.geometry.boundingBox || mesh.geometry.boundingBox.isEmpty()) {
+    return null;
+  }
+  return mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+}
+
+function isObjectHierarchyVisible(
+  object: THREE.Object3D,
+  layer: THREE.Object3D
+): boolean {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (!current.visible) return false;
+    if (current === layer) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function boundsIntersectInXZ(
+  candidate: THREE.Box3,
+  footprint: THREE.Box3
+): boolean {
+  return (
+    candidate.max.x + AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON >= footprint.min.x &&
+    candidate.min.x - AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON <= footprint.max.x &&
+    candidate.max.z + AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON >= footprint.min.z &&
+    candidate.min.z - AREA_CAMERA_BOUNDS_INTERSECTION_EPSILON <= footprint.max.z
+  );
+}
+
+function writeMissingTerrainFootprintPolicyDataset(runtime: RuntimeState): void {
+  runtime.container.dataset.areaCameraFrameBoundsPolicy =
+    AREA_CAMERA_BOUNDS_POLICY;
+  runtime.container.dataset.areaCameraFrameRuntimeBoundsPolicyStatus =
+    "logical_footprint_missing";
+  runtime.container.dataset.areaCameraFrameExcludedMeshCount = "0";
+  runtime.container.dataset.areaCameraFrameExcludedMeshSample = "";
+  runtime.container.dataset.areaCameraFrameRuntimeBoundsExpansionRatio = "nan";
+  delete runtime.container.dataset.areaCameraFrameObservedTerrainBounds;
+  delete runtime.container.dataset.areaCameraFrameCameraTerrainBounds;
+}
+
+function writeVisibleTerrainBoundsPolicyDataset(
+  runtime: RuntimeState,
+  resolution: VisibleTerrainBoundsResolution
+): void {
+  runtime.container.dataset.areaCameraFrameBoundsPolicy =
+    AREA_CAMERA_BOUNDS_POLICY;
+  runtime.container.dataset.areaCameraFrameObservedTerrainBounds =
+    `${formatFrameVector(resolution.observedBounds.min)}..${formatFrameVector(resolution.observedBounds.max)}`;
+  runtime.container.dataset.areaCameraFrameCameraTerrainBounds =
+    `${formatFrameVector(resolution.cameraBounds.min)}..${formatFrameVector(resolution.cameraBounds.max)}`;
+  runtime.container.dataset.areaCameraFrameExcludedMeshCount =
+    String(resolution.excludedMeshCount);
+  runtime.container.dataset.areaCameraFrameExcludedMeshSample =
+    resolution.excludedMeshSample.join("|");
+  runtime.container.dataset.areaCameraFrameRuntimeBoundsExpansionRatio =
+    formatFrameNumber(resolution.expansionRatio);
+  runtime.container.dataset.areaCameraFrameRuntimeBoundsPolicyStatus =
+    resolution.excludedMeshCount > 0
+      ? "runtime_bounds_outlier"
+      : "within_footprint_connected_bounds";
 }
 
 function parseCameraFrameTarget(value: string | undefined): THREE.Vector3 | null {
@@ -2386,8 +3219,12 @@ function resolveSceneFrameBounds(sceneData: AreaScene, objectPreview: boolean): 
   if (!objectPreview && sceneData.tiles.length > 0) {
     bounds.source = "aurora_tile_list_and_git_objects";
     sceneData.tiles.forEach((tile) => {
-      expandSceneFrameBounds(bounds, tile.col, tile.height ?? 0, tile.row);
-      expandSceneFrameBounds(bounds, tile.col + 1, (tile.height ?? 0) + 0.18, tile.row + 1);
+      const height = resolveAuroraAreaRenderTileHeight(
+        tile.height,
+        sceneData.auroraAreaEditing?.definition.defaults?.transition
+      );
+      expandSceneFrameBounds(bounds, tile.col, height, tile.row);
+      expandSceneFrameBounds(bounds, tile.col + 1, height + 0.18, tile.row + 1);
     });
   }
 
@@ -2550,10 +3387,16 @@ function resolveSceneFrameDistance(
       : Math.max(0.35, runtime.container.clientWidth / Math.max(1, runtime.container.clientHeight));
   const verticalFov = THREE.MathUtils.degToRad(runtime.camera.fov);
   const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
-  const horizontalDistance = sizeX / Math.max(0.1, 2 * Math.tan(horizontalFov / 2));
-  const verticalDistance = sizeZ / Math.max(0.1, 2 * Math.tan(verticalFov / 2));
+  const horizontalDistance = resolvePerspectiveFrameDistance(
+    sizeX,
+    horizontalFov
+  );
+  const verticalDistance = resolvePerspectiveFrameDistance(
+    sizeZ,
+    verticalFov
+  );
   if (auroraAreaFrame) {
-    return Math.max(4.2, Math.max(horizontalDistance, verticalDistance) * 1.14, span * 0.62);
+    return Math.max(2.6, Math.max(horizontalDistance, verticalDistance) * 1.14, span * 0.62);
   }
   return Math.max(4.2, Math.max(horizontalDistance, verticalDistance) * 2.05, span * 0.9);
 }
@@ -2579,6 +3422,78 @@ export function resolveSceneFrameMaxDistance(
   return Math.max(48, span * 8);
 }
 
+export function evaluateCameraFrameCoverage(
+  camera: THREE.PerspectiveCamera,
+  bounds: SceneFrameBounds
+): CameraFrameCoverage {
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const corners = [
+    [bounds.minX, bounds.minY, bounds.minZ],
+    [bounds.minX, bounds.minY, bounds.maxZ],
+    [bounds.minX, bounds.maxY, bounds.minZ],
+    [bounds.minX, bounds.maxY, bounds.maxZ],
+    [bounds.maxX, bounds.minY, bounds.minZ],
+    [bounds.maxX, bounds.minY, bounds.maxZ],
+    [bounds.maxX, bounds.maxY, bounds.minZ],
+    [bounds.maxX, bounds.maxY, bounds.maxZ]
+  ] as const;
+  let clippedCornerCount = 0;
+  let minimumNdcMargin = Number.POSITIVE_INFINITY;
+  corners.forEach(([x, y, z]) => {
+    const projected = new THREE.Vector3(x, y, z).project(camera);
+    const cornerMargin = Math.min(
+      1 - Math.abs(projected.x),
+      1 - Math.abs(projected.y),
+      projected.z + 1,
+      1 - projected.z
+    );
+    minimumNdcMargin = Math.min(minimumNdcMargin, cornerMargin);
+    if (
+      !Number.isFinite(projected.x) ||
+      !Number.isFinite(projected.y) ||
+      !Number.isFinite(projected.z) ||
+      cornerMargin < 0
+    ) {
+      clippedCornerCount += 1;
+    }
+  });
+  return {
+    status: clippedCornerCount === 0 ? "pass" : "failed",
+    clippedCornerCount,
+    minimumNdcMargin: Number.isFinite(minimumNdcMargin)
+      ? minimumNdcMargin
+      : Number.NEGATIVE_INFINITY
+  };
+}
+
+function writeCameraFrameTerrainBindingDataset(
+  runtime: RuntimeState,
+  bounds: SceneFrameBounds
+): void {
+  const coverage = evaluateCameraFrameCoverage(runtime.camera, bounds);
+  runtime.container.dataset.areaCameraFrameTerrainBuildId =
+    runtime.container.dataset.areaTerrainBuildId ?? "terrain-build-missing";
+  runtime.container.dataset.areaCameraFrameTileStateDigest =
+    runtime.container.dataset.areaTerrainTileStateDigest ??
+    "tile-state-digest-missing";
+  runtime.container.dataset.areaCameraFrameBoundsDigest = [
+    formatFrameNumber(bounds.minX),
+    formatFrameNumber(bounds.maxX),
+    formatFrameNumber(bounds.minY),
+    formatFrameNumber(bounds.maxY),
+    formatFrameNumber(bounds.minZ),
+    formatFrameNumber(bounds.maxZ),
+    bounds.source
+  ].join(":");
+  runtime.container.dataset.areaCameraFrameCoverageStatus = coverage.status;
+  runtime.container.dataset.areaCameraFrameClippedCornerCount = String(
+    coverage.clippedCornerCount
+  );
+  runtime.container.dataset.areaCameraFrameMinimumNdcMargin =
+    formatFrameNumber(coverage.minimumNdcMargin);
+}
+
 function writeSceneFrameDataset(
   runtime: RuntimeState,
   bounds: SceneFrameBounds,
@@ -2600,4 +3515,5 @@ function writeSceneFrameDataset(
   runtime.container.dataset.areaCameraFrameDistance = frame.distance.toFixed(3);
   runtime.container.dataset.areaCameraFrameZoomRange = `${runtime.controls.minDistance.toFixed(3)}..${runtime.controls.maxDistance.toFixed(3)}`;
   writeCameraFramePoseDataset(runtime);
+  writeCameraFrameTerrainBindingDataset(runtime, bounds);
 }

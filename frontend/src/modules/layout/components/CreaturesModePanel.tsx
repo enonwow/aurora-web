@@ -11,11 +11,7 @@ import {
   type CreatureCreationWizardStep,
   type CreatureWizardColorField
 } from "../../creatures/application/creatureCreationWizard";
-import {
-  AURORA_PLT_PALETTE_ROW_MAX,
-  ensureAuroraPltPaletteDataLoaded,
-  resolveAuroraPltPaletteRgbSync
-} from "../../placeables/adapters/aurora/auroraPltPalette";
+import type { CreatureAppearancePaletteFacade } from "../../creatures/application/creatureAppearancePaletteFacade";
 import type { SceneObject } from "../contracts";
 import { SceneObjectThumbnail } from "./SceneObjectThumbnail";
 
@@ -35,6 +31,7 @@ interface CreaturesModePanelProps {
   thumbnailRenderEnabled?: boolean;
   creationBaseObjects?: SceneObject[];
   createSequence?: number;
+  creatureAppearancePaletteFacade?: CreatureAppearancePaletteFacade;
 }
 
 function trimWorkspacePreviewLabel(label: string): string {
@@ -87,71 +84,108 @@ function readNumberInput(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizePltRowInput(value: string): number {
+function normalizePltRowInput(value: string, rowMax: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return 0;
   }
-  return Math.max(0, Math.min(AURORA_PLT_PALETTE_ROW_MAX, Math.trunc(parsed)));
+  return Math.max(0, Math.min(rowMax, Math.trunc(parsed)));
 }
 
 function buildCreatureWizardColorRows(
   field: CreatureWizardColorField,
-  currentValue: string
+  currentValue: string,
+  rowMax: number
 ): number[] {
   const picker = CREATURE_WIZARD_COLOR_PICKER_BY_FIELD[field];
-  const rows = [normalizePltRowInput(currentValue), ...picker.rows];
+  const rows = [normalizePltRowInput(currentValue, rowMax), ...picker.rows];
   return Array.from(new Set(rows));
 }
 
 function resolveCreatureWizardSwatchColor(
   field: CreatureWizardColorField,
-  row: number
+  row: number,
+  creatureAppearancePaletteFacade?: CreatureAppearancePaletteFacade
 ): string {
   const picker = CREATURE_WIZARD_COLOR_PICKER_BY_FIELD[field];
-  const rgb = resolveAuroraPltPaletteRgbSync(
+  const rgba = creatureAppearancePaletteFacade?.queries.resolveRgba(
     picker.layerIndex,
     row,
     CREATURE_WIZARD_PLT_SWATCH_SAMPLE_INDEX
   );
-  if (rgb) {
-    return `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`;
+  if (rgba) {
+    return `rgb(${rgba[0]} ${rgba[1]} ${rgba[2]})`;
   }
-  const lightness = 34 + (row / AURORA_PLT_PALETTE_ROW_MAX) * 34;
+  const rowMax = Math.max(1, creatureAppearancePaletteFacade?.rowMax ?? 1);
+  const lightness = 34 + Math.min(1, row / rowMax) * 34;
   return `hsl(${picker.fallbackHue} 58% ${lightness}%)`;
 }
 
 function CreatureWizardColorPicker({
   field,
   value,
-  onChange
+  onChange,
+  creatureAppearancePaletteFacade
 }: {
   field: { id: CreatureWizardColorField; label: string };
   value: string;
   onChange: (value: string) => void;
+  creatureAppearancePaletteFacade?: CreatureAppearancePaletteFacade;
 }) {
   const [, setPaletteRefresh] = useState(0);
-  const selectedRow = normalizePltRowInput(value);
+  const [paletteState, setPaletteState] = useState<
+    "loading" | "ready" | "fallback"
+  >(creatureAppearancePaletteFacade ? "loading" : "fallback");
+  const rowMax = creatureAppearancePaletteFacade?.rowMax ?? 0;
+  const selectedRow = normalizePltRowInput(value, rowMax);
   const swatchRows = useMemo(
-    () => buildCreatureWizardColorRows(field.id, value),
-    [field.id, value]
+    () => buildCreatureWizardColorRows(field.id, value, rowMax),
+    [field.id, rowMax, value]
   );
-  const selectedColor = resolveCreatureWizardSwatchColor(field.id, selectedRow);
+  const selectedColor = resolveCreatureWizardSwatchColor(
+    field.id,
+    selectedRow,
+    creatureAppearancePaletteFacade
+  );
 
   useEffect(() => {
+    if (!creatureAppearancePaletteFacade) {
+      setPaletteState("fallback");
+      return undefined;
+    }
+    setPaletteState("loading");
     let isMounted = true;
-    void ensureAuroraPltPaletteDataLoaded().then(() => {
-      if (isMounted) {
-        setPaletteRefresh((version) => version + 1);
-      }
-    });
+    void creatureAppearancePaletteFacade.queries
+      .ensureLoaded()
+      .then((loaded) => {
+        if (isMounted) {
+          setPaletteState(loaded ? "ready" : "fallback");
+          setPaletteRefresh((version) => version + 1);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setPaletteState("fallback");
+          setPaletteRefresh((version) => version + 1);
+        }
+      });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [creatureAppearancePaletteFacade]);
+
+  const paletteDiagnostic = !creatureAppearancePaletteFacade
+    ? "Creature appearance palette facade is unavailable; fallback colors are active."
+    : paletteState === "fallback"
+      ? "Creature appearance palette data is unavailable; fallback colors are active."
+      : undefined;
 
   return (
-    <div className="creatures-mode-wizard-color-picker">
+    <div
+      className="creatures-mode-wizard-color-picker"
+      data-palette-state={paletteState}
+      title={paletteDiagnostic}
+    >
       <label>
         <span>{field.label}</span>
         <div className="creatures-mode-wizard-color-value">
@@ -180,7 +214,13 @@ function CreatureWizardColorPicker({
             }`}
             key={row}
             onClick={() => onChange(String(row))}
-            style={{ backgroundColor: resolveCreatureWizardSwatchColor(field.id, row) }}
+            style={{
+              backgroundColor: resolveCreatureWizardSwatchColor(
+                field.id,
+                row,
+                creatureAppearancePaletteFacade
+              )
+            }}
             title={`${field.label} row ${row}`}
             type="button"
           />
@@ -211,7 +251,8 @@ export function CreaturesModePanel({
   previewErrorMessage,
   thumbnailRenderEnabled = true,
   creationBaseObjects,
-  createSequence
+  createSequence,
+  creatureAppearancePaletteFacade
 }: CreaturesModePanelProps) {
   const wizardBaseObjects = creationBaseObjects ?? objects;
   const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -545,6 +586,7 @@ export function CreaturesModePanel({
               <div className="creatures-mode-wizard-colors" aria-label="plt color controls">
                 {CREATURE_WIZARD_COLOR_FIELDS.map((field) => (
                   <CreatureWizardColorPicker
+                    creatureAppearancePaletteFacade={creatureAppearancePaletteFacade}
                     field={field}
                     key={field.id}
                     value={wizardDraft.colors[field.id]}

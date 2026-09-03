@@ -7,13 +7,21 @@ import {
   fetchPlaceableViewportRenderPayload,
   type PlaceableViewportRenderPayload
 } from "../../placeables/application/placeableRenderPayloadResolver";
+import {
+  resolvePlaceableModelResolution,
+  resolvePlaceableTextureDeliveryUrlsByReference,
+  resolvePlaceableVfxChunkModelDeliveryUrlsByAssetId
+} from "../../placeables/application/placeableRenderAssetResolver";
 import type { PlaceableApiSubtypeHint } from "../../placeables/contracts";
 import {
   applyPlaceableAssetRequestHeaders,
   centerCameraForScene,
   createRuntime,
   disposeRuntime,
+  readRuntimeAuroraVfxCanonicalPlaybackState,
+  renderRuntime,
   resizeRuntime,
+  seekRuntimeAuroraVfxCanonicalPlaybacks,
   updateRuntimeObjectAnimationPlaybacks
 } from "../../layout/adapters/three/workspaceThreeRuntime";
 import { rebuildGridLayer } from "../../layout/adapters/three/workspaceGridLayer";
@@ -21,9 +29,24 @@ import {
   rebuildObjectMeshes,
   writePlaceableTwoDaLightRenderDiagnostics
 } from "../../layout/adapters/three/workspaceObjectMeshLayer";
+import { PLACEABLE_MODEL_STATUS_EVENT } from "../../layout/adapters/three/workspacePlaceableModelPresentation";
 import { writeAuroraScenePointLightDiagnostics } from "../../layout/adapters/three/workspaceSceneLightDiagnostics";
+import { probeBackendHealth, type BackendRuntimeBuildIdentity } from "../../auth/adapters/httpBackendAuthFacade";
+import {
+  createVfxRuntimeObservabilityReport,
+  registerVfxRuntimeExpectedAssets,
+  setVfxRuntimeAssetBound,
+  type VfxRuntimeExpectedAsset,
+  type VfxRuntimeProfile
+} from "../application/vfxRuntimeObservability";
 
 const CATALOG_VFX_PREVIEW_PATH = "/dev/catalog-vfx-preview";
+const CATALOG_VFX_PREVIEW_RUNTIME_REVISION =
+  "catalog-vfx-preview-settlement-and-host-telemetry-v1";
+const catalogVfxPreviewPayloadRequestByKey = new Map<
+  string,
+  Promise<PlaceableViewportRenderPayload>
+>();
 const DEFAULT_TEMPLATE_ID = "plc_zlc_o45";
 const DEFAULT_SUBTYPE_HINT: PlaceableApiSubtypeHint = "vfx";
 const DEFAULT_TIME_SECONDS = 0.32;
@@ -42,17 +65,24 @@ const CATALOG_PREVIEW_AREA_SHADOW_OPACITY_FACTOR_SOURCE =
   "decompiled_all.c:256306 stores ShadowOpacity/100, then shadow plane alpha multiplies that factor at decompiled_all.c:910844";
 const CATALOG_PREVIEW_AUTH_SESSION_STORAGE_KEY = "aurora_web.auth_session.v1";
 const CATALOG_PREVIEW_DEFAULT_API_BASE_URL = "/_aurora/v1";
+const emptyCatalogVfxObservabilityRuntime = {};
 
 declare global {
   interface Window {
     __auroraCatalogVfxPreviewForceRender?: () => boolean;
+    __auroraCatalogVfxPreviewBeginDeterministicCapture?: () => boolean;
+    __auroraCatalogVfxPreviewRenderAtTime?: (elapsedSeconds: number) => unknown;
+    __auroraCatalogVfxPreviewGetPlaybackState?: () => unknown;
+    __auroraCatalogVfxPreviewGetRuntimeObservability?: () => unknown;
   }
 }
 
 type RunnerStatus = "loading" | "ready" | "error";
 type CatalogVfxEmitterProofMode = "off" | "obvious";
-type CatalogVfxEmitterCameraTarget = "source-mdl" | "flame";
+type CatalogVfxEmitterCameraTarget = "placeable" | "source-mdl" | "flame";
 type CatalogVfxTextureSourceOverride = "module" | "hak" | "vanilla";
+type CatalogVfxPreviewBackdrop = "default" | "neutral";
+type CatalogVfxDebugProfile = VfxRuntimeProfile;
 
 interface PixelSignal {
   objectVisible: boolean;
@@ -111,7 +141,22 @@ interface RunnerSnapshot {
   placeableModelTextureLoaded: number | null;
   placeableModelTextureCount: number | null;
   placeableModelTextureSource: string;
+  sourceMdlStaticGeometryNodeCount: number;
+  sourceMdlStaticGeometryNodes: string[];
   sourceMdlPayloadReady: boolean;
+  auroraVfxPayloadReady: boolean;
+  auroraVfxBackendPayloadReady: boolean;
+  auroraVfxBackendCanonical: boolean;
+  auroraVfxCanonicalStatus: string;
+  auroraVfxPreviewMode: string;
+  auroraVfxRenderer: string;
+  auroraVfxCanonicalRenderer: boolean;
+  auroraVfxCanonicalPlaceableComposition: boolean;
+  auroraVfxCanonicalPlaceableCompositionMode: string;
+  auroraVfxCanonicalPlaceableCompositionReason: string;
+  auroraVfxCanonicalLightSibling: boolean;
+  auroraVfxCanonicalLightSiblingMode: string;
+  auroraVfxDiagnosticCodes: string[];
   sourceMdlEmitterPreviewStatus: string;
   sourceMdlEmitterPreviewMode: string;
   sourceMdlEmitterPreviewVisibilityMode: string;
@@ -122,6 +167,7 @@ interface RunnerSnapshot {
   emitterCameraDistanceScale: number | null;
   emitterCameraOrbitDeg: number | null;
   emitterCameraTarget: CatalogVfxEmitterCameraTarget;
+  previewBackdrop: CatalogVfxPreviewBackdrop;
   emitterAxisDebug: boolean;
   emitterSource: string;
   emitterCount: number;
@@ -288,6 +334,8 @@ interface RunnerSnapshot {
   sceneShadowAreaOpacitySource: string;
   sceneShadowAreaOpacityFactor: number | null;
   sceneShadowAreaOpacityFactorSource: string;
+  placeableWorldBoundsCenter: number[];
+  placeableWorldBoundsSize: number[];
   emitterWorldBoundsCenter: number[];
   emitterWorldBoundsSize: number[];
   cameraPosition: number[];
@@ -296,6 +344,7 @@ interface RunnerSnapshot {
   materialFallbackApplied: boolean;
   campfireCoreCount: number;
   campfireCoreSamples: string[];
+  vfxRuntimeObservability: ReturnType<typeof createVfxRuntimeObservabilityReport>;
 }
 
 export function isCatalogVfxPreviewRunnerPath(pathname: string): boolean {
@@ -332,7 +381,10 @@ export interface CatalogVfxPreviewRouteRequest {
   emitterCameraDistanceScale: number | null;
   emitterCameraOrbitDeg: number | null;
   emitterCameraTarget: CatalogVfxEmitterCameraTarget;
+  previewBackdrop: CatalogVfxPreviewBackdrop;
   emitterAxisDebug: boolean;
+  vfxDebugOverlay: boolean;
+  debugProfile: CatalogVfxDebugProfile;
   apiBaseUrl: string;
 }
 
@@ -391,7 +443,18 @@ function readOptionalFiniteNumberQuery(value: string | null): number | null {
 
 function readEmitterCameraTargetQuery(value: string | null): CatalogVfxEmitterCameraTarget {
   const normalized = value?.trim().toLowerCase();
+  if (normalized === "placeable" || normalized === "model") {
+    return "placeable";
+  }
   return normalized === "flame" || normalized === "omenemitter250" ? "flame" : "source-mdl";
+}
+
+function readPreviewBackdropQuery(value: string | null): CatalogVfxPreviewBackdrop {
+  return value?.trim().toLowerCase() === "neutral" ? "neutral" : "default";
+}
+
+function readCatalogVfxDebugProfileQuery(value: string | null): CatalogVfxDebugProfile {
+  return value?.trim().toLowerCase() === "final" ? "final" : "development";
 }
 
 function readTextureSourceOverrideQuery(
@@ -513,9 +576,15 @@ export function readCatalogVfxPreviewRouteRequest(
     emitterCameraTarget: readEmitterCameraTargetQuery(
       params.get("cameraTarget") ?? params.get("emitterCameraTarget")
     ),
+    previewBackdrop: readPreviewBackdropQuery(params.get("proofBackdrop")),
     emitterAxisDebug: readOptionalBooleanQuery(
       params.get("emitterAxisDebug") ?? params.get("axisDebug")
     ) === true,
+    vfxDebugOverlay:
+      readOptionalBooleanQuery(params.get("vfxDebugOverlay") ?? params.get("debugOverlay")) === true,
+    debugProfile: readCatalogVfxDebugProfileQuery(
+      params.get("debugProfile") ?? params.get("proofProfile")
+    ),
     apiBaseUrl: readApiBaseUrlQuery(params.get("apiBaseUrl"))
   };
 }
@@ -571,43 +640,37 @@ export function applyCatalogVfxPreviewShadowSizeOverride(
   };
 }
 
-function resolveDirectApiBase(apiBaseUrl: string): URL | null {
+function resolveCatalogPreviewApiBase(apiBaseUrl: string): URL | null {
   try {
-    const resolved = new URL(apiBaseUrl, window.location.origin);
-    return resolved.origin === window.location.origin ? null : resolved;
+    return new URL(apiBaseUrl, window.location.origin);
   } catch {
     return null;
   }
 }
 
-function rewriteCatalogVfxPreviewDeliveryUrl(value: string, directApiBase: URL): string {
+function rewriteCatalogVfxPreviewDeliveryUrl(value: string, apiBase: URL): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
     return value;
   }
-  const directOrigin = directApiBase.origin;
-  const directBasePath = directApiBase.pathname.replace(/\/+$/u, "");
-  const rewritePath = (pathname: string, suffix: string): string =>
-    `${directOrigin}${pathname}${suffix}`;
+  const targetOrigin = apiBase.origin === window.location.origin ? "" : apiBase.origin;
+  const targetBasePath = apiBase.pathname.replace(/\/+$/u, "");
+  const rewritePath = (suffix: string): string => `${targetOrigin}${targetBasePath}${suffix}`;
 
   if (normalized.startsWith("/_aurora/v1/")) {
-    return rewritePath(directBasePath, normalized.slice("/_aurora/v1".length));
+    return rewritePath(normalized.slice("/_aurora/v1".length));
   }
   if (normalized.startsWith("/api/v1/")) {
-    return rewritePath("/api/v1", normalized.slice("/api/v1".length));
-  }
-  if (normalized.startsWith("/api/")) {
-    return rewritePath("/api", normalized.slice("/api".length));
+    return rewritePath(normalized.slice("/api/v1".length));
   }
 
   try {
     const parsed = new URL(normalized);
-    const isCurrentOrigin = parsed.origin === window.location.origin;
-    if (isCurrentOrigin && parsed.pathname.startsWith("/_aurora/v1/")) {
-      return `${directOrigin}${directBasePath}${parsed.pathname.slice("/_aurora/v1".length)}${parsed.search}${parsed.hash}`;
+    if (parsed.pathname.startsWith("/_aurora/v1/")) {
+      return `${rewritePath(parsed.pathname.slice("/_aurora/v1".length))}${parsed.search}${parsed.hash}`;
     }
-    if (isCurrentOrigin && parsed.pathname.startsWith("/api/")) {
-      return `${directOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (parsed.pathname.startsWith("/api/v1/")) {
+      return `${rewritePath(parsed.pathname.slice("/api/v1".length))}${parsed.search}${parsed.hash}`;
     }
   } catch {
     // Non-URL source strings are preserved.
@@ -617,21 +680,21 @@ function rewriteCatalogVfxPreviewDeliveryUrl(value: string, directApiBase: URL):
 
 function rewriteCatalogVfxPreviewDeliveryUrlsDeep(
   value: unknown,
-  directApiBase: URL
+  apiBase: URL
 ): unknown {
   if (typeof value === "string") {
-    return rewriteCatalogVfxPreviewDeliveryUrl(value, directApiBase);
+    return rewriteCatalogVfxPreviewDeliveryUrl(value, apiBase);
   }
   if (Array.isArray(value)) {
     return value.map((entry) =>
-      rewriteCatalogVfxPreviewDeliveryUrlsDeep(entry, directApiBase)
+      rewriteCatalogVfxPreviewDeliveryUrlsDeep(entry, apiBase)
     );
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonRecord).map(([key, entry]) => [
         key,
-        rewriteCatalogVfxPreviewDeliveryUrlsDeep(entry, directApiBase)
+        rewriteCatalogVfxPreviewDeliveryUrlsDeep(entry, apiBase)
       ])
     );
   }
@@ -642,14 +705,148 @@ export function rewriteCatalogVfxPreviewPayloadDeliveryUrls(
   payload: PlaceableViewportRenderPayload,
   apiBaseUrl: string
 ): PlaceableViewportRenderPayload {
-  const directApiBase = resolveDirectApiBase(apiBaseUrl);
-  if (!directApiBase) {
+  const apiBase = resolveCatalogPreviewApiBase(apiBaseUrl);
+  if (!apiBase) {
     return payload;
   }
   return rewriteCatalogVfxPreviewDeliveryUrlsDeep(
     payload,
-    directApiBase
+    apiBase
   ) as PlaceableViewportRenderPayload;
+}
+
+export function buildCatalogVfxExpectedRuntimeAssets(
+  payload: PlaceableViewportRenderPayload
+): VfxRuntimeExpectedAsset[] {
+  const assetsByKey = new Map<string, VfxRuntimeExpectedAsset>();
+  const register = (asset: VfxRuntimeExpectedAsset) => {
+    const key = asset.key.trim();
+    if (key.length === 0 || assetsByKey.has(key)) return;
+    assetsByKey.set(key, { ...asset, key });
+  };
+  const modelResolution = resolvePlaceableModelResolution(payload);
+  if (modelResolution.modelUrl) {
+    register({
+      key: modelResolution.modelUrl,
+      kind: "model",
+      reference: "canonical-placeable-model"
+    });
+  }
+  resolvePlaceableTextureDeliveryUrlsByReference(payload).forEach((key, reference) => {
+    register({ key, kind: "texture", reference });
+  });
+  const chunkModelEntries = Array.from(
+    resolvePlaceableVfxChunkModelDeliveryUrlsByAssetId(payload).entries()
+  );
+  const activeChunkResourceNames =
+    readActiveCatalogVfxChunkModelResourceNames(payload);
+  const manifestAssetById = new Map(
+    payload.placeable.assetManifest.assets.map((asset) => [
+      asset.assetId.trim(),
+      asset
+    ])
+  );
+  const activeChunkModelEntries =
+    activeChunkResourceNames === null
+      ? chunkModelEntries
+      : activeChunkResourceNames.size === 0
+        ? []
+        : chunkModelEntries.filter(([reference, key]) => {
+            const asset = manifestAssetById.get(reference);
+            return [asset?.fileName, asset?.objectKey, key, reference]
+              .map(normalizeCatalogVfxChunkModelResourceName)
+              .some((resourceName) => activeChunkResourceNames.has(resourceName));
+          });
+  const settledChunkModelEntries =
+    activeChunkResourceNames !== null &&
+    activeChunkResourceNames.size > 0 &&
+    activeChunkModelEntries.length === 0
+      ? chunkModelEntries
+      : activeChunkModelEntries;
+  settledChunkModelEntries.forEach(([reference, key]) => {
+    register({ key, kind: "chunk-model", reference });
+  });
+  return Array.from(assetsByKey.values()).sort((left, right) =>
+    left.key.localeCompare(right.key)
+  );
+}
+
+function readActiveCatalogVfxChunkModelResourceNames(
+  payload: PlaceableViewportRenderPayload
+): Set<string> | null {
+  const auroraPayload = payload.renderPackage?.auroraVfxPayload;
+  if (!auroraPayload || typeof auroraPayload !== "object") {
+    return null;
+  }
+  const contracts = (auroraPayload as { contracts?: unknown }).contracts;
+  if (!contracts || typeof contracts !== "object") {
+    return null;
+  }
+  const contractRecord = contracts as {
+    renderContract?: unknown;
+    runtimeEmitters?: unknown;
+  };
+  const candidates = [
+    contractRecord.renderContract,
+    ...(Array.isArray(contractRecord.runtimeEmitters)
+      ? contractRecord.runtimeEmitters.map((entry) =>
+          entry && typeof entry === "object"
+            ? (entry as { renderContract?: unknown }).renderContract
+            : undefined
+        )
+      : [])
+  ].filter(
+    (contract): contract is Record<string, unknown> =>
+      Boolean(
+        contract &&
+          typeof contract === "object" &&
+          (contract as { version?: unknown }).version ===
+            "aurora-vfx-runtime-render-contract/v1"
+      )
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const activeResourceNames = new Set<string>();
+  candidates.forEach((contract) => {
+    const lanes = [
+      contract.chunkLane,
+      ...(Array.isArray(contract.chunkLanes) ? contract.chunkLanes : [])
+    ];
+    lanes.forEach((lane) => {
+      if (!lane || typeof lane !== "object") return;
+      const laneRecord = lane as {
+        activeParticleCount?: unknown;
+        resourceResolveStatus?: unknown;
+        resolvedResource?: unknown;
+      };
+      if (
+        typeof laneRecord.activeParticleCount !== "number" ||
+        !Number.isFinite(laneRecord.activeParticleCount) ||
+        laneRecord.activeParticleCount <= 0 ||
+        laneRecord.resourceResolveStatus !== "resolved" ||
+        !laneRecord.resolvedResource ||
+        typeof laneRecord.resolvedResource !== "object"
+      ) {
+        return;
+      }
+      const resourceKey = (
+        laneRecord.resolvedResource as { resourceKey?: unknown }
+      ).resourceKey;
+      const normalized = normalizeCatalogVfxChunkModelResourceName(resourceKey);
+      if (normalized) activeResourceNames.add(normalized);
+    });
+  });
+  return activeResourceNames;
+}
+
+function normalizeCatalogVfxChunkModelResourceName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim().replace(/\\/gu, "/").toLowerCase();
+  const withoutQuery = normalized.split(/[?#]/u)[0] ?? "";
+  const fileName = withoutQuery.split("/").filter(Boolean).pop() ?? "";
+  return fileName.replace(/\.(mdl|mdb|glb|gltf)$/iu, "");
 }
 
 function matchesTextureSourceOverride(
@@ -1086,6 +1283,26 @@ function findParticleBatchMesh(root: THREE.Object3D | null): THREE.Object3D | nu
   return found;
 }
 
+function findAuroraVfxCanonicalGroup(root: THREE.Object3D | null): THREE.Object3D | null {
+  let found: THREE.Object3D | null = null;
+  root?.traverse((node) => {
+    if (!found && node.userData?.auroraVfxCanonicalRenderer === true) {
+      found = node;
+    }
+  });
+  return found;
+}
+
+function findAuroraVfxCanonicalLightSibling(root: THREE.Object3D | null): THREE.Object3D | null {
+  let found: THREE.Object3D | null = null;
+  root?.traverse((node) => {
+    if (!found && node.userData?.auroraVfxCanonicalLightSibling === true) {
+      found = node;
+    }
+  });
+  return found;
+}
+
 function isDescendantOf(candidate: THREE.Object3D, ancestor: THREE.Object3D): boolean {
   let current: THREE.Object3D | null = candidate;
   while (current) {
@@ -1204,8 +1421,15 @@ export function applyCatalogVfxEmitterObviousProofMode(
   return true;
 }
 
-function readNumericUserData(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+export function readNumericUserData(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readNumberList(value: unknown): number[] {
@@ -1218,6 +1442,32 @@ function readStringList(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => String(entry)).filter((entry) => entry.length > 0)
     : [];
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readStringUserData(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function collectAuroraVfxPayloadDiagnosticCodes(value: unknown): string[] {
+  if (!isJsonRecord(value) || !isJsonRecord(value.diagnostics)) {
+    return [];
+  }
+  const codes = new Set<string>();
+  for (const group of Object.values(value.diagnostics)) {
+    if (!Array.isArray(group)) {
+      continue;
+    }
+    for (const diagnostic of group) {
+      if (isJsonRecord(diagnostic) && typeof diagnostic.code === "string") {
+        codes.add(diagnostic.code);
+      }
+    }
+  }
+  return Array.from(codes);
 }
 
 function roundNumber(value: number): number {
@@ -1388,6 +1638,77 @@ function applyCatalogVfxEmitterAxisDebug(target: THREE.Object3D | null): boolean
   return true;
 }
 
+function applyCatalogVfxRuntimeDebugOverlay(
+  root: THREE.Object3D | null,
+  enabled: boolean
+): boolean {
+  if (!root) return false;
+  const existing = root.getObjectByName("catalog_vfx_runtime_debug_overlay");
+  if (existing) root.remove(existing);
+  if (!enabled) return false;
+
+  root.updateMatrixWorld(true);
+  const overlay = new THREE.Group();
+  overlay.name = "catalog_vfx_runtime_debug_overlay";
+  overlay.renderOrder = 2000;
+  overlay.userData = {
+    vfxPreviewRole: "catalog-vfx-runtime-debug-overlay",
+    vfxDebugOverlayDevOnly: true,
+    vfxDebugOverlayIncludes: "origins,axes,parent-child-lines,bounds,rgb-rgba-preview"
+  };
+  const nodes: THREE.Object3D[] = [];
+  root.traverse((node) => {
+    if (
+      node.userData.auroraVfxCanonicalRenderer === true ||
+      node.userData.auroraVfxCanonicalDrawMesh === true ||
+      typeof node.userData.auroraEmitterNode === "string"
+    ) {
+      nodes.push(node);
+    }
+  });
+  nodes.forEach((node, index) => {
+    const worldPosition = node.getWorldPosition(new THREE.Vector3());
+    const axes = new THREE.AxesHelper(0.22);
+    axes.position.copy(worldPosition);
+    axes.renderOrder = overlay.renderOrder;
+    overlay.add(axes);
+    const bounds = new THREE.Box3().setFromObject(node);
+    if (!bounds.isEmpty()) {
+      const helper = new THREE.Box3Helper(bounds, 0xffd166);
+      helper.renderOrder = overlay.renderOrder;
+      overlay.add(helper);
+    }
+    if (node.parent && nodes.includes(node.parent)) {
+      const parentPosition = node.parent.getWorldPosition(new THREE.Vector3());
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([parentPosition, worldPosition]),
+        new THREE.LineBasicMaterial({ color: 0x9d7cff, transparent: true, opacity: 0.8 })
+      );
+      line.renderOrder = overlay.renderOrder;
+      overlay.add(line);
+    }
+    const rgbaPreview = new THREE.Group();
+    rgbaPreview.position.copy(worldPosition).add(new THREE.Vector3(0, 0.04 + index * 0.002, 0));
+    ([0xff4d4d, 0x4dff88, 0x4d8dff, 0xffffff] as const).forEach((color, channel) => {
+      const swatch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.035, 0.035, 0.035),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: channel === 3,
+          opacity: channel === 3 ? 0.45 : 1,
+          depthTest: false
+        })
+      );
+      swatch.position.x = (channel - 1.5) * 0.042;
+      swatch.renderOrder = overlay.renderOrder;
+      rgbaPreview.add(swatch);
+    });
+    overlay.add(rgbaPreview);
+  });
+  root.add(overlay);
+  return true;
+}
+
 function buildEmitterAxisDebugSamples(root: THREE.Object3D | null): string[] {
   const target = findFlameEmitterGroup(root) ?? root;
   if (!target) {
@@ -1501,7 +1822,8 @@ export function frameCameraForEmitter(
   runtime: ReturnType<typeof createRuntime>,
   emitterGroup: THREE.Object3D | null,
   cameraDistanceScale: number | null = null,
-  cameraOrbitDeg: number | null = null
+  cameraOrbitDeg: number | null = null,
+  cameraTargetOverride: THREE.Vector3 | null = null
 ): void {
   if (!emitterGroup) {
     return;
@@ -1513,6 +1835,9 @@ export function frameCameraForEmitter(
   const center = new THREE.Vector3();
   const size = new THREE.Vector3();
   bounds.getCenter(center);
+  if (cameraTargetOverride) {
+    center.copy(cameraTargetOverride);
+  }
   bounds.getSize(size);
   const maxDimension = Math.max(size.x, size.y, size.z, 0.35);
   const sourceMdlVisibilityProof =
@@ -1551,6 +1876,87 @@ export function frameCameraForEmitter(
   runtime.camera.lookAt(center);
   runtime.camera.updateProjectionMatrix();
   runtime.controls.update();
+}
+
+export function findPlaceableStaticGeometryCenter(
+  root: THREE.Object3D | null,
+  sourceStaticGeometryNodeNames: readonly string[] = []
+): THREE.Vector3 | null {
+  if (!root) {
+    return null;
+  }
+  root.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3();
+  let staticMeshCount = 0;
+  const sourceNodeNames = new Set(
+    sourceStaticGeometryNodeNames.map((name) => name.trim().toLowerCase()).filter(Boolean)
+  );
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh) || !node.visible || hasCanonicalVfxDrawAncestor(node)) {
+      return;
+    }
+    if (sourceNodeNames.size > 0 && !sourceNodeNames.has(readSourceMeshName(node).toLowerCase())) {
+      return;
+    }
+    if (!node.geometry.boundingBox) {
+      node.geometry.computeBoundingBox();
+    }
+    if (!node.geometry.boundingBox) {
+      return;
+    }
+    bounds.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld));
+    staticMeshCount += 1;
+  });
+  return staticMeshCount > 0 && !bounds.isEmpty() ? bounds.getCenter(new THREE.Vector3()) : null;
+}
+
+export function findPlaceableSourceStaticGraphCenter(
+  root: THREE.Object3D | null,
+  sourceStaticGeometryNodes: ReadonlyArray<{
+    transform?: { position?: [number, number, number] };
+  }>
+): THREE.Vector3 | null {
+  if (!root) {
+    return null;
+  }
+  const positions = sourceStaticGeometryNodes
+    .map((node) => node.transform?.position)
+    .filter((position): position is [number, number, number] =>
+      Boolean(position?.every((value) => Number.isFinite(value)))
+    );
+  if (positions.length === 0) {
+    return null;
+  }
+  const sourceCenter = positions.reduce(
+    (sum, [x, y, z]) => sum.add(new THREE.Vector3(x, z, y)),
+    new THREE.Vector3()
+  ).multiplyScalar(1 / positions.length);
+  root.updateWorldMatrix(true, true);
+  return root.localToWorld(sourceCenter);
+}
+
+function readSourceMeshName(node: THREE.Mesh): string {
+  const aurora =
+    node.userData?.aurora && typeof node.userData.aurora === "object"
+      ? (node.userData.aurora as Record<string, unknown>)
+      : undefined;
+  const sourceMesh = aurora?.sourceMesh;
+  return (typeof sourceMesh === "string" ? sourceMesh : "") || node.name || node.geometry.name || "";
+}
+
+function hasCanonicalVfxDrawAncestor(node: THREE.Object3D): boolean {
+  let current: THREE.Object3D | null = node;
+  while (current) {
+    if (
+      current.userData?.auroraVfxCanonicalDrawMesh === true ||
+      current.userData?.auroraVfxCanonicalRuntimeFrame === true ||
+      current.userData?.auroraVfxCanonicalRuntimePlayback === true
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 
 function readMeshCounts(root: THREE.Object3D | null): { meshCount: number; visibleMeshCount: number } {
@@ -1807,32 +2213,91 @@ function buildSnapshot(
   root: THREE.Object3D | null,
   runtime: ReturnType<typeof createRuntime> | null,
   pixelSignal: PixelSignal,
-  error: string | null
+  error: string | null,
+  backendRuntimeBuild: BackendRuntimeBuildIdentity | null = null
 ): RunnerSnapshot {
   const emitter = payload?.renderPackage?.auroraEmitter?.emitters?.[0] ?? null;
   const emitters = payload?.renderPackage?.auroraEmitter?.emitters ?? [];
   const light = payload?.renderPackage?.auroraLight?.lights?.[0] ?? null;
   const previewGroup = findSourceMdlPreviewGroup(root);
+  const canonicalGroup = findAuroraVfxCanonicalGroup(root);
+  const activeVfxGroup = canonicalGroup ?? previewGroup;
+  const canonicalLightSibling = findAuroraVfxCanonicalLightSibling(root);
   const flameEmitterGroup = findFlameEmitterGroup(previewGroup);
   const flameEmitterBatch = findParticleBatchMesh(flameEmitterGroup);
   const userData = previewGroup?.userData ?? {};
+  const canonicalUserData = canonicalGroup?.userData ?? {};
+  const canonicalLightSiblingUserData = canonicalLightSibling?.userData ?? {};
   const flameEmitterUserData = flameEmitterGroup?.userData ?? {};
   const flameEmitterBatchUserData = flameEmitterBatch?.userData ?? {};
   const rootUserData = root?.userData ?? {};
+  const rawAuroraVfxPayload = payload?.renderPackage?.auroraVfxPayload;
+  const rawAuroraVfxPayloadRecord = isJsonRecord(rawAuroraVfxPayload)
+    ? rawAuroraVfxPayload
+    : null;
+  const preservedAuroraVfxPayload = isJsonRecord(rootUserData.auroraVfxPayload)
+    ? rootUserData.auroraVfxPayload
+    : null;
+  const preservedAuroraPayload = isJsonRecord(preservedAuroraVfxPayload?.auroraPayload)
+    ? preservedAuroraVfxPayload.auroraPayload
+    : null;
+  const rawAuroraVfxContracts = isJsonRecord(rawAuroraVfxPayloadRecord?.contracts)
+    ? rawAuroraVfxPayloadRecord.contracts
+    : null;
+  const preservedAuroraVfxContracts = isJsonRecord(preservedAuroraPayload?.contracts)
+    ? preservedAuroraPayload.contracts
+    : null;
+  const preservedAuroraVfxFlags = isJsonRecord(preservedAuroraVfxPayload?.flags)
+    ? preservedAuroraVfxPayload.flags
+    : null;
   const diagnostics = payload?.renderPackage?.diagnostics ?? [];
+  const auroraVfxDiagnosticCodes = Array.from(
+    new Set([
+      ...readStringList(rootUserData.auroraVfxDiagnosticCodes),
+      ...collectAuroraVfxPayloadDiagnosticCodes(rawAuroraVfxPayloadRecord),
+      ...collectAuroraVfxPayloadDiagnosticCodes(preservedAuroraPayload)
+    ])
+  );
+  const auroraVfxBackendCanonical =
+    rawAuroraVfxPayloadRecord?.backendCanonical === true ||
+    preservedAuroraPayload?.backendCanonical === true ||
+    preservedAuroraVfxFlags?.backendCanonical === true;
+  const auroraVfxCanonicalStatus =
+    readStringUserData(rootUserData.auroraVfxCanonicalStatus) ||
+    readStringUserData(canonicalUserData.auroraVfxCanonicalStatus) ||
+    readStringUserData(preservedAuroraPayload?.canonicalStatus) ||
+    readStringUserData(rawAuroraVfxPayloadRecord?.canonicalStatus);
+  const auroraVfxPreviewMode =
+    readStringUserData(rootUserData.auroraVfxPreviewMode) ||
+    readStringUserData(preservedAuroraVfxPayload?.previewMode) ||
+    readStringUserData(preservedAuroraPayload?.previewMode) ||
+    readStringUserData(rawAuroraVfxPayloadRecord?.previewMode);
+  const auroraVfxRenderer =
+    readStringUserData(rootUserData.auroraVfxRenderer) ||
+    readStringUserData(canonicalUserData.auroraVfxRenderer);
   const meshCounts = readMeshCounts(root);
   const emitterBounds = new THREE.Box3();
   const emitterBoundsCenter = new THREE.Vector3();
   const emitterBoundsSize = new THREE.Vector3();
-  if (previewGroup) {
-    emitterBounds.setFromObject(previewGroup);
+  if (activeVfxGroup) {
+    emitterBounds.setFromObject(activeVfxGroup);
     if (!emitterBounds.isEmpty()) {
       emitterBounds.getCenter(emitterBoundsCenter);
       emitterBounds.getSize(emitterBoundsSize);
     }
   }
-  const material = readFirstMaterial(previewGroup);
-  const drawMetrics = readEmitterDrawMetrics(previewGroup);
+  const placeableBounds = new THREE.Box3();
+  const placeableBoundsCenter = new THREE.Vector3();
+  const placeableBoundsSize = new THREE.Vector3();
+  if (root) {
+    placeableBounds.setFromObject(root);
+    if (!placeableBounds.isEmpty()) {
+      placeableBounds.getCenter(placeableBoundsCenter);
+      placeableBounds.getSize(placeableBoundsSize);
+    }
+  }
+  const material = readFirstMaterial(activeVfxGroup);
+  const drawMetrics = readEmitterDrawMetrics(activeVfxGroup);
   const campfireCoreSamples = buildCampfireSourceEmitterSamples(previewGroup);
   const emitterAxisDebugSamples = buildEmitterAxisDebugSamples(previewGroup);
   const renderedEmitterNodesFromGroup = readStringList(userData.auroraEmitterNodes);
@@ -1864,6 +2329,40 @@ function buildSnapshot(
     ? writeAuroraScenePointLightDiagnostics(runtime)
     : null;
   const shadowVolumeStencilRuntime = readShadowVolumeStencilRuntimeProof(runtime, root);
+  const expectedHostGraph = {
+    staticBranches:
+      payload?.renderPackage?.auroraModelGraph?.staticGeometryNodes
+        .map((node) => node.nodeName)
+        .filter((nodeName) => nodeName.length > 0) ?? [],
+    emitterBranches:
+      payload?.renderPackage?.auroraEmitter?.emitters
+        .map((emitter) => emitter.nodeName)
+        .filter((nodeName) => nodeName.length > 0) ?? [],
+    lightBranches:
+      payload?.renderPackage?.auroraLight?.lights
+        .map((entry) => entry.nodeName)
+        .filter((nodeName) => nodeName.length > 0) ?? []
+  };
+  const vfxRuntimeObservability = createVfxRuntimeObservabilityReport({
+    runtime: runtime ?? emptyCatalogVfxObservabilityRuntime,
+    root,
+    profile: request.debugProfile,
+    overlayRequested: request.vfxDebugOverlay,
+    runtimeEmittersDeferred:
+      rawAuroraVfxContracts?.runtimeEmittersDeferred === true ||
+      preservedAuroraVfxContracts?.runtimeEmittersDeferred === true,
+    expectedHostGraph,
+    buildIdentity: {
+      frontend: {
+        commit: import.meta.env.VITE_RUNTIME_BUILD_COMMIT,
+        imageDigest: import.meta.env.VITE_RUNTIME_BUILD_IMAGE_DIGEST,
+        builtAt: import.meta.env.VITE_RUNTIME_BUILD_BUILT_AT
+      },
+      backend: backendRuntimeBuild ?? undefined,
+      contractVersion: backendRuntimeBuild?.contractVersion ?? null,
+      cacheKey: payload?.cacheKey ?? null
+    }
+  });
   return {
     status,
     error,
@@ -1903,11 +2402,42 @@ function buildSnapshot(
     placeableModelTextureLoaded: readNumericUserData(runtimeDataset?.placeableModelTextureLoaded),
     placeableModelTextureCount: readNumericUserData(runtimeDataset?.placeableModelTextureCount),
     placeableModelTextureSource: runtimeDataset?.placeableModelTextureSource ?? "",
+    sourceMdlStaticGeometryNodeCount:
+      payload?.renderPackage?.auroraModelGraph?.staticGeometryNodes.length ?? 0,
+    sourceMdlStaticGeometryNodes:
+      payload?.renderPackage?.auroraModelGraph?.staticGeometryNodes
+        .map((node) => node.nodeName)
+        .filter((nodeName) => nodeName.length > 0) ?? [],
     sourceMdlPayloadReady: diagnostics.some(
       (entry) =>
         entry.code === "VFX_AURORA_MDL_EMITTER_PAYLOAD_READY" ||
-        entry.code === "PLACEABLE_AURORA_MDL_EMITTER_PAYLOAD_READY"
+        entry.code === "PLACEABLE_AURORA_MDL_EMITTER_PAYLOAD_READY" ||
+        entry.code === "VFX_AURORA_MDL_EMITTER_BACKEND_RUNTIME_PAYLOAD_READY"
     ),
+    auroraVfxPayloadReady: Boolean(rawAuroraVfxPayloadRecord || preservedAuroraPayload),
+    auroraVfxBackendPayloadReady: Boolean(rawAuroraVfxPayloadRecord),
+    auroraVfxBackendCanonical,
+    auroraVfxCanonicalStatus,
+    auroraVfxPreviewMode,
+    auroraVfxRenderer,
+    auroraVfxCanonicalRenderer:
+      rootUserData.auroraVfxCanonicalRenderer === true ||
+      canonicalUserData.auroraVfxCanonicalRenderer === true,
+    auroraVfxCanonicalPlaceableComposition:
+      rootUserData.auroraVfxCanonicalPlaceableComposition === true,
+    auroraVfxCanonicalPlaceableCompositionMode: readStringUserData(
+      rootUserData.auroraVfxCanonicalPlaceableCompositionMode
+    ),
+    auroraVfxCanonicalPlaceableCompositionReason:
+      readStringUserData(rootUserData.auroraVfxCanonicalPlaceableCompositionReason) ||
+      (rootUserData.auroraVfxCanonicalPlaceableComposition === true
+        ? "ready"
+        : "not-reported"),
+    auroraVfxCanonicalLightSibling: canonicalLightSiblingUserData.auroraVfxCanonicalLightSibling === true,
+    auroraVfxCanonicalLightSiblingMode: readStringUserData(
+      canonicalLightSiblingUserData.auroraVfxCanonicalLightSiblingMode
+    ),
+    auroraVfxDiagnosticCodes,
     sourceMdlEmitterPreviewStatus:
       typeof rootUserData.sourceMdlEmitterPreviewStatus === "string"
         ? rootUserData.sourceMdlEmitterPreviewStatus
@@ -1932,6 +2462,7 @@ function buildSnapshot(
     emitterCameraDistanceScale: request.emitterCameraDistanceScale,
     emitterCameraOrbitDeg: request.emitterCameraOrbitDeg,
     emitterCameraTarget: request.emitterCameraTarget,
+    previewBackdrop: request.previewBackdrop,
     emitterAxisDebug: request.emitterAxisDebug,
     emitterSource: payload?.renderPackage?.auroraEmitter?.source ?? "",
     emitterCount: emitters.length,
@@ -2255,6 +2786,8 @@ function buildSnapshot(
       scenePointLightDiagnostics?.shadow.areaShadowOpacityFactor ?? null,
     sceneShadowAreaOpacityFactorSource:
       scenePointLightDiagnostics?.shadow.areaShadowOpacityFactorSource ?? "",
+    placeableWorldBoundsCenter: readVector3(placeableBoundsCenter),
+    placeableWorldBoundsSize: readVector3(placeableBoundsSize),
     emitterWorldBoundsCenter: readVector3(emitterBoundsCenter),
     emitterWorldBoundsSize: readVector3(emitterBoundsSize),
     cameraPosition: runtime ? readVector3(runtime.camera.position) : [],
@@ -2262,8 +2795,49 @@ function buildSnapshot(
     materialTransparent: material instanceof THREE.Material ? material.transparent : null,
     materialFallbackApplied: Boolean(material?.userData?.auroraSurfaceEmitterVisibilityFallbackMaterial),
     campfireCoreCount: campfireCoreSamples.length,
-    campfireCoreSamples
+    campfireCoreSamples,
+    vfxRuntimeObservability
   };
+}
+
+export function recordCatalogVfxRuntimeBindings(
+  runtime: ReturnType<typeof createRuntime>,
+  root: THREE.Object3D | null
+): void {
+  if (!root) return;
+  const boundAssetUrls = new Set<string>();
+  const modelUrl = root.userData.renderPackageModelUrl;
+  if (
+    runtime.container.dataset.placeableModelStatus === "loaded" &&
+    typeof modelUrl === "string" &&
+    modelUrl.trim().length > 0
+  ) {
+    boundAssetUrls.add(modelUrl);
+  }
+  root.traverse((node) => {
+    const directUrl = node.userData.vfxTextureDeliveryUrl;
+    if (typeof directUrl === "string" && directUrl.trim().length > 0) {
+      boundAssetUrls.add(directUrl);
+    }
+    const urls = node.userData.vfxTextureDeliveryUrls;
+    if (Array.isArray(urls)) {
+      urls.forEach((value) => {
+        if (typeof value === "string" && value.trim().length > 0) boundAssetUrls.add(value);
+      });
+    }
+    if (!(node instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => {
+      const url = material.userData?.vfxTextureDeliveryUrl;
+      if (typeof url === "string" && url.trim().length > 0) boundAssetUrls.add(url);
+      const textureUrl = (material as THREE.Material & { map?: THREE.Texture | null }).map?.userData
+        ?.auroraSourceUrl;
+      if (typeof textureUrl === "string" && textureUrl.trim().length > 0) {
+        boundAssetUrls.add(textureUrl);
+      }
+    });
+  });
+  boundAssetUrls.forEach((url) => setVfxRuntimeAssetBound(runtime, url, Date.now()));
 }
 
 export function CatalogVfxPreviewRunner() {
@@ -2287,6 +2861,8 @@ export function CatalogVfxPreviewRunner() {
     let previewAnimationTimer: number | null = null;
     let proofAnimationTimer: number | null = null;
     let forceRenderHook: (() => boolean) | null = null;
+    let deterministicCaptureActive = false;
+    let backendRuntimeBuild: BackendRuntimeBuildIdentity | null = null;
 
     async function run(): Promise<void> {
       try {
@@ -2294,24 +2870,45 @@ export function CatalogVfxPreviewRunner() {
         if (!host) {
           throw new Error("Catalog VFX preview host was not mounted");
         }
-        const accessToken = await loginForDevPreview(request.apiBaseUrl);
+        const [accessToken, health] = await Promise.all([
+          loginForDevPreview(request.apiBaseUrl),
+          probeBackendHealth(fetch.bind(globalThis), request.apiBaseUrl)
+        ]);
+        backendRuntimeBuild = health.runtimeBuild;
         const placeableApiPort = createHttpPlaceableApiPort(undefined, request.apiBaseUrl);
-        const fetchedPayload = await fetchPlaceableViewportRenderPayload(
-          placeableApiPort,
+        const processLookup = {
+          ...(request.templateId ? { templateId: request.templateId } : {}),
+          ...(request.resref ? { resref: request.resref } : {}),
+          ...(request.appearanceType !== null
+            ? { appearanceType: request.appearanceType }
+            : {}),
+          ...(request.genericType !== null ? { genericType: request.genericType } : {}),
+          ...(request.tag ? { tag: request.tag } : {}),
+          ...(request.localizedName ? { localizedName: request.localizedName } : {}),
+          subtypeHint: request.subtypeHint,
+          bypassCache: true
+        };
+        const payloadRequestKey = JSON.stringify([
+          request.apiBaseUrl,
           accessToken,
-          {
-            ...(request.templateId ? { templateId: request.templateId } : {}),
-            ...(request.resref ? { resref: request.resref } : {}),
-            ...(request.appearanceType !== null
-              ? { appearanceType: request.appearanceType }
-              : {}),
-            ...(request.genericType !== null ? { genericType: request.genericType } : {}),
-            ...(request.tag ? { tag: request.tag } : {}),
-            ...(request.localizedName ? { localizedName: request.localizedName } : {}),
-            subtypeHint: request.subtypeHint,
-            bypassCache: true
-          }
-        );
+          processLookup
+        ]);
+        let payloadRequest = catalogVfxPreviewPayloadRequestByKey.get(payloadRequestKey);
+        if (!payloadRequest) {
+          payloadRequest = fetchPlaceableViewportRenderPayload(
+            placeableApiPort,
+            accessToken,
+            processLookup
+          );
+          catalogVfxPreviewPayloadRequestByKey.set(payloadRequestKey, payloadRequest);
+          const clearPayloadRequest = () => {
+            if (catalogVfxPreviewPayloadRequestByKey.get(payloadRequestKey) === payloadRequest) {
+              catalogVfxPreviewPayloadRequestByKey.delete(payloadRequestKey);
+            }
+          };
+          void payloadRequest.then(clearPayloadRequest, clearPayloadRequest);
+        }
+        const fetchedPayload = await payloadRequest;
         if (cancelled) {
           return;
         }
@@ -2334,6 +2931,15 @@ export function CatalogVfxPreviewRunner() {
 
         const runtime = createRuntime(host);
         cleanupRuntime = () => disposeRuntime(runtime);
+        registerVfxRuntimeExpectedAssets(
+          runtime,
+          buildCatalogVfxExpectedRuntimeAssets(renderPayload)
+        );
+        if (request.previewBackdrop === "neutral") {
+          const backdrop = new THREE.Color(0x59626d);
+          runtime.scene.background = backdrop;
+          runtime.renderer.setClearColor(backdrop, 1);
+        }
         applyCatalogVfxPreviewAreaShadowOpacityOverride(
           runtime,
           request.areaShadowOpacityOverride
@@ -2352,6 +2958,77 @@ export function CatalogVfxPreviewRunner() {
         runtime.tileOverlayLayer.visible = true;
         runtime.axesHelper.visible = false;
         centerCameraForScene(runtime, scene, { objectPreview: true });
+        const render = () => {
+          runtime.controls.update();
+          renderRuntime(runtime);
+        };
+        const refreshReadySnapshot = () => {
+          const root = findPreviewRoot(runtime, object.id);
+          const { width, height } = runtime.renderer.domElement;
+          const gridVisible = runtime.gridLayer.visible;
+          const tileGridVisible = runtime.tileOverlayLayer.visible;
+          runtime.gridLayer.visible = false;
+          runtime.tileOverlayLayer.visible = false;
+          render();
+          const pixelSignal = readObjectPixelSignal(runtime.renderer, width, height);
+          runtime.gridLayer.visible = gridVisible;
+          runtime.tileOverlayLayer.visible = tileGridVisible;
+          render();
+          if (!cancelled) {
+            recordCatalogVfxRuntimeBindings(runtime, root);
+            const nextSnapshot = buildSnapshot(
+              "ready",
+              request,
+              renderPayload,
+              root,
+              runtime,
+              pixelSignal,
+              null,
+              backendRuntimeBuild
+            );
+            window.__auroraCatalogVfxPreviewGetRuntimeObservability = () => {
+              const currentRoot = findPreviewRoot(runtime, object.id);
+              recordCatalogVfxRuntimeBindings(runtime, currentRoot);
+              return buildSnapshot(
+                "ready",
+                request,
+                renderPayload,
+                currentRoot,
+                runtime,
+                pixelSignal,
+                null,
+                backendRuntimeBuild
+              ).vfxRuntimeObservability;
+            };
+            setSnapshot(nextSnapshot);
+          }
+        };
+        let queuedStatusRefreshFrame: number | null = null;
+        const handlePlaceableModelStatus = () => {
+          if (queuedStatusRefreshFrame !== null) {
+            window.cancelAnimationFrame(queuedStatusRefreshFrame);
+          }
+          queuedStatusRefreshFrame = window.requestAnimationFrame(() => {
+            queuedStatusRefreshFrame = null;
+            if (!cancelled) {
+              refreshReadySnapshot();
+            }
+          });
+        };
+        runtime.container.addEventListener(
+          PLACEABLE_MODEL_STATUS_EVENT,
+          handlePlaceableModelStatus
+        );
+        cleanupRuntime = () => {
+          runtime.container.removeEventListener(
+            PLACEABLE_MODEL_STATUS_EVENT,
+            handlePlaceableModelStatus
+          );
+          if (queuedStatusRefreshFrame !== null) {
+            window.cancelAnimationFrame(queuedStatusRefreshFrame);
+          }
+          disposeRuntime(runtime);
+        };
         rebuildObjectMeshes(
           runtime,
           scene.objects,
@@ -2366,11 +3043,6 @@ export function CatalogVfxPreviewRunner() {
           false,
           { [object.id]: renderPayload }
         );
-
-        const render = () => {
-          runtime.controls.update();
-          runtime.renderer.render(runtime.scene, runtime.camera);
-        };
         let lastAnimationUpdateMs = window.performance.now();
         const renderAnimatedFrame = () => {
           const nowMs = window.performance.now();
@@ -2385,8 +3057,56 @@ export function CatalogVfxPreviewRunner() {
         };
         forceRenderHook = renderAnimatedFrame;
         window.__auroraCatalogVfxPreviewForceRender = renderAnimatedFrame;
-        const startPreviewAnimationLoop = () => {
+        const readCapturePlaybackState = () => {
+          const programs = (runtime.renderer.info.programs ?? []) as unknown as Array<{
+            name?: string;
+            diagnostics?: {
+              runnable?: boolean;
+              material?: { type?: string; name?: string };
+              programLog?: string;
+              vertexShader?: { log?: string; prefix?: string };
+              fragmentShader?: { log?: string; prefix?: string };
+            };
+          }>;
+          return {
+            ...readRuntimeAuroraVfxCanonicalPlaybackState(runtime),
+            cameraPosition: runtime.camera.position.toArray(),
+            cameraTarget: runtime.controls.target.toArray(),
+            rendererCalls: runtime.renderer.info.render.calls,
+            rendererTriangles: runtime.renderer.info.render.triangles,
+            rendererProgramCount: programs.length,
+            rendererPrograms: programs.map((program) => ({
+              name: program.name ?? "",
+              runnable: program.diagnostics?.runnable ?? null,
+              materialType: program.diagnostics?.material?.type ?? "",
+              materialName: program.diagnostics?.material?.name ?? "",
+              programLog: program.diagnostics?.programLog ?? "",
+              vertexLog: program.diagnostics?.vertexShader?.log ?? "",
+              fragmentLog: program.diagnostics?.fragmentShader?.log ?? ""
+            }))
+          };
+        };
+        window.__auroraCatalogVfxPreviewGetPlaybackState = readCapturePlaybackState;
+        window.__auroraCatalogVfxPreviewBeginDeterministicCapture = () => {
+          deterministicCaptureActive = true;
           if (previewAnimationTimer !== null) {
+            window.clearInterval(previewAnimationTimer);
+            previewAnimationTimer = null;
+          }
+          seekRuntimeAuroraVfxCanonicalPlaybacks(runtime, 0);
+          render();
+          return true;
+        };
+        window.__auroraCatalogVfxPreviewRenderAtTime = (elapsedSeconds: number) => {
+          if (!deterministicCaptureActive || !Number.isFinite(elapsedSeconds)) {
+            return readCapturePlaybackState();
+          }
+          seekRuntimeAuroraVfxCanonicalPlaybacks(runtime, Math.max(0, elapsedSeconds));
+          render();
+          return readCapturePlaybackState();
+        };
+        const startPreviewAnimationLoop = () => {
+          if (previewAnimationTimer !== null || deterministicCaptureActive) {
             return;
           }
           previewAnimationTimer = window.setInterval(() => {
@@ -2421,9 +3141,11 @@ export function CatalogVfxPreviewRunner() {
         const finalRoot = findPreviewRoot(runtime, object.id);
         const finalEmitterGroup = findSourceMdlPreviewGroup(finalRoot);
         const finalCameraTargetGroup =
-          request.emitterCameraTarget === "flame"
-            ? findFlameEmitterGroup(finalEmitterGroup) ?? finalEmitterGroup
-            : finalEmitterGroup;
+          request.emitterCameraTarget === "placeable"
+            ? finalRoot
+            : request.emitterCameraTarget === "flame"
+              ? findFlameEmitterGroup(finalEmitterGroup) ?? finalEmitterGroup
+              : finalEmitterGroup;
         const obviousEmitterProofApplied =
           request.emitterProofMode === CATALOG_VFX_EMITTER_PROOF_MODE_OBVIOUS &&
           applyCatalogVfxEmitterObviousProofMode(
@@ -2436,15 +3158,33 @@ export function CatalogVfxPreviewRunner() {
             findFlameEmitterGroup(finalEmitterGroup) ?? finalCameraTargetGroup
           );
         }
+        applyCatalogVfxRuntimeDebugOverlay(
+          finalRoot,
+          request.vfxDebugOverlay && request.debugProfile === "development"
+        );
         if (obviousEmitterProofApplied) {
           runtime.scene.background = new THREE.Color(0x030812);
           runtime.renderer.setClearColor(0x030812, 1);
         }
         frameCameraForEmitter(
           runtime,
-          finalCameraTargetGroup ?? finalRoot,
+          request.emitterCameraTarget === "placeable"
+            ? finalRoot
+            : finalCameraTargetGroup ?? finalRoot,
           request.emitterCameraDistanceScale,
-          request.emitterCameraOrbitDeg
+          request.emitterCameraOrbitDeg,
+          request.emitterCameraTarget === "placeable"
+            ? findPlaceableSourceStaticGraphCenter(
+                finalRoot,
+                renderPayload.renderPackage?.auroraModelGraph?.staticGeometryNodes ?? []
+              ) ??
+              findPlaceableStaticGeometryCenter(
+                finalRoot,
+                renderPayload.renderPackage?.auroraModelGraph?.staticGeometryNodes.map(
+                  (node) => node.nodeName
+                ) ?? []
+              )
+            : null
         );
         runtime.gridLayer.visible = false;
         runtime.tileOverlayLayer.visible = false;
@@ -2464,23 +3204,7 @@ export function CatalogVfxPreviewRunner() {
         }
         await new Promise((resolve) => requestAnimationFrame(resolve));
 
-        const root = findPreviewRoot(runtime, object.id);
-        const { width, height } = runtime.renderer.domElement;
-        const gridVisible = runtime.gridLayer.visible;
-        const tileGridVisible = runtime.tileOverlayLayer.visible;
-        runtime.gridLayer.visible = false;
-        runtime.tileOverlayLayer.visible = false;
-        render();
-        const pixelSignal = readObjectPixelSignal(runtime.renderer, width, height);
-        runtime.gridLayer.visible = gridVisible;
-        runtime.tileOverlayLayer.visible = tileGridVisible;
-        render();
-
-        if (!cancelled) {
-          setSnapshot(
-            buildSnapshot("ready", request, renderPayload, root, runtime, pixelSignal, null)
-          );
-        }
+        refreshReadySnapshot();
       } catch (error) {
         if (!cancelled) {
           setSnapshot(
@@ -2491,7 +3215,8 @@ export function CatalogVfxPreviewRunner() {
               null,
               null,
               { objectVisible: false, objectPixelCount: 0 },
-              error instanceof Error ? error.message : String(error)
+              error instanceof Error ? error.message : String(error),
+              backendRuntimeBuild
             )
           );
         }
@@ -2513,6 +3238,9 @@ export function CatalogVfxPreviewRunner() {
       ) {
         delete window.__auroraCatalogVfxPreviewForceRender;
       }
+      delete window.__auroraCatalogVfxPreviewBeginDeterministicCapture;
+      delete window.__auroraCatalogVfxPreviewRenderAtTime;
+      delete window.__auroraCatalogVfxPreviewGetPlaybackState;
       cleanupRuntime?.();
     };
   }, [request]);
@@ -2520,6 +3248,7 @@ export function CatalogVfxPreviewRunner() {
   return (
     <main
       data-testid="catalog-vfx-preview-runner"
+      data-vfx-preview-runtime-revision={CATALOG_VFX_PREVIEW_RUNTIME_REVISION}
       data-template-id={snapshot.templateId}
       data-resref={snapshot.resref}
       data-appearance-type={snapshot.appearanceType ?? ""}
@@ -2554,6 +3283,35 @@ export function CatalogVfxPreviewRunner() {
       data-object-pixels={snapshot.objectPixelsWithoutGrid}
       data-render-package-status={snapshot.renderPackageStatus}
       data-source-mdl-payload-ready={snapshot.sourceMdlPayloadReady ? "true" : "false"}
+      data-aurora-vfx-payload-ready={snapshot.auroraVfxPayloadReady ? "true" : "false"}
+      data-aurora-vfx-backend-payload-ready={
+        snapshot.auroraVfxBackendPayloadReady ? "true" : "false"
+      }
+      data-aurora-vfx-backend-canonical={
+        snapshot.auroraVfxBackendCanonical ? "true" : "false"
+      }
+      data-aurora-vfx-canonical-status={snapshot.auroraVfxCanonicalStatus}
+      data-aurora-vfx-preview-mode={snapshot.auroraVfxPreviewMode}
+      data-aurora-vfx-renderer={snapshot.auroraVfxRenderer}
+      data-aurora-vfx-canonical-renderer={
+        snapshot.auroraVfxCanonicalRenderer ? "true" : "false"
+      }
+      data-aurora-vfx-canonical-placeable-composition={
+        snapshot.auroraVfxCanonicalPlaceableComposition ? "true" : "false"
+      }
+      data-aurora-vfx-canonical-placeable-composition-mode={
+        snapshot.auroraVfxCanonicalPlaceableCompositionMode
+      }
+      data-aurora-vfx-canonical-placeable-composition-reason={
+        snapshot.auroraVfxCanonicalPlaceableCompositionReason
+      }
+      data-aurora-vfx-canonical-light-sibling={
+        snapshot.auroraVfxCanonicalLightSibling ? "true" : "false"
+      }
+      data-aurora-vfx-canonical-light-sibling-mode={
+        snapshot.auroraVfxCanonicalLightSiblingMode
+      }
+      data-aurora-vfx-diagnostic-codes={snapshot.auroraVfxDiagnosticCodes.join("|")}
       data-source-mdl-emitter-preview-status={snapshot.sourceMdlEmitterPreviewStatus}
       data-source-mdl-emitter-preview-mode={snapshot.sourceMdlEmitterPreviewMode}
       data-source-mdl-emitter-preview-visibility-mode={
@@ -2568,7 +3326,24 @@ export function CatalogVfxPreviewRunner() {
       data-emitter-camera-distance-scale={snapshot.emitterCameraDistanceScale ?? ""}
       data-emitter-camera-orbit-deg={snapshot.emitterCameraOrbitDeg ?? ""}
       data-emitter-camera-target={snapshot.emitterCameraTarget}
+      data-preview-backdrop={snapshot.previewBackdrop}
       data-emitter-axis-debug={snapshot.emitterAxisDebug ? "true" : "false"}
+      data-vfx-runtime-observability-version={snapshot.vfxRuntimeObservability.version}
+      data-vfx-runtime-identity-status={snapshot.vfxRuntimeObservability.identity.status}
+      data-vfx-runtime-host-graph-status={snapshot.vfxRuntimeObservability.hostGraph.status}
+      data-vfx-runtime-asset-settlement-status={snapshot.vfxRuntimeObservability.assetSettlement.status}
+      data-vfx-runtime-draw-ledger-status={snapshot.vfxRuntimeObservability.drawLedger.status}
+      data-vfx-runtime-playback-guard-status={snapshot.vfxRuntimeObservability.playbackGuard.status}
+      data-vfx-runtime-proof-gate-status={snapshot.vfxRuntimeObservability.proofGate.status}
+      data-vfx-runtime-proof-blockers={
+        snapshot.vfxRuntimeObservability.proofGate.blockerManifest.join("|")
+      }
+      data-vfx-debug-overlay-enabled={
+        snapshot.vfxRuntimeObservability.debugOverlay.enabled ? "true" : "false"
+      }
+      data-vfx-debug-overlay-final-profile-disabled={
+        snapshot.vfxRuntimeObservability.debugOverlay.finalProfileDisabled ? "true" : "false"
+      }
       data-model-file-name={snapshot.modelFileName}
       data-texture-urls={snapshot.textureUrls.join("|")}
       data-placeable-model-status={snapshot.placeableModelStatus}
@@ -2577,6 +3352,8 @@ export function CatalogVfxPreviewRunner() {
       data-placeable-model-texture-loaded={snapshot.placeableModelTextureLoaded ?? ""}
       data-placeable-model-texture-count={snapshot.placeableModelTextureCount ?? ""}
       data-placeable-model-texture-source={snapshot.placeableModelTextureSource}
+      data-source-mdl-static-geometry-node-count={snapshot.sourceMdlStaticGeometryNodeCount}
+      data-source-mdl-static-geometry-nodes={snapshot.sourceMdlStaticGeometryNodes.join("|")}
       data-diagnostic-codes={snapshot.diagnosticCodes.join("|")}
       data-emitter-source={snapshot.emitterSource}
       data-emitter-count={snapshot.emitterCount}
@@ -2869,6 +3646,8 @@ export function CatalogVfxPreviewRunner() {
       data-scene-shadow-area-opacity-factor-source={
         snapshot.sceneShadowAreaOpacityFactorSource
       }
+      data-placeable-world-bounds-center={snapshot.placeableWorldBoundsCenter.join(",")}
+      data-placeable-world-bounds-size={snapshot.placeableWorldBoundsSize.join(",")}
       data-emitter-world-bounds-center={snapshot.emitterWorldBoundsCenter.join(",")}
       data-emitter-world-bounds-size={snapshot.emitterWorldBoundsSize.join(",")}
       data-camera-position={snapshot.cameraPosition.join(",")}

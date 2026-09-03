@@ -14,7 +14,10 @@ import type {
   WorkspaceToolbarState
 } from "../application/workspaceChromeFacade";
 import type { SceneObjectCatalogQueryFacade } from "../application/sceneObjectCatalogQueryFacade";
+import { resolveItemPropertiesApplyPersistenceRoute } from
+  "../application/itemBlueprintPropertiesApplyRouting";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
+import { readFrontendRuntimeBuildIdentity } from "../../shared/application/frontendRuntimeBuildIdentity";
 import { AreasModePanel } from "./AreasModePanel";
 import { PlaceablesModePanel, type PlaceablesSubtypeFilter } from "./PlaceablesModePanel";
 import { PlaceablesModeRightPanel } from "./PlaceablesModeRightPanel";
@@ -45,17 +48,68 @@ import {
 import type { SceneViewportPort } from "../../scene/application/sceneViewportPort";
 import type { AreaListClientCacheEntry } from "./AreaSelectionPanel";
 import type { AreaApiPort } from "../../areas/ports/areaApiPort";
+import type { AreaCreateFacade } from "../../areas/application/areaCreateFacade";
+import type { AreaEditingFacade } from "../../areas/application/areaEditingFacade";
+import type { AreaTileProductionCertificationSource } from "../../areas/application/areaTileProductionPlacementAdmission";
+import type { AreaUpdateFacade } from "../../areas/application/areaUpdateFacade";
+import type { AreaDeleteFacade } from "../../areas/application/areaDeleteFacade";
+import type { AreaRenameFacade } from "../../areas/application/areaRenameFacade";
+import type { AreaLifecycleFacade } from "../../areas/application/areaLifecycleFacade";
+import type { AreaCapabilityFacade } from "../../areas/application/areaCapabilityFacade";
+import type { AreaEventScriptCatalogFacade } from "../../areas/application/areaEventScriptCatalogFacade";
+import type { AreaEventScriptPublicationFacade } from "../../areas/application/areaEventScriptPublicationFacade";
+import type { AreaDraftSessionRegistry } from "../../areas/ports/areaLifecyclePort";
+import type { AreaWorkspaceDraftDocument } from "../../areas/areaWorkspaceDraftContracts";
+import type { ClientAssetCachePort } from "../../shared/application/clientAssetCachePort";
 import {
-  buildAreaTileProcessContractSceneKey,
+  createAreaWorkspaceStatusSnapshot,
+  reduceAreaWorkspaceStatus,
+  type AreaWorkspaceStatusEvent,
+} from "../../areas/application/areaWorkspaceStatus";
+import { AreaWorkspaceStatusBar } from "./AreaWorkspaceStatusBar";
+import {
+  buildAreaTileProcessContractSceneKeyForCandidates,
+  countAreaTileProcessContractCandidates,
+  isAreaTileProcessReadinessCompleteForExpectedCandidates,
   isCurrentAreaTileProcessRequest,
-  resolveAreaTileProcessContractReadinessForModelResRefs,
+  resolveAreaTileProcessContractReadinessForCandidates,
   scopeAreaTileProcessReadinessToScene,
   shouldRequestAreaTileProcessReadiness,
   type AreaTileProcessContractReadiness
 } from "../../tiles/application/areaTileProcessContractReadiness";
+import { composeAreaTileProcessContractCandidates } from "../application/areaTileProcessCandidateComposition";
+import {
+  buildAreaTileMutationTrace,
+  buildAreaTileMutationTraceDatasetPayload,
+  evaluateAreaTileMutationContractSettlement,
+  resolveAreaTileMutationChangedCellBand,
+  type AreaTileMutationTrace
+} from "../../tiles/application/areaTileMutationTelemetry";
 import type { TileApiPort } from "../../tiles/ports/tileApiPort";
 import type { PlaceableApiPort } from "../../placeables/ports/placeableApiPort";
 import type { CreatureApiPort } from "../../creatures/ports/creatureApiPort";
+import type { CreatureAppearancePaletteFacade } from "../../creatures/application/creatureAppearancePaletteFacade";
+import type { CreatureAppearanceCatalogFacade } from "../../creatures/application/creatureAppearanceCatalogFacade";
+import type { CreatureGenderCatalogFacade } from "../../creatures/application/creatureGenderCatalogFacade";
+import type { CreatureAppendageCatalogFacade } from
+  "../../creatures/application/creatureAppendageCatalogFacade";
+import type { CreaturePerceptionRangeCatalogFacade } from
+  "../../creatures/application/creaturePerceptionRangeCatalogFacade";
+import type { CreatureWalkRateCatalogFacade } from
+  "../../creatures/application/creatureWalkRateCatalogFacade";
+import type { CreatureSoundSetCatalogFacade } from
+  "../../creatures/application/creatureSoundSetCatalogFacade";
+import type { CreatureStartingPackageCatalogFacade } from
+  "../../creatures/application/creatureStartingPackageCatalogFacade";
+import type { CreatureClassCatalogFacade } from
+  "../../creatures/application/creatureClassCatalogFacade";
+import type { CreatureSkillCatalogFacade } from
+  "../../creatures/application/creatureSkillCatalogFacade";
+import type { CreatureFeatCatalogFacade } from
+  "../../creatures/application/creatureFeatCatalogFacade";
+import type { CreatureSpecialAbilityCatalogFacade } from
+  "../../creatures/application/creatureSpecialAbilityCatalogFacade";
+import type { CreaturePhenotypeCatalogFacade } from "../../creatures/application/creaturePhenotypeCatalogFacade";
 import type {
   CreatureApiListItem,
   CreatureApiProcessPayload,
@@ -72,6 +126,10 @@ import {
 import type { EncounterApiPort } from "../../encounters/ports/encounterApiPort";
 import type { EncounterApiListItem } from "../../encounters/contracts";
 import { mapEncounterApiListItemToSceneObject } from "../../encounters/application/encounterSceneObjectMapper";
+import type { WaypointApiPort } from "../../waypoints/ports/waypointApiPort";
+import type { WaypointApiListItem } from "../../waypoints/contracts";
+import { mapWaypointApiListItemToSceneObject } from
+  "../../waypoints/application/waypointSceneObjectMapper";
 import type { ItemApiPort } from "../../items/ports/itemApiPort";
 import type {
   ItemApiBaseItemEntry,
@@ -108,10 +166,10 @@ import { mapStoreApiListItemToSceneObject } from "../../stores/application/store
 import { mapSoundApiListItemToSceneObject } from "../../sounds/application/soundSceneObjectMapper";
 import { mapPlaceablePreviewToScene } from "../../placeables/application/placeablePreviewSceneMapper";
 import { createSeedAreaScene } from "../../scene/domain/sceneFactory";
+import { readDynamicAreaPlaceableConstructionDefaults } from "../../scene/domain/areaPlaceableDynamicConstructionProfile";
 import {
   buildVfxPayloadFromPlaceablePreview,
-  buildVfxPayloadFromRenderPayload,
-  isPlaceablePreviewVfx
+  buildVfxPayloadFromRenderPayload
 } from "../../placeables/application/placeableVfxPreservePayload";
 import {
   buildPlaceableViewportProcessPreviewPayload,
@@ -138,17 +196,48 @@ import {
   type AreaPlaceablePlaceholderReason,
   type PlaceableRenderPayloadLookup
 } from "../application/workspacePlaceableRenderContracts";
+import {
+  buildAreaPlaceableRenderPayloadQueueSignature,
+  evictAreaPlaceableRenderPayloadLookupAliases,
+  evictUnvalidatedAreaPlaceableRenderPayloads,
+  isAreaPlaceableRenderPayloadValidated,
+  type AreaPlaceableAssetCacheMiss
+} from "../application/areaPlaceableRenderPayloadRevalidation";
 
 interface WorkspaceLayoutProps {
   role: WorkspaceUserRole;
   userId: string;
   workspaceChromeFacade: WorkspaceChromeFacade;
   sceneViewportPort: SceneViewportPort;
+  clientAssetCachePort?: ClientAssetCachePort;
+  areaLifecycleFacade?: AreaLifecycleFacade<AreaWorkspaceDraftDocument>;
   areaApiPort: AreaApiPort;
+  areaEditingFacade?: AreaEditingFacade;
+  areaCreateFacade?: AreaCreateFacade;
+  areaUpdateFacade?: AreaUpdateFacade;
+  areaDeleteFacade?: AreaDeleteFacade;
+  areaRenameFacade?: AreaRenameFacade;
+  areaCapabilityFacade?: AreaCapabilityFacade;
+  areaEventScriptCatalogFacade?: AreaEventScriptCatalogFacade;
+  areaEventScriptPublicationFacade?: AreaEventScriptPublicationFacade;
   tileApiPort?: TileApiPort;
   placeableApiPort?: PlaceableApiPort;
   creatureApiPort?: CreatureApiPort;
+  creatureAppearanceCatalogFacade?: CreatureAppearanceCatalogFacade;
+  creatureGenderCatalogFacade?: CreatureGenderCatalogFacade;
+  creatureAppendageCatalogFacade?: CreatureAppendageCatalogFacade;
+  creaturePerceptionRangeCatalogFacade?: CreaturePerceptionRangeCatalogFacade;
+  creatureWalkRateCatalogFacade?: CreatureWalkRateCatalogFacade;
+  creatureSoundSetCatalogFacade?: CreatureSoundSetCatalogFacade;
+  creatureStartingPackageCatalogFacade?: CreatureStartingPackageCatalogFacade;
+  creatureClassCatalogFacade?: CreatureClassCatalogFacade;
+  creatureSkillCatalogFacade?: CreatureSkillCatalogFacade;
+  creatureFeatCatalogFacade?: CreatureFeatCatalogFacade;
+  creatureSpecialAbilityCatalogFacade?: CreatureSpecialAbilityCatalogFacade;
+  creaturePhenotypeCatalogFacade?: CreaturePhenotypeCatalogFacade;
+  creatureAppearancePaletteFacade?: CreatureAppearancePaletteFacade;
   encounterApiPort?: EncounterApiPort;
+  waypointApiPort?: WaypointApiPort;
   itemApiPort?: ItemApiPort;
   soundApiPort?: SoundApiPort;
   storeApiPort?: StoreApiPort;
@@ -171,6 +260,7 @@ interface WorkspaceLayoutProps {
       | "placeables_catalog"
       | "creatures_catalog"
       | "encounters_catalog"
+      | "waypoints_catalog"
       | "items_catalog"
       | "stores_catalog"
       | "sounds_catalog",
@@ -288,6 +378,22 @@ function resolveEncountersCatalogErrorMessage(error: unknown): string {
 
   const detail = error.message.trim();
   return detail ? `Failed to load encounters from backend: ${detail}` : fallbackMessage;
+}
+
+function resolveWaypointsCatalogErrorMessage(error: unknown): string {
+  const fallbackMessage = "Failed to load waypoints from backend.";
+  if (!(error instanceof Error)) return fallbackMessage;
+  const status = (error as { status?: unknown }).status;
+  const code = (error as { code?: unknown }).code;
+  if (typeof status === "number" && Number.isFinite(status)) {
+    const codeLabel = typeof code === "string" && code.trim().length > 0 ? ` ${code}` : "";
+    return `Failed to load waypoints from backend (${status}${codeLabel}).`;
+  }
+  if (error.name === "ZodError") {
+    return "Failed to load waypoints: backend catalog response does not match the expected contract.";
+  }
+  const detail = error.message.trim();
+  return detail ? `Failed to load waypoints from backend: ${detail}` : fallbackMessage;
 }
 
 function resolveItemsCatalogErrorMessage(error: unknown): string {
@@ -682,6 +788,12 @@ interface EncountersCatalogClientCacheEntry {
   expiresAtMs: number;
 }
 
+interface WaypointsCatalogClientCacheEntry {
+  items: WaypointApiListItem[];
+  total: number;
+  expiresAtMs: number;
+}
+
 interface ItemsCatalogClientCacheEntry {
   items: ItemApiListItem[];
   query: string;
@@ -695,7 +807,7 @@ interface StoresCatalogClientCacheEntry {
   expiresAtMs: number;
 }
 
-interface PlaceablesCatalogListItem {
+export interface PlaceablesCatalogListItem {
   templateId: string;
   resref: string;
   name: string;
@@ -708,6 +820,7 @@ interface PlaceablesCatalogListItem {
     | "light_source"
     | "trigger_proxy";
   previewImageUrl?: string;
+  metadata?: Record<string, string | number | boolean>;
 }
 
 const PLACEABLES_CATALOG_CLIENT_CACHE_TTL_MS = 60_000;
@@ -718,7 +831,12 @@ const AREAS_RENDER_PAYLOAD_QUEUE_CONCURRENCY = 4;
 const AREAS_RENDER_PAYLOAD_BATCH_QUEUE_CONCURRENCY = 1;
 const AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS = 120;
 const AREAS_RENDER_PAYLOAD_BATCH_SIZE = 128;
-const AREAS_RENDER_PAYLOAD_PROCESS_BATCH_TIMEOUT_MS = 180_000;
+// A real, cold `claude_pr_01` batch of 44 distinct Area render payloads
+// completes in about 175 s on the active local backend.  Keep browser-side
+// cancellation beyond that measured preparation window; otherwise React
+// aborts a still-progressing batch and immediately starts another one, leaving
+// the shared renderer permanently at `missing-payload`.
+const AREAS_RENDER_PAYLOAD_PROCESS_BATCH_TIMEOUT_MS = 240_000;
 const AREAS_RENDER_PAYLOAD_PROCESS_SINGLE_TIMEOUT_MS = 30_000;
 const AREAS_RENDER_PAYLOAD_EARLY_SINGLE_RECOVERY_DELAY_MS = 5_000;
 const AREAS_RENDER_PAYLOAD_BATCH_RETRY_LIMIT = 5;
@@ -740,6 +858,9 @@ const AREAS_CREATURE_RENDER_PAYLOAD_QUEUE_CONCURRENCY = 8;
 const ENCOUNTERS_CATALOG_CLIENT_CACHE_TTL_MS = 60_000;
 const ENCOUNTERS_CATALOG_BATCH_SIZE = 1000;
 const ENCOUNTERS_CATALOG_PAGE_YIELD_MS = 75;
+const WAYPOINTS_CATALOG_CLIENT_CACHE_TTL_MS = 60_000;
+const WAYPOINTS_CATALOG_BATCH_SIZE = 1000;
+const WAYPOINTS_CATALOG_PAGE_YIELD_MS = 75;
 const ITEMS_CATALOG_CLIENT_CACHE_TTL_MS = 60_000;
 const ITEMS_CATALOG_BATCH_SIZE = 1000;
 const ITEMS_CATALOG_PAGE_YIELD_MS = 75;
@@ -988,10 +1109,7 @@ function resolveSceneObjectPreviewVfxPayload(object: SceneObject | null | undefi
   if (!object || object.kind !== "placeables") {
     return undefined;
   }
-  if (object.vfxPayload) {
-    return object.vfxPayload;
-  }
-  return buildVfxPayloadFromPlaceablePreview(buildPlaceablePreviewIdentityFromObject(object));
+  return object.vfxPayload;
 }
 
 interface BuildPreviewSceneFromObjectOptions {
@@ -1010,8 +1128,7 @@ function buildPreviewSceneFromObject(
   const previewIdentity = buildPlaceablePreviewIdentityFromObject(object);
   const isPreviewVfx =
     Boolean(renderVfxPayload) ||
-    Boolean(resolveSceneObjectPreviewVfxPayload(object)) ||
-    isPlaceablePreviewVfx(previewIdentity);
+    Boolean(resolveSceneObjectPreviewVfxPayload(object));
   const previewScene = mapPlaceablePreviewToScene(
     {
       ...previewIdentity,
@@ -1160,7 +1277,7 @@ function filterPlaceablesByQuery(objects: SceneObject[], query: string): SceneOb
   });
 }
 
-function mapPlaceableListItemToSceneObject(
+export function mapPlaceableListItemToSceneObject(
   item: {
     templateId: string;
     resref: string;
@@ -1171,22 +1288,26 @@ function mapPlaceableListItemToSceneObject(
   },
   index: number
 ): SceneObject {
+  const constructionDefaults = readDynamicAreaPlaceableConstructionDefaults(item);
   const fallbackTag = item.resref.trim().length > 0 ? item.resref : item.templateId;
   const normalizedName = item.name.trim().length > 0 ? item.name : `${item.category} ${String(index + 1).padStart(3, "0")}`;
   const normalizedTagSource = normalizedName.trim().length > 0 ? normalizedName : fallbackTag;
-  const vfxPayload = buildVfxPayloadFromPlaceablePreview({
-    templateId: item.templateId,
-    resref: item.resref,
-    name: normalizedName,
-    kind: "placeables",
-    ...(item.placeableSubtype ? { placeableSubtype: item.placeableSubtype } : {})
-  });
+  const vfxPayload = item.placeableSubtype === "vfx"
+    ? buildVfxPayloadFromPlaceablePreview({
+        templateId: item.templateId,
+        resref: item.resref,
+        name: normalizedName,
+        kind: "placeables",
+        placeableSubtype: "vfx"
+      })
+    : undefined;
   return {
     id: item.templateId,
     kind: "placeables",
     name: normalizedName,
-    resRef: item.resref,
-    tag: normalizedTagSource.toUpperCase(),
+    resRef: constructionDefaults?.resRef ?? item.resref,
+    tag: constructionDefaults?.tag ?? normalizedTagSource.toUpperCase(),
+    ...(constructionDefaults ? { source: constructionDefaults.source } : {}),
     isStatic: true,
     x: 0.5,
     y: 0.5,
@@ -1973,11 +2094,35 @@ export function WorkspaceLayout({
   userId,
   workspaceChromeFacade,
   sceneViewportPort,
+  clientAssetCachePort,
+  areaLifecycleFacade,
   areaApiPort,
+  areaEditingFacade,
+  areaCreateFacade,
+  areaUpdateFacade,
+  areaDeleteFacade,
+  areaRenameFacade,
+  areaCapabilityFacade,
+  areaEventScriptCatalogFacade,
+  areaEventScriptPublicationFacade,
   tileApiPort,
   placeableApiPort,
   creatureApiPort,
+  creatureAppearanceCatalogFacade,
+  creatureGenderCatalogFacade,
+  creatureAppendageCatalogFacade,
+  creaturePerceptionRangeCatalogFacade,
+  creatureWalkRateCatalogFacade,
+  creatureSoundSetCatalogFacade,
+  creatureStartingPackageCatalogFacade,
+  creatureClassCatalogFacade,
+  creatureSkillCatalogFacade,
+  creatureFeatCatalogFacade,
+  creatureSpecialAbilityCatalogFacade,
+  creaturePhenotypeCatalogFacade,
+  creatureAppearancePaletteFacade,
   encounterApiPort,
+  waypointApiPort,
   itemApiPort,
   soundApiPort,
   storeApiPort,
@@ -1997,6 +2142,13 @@ export function WorkspaceLayout({
   onExitViewportFullscreen,
   onBackendSessionInvalidated
 }: WorkspaceLayoutProps) {
+  const areaDraftSessionRegistry = useRef<
+    AreaDraftSessionRegistry["current"]
+  >({}) as AreaDraftSessionRegistry;
+  const [areaDraftListRefreshRevision, setAreaDraftListRefreshRevision] = useState(0);
+  const handleAreaDraftChanged = useCallback(() => {
+    setAreaDraftListRefreshRevision((current) => current + 1);
+  }, []);
   const panels = workspaceChromeFacade.getRoleWorkspacePanels(role);
   const [uncontrolledActiveBuilderModeId, setUncontrolledActiveBuilderModeId] =
     useState<WorkspaceModeId>(getDefaultWorkspaceModeId());
@@ -2073,6 +2225,7 @@ export function WorkspaceLayout({
   const [creatureAnimationStatesByObjectId, setCreatureAnimationStatesByObjectId] =
     useState<Record<string, number>>({});
   const [encountersCatalogItems, setEncountersCatalogItems] = useState<EncounterApiListItem[]>([]);
+  const [waypointsCatalogItems, setWaypointsCatalogItems] = useState<WaypointApiListItem[]>([]);
   const [itemsCatalogItems, setItemsCatalogItems] = useState<ItemApiListItem[]>([]);
   const [itemsCatalogTotal, setItemsCatalogTotal] = useState(0);
   const [itemsCatalogStatus, setItemsCatalogStatus] = useState<
@@ -2152,6 +2305,24 @@ export function WorkspaceLayout({
       typeof window !== "undefined" ? window.sessionStorage : null
     )
   );
+  const [areaWorkspaceStatus, setAreaWorkspaceStatus] = useState(() => {
+    const initialScene = areaSceneSeed ?? defaultAreasSceneSeed;
+    return createAreaWorkspaceStatusSnapshot(
+      initialScene.sceneId,
+      Date.now(),
+      initialScene.updatedAtUnixMs
+    );
+  });
+  const handleAreaWorkspaceStatusChange = useCallback((event: AreaWorkspaceStatusEvent) => {
+    setAreaWorkspaceStatus((current) => reduceAreaWorkspaceStatus(current, event));
+  }, []);
+  const areaSceneSeedRef = useRef<AreaScene | null>(areaSceneSeed);
+  const [areaTileProductionCertification, setAreaTileProductionCertification] =
+    useState<AreaTileProductionCertificationSource>({
+      status: "unavailable",
+      tilesetResRef: null,
+      reasonCode: "NO_ACTIVE_TILESET",
+    });
   const [selectedAreaTileId, setSelectedAreaTileId] = useState<string | null>(null);
   const [selectedAreaTileIds, setSelectedAreaTileIds] = useState<string[]>([]);
   const [areaEditingTool, setAreaEditingTool] = useState<AuroraAreaEditingTool>(
@@ -2160,22 +2331,64 @@ export function WorkspaceLayout({
   const areaEditorMutationRevisionRef = useRef(0);
   const [areaEditorMutationSignal, setAreaEditorMutationSignal] =
     useState<WorkspaceAreaEditorMutationSignal | null>(null);
+  const [areaTileMutationTrace, setAreaTileMutationTrace] =
+    useState<AreaTileMutationTrace | null>(null);
+  const [areaTileMutationAppliedRevision, setAreaTileMutationAppliedRevision] =
+    useState(0);
+  const recordAreaTileMutation = useCallback((
+    scene: AreaScene,
+    appliedImmediately: boolean
+  ): AreaTileMutationTrace | null => {
+    const nextRevision = areaEditorMutationRevisionRef.current + 1;
+    const trace = buildAreaTileMutationTrace(
+      areaSceneSeedRef.current,
+      scene,
+      nextRevision,
+      new Date().toISOString()
+    );
+    areaSceneSeedRef.current = scene;
+    if (!trace) {
+      return null;
+    }
+    areaEditorMutationRevisionRef.current = trace.revision;
+    setAreaTileMutationTrace(trace);
+    if (appliedImmediately) {
+      setAreaTileMutationAppliedRevision(trace.revision);
+    }
+    trackTelemetryEvent("scene.area_tile_mutation.lifecycle", {
+      stage: "mutation",
+      result: "started",
+      errorClass: "none",
+      changedCellBand: resolveAreaTileMutationChangedCellBand(
+        trace.changedTileCount
+      )
+    });
+    return trace;
+  }, [trackTelemetryEvent]);
   const handleAreaSceneDraftChange = useCallback((scene: AreaScene) => {
+    recordAreaTileMutation(scene, true);
     setAreaSceneSeed(scene);
-  }, []);
+  }, [recordAreaTileMutation]);
   const handleAreaSceneMutation = useCallback((
     scene: AreaScene,
     selectedTileId?: string | null,
     selectedTileIds?: string[]
   ) => {
-    areaEditorMutationRevisionRef.current += 1;
+    // The canvas owns the immediate interaction state, but the contract
+    // resolver is keyed from this parent scene. Publish every tile mutation
+    // here so a newly placed SET tile requests its own MDL/GLB contract.
+    const trace = recordAreaTileMutation(scene, false);
+    setAreaSceneSeed(scene);
+    if (!trace) {
+      return;
+    }
     setAreaEditorMutationSignal({
-      revision: areaEditorMutationRevisionRef.current,
+      revision: trace.revision,
       scene,
       selectedTileId,
       selectedTileIds
     });
-  }, []);
+  }, [recordAreaTileMutation]);
   const handleSelectedAreaTileChange = useCallback((
     tileId: string | null,
     tileIds: readonly string[]
@@ -2192,6 +2405,8 @@ export function WorkspaceLayout({
     useState<WorkspaceAreaCanvasLoadingState | null>(null);
   const [isAreasModeAddPlaceablesStepActive, setIsAreasModeAddPlaceablesStepActive] =
     useState(false);
+  const [areasActiveCatalogType, setAreasActiveCatalogType] =
+    useState<Exclude<SceneObjectCatalogType, "all">>("placeables");
   const [
     areaPlaceableRenderPayloadQueueSnapshot,
     setAreaPlaceableRenderPayloadQueueSnapshot
@@ -2203,10 +2418,23 @@ export function WorkspaceLayout({
   const [areaTileProcessRequestPhase, setAreaTileProcessRequestPhase] = useState<
     "idle" | "loading" | "ready" | "failed"
   >("idle");
+  const currentAreaTileProcessCandidates = useMemo(
+    () =>
+      areaSceneSeed
+        ? composeAreaTileProcessContractCandidates(
+            areaSceneSeed.tiles,
+            areaSceneSeed.auroraAreaEditing?.definition.tilesetResRef ??
+              areaSceneSeed.tileSource?.tilesetResRef ??
+              "",
+            areaTileProductionCertification
+          )
+        : [],
+    [areaSceneSeed, areaTileProductionCertification]
+  );
   const currentAreaTileProcessSceneKey = areaSceneSeed
-    ? buildAreaTileProcessContractSceneKey(
+    ? buildAreaTileProcessContractSceneKeyForCandidates(
         areaSceneSeed.sceneId,
-        areaSceneSeed.tiles.map((tile) => tile.modelResRef)
+        currentAreaTileProcessCandidates
       )
     : null;
   const currentAreaTileProcessReadiness = scopeAreaTileProcessReadinessToScene(
@@ -2214,6 +2442,57 @@ export function WorkspaceLayout({
     areaTileProcessReadinessSceneKey,
     currentAreaTileProcessSceneKey
   );
+  const areaTileMutationContractSettlement = useMemo(
+    () =>
+      evaluateAreaTileMutationContractSettlement({
+        trace: areaTileMutationTrace,
+        appliedRevision: areaTileMutationAppliedRevision,
+        currentSceneKey: currentAreaTileProcessSceneKey,
+        readinessSceneKey: areaTileProcessReadinessSceneKey,
+        requestPhase: areaTileProcessRequestPhase,
+        readiness: currentAreaTileProcessReadiness
+      }),
+    [
+      areaTileMutationAppliedRevision,
+      areaTileMutationTrace,
+      areaTileProcessReadinessSceneKey,
+      areaTileProcessRequestPhase,
+      currentAreaTileProcessReadiness,
+      currentAreaTileProcessSceneKey
+    ]
+  );
+  const lastAreaTileMutationSettlementEventRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!areaTileMutationContractSettlement.operationId) {
+      return;
+    }
+    const eventKey = [
+      areaTileMutationContractSettlement.operationId,
+      areaTileMutationContractSettlement.status,
+      areaTileMutationContractSettlement.blockers.join("|")
+    ].join(":");
+    if (lastAreaTileMutationSettlementEventRef.current === eventKey) {
+      return;
+    }
+    lastAreaTileMutationSettlementEventRef.current = eventKey;
+    trackTelemetryEvent("scene.area_tile_mutation.lifecycle", {
+      stage: "contract",
+      result: areaTileMutationContractSettlement.status,
+      errorClass:
+        areaTileMutationContractSettlement.status === "blocked"
+          ? "contract"
+          : "none",
+      changedCellBand: areaTileMutationTrace
+        ? resolveAreaTileMutationChangedCellBand(
+            areaTileMutationTrace.changedTileCount
+          )
+        : "1"
+    });
+  }, [
+    areaTileMutationContractSettlement,
+    areaTileMutationTrace,
+    trackTelemetryEvent
+  ]);
   const acceptedAreaTileProcessSceneKeyRef = useRef<string | null>(null);
   const inFlightAreaTileProcessRequestRef = useRef<{
     sceneKey: string;
@@ -2228,9 +2507,39 @@ export function WorkspaceLayout({
   const [creaturesModeSceneSeed, setCreaturesModeSceneSeed] = useState<AreaScene | null>(null);
   const [itemsModeSceneSeed, setItemsModeSceneSeed] = useState<AreaScene | null>(null);
   const areaListClientCacheRef = useRef<AreaListClientCacheEntry | null>(null);
+  const handleAreaMaterialized = useCallback(() => {
+    areaListClientCacheRef.current = null;
+    handleAreaDraftChanged();
+  }, [handleAreaDraftChanged]);
+  const handleAreaDeleted = useCallback((areaId: string) => {
+    areaListClientCacheRef.current = null;
+    delete areaDraftSessionRegistry.current[areaId];
+    setAreaSceneSeed((current) => current?.sceneId === areaId ? null : current);
+    setSelectedAreaTileId(null);
+    setSelectedAreaTileIds([]);
+    setSelectedObjectIdsSnapshot([]);
+    handleAreaDraftChanged();
+  }, [handleAreaDraftChanged]);
+  const handleAreaRenamed = useCallback((sourceAreaId: string) => {
+    areaListClientCacheRef.current = null;
+    for (const [sceneId, session] of Object.entries(areaDraftSessionRegistry.current)) {
+      if (
+        sceneId === sourceAreaId ||
+        session.productionSource?.provenance.areaId === sourceAreaId
+      ) {
+        delete areaDraftSessionRegistry.current[sceneId];
+      }
+    }
+    setAreaSceneSeed((current) => current?.sceneId === sourceAreaId ? null : current);
+    setSelectedAreaTileId(null);
+    setSelectedAreaTileIds([]);
+    setSelectedObjectIdsSnapshot([]);
+    handleAreaDraftChanged();
+  }, [handleAreaDraftChanged]);
   const placeablesCatalogClientCacheRef = useRef<PlaceablesCatalogClientCacheEntry | null>(null);
   const creaturesCatalogClientCacheRef = useRef<CreaturesCatalogClientCacheEntry | null>(null);
   const encountersCatalogClientCacheRef = useRef<EncountersCatalogClientCacheEntry | null>(null);
+  const waypointsCatalogClientCacheRef = useRef<WaypointsCatalogClientCacheEntry | null>(null);
   const itemsCatalogClientCacheRef = useRef<ItemsCatalogClientCacheEntry | null>(null);
   const storesCatalogClientCacheRef = useRef<StoresCatalogClientCacheEntry | null>(null);
   const soundsCatalogClientCacheRef = useRef<SoundsCatalogClientCacheEntry | null>(null);
@@ -2261,6 +2570,11 @@ export function WorkspaceLayout({
   const isMountedRef = useRef(true);
   const areaPlaceableRenderPayloadQueueActiveSignatureRef = useRef<string | null>(null);
   const areaPlaceableRenderPayloadQueueActivePromiseRef = useRef<Promise<void> | null>(null);
+  const [areaPlaceableRenderPayloadGeneration, setAreaPlaceableRenderPayloadGeneration] =
+    useState(0);
+  const areaPlaceableValidatedGenerationByLookupRef = useRef<Map<string, number>>(
+    new Map()
+  );
   const [placeableRenderPayloadByTemplateId, setPlaceableRenderPayloadByTemplateId] = useState<
     Record<string, PlaceableViewportRenderPayload>
   >({});
@@ -2295,15 +2609,21 @@ export function WorkspaceLayout({
     return () => window.removeEventListener("keydown", handleEscape);
   }, [onExitViewportFullscreen, viewportFullscreen]);
 
-  const isBuilder = role === "builder";
+  const isBuilder = role === "builder" || role === "admin";
   const shouldRenderSceneObjectsPanel = isBuilder && activeBuilderMode.showSceneObjectListPanel;
   const shouldRenderSceneObjectAddPanel = isBuilder && activeBuilderMode.showSceneObjectAddPanel;
   const shouldRenderAreaSelectionPanel =
     isBuilder && activeBuilderMode.showAreaSelectionPanel;
+  const isAreasMode = isBuilder && activeBuilderMode.id === "areas_mode";
   const isPlaceablesMode = isBuilder && activeBuilderMode.id === "placeables_mode";
   const isCreaturesMode = isBuilder && activeBuilderMode.id === "creatures_mode";
   const isItemsMode = isBuilder && activeBuilderMode.id === "items_mode";
   const isSoundsMode = isBuilder && activeBuilderMode.id === "sounds_mode";
+  const shouldLoadAreasModeObjectCatalogs =
+    isAreasMode && isAreasModeAddPlaceablesStepActive;
+  const shouldLoadCreatureResourceOptions =
+    isCreaturesMode ||
+    (shouldLoadAreasModeObjectCatalogs && areasActiveCatalogType === "creatures");
   const areaRuntimeCaptureTerrainOnlyObjectPayloadSkip =
     isAreasRuntimeCaptureTerrainOnlyObjectPayloadSkipEnabled();
   const isFocusedPreviewMode = isPlaceablesMode || isCreaturesMode || isItemsMode;
@@ -2336,6 +2656,110 @@ export function WorkspaceLayout({
     );
   }, [areaSceneSeed]);
   useEffect(() => {
+    const currentScene = areaSceneSeed ?? defaultAreasSceneSeed;
+    setAreaWorkspaceStatus((current) =>
+      current.sceneId === currentScene.sceneId &&
+      current.draft.sceneUpdatedAtUnixMs === currentScene.updatedAtUnixMs
+        ? current
+        : createAreaWorkspaceStatusSnapshot(
+            currentScene.sceneId,
+            Date.now(),
+            currentScene.updatedAtUnixMs
+          )
+    );
+  }, [areaSceneSeed, defaultAreasSceneSeed]);
+  useEffect(() => {
+    const tilesetResRef = areaSceneSeed?.auroraAreaEditing?.definition.tilesetResRef
+      .trim()
+      .toLowerCase() ?? null;
+    if (!tilesetResRef) {
+      setAreaTileProductionCertification({
+        status: "unavailable",
+        tilesetResRef: null,
+        reasonCode: "NO_ACTIVE_TILESET",
+      });
+      return;
+    }
+    if (!backendAccessToken) {
+      setAreaTileProductionCertification({
+        status: "unavailable",
+        tilesetResRef,
+        reasonCode: "ACCESS_UNAVAILABLE",
+      });
+      return;
+    }
+    if (!areaEditingFacade) {
+      setAreaTileProductionCertification({
+        status: "unavailable",
+        tilesetResRef,
+        reasonCode: "FACADE_UNAVAILABLE",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setAreaTileProductionCertification({ status: "loading", tilesetResRef });
+    trackTelemetryEvent("scene.area_tiles.certification_index.load_started", {
+      userId,
+      tilesetResRef,
+    });
+    void areaEditingFacade.queries.getTileCertificationIndex(
+      backendAccessToken,
+      tilesetResRef,
+    ).then((index) => {
+      if (cancelled) return;
+      setAreaTileProductionCertification({
+        status: "ready",
+        tilesetResRef,
+        index,
+      });
+      trackTelemetryEvent("scene.area_tiles.certification_index.load_ready", {
+        userId,
+        tilesetResRef,
+        rowCount: index.size,
+      });
+    }).catch(() => {
+      if (cancelled) return;
+      setAreaTileProductionCertification({
+        status: "unavailable",
+        tilesetResRef,
+        reasonCode: "LOAD_FAILED",
+      });
+      trackTelemetryEvent("scene.area_tiles.certification_index.load_failed", {
+        userId,
+        tilesetResRef,
+        errorClass: "certification_source_unavailable",
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    areaEditingFacade,
+    areaSceneSeed?.auroraAreaEditing?.definition.tilesetResRef,
+    backendAccessToken,
+    trackTelemetryEvent,
+    userId,
+  ]);
+  useEffect(() => {
+    const currentScene = areaSceneSeed ?? defaultAreasSceneSeed;
+    const source = areaTileProductionCertification;
+    handleAreaWorkspaceStatusChange({
+      schemaVersion: "area-workspace-status.v1",
+      lane: "certification",
+      state: source.status,
+      sceneId: currentScene.sceneId,
+      occurredAtUnixMs: Date.now(),
+      ...(source.tilesetResRef ? { tilesetResRef: source.tilesetResRef } : {}),
+      ...(source.status === "unavailable" ? { code: source.reasonCode } : {}),
+    });
+  }, [
+    areaSceneSeed,
+    areaTileProductionCertification,
+    defaultAreasSceneSeed,
+    handleAreaWorkspaceStatusChange,
+  ]);
+  useEffect(() => {
     persistCustomCreatureTemplateObjects(
       customCreatureTemplateObjects,
       typeof window !== "undefined" ? window.localStorage : null
@@ -2344,6 +2768,7 @@ export function WorkspaceLayout({
   useEffect(() => {
     if (
       areaRuntimeCaptureTerrainOnlyObjectPayloadSkip ||
+      !shouldLoadCreatureResourceOptions ||
       !creatureApiPort?.listCreatureResourceOptions ||
       !backendAccessToken
     ) {
@@ -2381,7 +2806,8 @@ export function WorkspaceLayout({
   }, [
     areaRuntimeCaptureTerrainOnlyObjectPayloadSkip,
     backendAccessToken,
-    creatureApiPort
+    creatureApiPort,
+    shouldLoadCreatureResourceOptions
   ]);
   useEffect(() => {
     persistCustomItemTemplateObjects(
@@ -2421,7 +2847,7 @@ export function WorkspaceLayout({
   }, [areaPlaceableRenderPayloadQueueSnapshot]);
   useEffect(() => {
     const sceneForTileContracts = areaSceneSeed;
-    const modelResRefs = sceneForTileContracts?.tiles.map((tile) => tile.modelResRef) ?? [];
+    const candidates = currentAreaTileProcessCandidates;
     const sceneContractKey = currentAreaTileProcessSceneKey;
     if (
       isPlaceablesMode ||
@@ -2437,13 +2863,17 @@ export function WorkspaceLayout({
     if (!sceneContractKey) {
       return;
     }
+    const expectedCandidateCount = countAreaTileProcessContractCandidates(candidates);
     if (
       !shouldRequestAreaTileProcessReadiness({
         currentSceneKey: sceneContractKey,
         acceptedSceneKey: acceptedAreaTileProcessSceneKeyRef.current,
         inFlightSceneKey:
           inFlightAreaTileProcessRequestRef.current?.sceneKey ?? null,
-        hasReadiness: areaTileProcessReadinessRef.current !== null
+        hasReadiness: isAreaTileProcessReadinessCompleteForExpectedCandidates(
+          areaTileProcessReadinessRef.current,
+          expectedCandidateCount
+        )
       })
     ) {
       return;
@@ -2465,17 +2895,35 @@ export function WorkspaceLayout({
       label: loadingLabel,
       completed: 0,
       total:
-        sceneForTileContracts.tiles.length > 0
-          ? sceneForTileContracts.tiles.length
+        expectedCandidateCount > 0
+          ? expectedCandidateCount
           : null
     });
 
-    void resolveAreaTileProcessContractReadinessForModelResRefs(
+    void resolveAreaTileProcessContractReadinessForCandidates(
       tileApiPort,
       backendAccessToken,
       sceneForTileContracts.sceneId,
-      modelResRefs,
-      { bypassCache: false }
+      candidates,
+      {
+        bypassCache: false,
+        onProgress: (readiness) => {
+          if (cancelled) {
+            return;
+          }
+          // Publish each verified GLB contract immediately.  A tile model is
+          // independent of the rest of the Area, so waiting for every cold
+          // HAK conversion only produced a misleading generic grid.
+          setAreaTileProcessReadiness(readiness);
+          setAreaTileProcessReadinessSceneKey(sceneContractKey);
+          setAreaCanvasLoading({
+            source: "terrain",
+            label: loadingLabel,
+            completed: readiness.checkedCandidateCount,
+            total: expectedCandidateCount
+          });
+        }
+      }
     )
       .then((readiness) => {
         if (!cancelled) {
@@ -2525,6 +2973,7 @@ export function WorkspaceLayout({
     };
   }, [
     backendAccessToken,
+    currentAreaTileProcessCandidates,
     currentAreaTileProcessSceneKey,
     isCreaturesMode,
     isItemsMode,
@@ -2536,6 +2985,8 @@ export function WorkspaceLayout({
   ]);
   const shouldLoadBackendSoundsCatalog =
     isBuilder &&
+    (isSoundsMode ||
+      (shouldLoadAreasModeObjectCatalogs && areasActiveCatalogType === "sounds")) &&
     !areaRuntimeCaptureTerrainOnlyObjectPayloadSkip &&
     activeBuilderMode.allowedCatalogTypes.includes("sounds");
   const shouldLoadBackendCreaturesCatalog =
@@ -2544,6 +2995,7 @@ export function WorkspaceLayout({
     !isPlaceablesMode &&
     !isItemsMode &&
     !isSoundsMode &&
+    (isCreaturesMode || shouldLoadAreasModeObjectCatalogs) &&
     activeBuilderMode.allowedCatalogTypes.includes("creatures");
   const shouldLoadBackendEncountersCatalog =
     isBuilder &&
@@ -2552,20 +3004,31 @@ export function WorkspaceLayout({
     !isCreaturesMode &&
     !isItemsMode &&
     !isSoundsMode &&
+    shouldLoadAreasModeObjectCatalogs &&
     activeBuilderMode.allowedCatalogTypes.includes("encounters");
+  const shouldLoadBackendWaypointsCatalog =
+    isBuilder &&
+    !areaRuntimeCaptureTerrainOnlyObjectPayloadSkip &&
+    !isPlaceablesMode &&
+    !isCreaturesMode &&
+    !isItemsMode &&
+    !isSoundsMode &&
+    shouldLoadAreasModeObjectCatalogs &&
+    activeBuilderMode.allowedCatalogTypes.includes("waypoints");
   const shouldLoadBackendItemsCatalog =
     isBuilder &&
     !areaRuntimeCaptureTerrainOnlyObjectPayloadSkip &&
     activeBuilderMode.allowedCatalogTypes.includes("items") &&
-    (isItemsMode ||
-      (!isPlaceablesMode && !isCreaturesMode && !isSoundsMode && shouldRenderSceneObjectAddPanel));
+    (isItemsMode || shouldLoadAreasModeObjectCatalogs);
   const shouldLoadBackendStoresCatalog =
     isBuilder &&
     !areaRuntimeCaptureTerrainOnlyObjectPayloadSkip &&
     !isPlaceablesMode &&
     !isCreaturesMode &&
     !isSoundsMode &&
-    (isItemsMode || activeBuilderMode.allowedCatalogTypes.includes("stores"));
+    (isItemsMode ||
+      (shouldLoadAreasModeObjectCatalogs &&
+        activeBuilderMode.allowedCatalogTypes.includes("stores")));
   const storesCatalogTelemetrySource = isItemsMode ? "items_mode" : "areas_mode";
   const backendSoundTemplateObjects = useMemo(
     () =>
@@ -2622,6 +3085,13 @@ export function WorkspaceLayout({
       ),
     [encountersCatalogItems]
   );
+  const backendWaypointTemplateObjects = useMemo(
+    () =>
+      waypointsCatalogItems.map((waypoint, index) =>
+        mapWaypointApiListItemToSceneObject(waypoint, index + 1)
+      ),
+    [waypointsCatalogItems]
+  );
   const backendStoreTemplateObjects = useMemo(
     () =>
       storesCatalogItems.map((store, index) =>
@@ -2642,6 +3112,7 @@ export function WorkspaceLayout({
             ...customItemTemplateObjects,
             ...backendItemTemplateObjects,
             ...backendEncounterTemplateObjects,
+            ...backendWaypointTemplateObjects,
             ...modeScopedObjects,
             ...backendStoreTemplateObjects,
             ...backendSoundTemplateObjects
@@ -2649,6 +3120,7 @@ export function WorkspaceLayout({
         : modeScopedObjects,
     [
       backendEncounterTemplateObjects,
+      backendWaypointTemplateObjects,
       backendItemTemplateObjects,
       backendPlaceableTemplateObjects,
       backendSoundTemplateObjects,
@@ -3087,6 +3559,15 @@ export function WorkspaceLayout({
     const payloadByObjectId: Record<string, PlaceableViewportRenderPayload> = {};
     areasModePlaceableProcessObjects.forEach((object) => {
       const lookup = resolvePlaceableRenderPayloadLookup(object);
+      if (
+        !isAreaPlaceableRenderPayloadValidated(
+          areaPlaceableValidatedGenerationByLookupRef.current,
+          lookup.cacheKey,
+          areaPlaceableRenderPayloadGeneration
+        )
+      ) {
+        return;
+      }
       const payload = resolvePayloadForLookupFromStores(
         lookup,
         placeableRenderPayloadByTemplateId,
@@ -3099,6 +3580,7 @@ export function WorkspaceLayout({
     return Object.keys(payloadByObjectId).length > 0 ? payloadByObjectId : null;
   }, [
     activePlaceableRenderPayload,
+    areaPlaceableRenderPayloadGeneration,
     areaPlaceableRenderPayloadQueueSnapshot,
     areaSceneSeed,
     areasModePlaceableProcessObjects,
@@ -3674,7 +4156,36 @@ export function WorkspaceLayout({
             publishPlaceableRenderPayload(lookup, payload, { shouldCache: false });
           },
           assetContractSingleTimeoutMs: AREAS_RENDER_PAYLOAD_PROCESS_SINGLE_TIMEOUT_MS,
-          processSingleTimeoutMs: AREAS_RENDER_PAYLOAD_PROCESS_SINGLE_TIMEOUT_MS
+          processSingleTimeoutMs: AREAS_RENDER_PAYLOAD_PROCESS_SINGLE_TIMEOUT_MS,
+          onCacheMissRecovery: ({ staleCacheKey }) => {
+            const evicted = evictAreaPlaceableRenderPayloadLookupAliases({
+              lookup,
+              objectIds: [],
+              staleBackendCacheKey: staleCacheKey,
+              validatedGenerationByLookup:
+                areaPlaceableValidatedGenerationByLookupRef.current,
+              payloadCache: placeableRenderPayloadCacheRef.current,
+              pendingPayloads: placeableRenderPayloadPendingRef.current,
+              publishedPayloads: placeableRenderPayloadByTemplateIdRef.current
+            });
+            placeableRenderPayloadCacheRef.current = evicted.payloadCache;
+            placeableRenderPayloadPendingRef.current = evicted.pendingPayloads;
+            areaPlaceableValidatedGenerationByLookupRef.current =
+              evicted.validatedGenerationByLookup;
+            placeableRenderPayloadByTemplateIdRef.current = evicted.publishedPayloads;
+            if (evicted.didEvictPublishedPayload && isMountedRef.current) {
+              setPlaceableRenderPayloadByTemplateId(evicted.publishedPayloads);
+            }
+            trackTelemetryEvent(
+              "ui.workspace.placeable_render_payload_cache_miss_recovery_started",
+              {
+                userId,
+                templateId: lookup.cacheKey,
+                staleCacheKey,
+                evictedAliasCount: evicted.evictedAliases.length
+              }
+            );
+          }
         }
       )
         .then((payload) => {
@@ -4002,10 +4513,11 @@ export function WorkspaceLayout({
     const failedLookupKeys = new Set<string>();
     let cancelled = false;
     let completedBatchCount = 0;
-    const queueSignature = [
+    const queueSignature = buildAreaPlaceableRenderPayloadQueueSignature(
       areaSceneSeed.sceneId,
-      lookups.map((lookup) => lookup.cacheKey).join("\u001f")
-    ].join("\u001e");
+      areaPlaceableRenderPayloadGeneration,
+      lookups.map((lookup) => lookup.cacheKey)
+    );
     const isCurrentQueue = () =>
       areaPlaceableRenderPayloadQueueActiveSignatureRef.current === queueSignature;
 
@@ -4055,6 +4567,7 @@ export function WorkspaceLayout({
         batchSize: snapshot.batchSize,
         batchCount: snapshot.batchCount,
         completedBatchCount: snapshot.completedBatchCount,
+        validationGeneration: areaPlaceableRenderPayloadGeneration,
         pendingObjectIds: snapshot.pendingObjectIds || null,
         missingPayloadIds: snapshot.missingPayloadIds || null
       });
@@ -4144,6 +4657,13 @@ export function WorkspaceLayout({
     const hasAreaPlaceablePayload = (
       lookup: PlaceableRenderPayloadLookup
     ): boolean => {
+      if (!isAreaPlaceableRenderPayloadValidated(
+        areaPlaceableValidatedGenerationByLookupRef.current,
+        lookup.cacheKey,
+        areaPlaceableRenderPayloadGeneration
+      )) {
+        return false;
+      }
       const payload = resolvePayloadForLookupFromStores(
         lookup,
         placeableRenderPayloadByTemplateIdRef.current,
@@ -4151,6 +4671,29 @@ export function WorkspaceLayout({
       );
       return Boolean(payload);
     };
+    const markAreaPlaceableRenderPayloadValidated = (
+      lookup: PlaceableRenderPayloadLookup
+    ) => {
+      areaPlaceableValidatedGenerationByLookupRef.current.set(
+        lookup.cacheKey,
+        areaPlaceableRenderPayloadGeneration
+      );
+    };
+    const revalidatedPayloadStores = evictUnvalidatedAreaPlaceableRenderPayloads({
+      lookups,
+      objectIdsByLookupCacheKey,
+      validatedGenerationByLookup: areaPlaceableValidatedGenerationByLookupRef.current,
+      validationGeneration: areaPlaceableRenderPayloadGeneration,
+      payloadCache: placeableRenderPayloadCacheRef.current,
+      pendingPayloads: placeableRenderPayloadPendingRef.current,
+      publishedPayloads: placeableRenderPayloadByTemplateIdRef.current
+    });
+    placeableRenderPayloadCacheRef.current = revalidatedPayloadStores.payloadCache;
+    placeableRenderPayloadPendingRef.current = revalidatedPayloadStores.pendingPayloads;
+    if (revalidatedPayloadStores.didEvictPublishedPayload) {
+      placeableRenderPayloadByTemplateIdRef.current = revalidatedPayloadStores.publishedPayloads;
+      setPlaceableRenderPayloadByTemplateId(revalidatedPayloadStores.publishedPayloads);
+    }
     let singleRecoveryPromise: Promise<void> | null = null;
     let earlySingleRecoveryTimeoutId: number | null = null;
 
@@ -4170,7 +4713,12 @@ export function WorkspaceLayout({
       publishQueueSnapshot("single", true, completedBatchCount);
       let recoveryCursor = 0;
       const runRecoveryWorker = async () => {
-        while (!cancelled && isCurrentQueue() && recoveryCursor < recoveryLookups.length) {
+        while (
+          !cancelled &&
+          isCurrentQueue() &&
+          isMountedRef.current &&
+          recoveryCursor < recoveryLookups.length
+        ) {
           const lookup = recoveryLookups[recoveryCursor];
           recoveryCursor += 1;
           if (!lookup || hasAreaPlaceablePayload(lookup)) {
@@ -4191,7 +4739,7 @@ export function WorkspaceLayout({
               `Area placeable process recovery ${lookup.cacheKey}`
             );
             const payload = buildPlaceableViewportProcessPreviewPayload(processResult);
-            if (cancelled || !isCurrentQueue()) {
+            if (cancelled || !isCurrentQueue() || !isMountedRef.current) {
               publishPlaceableRenderPayload(lookup, payload, {
                 shouldCache: false,
                 deferCommit: true
@@ -4227,9 +4775,14 @@ export function WorkspaceLayout({
             );
           }
           publishQueueSnapshot("single", true, completedBatchCount);
-          if (!cancelled && isCurrentQueue() && AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS > 0) {
+          if (
+            !cancelled &&
+            isCurrentQueue() &&
+            isMountedRef.current &&
+            AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS > 0
+          ) {
             await new Promise((resolve) => {
-              window.setTimeout(resolve, AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS);
+              globalThis.setTimeout(resolve, AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS);
             });
           }
         }
@@ -4261,6 +4814,7 @@ export function WorkspaceLayout({
         while (
           !cancelled &&
           isCurrentQueue() &&
+          isMountedRef.current &&
           fullRecoveryCursor < fullRecoveryLookups.length
         ) {
           const lookup = fullRecoveryLookups[fullRecoveryCursor];
@@ -4275,7 +4829,7 @@ export function WorkspaceLayout({
               lookup.processPayload,
               {
                 onProcessPayload: (payload) => {
-                  if (cancelled || !isCurrentQueue()) {
+                  if (cancelled || !isCurrentQueue() || !isMountedRef.current) {
                     return;
                   }
                   publishAreaPlaceableRenderPayload(lookup, payload, {
@@ -4287,13 +4841,14 @@ export function WorkspaceLayout({
                 processSingleTimeoutMs: AREAS_RENDER_PAYLOAD_PROCESS_SINGLE_TIMEOUT_MS
               }
             );
-            if (cancelled || !isCurrentQueue()) {
+            if (cancelled || !isCurrentQueue() || !isMountedRef.current) {
               publishPlaceableRenderPayload(lookup, payload, {
                 shouldCache: true,
                 deferCommit: true
               });
               return;
             }
+            markAreaPlaceableRenderPayloadValidated(lookup);
             publishAreaPlaceableRenderPayload(lookup, payload, { shouldCache: true });
             failedLookupKeys.delete(lookup.cacheKey);
             trackTelemetryEvent(
@@ -4320,9 +4875,14 @@ export function WorkspaceLayout({
             );
           }
           publishQueueSnapshot("single", true, completedBatchCount);
-          if (!cancelled && isCurrentQueue() && AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS > 0) {
+          if (
+            !cancelled &&
+            isCurrentQueue() &&
+            isMountedRef.current &&
+            AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS > 0
+          ) {
             await new Promise((resolve) => {
-              window.setTimeout(resolve, AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS);
+              globalThis.setTimeout(resolve, AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS);
             });
           }
         }
@@ -4388,6 +4948,7 @@ export function WorkspaceLayout({
           if (!lookup) {
             return;
           }
+          markAreaPlaceableRenderPayloadValidated(lookup);
           publishAreaPlaceableRenderPayload(lookup, result.payload, {
             shouldCache: true,
             deferCommit: true,
@@ -4520,6 +5081,7 @@ export function WorkspaceLayout({
                 });
                 return;
               }
+              markAreaPlaceableRenderPayloadValidated(lookup);
               publishAreaPlaceableRenderPayload(lookup, result.payload, { shouldCache: true });
               trackTelemetryEvent("ui.workspace.areas_mode.render_payload_batch_loaded", {
                 userId,
@@ -4605,9 +5167,15 @@ export function WorkspaceLayout({
           if (!lookup) {
             continue;
           }
-          await ensurePlaceableRenderPayload(lookup).catch(() => {
-            failedLookupKeys.add(lookup.cacheKey);
-          });
+          await ensurePlaceableRenderPayload(lookup)
+            .then((payload) => {
+              if (payload && !cancelled && isCurrentQueue()) {
+                markAreaPlaceableRenderPayloadValidated(lookup);
+              }
+            })
+            .catch(() => {
+              failedLookupKeys.add(lookup.cacheKey);
+            });
           completedBatchCount += 1;
           publishQueueSnapshot("single", cursor < lookups.length, completedBatchCount);
           if (!cancelled && isCurrentQueue() && AREAS_RENDER_PAYLOAD_QUEUE_YIELD_MS > 0) {
@@ -4647,6 +5215,7 @@ export function WorkspaceLayout({
     };
   }, [
     areaSceneSeed,
+    areaPlaceableRenderPayloadGeneration,
     areaRuntimeCaptureTerrainOnlyObjectPayloadSkip,
     areasModePlaceableProcessObjects,
     backendAccessToken,
@@ -4774,6 +5343,7 @@ export function WorkspaceLayout({
     placeablesCatalogClientCacheRef.current = null;
     placeableRenderPayloadCacheRef.current.clear();
     placeableRenderPayloadPendingRef.current.clear();
+    areaPlaceableValidatedGenerationByLookupRef.current.clear();
     setPlaceableRenderPayloadByTemplateId({});
   }, [backendAccessToken, placeableApiPort]);
 
@@ -4784,6 +5354,11 @@ export function WorkspaceLayout({
     creatureRenderPayloadFailedKeysRef.current.clear();
     setCreatureRenderPayloadByLookupKey({});
   }, [backendAccessToken, creatureApiPort]);
+
+  useEffect(() => {
+    waypointsCatalogClientCacheRef.current = null;
+    setWaypointsCatalogItems([]);
+  }, [backendAccessToken, waypointApiPort]);
 
   useEffect(() => {
     itemsCatalogClientCacheRef.current = null;
@@ -5265,6 +5840,122 @@ export function WorkspaceLayout({
     shouldLoadBackendEncountersCatalog,
     trackTelemetryEvent,
     userId
+  ]);
+
+  useEffect(() => {
+    if (!shouldLoadBackendWaypointsCatalog) {
+      setWaypointsCatalogItems([]);
+      return;
+    }
+    if (!waypointApiPort || !backendAccessToken) {
+      waypointsCatalogClientCacheRef.current = null;
+      setWaypointsCatalogItems([]);
+      return;
+    }
+
+    const cachedCatalog = waypointsCatalogClientCacheRef.current;
+    if (cachedCatalog && cachedCatalog.expiresAtMs > Date.now()) {
+      setWaypointsCatalogItems(cachedCatalog.items);
+      return;
+    }
+
+    let cancelled = false;
+    setWaypointsCatalogItems([]);
+
+    void (async () => {
+      let offset = 0;
+      let total: number | null = null;
+      const aggregated: WaypointApiListItem[] = [];
+      const seenTemplateIds = new Set<string>();
+
+      try {
+        while (true) {
+          const result = await waypointApiPort.listWaypoints(backendAccessToken, {
+            limit: WAYPOINTS_CATALOG_BATCH_SIZE,
+            offset
+          });
+          if (cancelled) {
+            return;
+          }
+
+          total = total ?? result.total;
+          let didAppend = false;
+          result.items.forEach((item) => {
+            const normalizedTemplateId = item.templateId.trim().toLowerCase();
+            if (seenTemplateIds.has(normalizedTemplateId)) {
+              return;
+            }
+            seenTemplateIds.add(normalizedTemplateId);
+            aggregated.push(item);
+            didAppend = true;
+          });
+          if (didAppend) {
+            setWaypointsCatalogItems([...aggregated]);
+          }
+
+          const pageCount = result.items.length;
+          const consumedItems = offset + pageCount;
+          if (pageCount === 0 || (total !== null && consumedItems >= total)) {
+            break;
+          }
+          offset = consumedItems;
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, WAYPOINTS_CATALOG_PAGE_YIELD_MS);
+          });
+          if (cancelled) {
+            return;
+          }
+        }
+
+        if (cancelled) {
+          return;
+        }
+        waypointsCatalogClientCacheRef.current = {
+          items: aggregated,
+          total: total ?? aggregated.length,
+          expiresAtMs: Date.now() + WAYPOINTS_CATALOG_CLIENT_CACHE_TTL_MS
+        };
+        setWaypointsCatalogItems([...aggregated]);
+        trackTelemetryEvent("ui.workspace.waypoints_catalog.loaded", {
+          userId,
+          count: aggregated.length,
+          source: "areas_mode"
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (aggregated.length < 1) {
+          setWaypointsCatalogItems([]);
+        }
+        trackTelemetryEvent("ui.workspace.waypoints_catalog.load_failed", {
+          userId,
+          message: resolveWaypointsCatalogErrorMessage(error),
+          errorName: error instanceof Error ? error.name : "unknown",
+          status:
+            typeof (error as { status?: unknown })?.status === "number"
+              ? (error as { status: number }).status
+              : null,
+          code:
+            typeof (error as { code?: unknown })?.code === "string"
+              ? (error as { code: string }).code
+              : null
+        });
+        if (isBackendInvalidSessionError(error)) {
+          onBackendSessionInvalidated?.("waypoints_catalog", backendAccessToken);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    backendAccessToken,
+    onBackendSessionInvalidated,
+    shouldLoadBackendWaypointsCatalog,
+    trackTelemetryEvent,
+    userId,
+    waypointApiPort
   ]);
 
   useEffect(() => {
@@ -6434,7 +7125,20 @@ export function WorkspaceLayout({
 
   const handleItemPropertiesApplied = useCallback(
     (updatedObject: SceneObject, previousObject: SceneObject) => {
-      if (updatedObject.kind !== "items" || previousObject.kind !== "items") {
+      const route = resolveItemPropertiesApplyPersistenceRoute(
+        activeBuilderModeId,
+        updatedObject,
+        previousObject,
+      );
+      if (route.kind !== "blueprint") {
+        if (route.kind === "scene_only") {
+          trackTelemetryEvent("ui.workspace.item_properties.blueprint_publication_skipped", {
+            userId,
+            objectId: updatedObject.id,
+            mode: activeBuilderModeId,
+            reason: route.reason,
+          });
+        }
         return;
       }
       if (!itemApiPort || !backendAccessToken) {
@@ -6532,6 +7236,7 @@ export function WorkspaceLayout({
         });
     },
     [
+      activeBuilderModeId,
       backendAccessToken,
       customItemTemplateObjects,
       itemApiPort,
@@ -6544,6 +7249,79 @@ export function WorkspaceLayout({
   const areaPlaceableRenderPayloadQueueSnapshotJson = areaPlaceableRenderPayloadQueueSnapshot
     ? JSON.stringify(areaPlaceableRenderPayloadQueueSnapshot)
     : undefined;
+  const handleAreaPlaceableAssetCacheMiss = useCallback(
+    (detail: AreaPlaceableAssetCacheMiss) => {
+      if (!areaSceneSeed || isPlaceablesMode || isItemsMode) {
+        return;
+      }
+      const affectedLookups = new Map<
+        string,
+        { lookup: PlaceableRenderPayloadLookup; objectIds: string[] }
+      >();
+      areasModePlaceableProcessObjects.forEach((object) => {
+        const lookup = resolvePlaceableRenderPayloadLookup(object);
+        const payload = resolvePayloadForLookupFromStores(
+          lookup,
+          placeableRenderPayloadByTemplateIdRef.current,
+          placeableRenderPayloadCacheRef.current
+        );
+        if (payload?.cacheKey !== detail.cacheKey) {
+          return;
+        }
+        const affected = affectedLookups.get(lookup.cacheKey) ?? {
+          lookup,
+          objectIds: []
+        };
+        affected.objectIds.push(object.id);
+        affectedLookups.set(lookup.cacheKey, affected);
+      });
+      if (affectedLookups.size < 1) {
+        return;
+      }
+
+      let payloadCache = placeableRenderPayloadCacheRef.current;
+      let pendingPayloads = placeableRenderPayloadPendingRef.current;
+      let publishedPayloads = placeableRenderPayloadByTemplateIdRef.current;
+      let validatedGenerationByLookup =
+        areaPlaceableValidatedGenerationByLookupRef.current;
+      affectedLookups.forEach(({ lookup, objectIds }) => {
+        const evicted = evictAreaPlaceableRenderPayloadLookupAliases({
+          lookup,
+          objectIds,
+          staleBackendCacheKey: detail.cacheKey,
+          validatedGenerationByLookup,
+          payloadCache,
+          pendingPayloads,
+          publishedPayloads
+        });
+        payloadCache = evicted.payloadCache;
+        pendingPayloads = evicted.pendingPayloads;
+        publishedPayloads = evicted.publishedPayloads;
+        validatedGenerationByLookup = evicted.validatedGenerationByLookup;
+      });
+      placeableRenderPayloadCacheRef.current = payloadCache;
+      placeableRenderPayloadPendingRef.current = pendingPayloads;
+      placeableRenderPayloadByTemplateIdRef.current = publishedPayloads;
+      areaPlaceableValidatedGenerationByLookupRef.current = validatedGenerationByLookup;
+      setPlaceableRenderPayloadByTemplateId(publishedPayloads);
+      setAreaPlaceableRenderPayloadGeneration((current) => current + 1);
+      trackTelemetryEvent("ui.workspace.areas_mode.asset_cache_miss_recovery_started", {
+        userId,
+        areaId: areaSceneSeed.sceneId,
+        cacheKey: detail.cacheKey,
+        assetKind: detail.assetKind,
+        affectedLookupCount: affectedLookups.size
+      });
+    },
+    [
+      areaSceneSeed,
+      areasModePlaceableProcessObjects,
+      isItemsMode,
+      isPlaceablesMode,
+      trackTelemetryEvent,
+      userId
+    ]
+  );
   const itemsRightPanelCreatorStatus =
     itemsCreatorStatus === "applying" || itemsPreviewStatus === "applying"
       ? "applying"
@@ -6552,6 +7330,11 @@ export function WorkspaceLayout({
     <section
       className={`workspace-layout${viewportFullscreen ? " is-viewport-fullscreen" : ""}`}
       aria-label="workspace layout"
+      data-aurora-runtime-build-identity={
+        import.meta.env.DEV
+          ? JSON.stringify(readFrontendRuntimeBuildIdentity())
+          : undefined
+      }
       data-viewport-fullscreen={viewportFullscreen ? "true" : "false"}
       data-area-placeable-render-payload-queue-status={
         areaPlaceableRenderPayloadQueueSnapshot?.status ?? "idle"
@@ -6561,6 +7344,9 @@ export function WorkspaceLayout({
       }
       data-area-placeable-render-payload-placeholder-status={
         areaPlaceableRenderPayloadQueueSnapshot?.placeholderStatus ?? "idle"
+      }
+      data-area-placeable-render-payload-validation-generation={
+        areaPlaceableRenderPayloadGeneration
       }
       data-area-placeable-render-payload-queue-snapshot={
         areaPlaceableRenderPayloadQueueSnapshotJson
@@ -6578,6 +7364,23 @@ export function WorkspaceLayout({
       data-area-tile-process-port-ready={tileApiPort ? "true" : "false"}
       data-area-tile-process-token-ready={backendAccessToken ? "true" : "false"}
       data-area-tile-process-mode={activeBuilderModeId}
+      data-area-tile-mutation-trace={
+        import.meta.env.DEV && areaTileMutationTrace
+          ? JSON.stringify(
+              buildAreaTileMutationTraceDatasetPayload(
+                areaTileMutationTrace
+              )
+            )
+          : undefined
+      }
+      data-area-tile-mutation-applied-revision={
+        import.meta.env.DEV ? areaTileMutationAppliedRevision : undefined
+      }
+      data-area-tile-mutation-contract-settlement={
+        import.meta.env.DEV
+          ? JSON.stringify(areaTileMutationContractSettlement)
+          : undefined
+      }
     >
       {isSoundsMode ? (
         <SoundsModeAudioStage
@@ -6593,11 +7396,23 @@ export function WorkspaceLayout({
           data-external-scene-size={`${externalSceneSeed.width}x${externalSceneSeed.height}`}
           data-external-scene-object-count={externalSceneSeed.objects.length}
         >
+          {isAreasMode ? (
+            <AreaWorkspaceStatusBar
+              snapshot={areaWorkspaceStatus}
+              leftOffsetPx={viewportFullscreen ? 14 : leftPanelWidthPx + 14}
+              rightOffsetPx={viewportFullscreen ? 14 : rightPanelWidthPx + 14}
+            />
+          ) : null}
           <WorkspaceCanvasViewport
             key={`workspace-canvas-${externalSceneSeedKey}`}
             toolbarState={viewportToolbarState}
             userId={userId}
             sceneViewportPort={sceneViewportPort}
+            clientAssetCachePort={clientAssetCachePort}
+            areaLifecycleFacade={areaLifecycleFacade}
+            areaDraftSessionRegistry={areaDraftSessionRegistry}
+            onAreaDraftPersisted={handleAreaDraftChanged}
+            onAreaWorkspaceStatusChange={handleAreaWorkspaceStatusChange}
             trackTelemetryEvent={trackTelemetryEvent}
             commandSignal={commandSignal}
             sidebarSelectSignal={sidebarSelectSignal}
@@ -6608,12 +7423,15 @@ export function WorkspaceLayout({
             workspaceOptions={viewportWorkspaceOptions}
             leftPanelWidthPx={leftPanelWidthPx}
             rightPanelWidthPx={rightPanelWidthPx}
+            viewportFullscreen={viewportFullscreen}
             onSceneObjectsSnapshotChange={handleSceneObjectsSnapshotChange}
             onSelectionSnapshotChange={setSelectedObjectIdsSnapshot}
             onObjectAddPlacementModeChange={handleObjectAddPlacementModeChange}
             externalSceneSeed={externalSceneSeed}
             areaEditorMutationSignal={areaEditorMutationSignal}
+            onAreaEditorMutationApplied={setAreaTileMutationAppliedRevision}
             areaEditingTool={areaEditingTool}
+            tileProductionCertification={areaTileProductionCertification}
             onAreaSceneDraftChange={handleAreaSceneDraftChange}
             onSelectedTileChange={handleSelectedAreaTileChange}
             renderObjectIds={renderObjectIds}
@@ -6622,7 +7440,27 @@ export function WorkspaceLayout({
             placeableRenderPayloadByObjectId={placeableRenderPayloadByObjectId}
             creatureRenderPayloadByObjectId={creatureRenderPayloadByObjectId}
             creatureResourceOptions={creatureResourceOptions}
+            creatureAppearanceCatalogFacade={creatureAppearanceCatalogFacade}
+            creatureGenderCatalogFacade={creatureGenderCatalogFacade}
+            creatureAppendageCatalogFacade={creatureAppendageCatalogFacade}
+            creaturePerceptionRangeCatalogFacade={creaturePerceptionRangeCatalogFacade}
+            creatureWalkRateCatalogFacade={creatureWalkRateCatalogFacade}
+            creatureSoundSetCatalogFacade={creatureSoundSetCatalogFacade}
+            creatureStartingPackageCatalogFacade={creatureStartingPackageCatalogFacade}
+            creatureClassCatalogFacade={creatureClassCatalogFacade}
+            creatureSkillCatalogFacade={creatureSkillCatalogFacade}
+            creatureFeatCatalogFacade={creatureFeatCatalogFacade}
+            creatureSpecialAbilityCatalogFacade={creatureSpecialAbilityCatalogFacade}
+            creaturePhenotypeCatalogFacade={creaturePhenotypeCatalogFacade}
+            creatureAppearanceAccessToken={backendAccessToken}
+            creatureTemplateOptions={creatureTemplateObjects}
+            itemTemplateOptions={itemsModeObjects}
+            soundTemplateOptions={backendSoundTemplateObjects}
             placeableAssetAccessToken={backendAccessToken}
+            placeableApiPort={placeableApiPort}
+            waypointAppearanceAccessToken={backendAccessToken}
+            waypointApiPort={waypointApiPort}
+            onPlaceableAssetCacheMiss={handleAreaPlaceableAssetCacheMiss}
             onItemPreviewObjectNeeded={(object) =>
               processItemsModePreviewObject(object, undefined, false)
             }
@@ -6727,6 +7565,7 @@ export function WorkspaceLayout({
                 />
               ) : isCreaturesMode ? (
                 <CreaturesModePanel
+                  creatureAppearancePaletteFacade={creatureAppearancePaletteFacade}
                   objects={filteredCreaturesModeObjects}
                   total={creaturesCatalogTotal + customCreatureTemplateObjects.length}
                   activeObjectId={activeCreaturePreviewObjectId}
@@ -7455,6 +8294,25 @@ export function WorkspaceLayout({
                   activeMode={activeBuilderMode}
                   backendAccessToken={backendAccessToken}
                   areaApiPort={areaApiPort}
+                  areaEditingFacade={areaEditingFacade}
+                  areaCreateFacade={areaCreateFacade}
+                  areaUpdateFacade={areaUpdateFacade}
+                  areaDeleteFacade={areaDeleteFacade}
+                  areaRenameFacade={areaRenameFacade}
+                  areaCapabilityFacade={areaCapabilityFacade}
+                  areaEventScriptCatalogFacade={areaEventScriptCatalogFacade}
+                  areaEventScriptPublicationFacade={areaEventScriptPublicationFacade}
+                  areaLifecycleFacade={areaLifecycleFacade}
+                  areaDraftSessionRegistry={areaDraftSessionRegistry}
+                  areaDraftListRefreshRevision={areaDraftListRefreshRevision}
+                  onAreaDraftChanged={handleAreaDraftChanged}
+                  onAreaMaterialized={handleAreaMaterialized}
+                  onAreaWorkspaceStatusChange={handleAreaWorkspaceStatusChange}
+                  canMaterializeAreas={role === "admin"}
+                  canDeleteAreas={role === "admin"}
+                  canRenameAreas={role === "admin"}
+                  onAreaDeleted={handleAreaDeleted}
+                  onAreaRenamed={handleAreaRenamed}
                   tileApiPort={tileApiPort}
                   areaListClientCacheRef={areaListClientCacheRef}
                   sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
@@ -7467,25 +8325,26 @@ export function WorkspaceLayout({
                   selectedAreaTileIds={selectedAreaTileIds}
                   areaTileProcessReadiness={currentAreaTileProcessReadiness}
                   areaEditingTool={areaEditingTool}
+                  tileProductionCertification={areaTileProductionCertification}
                   trackTelemetryEvent={trackTelemetryEvent}
                   onAreaCanvasLoadingChange={setAreaCanvasLoading}
                   onObjectCreate={handleSceneObjectCreate}
                   onPlaceablesWorkflowActiveChange={setIsAreasModeAddPlaceablesStepActive}
+                  onActiveCatalogTypeChange={setAreasActiveCatalogType}
                   activeCreateObjectId={activeObjectAddTemplateId}
                   onAreaSceneSelected={(scene) => {
                     const scopedObjects = filterObjectsForWorkspaceMode(scene.objects, activeBuilderMode);
-                    const nextTileProcessSceneKey = buildAreaTileProcessContractSceneKey(
-                      scene.sceneId,
-                      scene.tiles.map((tile) => tile.modelResRef)
-                    );
                     setAreaEditorMutationSignal(null);
+                    setAreaTileMutationTrace(null);
+                    setAreaTileMutationAppliedRevision(0);
+                    setAreaPlaceableRenderPayloadGeneration((current) => current + 1);
+                    areaEditorMutationRevisionRef.current = 0;
+                    areaSceneSeedRef.current = scene;
                     setAreaEditingTool(DEFAULT_AURORA_AREA_EDITING_TOOL);
-                    if (nextTileProcessSceneKey !== currentAreaTileProcessSceneKey) {
-                      acceptedAreaTileProcessSceneKeyRef.current = null;
-                      setAreaTileProcessReadiness(null);
-                      setAreaTileProcessReadinessSceneKey(null);
-                      setAreaTileProcessRequestPhase("idle");
-                    }
+                    acceptedAreaTileProcessSceneKeyRef.current = null;
+                    setAreaTileProcessReadiness(null);
+                    setAreaTileProcessReadinessSceneKey(null);
+                    setAreaTileProcessRequestPhase("idle");
                     setAreaSceneSeed(scene);
                     setSceneObjectsSnapshot(scene.objects);
                     setSelectedObjectIdsSnapshot([]);

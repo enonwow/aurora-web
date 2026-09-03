@@ -29,8 +29,14 @@ export type {
   SceneObjectEmbeddedItemSummary,
   SceneObjectKind,
   SceneObjectPlaceableInventoryItemReference,
+  ScenePlaceableTrapTypeCatalog,
+  ScenePlaceableBodyBagCatalog,
+  ScenePlaceablePortraitCatalog,
+  ScenePlaceableFactionCatalog,
   SceneObjectVisualTransform,
   SceneObjectVfxPreservePayload,
   SceneTile,
+  SceneTileNativeLightNode,
+  SceneTileSourceLightNode,
   TerrainBrushKind
 } from "../scene/contracts";

@@ -59,6 +59,7 @@ import {
   createStoreWizardDraftFromStore,
   sanitizeStoreCreationNumberInput,
   sanitizeStoreCreationResRef,
+  sanitizeStoreCreationSignedIntInput,
   sanitizeStoreCreationTag,
   STORE_CREATION_BUCKET_COUNT,
   type StoreCreationEmbeddedItemSummary,
@@ -2015,7 +2016,7 @@ export function ItemsModePanel({
                 value={storeWizardDraft.storeId}
                 onChange={(event) =>
                   updateStoreWizardDraft({
-                    storeId: sanitizeStoreCreationNumberInput(event.target.value, 0xffffffff)
+                    storeId: sanitizeStoreCreationNumberInput(event.target.value, 255)
                   })
                 }
               />
@@ -2063,7 +2064,7 @@ export function ItemsModePanel({
                 value={storeWizardDraft.markUp}
                 onChange={(event) =>
                   updateStoreWizardDraft({
-                    markUp: sanitizeStoreCreationNumberInput(event.target.value, 0xffffffff)
+                    markUp: sanitizeStoreCreationSignedIntInput(event.target.value)
                   })
                 }
               />
@@ -2077,7 +2078,7 @@ export function ItemsModePanel({
                 value={storeWizardDraft.markDown}
                 onChange={(event) =>
                   updateStoreWizardDraft({
-                    markDown: sanitizeStoreCreationNumberInput(event.target.value, 0xffffffff)
+                    markDown: sanitizeStoreCreationSignedIntInput(event.target.value)
                   })
                 }
               />
@@ -2091,7 +2092,49 @@ export function ItemsModePanel({
                 value={storeWizardDraft.bmMarkDown}
                 onChange={(event) =>
                   updateStoreWizardDraft({
-                    bmMarkDown: sanitizeStoreCreationNumberInput(event.target.value, 0xffffffff)
+                    bmMarkDown: sanitizeStoreCreationSignedIntInput(event.target.value)
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Identify Price</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                aria-label="Identify Price"
+                value={storeWizardDraft.identifyPrice}
+                onChange={(event) =>
+                  updateStoreWizardDraft({
+                    identifyPrice: sanitizeStoreCreationSignedIntInput(event.target.value)
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Max Buy Price</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                aria-label="Max Buy Price"
+                value={storeWizardDraft.maxBuyPrice}
+                onChange={(event) =>
+                  updateStoreWizardDraft({
+                    maxBuyPrice: sanitizeStoreCreationSignedIntInput(event.target.value)
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Store Gold</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                aria-label="Store Gold"
+                value={storeWizardDraft.storeGold}
+                onChange={(event) =>
+                  updateStoreWizardDraft({
+                    storeGold: sanitizeStoreCreationSignedIntInput(event.target.value)
                   })
                 }
               />
@@ -2105,6 +2148,19 @@ export function ItemsModePanel({
                 onChange={(event) =>
                   updateStoreWizardDraft({
                     onOpenStore: sanitizeStoreCreationResRef(event.target.value)
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>On Store Closed</span>
+              <input
+                aria-label="On Store Closed"
+                maxLength={16}
+                value={storeWizardDraft.onStoreClosed}
+                onChange={(event) =>
+                  updateStoreWizardDraft({
+                    onStoreClosed: sanitizeStoreCreationResRef(event.target.value)
                   })
                 }
               />

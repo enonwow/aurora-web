@@ -18,6 +18,7 @@ import type {
   SceneObjectItemMaterialColors,
   SceneObjectItemModelAssetCandidate
 } from "../../../scene/contracts";
+import { createAuroraGltfLoadingManager } from "../../adapters/three/workspaceThreeRuntime";
 
 interface ItemModelPreviewPaneProps {
   object: SceneObject;
@@ -1044,7 +1045,7 @@ export function ItemModelPreviewPane({
     setFailedTextureCount(0);
     setLayoutAdjustedCount(0);
     setLayoutMode("none");
-    const loader = new GLTFLoader();
+    const loader = new GLTFLoader(createAuroraGltfLoadingManager());
     const textureLoader = new THREE.TextureLoader();
     if (assetAccessToken) {
       loader.setRequestHeader({ Authorization: `Bearer ${assetAccessToken}` });

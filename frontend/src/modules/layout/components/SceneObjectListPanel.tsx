@@ -7,6 +7,7 @@ import {
   type SceneObjectCatalogType
 } from "../application/sceneObjectCatalogQueryFacade";
 import { SceneObjectThumbnail } from "./SceneObjectThumbnail";
+import { buildAreaObjectPolygonDraft } from "../../areas/application/areaObjectPolygonAuthoring";
 
 interface SceneObjectListPanelProps {
   userId: string;
@@ -320,7 +321,11 @@ export function SceneObjectListPanel({
               object.kind === "sounds" ||
               object.kind === "doors" ||
               object.kind === "creatures" ||
-              object.kind === "items";
+              object.kind === "items" ||
+              object.kind === "stores" ||
+              object.kind === "waypoints" ||
+              ((object.kind === "triggers" || object.kind === "encounters")
+                && buildAreaObjectPolygonDraft(object) !== null);
             const sourceSummary = resolveObjectSourceSummary(object);
             const sourceStatus = resolveSourceStatus(object);
             const orderKey = resolveObjectOrderKey(object, objectOrderIndexById.get(object.id));

@@ -1,40 +1,41 @@
 import type { AuroraAreaTilesetDefinition } from "../../scene/domain/auroraAreaEditing";
+import type {
+  AreaEditingSourcePort,
+  AreaTilesetEditingSummary,
+} from "../ports/areaEditingPort";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export interface AreaTilesetEditingSummaryApi {
-  tilesetResRef: string;
-}
+export type AreaTilesetEditingSummaryApi = AreaTilesetEditingSummary;
+export type AreaEditingSourceApi = AreaEditingSourcePort;
 
-export interface AreaEditingSourceApi {
-  listAreaTilesets(accessToken: string): Promise<AreaTilesetEditingSummaryApi[]>;
-  getAreaTilesetDefinition(
-    accessToken: string,
-    tilesetResRef: string
-  ): Promise<AuroraAreaTilesetDefinition>;
-  getAreaEditingDefinitionForArea(
-    accessToken: string,
-    areaId: string
-  ): Promise<{ definition: AuroraAreaTilesetDefinition; areaFingerprint?: string }>;
-}
-
-export class HttpAreaEditingApi implements AreaEditingSourceApi {
+export class HttpAreaEditingApi implements AreaEditingSourcePort {
   constructor(
     private readonly fetchFn: FetchLike = fetch.bind(globalThis),
     private readonly baseUrl = resolveBaseUrl()
   ) {}
 
-  async listAreaTilesets(accessToken: string): Promise<AreaTilesetEditingSummaryApi[]> {
+  async listAreaTilesets(accessToken: string): Promise<AreaTilesetEditingSummary[]> {
     const data = await requestJson(
       this.fetchFn,
       `${this.baseUrl.replace(/\/+$/u, "")}/areas/editing/tilesets`,
       accessToken
     );
     return Array.isArray(data)
-      ? data
-          .map((entry) => asRecord(entry).tilesetResRef)
-          .filter((tilesetResRef): tilesetResRef is string => typeof tilesetResRef === "string")
-          .map((tilesetResRef) => ({ tilesetResRef }))
+      ? data.flatMap((entry) => {
+          const source = asRecord(entry);
+          if (typeof source.tilesetResRef !== "string") return [];
+          return [{
+            tilesetResRef: source.tilesetResRef,
+            displayName:
+              typeof source.displayName === "string" && source.displayName.trim()
+                ? source.displayName.trim()
+                : source.tilesetResRef,
+            ...(typeof source.displayNameStrRef === "number"
+              ? { displayNameStrRef: source.displayNameStrRef }
+              : {})
+          }];
+        })
       : [];
   }
   async getAreaTilesetDefinition(
@@ -69,7 +70,7 @@ export class HttpAreaEditingApi implements AreaEditingSourceApi {
 export function createHttpAreaEditingApi(
   fetchFn: FetchLike = fetch.bind(globalThis),
   baseUrl = resolveBaseUrl()
-): AreaEditingSourceApi {
+): AreaEditingSourcePort {
   return new HttpAreaEditingApi(fetchFn, baseUrl);
 }
 
@@ -92,6 +93,11 @@ function mapDefinition(value: unknown): AuroraAreaTilesetDefinition {
   return {
     ...(source.schemaVersion === 1 ? { schemaVersion: 1 as const } : {}),
     tilesetResRef: source.tilesetResRef,
+    ...(typeof source.name === "string" && source.name.trim() ? { name: source.name.trim() } : {}),
+    ...(typeof source.unlocalizedName === "string" && source.unlocalizedName.trim()
+      ? { unlocalizedName: source.unlocalizedName.trim() }
+      : {}),
+    ...(typeof source.displayNameStrRef === "number" ? { displayNameStrRef: source.displayNameStrRef } : {}),
     fingerprint: source.fingerprint,
     defaults: defaults as AuroraAreaTilesetDefinition["defaults"],
     terrainTypes: Array.isArray(source.terrainTypes)

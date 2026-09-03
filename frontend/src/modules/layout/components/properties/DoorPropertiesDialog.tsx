@@ -31,6 +31,10 @@ import {
   type PlaceableRenderContractState
 } from "../../application/workspacePlaceableRenderContracts";
 import type { PlaceableViewportRenderPayload } from "../../../placeables/application/placeableRenderPayloadResolver";
+import {
+  MAX_AREA_DOOR_LINKED_TO_CODE_UNITS,
+  isAreaDoorTransitionStorage,
+} from "../../../shared/domain/areaDoorTransitionStorage";
 
 type DoorPropertiesEditableField =
   | "name"
@@ -53,7 +57,10 @@ type DoorTransitionDraftField =
   | "linkedTarget"
   | "linkedModule"
   | "linkedWaypoint"
-  | "loadScreen";
+  | "loadScreen"
+  | "linkedTo"
+  | "linkedToFlags"
+  | "loadScreenId";
 
 interface DoorPropertiesDialogProps {
   doorPropertiesDialog: DoorPropertiesDialogState;
@@ -79,7 +86,10 @@ interface DoorPropertiesDialogProps {
     field: keyof DoorPropertiesDraft["advancedSettings"],
     value: string | boolean
   ) => void;
-  updateDoorTransitionDraftField: (field: DoorTransitionDraftField, value: string) => void;
+  updateDoorTransitionDraftField: (
+    field: DoorTransitionDraftField,
+    value: string | number,
+  ) => void;
   applyDoorPropertiesDraft: (closeAfterApply: boolean) => void;
   startDoorPropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
   moveDoorPropertiesDialogDrag?: PointerEventHandler<HTMLElement>;
@@ -117,6 +127,9 @@ function resolvePlacementLabel(object: SceneObject): string {
 
 function resolveDoorTransitionStatus(object: SceneObject): string {
   const transition = object.doorTransition;
+  if (isAreaDoorTransitionStorage(transition?.storage)) {
+    return "exact native storage available";
+  }
   if (!transition) {
     return "missing source transition payload";
   }
@@ -141,7 +154,10 @@ function resolveDoorTransitionSourceStatus(object: SceneObject): string {
   if (object.kind !== "doors") {
     return "not-applicable";
   }
-  return object.doorTransition ? "source-backed-transition-payload" : "missing-git-transition-payload";
+  if (isAreaDoorTransitionStorage(object.source?.doorTransitionStorage)) {
+    return "source-backed-exact-storage";
+  }
+  return object.doorTransition ? "preserve-only-transition-payload" : "missing-git-transition-payload";
 }
 
 function formatDoorTransitionValue(value: string): string {
@@ -174,32 +190,48 @@ function readDoorTransitionExtraValue(
 
 function resolveDoorTransitionEvidenceLabel(object: SceneObject): string {
   const transition = object.doorTransition;
-  if (!transition) {
-    return "missing: Area GIT/API scene payload has no LinkedTo, TransitionDestin, LinkedToModule, or LoadScreenID for this door";
+  const storage = isAreaDoorTransitionStorage(object.source?.doorTransitionStorage)
+    ? object.source.doorTransitionStorage
+    : isAreaDoorTransitionStorage(transition?.storage)
+      ? transition.storage
+      : undefined;
+  if (!transition && !storage) {
+    return "missing: Area GIT/API scene payload has no exact LinkedTo, LinkedToFlags, and LoadScreenID trio for this door";
   }
   return [
-    `LinkedTo ${formatDoorTransitionValue(transition.linkedTarget)}`,
-    `TransitionDestination ${formatDoorTransitionValue(transition.linkedTag)}`,
-    `LinkedToModule ${formatDoorTransitionValue(transition.linkedModule)}`,
-    `LinkedWaypoint ${formatDoorTransitionValue(transition.linkedWaypoint)}`,
-    `LoadScreenID ${formatDoorTransitionValue(transition.loadScreen)}`,
-    `LinkedToFlags ${readDoorTransitionExtraValue(transition, "linkedToFlags")}`,
-    `extra ${formatDoorTransitionExtra(transition.extra)}`
+    `Native LinkedTo ${storage ? formatDoorTransitionValue(storage.linkedTo) : "missing"}`,
+    `Native LinkedToFlags ${storage?.linkedToFlags ?? "missing"}`,
+    `Native LoadScreenID ${storage?.loadScreenId ?? "missing"}`,
+    `LinkedTo ${formatDoorTransitionValue(transition?.linkedTarget ?? "")}`,
+    `TransitionDestination ${formatDoorTransitionValue(transition?.linkedTag ?? "")}`,
+    `LinkedToModule ${formatDoorTransitionValue(transition?.linkedModule ?? "")}`,
+    `LinkedWaypoint ${formatDoorTransitionValue(transition?.linkedWaypoint ?? "")}`,
+    `LoadScreenID ${formatDoorTransitionValue(transition?.loadScreen ?? "")}`,
+    `LinkedToFlags ${transition ? readDoorTransitionExtraValue(transition, "linkedToFlags") : "missing"}`,
+    `extra ${formatDoorTransitionExtra(transition?.extra)}`
   ].join("; ");
 }
 
 function resolveDoorTransitionRuntimeLabel(object: SceneObject): string {
-  return object.doorTransition
-    ? "blocked: preserve-only payload; runtime transition execution is not wired"
+  return isAreaDoorTransitionStorage(object.source?.doorTransitionStorage)
+    ? "storage authoring active; runtime transition execution remains unverified"
+    : object.doorTransition
+      ? "blocked: preserve-only payload; runtime transition execution is not wired"
     : "blocked: no source transition payload to execute";
 }
 
 function resolveDoorTransitionBlockerLabel(object: SceneObject): string {
   const transition = object.doorTransition;
   const blockers: string[] = [];
-  if (!transition) {
+  const hasExactStorage = isAreaDoorTransitionStorage(object.source?.doorTransitionStorage);
+  if (!hasExactStorage) {
+    blockers.push("exact GIT transition storage provenance is unavailable for authoring");
+  }
+  if (!transition && !hasExactStorage) {
     blockers.push("GIT transition/link payload missing from scene contract");
   } else if (
+    transition &&
+    !hasExactStorage &&
     transition.linkedTarget.trim().length === 0 &&
     transition.linkedTag.trim().length === 0 &&
     transition.linkedModule.trim().length === 0 &&
@@ -604,6 +636,11 @@ export function DoorPropertiesDialog({
             data-transition-source-status={doorTransitionStatus}
             data-transition-evidence={doorTransitionEvidence}
             data-transition-runtime-status="blocked-preserve-only"
+            data-transition-storage-authoring-status={
+              doorPropertiesDialog.draft.transitionStorageEditable
+                ? "active"
+                : "preserve-only"
+            }
             data-transition-blocker={doorTransitionBlocker}
             data-poc-model-path="template-appearance-generic-type-doortypes-genericdoors-model-asset"
             data-poc-model-blocker={doorModelBlocker}
@@ -876,14 +913,76 @@ export function DoorPropertiesDialog({
             <section className="canvas-door-properties-shell">
               <fieldset className="canvas-door-properties-group">
                 <legend>Area Transition</legend>
+                <fieldset
+                  className="canvas-door-properties-group"
+                  data-door-transition-storage-state={
+                    doorPropertiesDialog.draft.transitionStorageEditable
+                      ? "active"
+                      : "preserve-only"
+                  }
+                >
+                  <legend>Native GIT storage</legend>
+                  <label>
+                    LinkedTo
+                    <input
+                      type="text"
+                      value={doorPropertiesDialog.draft.linkedTo}
+                      maxLength={MAX_AREA_DOOR_LINKED_TO_CODE_UNITS}
+                      disabled={!doorPropertiesDialog.draft.transitionStorageEditable}
+                      onChange={(event) =>
+                        updateDoorTransitionDraftField("linkedTo", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    LinkedToFlags
+                    <input
+                      type="number"
+                      min={0}
+                      max={0xff}
+                      step={1}
+                      value={doorPropertiesDialog.draft.linkedToFlags}
+                      disabled={!doorPropertiesDialog.draft.transitionStorageEditable}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isSafeInteger(value) && value >= 0 && value <= 0xff) {
+                          updateDoorTransitionDraftField("linkedToFlags", value);
+                        }
+                      }}
+                    />
+                  </label>
+                  <label>
+                    LoadScreenID
+                    <input
+                      type="number"
+                      min={0}
+                      max={0xffff}
+                      step={1}
+                      value={doorPropertiesDialog.draft.loadScreenId}
+                      disabled={!doorPropertiesDialog.draft.transitionStorageEditable}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isSafeInteger(value) && value >= 0 && value <= 0xffff) {
+                          updateDoorTransitionDraftField("loadScreenId", value);
+                        }
+                      }}
+                    />
+                  </label>
+                  <p role="note">
+                    {doorPropertiesDialog.draft.transitionStorageEditable
+                      ? "Exact storage authoring is active. Values are written without trimming or semantic decoding."
+                      : "Exact storage authoring is unavailable because immutable GIT Door provenance is missing."}
+                  </p>
+                </fieldset>
+                <p role="note">
+                  Preserve-only compatibility fields below are not native-authoring authority.
+                </p>
                 <label>
                   Destination Tag
                   <input
                     type="text"
                     value={doorPropertiesDialog.draft.destinationTag}
-                    onChange={(event) =>
-                      updateDoorTransitionDraftField("destinationTag", event.target.value)
-                    }
+                    readOnly
                   />
                 </label>
                 <fieldset className="canvas-door-properties-group">
@@ -893,7 +992,7 @@ export function DoorPropertiesDialog({
                       type="radio"
                       name={`door-destination-type-${doorPropertiesDialog.objectId}`}
                       checked={doorPropertiesDialog.draft.destinationType === "none"}
-                      onChange={() => updateDoorTransitionDraftField("destinationType", "none")}
+                      disabled
                     />
                     None
                   </label>
@@ -902,7 +1001,7 @@ export function DoorPropertiesDialog({
                       type="radio"
                       name={`door-destination-type-${doorPropertiesDialog.objectId}`}
                       checked={doorPropertiesDialog.draft.destinationType === "door"}
-                      onChange={() => updateDoorTransitionDraftField("destinationType", "door")}
+                      disabled
                     />
                     Door
                   </label>
@@ -911,9 +1010,7 @@ export function DoorPropertiesDialog({
                       type="radio"
                       name={`door-destination-type-${doorPropertiesDialog.objectId}`}
                       checked={doorPropertiesDialog.draft.destinationType === "waypoint"}
-                      onChange={() =>
-                        updateDoorTransitionDraftField("destinationType", "waypoint")
-                      }
+                      disabled
                     />
                     Waypoint
                   </label>
@@ -923,9 +1020,7 @@ export function DoorPropertiesDialog({
                   <input
                     type="text"
                     value={doorPropertiesDialog.draft.linkedTarget}
-                    onChange={(event) =>
-                      updateDoorTransitionDraftField("linkedTarget", event.target.value)
-                    }
+                    readOnly
                   />
                 </label>
                 <label>
@@ -933,9 +1028,7 @@ export function DoorPropertiesDialog({
                   <input
                     type="text"
                     value={doorPropertiesDialog.draft.linkedModule}
-                    onChange={(event) =>
-                      updateDoorTransitionDraftField("linkedModule", event.target.value)
-                    }
+                    readOnly
                   />
                 </label>
                 <label>
@@ -943,24 +1036,17 @@ export function DoorPropertiesDialog({
                   <input
                     type="text"
                     value={doorPropertiesDialog.draft.linkedWaypoint}
-                    onChange={(event) =>
-                      updateDoorTransitionDraftField("linkedWaypoint", event.target.value)
-                    }
+                    readOnly
                   />
                 </label>
                 <label>
                   Loading Screen
                   <select
+                    disabled
                     value={
                       doorPropertiesDialog.draft.loadScreen.trim().length > 0
                         ? doorPropertiesDialog.draft.loadScreen
                         : "Default"
-                    }
-                    onChange={(event) =>
-                      updateDoorTransitionDraftField(
-                        "loadScreen",
-                        event.target.value === "Default" ? "" : event.target.value
-                      )
                     }
                   >
                     <option value="Default">Default</option>
@@ -971,7 +1057,6 @@ export function DoorPropertiesDialog({
                     ) : null}
                   </select>
                 </label>
-                <button type="button">Setup Area Transition</button>
                 <label>
                   Flags
                   <input type="text" value={doorPropertiesDialog.draft.flagsSummary} readOnly />

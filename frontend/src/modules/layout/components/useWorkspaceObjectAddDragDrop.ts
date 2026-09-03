@@ -47,6 +47,7 @@ import {
   tryParseObjectAddPayload,
   type ObjectAddDragPayload
 } from "../application/objectAddDragPayload";
+import { cloneDoorTransitionPreserveOnlyPayload } from "../application/doorTransitionStorageProvenance";
 
 interface UseWorkspaceObjectAddDragDropArgs<TRuntime, TObjectAddGhost> {
   runtimeRef: WorkspaceRuntimeRef<TRuntime>;
@@ -221,34 +222,46 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
 
       const newObjectSequence = nextObjectSequenceRef.current;
       nextObjectSequenceRef.current += 1;
-      const created = sceneViewportPort.createObject(
-        payload.kind,
-        placement.x,
-        placement.y,
-        newObjectSequence
-      );
-      if (toolbarState.canvasDebug.snapAngle) {
+      const created = payload.kind === "doors"
+        ? sceneViewportPort.createDoorAtHook(scene, placement.x, placement.y, newObjectSequence)
+        : sceneViewportPort.createObject(payload.kind, placement.x, placement.y, newObjectSequence);
+      if (!created) {
+        setObjectAddDropFeedback({
+          variant: "warning",
+          message: "This tile has no supported free door hook."
+        });
+        trackTelemetry("scene.objects.add_blocked_door_hook", {
+          userId,
+          kind: payload.kind,
+          source,
+          tileId: placement.tileId
+        });
+        return undefined;
+      }
+      if (payload.kind !== "doors" && toolbarState.canvasDebug.snapAngle) {
         created.bearing = snapAngleRadians(created.bearing, workspaceOptions.snapAngleStepDeg);
       }
-      if (toolbarState.canvasDebug.snapHeight) {
+      if (payload.kind !== "doors" && toolbarState.canvasDebug.snapHeight) {
         created.z = snapHeightValue(created.z, workspaceOptions.snapHeightStep);
       }
 
-      created.resRef = payload.resRef;
-      created.name = payload.name;
-      created.tag = payload.tag;
-      created.previewImageUrl = payload.previewImageUrl;
+      if (payload.kind !== "doors") {
+        created.resRef = payload.resRef;
+        created.name = payload.name;
+        created.tag = payload.tag;
+        created.previewImageUrl = payload.previewImageUrl;
 
-      const sourceTemplate =
-        sourceTemplateOverride ?? scene.objects.find((object) => object.id === payload.id);
-      if (sourceTemplate) {
-        const sourceSnapshot = cloneSceneObject(sourceTemplate);
-        created.resRef = sourceSnapshot.resRef;
-        created.name = sourceSnapshot.name;
-        created.tag = sourceSnapshot.tag;
-        created.previewImageUrl = sourceSnapshot.previewImageUrl;
-        created.isStatic = sourceSnapshot.isStatic;
-        created.placeableProperties = sourceSnapshot.placeableProperties
+        const sourceTemplate =
+          sourceTemplateOverride ?? scene.objects.find((object) => object.id === payload.id);
+        if (sourceTemplate) {
+          const sourceSnapshot = cloneSceneObject(sourceTemplate);
+          created.resRef = sourceSnapshot.resRef;
+          created.name = sourceSnapshot.name;
+          created.tag = sourceSnapshot.tag;
+          created.previewImageUrl = sourceSnapshot.previewImageUrl;
+          created.isStatic = sourceSnapshot.isStatic;
+          created.source = sourceSnapshot.source;
+          created.placeableProperties = sourceSnapshot.placeableProperties
           ? {
               ...sourceSnapshot.placeableProperties,
               scriptSlots: sourceSnapshot.placeableProperties.scriptSlots
@@ -268,11 +281,11 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
                 : undefined
             }
           : undefined;
-        created.creatureProperties = cloneSceneObjectCreatureProperties(
-          sourceSnapshot.creatureProperties
-        );
-        created.itemProperties = cloneSceneObjectItemProperties(sourceSnapshot.itemProperties);
-        created.soundPositioning = sourceSnapshot.soundPositioning
+          created.creatureProperties = cloneSceneObjectCreatureProperties(
+            sourceSnapshot.creatureProperties
+          );
+          created.itemProperties = cloneSceneObjectItemProperties(sourceSnapshot.itemProperties);
+          created.soundPositioning = sourceSnapshot.soundPositioning
           ? {
               ...sourceSnapshot.soundPositioning,
               preserve: sourceSnapshot.soundPositioning.preserve
@@ -284,27 +297,22 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
                 : undefined
             }
           : undefined;
-        created.doorTransition = sourceSnapshot.doorTransition
-          ? {
-              ...sourceSnapshot.doorTransition,
-              flags: { ...sourceSnapshot.doorTransition.flags },
-              ...(sourceSnapshot.doorTransition.extra
-                ? { extra: { ...sourceSnapshot.doorTransition.extra } }
-                : {})
-            }
-          : undefined;
-      }
-      if (payload.kind === "sounds" && payload.soundPositioning && !sourceTemplate?.soundPositioning) {
-        created.soundPositioning = {
-          ...payload.soundPositioning,
-          preserve: payload.soundPositioning.preserve
-            ? {
-                ...payload.soundPositioning.preserve,
-                flags: { ...payload.soundPositioning.preserve.flags },
-                extra: { ...payload.soundPositioning.preserve.extra }
-              }
-            : undefined
-        };
+          created.doorTransition = cloneDoorTransitionPreserveOnlyPayload(
+            sourceSnapshot.doorTransition,
+          );
+        }
+        if (payload.kind === "sounds" && payload.soundPositioning && !sourceTemplate?.soundPositioning) {
+          created.soundPositioning = {
+            ...payload.soundPositioning,
+            preserve: payload.soundPositioning.preserve
+              ? {
+                  ...payload.soundPositioning.preserve,
+                  flags: { ...payload.soundPositioning.preserve.flags },
+                  extra: { ...payload.soundPositioning.preserve.extra }
+                }
+              : undefined
+          };
+        }
       }
 
       setSceneHistory((current) =>
@@ -332,7 +340,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
     [
       nextObjectSequenceRef,
       renderObjectIds,
-      scene.objects,
+      scene,
       sceneViewportPort,
       setSceneHistory,
       setSelectedObjectIds,
@@ -564,7 +572,10 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
       return true;
     }
 
-    addObjectFromPayload(payload, placement, objectAddPlacementMode.template, "click");
+    const created = addObjectFromPayload(payload, placement, objectAddPlacementMode.template, "click");
+    if (!created) {
+      return true;
+    }
     setObjectAddPreview(null);
     objectAddPlacementCacheRef.current = null;
     clearObjectAddGhost();
@@ -664,7 +675,7 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
         return true;
       }
 
-      addObjectFromPayload(
+      const created = addObjectFromPayload(
         payload,
         {
           x: placement.x,
@@ -674,6 +685,9 @@ export function useWorkspaceObjectAddDragDrop<TRuntime, TObjectAddGhost>({
         objectAddPlacementMode.template,
         "click"
       );
+      if (!created) {
+        return true;
+      }
       setObjectAddPreview(null);
       objectAddPlacementCacheRef.current = null;
       clearObjectAddGhost();

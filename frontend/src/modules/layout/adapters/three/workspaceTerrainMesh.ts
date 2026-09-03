@@ -4,9 +4,17 @@ import type {
   SceneAreaGlobalLighting,
   SceneAreaGlobalLightingFieldName,
   SceneTile,
+  SceneTileNativeLightNode,
+  SceneTileSourceLightNode,
   TerrainBrushKind
 } from "../../contracts";
 import type { AreaTileProcessContractReadiness } from "../../../tiles/application/areaTileProcessContractReadiness";
+import { buildAreaTileStateDigest } from "../../../tiles/application/areaTileMutationTelemetry";
+import {
+  DEFAULT_AREA_TILE_RENDER_PROFILE,
+  resolveAreaTileRenderProfile,
+  type AreaTileRenderProfile
+} from "../../../tiles/domain/areaTileRenderProfile";
 import {
   applyPlaceableTexturesToModel,
   ensurePlaceableModel,
@@ -18,10 +26,12 @@ import {
   type PlaceableModelRuntimeCache
 } from "../../../placeables/adapters/three/placeableThreeAssetLoader";
 import { resolvePlaceableAssetDeliveryUrl } from "../../../placeables/application/placeableRenderAssetResolver";
+import { buildAreaTileWalkmeshOverlaySegments } from "../../../scene/domain/areaTileConnectivityDiagnostics";
 import { createTextSprite } from "./workspaceCanvasSprites";
 import {
   resolveAuroraAreaRenderTileCenterX,
   resolveAuroraAreaRenderTileCenterZ,
+  resolveAuroraAreaRenderTileHeight,
   resolveAuroraAreaRenderTileImageMapOrientation,
   resolveAuroraAreaRenderTileOrientation
 } from "./workspaceAreaRenderCoordinates";
@@ -31,6 +41,17 @@ import {
   type AuroraLightManagerPreviewScore
 } from "./auroraLightManagerPreview";
 import { installAuroraLinearLightFalloffShaderChunk } from "./auroraThreeLightFalloff";
+import {
+  resolveAuroraTerrainTileSourceLightProfile,
+  type AuroraTerrainTileSourceLightProfile
+} from "./auroraTerrainTileSourceLight";
+import {
+  applyAuroraTerrainReceiverMaterialProfile
+} from "./auroraTerrainReceiverMaterial";
+import {
+  AURORA_ENHANCED_COLOR_SPACE_SOURCE,
+  convertAuroraEnhancedGammaTripletToLinear
+} from "../../../shared/adapters/three/auroraEnhancedColorSpace";
 
 const TILE_GEOMETRY_Y = 0;
 const TILE_AREA_EXTENT_LAYER_NAME = "terrain-area-extent-footprint";
@@ -38,7 +59,67 @@ const TILE_MODEL_LAYER_NAME = "terrain-backend-tile-models";
 const TILE_IMAGE_MAP_LAYER_NAME = "terrain-imagemap2d-tiles";
 const TILE_LIGHT_LAYER_NAME = "terrain-tile-light-sources";
 const AREA_GLOBAL_LIGHTING_LAYER_NAME = "terrain-area-global-lighting";
+const TILE_WOK_OVERLAY_LAYER_NAME = "terrain-source-wok-overlay";
 const TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE = 0.1;
+const TERRAIN_EXTENT_FILL_SOURCE_GROUND_CLEARANCE = 0.018;
+const TERRAIN_INTERIOR_VOID_COLOR = "#000000";
+const TERRAIN_EXTERIOR_VOID_COLOR = "#0c1420";
+
+function resolveTerrainTileHeightOffset(tile: SceneTile, sceneData: AreaScene): number {
+  return resolveAuroraAreaRenderTileHeight(
+    tile.height,
+    sceneData.auroraAreaEditing?.definition.defaults?.transition,
+    TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE
+  );
+}
+
+function resolveTerrainTileCeilingsVisible(
+  sceneData: AreaScene,
+  debugState: TerrainDebugState
+): boolean {
+  // Exterior SETs are authoritative: their raised horizontal fragments are
+  // terrain transitions, not indoor ceilings. The previous geometry-only
+  // heuristic hid these fragments and punched holes in tms01 slopes.
+  return debugState.ceilingMeshes ||
+    sceneData.auroraAreaEditing?.definition.defaults?.interior === false;
+}
+
+export function resolveTerrainTileHeightOffsetForTests(input: {
+  height?: number;
+  transition?: number;
+}): number {
+  return resolveAuroraAreaRenderTileHeight(
+    input.height,
+    input.transition,
+    TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE
+  );
+}
+
+export function resolveTerrainTileCeilingsVisibleForTests(input: {
+  interior?: boolean;
+  debugCeilingsVisible: boolean;
+}): boolean {
+  return input.debugCeilingsVisible || input.interior === false;
+}
+
+function resolveTerrainExtentFillColor(sceneData: AreaScene): string {
+  // Aurora interior models carry opaque black crop masks around rooms and
+  // corridors.  Their backing plane must use the same colour or the mask
+  // silhouettes appear as random black patches over an unrelated brown/blue
+  // editor slab.  Exterior Areas do not use that interior void contract, so
+  // their unused footprint matches the renderer canvas instead.
+  return sceneData.auroraAreaEditing?.definition.defaults?.interior === true
+    ? TERRAIN_INTERIOR_VOID_COLOR
+    : TERRAIN_EXTERIOR_VOID_COLOR;
+}
+
+export function resolveTerrainExtentFillColorForTests(input: {
+  interior?: boolean;
+}): string {
+  return input.interior === true
+    ? TERRAIN_INTERIOR_VOID_COLOR
+    : TERRAIN_EXTERIOR_VOID_COLOR;
+}
 const TILE_MODEL_LOADER_PATH =
   "AreaTileProcessContract.renderAssetContract.modelAsset.deliveryUrl -> shared-placeables-gltf-loader";
 export const AREA_TERRAIN_TILE_MODEL_RUNTIME_SNAPSHOT_EVENT =
@@ -79,6 +160,12 @@ const TERRAIN_TILE_MAIN_LIGHT_FALLOFF_FORMULA =
   "not-applicable-static-tile-lightcolor";
 const TERRAIN_TILE_MAIN_LIGHT_RENDERER_MODE =
   "static-tile-lightcolor-table-diagnostic";
+const TERRAIN_TILE_MAIN_LIGHT_NATIVE_RENDERER_MODE =
+  "native-tile-mdl-point-light";
+const TERRAIN_TILE_MAIN_LIGHT_NATIVE_SOURCE =
+  "nwtoolset.exe FUN_007125ec 0x007130ab..0x007130ca applies Tile_MainLight1/2 lightcolor RGB to native tile MDL ml1/ml2 light nodes";
+const TERRAIN_TILE_MAIN_LIGHT_NATIVE_PROOF_STATUS =
+  "source-backed-tile-mdl-native-main-light";
 const TERRAIN_TILE_SOURCE_LIGHT_CARRIER_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:453567-453602 creates fx_flame01 at sourcelight1/sourcelight2 tile source-light nodes; nwn_base.key fx_flame01.mdl AuroraLight01 controller radius 0x58 = 7, shadowradius 0x60 = 15, verticaldisplacement 0x64 = 2";
 const TERRAIN_TILE_SOURCE_LIGHT_RADIUS_PROOF_STATUS =
@@ -97,28 +184,24 @@ const TERRAIN_TILE_SOURCE_LIGHT_SOURCE_VERTICAL_DISPLACEMENT = 2;
 const TERRAIN_TILE_SOURCE_LIGHT_SOURCE_PRIORITY = 4;
 const TERRAIN_TILE_SOURCE_LIGHT_WORLD_RADIUS =
   TERRAIN_TILE_SOURCE_LIGHT_SOURCE_RADIUS * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
-const TERRAIN_TILE_SOURCE_LIGHT_FALLOFF_FORMULA = "max(0,1-distance/radius)";
+const TERRAIN_TILE_SOURCE_LIGHT_FALLOFF_FORMULA =
+  "1/(1+4.5*(distance/radius)^2)";
 const TERRAIN_TILE_SOURCE_LIGHT_FALLOFF_PROOF_STATUS =
-  "source-backed-active-light-linear-radius-falloff";
+  "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending";
 const TERRAIN_TILE_SOURCE_LIGHT_INTENSITY_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 accumulates active light as color * max(0,1-distance/radius) * multiplier; Aurora Web stores normalized RGB in Three.Color and RGB max in Three.PointLight.intensity";
 const TERRAIN_TILE_SOURCE_LIGHT_INTENSITY_PROOF_STATUS =
-  "source-backed-tile-source-lightcolor-rgb-preserved-multiplier-neutral-fallback";
-const TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_FALLBACK = 1;
-const TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_SOURCE =
-  "fx_flame01/AuroraLight01 multiplier is not recovered in current local resource artifacts; Aurora Web uses neutral 1.0 and does not apply preview attenuation";
+  "source-backed-fx_flame01-animation-color-partlight-default-multiplier";
 const TERRAIN_TILE_LIGHT_POSITION_SOURCE =
-  "tile-center-preview-not-sourcelight-node-transform";
+  "source-tile-mdl-sourcelight-slot-transform";
 const TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_SOURCE =
-  "C:/Projects/New Folder/export/decompiled_all.c:453567-453602 creates fx_flame01 at sourcelight1/sourcelight2 tile source-light nodes";
-const TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_PROOF_STATUS =
-  "source-backed-tile-mdl-sourcelight-node-transform";
-const TERRAIN_TILE_MATERIAL_LIGHTING_MODE =
-  "texture_color_unlit_use_area_lighting_disabled";
-const TERRAIN_TILE_MATERIAL_LIGHTING_MODE_SOURCE =
-  "Aurora Toolset Use Area Lighting disabled; cap94 terrain basic-material A/B matched warmer source texture color without touching placeables";
+  "nwtoolset.exe FUN_007125ec 0x007131d9..0x00713351 creates fx_flame01 sourcelight1/2 carriers only when tile model vcall +0x74 reports slot count >0/>1";
 const TERRAIN_AREA_GLOBAL_LIGHT_INTENSITY_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:256239-256303 selects Sun/Moon ambient+diffuse fields by IsNight, unpacks packed channels as byte0/byte1/byte2 divided by 255.0, then sends controlpart gidy_sun_amb/gidy_sun_diff color commands; Aurora Web uses Three intensity 1.0 so the source color carries the scalar";
+const TERRAIN_AREA_GLOBAL_LIGHT_COLOR_SPACE_SOURCE =
+  `${TERRAIN_AREA_GLOBAL_LIGHT_INTENSITY_SOURCE}; ${AURORA_ENHANCED_COLOR_SPACE_SOURCE}`;
+const WORKSPACE_DEFAULT_PREVIEW_LIGHTING_SOURCE =
+  "Aurora Web workspace visibility helper; not an Aurora runtime light. Source-backed ARE ambient/diffuse replaces this helper while Use Area Lighting is active.";
 const TERRAIN_AREA_GLOBAL_FOG_RANGE_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:368987-369024 enables scene fog, selects Sun/Moon FogAmount/FogColor by IsNight, unpacks color as byte0/byte1/byte2 divided by 255.0, computes fog start as 25 - FogAmount*25/15, and reads FogClipDist from area offset +0x100 for fog end; Aurora Web scales those Aurora metre values to tile space for Three.Fog";
 const TERRAIN_AREA_GLOBAL_SHADOW_STATUS_SOURCE =
@@ -127,6 +210,11 @@ const TERRAIN_AREA_GLOBAL_SHADOW_OPACITY_SOURCE =
   "ARE.ShadowOpacity read/write at decompiled_all.c:255224/255904; normalized to shadowOpacity/100 at decompiled_all.c:256306";
 const TERRAIN_AREA_GLOBAL_SHADOW_OPACITY_FACTOR_SOURCE =
   "decompiled_all.c:256306 stores ShadowOpacity/100, then shadow plane alpha multiplies that factor at decompiled_all.c:910844";
+const TERRAIN_AREA_GLOBAL_SHADOW_MAP_BIAS = -0.0005;
+const TERRAIN_AREA_GLOBAL_SHADOW_MAP_NORMAL_BIAS = 0.02;
+const TERRAIN_AREA_GLOBAL_SHADOW_MAP_SIZE = 2048;
+const TERRAIN_AREA_GLOBAL_SHADOW_MAP_PREVIEW_SOURCE =
+  "Three directional-shadow preview calibrated against bci01 Plane07 runtime proof; retail Aurora shadow-volume projection is not ported";
 const TERRAIN_TILE_SHADOW_RECEIVER_STATUS =
   "three-preview-terrain-receiveShadow-enabled";
 const TERRAIN_TILE_SHADOW_RECEIVER_SOURCE =
@@ -134,6 +222,11 @@ const TERRAIN_TILE_SHADOW_RECEIVER_SOURCE =
 const TILE_ASSET_CONTRACT_SAMPLE_LIMIT = 12;
 const TILE_MODEL_VISIBLE_MESH_SAMPLE_LIMIT = 32;
 const TILE_TRANSFORM_SAMPLE_LIMIT = 32;
+// ImageMap2D assets are legacy 32–64 px tile previews, not replacement terrain
+// materials. Rendering them above a ready GLB makes terrain visibly grainy and
+// turns opaque black preview background into false scene geometry. The opaque
+// extent footprint provides the crop-compatible base below incomplete GLB geometry;
+// ImageMap2D remains the fallback only when no source-backed model is available.
 const TERRAIN_IMAGE_MAP_SOURCE_BACKED_OVERLAY = false;
 const TERRAIN_IMAGE_MAP_TRANSPARENT_VOID_OVERLAY = true;
 const TERRAIN_IMAGE_MAP_SOURCE_BACKED_REPLACES_TILE_MODELS = false;
@@ -142,10 +235,6 @@ const TERRAIN_TILE_ROTATETEXTURE_COMPENSATION = true;
 const TERRAIN_TILE_ASSET_LOAD_TIMEOUT_MS = 120_000;
 const TERRAIN_IMAGE_MAP_VOID_ALPHA_MAX_RGB = 8;
 const TERRAIN_IMAGE_MAP_VOID_ALPHA_FEATHER_MAX_RGB = 32;
-const BLANK_TERRAIN_IMAGE_MAP_MODEL_RESREFS = new Set([
-  "sic11_a00_00",
-  "tni01_o20_01"
-]);
 
 const terrainImageMapTransparentVoidTextureCache = new WeakMap<
   THREE.Texture,
@@ -210,14 +299,29 @@ async function ensureTerrainTileTexturesByReference(
   textureUrlsByReference: Map<string, string>,
   onTextureLoaded?: (texturesByReference: Map<string, THREE.Texture>) => void
 ): Promise<Map<string, THREE.Texture>> {
-  return ensurePlaceableTexturesByReferenceProgressive(
-    runtime,
-    textureUrlsByReference,
-    ({ texturesByReference }) => {
-      onTextureLoaded?.(texturesByReference);
-    },
-    { priority: PLACEABLE_TEXTURE_LOAD_PRIORITY_HIGH }
-  );
+  const loadTextures = () =>
+    ensurePlaceableTexturesByReferenceProgressive(
+      runtime,
+      textureUrlsByReference,
+      ({ texturesByReference }) => {
+        onTextureLoaded?.(texturesByReference);
+      },
+      { priority: PLACEABLE_TEXTURE_LOAD_PRIORITY_HIGH }
+    );
+  const initialTextures = await loadTextures();
+  if (
+    textureUrlsByReference.size === 0 ||
+    initialTextures.size >= textureUrlsByReference.size
+  ) {
+    return initialTextures;
+  }
+  // A terrain model can finish its GLB load while the shared asset queue is
+  // being rebuilt for an Area switch. Any incomplete pass is not evidence of
+  // missing texture source (the per-reference contract was already ready), so
+  // retry once after failed pending entries have been released. Preserve
+  // first-pass successes even when only the missing references recover.
+  const retriedTextures = await loadTextures();
+  return new Map([...initialTextures, ...retriedTextures]);
 }
 
 interface TerrainDebugState {
@@ -226,6 +330,7 @@ interface TerrainDebugState {
   ceilingMeshes: boolean;
   wireframe: boolean;
   textures: boolean;
+  showNonRenderMeshes?: boolean;
   displayFog?: boolean;
   useAreaLighting?: boolean;
   walkmeshOverlay: boolean;
@@ -258,74 +363,36 @@ export interface TerrainScenePackageReadiness {
   areaWidth: number;
   areaHeight: number;
   path: string;
-  status:
-    | "blocked_missing_are_tile_list"
-    | "blocked_set_tile_model_metadata_incomplete"
-    | "source_metadata_ready_geometry_loader_blocked";
+  status: string;
   tilesetResRef: string;
   areTileListStatus: "ready" | "blocked_missing_are_tile_list";
   setTileModelStatus:
     | "ready"
     | "blocked_missing_are_tile_list"
     | "blocked_tile_model_metadata_incomplete";
-  mdlAvailabilityStatus:
-    | "not_loaded_frontend_tile_mdl_loader_missing"
-    | "blocked_no_tile_model_resrefs";
-  glbAvailabilityStatus:
-    | "not_checked_no_tile_glb_contract"
-    | "blocked_no_tile_model_resrefs";
-  textureAvailabilityStatus:
-    | "area_texture_atlas_present_tile_materials_unverified"
-    | "blocked_tile_material_texture_contract_missing";
+  mdlAvailabilityStatus: string;
+  glbAvailabilityStatus: string;
+  textureAvailabilityStatus: string;
   tileAssetContractPath: string;
-  tileAssetContractStatus:
-    | "derived_tile_catalog_candidates_unverified"
-    | "blocked_no_tile_model_resrefs";
-  tileCatalogCandidateStatus:
-    | "derived_from_set_model_resrefs_not_verified"
-    | "blocked_no_tile_model_resrefs";
-  tileProcessContractStatus:
-    | "not_requested_frontend_area_runtime_missing_tile_process_contract"
-    | "blocked_no_tile_catalog_candidate_ids";
-  tileMdlSourceStatus:
-    | "source_model_resrefs_present_asset_source_unverified"
-    | "blocked_no_tile_model_resrefs";
-  tileGlbContractStatus:
-    | "missing_frontend_tile_glb_contract"
-    | "blocked_no_tile_model_resrefs";
-  tileTextureContractStatus:
-    | "area_texture_atlas_metadata_present_per_tile_material_contract_missing"
-    | "blocked_tile_material_texture_contract_missing";
+  tileAssetContractStatus: string;
+  tileCatalogCandidateStatus: string;
+  tileProcessContractStatus: string;
+  tileMdlSourceStatus: string;
+  tileGlbContractStatus: string;
+  tileTextureContractStatus: string;
   tileRenderLoaderHandoffPath: string;
-  tileRenderLoaderHandoffStatus:
-    | "blocked_bridge_only_no_tile_model_loader_contract"
-    | "blocked_no_tile_model_resrefs";
-  tileRenderGeometryMode:
-    | "source_backed_bridge_not_model_geometry"
-    | "not_rendered_until_source_data_ready";
-  tileRenderGlbGeometryStatus:
-    | "blocked_tile_process_contract_missing_glb_geometry"
-    | "blocked_no_tile_model_resrefs";
-  tileRenderMaterialBindingStatus:
-    | "blocked_tile_process_contract_missing_material_bindings"
-    | "blocked_tile_material_texture_contract_missing"
-    | "blocked_no_tile_model_resrefs";
-  tileRenderLoaderOutputStatus:
-    | "blocked_tile_loader_output_not_proven"
-    | "blocked_no_tile_model_resrefs";
-  tileRenderRendererHandoffStatus:
-    | "blocked_tile_model_geometry_loader_missing"
-    | "blocked_no_tile_model_resrefs";
-  tileBridgeParityStatus:
-    | "non_parity_source_backed_bridge"
-    | "blocked_no_tile_model_resrefs";
+  tileRenderLoaderHandoffStatus: string;
+  tileRenderGeometryMode: string;
+  tileRenderGlbGeometryStatus: string;
+  tileRenderMaterialBindingStatus: string;
+  tileRenderLoaderOutputStatus: string;
+  tileRenderRendererHandoffStatus: string;
+  tileBridgeParityStatus: string;
   tileRenderContractBlockers: string[];
   tileCatalogCandidateIdsSample: string;
   tileAssetContractSamples: string;
   tileAssetContractBlockers: string[];
-  geometryPreference:
-    | "source_backed_bridge_only"
-    | "not_rendered_until_source_data_ready";
+  geometryPreference: string;
   bridgeStatus: string;
   tileCount: number;
   modelResolvedCount: number;
@@ -347,6 +414,7 @@ interface TerrainTileModelContract {
   objectKey?: string;
   extension?: "glb" | "gltf";
   textureUrlsByReference: Map<string, string>;
+  renderProfile: AreaTileRenderProfile;
 }
 
 export interface TerrainTileModelAssetContractIdentity {
@@ -386,6 +454,10 @@ interface TerrainTileModelRuntimeSummary {
   modelVisibleMeshCount: number;
   modelMaterialCount: number;
   modelMaterialMapCount: number;
+  modelTransparentMaterialCount: number;
+  modelAlphaTestMaterialCount: number;
+  modelVertexColorMaterialCount: number;
+  modelMaterialRenderStateSample: string;
   modelShadowReceiverMeshCount: number;
   modelShadowReceiverSample: string;
   modelCeilingMeshMatchedCount: number;
@@ -418,6 +490,9 @@ interface TerrainTileLightEntry {
   rowId: number;
   color: [number, number, number];
   sourceKey?: string;
+  sourceLightProfile?: AuroraTerrainTileSourceLightProfile;
+  sourceLightNode?: SceneTileSourceLightNode & { status: "source-node-resolved" };
+  nativeMainLightNode?: SceneTileNativeLightNode;
 }
 
 interface TerrainTileLightBudgetEntry {
@@ -434,7 +509,9 @@ interface AreaGlobalLightingPreview {
   phase: AreaGlobalLightingPhase;
   fieldsByName: Map<SceneAreaGlobalLightingFieldName, number>;
   ambientColor?: THREE.Color;
+  ambientColorGamma?: THREE.Color;
   diffuseColor?: THREE.Color;
+  diffuseColorGamma?: THREE.Color;
   fogColor?: THREE.Color;
   fogClipDistance?: number;
   fogAmount?: number;
@@ -448,7 +525,10 @@ export interface AreaTerrainTileModelRuntimeSnapshot {
   version: "aurora-areas-terrain-tile-model-runtime/v1";
   path: typeof TILE_MODEL_LOADER_PATH;
   layerName: typeof TILE_MODEL_LAYER_NAME;
+  terrainBuildId: string;
+  tileStateDigest: string;
   status: "blocked" | "loading" | "partial" | "ready";
+  modelStatus: "blocked" | "loading" | "partial" | "ready";
   areaId: string;
   tilesetResRef: string;
   renderStatus: TerrainRenderStatus["code"];
@@ -461,12 +541,20 @@ export interface AreaTerrainTileModelRuntimeSnapshot {
   visibleMeshCount: number;
   materialCount: number;
   materialMapCount: number;
+  transparentMaterialCount: number;
+  alphaTestMaterialCount: number;
+  vertexColorMaterialCount: number;
+  materialRenderStateSample: string;
   shadowReceiverMeshCount: number;
   shadowReceiverStatus: typeof TERRAIN_TILE_SHADOW_RECEIVER_STATUS;
   shadowReceiverSource: typeof TERRAIN_TILE_SHADOW_RECEIVER_SOURCE;
   shadowReceiverSample: string;
   ceilingMeshMatchedCount: number;
   ceilingMeshHiddenCount: number;
+  extentFillStatus: "default_extent_fill" | "source_ground_clearance" | "missing";
+  extentFillGroundSurfaceCount: number;
+  extentFillSourceGroundMinY: number | null;
+  extentFillY: number | null;
   visibleMeshSample: string;
   hiddenMeshSample: string;
   tileTransformSample: string;
@@ -474,6 +562,11 @@ export interface AreaTerrainTileModelRuntimeSnapshot {
   materialTextureAppliedTileCount: number;
   materialTextureFailedTileCount: number;
   materialTexturePendingTileCount: number;
+  supplementalSurfaceStatus: "missing" | "loading" | "ready" | "partial" | "failed";
+  supplementalSurfaceContractCount: number;
+  supplementalSurfaceLoadedCount: number;
+  supplementalSurfaceFailedCount: number;
+  supplementalSurfacePendingCount: number;
   deliveryUrlSample: string;
   objectKeySample: string;
   failedTileSample: string;
@@ -483,9 +576,15 @@ export interface AreaTerrainTileModelRuntimeSnapshot {
   blockerSummary: string;
 }
 
-export function resolveTerrainRenderStatus(sceneData: AreaScene): TerrainRenderStatus {
+export function resolveTerrainRenderStatus(
+  sceneData: AreaScene,
+  tileProcessReadiness?: AreaTileProcessContractReadiness | null
+): TerrainRenderStatus {
   const tileCount = sceneData.tiles.length;
-  const modelResolvedCount = sceneData.tiles.filter((tile) => Boolean(tile.modelResRef)).length;
+  const excludedTileDefinitionIds = buildExcludedTileDefinitionIdSet(tileProcessReadiness);
+  const modelResolvedCount = sceneData.tiles.filter(
+    (tile) => Boolean(tile.modelResRef) || isTileDefinitionExcluded(tile, excludedTileDefinitionIds)
+  ).length;
   const modelSourceCounts = sceneData.tiles.reduce<Record<string, number>>((counts, tile) => {
     const source = tile.modelSource ?? "missing";
     counts[source] = (counts[source] ?? 0) + 1;
@@ -525,10 +624,36 @@ export function resolveTerrainRenderStatus(sceneData: AreaScene): TerrainRenderS
     };
   }
 
+  const readyModelResRefs = new Set(
+    (tileProcessReadiness?.entries ?? [])
+      .filter(
+        (entry) =>
+          entry.status === "ready" &&
+          entry.modelDeliveryStatus === "ready" &&
+          entry.renderLoaderHandoffStatus === "ready"
+      )
+      .map((entry) => entry.modelResRef.trim().toLowerCase())
+  );
+  const uniqueModelResRefs = new Set(
+    sceneData.tiles
+      .filter((tile) => !isTileDefinitionExcluded(tile, excludedTileDefinitionIds))
+      .map((tile) => tile.modelResRef?.trim().toLowerCase() ?? "")
+      .filter((modelResRef) => Boolean(modelResRef))
+  );
+  const excludedTileCount = sceneData.tiles.filter((tile) =>
+    isTileDefinitionExcluded(tile, excludedTileDefinitionIds)
+  ).length;
+  const allModelsReady =
+    uniqueModelResRefs.size > 0
+      ? [...uniqueModelResRefs].every((modelResRef) => readyModelResRefs.has(modelResRef))
+      : excludedTileCount === tileCount;
+
   return {
     code: "source_backed_tile_model_bridge",
-    renderGenericMesh: true,
-    label: `source-backed tile bridge (${modelResolvedCount}/${tileCount} models; geometry loader pending)`,
+    renderGenericMesh: !allModelsReady,
+    label: allModelsReady
+      ? `Aurora tile models loaded (${modelResolvedCount}/${tileCount} tile cells)`
+      : `Aurora tile models restoring (${readyModelResRefs.size}/${uniqueModelResRefs.size} unique models ready)`,
     tileCount,
     modelResolvedCount,
     modelSourceCounts
@@ -537,9 +662,11 @@ export function resolveTerrainRenderStatus(sceneData: AreaScene): TerrainRenderS
 
 export function resolveTerrainScenePackageReadiness(
   sceneData: AreaScene,
-  renderStatus: TerrainRenderStatus = resolveTerrainRenderStatus(sceneData)
+  renderStatus: TerrainRenderStatus = resolveTerrainRenderStatus(sceneData),
+  tileProcessReadiness?: AreaTileProcessContractReadiness | null
 ): TerrainScenePackageReadiness {
   const tileCount = sceneData.tiles.length;
+  const excludedTileDefinitionIds = buildExcludedTileDefinitionIdSet(tileProcessReadiness);
   const modelMissingCount = Math.max(tileCount - renderStatus.modelResolvedCount, 0);
   const fallbackReasons = sceneData.tiles
     .map((tile) => tile.fallbackReason?.trim())
@@ -547,10 +674,14 @@ export function resolveTerrainScenePackageReadiness(
   const modelResRefs = Array.from(
     new Set(
       sceneData.tiles
+        .filter((tile) => !isTileDefinitionExcluded(tile, excludedTileDefinitionIds))
         .map((tile) => tile.modelResRef?.trim().toLowerCase() ?? "")
         .filter((modelResRef) => modelResRef.length > 0)
     )
   );
+  const excludedTileCount = sceneData.tiles.filter((tile) =>
+    isTileDefinitionExcluded(tile, excludedTileDefinitionIds)
+  ).length;
   const tileCatalogCandidateIds = modelResRefs.map((modelResRef) =>
     buildTileCatalogCandidateId(modelResRef)
   );
@@ -558,14 +689,27 @@ export function resolveTerrainScenePackageReadiness(
     sceneData.textureAtlas?.objectKey || sceneData.textureAtlas?.atlasId
   );
   const hasModelResRefs = modelResRefs.length > 0;
-  const tileAssetContractBlockers = resolveTileAssetContractBlockers({
-    hasModelResRefs,
-    hasAreaTextureAtlas
-  });
-  const tileRenderContractBlockers = resolveTileRenderContractBlockers({
-    hasModelResRefs,
-    hasAreaTextureAtlas
-  });
+  const readyModelResRefs = new Set(
+    (tileProcessReadiness?.entries ?? [])
+      .filter(
+        (entry) =>
+          entry.status === "ready" &&
+          entry.modelDeliveryStatus === "ready" &&
+          entry.renderLoaderHandoffStatus === "ready"
+      )
+      .map((entry) => entry.modelResRef.trim().toLowerCase())
+  );
+  const hasVerifiedTileContracts = readyModelResRefs.size > 0;
+  const allTileContractsVerified =
+    hasModelResRefs
+      ? modelResRefs.every((modelResRef) => readyModelResRefs.has(modelResRef))
+      : excludedTileCount === tileCount;
+  const tileAssetContractBlockers = allTileContractsVerified
+    ? []
+    : resolveTileAssetContractBlockers({ hasModelResRefs, hasAreaTextureAtlas });
+  const tileRenderContractBlockers = allTileContractsVerified
+    ? []
+    : resolveTileRenderContractBlockers({ hasModelResRefs, hasAreaTextureAtlas });
   const tileIds = Array.from(
     new Set(
       sceneData.tiles.map((tile) =>
@@ -594,13 +738,15 @@ export function resolveTerrainScenePackageReadiness(
   if (fallbackReasons.length > 0 || sceneData.tileSource?.fallbackReason) {
     blockers.add(sceneData.tileSource?.fallbackReason ?? "tile_fallback_metadata_present");
   }
-  if (hasModelResRefs) {
+  if (!hasModelResRefs && excludedTileCount < tileCount) {
+    blockers.add("blocked_no_tile_model_resrefs");
+  } else if (!allTileContractsVerified) {
     blockers.add(TILE_MODEL_GEOMETRY_LOADER_BLOCKER);
     blockers.add("tile_glb_contract_missing");
-  } else {
-    blockers.add("blocked_no_tile_model_resrefs");
   }
-  blockers.add("tile_material_texture_contract_missing");
+  if (!allTileContractsVerified) {
+    blockers.add("tile_material_texture_contract_missing");
+  }
   tileRenderContractBlockers.forEach((blocker) => blockers.add(blocker));
 
   const status =
@@ -608,7 +754,11 @@ export function resolveTerrainScenePackageReadiness(
       ? "blocked_missing_are_tile_list"
       : modelMissingCount > 0
         ? "blocked_set_tile_model_metadata_incomplete"
-        : "source_metadata_ready_geometry_loader_blocked";
+        : allTileContractsVerified
+          ? "ready"
+          : hasVerifiedTileContracts
+            ? "partial_tile_model_contracts_ready"
+            : "source_metadata_ready_geometry_loader_blocked";
 
   return {
     areaId: sceneData.sceneId,
@@ -620,63 +770,99 @@ export function resolveTerrainScenePackageReadiness(
     areTileListStatus,
     setTileModelStatus,
     mdlAvailabilityStatus:
-      modelResRefs.length > 0
-        ? "not_loaded_frontend_tile_mdl_loader_missing"
+      allTileContractsVerified
+        ? "ready_source_models_proven"
+        : modelResRefs.length > 0
+        ? hasVerifiedTileContracts
+          ? "partial_source_models_proven"
+          : "not_loaded_frontend_tile_mdl_loader_missing"
         : "blocked_no_tile_model_resrefs",
     glbAvailabilityStatus:
-      modelResRefs.length > 0
-        ? "not_checked_no_tile_glb_contract"
+      allTileContractsVerified
+        ? "ready_glb_contracts_proven"
+        : modelResRefs.length > 0
+        ? hasVerifiedTileContracts
+          ? "partial_glb_contracts_proven"
+          : "not_checked_no_tile_glb_contract"
         : "blocked_no_tile_model_resrefs",
-    textureAvailabilityStatus: hasAreaTextureAtlas
+    textureAvailabilityStatus: allTileContractsVerified
+      ? "ready_per_tile_material_contracts_proven"
+      : hasAreaTextureAtlas
       ? "area_texture_atlas_present_tile_materials_unverified"
       : "blocked_tile_material_texture_contract_missing",
     tileAssetContractPath: TILE_ASSET_CONTRACT_PATH,
     tileAssetContractStatus:
-      modelResRefs.length > 0
+      allTileContractsVerified
+        ? "ready"
+        : modelResRefs.length > 0
         ? "derived_tile_catalog_candidates_unverified"
         : "blocked_no_tile_model_resrefs",
     tileCatalogCandidateStatus:
-      modelResRefs.length > 0
+      allTileContractsVerified
+        ? "ready"
+        : modelResRefs.length > 0
         ? "derived_from_set_model_resrefs_not_verified"
         : "blocked_no_tile_model_resrefs",
     tileProcessContractStatus:
-      modelResRefs.length > 0
+      allTileContractsVerified
+        ? "ready"
+        : modelResRefs.length > 0
         ? "not_requested_frontend_area_runtime_missing_tile_process_contract"
         : "blocked_no_tile_catalog_candidate_ids",
     tileMdlSourceStatus:
-      modelResRefs.length > 0
+      allTileContractsVerified
+        ? "ready"
+        : modelResRefs.length > 0
         ? "source_model_resrefs_present_asset_source_unverified"
         : "blocked_no_tile_model_resrefs",
     tileGlbContractStatus:
-      modelResRefs.length > 0
+      allTileContractsVerified
+        ? "ready"
+        : modelResRefs.length > 0
         ? "missing_frontend_tile_glb_contract"
         : "blocked_no_tile_model_resrefs",
-    tileTextureContractStatus: hasAreaTextureAtlas
+    tileTextureContractStatus: allTileContractsVerified
+      ? "ready"
+      : hasAreaTextureAtlas
       ? "area_texture_atlas_metadata_present_per_tile_material_contract_missing"
       : "blocked_tile_material_texture_contract_missing",
     tileRenderLoaderHandoffPath: TILE_RENDER_LOADER_HANDOFF_PATH,
-    tileRenderLoaderHandoffStatus: hasModelResRefs
+    tileRenderLoaderHandoffStatus: allTileContractsVerified
+      ? "ready"
+      : hasModelResRefs
       ? TILE_RENDER_LOADER_HANDOFF_BLOCKER
       : "blocked_no_tile_model_resrefs",
     tileRenderGeometryMode:
-      renderStatus.renderGenericMesh && renderStatus.code === "source_backed_tile_model_bridge"
+      allTileContractsVerified
+        ? "glb_models"
+        : renderStatus.renderGenericMesh && renderStatus.code === "source_backed_tile_model_bridge"
         ? TILE_RENDER_BRIDGE_GEOMETRY_MODE
         : "not_rendered_until_source_data_ready",
-    tileRenderGlbGeometryStatus: hasModelResRefs
+    tileRenderGlbGeometryStatus: allTileContractsVerified
+      ? "ready"
+      : hasModelResRefs
       ? TILE_RENDER_GLB_GEOMETRY_BLOCKER
       : "blocked_no_tile_model_resrefs",
-    tileRenderMaterialBindingStatus: hasModelResRefs
+    tileRenderMaterialBindingStatus: allTileContractsVerified
+      ? "ready"
+      : hasModelResRefs
       ? hasAreaTextureAtlas
         ? TILE_RENDER_MATERIAL_BINDING_BLOCKER
         : "blocked_tile_material_texture_contract_missing"
       : "blocked_no_tile_model_resrefs",
-    tileRenderLoaderOutputStatus: hasModelResRefs
+    tileRenderLoaderOutputStatus: allTileContractsVerified
+      ? "ready"
+      : hasModelResRefs
       ? TILE_RENDER_LOADER_OUTPUT_BLOCKER
       : "blocked_no_tile_model_resrefs",
-    tileRenderRendererHandoffStatus: hasModelResRefs
+    tileRenderRendererHandoffStatus: allTileContractsVerified
+      ? "ready"
+      : hasModelResRefs
       ? TILE_MODEL_GEOMETRY_LOADER_BLOCKER
       : "blocked_no_tile_model_resrefs",
-    tileBridgeParityStatus: hasModelResRefs
+    tileBridgeParityStatus: allTileContractsVerified
+      ? "native_tile_models_loaded"
+      : hasModelResRefs
       ? TILE_RENDER_BRIDGE_PARITY_STATUS
       : "blocked_no_tile_model_resrefs",
     tileRenderContractBlockers,
@@ -684,13 +870,19 @@ export function resolveTerrainScenePackageReadiness(
       .slice(0, TILE_ASSET_CONTRACT_SAMPLE_LIMIT)
       .join("|"),
     tileAssetContractSamples: sceneData.tiles
-      .filter((tile) => tile.modelResRef?.trim())
+      .filter(
+        (tile) =>
+          tile.modelResRef?.trim() &&
+          !isTileDefinitionExcluded(tile, excludedTileDefinitionIds)
+      )
       .slice(0, TILE_ASSET_CONTRACT_SAMPLE_LIMIT)
       .map(formatTileAssetContractSample)
       .join("|"),
     tileAssetContractBlockers,
     geometryPreference:
-      renderStatus.renderGenericMesh && renderStatus.code === "source_backed_tile_model_bridge"
+      allTileContractsVerified
+        ? "glb_tile_models"
+        : renderStatus.renderGenericMesh && renderStatus.code === "source_backed_tile_model_bridge"
         ? "source_backed_bridge_only"
         : "not_rendered_until_source_data_ready",
     bridgeStatus: renderStatus.code,
@@ -704,6 +896,19 @@ export function resolveTerrainScenePackageReadiness(
     tileIdsSample: tileIds.slice(0, TILE_SCENE_PACKAGE_SAMPLE_LIMIT).join("|"),
     blockers: Array.from(blockers)
   };
+}
+
+function buildExcludedTileDefinitionIdSet(
+  tileProcessReadiness?: AreaTileProcessContractReadiness | null
+): ReadonlySet<number> {
+  return new Set(tileProcessReadiness?.excludedTileDefinitionIds ?? []);
+}
+
+function isTileDefinitionExcluded(
+  tile: Pick<SceneTile, "tileId">,
+  excludedTileDefinitionIds: ReadonlySet<number>
+): boolean {
+  return typeof tile.tileId === "number" && excludedTileDefinitionIds.has(tile.tileId);
 }
 
 function resolveTileAssetContractBlockers(input: {
@@ -788,7 +993,8 @@ function formatTerrainTileTransformSample(tile: SceneTile, sceneData: AreaScene)
     tile.tilesetOrientation
   );
   const imageMapYawQuarterTurns = resolveAuroraAreaRenderTileImageMapOrientation(
-    tile.orientation
+    tile.orientation,
+    tile.tilesetOrientation
   );
   const auroraWorldCenterX = tile.col * 10 + 5;
   const auroraWorldCenterY = tile.row * 10 + 5;
@@ -902,6 +1108,8 @@ function clearTerrainRenderDataset(runtime: TerrainRuntime): void {
   delete runtime.container.dataset.areaTerrainTileMaterialTextureFailedTileSample;
   delete runtime.container.dataset.areaTerrainTileModelRuntimeStatus;
   delete runtime.container.dataset.areaTerrainTileModelRuntimeSnapshot;
+  delete runtime.container.dataset.areaTerrainBuildId;
+  delete runtime.container.dataset.areaTerrainTileStateDigest;
   delete runtime.container.dataset.areaTerrainImageMap2DStatus;
   delete runtime.container.dataset.areaTerrainImageMap2DContractCount;
   delete runtime.container.dataset.areaTerrainImageMap2DLoadedCount;
@@ -997,15 +1205,47 @@ function buildTerrainTileModelRuntimeBlockerSummary(
 }
 
 function buildTerrainTileModelRuntimeSnapshot(
+  runtime: TerrainRuntime,
   renderStatus: TerrainRenderStatus,
   scenePackageReadiness: TerrainScenePackageReadiness,
   tileModelSummary: TerrainTileModelRuntimeSummary
 ): AreaTerrainTileModelRuntimeSnapshot {
+  const modelStatus = resolveTerrainTileModelRuntimeStatus(
+    renderStatus,
+    tileModelSummary
+  );
+  const extentLayer = runtime.scene.getObjectByName(TILE_AREA_EXTENT_LAYER_NAME);
+  const extentFill = extentLayer?.getObjectByName("terrain-area-extent-fill");
+  const extentFillSourceGroundMinY = Number(
+    extentLayer?.userData.auroraTerrainExtentSourceGroundMinY
+  );
+  let extentFillGroundSurfaceCount = 0;
+  runtime.scene.getObjectByName(TILE_MODEL_LAYER_NAME)?.traverse((node) => {
+    const count = Number(node.userData.auroraTerrainExtentFillGroundSurfaceCount);
+    if (Number.isFinite(count) && count > 0) {
+      extentFillGroundSurfaceCount += count;
+    }
+  });
+  const extentFillY = extentFill instanceof THREE.Mesh ? extentFill.position.y : null;
+  const extentFillStatus: AreaTerrainTileModelRuntimeSnapshot["extentFillStatus"] =
+    !(extentFill instanceof THREE.Mesh)
+      ? "missing"
+      : extentFill.userData.auroraTerrainExtentFillElevationSource ===
+          "loaded-source-ground-min-y"
+        ? "source_ground_clearance"
+        : "default_extent_fill";
   return {
     version: "aurora-areas-terrain-tile-model-runtime/v1",
     path: TILE_MODEL_LOADER_PATH,
     layerName: TILE_MODEL_LAYER_NAME,
-    status: resolveTerrainTileModelRuntimeStatus(renderStatus, tileModelSummary),
+    terrainBuildId: String(
+      runtime.scene.userData.auroraTerrainBuildId ?? "terrain-build-missing"
+    ),
+    tileStateDigest: String(
+      runtime.scene.userData.auroraTerrainTileStateDigest ?? "tile-state-digest-missing"
+    ),
+    status: modelStatus,
+    modelStatus,
     areaId: scenePackageReadiness.areaId,
     tilesetResRef: scenePackageReadiness.tilesetResRef,
     renderStatus: renderStatus.code,
@@ -1018,12 +1258,22 @@ function buildTerrainTileModelRuntimeSnapshot(
     visibleMeshCount: tileModelSummary.modelVisibleMeshCount,
     materialCount: tileModelSummary.modelMaterialCount,
     materialMapCount: tileModelSummary.modelMaterialMapCount,
+    transparentMaterialCount: tileModelSummary.modelTransparentMaterialCount,
+    alphaTestMaterialCount: tileModelSummary.modelAlphaTestMaterialCount,
+    vertexColorMaterialCount: tileModelSummary.modelVertexColorMaterialCount,
+    materialRenderStateSample: tileModelSummary.modelMaterialRenderStateSample,
     shadowReceiverMeshCount: tileModelSummary.modelShadowReceiverMeshCount,
     shadowReceiverStatus: TERRAIN_TILE_SHADOW_RECEIVER_STATUS,
     shadowReceiverSource: TERRAIN_TILE_SHADOW_RECEIVER_SOURCE,
     shadowReceiverSample: tileModelSummary.modelShadowReceiverSample,
     ceilingMeshMatchedCount: tileModelSummary.modelCeilingMeshMatchedCount,
     ceilingMeshHiddenCount: tileModelSummary.modelCeilingMeshHiddenCount,
+    extentFillStatus,
+    extentFillGroundSurfaceCount,
+    extentFillSourceGroundMinY: Number.isFinite(extentFillSourceGroundMinY)
+      ? extentFillSourceGroundMinY
+      : null,
+    extentFillY,
     visibleMeshSample: tileModelSummary.modelVisibleMeshSample,
     hiddenMeshSample: tileModelSummary.modelHiddenMeshSample,
     tileTransformSample: tileModelSummary.modelTileTransformSample,
@@ -1035,6 +1285,11 @@ function buildTerrainTileModelRuntimeSnapshot(
       tileModelSummary.modelMaterialTextureFailedTileCount,
     materialTexturePendingTileCount:
       tileModelSummary.modelMaterialTexturePendingTileCount,
+    supplementalSurfaceStatus: "missing",
+    supplementalSurfaceContractCount: 0,
+    supplementalSurfaceLoadedCount: 0,
+    supplementalSurfaceFailedCount: 0,
+    supplementalSurfacePendingCount: 0,
     deliveryUrlSample: tileModelSummary.modelDeliveryUrlSample,
     objectKeySample: tileModelSummary.modelObjectKeySample,
     failedTileSample: tileModelSummary.modelFailedTileSample,
@@ -1046,22 +1301,75 @@ function buildTerrainTileModelRuntimeSnapshot(
   };
 }
 
+function applyTerrainSupplementalSurfaceRuntimeStatus(
+  runtime: TerrainRuntime,
+  snapshot: AreaTerrainTileModelRuntimeSnapshot
+): AreaTerrainTileModelRuntimeSnapshot {
+  const layer = runtime.scene.getObjectByName(TILE_IMAGE_MAP_LAYER_NAME);
+  const contractCount = Number(
+    layer?.userData.auroraTerrainImageMap2DContractCount ?? 0
+  );
+  const loadedCount = Number(
+    layer?.userData.auroraTerrainImageMap2DLoadedCount ?? 0
+  );
+  const failedCount = Number(
+    layer?.userData.auroraTerrainImageMap2DFailedCount ?? 0
+  );
+  const surfaceStatus = String(
+    layer?.userData.auroraTerrainImageMap2DStatus ?? "missing"
+  ) as AreaTerrainTileModelRuntimeSnapshot["supplementalSurfaceStatus"];
+  const pendingCount = Math.max(
+    0,
+    contractCount - loadedCount - failedCount
+  );
+  const modelStatus = snapshot.modelStatus ?? snapshot.status;
+  let status = modelStatus;
+  let blockerSummary = snapshot.blockerSummary;
+  if (contractCount > 0 && failedCount > 0) {
+    status = loadedCount > 0 ? "partial" : "blocked";
+    blockerSummary =
+      blockerSummary === "none"
+        ? `supplemental_surface_loader_failed:${failedCount}/${contractCount}`
+        : `${blockerSummary}, supplemental_surface_loader_failed:${failedCount}/${contractCount}`;
+  } else if (contractCount > 0 && pendingCount > 0 && modelStatus === "ready") {
+    status = "loading";
+  }
+  return {
+    ...snapshot,
+    status,
+    modelStatus,
+    supplementalSurfaceStatus: surfaceStatus,
+    supplementalSurfaceContractCount: contractCount,
+    supplementalSurfaceLoadedCount: loadedCount,
+    supplementalSurfaceFailedCount: failedCount,
+    supplementalSurfacePendingCount: pendingCount,
+    blockerSummary
+  };
+}
+
 function writeTerrainRenderDataset(
   runtime: TerrainRuntime,
   renderStatus: TerrainRenderStatus,
   scenePackageReadiness: TerrainScenePackageReadiness,
   tileModelSummary: TerrainTileModelRuntimeSummary = createEmptyTileModelRuntimeSummary()
 ): void {
-  const tileModelSnapshot = buildTerrainTileModelRuntimeSnapshot(
-    renderStatus,
-    scenePackageReadiness,
-    tileModelSummary
+  const tileModelSnapshot = applyTerrainSupplementalSurfaceRuntimeStatus(
+    runtime,
+    buildTerrainTileModelRuntimeSnapshot(
+      runtime,
+      renderStatus,
+      scenePackageReadiness,
+      tileModelSummary
+    )
   );
   runtime.scene.userData.auroraTerrainTileModelRuntimeSnapshot = tileModelSnapshot;
   if (!runtime.container) {
     return;
   }
   runtime.container.dataset.areaTerrainRenderStatus = renderStatus.code;
+  runtime.container.dataset.areaTerrainBuildId = tileModelSnapshot.terrainBuildId;
+  runtime.container.dataset.areaTerrainTileStateDigest =
+    tileModelSnapshot.tileStateDigest;
   runtime.container.dataset.areaTerrainRenderLabel = renderStatus.label;
   runtime.container.dataset.areaTerrainTileCount = String(renderStatus.tileCount);
   runtime.container.dataset.areaTerrainModelResolvedCount = String(
@@ -1333,6 +1641,10 @@ function createEmptyTileModelRuntimeSummary(): TerrainTileModelRuntimeSummary {
     modelVisibleMeshCount: 0,
     modelMaterialCount: 0,
     modelMaterialMapCount: 0,
+    modelTransparentMaterialCount: 0,
+    modelAlphaTestMaterialCount: 0,
+    modelVertexColorMaterialCount: 0,
+    modelMaterialRenderStateSample: "none",
     modelShadowReceiverMeshCount: 0,
     modelShadowReceiverSample: "none",
     modelCeilingMeshMatchedCount: 0,
@@ -1392,7 +1704,8 @@ function buildTileModelContractsByModelResRef(
       rawDeliveryUrl,
       objectKey: entry.modelAssetObjectKey,
       extension: entry.modelAssetExtension,
-      textureUrlsByReference
+      textureUrlsByReference,
+      renderProfile: resolveAreaTileRenderProfile(entry.mdlSourceContentSha256)
     });
   });
   return contracts;
@@ -1417,12 +1730,18 @@ function buildTileModelRuntimeSummary(
   loaderErrorsByTileId: Map<string, string> = new Map(),
   textureAppliedTileIds: Set<string> = new Set(),
   textureFailedTileIds: Set<string> = new Set(),
-  modelLayer: THREE.Object3D | null = null
+  modelLayer: THREE.Object3D | null = null,
+  excludedTileDefinitionIds: ReadonlySet<number> = new Set()
 ): TerrainTileModelRuntimeSummary {
   const contractTiles: Array<{ tile: SceneTile; contract: TerrainTileModelContract }> = [];
+  const excludedTiles: SceneTile[] = [];
   const blockedTiles: SceneTile[] = [];
 
   sceneData.tiles.forEach((tile) => {
+    if (isTileDefinitionExcluded(tile, excludedTileDefinitionIds)) {
+      excludedTiles.push(tile);
+      return;
+    }
     const contract = resolveTileModelContract(tile, contractsByModelResRef);
     if (contract) {
       contractTiles.push({ tile, contract });
@@ -1431,7 +1750,9 @@ function buildTileModelRuntimeSummary(
     blockedTiles.push(tile);
   });
 
-  const loadedCount = contractTiles.filter(({ tile }) => loadedTileIds.has(tile.id)).length;
+  const loadedCount =
+    excludedTiles.length +
+    contractTiles.filter(({ tile }) => loadedTileIds.has(tile.id)).length;
   const failedContractTiles = contractTiles.filter(({ tile }) => failedTileIds.has(tile.id));
   const failedCount = failedContractTiles.length;
   const textureContractTiles = contractTiles.filter(
@@ -1445,7 +1766,7 @@ function buildTileModelRuntimeSummary(
   );
   const layerSummary = summarizeTerrainTileModelLayer(modelLayer);
   return {
-    modelContractTileCount: contractTiles.length,
+    modelContractTileCount: contractTiles.length + excludedTiles.length,
     modelPendingTileCount: Math.max(0, contractTiles.length - loadedCount - failedCount),
     modelLoadedTileCount: loadedCount,
     modelFailedTileCount: failedCount,
@@ -1453,6 +1774,10 @@ function buildTileModelRuntimeSummary(
     modelVisibleMeshCount: layerSummary.visibleMeshCount,
     modelMaterialCount: layerSummary.materialCount,
     modelMaterialMapCount: layerSummary.materialMapCount,
+    modelTransparentMaterialCount: layerSummary.transparentMaterialCount,
+    modelAlphaTestMaterialCount: layerSummary.alphaTestMaterialCount,
+    modelVertexColorMaterialCount: layerSummary.vertexColorMaterialCount,
+    modelMaterialRenderStateSample: layerSummary.materialRenderStateSample,
     modelShadowReceiverMeshCount: layerSummary.shadowReceiverMeshCount,
     modelShadowReceiverSample: layerSummary.shadowReceiverSample,
     modelCeilingMeshMatchedCount: layerSummary.ceilingMeshMatchedCount,
@@ -1492,24 +1817,48 @@ function buildTileModelRuntimeSummary(
     modelMaterialTextureFailedTileSample:
       textureFailedTiles
         .slice(0, TILE_ASSET_CONTRACT_SAMPLE_LIMIT)
-        .map(({ tile }) => tile.modelResRef ?? tile.id)
+        .map(({ tile }) => formatTerrainTileMaterialFailureSample(tile, modelLayer))
         .join("|") || "none"
   };
 }
 
-function clearTerrainModelLayer(runtime: TerrainRuntime): void {
-  const existing = runtime.scene.getObjectByName(TILE_MODEL_LAYER_NAME);
-  if (!existing) {
-    return;
+function formatTerrainTileMaterialFailureSample(
+  tile: SceneTile,
+  modelLayer: THREE.Object3D | null
+): string {
+  const model = modelLayer?.children.find(
+    (child) => child.userData.auroraTerrainTileId === tile.id
+  );
+  const label = tile.modelResRef ?? tile.id;
+  if (!model) {
+    return `${label}[model=missing]`;
   }
-  existing.traverse((node) => {
-    if (!(node instanceof THREE.Mesh)) {
-      return;
-    }
-    const materials = Array.isArray(node.material) ? node.material : [node.material];
-    materials.forEach((material) => material.dispose());
+  return [
+    label,
+    `[status=${String(model.userData.auroraTerrainTileMaterialTextureStatus ?? "unknown")}`,
+    `maps=${String(model.userData.auroraTerrainTileMaterialTextureBoundMaterialCount ?? 0)}/${String(model.userData.auroraTerrainTileMaterialTextureCapableMaterialCount ?? 0)}`,
+    `missing=${String(model.userData.auroraTerrainTileMaterialTextureMissingReferenceSample ?? "none")}]`
+  ].join(",");
+}
+
+function clearTerrainModelLayer(runtime: TerrainRuntime): void {
+  // A rapid Area switch can briefly queue two terrain rebuilds. getObjectByName
+  // returns only the first match, leaving a stale GLB layer in the scene and
+  // producing a false ready signal for the newly selected Area. Remove every
+  // matching direct scene layer before building the next one.
+  const existingLayers = runtime.scene.children.filter(
+    (child) => child.name === TILE_MODEL_LAYER_NAME
+  );
+  existingLayers.forEach((existing) => {
+    existing.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) {
+        return;
+      }
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach((material) => material.dispose());
+    });
+    runtime.scene.remove(existing);
   });
-  runtime.scene.remove(existing);
 }
 
 function clearTerrainImageMapLayer(runtime: TerrainRuntime): void {
@@ -1553,11 +1902,45 @@ function clearTerrainAreaGlobalLightingLayer(runtime: TerrainRuntime): void {
   delete runtime.scene.userData.auroraTerrainAreaGlobalShadowStatusSource;
   delete runtime.scene.userData.auroraTerrainAreaGlobalLightIntensitySource;
   delete runtime.scene.userData.auroraTerrainAreaGlobalFogRangeSource;
+  setWorkspaceDefaultPreviewLightingEnabled(runtime.scene, true);
+}
+
+function setWorkspaceDefaultPreviewLightingEnabled(
+  scene: THREE.Scene,
+  enabled: boolean
+): void {
+  let matchedLightCount = 0;
+  scene.traverse((node) => {
+    if (
+      !(node instanceof THREE.Light) ||
+      node.userData.auroraWorkspaceDefaultPreviewLight !== true
+    ) {
+      return;
+    }
+    node.visible = enabled;
+    node.userData.auroraWorkspaceDefaultPreviewLightStatus = enabled
+      ? "active-no-source-backed-are-lighting"
+      : "suppressed-source-backed-are-lighting-active";
+    node.userData.auroraWorkspaceDefaultPreviewLightSource =
+      WORKSPACE_DEFAULT_PREVIEW_LIGHTING_SOURCE;
+    matchedLightCount += 1;
+  });
+  scene.userData.auroraWorkspaceDefaultPreviewLightingStatus = enabled
+    ? "active-no-source-backed-are-lighting"
+    : "suppressed-source-backed-are-lighting-active";
+  scene.userData.auroraWorkspaceDefaultPreviewLightingSource =
+    WORKSPACE_DEFAULT_PREVIEW_LIGHTING_SOURCE;
+  scene.userData.auroraWorkspaceDefaultPreviewLightingMatchedLightCount =
+    matchedLightCount;
 }
 
 function clearTerrainTileLightLayer(runtime: TerrainRuntime): void {
   const existing = runtime.scene.getObjectByName(TILE_LIGHT_LAYER_NAME);
   delete runtime.scene.userData.auroraTerrainTileLightSourceCount;
+  delete runtime.scene.userData.auroraTerrainTileLightResolvedSourceCount;
+  delete runtime.scene.userData.auroraTerrainTileLightSourceNodeAbsentCount;
+  delete runtime.scene.userData.auroraTerrainTileLightUnresolvedSourceCount;
+  delete runtime.scene.userData.auroraTerrainTileLightSourceReferenceCount;
   delete runtime.scene.userData.auroraTerrainTileLightCandidateCount;
   delete runtime.scene.userData.auroraTerrainTileLightAcceptedCount;
   delete runtime.scene.userData.auroraTerrainTileLightDroppedCount;
@@ -1580,6 +1963,89 @@ function clearTerrainTileLightLayer(runtime: TerrainRuntime): void {
     }
   });
   runtime.scene.remove(existing);
+}
+
+function clearTerrainWokOverlayLayer(runtime: TerrainRuntime): void {
+  const existing = runtime.scene.getObjectByName(TILE_WOK_OVERLAY_LAYER_NAME);
+  delete runtime.scene.userData.auroraTerrainWokOverlayStatus;
+  delete runtime.scene.userData.auroraTerrainWokOverlayInstanceCount;
+  delete runtime.scene.userData.auroraTerrainWokOverlaySegmentCount;
+  delete runtime.scene.userData.auroraTerrainWokOverlayTruncated;
+  delete runtime.scene.userData.auroraTerrainWokOverlayEvidenceBoundary;
+  if (!existing) {
+    return;
+  }
+  existing.traverse((node) => {
+    if (!(node instanceof THREE.LineSegments)) {
+      return;
+    }
+    node.geometry.dispose();
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach((material) => material.dispose());
+  });
+  runtime.scene.remove(existing);
+}
+
+function rebuildTerrainWokOverlayLayer(
+  runtime: TerrainRuntime,
+  sceneData: AreaScene,
+  debugState: TerrainDebugState
+): void {
+  clearTerrainWokOverlayLayer(runtime);
+  if (!debugState.walkmeshOverlay) {
+    return;
+  }
+  const overlay = buildAreaTileWalkmeshOverlaySegments(sceneData.auroraVfxCollision);
+  const evidenceBoundary =
+    "source-wok-geometry-only-no-path-connect-or-traversability-claim";
+  runtime.scene.userData.auroraTerrainWokOverlayStatus = overlay.status;
+  runtime.scene.userData.auroraTerrainWokOverlayInstanceCount = overlay.instanceCount;
+  runtime.scene.userData.auroraTerrainWokOverlaySegmentCount = overlay.segmentCount;
+  runtime.scene.userData.auroraTerrainWokOverlayTruncated = overlay.truncated;
+  runtime.scene.userData.auroraTerrainWokOverlayEvidenceBoundary = evidenceBoundary;
+  if (overlay.segments.length === 0) {
+    return;
+  }
+
+  const positions = new Float32Array(overlay.segments.length * 6);
+  overlay.segments.forEach((segment, index) => {
+    const offset = index * 6;
+    positions[offset] = segment.first.x * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
+    positions[offset + 1] =
+      TILE_GEOMETRY_Y +
+      segment.first.z * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE +
+      0.012;
+    positions[offset + 2] = segment.first.y * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
+    positions[offset + 3] = segment.second.x * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
+    positions[offset + 4] =
+      TILE_GEOMETRY_Y +
+      segment.second.z * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE +
+      0.012;
+    positions[offset + 5] = segment.second.y * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.LineBasicMaterial({
+    color: "#36ff9f",
+    transparent: true,
+    opacity: 0.88,
+    depthTest: true,
+    depthWrite: false
+  });
+  const lines = new THREE.LineSegments(geometry, material);
+  lines.name = "terrain-source-wok-lines";
+  lines.raycast = () => undefined;
+
+  const layer = new THREE.Group();
+  layer.name = TILE_WOK_OVERLAY_LAYER_NAME;
+  applyAuroraAreaRenderFrameMirror(layer, sceneData.width);
+  layer.userData.auroraTerrainWokOverlayStatus = overlay.status;
+  layer.userData.auroraTerrainWokOverlayInstanceCount = overlay.instanceCount;
+  layer.userData.auroraTerrainWokOverlaySegmentCount = overlay.segmentCount;
+  layer.userData.auroraTerrainWokOverlayTruncated = overlay.truncated;
+  layer.userData.auroraTerrainWokOverlayEvidenceBoundary = evidenceBoundary;
+  layer.add(lines);
+  runtime.scene.add(layer);
 }
 
 function clearTerrainExtentLayer(runtime: TerrainRuntime): void {
@@ -1614,15 +2080,23 @@ function rebuildTerrainExtentLayer(
 
   const fillGeometry = new THREE.PlaneGeometry(width, height);
   fillGeometry.rotateX(-Math.PI / 2);
+  const fillColor = resolveTerrainExtentFillColor(sceneData);
   const fillMaterial = new THREE.MeshBasicMaterial({
-    color: "#12324a",
-    transparent: true,
-    opacity: renderStatus.code === "source_backed_tile_model_bridge" ? 0.16 : 0.1,
-    depthWrite: false
+    // ImageMap2D uses near-black pixels as transparent voids for portions of
+    // a tile that are supplied by its GLB model.  This is a terrain base, not
+    // a UI overlay: it must therefore be opaque and match the Area's void
+    // contract instead of introducing a third, unrelated background colour.
+    color: fillColor,
+    depthWrite: true
   });
   const fill = new THREE.Mesh(fillGeometry, fillMaterial);
   fill.name = "terrain-area-extent-fill";
   fill.position.set(width / 2, TILE_GEOMETRY_Y - 0.018, height / 2);
+  fill.userData.auroraTerrainExtentFillColor = fillColor;
+  fill.userData.auroraTerrainExtentFillColorSource =
+    sceneData.auroraAreaEditing?.definition.defaults?.interior === true
+      ? "aurora-interior-black-crop-mask-contract"
+      : "workspace-renderer-background";
   fill.raycast = () => undefined;
   layer.add(fill);
 
@@ -1650,11 +2124,140 @@ function rebuildTerrainExtentLayer(
   runtime.scene.add(layer);
 }
 
+function syncTerrainExtentFillToLoadedCropMasks(
+  modelLayer: THREE.Object3D,
+  blackBackingEvidenceCount: number
+): void {
+  if (blackBackingEvidenceCount <= 0) {
+    return;
+  }
+  const extentLayer = modelLayer.parent?.getObjectByName(TILE_AREA_EXTENT_LAYER_NAME);
+  const fill = extentLayer?.getObjectByName("terrain-area-extent-fill");
+  if (!(fill instanceof THREE.Mesh)) {
+    return;
+  }
+  const materials = Array.isArray(fill.material) ? fill.material : [fill.material];
+  materials.forEach((material) => {
+    if (!(material instanceof THREE.MeshBasicMaterial)) {
+      return;
+    }
+    material.color.set(TERRAIN_INTERIOR_VOID_COLOR);
+    material.needsUpdate = true;
+  });
+  fill.userData.auroraTerrainExtentFillColor = TERRAIN_INTERIOR_VOID_COLOR;
+  fill.userData.auroraTerrainExtentFillColorSource =
+    "loaded-aurora-source-crop-mask-contract";
+  const previousCount = Number(
+    extentLayer?.userData.auroraTerrainExtentVisibleCropMaskCount ?? 0
+  );
+  if (extentLayer) {
+    extentLayer.userData.auroraTerrainExtentVisibleCropMaskCount =
+      previousCount + blackBackingEvidenceCount;
+  }
+}
+
+function syncTerrainExtentFillBelowLoadedGroundSurfaces(
+  modelLayer: THREE.Object3D,
+  model: THREE.Object3D
+): {
+  adjusted: boolean;
+  groundSurfaceCount: number;
+  sourceGroundMinY: number | null;
+  fillY: number | null;
+} {
+  const extentLayer = modelLayer.parent?.getObjectByName(TILE_AREA_EXTENT_LAYER_NAME);
+  const fill = extentLayer?.getObjectByName("terrain-area-extent-fill");
+  if (!(fill instanceof THREE.Mesh)) {
+    return {
+      adjusted: false,
+      groundSurfaceCount: 0,
+      sourceGroundMinY: null,
+      fillY: null
+    };
+  }
+
+  model.updateMatrixWorld(true);
+  let groundSurfaceCount = 0;
+  let sourceGroundMinY = Number.POSITIVE_INFINITY;
+  model.traverse((node) => {
+    if (
+      !(node instanceof THREE.Mesh) ||
+      !node.visible ||
+      !isLikelyTerrainGroundSurfaceMesh(node)
+    ) {
+      return;
+    }
+    if (!node.geometry.boundingBox) {
+      node.geometry.computeBoundingBox();
+    }
+    const sourceBounds = node.geometry.boundingBox;
+    if (!sourceBounds || sourceBounds.isEmpty()) {
+      return;
+    }
+    const worldBounds = sourceBounds.clone().applyMatrix4(node.matrixWorld);
+    if (!Number.isFinite(worldBounds.min.y)) {
+      return;
+    }
+    groundSurfaceCount += 1;
+    sourceGroundMinY = Math.min(sourceGroundMinY, worldBounds.min.y);
+  });
+
+  if (!Number.isFinite(sourceGroundMinY)) {
+    return {
+      adjusted: false,
+      groundSurfaceCount,
+      sourceGroundMinY: null,
+      fillY: fill.position.y
+    };
+  }
+
+  const previousSourceGroundMinY = Number(
+    extentLayer?.userData.auroraTerrainExtentSourceGroundMinY
+  );
+  const areaSourceGroundMinY = Number.isFinite(previousSourceGroundMinY)
+    ? Math.min(previousSourceGroundMinY, sourceGroundMinY)
+    : sourceGroundMinY;
+  if (extentLayer) {
+    extentLayer.userData.auroraTerrainExtentSourceGroundMinY = areaSourceGroundMinY;
+    extentLayer.userData.auroraTerrainExtentSourceGroundClearance =
+      TERRAIN_EXTENT_FILL_SOURCE_GROUND_CLEARANCE;
+  }
+
+  const targetFillY =
+    areaSourceGroundMinY - TERRAIN_EXTENT_FILL_SOURCE_GROUND_CLEARANCE;
+  const adjusted = targetFillY < fill.position.y - 1e-6;
+  if (adjusted) {
+    fill.position.y = targetFillY;
+    fill.userData.auroraTerrainExtentFillElevation = targetFillY;
+    fill.userData.auroraTerrainExtentFillElevationSource =
+      "loaded-source-ground-min-y";
+  }
+  return {
+    adjusted,
+    groundSurfaceCount,
+    sourceGroundMinY,
+    fillY: fill.position.y
+  };
+}
+
+export function syncTerrainExtentFillBelowLoadedGroundSurfacesForTests(
+  modelLayer: THREE.Object3D,
+  model: THREE.Object3D
+): {
+  adjusted: boolean;
+  groundSurfaceCount: number;
+  sourceGroundMinY: number | null;
+  fillY: number | null;
+} {
+  return syncTerrainExtentFillBelowLoadedGroundSurfaces(modelLayer, model);
+}
+
 function addLoadedTileModelToLayer(
   layer: THREE.Group,
   tile: SceneTile,
   contract: TerrainTileModelContract,
   model: THREE.Object3D,
+  sceneData: AreaScene,
   areaWidth: number,
   areaHeight: number,
   debugState: TerrainDebugState
@@ -1670,7 +2273,7 @@ function addLoadedTileModelToLayer(
   }
   model.position.set(
     resolveAuroraAreaRenderTileCenterX(tile.col, areaWidth),
-    TILE_GEOMETRY_Y + (tile.height ?? 0),
+    TILE_GEOMETRY_Y + resolveTerrainTileHeightOffset(tile, sceneData),
     resolveAuroraAreaRenderTileCenterZ(tile.row, areaHeight)
   );
   model.rotation.y = renderYawQuarterTurns * (Math.PI / 2);
@@ -1693,12 +2296,26 @@ function addLoadedTileModelToLayer(
     resolveTerrainTileModelAssetRequestIdentity(tile, contract).runtimeCacheKey;
   model.userData.auroraTerrainTileModelObjectKey = contract.objectKey ?? "";
   model.userData.auroraTerrainTileMaterialTextureCount = contract.textureUrlsByReference.size;
+  model.userData.auroraTerrainTileRenderProfileId = contract.renderProfile.profileId;
+  model.userData.auroraTerrainTileRenderProfileRevision =
+    contract.renderProfile.manifestRevision;
+  model.userData.auroraTerrainTileRenderProfileEvidenceStatus =
+    contract.renderProfile.evidenceStatus;
+  model.userData.auroraTerrainTileRenderProfileSourceHash =
+    contract.renderProfile.mdlSourceContentSha256 ?? "generic-default";
   const overdrawVisibility = applyTerrainTileModelOverdrawVisibility(model);
-  const voidMaskVisibility = applyTerrainTileVoidMaskVisibility(model);
+  const voidMaskVisibility = applyTerrainTileVoidMaskVisibility(
+    model,
+    contract.renderProfile
+  );
   const groundSurfaceDepth = applyTerrainTileGroundSurfaceDepth(model);
+  const extentFillElevation = syncTerrainExtentFillBelowLoadedGroundSurfaces(
+    layer,
+    model
+  );
   const ceilingVisibility = applyTerrainTileCeilingVisibility(
     model,
-    debugState.ceilingMeshes
+    resolveTerrainTileCeilingsVisible(sceneData, debugState)
   );
   const imageMapGroundSurfaceVisibility =
     applyTerrainTileImageMapGroundSurfaceVisibility(model);
@@ -1708,8 +2325,19 @@ function addLoadedTileModelToLayer(
   model.userData.auroraTerrainTileModelOverdrawHiddenCount =
     overdrawVisibility.hiddenCount;
   model.userData.auroraTerrainVoidMaskHiddenCount = voidMaskVisibility.hiddenCount;
+  model.userData.auroraTerrainVoidMaskVisibleCropCount =
+    voidMaskVisibility.visibleCropMaskCount;
+  model.userData.auroraTerrainRequiresBlackExtentBacking =
+    voidMaskVisibility.requiresBlackExtentBacking;
   model.userData.auroraTerrainGroundSurfaceDepthWriteDisabledCount =
     groundSurfaceDepth.disabledCount;
+  model.userData.auroraTerrainExtentFillElevationAdjusted =
+    extentFillElevation.adjusted;
+  model.userData.auroraTerrainExtentFillGroundSurfaceCount =
+    extentFillElevation.groundSurfaceCount;
+  model.userData.auroraTerrainExtentFillSourceGroundMinY =
+    extentFillElevation.sourceGroundMinY;
+  model.userData.auroraTerrainExtentFillY = extentFillElevation.fillY;
   model.userData.auroraTerrainImageMap2DGroundSurfaceHiddenCount =
     imageMapGroundSurfaceVisibility.hiddenCount;
   model.userData.auroraTerrainTileShadowReceiverMeshCount =
@@ -1734,6 +2362,13 @@ function addLoadedTileModelToLayer(
   layer.userData.auroraTerrainVoidMaskHiddenCount =
     Number(layer.userData.auroraTerrainVoidMaskHiddenCount ?? 0) +
     voidMaskVisibility.hiddenCount;
+  layer.userData.auroraTerrainVoidMaskVisibleCropCount =
+    Number(layer.userData.auroraTerrainVoidMaskVisibleCropCount ?? 0) +
+    voidMaskVisibility.visibleCropMaskCount;
+  syncTerrainExtentFillToLoadedCropMasks(
+    layer,
+    voidMaskVisibility.requiresBlackExtentBacking ? 1 : 0
+  );
   layer.userData.auroraTerrainGroundSurfaceDepthWriteDisabledCount =
     Number(layer.userData.auroraTerrainGroundSurfaceDepthWriteDisabledCount ?? 0) +
     groundSurfaceDepth.disabledCount;
@@ -1745,7 +2380,6 @@ function addLoadedTileModelToLayer(
   layer.userData.auroraTerrainTileShadowReceiverSource =
     TERRAIN_TILE_SHADOW_RECEIVER_SOURCE;
   layer.add(model);
-  syncTerrainTileSourceLightNodePositionsFromLoadedModel(layer.parent, tile, model);
 }
 
 function applyTerrainTileShadowReceiverFlags(
@@ -1773,146 +2407,6 @@ function applyTerrainTileShadowReceiverFlags(
     receiverMeshCount,
     receiverSample: samples.join("|") || "none"
   };
-}
-
-function syncTerrainTileSourceLightNodePositionsFromLoadedModel(
-  sceneRoot: THREE.Object3D | null,
-  tile: SceneTile,
-  model: THREE.Object3D
-): number {
-  if (!sceneRoot) {
-    return 0;
-  }
-  const lightLayer = sceneRoot.getObjectByName(TILE_LIGHT_LAYER_NAME);
-  if (!lightLayer) {
-    return 0;
-  }
-
-  let syncedCount = 0;
-  (["sourceLight1", "sourceLight2"] as const).forEach((channel) => {
-    if (tile[channel] === undefined) {
-      return;
-    }
-    const sourceNodeName = resolveTerrainTileSourceLightNodeName(channel);
-    const sourceNode = findTerrainTileSourceLightNode(model, sourceNodeName);
-    const lightGroup = findTerrainTileLightGroup(lightLayer, tile.id, channel);
-    if (!sourceNode || !lightGroup) {
-      return;
-    }
-
-    model.updateWorldMatrix(true, true);
-    sourceNode.updateWorldMatrix(true, false);
-    const worldPosition = new THREE.Vector3();
-    sourceNode.getWorldPosition(worldPosition);
-    const localPosition = worldPosition.clone();
-    lightGroup.parent?.worldToLocal(localPosition);
-    lightGroup.position.copy(localPosition);
-
-    const proofUserData = {
-      auroraTerrainTileLightPositionSource: TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_SOURCE,
-      auroraTerrainTileLightPositionProofStatus:
-        TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_PROOF_STATUS,
-      auroraTerrainTileLightSourceNodeName: sourceNode.name,
-      auroraTerrainTileLightSourceNodeKind: sourceNodeName,
-      auroraTerrainTileLightSourceNodeWorldPosition: [
-        worldPosition.x,
-        worldPosition.y,
-        worldPosition.z
-      ],
-      auroraTerrainTileLightSourceNodeLocalPosition: [
-        localPosition.x,
-        localPosition.y,
-        localPosition.z
-      ]
-    };
-    lightGroup.userData = {
-      ...lightGroup.userData,
-      ...proofUserData
-    };
-    lightGroup.traverse((node) => {
-      if (node === lightGroup) {
-        return;
-      }
-      if (
-        node instanceof THREE.PointLight ||
-        node.userData?.auroraTerrainTileLightMarker === true
-      ) {
-        node.userData = {
-          ...node.userData,
-          ...proofUserData
-        };
-      }
-    });
-    syncedCount += 1;
-  });
-
-  if (syncedCount > 0) {
-    const previousCount = Number(
-      lightLayer.userData.auroraTerrainTileLightSourceNodePositionCount ?? 0
-    );
-    const nextCount = previousCount + syncedCount;
-    lightLayer.userData.auroraTerrainTileLightSourceNodePositionCount = nextCount;
-    sceneRoot.userData.auroraTerrainTileLightSourceNodePositionCount = nextCount;
-    sceneRoot.userData.auroraTerrainTileLightSourceNodePositionProofStatus =
-      TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_PROOF_STATUS;
-  }
-  return syncedCount;
-}
-
-export function syncTerrainTileSourceLightNodePositionsFromLoadedModelForTests(
-  sceneRoot: THREE.Object3D,
-  tile: SceneTile,
-  model: THREE.Object3D
-): number {
-  return syncTerrainTileSourceLightNodePositionsFromLoadedModel(sceneRoot, tile, model);
-}
-
-function resolveTerrainTileSourceLightNodeName(
-  channel: "sourceLight1" | "sourceLight2"
-): "sourcelight1" | "sourcelight2" {
-  return channel === "sourceLight1" ? "sourcelight1" : "sourcelight2";
-}
-
-function findTerrainTileSourceLightNode(
-  model: THREE.Object3D,
-  sourceNodeName: "sourcelight1" | "sourcelight2"
-): THREE.Object3D | null {
-  let match: THREE.Object3D | null = null;
-  model.traverse((node) => {
-    if (match) {
-      return;
-    }
-    const normalized = normalizeTerrainTileSourceLightNodeName(node.name);
-    if (normalized === sourceNodeName) {
-      match = node;
-    }
-  });
-  return match;
-}
-
-function findTerrainTileLightGroup(
-  lightLayer: THREE.Object3D,
-  tileId: string,
-  channel: "sourceLight1" | "sourceLight2"
-): THREE.Object3D | null {
-  let match: THREE.Object3D | null = null;
-  lightLayer.traverse((node) => {
-    if (match) {
-      return;
-    }
-    if (
-      node.userData?.auroraTerrainTileId === tileId &&
-      node.userData?.auroraTerrainTileLightChannel === channel &&
-      node.userData?.auroraTerrainTileLightPreviewStatus === "active"
-    ) {
-      match = node;
-    }
-  });
-  return match;
-}
-
-function normalizeTerrainTileSourceLightNodeName(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9_]/gu, "");
 }
 
 function applyTerrainTileModelOverdrawVisibility(
@@ -2013,29 +2507,18 @@ function resolveTerrainTileImageMapTextureUrl(
   return deliveryUrl ? { reference, deliveryUrl } : null;
 }
 
-function isBlankTerrainTileImageMapSource(tile: SceneTile): boolean {
-  const modelResRef = tile.modelResRef?.trim().toLowerCase() ?? "";
-  return tile.tileId === 0 || BLANK_TERRAIN_IMAGE_MAP_MODEL_RESREFS.has(modelResRef);
-}
-
 function shouldRenderTerrainTileImageMap(
-  tile: SceneTile,
   sourceBackedModelBridge: boolean
 ): boolean {
-  if (sourceBackedModelBridge && !TERRAIN_IMAGE_MAP_SOURCE_BACKED_OVERLAY) {
-    return false;
-  }
-  if (!sourceBackedModelBridge) {
-    return true;
-  }
-  return !isBlankTerrainTileImageMapSource(tile);
+  return !sourceBackedModelBridge || TERRAIN_IMAGE_MAP_SOURCE_BACKED_OVERLAY;
 }
 
 export function shouldRenderTerrainTileImageMapForTests(
   tile: Pick<SceneTile, "tileId" | "modelResRef">,
   sourceBackedModelBridge: boolean
 ): boolean {
-  return shouldRenderTerrainTileImageMap(tile as SceneTile, sourceBackedModelBridge);
+  void tile;
+  return shouldRenderTerrainTileImageMap(sourceBackedModelBridge);
 }
 
 export function isTerrainImageMapSourceBackedOverlayEnabledForTests(): boolean {
@@ -2202,6 +2685,7 @@ export function createTerrainImageMapTextureWithTransparentVoidForTests(
 function createTerrainImageMapTileMesh(
   tile: SceneTile,
   texture: THREE.Texture,
+  sceneData: AreaScene,
   areaWidth: number,
   areaHeight: number,
   sourceBackedModelBridge: boolean
@@ -2228,11 +2712,16 @@ function createTerrainImageMapTileMesh(
   mesh.name = `terrain-imagemap2d-tile-${tile.id}`;
   mesh.position.set(
     resolveAuroraAreaRenderTileCenterX(tile.col, areaWidth),
-    TILE_GEOMETRY_Y + (sourceBackedModelBridge ? 0.006 : -0.008) + (tile.height ?? 0),
+    TILE_GEOMETRY_Y +
+      (sourceBackedModelBridge ? 0.006 : -0.008) +
+      resolveTerrainTileHeightOffset(tile, sceneData),
     resolveAuroraAreaRenderTileCenterZ(tile.row, areaHeight)
   );
   mesh.rotation.y =
-    resolveAuroraAreaRenderTileImageMapOrientation(tile.orientation) * (Math.PI / 2);
+    resolveAuroraAreaRenderTileImageMapOrientation(
+      tile.orientation,
+      tile.tilesetOrientation
+    ) * (Math.PI / 2);
   mesh.renderOrder = sourceBackedModelBridge ? 2 : -20;
   mesh.raycast = () => undefined;
   mesh.userData.auroraTerrainImageMap2D = true;
@@ -2245,7 +2734,10 @@ function createTerrainImageMapTileMesh(
   mesh.userData.auroraTerrainTileOrientation = tile.orientation;
   mesh.userData.auroraTerrainTileSetOrientation = tile.tilesetOrientation ?? 0;
   mesh.userData.auroraTerrainTileImageMapRenderYawQuarterTurns =
-    resolveAuroraAreaRenderTileImageMapOrientation(tile.orientation);
+    resolveAuroraAreaRenderTileImageMapOrientation(
+      tile.orientation,
+      tile.tilesetOrientation
+    );
   return mesh;
 }
 
@@ -2273,6 +2765,27 @@ function updateTerrainImageMapDataset(
       .slice(0, TILE_ASSET_CONTRACT_SAMPLE_LIMIT)
       .map((child) => String(child.userData.auroraTerrainTileImageMap2D ?? child.name))
       .join("|") || "none";
+  const previousSnapshot = runtime.scene.userData
+    .auroraTerrainTileModelRuntimeSnapshot as
+      | AreaTerrainTileModelRuntimeSnapshot
+      | undefined;
+  if (previousSnapshot) {
+    const nextSnapshot = applyTerrainSupplementalSurfaceRuntimeStatus(
+      runtime,
+      previousSnapshot
+    );
+    runtime.scene.userData.auroraTerrainTileModelRuntimeSnapshot = nextSnapshot;
+    runtime.container.dataset.areaTerrainTileModelRuntimeStatus =
+      nextSnapshot.status;
+    runtime.container.dataset.areaTerrainTileModelRuntimeSnapshot =
+      JSON.stringify(nextSnapshot);
+    runtime.container.dispatchEvent(
+      new CustomEvent<AreaTerrainTileModelRuntimeSnapshot>(
+        AREA_TERRAIN_TILE_MODEL_RUNTIME_SNAPSHOT_EVENT,
+        { detail: nextSnapshot }
+      )
+    );
+  }
 }
 
 function resolveTerrainImageMapStatus(
@@ -2311,25 +2824,9 @@ function rebuildTerrainImageMapLayer(
   layer.name = TILE_IMAGE_MAP_LAYER_NAME;
   applyAuroraAreaRenderFrameMirror(layer, sceneData.width);
   runtime.scene.add(layer);
-  if (sourceBackedModelBridge && !TERRAIN_IMAGE_MAP_SOURCE_BACKED_OVERLAY) {
-    layer.userData.auroraTerrainImageMap2DStatus = "disabled_source_backed_glb_first";
-    layer.userData.auroraTerrainImageMap2DContractCount = 0;
-    layer.userData.auroraTerrainImageMap2DLoadedCount = 0;
-    layer.userData.auroraTerrainImageMap2DFailedCount = 0;
-    if (runtime.container) {
-      runtime.container.dataset.areaTerrainImageMap2DStatus =
-        "disabled_source_backed_glb_first";
-      runtime.container.dataset.areaTerrainImageMap2DContractCount = "0";
-      runtime.container.dataset.areaTerrainImageMap2DLoadedCount = "0";
-      runtime.container.dataset.areaTerrainImageMap2DFailedCount = "0";
-      runtime.container.dataset.areaTerrainImageMap2DSample = "none";
-    }
-    return;
-  }
-
   const entries = sceneData.tiles
     .map((tile) => {
-      if (!shouldRenderTerrainTileImageMap(tile, sourceBackedModelBridge)) {
+      if (!shouldRenderTerrainTileImageMap(sourceBackedModelBridge)) {
         return null;
       }
       const contract = resolveTileModelContract(tile, contractsByModelResRef);
@@ -2339,8 +2836,13 @@ function rebuildTerrainImageMapLayer(
       const textureUrl = resolveTerrainTileImageMapTextureUrl(tile, contract);
       return textureUrl ? { tile, textureUrl } : null;
     })
-    .filter((entry): entry is { tile: SceneTile; textureUrl: { reference: string; deliveryUrl: string } } =>
-      Boolean(entry)
+    .filter(
+      (
+        entry
+      ): entry is {
+        tile: SceneTile;
+        textureUrl: { reference: string; deliveryUrl: string };
+      } => Boolean(entry)
     );
 
   let loadedCount = 0;
@@ -2361,6 +2863,7 @@ function rebuildTerrainImageMapLayer(
         createTerrainImageMapTileMesh(
           tile,
           texture,
+          sceneData,
           sceneData.width,
           sceneData.height,
           sourceBackedModelBridge
@@ -2426,6 +2929,10 @@ function rebuildTerrainAreaGlobalLightingLayer(
     TERRAIN_AREA_GLOBAL_LIGHT_INTENSITY_SOURCE;
   runtime.scene.userData.auroraTerrainAreaGlobalFogRangeSource =
     TERRAIN_AREA_GLOBAL_FOG_RANGE_SOURCE;
+  setWorkspaceDefaultPreviewLightingEnabled(
+    runtime.scene,
+    !(preview && useAreaLighting && !debugState.wireframe)
+  );
   if (!preview || !useAreaLighting || debugState.wireframe) {
     return;
   }
@@ -2462,7 +2969,13 @@ function rebuildTerrainAreaGlobalLightingLayer(
     ambient.userData.auroraTerrainAreaGlobalLightRole = "ambient";
     ambient.userData.auroraTerrainAreaGlobalLightingPhase = preview.phase;
     ambient.userData.auroraTerrainAreaGlobalLightColor =
+      colorToUserDataTriplet(preview.ambientColorGamma ?? preview.ambientColor);
+    ambient.userData.auroraTerrainAreaGlobalRenderedLightColorLinear =
       colorToUserDataTriplet(preview.ambientColor);
+    ambient.userData.auroraTerrainAreaGlobalLightColorSpaceStatus =
+      "active-retail-gamma-to-linear-applied";
+    ambient.userData.auroraTerrainAreaGlobalLightColorSpaceSource =
+      TERRAIN_AREA_GLOBAL_LIGHT_COLOR_SPACE_SOURCE;
     ambient.userData.auroraTerrainAreaGlobalLightIntensity = intensity;
     ambient.userData.auroraTerrainAreaGlobalLightIntensitySource =
       TERRAIN_AREA_GLOBAL_LIGHT_INTENSITY_SOURCE;
@@ -2479,10 +2992,23 @@ function rebuildTerrainAreaGlobalLightingLayer(
       preview.phase === "moon" ? -0.5 : 0.35
     );
     directional.castShadow = preview.shadowEnabled;
+    directional.shadow.bias = TERRAIN_AREA_GLOBAL_SHADOW_MAP_BIAS;
+    directional.shadow.normalBias = TERRAIN_AREA_GLOBAL_SHADOW_MAP_NORMAL_BIAS;
+    directional.shadow.mapSize.set(
+      TERRAIN_AREA_GLOBAL_SHADOW_MAP_SIZE,
+      TERRAIN_AREA_GLOBAL_SHADOW_MAP_SIZE
+    );
+    directional.shadow.radius = 2;
     directional.userData.auroraTerrainAreaGlobalLightRole = "diffuse";
     directional.userData.auroraTerrainAreaGlobalLightingPhase = preview.phase;
     directional.userData.auroraTerrainAreaGlobalLightColor =
+      colorToUserDataTriplet(preview.diffuseColorGamma ?? preview.diffuseColor);
+    directional.userData.auroraTerrainAreaGlobalRenderedLightColorLinear =
       colorToUserDataTriplet(preview.diffuseColor);
+    directional.userData.auroraTerrainAreaGlobalLightColorSpaceStatus =
+      "active-retail-gamma-to-linear-applied";
+    directional.userData.auroraTerrainAreaGlobalLightColorSpaceSource =
+      TERRAIN_AREA_GLOBAL_LIGHT_COLOR_SPACE_SOURCE;
     directional.userData.auroraTerrainAreaGlobalLightIntensity = intensity;
     directional.userData.auroraTerrainAreaGlobalLightIntensitySource =
       TERRAIN_AREA_GLOBAL_LIGHT_INTENSITY_SOURCE;
@@ -2503,8 +3029,16 @@ function rebuildTerrainAreaGlobalLightingLayer(
       TERRAIN_AREA_GLOBAL_SHADOW_STATUS_SOURCE;
     directional.userData.auroraTerrainAreaGlobalShadowImplementationStatus =
       preview.shadowEnabled
-        ? "three-directional-castShadow-flag-only-shadow-volume-not-ported"
+        ? "three-directional-shadow-map-calibrated-shadow-volume-not-ported"
         : "disabled-by-decompiled-ARE-shadow-branch";
+    directional.userData.auroraTerrainAreaGlobalShadowMapBias =
+      directional.shadow.bias;
+    directional.userData.auroraTerrainAreaGlobalShadowMapNormalBias =
+      directional.shadow.normalBias;
+    directional.userData.auroraTerrainAreaGlobalShadowMapSize =
+      directional.shadow.mapSize.x;
+    directional.userData.auroraTerrainAreaGlobalShadowMapPreviewSource =
+      TERRAIN_AREA_GLOBAL_SHADOW_MAP_PREVIEW_SOURCE;
     layer.add(directional);
   }
 
@@ -2574,21 +3108,25 @@ function resolveAreaGlobalLightingPreview(
   const shadowSourceField = phase === "moon" ? "MoonShadows" : "SunShadows";
   const shadowEnabled = (fieldsByName.get(shadowSourceField) ?? 0) > 0;
   const shadowOpacity = fieldsByName.get("ShadowOpacity");
+  const ambientColorGamma =
+    decodeAreaPackedColor(
+      fieldsByName.get(phase === "moon" ? "MoonAmbientColor" : "SunAmbientColor")
+    ) ??
+    decodeAreaPackedColor(fieldsByName.get("SunAmbientColor")) ??
+    decodeAreaPackedColor(fieldsByName.get("MoonAmbientColor"));
+  const diffuseColorGamma =
+    decodeAreaPackedColor(
+      fieldsByName.get(phase === "moon" ? "MoonDiffuseColor" : "SunDiffuseColor")
+    ) ??
+    decodeAreaPackedColor(fieldsByName.get("SunDiffuseColor")) ??
+    decodeAreaPackedColor(fieldsByName.get("MoonDiffuseColor"));
   return {
     phase,
     fieldsByName,
-    ambientColor:
-      decodeAreaPackedColor(
-        fieldsByName.get(phase === "moon" ? "MoonAmbientColor" : "SunAmbientColor")
-      ) ??
-      decodeAreaPackedColor(fieldsByName.get("SunAmbientColor")) ??
-      decodeAreaPackedColor(fieldsByName.get("MoonAmbientColor")),
-    diffuseColor:
-      decodeAreaPackedColor(
-        fieldsByName.get(phase === "moon" ? "MoonDiffuseColor" : "SunDiffuseColor")
-      ) ??
-      decodeAreaPackedColor(fieldsByName.get("SunDiffuseColor")) ??
-      decodeAreaPackedColor(fieldsByName.get("MoonDiffuseColor")),
+    ambientColor: convertAreaGammaColorToLinear(ambientColorGamma),
+    ambientColorGamma,
+    diffuseColor: convertAreaGammaColorToLinear(diffuseColorGamma),
+    diffuseColorGamma,
     fogColor:
       decodeAreaPackedColor(
         fieldsByName.get(phase === "moon" ? "MoonFogColor" : "SunFogColor")
@@ -2619,6 +3157,18 @@ function decodeAreaPackedColor(value: number | undefined): THREE.Color | undefin
   );
 }
 
+function convertAreaGammaColorToLinear(
+  color: THREE.Color | undefined
+): THREE.Color | undefined {
+  if (!color) return undefined;
+  const linear = convertAuroraEnhancedGammaTripletToLinear([
+    color.r,
+    color.g,
+    color.b
+  ]);
+  return new THREE.Color(linear[0], linear[1], linear[2]);
+}
+
 function colorToUserDataTriplet(color: THREE.Color): [number, number, number] {
   return [color.r, color.g, color.b];
 }
@@ -2645,11 +3195,28 @@ function rebuildTerrainTileLightLayer(
 ): void {
   const entries = sceneData.tiles.flatMap((tile) => resolveTerrainTileLightEntries(tile));
   const useAreaLighting = debugState.useAreaLighting !== false;
-  const staticMainEntries = entries.filter((entry) => entry.role === "main");
+  const mainEntries = entries.filter((entry) => entry.role === "main");
+  const resolvedMainEntries = mainEntries.filter(
+    (entry) => entry.nativeMainLightNode?.status === "main-native-node-resolved"
+  );
+  const unresolvedMainEntries = mainEntries.filter(
+    (entry) => entry.nativeMainLightNode?.status !== "main-native-node-resolved"
+  );
   const activeSourceEntries = entries.filter((entry) => entry.role === "source");
+  const sourceLightReferences = sceneData.tiles.flatMap((tile) => [
+    { rowId: tile.sourceLight1, color: tile.sourceLight1Color },
+    { rowId: tile.sourceLight2, color: tile.sourceLight2Color }
+  ]).filter(({ rowId, color }) => (color?.rowId ?? rowId ?? 0) > 0);
+  const absentSourceLightCount = sourceLightReferences.filter(
+    ({ color }) => color?.sourceNode?.status === "source-node-absent-by-aurora-slot-count"
+  ).length;
+  const unresolvedSourceLightCount = sourceLightReferences.filter(
+    ({ color }) => !color?.sourceNode
+  ).length;
+  const activePointLightEntries = [...activeSourceEntries, ...resolvedMainEntries];
   const tileLightCap = resolveTerrainTileLightActiveSlotCap(runtime);
   const budgetedSourceEntries = buildTerrainTileSourceLightBudgetEntries(
-    activeSourceEntries,
+    activePointLightEntries,
     sceneData,
     tileLightCap.cap
   );
@@ -2658,11 +3225,23 @@ function rebuildTerrainTileLightLayer(
   );
   runtime.scene.userData.auroraTerrainTileLightSourceCount = entries.length;
   runtime.scene.userData.auroraTerrainTileLightStaticMainCount =
-    staticMainEntries.length;
+    unresolvedMainEntries.length;
+  runtime.scene.userData.auroraTerrainTileLightResolvedMainCount =
+    resolvedMainEntries.length;
+  runtime.scene.userData.auroraTerrainTileLightUnresolvedMainCount =
+    unresolvedMainEntries.length;
   runtime.scene.userData.auroraTerrainTileLightDynamicSourceCount =
     activeSourceEntries.length;
-  runtime.scene.userData.auroraTerrainTileLightCandidateCount =
+  runtime.scene.userData.auroraTerrainTileLightResolvedSourceCount =
     activeSourceEntries.length;
+  runtime.scene.userData.auroraTerrainTileLightSourceNodeAbsentCount =
+    absentSourceLightCount;
+  runtime.scene.userData.auroraTerrainTileLightUnresolvedSourceCount =
+    unresolvedSourceLightCount;
+  runtime.scene.userData.auroraTerrainTileLightSourceReferenceCount =
+    sourceLightReferences.length;
+  runtime.scene.userData.auroraTerrainTileLightCandidateCount =
+    activePointLightEntries.length;
   runtime.scene.userData.auroraTerrainTileLightAcceptedCount =
     acceptedSourceBudgetEntries.length;
   runtime.scene.userData.auroraTerrainTileLightDroppedCount = Math.max(
@@ -2714,14 +3293,26 @@ function rebuildTerrainTileLightLayer(
   const layer = new THREE.Group();
   layer.name = TILE_LIGHT_LAYER_NAME;
   layer.userData.auroraTerrainTileLightLayer =
-    "tile-main-static-source-dynamic-light-preview";
+    "tile-native-main-and-source-dynamic-light-preview";
   layer.userData.auroraTerrainTileLightSourceCount = entries.length;
   layer.userData.auroraTerrainTileLightStaticMainCount =
-    staticMainEntries.length;
+    unresolvedMainEntries.length;
+  layer.userData.auroraTerrainTileLightResolvedMainCount =
+    resolvedMainEntries.length;
+  layer.userData.auroraTerrainTileLightUnresolvedMainCount =
+    unresolvedMainEntries.length;
   layer.userData.auroraTerrainTileLightDynamicSourceCount =
     activeSourceEntries.length;
-  layer.userData.auroraTerrainTileLightCandidateCount =
+  layer.userData.auroraTerrainTileLightResolvedSourceCount =
     activeSourceEntries.length;
+  layer.userData.auroraTerrainTileLightSourceNodeAbsentCount =
+    absentSourceLightCount;
+  layer.userData.auroraTerrainTileLightUnresolvedSourceCount =
+    unresolvedSourceLightCount;
+  layer.userData.auroraTerrainTileLightSourceReferenceCount =
+    sourceLightReferences.length;
+  layer.userData.auroraTerrainTileLightCandidateCount =
+    activePointLightEntries.length;
   layer.userData.auroraTerrainTileLightAcceptedCount =
     acceptedSourceBudgetEntries.length;
   layer.userData.auroraTerrainTileLightDroppedCount = Math.max(
@@ -2751,7 +3342,7 @@ function rebuildTerrainTileLightLayer(
     entry: TerrainTileLightEntry;
     budgetEntry?: TerrainTileLightBudgetEntry;
   }[] = [
-    ...staticMainEntries.map((entry) => ({ entry })),
+    ...unresolvedMainEntries.map((entry) => ({ entry })),
     ...acceptedSourceBudgetEntries.map((budgetEntry) => ({
       entry: budgetEntry.entry,
       budgetEntry
@@ -2769,14 +3360,22 @@ function rebuildTerrainTileLightLayer(
     }
     const group = new THREE.Group();
     group.name = `terrain-tile-light-${entry.tile.id}-${entry.channel}`;
-    group.position.set(
-      resolveAuroraAreaRenderTileCenterX(entry.tile.col, sceneData.width),
-      TILE_GEOMETRY_Y + (entry.tile.height ?? 0) + (entry.role === "source" ? 0.28 : 0.16),
-      resolveAuroraAreaRenderTileCenterZ(entry.tile.row, sceneData.height)
+    const sourceNodeWorldPosition = resolveTerrainTileLightNodeWorldPosition(
+      entry,
+      sceneData
     );
-    const sourceIntensity =
-      energy * TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_FALLBACK;
-    const intensity = entry.role === "source" ? sourceIntensity : energy * 0.42;
+    group.position.set(
+      ...(sourceNodeWorldPosition ?? [
+        resolveAuroraAreaRenderTileCenterX(entry.tile.col, sceneData.width),
+        TILE_GEOMETRY_Y +
+          resolveTerrainTileHeightOffset(entry.tile, sceneData) +
+          (entry.role === "source" ? 0.28 : 0.16),
+        resolveAuroraAreaRenderTileCenterZ(entry.tile.row, sceneData.height)
+      ])
+    );
+    const sourceMultiplier = resolveTerrainTileLightMultiplier(entry);
+    const sourceIntensity = energy * sourceMultiplier;
+    const intensity = sourceIntensity;
     const distanceDescriptor = resolveTerrainTileLightDistance(entry);
     const activeBudgetRank = budgetEntry?.rank;
     const budgetScoreUserData = budgetEntry
@@ -2792,15 +3391,21 @@ function rebuildTerrainTileLightLayer(
       auroraTerrainTileLightRadiusProofStatus: distanceDescriptor.proofStatus,
       auroraTerrainTileLightFalloffFormula: distanceDescriptor.falloffFormula,
       auroraTerrainTileLightFalloffProofStatus:
-        entry.role === "source"
+        entry.role === "source" || entry.nativeMainLightNode
           ? TERRAIN_TILE_SOURCE_LIGHT_FALLOFF_PROOF_STATUS
           : TERRAIN_TILE_MAIN_LIGHT_RADIUS_PROOF_STATUS,
       auroraTerrainTileLightFalloffRendererPatchStatus:
-        entry.role === "source" ? falloffShaderPatch.status : undefined,
+        entry.role === "source" || entry.nativeMainLightNode
+          ? falloffShaderPatch.status
+          : undefined,
       auroraTerrainTileLightFalloffRendererProofStatus:
-        entry.role === "source" ? falloffShaderPatch.proofStatus : undefined,
+        entry.role === "source" || entry.nativeMainLightNode
+          ? falloffShaderPatch.proofStatus
+          : undefined,
       auroraTerrainTileLightFalloffRendererSource:
-        entry.role === "source" ? falloffShaderPatch.source : undefined,
+        entry.role === "source" || entry.nativeMainLightNode
+          ? falloffShaderPatch.source
+          : undefined,
       auroraTerrainTileLightSourceModelFileName:
         distanceDescriptor.sourceModelFileName,
       auroraTerrainTileLightSourceModelHash: distanceDescriptor.sourceModelHash,
@@ -2824,34 +3429,65 @@ function rebuildTerrainTileLightLayer(
     const rendererMode =
       entry.role === "source"
         ? "point-light-preview"
-        : TERRAIN_TILE_MAIN_LIGHT_RENDERER_MODE;
-    if (entry.role === "source") {
+        : entry.nativeMainLightNode
+          ? TERRAIN_TILE_MAIN_LIGHT_NATIVE_RENDERER_MODE
+          : TERRAIN_TILE_MAIN_LIGHT_RENDERER_MODE;
+    if (entry.role === "source" || entry.nativeMainLightNode) {
       const pointLight = new THREE.PointLight(
         color,
         intensity,
         distanceDescriptor.distance,
         distanceDescriptor.decay
       );
+      pointLight.name = `${group.name}-point`;
       pointLight.userData = {
         auroraTerrainTileLightRole: entry.role,
         auroraTerrainTileLightChannel: entry.channel,
         auroraTerrainTileLightRow: entry.rowId,
         auroraTerrainTileLightSourceKey: entry.sourceKey ?? "",
         auroraTerrainTileLightColor: entry.color,
-        auroraTerrainTileLightColorSource: entry.sourceKey
-          ? "ARE Tile light index resolved through source 2DA color"
-          : "ARE Tile light index with missing color source metadata",
+        auroraTerrainTileLightColorSource:
+          entry.sourceLightProfile?.colorSource ??
+          (entry.sourceKey
+            ? "ARE Tile light index resolved through source 2DA color"
+            : "ARE Tile light index with missing color source metadata"),
         auroraTerrainTileLightPreviewColor: [color.r, color.g, color.b],
         auroraTerrainTileLightIntensity: intensity,
         auroraTerrainTileLightIntensitySource: TERRAIN_TILE_SOURCE_LIGHT_INTENSITY_SOURCE,
         auroraTerrainTileLightIntensityProofStatus:
-          TERRAIN_TILE_SOURCE_LIGHT_INTENSITY_PROOF_STATUS,
+          entry.role === "source"
+            ? TERRAIN_TILE_SOURCE_LIGHT_INTENSITY_PROOF_STATUS
+            : TERRAIN_TILE_MAIN_LIGHT_NATIVE_PROOF_STATUS,
         auroraTerrainTileLightSourceMultiplier:
-          TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_FALLBACK,
+          sourceMultiplier,
         auroraTerrainTileLightSourceMultiplierSource:
-          TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_SOURCE,
+          entry.sourceLightProfile?.multiplierSource ??
+          (entry.nativeMainLightNode
+            ? `${entry.nativeMainLightNode.sourceModelFileName} native light multiplier`
+            : "unresolved-source-multiplier"),
+        auroraTerrainTileLightSourceAnimationName:
+          entry.sourceLightProfile?.animationName,
+        auroraTerrainTileLightStaleColorCorrectionStatus:
+          entry.sourceLightProfile?.staleColorCorrectionStatus,
         ...radiusProofUserData,
-        auroraTerrainTileLightPositionSource: TERRAIN_TILE_LIGHT_POSITION_SOURCE,
+        auroraTerrainTileLightPositionSource:
+          entry.nativeMainLightNode
+            ? TERRAIN_TILE_MAIN_LIGHT_NATIVE_SOURCE
+            : entry.sourceLightNode
+              ? TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_SOURCE
+              : TERRAIN_TILE_LIGHT_POSITION_SOURCE,
+        auroraTerrainTileLightPositionProofStatus:
+          entry.sourceLightNode?.proofStatus ??
+          entry.nativeMainLightNode?.proofStatus,
+        auroraTerrainTileLightSourceNodeKind:
+          entry.sourceLightNode?.name,
+        auroraTerrainTileLightSourceNodeName:
+          entry.nativeMainLightNode?.name ??
+          entry.sourceLightNode?.name ??
+          distanceDescriptor.sourceNodeName,
+        auroraTerrainTileLightSourceModelObjectKey:
+          entry.nativeMainLightNode?.sourceModelObjectKey ??
+          entry.sourceLightNode?.sourceModelObjectKey,
         auroraTerrainTileLightRendererMode: rendererMode,
         auroraTerrainTileId: entry.tile.id,
         auroraTerrainTilePosition: `${entry.tile.col},${entry.tile.row}`,
@@ -2866,24 +3502,26 @@ function rebuildTerrainTileLightLayer(
       group.add(pointLight);
     }
 
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(entry.role === "source" ? 0.055 : 0.04, 14, 8),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: entry.role === "source" ? 0.78 : 0.52,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-    );
-    marker.renderOrder = 6 + index;
-    marker.userData = {
-      auroraTerrainTileLightRole: entry.role,
-      auroraTerrainTileLightChannel: entry.channel,
-      auroraTerrainTileLightMarker: true,
-      auroraTerrainTileId: entry.tile.id
-    };
-    group.add(marker);
+    if (debugState.showNonRenderMeshes) {
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(entry.role === "source" ? 0.055 : 0.04, 14, 8),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: entry.role === "source" ? 0.78 : 0.52,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+      marker.renderOrder = 6 + index;
+      marker.userData = {
+        auroraTerrainTileLightRole: entry.role,
+        auroraTerrainTileLightChannel: entry.channel,
+        auroraTerrainTileLightMarker: true,
+        auroraTerrainTileId: entry.tile.id
+      };
+      group.add(marker);
+    }
 
     group.userData = {
       auroraTerrainTileLightPreviewStatus: "active",
@@ -2891,28 +3529,54 @@ function rebuildTerrainTileLightLayer(
       auroraTerrainTileLightChannel: entry.channel,
       auroraTerrainTileLightBudgetRank: budgetEntry?.rank ?? index + 1,
       auroraTerrainTileLightBudgetAccepted: entry.role !== "source" || budgetEntry?.accepted === true,
-      auroraTerrainTileLightStaticMain: entry.role === "main",
+      auroraTerrainTileLightStaticMain:
+        entry.role === "main" && !entry.nativeMainLightNode,
       auroraTerrainTileLightBudgetCap: tileLightCap.cap,
       auroraTerrainTileLightBudgetHardCap: TERRAIN_TILE_LIGHT_ACTIVE_SLOT_CAP,
       auroraTerrainTileLightConfiguredMaxLights: tileLightCap.configuredMaxLights,
       auroraTerrainTileLightBudgetSource: TERRAIN_TILE_LIGHT_ACTIVE_SLOT_CAP_SOURCE,
       auroraTerrainTileLightRow: entry.rowId,
       auroraTerrainTileLightColor: entry.color,
-      auroraTerrainTileLightColorSource: entry.sourceKey
-        ? "ARE Tile light index resolved through source 2DA color"
-        : "ARE Tile light index with missing color source metadata",
+      auroraTerrainTileLightColorSource:
+        entry.sourceLightProfile?.colorSource ??
+        (entry.sourceKey
+          ? "ARE Tile light index resolved through source 2DA color"
+          : "ARE Tile light index with missing color source metadata"),
       auroraTerrainTileLightPreviewColor: [color.r, color.g, color.b],
       auroraTerrainTileLightIntensity: intensity,
       auroraTerrainTileLightIntensitySource:
         "2DA RGB max-channel mapped to Three.PointLight.intensity by aurora-web preview",
+      auroraTerrainTileLightIntensityProofStatus:
+        entry.sourceLightProfile?.proofStatus ??
+        entry.nativeMainLightNode?.proofStatus,
+      auroraTerrainTileLightSourceMultiplier: sourceMultiplier,
+      auroraTerrainTileLightSourceMultiplierSource:
+        entry.sourceLightProfile?.multiplierSource ??
+        (entry.nativeMainLightNode
+          ? `${entry.nativeMainLightNode.sourceModelFileName} native light multiplier`
+          : undefined),
+      auroraTerrainTileLightSourceAnimationName:
+        entry.sourceLightProfile?.animationName,
+      auroraTerrainTileLightStaleColorCorrectionStatus:
+        entry.sourceLightProfile?.staleColorCorrectionStatus,
       ...radiusProofUserData,
       auroraTerrainTileLightSourceKey: entry.sourceKey ?? "",
       auroraTerrainTileId: entry.tile.id,
       auroraTerrainTilePosition: `${entry.tile.col},${entry.tile.row}`,
       auroraTerrainTileLightPositionSource:
         entry.role === "source"
-          ? TERRAIN_TILE_LIGHT_POSITION_SOURCE
-          : TERRAIN_TILE_MAIN_LIGHT_DISTANCE_SOURCE,
+          ? TERRAIN_TILE_LIGHT_SOURCE_NODE_POSITION_SOURCE
+          : entry.nativeMainLightNode
+            ? TERRAIN_TILE_MAIN_LIGHT_NATIVE_SOURCE
+            : TERRAIN_TILE_MAIN_LIGHT_DISTANCE_SOURCE,
+      auroraTerrainTileLightPositionProofStatus:
+        entry.sourceLightNode?.proofStatus ??
+        entry.nativeMainLightNode?.proofStatus,
+      auroraTerrainTileLightSourceNodeKind: entry.sourceLightNode?.name,
+      auroraTerrainTileLightHostNodeName: entry.sourceLightNode?.name,
+      auroraTerrainTileLightHostNodeStatus: entry.sourceLightNode?.status,
+      auroraTerrainTileLightHostNodeProofStatus:
+        entry.sourceLightNode?.proofStatus,
       ...budgetScoreUserData,
       auroraTerrainTileLightRendererMode: rendererMode
     };
@@ -2961,11 +3625,19 @@ function buildTerrainTileSourceLightBudgetEntries(
         sourceIndex,
         payload: entry,
         scoreInput: {
-          position: {
-            x: resolveAuroraAreaRenderTileCenterX(entry.tile.col, sceneData.width),
-            y: TILE_GEOMETRY_Y + (entry.tile.height ?? 0) + 0.28,
-            z: resolveAuroraAreaRenderTileCenterZ(entry.tile.row, sceneData.height)
-          },
+          position: (() => {
+            const position = resolveTerrainTileLightNodeWorldPosition(entry, sceneData);
+            return position
+              ? { x: position[0], y: position[1], z: position[2] }
+              : {
+                  x: resolveAuroraAreaRenderTileCenterX(entry.tile.col, sceneData.width),
+                  y:
+                    TILE_GEOMETRY_Y +
+                    resolveTerrainTileHeightOffset(entry.tile, sceneData) +
+                    0.28,
+                  z: resolveAuroraAreaRenderTileCenterZ(entry.tile.row, sceneData.height)
+                };
+          })(),
           sourceRadius:
             distanceDescriptor.sourceRadiusWorldDistance ??
             distanceDescriptor.distance,
@@ -2975,7 +3647,7 @@ function buildTerrainTileSourceLightBudgetEntries(
               ? distanceDescriptor.sourceShadowRadius *
                 distanceDescriptor.sourceUnitScale
               : null,
-          multiplier: energy * TERRAIN_TILE_SOURCE_LIGHT_MULTIPLIER_FALLBACK,
+          multiplier: energy * resolveTerrainTileLightMultiplier(entry),
           priority: distanceDescriptor.sourcePriority ?? 0,
           enforceActiveSelectionRadius: false
         }
@@ -3011,6 +3683,28 @@ function resolveTerrainTileLightDistance(entry: TerrainTileLightEntry): {
   sourceVerticalDisplacement?: number;
   sourcePriority?: number;
 } {
+  if (entry.nativeMainLightNode) {
+    const node = entry.nativeMainLightNode;
+    const worldRadius = node.radius * TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE;
+    return {
+      distance: worldRadius,
+      decay: 1,
+      source: TERRAIN_TILE_MAIN_LIGHT_NATIVE_SOURCE,
+      proofStatus: node.proofStatus,
+      falloffFormula: TERRAIN_TILE_SOURCE_LIGHT_FALLOFF_FORMULA,
+      sourceModelFileName: node.sourceModelFileName,
+      sourceModelHash: node.sourceModelHash,
+      sourceNodeName: node.name,
+      sourceRadius: node.radius,
+      sourceRadiusUnits: "aurora-model-units",
+      sourceUnitScale: TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE,
+      sourceUnitScaleSource: TERRAIN_TILE_SOURCE_LIGHT_SOURCE_UNIT_SCALE_SOURCE,
+      sourceRadiusWorldDistance: worldRadius,
+      sourceRadiusWorldDistanceSource:
+        `${node.sourceModelFileName} native light radius multiplied by TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE`,
+      sourcePriority: node.lightPriority
+    };
+  }
   if (entry.role === "source") {
     return {
       distance: TERRAIN_TILE_SOURCE_LIGHT_WORLD_RADIUS,
@@ -3042,6 +3736,47 @@ function resolveTerrainTileLightDistance(entry: TerrainTileLightEntry): {
     proofStatus: TERRAIN_TILE_MAIN_LIGHT_RADIUS_PROOF_STATUS,
     falloffFormula: TERRAIN_TILE_MAIN_LIGHT_FALLOFF_FORMULA
   };
+}
+
+function resolveTerrainTileLightMultiplier(entry: TerrainTileLightEntry): number {
+  if (
+    entry.nativeMainLightNode &&
+    Number.isFinite(entry.nativeMainLightNode.multiplier)
+  ) {
+    return entry.nativeMainLightNode.multiplier;
+  }
+  return entry.sourceLightProfile?.multiplier ?? 1;
+}
+
+function resolveTerrainTileLightNodeWorldPosition(
+  entry: TerrainTileLightEntry,
+  sceneData: AreaScene
+): [number, number, number] | null {
+  const node = entry.nativeMainLightNode ?? entry.sourceLightNode;
+  if (!node || node.coordinateSpace !== "model-local-aurora-z-up") {
+    return null;
+  }
+  const localPosition = new THREE.Vector3(
+    node.position[0],
+    node.position[2],
+    node.position[1]
+  ).multiplyScalar(TILE_MODEL_AURORA_UNITS_TO_TILE_SPACE);
+  const renderYawQuarterTurns = resolveAuroraAreaRenderTileOrientation(
+    entry.tile.orientation,
+    entry.tile.tilesetOrientation
+  );
+  localPosition.applyAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    renderYawQuarterTurns * (Math.PI / 2)
+  );
+  localPosition.add(
+    new THREE.Vector3(
+      resolveAuroraAreaRenderTileCenterX(entry.tile.col, sceneData.width),
+      TILE_GEOMETRY_Y + resolveTerrainTileHeightOffset(entry.tile, sceneData),
+      resolveAuroraAreaRenderTileCenterZ(entry.tile.row, sceneData.height)
+    )
+  );
+  return [localPosition.x, localPosition.y, localPosition.z];
 }
 
 function formatTerrainTileLightColorSample(entry: TerrainTileLightEntry): string {
@@ -3085,20 +3820,59 @@ function appendTerrainTileLightEntry(
   if (typeof resolvedRowId !== "number" || !Number.isFinite(resolvedRowId) || resolvedRowId <= 0) {
     return;
   }
-  if (
-    typeof color?.red !== "number" ||
-    !Number.isFinite(color.red) ||
-    typeof color.green !== "number" ||
-    !Number.isFinite(color.green) ||
-    typeof color.blue !== "number" ||
-    !Number.isFinite(color.blue)
-  ) {
+  const inputColor =
+    typeof color?.red === "number" &&
+    Number.isFinite(color.red) &&
+    typeof color.green === "number" &&
+    Number.isFinite(color.green) &&
+    typeof color.blue === "number" &&
+    Number.isFinite(color.blue)
+      ? ([color.red, color.green, color.blue] as const)
+      : undefined;
+  const sourceLightProfile =
+    role === "source"
+      ? resolveAuroraTerrainTileSourceLightProfile(resolvedRowId, {
+          ...(inputColor ? { color: inputColor } : {}),
+          ...(color?.sourceKey ? { colorSource: color.sourceKey } : {}),
+          ...(color?.sourceAnimationName
+            ? { animationName: color.sourceAnimationName }
+            : {}),
+          ...(color?.sourceModelFileName
+            ? { sourceModelFileName: color.sourceModelFileName }
+            : {}),
+          ...(color?.sourceModelHash ? { sourceModelHash: color.sourceModelHash } : {}),
+          ...(typeof color?.sourceMultiplier === "number"
+            ? { multiplier: color.sourceMultiplier }
+            : {}),
+          ...(color?.sourceMultiplierSource
+            ? { multiplierSource: color.sourceMultiplierSource }
+            : {}),
+          ...(color?.sourceProofStatus ? { proofStatus: color.sourceProofStatus } : {})
+        })
+      : null;
+  if (sourceLightProfile) {
+    if (color?.sourceNode?.status !== "source-node-resolved") {
+      return;
+    }
+    entries.push({
+      tile,
+      channel,
+      role,
+      rowId: resolvedRowId,
+      color: [...sourceLightProfile.color],
+      sourceKey: sourceLightProfile.sourceModelFileName,
+      sourceLightProfile,
+      sourceLightNode: color.sourceNode
+    });
+    return;
+  }
+  if (!inputColor) {
     return;
   }
   const resolvedColor: [number, number, number] = [
-    color.red,
-    color.green,
-    color.blue
+    inputColor[0],
+    inputColor[1],
+    inputColor[2]
   ];
   if (resolvedColor.every((channelValue) => Math.abs(channelValue) <= 1e-6)) {
     return;
@@ -3109,7 +3883,10 @@ function appendTerrainTileLightEntry(
     role,
     rowId: resolvedRowId,
     color: resolvedColor,
-    sourceKey: color?.sourceKey
+    sourceKey: color?.sourceKey,
+    ...(role === "main" && color?.nativeNode
+      ? { nativeMainLightNode: color.nativeNode }
+      : {})
   });
 }
 
@@ -3125,8 +3902,13 @@ function clampUnit(value: number): number {
 }
 
 function applyTerrainTileVoidMaskVisibility(
-  model: THREE.Object3D
-): { hiddenCount: number } {
+  model: THREE.Object3D,
+  renderProfile: AreaTileRenderProfile = DEFAULT_AREA_TILE_RENDER_PROFILE
+): {
+  hiddenCount: number;
+  requiresBlackExtentBacking: boolean;
+  visibleCropMaskCount: number;
+} {
   const meshes: THREE.Mesh[] = [];
   const voidMasks: THREE.Mesh[] = [];
   model.traverse((node) => {
@@ -3138,17 +3920,36 @@ function applyTerrainTileVoidMaskVisibility(
       voidMasks.push(node);
     }
   });
-  const modelResRef = String(model.userData.auroraTerrainTileModelResRef ?? "")
-    .trim()
-    .toLowerCase();
-  const shouldKeepOnlyTileGeometry =
-    modelResRef.length > 0 && modelResRef !== "sic11_a00_00";
+  const shouldKeepOnlyTileGeometry = renderProfile.sourceCropMaskPolicy === "preserve";
+  const hideEveryBlackMesh =
+    renderProfile.blackMaterialPolicy === "hide-all-black-materials";
+  const allBlackVoidGeometry = meshes.filter((mesh) =>
+    hideEveryBlackMesh ? hasTerrainMeshBlackMaterial(mesh) : isLikelyTerrainAllBlackVoidGeometry(mesh)
+  );
+  allBlackVoidGeometry.forEach((node) => {
+      node.visible = false;
+      node.userData = {
+        ...node.userData,
+        auroraTerrainVoidMask: true,
+        auroraTerrainVoidMaskVisibility: "hidden_all_black_tile_base"
+      };
+  });
+  const remainingMeshes = meshes.filter((node) => !allBlackVoidGeometry.includes(node));
+  const remainingVoidMasks = voidMasks.filter((node) => !allBlackVoidGeometry.includes(node));
+  if (remainingMeshes.length === 0) {
+    return {
+      hiddenCount: allBlackVoidGeometry.length,
+      requiresBlackExtentBacking: false,
+      visibleCropMaskCount: 0
+    };
+  }
+  const hasHiddenBlackBaseAlongsideTerrain = allBlackVoidGeometry.length > 0;
   if (
-    voidMasks.length > 0 &&
-    voidMasks.length === meshes.length &&
+    remainingVoidMasks.length > 0 &&
+    remainingVoidMasks.length === remainingMeshes.length &&
     shouldKeepOnlyTileGeometry
   ) {
-    voidMasks.forEach((node) => {
+    remainingVoidMasks.forEach((node) => {
       applyTerrainTileSourceCropMaskRenderContract(node);
       node.userData = {
         ...node.userData,
@@ -3156,14 +3957,18 @@ function applyTerrainTileVoidMaskVisibility(
         auroraTerrainVoidMaskVisibility: "kept_only_tile_geometry"
       };
     });
-    return { hiddenCount: 0 };
+    return {
+      hiddenCount: allBlackVoidGeometry.length,
+      requiresBlackExtentBacking: true,
+      visibleCropMaskCount: remainingVoidMasks.length
+    };
   }
   if (
-    voidMasks.length > 0 &&
-    voidMasks.length < meshes.length &&
+    remainingVoidMasks.length > 0 &&
+    remainingVoidMasks.length < remainingMeshes.length &&
     shouldKeepOnlyTileGeometry
   ) {
-    voidMasks.forEach((node) => {
+    remainingVoidMasks.forEach((node) => {
       node.visible = true;
       applyTerrainTileSourceCropMaskRenderContract(node);
       node.userData = {
@@ -3172,10 +3977,14 @@ function applyTerrainTileVoidMaskVisibility(
         auroraTerrainVoidMaskVisibility: "kept_source_crop_mask"
       };
     });
-    return { hiddenCount: 0 };
+    return {
+      hiddenCount: allBlackVoidGeometry.length,
+      requiresBlackExtentBacking: true,
+      visibleCropMaskCount: remainingVoidMasks.length
+    };
   }
-  let hiddenCount = 0;
-  voidMasks.forEach((node) => {
+  let hiddenCount = allBlackVoidGeometry.length;
+  remainingVoidMasks.forEach((node) => {
     node.visible = false;
     node.userData = {
       ...node.userData,
@@ -3184,7 +3993,11 @@ function applyTerrainTileVoidMaskVisibility(
     };
     hiddenCount += 1;
   });
-  return { hiddenCount };
+  return {
+    hiddenCount,
+    requiresBlackExtentBacking: hasHiddenBlackBaseAlongsideTerrain,
+    visibleCropMaskCount: 0
+  };
 }
 
 function applyTerrainTileSourceCropMaskRenderContract(node: THREE.Mesh): void {
@@ -3212,9 +4025,14 @@ function applyTerrainTileSourceCropMaskRenderContract(node: THREE.Mesh): void {
 }
 
 export function applyTerrainTileVoidMaskVisibilityForTests(
-  model: THREE.Object3D
-): { hiddenCount: number } {
-  return applyTerrainTileVoidMaskVisibility(model);
+  model: THREE.Object3D,
+  renderProfile: AreaTileRenderProfile = DEFAULT_AREA_TILE_RENDER_PROFILE
+): {
+  hiddenCount: number;
+  requiresBlackExtentBacking: boolean;
+  visibleCropMaskCount: number;
+} {
+  return applyTerrainTileVoidMaskVisibility(model, renderProfile);
 }
 
 function applyTerrainTileGroundSurfaceDepth(
@@ -3274,6 +4092,10 @@ function summarizeTerrainTileModelLayer(layer: THREE.Object3D | null): {
   visibleMeshCount: number;
   materialCount: number;
   materialMapCount: number;
+  transparentMaterialCount: number;
+  alphaTestMaterialCount: number;
+  vertexColorMaterialCount: number;
+  materialRenderStateSample: string;
   shadowReceiverMeshCount: number;
   shadowReceiverSample: string;
   ceilingMeshMatchedCount: number;
@@ -3286,6 +4108,10 @@ function summarizeTerrainTileModelLayer(layer: THREE.Object3D | null): {
       visibleMeshCount: 0,
       materialCount: 0,
       materialMapCount: 0,
+      transparentMaterialCount: 0,
+      alphaTestMaterialCount: 0,
+      vertexColorMaterialCount: 0,
+      materialRenderStateSample: "none",
       shadowReceiverMeshCount: 0,
       shadowReceiverSample: "none",
       ceilingMeshMatchedCount: 0,
@@ -3298,12 +4124,16 @@ function summarizeTerrainTileModelLayer(layer: THREE.Object3D | null): {
   let visibleMeshCount = 0;
   let materialCount = 0;
   let materialMapCount = 0;
+  let transparentMaterialCount = 0;
+  let alphaTestMaterialCount = 0;
+  let vertexColorMaterialCount = 0;
   let shadowReceiverMeshCount = 0;
   let ceilingMeshMatchedCount = 0;
   let ceilingMeshHiddenCount = 0;
   const visibleMeshSamples: string[] = [];
   const hiddenMeshSamples: string[] = [];
   const shadowReceiverSamples: string[] = [];
+  const materialRenderStateSamples: string[] = [];
 
   layer.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
@@ -3333,8 +4163,56 @@ function summarizeTerrainTileModelLayer(layer: THREE.Object3D | null): {
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     materials.forEach((material) => {
       materialCount += 1;
-      if (materialSupportsRuntimeTextureMap(material)) {
+      // A material that merely exposes the `map` property is not textured.
+      // Count only an actual bound texture so tile-process readiness cannot
+      // report a false complete state for the white, unbound GLB surfaces.
+      if (materialSupportsRuntimeTextureMap(material) && material.map) {
         materialMapCount += 1;
+      }
+      if (material.transparent) {
+        transparentMaterialCount += 1;
+      }
+      if (material.alphaTest > 0) {
+        alphaTestMaterialCount += 1;
+      }
+      if (
+        "vertexColors" in material &&
+        (material as THREE.Material & { vertexColors?: boolean }).vertexColors === true
+      ) {
+        vertexColorMaterialCount += 1;
+      }
+      if (materialRenderStateSamples.length < TILE_MODEL_VISIBLE_MESH_SAMPLE_LIMIT) {
+        const userData = material.userData as Record<string, unknown>;
+        const map =
+          materialSupportsRuntimeTextureMap(material) && material.map
+            ? material.map
+            : null;
+        const mapReference =
+          typeof map?.userData?.auroraTextureReference === "string"
+            ? map.userData.auroraTextureReference
+            : typeof map?.userData?.auroraSourceUrl === "string"
+              ? map.userData.auroraSourceUrl
+              : "none";
+        materialRenderStateSamples.push(
+          [
+            `mesh=${node.name || "unnamed"}`,
+            `material=${material.name || material.type}`,
+            `map=${mapReference}`,
+            `alphaMode=${String(userData.auroraTextureAlphaMode ?? "none")}`,
+            `usesAlpha=${userData.auroraTextureUsesAlpha === true ? 1 : 0}`,
+            `softAlpha=${userData.auroraTextureUsesSoftAlpha === true ? 1 : 0}`,
+            `alphaPixels=${String(userData.auroraTextureAlphaPixelRatio ?? "none")}`,
+            `transparent=${material.transparent ? 1 : 0}`,
+            `alphaTest=${material.alphaTest.toFixed(3)}`,
+            `depthWrite=${material.depthWrite ? 1 : 0}`,
+            `vertexColors=${
+              "vertexColors" in material &&
+              (material as THREE.Material & { vertexColors?: boolean }).vertexColors === true
+                ? 1
+                : 0
+            }`
+          ].join(",")
+        );
       }
     });
   });
@@ -3343,6 +4221,10 @@ function summarizeTerrainTileModelLayer(layer: THREE.Object3D | null): {
     visibleMeshCount,
     materialCount,
     materialMapCount,
+    transparentMaterialCount,
+    alphaTestMaterialCount,
+    vertexColorMaterialCount,
+    materialRenderStateSample: materialRenderStateSamples.join("|") || "none",
     shadowReceiverMeshCount,
     shadowReceiverSample: shadowReceiverSamples.join("|") || "none",
     ceilingMeshMatchedCount,
@@ -3476,7 +4358,13 @@ function materialAcceptsRuntimeTextureMap(
   return Boolean(material && "map" in material);
 }
 
-function isTerrainTileMaterialTextureBindingNotApplicable(model: THREE.Object3D): boolean {
+/**
+ * Aurora tile models may deliberately contribute only a transform/dummy node
+ * to a SET group.  A successfully loaded model with no drawable mesh has no
+ * material slot to bind, just like a fully hidden tile; it is not a texture
+ * loader failure.
+ */
+export function isTerrainTileMaterialTextureBindingNotApplicable(model: THREE.Object3D): boolean {
   let meshCount = 0;
   let visibleMeshCount = 0;
   model.traverse((node) => {
@@ -3488,18 +4376,73 @@ function isTerrainTileMaterialTextureBindingNotApplicable(model: THREE.Object3D)
       visibleMeshCount += 1;
     }
   });
-  return meshCount > 0 && visibleMeshCount === 0;
+  return meshCount === 0 || visibleMeshCount === 0;
+}
+
+function summarizeTerrainTileMaterialMapCoverage(model: THREE.Object3D): {
+  textureCapableMaterialCount: number;
+  texturedMaterialCount: number;
+  missingReferenceSample: string;
+} {
+  let textureCapableMaterialCount = 0;
+  let texturedMaterialCount = 0;
+  const missingReferences = new Set<string>();
+  model.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    const source = readTerrainMeshAuroraSourceMetadata(node);
+    materials.forEach((material) => {
+      if (!materialAcceptsRuntimeTextureMap(material)) {
+        return;
+      }
+      const expectedReference = normalizeTerrainTileMaterialTextureReference(
+        source.textureReference ?? readTerrainMaterialNameTextureReference(material)
+      );
+      // MeshBasic/Standard materials expose `map` even when the Aurora source
+      // intentionally authored no bitmap. A color-only slot is not a missing
+      // texture contract. Still count an already-bound map as runtime evidence,
+      // and keep unresolved authored references blocking readiness.
+      if (!expectedReference && !material.map) {
+        return;
+      }
+      textureCapableMaterialCount += 1;
+      if (material.map) {
+        texturedMaterialCount += 1;
+      } else if (expectedReference) {
+        missingReferences.add(expectedReference);
+      }
+    });
+  });
+  return {
+    textureCapableMaterialCount,
+    texturedMaterialCount,
+    missingReferenceSample:
+      [...missingReferences].slice(0, TILE_ASSET_CONTRACT_SAMPLE_LIMIT).join("|") ||
+      "none"
+  };
+}
+
+export function summarizeTerrainTileMaterialMapCoverageForTests(
+  model: THREE.Object3D
+): {
+  textureCapableMaterialCount: number;
+  texturedMaterialCount: number;
+  missingReferenceSample: string;
+} {
+  return summarizeTerrainTileMaterialMapCoverage(model);
 }
 
 function normalizeTerrainTileMaterialTextureReference(value: string | undefined): string {
-  return (
+  const normalized =
     value
       ?.trim()
       .toLowerCase()
       .replace(/\.(dds|tga|bmp|png|jpg|jpeg|tpc|plt)$/iu, "")
       .replace(/[^a-z0-9_-]+/gu, "_")
-      .slice(0, 64) ?? ""
-  );
+      .slice(0, 64) ?? "";
+  return /^(?:null|none|default|\*+)$/u.test(normalized) ? "" : normalized;
 }
 
 function resolveTerrainTileMaterialTextureByReference(
@@ -3611,110 +4554,16 @@ function cloneMaterialWithTerrainTextureRotation(
   return clonedMaterial;
 }
 
-type TerrainTextureMaterial = THREE.Material & {
-  map?: THREE.Texture | null;
-  alphaMap?: THREE.Texture | null;
-  alphaTest?: number;
-  color?: THREE.Color;
-};
-
-function isTerrainTextureMaterial(material: THREE.Material): material is TerrainTextureMaterial {
-  return "map" in material || "alphaMap" in material || "color" in material;
-}
-
-function applyTerrainTileTextureColorMaterialMode(
-  model: THREE.Object3D
-): { convertedMaterialCount: number; inspectedMaterialCount: number } {
-  let convertedMaterialCount = 0;
-  let inspectedMaterialCount = 0;
-  const convertedMaterials = new WeakMap<THREE.Material, THREE.Material>();
-
-  model.traverse((node) => {
-    if (!(node instanceof THREE.Mesh)) {
-      return;
-    }
-    const materials = Array.isArray(node.material) ? node.material : [node.material];
-    const nextMaterials = materials.map((material) => {
-      inspectedMaterialCount += 1;
-      const nextMaterial = resolveTerrainTileTextureColorMaterial(material, convertedMaterials);
-      if (nextMaterial !== material) {
-        convertedMaterialCount += 1;
-      }
-      return nextMaterial;
-    });
-    node.material = Array.isArray(node.material) ? nextMaterials : nextMaterials[0];
-  });
-
-  model.userData.auroraTerrainTileMaterialLightingMode = TERRAIN_TILE_MATERIAL_LIGHTING_MODE;
-  model.userData.auroraTerrainTileMaterialLightingModeSource =
-    TERRAIN_TILE_MATERIAL_LIGHTING_MODE_SOURCE;
-  model.userData.auroraTerrainTileMaterialLightingInspectedCount = inspectedMaterialCount;
-  model.userData.auroraTerrainTileMaterialLightingConvertedCount = convertedMaterialCount;
-
-  return { convertedMaterialCount, inspectedMaterialCount };
-}
-
-function resolveTerrainTileTextureColorMaterial(
-  material: THREE.Material,
-  convertedMaterials: WeakMap<THREE.Material, THREE.Material>
-): THREE.Material {
-  const existing = convertedMaterials.get(material);
-  if (existing) {
-    return existing;
-  }
-  if (material instanceof THREE.MeshBasicMaterial) {
-    material.userData = {
-      ...material.userData,
-      auroraTerrainTileMaterialLightingMode: TERRAIN_TILE_MATERIAL_LIGHTING_MODE,
-      auroraTerrainTileMaterialLightingModeSource: TERRAIN_TILE_MATERIAL_LIGHTING_MODE_SOURCE
-    };
-    return material;
-  }
-  const source = isTerrainTextureMaterial(material) ? material : null;
-  const materialWithAlpha = material as THREE.Material & { alphaTest?: number };
-  const basicMaterial = new THREE.MeshBasicMaterial({
-    name: material.name,
-    map: source?.map ?? null,
-    alphaMap: source?.alphaMap ?? null,
-    color:
-      source?.color instanceof THREE.Color
-        ? source.color.clone()
-        : source?.map
-          ? new THREE.Color(0xffffff)
-          : new THREE.Color(0xffffff),
-    transparent: material.transparent,
-    opacity: material.opacity,
-    alphaTest:
-      typeof materialWithAlpha.alphaTest === "number" &&
-      Number.isFinite(materialWithAlpha.alphaTest)
-        ? materialWithAlpha.alphaTest
-        : 0,
-    side: material.side,
-    depthTest: material.depthTest,
-    depthWrite: material.depthWrite,
-    blending: material.blending,
-    polygonOffset: material.polygonOffset,
-    polygonOffsetFactor: material.polygonOffsetFactor,
-    polygonOffsetUnits: material.polygonOffsetUnits,
-    toneMapped: material.toneMapped,
-    visible: material.visible
-  });
-  basicMaterial.userData = {
-    ...material.userData,
-    auroraTerrainTileMaterialLightingMode: TERRAIN_TILE_MATERIAL_LIGHTING_MODE,
-    auroraTerrainTileMaterialLightingModeSource: TERRAIN_TILE_MATERIAL_LIGHTING_MODE_SOURCE,
-    auroraTerrainTileMaterialLightingConvertedFrom:
-      material.type || material.constructor.name || "Material"
-  };
-  basicMaterial.needsUpdate = true;
-  convertedMaterials.set(material, basicMaterial);
-  return basicMaterial;
-}
-
 export function applyTerrainTileTextureColorMaterialModeForTests(
   model: THREE.Object3D
 ): { convertedMaterialCount: number; inspectedMaterialCount: number } {
-  return applyTerrainTileTextureColorMaterialMode(model);
+  const summary = applyAuroraTerrainReceiverMaterialProfile(model, {
+    useAreaLighting: false
+  });
+  return {
+    convertedMaterialCount: summary.convertedMaterialCount,
+    inspectedMaterialCount: summary.inspectedMaterialCount
+  };
 }
 
 function applyTerrainTileRotatingTextureCompensation(
@@ -3793,6 +4642,25 @@ function isLikelyTerrainCeilingMesh(mesh: THREE.Mesh): boolean {
   if (materials.some((material) => hasTerrainCeilingToken(material.name))) {
     return true;
   }
+  // Some source tiles put their floor mesh above the local model origin
+  // (tcm01_a20_04/ground01 is at Y=5). A declared ground/cobble name is more
+  // authoritative than the generic elevated-horizontal ceiling heuristic.
+  const source = readTerrainMeshAuroraSourceMetadata(mesh);
+  const groundCandidates = [
+    source.textureReference,
+    source.sourceMesh,
+    mesh.name,
+    ...materials.map((material) => material?.name)
+  ];
+  if (groundCandidates.some((value) => hasExplicitTerrainGroundSurfaceToken(value))) {
+    return false;
+  }
+  if (
+    groundCandidates.some((value) => hasTerrainGroundSurfaceToken(value)) &&
+    isLikelyLowerInteriorGroundSurface(mesh.geometry)
+  ) {
+    return false;
+  }
   if (isLikelyElevatedHorizontalTileSurface(mesh.geometry)) {
     return true;
   }
@@ -3824,6 +4692,48 @@ function isLikelyTerrainVoidMaskMesh(mesh: THREE.Mesh): boolean {
   return materials.some((material) => isTerrainVoidMaskToken(material?.name));
 }
 
+function isLikelyTerrainAllBlackVoidGeometry(mesh: THREE.Mesh): boolean {
+  if (!hasTerrainMeshBlackMaterial(mesh)) {
+    return false;
+  }
+  if (!mesh.geometry.boundingBox) {
+    mesh.geometry.computeBoundingBox();
+  }
+  if (!mesh.geometry.boundingBox || mesh.geometry.boundingBox.isEmpty()) {
+    return false;
+  }
+  const bounds = mesh.geometry.boundingBox;
+  const size = bounds.getSize(new THREE.Vector3());
+  const isFlatBase = size.y <= 0.03 && size.x >= 0.25 && size.z >= 0.25;
+  // Aurora indoor tiles also use wide opaque black slabs as crop ceilings.
+  // Treat only broad, shallow horizontal slabs as void; narrow vertical door
+  // masks remain visible.
+  const isWideCropVolume =
+    size.x >= 1 &&
+    size.z >= 1 &&
+    // Full-tile crop volumes are Aurora occlusion devices rather than
+    // drawable room geometry. Keep the footprint ratio narrow enough that
+    // vertical door masks remain visible, and preserve thin authored crop
+    // planes that participate in the room mask/backing contract.
+    size.y >= 0.5 &&
+    size.y <= 3.25 &&
+    size.y <= Math.min(size.x, size.z) * 0.35;
+  // MDL-to-GLB can encode elevation either in the vertices or on the mesh
+  // node transform. Do not require geometry-local minY here: tcn01 Line94 is
+  // a 10x3x10 crop volume translated by its node, so its local box starts at
+  // zero even though the rendered volume is elevated.
+  return isFlatBase || isWideCropVolume;
+}
+
+function hasTerrainMeshBlackMaterial(mesh: THREE.Mesh): boolean {
+  const source = readTerrainMeshAuroraSourceMetadata(mesh);
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  return (
+    isTerrainBlackMaterialToken(source.textureReference) ||
+    materials.some((material) => isTerrainBlackMaterialToken(material?.name))
+  );
+}
+
 export function isTerrainTileVoidMaskMeshForTests(mesh: THREE.Mesh): boolean {
   return isLikelyTerrainVoidMaskMesh(mesh);
 }
@@ -3849,7 +4759,32 @@ function isLikelyTerrainGroundSurfaceMesh(mesh: THREE.Mesh): boolean {
   if (candidates.some((value) => hasExplicitTerrainGroundSurfaceToken(value))) {
     return true;
   }
-  return isLikelyLowHorizontalTerrainSurface(mesh.geometry);
+  return (
+    isLikelyLowHorizontalTerrainSurface(mesh.geometry) ||
+    isLikelyLowerInteriorGroundSurface(mesh.geometry)
+  );
+}
+
+function isLikelyLowerInteriorGroundSurface(
+  geometry: THREE.BufferGeometry
+): boolean {
+  if (!geometry.boundingBox) {
+    geometry.computeBoundingBox();
+  }
+  const box = geometry.boundingBox;
+  if (!box) {
+    return false;
+  }
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  // bci01 floor planes sit at Aurora Y=3, while visually similar interior
+  // ceiling planes start around Y=4.  Preserve broad, thin, ground-textured
+  // surfaces in that lower band without weakening the elevated-ceiling rule.
+  return (
+    box.max.y <= 3.25 &&
+    size.y <= 0.16 &&
+    Math.min(size.x, size.z) >= 4
+  );
 }
 
 function isLikelyLowHorizontalTerrainSurface(
@@ -3890,7 +4825,8 @@ function hasExplicitTerrainGroundSurfaceToken(value: string | undefined): boolea
     "snow",
     "earth",
     "mud",
-    "path"
+    "path",
+    "water"
   ];
   return surfaceTokens.some((token) => normalized.includes(token));
 }
@@ -3924,6 +4860,13 @@ function isTerrainVoidMaskSourceMeshToken(value: string | undefined): boolean {
 function isTerrainVoidMaskToken(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase() ?? "";
   return /(^|[^a-z0-9])sic11_black([^a-z0-9]|$)/u.test(normalized);
+}
+
+function isTerrainBlackMaterialToken(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return /(^|[^a-z0-9])(?:[a-z0-9]+_)?black(?:\d+)?([^a-z0-9]|$)/u.test(
+    normalized
+  );
 }
 
 function hasTerrainImageMapOverdrawToken(value: string | undefined): boolean {
@@ -4007,7 +4950,8 @@ function markTerrainTileModelLoadFailed(
   scenePackageReadiness: TerrainScenePackageReadiness,
   loadedTileIds: Set<string>,
   failedTileIds: Set<string>,
-  loaderErrorsByTileId: Map<string, string>
+  loaderErrorsByTileId: Map<string, string>,
+  excludedTileDefinitionIds: ReadonlySet<number>
 ): void {
   if (layer.parent !== runtime.scene) {
     return;
@@ -4022,7 +4966,8 @@ function markTerrainTileModelLoadFailed(
     loaderErrorsByTileId,
     new Set(),
     new Set(),
-    layer
+    layer,
+    excludedTileDefinitionIds
   );
   layer.userData.auroraTerrainTileModelFailedCount = nextSummary.modelFailedTileCount;
   layer.userData.auroraTerrainTileModelLoaderErrorSample =
@@ -4036,7 +4981,8 @@ function rebuildTerrainModelLayer(
   contractsByModelResRef: Map<string, TerrainTileModelContract>,
   renderStatus: TerrainRenderStatus,
   scenePackageReadiness: TerrainScenePackageReadiness,
-  debugState: TerrainDebugState
+  debugState: TerrainDebugState,
+  excludedTileDefinitionIds: ReadonlySet<number>
 ): TerrainTileModelRuntimeSummary {
   const layer = new THREE.Group();
   layer.name = TILE_MODEL_LAYER_NAME;
@@ -4058,11 +5004,15 @@ function rebuildTerrainModelLayer(
     loaderErrorsByTileId,
     textureAppliedTileIds,
     textureFailedTileIds,
-    layer
+    layer,
+    excludedTileDefinitionIds
   );
   writeTerrainRenderDataset(runtime, renderStatus, scenePackageReadiness, initialSummary);
 
   sceneData.tiles.forEach((tile) => {
+    if (isTileDefinitionExcluded(tile, excludedTileDefinitionIds)) {
+      return;
+    }
     const contract = resolveTileModelContract(tile, contractsByModelResRef);
     if (!contract) {
       return;
@@ -4089,7 +5039,8 @@ function rebuildTerrainModelLayer(
             scenePackageReadiness,
             loadedTileIds,
             failedTileIds,
-            loaderErrorsByTileId
+            loaderErrorsByTileId,
+            excludedTileDefinitionIds
           );
         }
         return;
@@ -4099,6 +5050,7 @@ function rebuildTerrainModelLayer(
         tile,
         contract,
         model,
+        sceneData,
         sceneData.width,
         sceneData.height,
         debugState
@@ -4125,7 +5077,8 @@ function rebuildTerrainModelLayer(
               loaderErrorsByTileId,
               textureAppliedTileIds,
               textureFailedTileIds,
-              layer
+              layer,
+              excludedTileDefinitionIds
             );
             writeTerrainRenderDataset(runtime, renderStatus, scenePackageReadiness, nextSummary);
             return;
@@ -4139,27 +5092,43 @@ function rebuildTerrainModelLayer(
             applyTerrainTileRotatingTextureCompensation(model);
           model.userData.auroraTerrainTileRotateTextureAdjustedMaterialCount =
             rotateTextureCompensation.adjustedMaterialCount;
-          const materialLightingMode =
-            applyTerrainTileTextureColorMaterialMode(model);
+          const materialLightingMode = applyAuroraTerrainReceiverMaterialProfile(
+            model,
+            { useAreaLighting: debugState.useAreaLighting !== false }
+          );
           model.userData.auroraTerrainTileMaterialLightingConvertedCount =
             materialLightingMode.convertedMaterialCount;
           model.userData.auroraTerrainTileMaterialLightingInspectedCount =
             materialLightingMode.inspectedMaterialCount;
-          const texturedModelSummary = summarizeTerrainTileModelLayer(model);
-          const didBindTextureToMesh = texturedModelSummary.materialMapCount > 0;
+          const materialMapCoverage = summarizeTerrainTileMaterialMapCoverage(model);
+          const didBindTextureToMesh = materialMapCoverage.texturedMaterialCount > 0;
+          const hasCompleteMaterialMapCoverage =
+            materialMapCoverage.textureCapableMaterialCount === 0 ||
+            materialMapCoverage.texturedMaterialCount ===
+              materialMapCoverage.textureCapableMaterialCount;
           const textureBindingNotApplicable =
             !didBindTextureToMesh &&
             isTerrainTileMaterialTextureBindingNotApplicable(model);
-          model.userData.auroraTerrainTileMaterialTextureStatus = didBindTextureToMesh
+          model.userData.auroraTerrainTileMaterialTextureCapableMaterialCount =
+            materialMapCoverage.textureCapableMaterialCount;
+          model.userData.auroraTerrainTileMaterialTextureBoundMaterialCount =
+            materialMapCoverage.texturedMaterialCount;
+          model.userData.auroraTerrainTileMaterialTextureMissingReferenceSample =
+            materialMapCoverage.missingReferenceSample;
+          model.userData.auroraTerrainTileMaterialTextureStatus =
+            hasCompleteMaterialMapCoverage && didBindTextureToMesh
             ? "applied"
             : textureBindingNotApplicable
               ? "not_applicable_hidden_tile"
               : finalize
-                ? "failed_no_material_map"
+                ? "failed_incomplete_material_map_coverage"
                 : "loading";
           model.userData.auroraTerrainTileMaterialTextureAppliedCount =
             texturesByReference.size;
-          if (didBindTextureToMesh || textureBindingNotApplicable) {
+          if (
+            (hasCompleteMaterialMapCoverage && didBindTextureToMesh) ||
+            textureBindingNotApplicable
+          ) {
             textureAppliedTileIds.add(tile.id);
             textureFailedTileIds.delete(tile.id);
           } else if (finalize) {
@@ -4174,7 +5143,8 @@ function rebuildTerrainModelLayer(
             loaderErrorsByTileId,
             textureAppliedTileIds,
             textureFailedTileIds,
-            layer
+            layer,
+            excludedTileDefinitionIds
           );
           writeTerrainRenderDataset(runtime, renderStatus, scenePackageReadiness, nextSummary);
         };
@@ -4203,7 +5173,8 @@ function rebuildTerrainModelLayer(
             loaderErrorsByTileId,
             textureAppliedTileIds,
             textureFailedTileIds,
-            layer
+            layer,
+            excludedTileDefinitionIds
           );
           writeTerrainRenderDataset(runtime, renderStatus, scenePackageReadiness, nextSummary);
         });
@@ -4217,7 +5188,8 @@ function rebuildTerrainModelLayer(
         loaderErrorsByTileId,
         textureAppliedTileIds,
         textureFailedTileIds,
-        layer
+        layer,
+        excludedTileDefinitionIds
       );
       layer.userData.auroraTerrainTileModelLoadedCount = nextSummary.modelLoadedTileCount;
       writeTerrainRenderDataset(runtime, renderStatus, scenePackageReadiness, nextSummary);
@@ -4233,7 +5205,8 @@ function rebuildTerrainModelLayer(
         scenePackageReadiness,
         loadedTileIds,
         failedTileIds,
-        loaderErrorsByTileId
+        loaderErrorsByTileId,
+        excludedTileDefinitionIds
       );
     });
   });
@@ -4246,6 +5219,7 @@ export function clearTerrainMesh(runtime: TerrainRuntime): void {
   clearTerrainImageMapLayer(runtime);
   clearTerrainAreaGlobalLightingLayer(runtime);
   clearTerrainTileLightLayer(runtime);
+  clearTerrainWokOverlayLayer(runtime);
   clearTerrainModelLayer(runtime);
   clearTerrainExtentLayer(runtime);
   clearTerrainRenderDataset(runtime);
@@ -4267,18 +5241,39 @@ export function rebuildTerrainMesh(
   tileProcessReadiness?: AreaTileProcessContractReadiness | null
 ): void {
   clearTerrainMesh(runtime);
-  const renderStatus = resolveTerrainRenderStatus(sceneData);
-  const scenePackageReadiness = resolveTerrainScenePackageReadiness(sceneData, renderStatus);
+  const terrainBuildSequence =
+    Number(runtime.scene.userData.auroraTerrainBuildSequence ?? 0) + 1;
+  const tileStateDigest = buildAreaTileStateDigest(sceneData);
+  const terrainBuildId = [
+    sceneData.sceneId,
+    terrainBuildSequence,
+    tileStateDigest
+  ].join(":");
+  runtime.scene.userData.auroraTerrainBuildSequence = terrainBuildSequence;
+  runtime.scene.userData.auroraTerrainBuildId = terrainBuildId;
+  runtime.scene.userData.auroraTerrainTileStateDigest = tileStateDigest;
+  if (runtime.container) {
+    runtime.container.dataset.areaTerrainBuildId = terrainBuildId;
+    runtime.container.dataset.areaTerrainTileStateDigest = tileStateDigest;
+  }
+  const renderStatus = resolveTerrainRenderStatus(sceneData, tileProcessReadiness);
+  const scenePackageReadiness = resolveTerrainScenePackageReadiness(
+    sceneData,
+    renderStatus,
+    tileProcessReadiness
+  );
   rebuildTerrainExtentLayer(runtime, sceneData, renderStatus);
   const tileModelContractsByModelResRef =
     buildTileModelContractsByModelResRef(tileProcessReadiness);
+  const excludedTileDefinitionIds = buildExcludedTileDefinitionIdSet(tileProcessReadiness);
   const tileModelSummary = rebuildTerrainModelLayer(
     runtime,
     sceneData,
     tileModelContractsByModelResRef,
     renderStatus,
     scenePackageReadiness,
-    debugState
+    debugState,
+    excludedTileDefinitionIds
   );
   rebuildTerrainImageMapLayer(
     runtime,
@@ -4288,6 +5283,7 @@ export function rebuildTerrainMesh(
   );
   rebuildTerrainAreaGlobalLightingLayer(runtime, sceneData, debugState);
   rebuildTerrainTileLightLayer(runtime, sceneData, debugState);
+  rebuildTerrainWokOverlayLayer(runtime, sceneData, debugState);
   runtime.scene.userData.auroraTerrainRenderStatus = renderStatus.code;
   runtime.scene.userData.auroraTerrainRenderLabel = renderStatus.label;
   runtime.scene.userData.auroraTerrainTileCount = renderStatus.tileCount;
@@ -4416,7 +5412,7 @@ export function rebuildTerrainMesh(
   bridgeTiles.forEach((tile, index) => {
     matrix.makeTranslation(
       resolveAuroraAreaRenderTileCenterX(tile.col, sceneData.width),
-      TILE_GEOMETRY_Y + (tile.height ?? 0),
+      TILE_GEOMETRY_Y + resolveTerrainTileHeightOffset(tile, sceneData),
       resolveAuroraAreaRenderTileCenterZ(tile.row, sceneData.height)
     );
     rotation.makeRotationY(
@@ -4436,9 +5432,6 @@ export function rebuildTerrainMesh(
       }
     } else {
       color.set("#4f6179");
-    }
-    if (debugState.walkmeshOverlay) {
-      color.lerp(new THREE.Color("#36ff9f"), 0.42);
     }
     if (selectedTileId === tile.id) {
       color.offsetHSL(0, 0, 0.18);
@@ -4547,7 +5540,7 @@ function rebuildTerrainLabelLayer(
     label.name = `terrain-source-label-${tile.id}`;
     label.position.set(
       resolveAuroraAreaRenderTileCenterX(tile.col, sceneData.width),
-      TILE_GEOMETRY_Y + (tile.height ?? 0) + 0.11,
+      TILE_GEOMETRY_Y + resolveTerrainTileHeightOffset(tile, sceneData) + 0.11,
       resolveAuroraAreaRenderTileCenterZ(tile.row, sceneData.height)
     );
     label.userData.auroraTileId = tile.tileId ?? "";

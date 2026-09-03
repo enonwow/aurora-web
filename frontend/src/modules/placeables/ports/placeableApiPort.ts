@@ -1,4 +1,6 @@
 import type {
+  PlaceableApiAppearanceRowsQuery,
+  PlaceableApiAppearanceRowsResult,
   PlaceableApiAssetContractsResult,
   PlaceableApiAssetContractsBatchRequestItem,
   PlaceableApiAssetContractsBatchResult,
@@ -20,6 +22,10 @@ export interface PlaceableApiRequestOptions {
 
 export interface PlaceableApiPort {
   listPlaceables(accessToken: string, query?: PlaceableApiListQuery): Promise<PlaceableApiListResult>;
+  listPlaceableAppearanceRows?(
+    accessToken: string,
+    query: PlaceableApiAppearanceRowsQuery
+  ): Promise<PlaceableApiAppearanceRowsResult>;
   getPlaceablePreview(accessToken: string, templateId: string): Promise<PlaceableApiPreviewScene>;
   createPlaceableBlueprint?(
     accessToken: string,
@@ -44,6 +50,11 @@ export interface PlaceableApiPort {
     payloads: PlaceableApiProcessPayload[],
     options?: PlaceableApiRequestOptions
   ): Promise<PlaceableApiProcessBatchResult>;
+  getProcessedPlaceable?(
+    accessToken: string,
+    cacheKey: string,
+    options?: PlaceableApiRequestOptions
+  ): Promise<PlaceableApiProcessResult>;
   getPlaceableViewportRenderPayloadBatch?(
     accessToken: string,
     payloads: PlaceableApiProcessPayload[],

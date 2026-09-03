@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AreaScene, AuroraAreaEditingTool, SceneObject } from "../contracts";
-import type { SceneObjectCatalogQueryFacade } from "../application/sceneObjectCatalogQueryFacade";
+import type {
+  SceneObjectCatalogQueryFacade,
+  SceneObjectCatalogType
+} from "../application/sceneObjectCatalogQueryFacade";
 import type { WorkspaceModeDefinition } from "../workspaceModes";
 import type { TelemetryPayload } from "../../telemetry/domain/telemetryEvent";
 import type {
@@ -9,13 +12,28 @@ import type {
 } from "../../areas/contracts";
 import type { ItemApiPaletteTreeResult } from "../../items/contracts";
 import type { AreaApiPort } from "../../areas/ports/areaApiPort";
+import type { AreaCreateFacade } from "../../areas/application/areaCreateFacade";
+import type { AreaEditingFacade } from "../../areas/application/areaEditingFacade";
+import type { AreaTileProductionCertificationSource } from "../../areas/application/areaTileProductionPlacementAdmission";
+import type { AreaUpdateFacade } from "../../areas/application/areaUpdateFacade";
+import type { AreaDeleteFacade } from "../../areas/application/areaDeleteFacade";
+import type { AreaRenameFacade } from "../../areas/application/areaRenameFacade";
+import type { AreaLifecycleFacade } from "../../areas/application/areaLifecycleFacade";
+import type { AreaCapabilityFacade } from "../../areas/application/areaCapabilityFacade";
+import type { AreaEventScriptCatalogFacade } from "../../areas/application/areaEventScriptCatalogFacade";
+import type { AreaEventScriptPublicationFacade } from "../../areas/application/areaEventScriptPublicationFacade";
+import type { AreaDraftSessionRegistry } from "../../areas/ports/areaLifecyclePort";
+import type { AreaWorkspaceDraftDocument } from "../../areas/areaWorkspaceDraftContracts";
 import type { AreaTileProcessContractReadiness } from "../../tiles/application/areaTileProcessContractReadiness";
 import type { TileApiPort } from "../../tiles/ports/tileApiPort";
 import type { PlaceableViewportRenderPayload } from "../../placeables/application/placeableRenderPayloadResolver";
 import { AreaSelectionPanel, type AreaListClientCacheEntry } from "./AreaSelectionPanel";
+import { AreaDraftPanel } from "./AreaDraftPanel";
 import { SceneObjectAddPanel } from "./SceneObjectAddPanel";
 import { AuroraAreaEditingPanel } from "./AuroraAreaEditingPanel";
 import type { WorkspaceAreaCanvasLoadingState } from "./WorkspaceCanvasViewport";
+import { AreaCapabilitySummaryPanel } from "./AreaCapabilitySummaryPanel";
+import type { AreaWorkspaceStatusEvent } from "../../areas/application/areaWorkspaceStatus";
 
 interface AreasModePanelProps {
   userId: string;
@@ -24,6 +42,24 @@ interface AreasModePanelProps {
   activeMode: WorkspaceModeDefinition;
   backendAccessToken: string | null;
   areaApiPort: AreaApiPort;
+  areaEditingFacade?: AreaEditingFacade;
+  areaCreateFacade?: AreaCreateFacade;
+  areaUpdateFacade?: AreaUpdateFacade;
+  areaDeleteFacade?: AreaDeleteFacade;
+  areaRenameFacade?: AreaRenameFacade;
+  areaCapabilityFacade?: AreaCapabilityFacade;
+  areaEventScriptCatalogFacade?: AreaEventScriptCatalogFacade;
+  areaEventScriptPublicationFacade?: AreaEventScriptPublicationFacade;
+  areaLifecycleFacade?: AreaLifecycleFacade<AreaWorkspaceDraftDocument>;
+  areaDraftSessionRegistry?: AreaDraftSessionRegistry;
+  areaDraftListRefreshRevision?: number;
+  onAreaDraftChanged?: () => void;
+  onAreaMaterialized?: () => void;
+  canMaterializeAreas?: boolean;
+  canDeleteAreas?: boolean;
+  canRenameAreas?: boolean;
+  onAreaDeleted?: (areaId: string) => void;
+  onAreaRenamed?: (sourceAreaId: string, targetAreaId: string, moduleRevision: string) => void;
   tileApiPort?: TileApiPort;
   areaListClientCacheRef: { current: AreaListClientCacheEntry | null };
   sceneObjectCatalogQueryFacade: SceneObjectCatalogQueryFacade;
@@ -35,16 +71,19 @@ interface AreasModePanelProps {
   selectedAreaTileId?: string | null;
   selectedAreaTileIds?: readonly string[];
   areaEditingTool: AuroraAreaEditingTool;
+  tileProductionCertification: AreaTileProductionCertificationSource;
   trackTelemetryEvent: (name: string, payload?: TelemetryPayload) => void;
   onAreaCanvasLoadingChange: (loading: WorkspaceAreaCanvasLoadingState | null) => void;
   onAreaSceneSelected: (scene: AreaScene) => void;
   onAreaSceneMutation: (scene: AreaScene, selectedTileId?: string | null, selectedTileIds?: string[]) => void;
   onAreaEditingToolChange: (tool: AuroraAreaEditingTool) => void;
   onObjectCreate: (object: SceneObject) => void;
+  onActiveCatalogTypeChange?: (type: Exclude<SceneObjectCatalogType, "all">) => void;
   onPlaceablesWorkflowActiveChange?: (active: boolean) => void;
   activeCreateObjectId?: string | null;
   areaTileProcessReadiness?: AreaTileProcessContractReadiness | null;
   onTileProcessReadinessChange?: (readiness: AreaTileProcessContractReadiness | null) => void;
+  onAreaWorkspaceStatusChange?: (event: AreaWorkspaceStatusEvent) => void;
 }
 
 type AreaLightingEvidenceStatus = "idle" | "loading" | "ready" | "error";
@@ -56,6 +95,24 @@ export function AreasModePanel({
   activeMode,
   backendAccessToken,
   areaApiPort,
+  areaEditingFacade,
+  areaCreateFacade,
+  areaUpdateFacade,
+  areaDeleteFacade,
+  areaRenameFacade,
+  areaCapabilityFacade,
+  areaEventScriptCatalogFacade,
+  areaEventScriptPublicationFacade,
+  areaLifecycleFacade,
+  areaDraftSessionRegistry,
+  areaDraftListRefreshRevision = 0,
+  onAreaDraftChanged,
+  onAreaMaterialized,
+  canMaterializeAreas = false,
+  canDeleteAreas = false,
+  canRenameAreas = false,
+  onAreaDeleted,
+  onAreaRenamed,
   tileApiPort,
   areaListClientCacheRef,
   sceneObjectCatalogQueryFacade,
@@ -67,16 +124,19 @@ export function AreasModePanel({
   selectedAreaTileId,
   selectedAreaTileIds,
   areaEditingTool,
+  tileProductionCertification,
   trackTelemetryEvent,
   onAreaCanvasLoadingChange,
   onAreaSceneSelected,
   onAreaSceneMutation,
   onAreaEditingToolChange,
   onObjectCreate,
+  onActiveCatalogTypeChange,
   onPlaceablesWorkflowActiveChange,
   activeCreateObjectId,
   areaTileProcessReadiness,
-  onTileProcessReadinessChange
+  onTileProcessReadinessChange,
+  onAreaWorkspaceStatusChange,
 }: AreasModePanelProps) {
   const workflowRef = useRef<HTMLDivElement | null>(null);
   const [activeWorkflowStep, setActiveWorkflowStep] = useState<"areas" | "placeables">(
@@ -121,9 +181,8 @@ export function AreasModePanel({
   const handleAreaSceneSelected = useCallback(
     (scene: AreaScene) => {
       onAreaSceneSelected(scene);
-      handleWorkflowStepSelect("placeables", "area_opened");
     },
-    [handleWorkflowStepSelect, onAreaSceneSelected]
+    [onAreaSceneSelected]
   );
 
   const openedAreaName =
@@ -144,16 +203,34 @@ export function AreasModePanel({
         <strong title={openedAreaName}>{openedAreaName}</strong>
         <small>{openedAreaMeta}</small>
       </div>
+      {areaCapabilityFacade ? (
+        <AreaCapabilitySummaryPanel
+          accessToken={backendAccessToken}
+          facade={areaCapabilityFacade}
+          trackTelemetryEvent={trackTelemetryEvent}
+        />
+      ) : null}
       <AuroraAreaEditingPanel
         accessToken={backendAccessToken}
         scene={openedAreaScene}
         selectedTileId={selectedAreaTileId}
         selectedTileIds={selectedAreaTileIds}
         tileProcessReadiness={areaTileProcessReadiness}
+        tileProductionCertification={tileProductionCertification}
         activeTool={areaEditingTool}
         onActiveToolChange={onAreaEditingToolChange}
         onSceneSelected={onAreaSceneSelected}
         onSceneMutation={onAreaSceneMutation}
+        areaEditingFacade={areaEditingFacade}
+        areaCreateFacade={areaCreateFacade}
+        areaUpdateFacade={areaUpdateFacade}
+        areaEventScriptCatalogFacade={areaEventScriptCatalogFacade}
+        areaEventScriptPublicationFacade={areaEventScriptPublicationFacade}
+        areaDraftSessionRegistry={areaDraftSessionRegistry}
+        canMaterializeAreas={canMaterializeAreas}
+        onAreaMaterialized={onAreaMaterialized}
+        onAreaWorkspaceStatusChange={onAreaWorkspaceStatusChange}
+        trackTelemetryEvent={trackTelemetryEvent}
       />
       <nav className="areas-mode-step-tabs" role="tablist" aria-label="areas workflow steps">
         <button
@@ -186,17 +263,39 @@ export function AreasModePanel({
         areaApiPort={areaApiPort}
         trackTelemetryEvent={trackTelemetryEvent}
       />
+      {areaLifecycleFacade && areaDraftSessionRegistry ? (
+        <AreaDraftPanel
+          userId={userId}
+          facade={areaLifecycleFacade}
+          draftSessionRegistry={areaDraftSessionRegistry}
+          refreshRevision={areaDraftListRefreshRevision}
+          hidden={activeWorkflowStep !== "areas"}
+          onAreaSceneSelected={handleAreaSceneSelected}
+          trackTelemetryEvent={trackTelemetryEvent}
+        />
+      ) : null}
       {activeMode.showAreaSelectionPanel ? (
         <AreaSelectionPanel
           userId={userId}
           backendAccessToken={backendAccessToken}
           areaApiPort={areaApiPort}
+          areaCreateFacade={areaCreateFacade}
+          areaDeleteFacade={areaDeleteFacade}
+          areaRenameFacade={areaRenameFacade}
+          areaLifecycleFacade={areaLifecycleFacade}
+          areaDraftSessionRegistry={areaDraftSessionRegistry}
           tileApiPort={tileApiPort}
           areaListClientCacheRef={areaListClientCacheRef}
           hidden={activeWorkflowStep !== "areas"}
           trackTelemetryEvent={trackTelemetryEvent}
           creatureTemplateObjects={creatureTemplateObjects}
           objectTemplateObjects={objects}
+          onDraftCreated={onAreaDraftChanged}
+          canDeleteAreas={canDeleteAreas}
+          canRenameAreas={canRenameAreas}
+          onAreaDeleted={onAreaDeleted}
+          onAreaRenamed={onAreaRenamed}
+          onAreaWorkspaceStatusChange={onAreaWorkspaceStatusChange}
           onAreaCanvasLoadingChange={onAreaCanvasLoadingChange}
           onTileProcessReadinessChange={onTileProcessReadinessChange}
           onAreaSceneSelected={handleAreaSceneSelected}
@@ -218,6 +317,7 @@ export function AreasModePanel({
         itemPaletteTree={itemPaletteTree}
         thumbnailRenderEnabled={thumbnailRenderEnabled}
         onObjectCreate={onObjectCreate}
+        onActiveTypeChange={onActiveCatalogTypeChange}
         activeCreateObjectId={activeCreateObjectId}
       />
     </div>

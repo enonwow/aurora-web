@@ -171,6 +171,10 @@ function cloneItemProperties(
     armorParts: properties.armorParts ? { ...properties.armorParts } : undefined,
     materialColors: properties.materialColors ? { ...properties.materialColors } : undefined,
     propertyList: properties.propertyList?.map(cloneItemPropertyEntry),
+    inventoryItems: properties.inventoryItems?.map((entry) => ({ ...entry })),
+    blueprintInventoryItems: properties.blueprintInventoryItems?.map((entry) => ({ ...entry })),
+    blueprintEquippedItems: properties.blueprintEquippedItems?.map((entry) => ({ ...entry })),
+    variables: properties.variables?.map((entry) => ({ ...entry })),
     scripts: properties.scripts ? { ...properties.scripts } : undefined
   };
 }

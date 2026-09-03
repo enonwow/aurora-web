@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { recordVfxRuntimeAssetSettlement } from "../../../vfx/application/vfxRuntimeObservability";
 import type { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { decodeTgaToRgba } from "../../../items/application/itemRawTextureDecoder";
 import { ensureAuroraPltPaletteDataLoaded } from "../aurora/auroraPltPalette";
@@ -13,6 +14,20 @@ import type {
   PlaceableRenderPackageAuroraTextureSlot,
   PlaceableRenderPackageTextureBinding
 } from "../../contracts";
+import {
+  installAuroraMtrCustomShaderProgram,
+  toPlaceableAuroraMtrCustomShaderState
+} from "./auroraMtrCustomShaderProgram";
+import {
+  installAuroraMdlSourceMaterialLighting,
+  installAuroraTxiAdditiveDecalRawGammaOutput,
+  installAuroraTxiDecalUnlitWhite
+} from "../../../shared/adapters/three/auroraMdlSourceMaterialLighting";
+import {
+  isPlaceableCacheNotFoundEnvelope,
+  PLACEABLE_CACHE_NOT_FOUND_CODE,
+  resolvePlaceableAssetDeliveryCacheKey
+} from "../../domain/placeableCacheMiss";
 
 export const PLACEABLE_AREA_MODEL_TARGET_MAX_AXIS_FACTOR = 1.35;
 export const PLACEABLE_AREA_MODEL_AURORA_UNITS_TO_TILE_SPACE = 0.1;
@@ -102,6 +117,14 @@ export interface AuroraSourceSkinningRuntime {
   apply: () => void;
 }
 
+export interface AuroraSourceHierarchySynthesisResult {
+  synthesizedNodeCount: number;
+  synthesizedNodeNames: string[];
+  reparentedNodeCount: number;
+  rebasedGeometryCount: number;
+  rebasedGeometryNodeNames: string[];
+}
+
 export interface PlaceableTextureLoaderLike {
   load(
     url: string,
@@ -111,23 +134,34 @@ export interface PlaceableTextureLoaderLike {
   ): unknown;
 }
 
+export interface PlaceableAssetFetchResponse {
+  ok?: boolean;
+  status?: number;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  blob?: () => Promise<Blob>;
+  json?: () => Promise<unknown>;
+  clone?: () => PlaceableAssetFetchResponse;
+}
+
 export type PlaceableTextureFetch = (
   input: string,
   init?: { headers?: Record<string, string>; signal?: AbortSignal }
-) => Promise<{
-  ok?: boolean;
-  arrayBuffer: () => Promise<ArrayBuffer>;
-  blob?: () => Promise<Blob>;
-}>;
+) => Promise<PlaceableAssetFetchResponse>;
 
 export type PlaceableModelFetch = (
   input: string,
   init?: { headers?: Record<string, string>; signal?: AbortSignal }
-) => Promise<{
-  ok?: boolean;
-  status?: number;
-  arrayBuffer: () => Promise<ArrayBuffer>;
-}>;
+) => Promise<PlaceableAssetFetchResponse>;
+
+export const PLACEABLE_ASSET_CACHE_MISS_EVENT = "placeable:asset-cache-miss";
+
+export interface PlaceableAssetCacheMissEventDetail {
+  cacheKey: string;
+  url: string;
+  status: number;
+  assetKind: "model" | "texture";
+  code: typeof PLACEABLE_CACHE_NOT_FOUND_CODE;
+}
 
 export interface PlaceableTextureRuntimeCache {
   placeableTextureLoader: PlaceableTextureLoaderLike;
@@ -140,6 +174,7 @@ export interface PlaceableTextureRuntimeCache {
   placeableTexturePendingByUrl: Map<string, Promise<THREE.Texture | null>>;
   container?: {
     dataset?: DOMStringMap | Record<string, string | undefined>;
+    dispatchEvent?: (event: Event) => boolean;
   };
 }
 
@@ -197,6 +232,12 @@ export interface PlaceableTextureApplicationOptions {
   auroraMaterial?: PlaceableRenderPackageAuroraMaterial | null;
   textureBindings?: PlaceableRenderPackageTextureBinding[] | null;
   skipMesh?: (mesh: THREE.Mesh) => boolean;
+  allowSingleTextureFallback?: boolean;
+}
+
+export interface AuroraModelMaterialTextureApplicationReport {
+  resolvedReferences: string[];
+  unresolvedReferences: string[];
 }
 
 type AuroraMaterialContractNode =
@@ -216,15 +257,45 @@ interface AuroraTextureCycleBinding {
   readonly numY: number;
   readonly fps: number;
   readonly reference: string;
-  elapsedSeconds: number;
+}
+
+interface AuroraTextureCycleTextureState extends AuroraTextureCycleState {
+  frameIndex: number;
+  accumulatorSeconds: number;
+  lastRendererFrameSerial: number | null;
+  updateCount: number;
 }
 
 export interface AuroraTextureCycleRuntime {
   readonly materialCount: number;
   readonly textureCount: number;
   readonly references: string[];
-  apply: (deltaSeconds?: number, elapsedSeconds?: number) => void;
+  apply: (
+    deltaSeconds?: number,
+    elapsedSeconds?: number,
+    rendererFrameSerial?: number
+  ) => void;
+  snapshots: () => AuroraTextureCycleRuntimeSnapshot[];
 }
+
+export interface AuroraTextureCycleRuntimeSnapshot {
+  readonly reference: string;
+  readonly numX: number;
+  readonly numY: number;
+  readonly fps: number;
+  readonly frameIndex: number;
+  readonly accumulatorSeconds: number;
+  readonly lastRendererFrameSerial: number | null;
+  readonly frameAdvanceCount: number;
+  readonly source: string;
+}
+
+const AURORA_TEXTURE_CYCLE_RUNTIME_SOURCE =
+  "nwtoolset.exe FUN_00a9b478 global-frame guard, strict 1/fps threshold, zeroed residual, modulo frame advance";
+const auroraTextureCycleTextureStates = new WeakMap<
+  THREE.Texture,
+  AuroraTextureCycleTextureState
+>();
 
 interface ScheduledPlaceableModelLoad {
   start: () => Promise<THREE.Object3D | null>;
@@ -501,6 +572,7 @@ interface AuroraSourceSelfIllumColorBinding {
 }
 
 const placeableModelLoadQueues = new WeakMap<object, PlaceableModelLoadQueueState>();
+const placeableAssetCacheMissKeysByRuntime = new WeakMap<object, Set<string>>();
 const AURORA_SOURCE_SKINNING_GEOMETRY_READY_KEY = "auroraSourceSkinningGeometryReady";
 const AURORA_SOURCE_SKINNING_BIND_POSITIONS_KEY = "auroraSourceSkinningBindPositions";
 const AURORA_SOURCE_DANGLYMESH_GEOMETRY_READY_KEY = "auroraSourceDanglymeshGeometryReady";
@@ -993,6 +1065,33 @@ function configureLoadedPlaceableTexture(
   return texture;
 }
 
+function configureAuroraGeneratedPltTexture(
+  runtime: PlaceableTextureRuntimeCache,
+  texture: THREE.Texture
+): THREE.Texture {
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.flipY = false;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = resolveTextureAnisotropy(runtime);
+  texture.needsUpdate = true;
+  texture.userData = {
+    ...texture.userData,
+    auroraPltGeneratedTargetFormat: "rgba8-linear",
+    auroraPltSamplerState: {
+      wrapS: "repeat",
+      wrapT: "repeat",
+      magFilter: "linear",
+      minFilter: "linear-mipmap-linear",
+      generateMipmaps: true
+    }
+  };
+  return texture;
+}
+
 function resolvePlaceableTextureCacheAssetKey(textureUrl: string): string | null {
   const fallbackMatch = textureUrl
     .split(/[?#]/u)[0]
@@ -1054,6 +1153,17 @@ function readCachedPlaceableTexture(
     }
   }
   return undefined;
+}
+
+export function getCachedPlaceableTexture(
+  runtime: PlaceableTextureRuntimeCache,
+  textureUrl: string,
+  options: PlaceableTextureLoadOptions = {}
+): THREE.Texture | undefined {
+  return readCachedPlaceableTexture(
+    runtime,
+    resolvePlaceableTextureRuntimeCacheKeys(textureUrl, options)
+  );
 }
 
 function readPendingPlaceableTexture(
@@ -1295,6 +1405,62 @@ function canCreateObjectUrl(): boolean {
   );
 }
 
+function readPlaceableCacheMissKeys(runtime: object): Set<string> {
+  const existing = placeableAssetCacheMissKeysByRuntime.get(runtime);
+  if (existing) {
+    return existing;
+  }
+  const created = new Set<string>();
+  placeableAssetCacheMissKeysByRuntime.set(runtime, created);
+  return created;
+}
+
+function hasPlaceableAssetCacheMiss(runtime: object, assetUrl: string): boolean {
+  const cacheKey = resolvePlaceableAssetDeliveryCacheKey(assetUrl);
+  return cacheKey ? readPlaceableCacheMissKeys(runtime).has(cacheKey) : false;
+}
+
+async function responseHasExactPlaceableCacheMissCode(
+  response: PlaceableAssetFetchResponse
+): Promise<boolean> {
+  if (response.status !== 404) {
+    return false;
+  }
+  try {
+    return isPlaceableCacheNotFoundEnvelope(await response.clone?.().json?.());
+  } catch {
+    return false;
+  }
+}
+
+async function recordPlaceableAssetCacheMissIfExact(
+  runtime: PlaceableTextureRuntimeCache | PlaceableModelRuntimeCache,
+  assetUrl: string,
+  assetKind: PlaceableAssetCacheMissEventDetail["assetKind"],
+  response: PlaceableAssetFetchResponse
+): Promise<void> {
+  const cacheKey = resolvePlaceableAssetDeliveryCacheKey(assetUrl);
+  if (!cacheKey || !(await responseHasExactPlaceableCacheMissCode(response))) {
+    return;
+  }
+  const observedCacheKeys = readPlaceableCacheMissKeys(runtime);
+  const alreadyObserved = observedCacheKeys.has(cacheKey);
+  observedCacheKeys.add(cacheKey);
+  if (!alreadyObserved) {
+    runtime.container?.dispatchEvent?.(
+      new CustomEvent<PlaceableAssetCacheMissEventDetail>(PLACEABLE_ASSET_CACHE_MISS_EVENT, {
+        detail: {
+          cacheKey,
+          url: assetUrl,
+          status: 404,
+          assetKind,
+          code: PLACEABLE_CACHE_NOT_FOUND_CODE
+        }
+      })
+    );
+  }
+}
+
 function shouldLoadPlaceableTextureWithFetchedObjectUrl(
   runtime: PlaceableTextureRuntimeCache
 ): boolean {
@@ -1327,7 +1493,11 @@ async function fetchPlaceableTextureWithTimeout(
       headers: runtime.placeableTextureRequestHeader ?? {},
       ...(abortController ? { signal: abortController.signal } : {})
     });
-    return await Promise.race([responsePromise, timeoutPromise]);
+    const response = await Promise.race([responsePromise, timeoutPromise]);
+    if (response) {
+      await recordPlaceableAssetCacheMissIfExact(runtime, textureUrl, "texture", response);
+    }
+    return response;
   } catch {
     return null;
   } finally {
@@ -1481,7 +1651,11 @@ async function loadAuroraTpcTextureWithFetch(
   }
 }
 
-function flipPlaceableTextureRows(data: Uint8Array, width: number, height: number): Uint8Array {
+export function flipPlaceableTextureRows(
+  data: Uint8Array,
+  width: number,
+  height: number
+): Uint8Array {
   const rowByteLength = width * 4;
   const flippedData = new Uint8Array(data.length);
   for (let row = 0; row < height; row += 1) {
@@ -1519,16 +1693,19 @@ async function loadAuroraPltTextureWithFetch(
     if (!decodedTexture) {
       return null;
     }
-    const texture = configureLoadedPlaceableTexture(
+    const texture = configureAuroraGeneratedPltTexture(
       runtime,
-      new THREE.DataTexture(
-        decodedTexture.data,
-        decodedTexture.width,
-        decodedTexture.height,
-        THREE.RGBAFormat
-      ),
-      decodedTexture.sourceFormat,
-      textureUrl
+      configureLoadedPlaceableTexture(
+        runtime,
+        new THREE.DataTexture(
+          decodedTexture.data,
+          decodedTexture.width,
+          decodedTexture.height,
+          THREE.RGBAFormat
+        ),
+        decodedTexture.sourceFormat,
+        textureUrl
+      )
     );
     texture.userData = {
       ...texture.userData,
@@ -1585,12 +1762,17 @@ async function loadAuroraTgaTextureWithFetch(
 }
 
 async function loadPlaceableTextureWithFetchDecodeRetry(
+  runtime: PlaceableTextureRuntimeCache,
+  textureUrl: string,
   loadTexture: () => Promise<THREE.Texture | null>
 ): Promise<THREE.Texture | null> {
   for (let attempt = 0; attempt <= PLACEABLE_TEXTURE_FETCH_DECODE_RETRY_LIMIT; attempt += 1) {
     const texture = await loadTexture();
     if (texture) {
       return texture;
+    }
+    if (hasPlaceableAssetCacheMiss(runtime, textureUrl)) {
+      return null;
     }
   }
   return null;
@@ -1604,11 +1786,19 @@ export function ensurePlaceableTexture(
   const textureCacheKeys = resolvePlaceableTextureRuntimeCacheKeys(textureUrl, options);
   const cachedTexture = readCachedPlaceableTexture(runtime, textureCacheKeys);
   if (cachedTexture) {
+    recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+      stage: "cached",
+      completedAtMs: Date.now()
+    });
     writeCachedPlaceableTexture(runtime, textureCacheKeys, cachedTexture);
     return Promise.resolve(cachedTexture);
   }
   const pendingTexture = readPendingPlaceableTexture(runtime, textureCacheKeys);
   if (pendingTexture) {
+    recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+      stage: "requested",
+      startedAtMs: Date.now()
+    });
     textureCacheKeys.forEach((cacheKey) => {
       runtime.placeableTexturePendingByUrl.set(cacheKey, pendingTexture);
     });
@@ -1619,9 +1809,13 @@ export function ensurePlaceableTexture(
       return texture;
     });
   }
+  recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+    stage: "requested",
+    startedAtMs: Date.now()
+  });
   const request = schedulePlaceableTextureLoad(runtime, async () => {
     if (runtime.placeableTextureFetch && shouldAttemptAuroraPltDecode(textureUrl)) {
-      const auroraPltTexture = await loadPlaceableTextureWithFetchDecodeRetry(() =>
+      const auroraPltTexture = await loadPlaceableTextureWithFetchDecodeRetry(runtime, textureUrl, () =>
         loadAuroraPltTextureWithFetch(runtime, textureUrl, options)
       );
       if (auroraPltTexture) {
@@ -1631,7 +1825,7 @@ export function ensurePlaceableTexture(
     }
 
     if (runtime.placeableTextureFetch && shouldAttemptAuroraTgaDecode(textureUrl)) {
-      const auroraTgaTexture = await loadPlaceableTextureWithFetchDecodeRetry(() =>
+      const auroraTgaTexture = await loadPlaceableTextureWithFetchDecodeRetry(runtime, textureUrl, () =>
         loadAuroraTgaTextureWithFetch(runtime, textureUrl)
       );
       if (auroraTgaTexture) {
@@ -1641,7 +1835,7 @@ export function ensurePlaceableTexture(
     }
 
     if (runtime.placeableTextureFetch && shouldAttemptAuroraTpcDecode(textureUrl)) {
-      const auroraTpcTexture = await loadPlaceableTextureWithFetchDecodeRetry(() =>
+      const auroraTpcTexture = await loadPlaceableTextureWithFetchDecodeRetry(runtime, textureUrl, () =>
         loadAuroraTpcTextureWithFetch(runtime, textureUrl)
       );
       if (auroraTpcTexture) {
@@ -1649,6 +1843,8 @@ export function ensurePlaceableTexture(
         return auroraTpcTexture;
       }
     }
+
+    if (hasPlaceableAssetCacheMiss(runtime, textureUrl)) return null;
 
     if (shouldLoadPlaceableTextureWithFetchedObjectUrl(runtime)) {
       const fetchedObjectUrlTexture = await loadPlaceableTextureWithFetchedObjectUrl(
@@ -1660,6 +1856,7 @@ export function ensurePlaceableTexture(
         writeCachedPlaceableTexture(runtime, textureCacheKeys, fetchedObjectUrlTexture);
         return fetchedObjectUrlTexture;
       }
+      if (hasPlaceableAssetCacheMiss(runtime, textureUrl)) return null;
     }
 
     for (const loader of resolvePlaceableTextureLoaderCandidates(runtime, textureUrl)) {
@@ -1675,7 +1872,27 @@ export function ensurePlaceableTexture(
   }, {
     ...options,
     label: options.label ?? resolvePlaceableTextureQueueLabel(textureUrl)
-  }).finally(() => {
+  })
+    .then((texture) => {
+      if (texture) {
+        recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+          stage: "decoded",
+          completedAtMs: Date.now()
+        });
+        recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+          stage: "cached",
+          completedAtMs: Date.now()
+        });
+      } else {
+        recordVfxRuntimeAssetSettlement(runtime, textureUrl, {
+          stage: "failed",
+          completedAtMs: Date.now(),
+          error: "texture-load-failed"
+        });
+      }
+      return texture;
+    })
+    .finally(() => {
     textureCacheKeys.forEach((cacheKey) => {
       runtime.placeableTexturePendingByUrl.delete(cacheKey);
     });
@@ -1764,21 +1981,34 @@ interface PlaceableTextureAlphaCoverage {
   readonly alphaPixelRatio: number;
 }
 
+interface PlaceableTextureNearBlackCoverage {
+  readonly status: "sampled_rgba" | "pixel_data_missing";
+  readonly hasNearBlackPixels: boolean;
+  readonly nearBlackPixelRatio: number;
+  readonly sampledPixelCount: number;
+}
+
 const AURORA_DECAL_TEXTURE_REFERENCE_PATTERN =
   /(?:blood|dirt|plama|splat|stain|scorch|spill|mud|smudge|decal|smoke|fog|mist|cloud)/iu;
 const AURORA_MAGENTA_KEY_TEXTURE_REFERENCE_PATTERN =
   /(?:plantmag|magenta[_-]?key|color[_-]?key)/iu;
 const AURORA_ITEM_SHIELD_BLACK_KEY_TEXTURE_REFERENCE_PATTERN =
   /^ash(?:lw|sw|to)_\d{3}t$/iu;
-const AURORA_CLEAR_CUSTOM_SHADER_OPACITY = 0;
 const AURORA_TEXTURE_ALPHA_PROFILE_USER_DATA_KEY = "auroraTextureAlphaProfile";
 const AURORA_TEXTURE_ALPHA_COVERAGE_USER_DATA_KEY = "auroraTextureAlphaCoverage";
+const AURORA_TEXTURE_NEAR_BLACK_COVERAGE_USER_DATA_KEY =
+  "auroraTextureNearBlackCoverage";
 const AURORA_MATERIAL_SHADER_CACHE_KEYS_USER_DATA_KEY = "auroraMaterialShaderCacheKeys";
+const AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD = 0.2;
 const AURORA_HARD_ALPHA_TEST_THRESHOLD = 0.5;
 const AURORA_SOFT_ALPHA_CUTOUT_TEST_THRESHOLD = 0.75;
 const AURORA_SOFT_ALPHA_LAYER_TRANSPARENT_PIXEL_RATIO = 0.25;
 const AURORA_ALPHA_COVERAGE_SAMPLE_LIMIT = 65_536;
 const AURORA_TRANSPARENCY_HINT_COLOR_KEY_ALPHA_TEST_THRESHOLD = 0.1;
+const AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SOURCE_CHANNEL_THRESHOLD = 12;
+const AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SHADER_SRGB_THRESHOLD =
+  AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SOURCE_CHANNEL_THRESHOLD / 255;
+const AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SHADER_LINEAR_THRESHOLD = 0.00368;
 const AURORA_ITEM_SHIELD_BLACK_KEY_ALPHA_TEST_THRESHOLD = 0.01;
 const AURORA_ITEM_SHIELD_BLACK_KEY_BACKER_OFFSET = 0.006;
 const AURORA_ITEM_SHIELD_BLACK_KEY_BACKER_FALLBACK_COLOR = 0x68717a;
@@ -1947,6 +2177,97 @@ function resolveTextureAlphaCoverage(texture: THREE.Texture): PlaceableTextureAl
     softAlphaPixelRatio,
     alphaPixelRatio: hasAlpha ? Math.max(softAlphaPixelRatio, 0.001) : 0
   });
+}
+
+function cacheTextureNearBlackCoverage(
+  texture: THREE.Texture,
+  coverage: PlaceableTextureNearBlackCoverage
+): PlaceableTextureNearBlackCoverage {
+  texture.userData = {
+    ...texture.userData,
+    [AURORA_TEXTURE_NEAR_BLACK_COVERAGE_USER_DATA_KEY]: coverage
+  };
+  return coverage;
+}
+
+function readCachedTextureNearBlackCoverage(
+  texture: THREE.Texture
+): PlaceableTextureNearBlackCoverage | null {
+  const cached = asRecord(
+    texture.userData?.[AURORA_TEXTURE_NEAR_BLACK_COVERAGE_USER_DATA_KEY]
+  );
+  if (
+    (cached?.status === "sampled_rgba" || cached?.status === "pixel_data_missing") &&
+    typeof cached.hasNearBlackPixels === "boolean" &&
+    typeof cached.nearBlackPixelRatio === "number" &&
+    typeof cached.sampledPixelCount === "number"
+  ) {
+    return {
+      status: cached.status,
+      hasNearBlackPixels: cached.hasNearBlackPixels,
+      nearBlackPixelRatio: cached.nearBlackPixelRatio,
+      sampledPixelCount: cached.sampledPixelCount
+    };
+  }
+  return null;
+}
+
+function resolveTextureNearBlackCoverage(
+  texture: THREE.Texture
+): PlaceableTextureNearBlackCoverage {
+  const cached = readCachedTextureNearBlackCoverage(texture);
+  if (cached) {
+    return cached;
+  }
+  const withImageData = texture as THREE.Texture & {
+    image?: { data?: ArrayLike<number> };
+  };
+  const rgbaData = withImageData.image?.data;
+  if (!rgbaData || rgbaData.length < 4) {
+    return cacheTextureNearBlackCoverage(texture, {
+      status: "pixel_data_missing",
+      hasNearBlackPixels: false,
+      nearBlackPixelRatio: 0,
+      sampledPixelCount: 0
+    });
+  }
+
+  const totalPixels = Math.max(1, Math.floor(rgbaData.length / 4));
+  const pixelStep = Math.max(
+    1,
+    Math.floor(totalPixels / AURORA_ALPHA_COVERAGE_SAMPLE_LIMIT)
+  );
+  let nearBlackPixels = 0;
+  let sampledPixels = 0;
+  for (let pixelIndex = 0; pixelIndex < totalPixels; pixelIndex += pixelStep) {
+    const index = pixelIndex * 4;
+    const red = rgbaData[index] ?? 255;
+    const green = rgbaData[index + 1] ?? 255;
+    const blue = rgbaData[index + 2] ?? 255;
+    sampledPixels += 1;
+    if (
+      red <= AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SOURCE_CHANNEL_THRESHOLD &&
+      green <= AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SOURCE_CHANNEL_THRESHOLD &&
+      blue <= AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SOURCE_CHANNEL_THRESHOLD
+    ) {
+      nearBlackPixels += 1;
+    }
+  }
+  const sampledPixelCount = Math.max(1, sampledPixels);
+  return cacheTextureNearBlackCoverage(texture, {
+    status: "sampled_rgba",
+    hasNearBlackPixels: nearBlackPixels > 0,
+    nearBlackPixelRatio: nearBlackPixels / sampledPixelCount,
+    sampledPixelCount
+  });
+}
+
+function resolveTransparencyHintNearBlackShaderThreshold(
+  texture: THREE.Texture
+): number {
+  return texture.colorSpace === THREE.SRGBColorSpace
+    ? AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SHADER_LINEAR_THRESHOLD
+    : AURORA_TRANSPARENCY_HINT_NEAR_BLACK_SHADER_SRGB_THRESHOLD;
 }
 
 function resolvePrimaryMaterialTextureReference(material: THREE.Material): string {
@@ -2303,12 +2624,21 @@ function readAuroraMaterialTransparencyHint(material: THREE.Material): number {
 
 function isAuroraTransparencyHintColorKeyMaterial(
   material: THREE.Material,
-  alphaProfile: PlaceableTextureAlphaProfile
+  alphaProfile: PlaceableTextureAlphaProfile,
+  nearBlackCoverage: PlaceableTextureNearBlackCoverage
 ): boolean {
-  return !alphaProfile.usesAlpha && readAuroraMaterialTransparencyHint(material) > 0;
+  return (
+    !alphaProfile.usesAlpha &&
+    readAuroraMaterialTransparencyHint(material) > 0 &&
+    nearBlackCoverage.status === "sampled_rgba" &&
+    nearBlackCoverage.hasNearBlackPixels
+  );
 }
 
-function applyAuroraTransparencyHintColorKeyShader(material: THREE.Material): void {
+function applyAuroraTransparencyHintColorKeyShader(
+  material: THREE.Material,
+  maxChannelThreshold: number
+): void {
   if (material.userData.auroraTransparencyHintColorKeyShaderApplied === true) {
     return;
   }
@@ -2319,15 +2649,19 @@ function applyAuroraTransparencyHintColorKeyShader(material: THREE.Material): vo
       "#include <alphatest_fragment>",
       [
         "#include <alphatest_fragment>",
-        "float auroraTransparencyHintLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));",
-        "if (auroraTransparencyHintLuminance <= 0.1) discard;"
+        "float auroraTransparencyHintMaxChannel = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);",
+        `if (auroraTransparencyHintMaxChannel <= ${maxChannelThreshold.toFixed(6)}) discard;`
       ].join("\n")
     );
   };
-  appendAuroraMaterialShaderCacheKey(material, "aurora-transparencyhint-color-key-v1");
+  appendAuroraMaterialShaderCacheKey(
+    material,
+    `aurora-transparencyhint-source-near-black-v2-${maxChannelThreshold.toFixed(6)}`
+  );
   material.userData = {
     ...material.userData,
-    auroraTransparencyHintColorKeyShaderApplied: true
+    auroraTransparencyHintColorKeyShaderApplied: true,
+    auroraTransparencyHintColorKeyShaderThreshold: maxChannelThreshold
   };
 }
 
@@ -2396,11 +2730,11 @@ function applyTextureToMaterial(
   selectedTextureReference?: string
 ): void {
   material.map = texture;
-  material.side = THREE.DoubleSide;
   if ("color" in material && material.color instanceof THREE.Color) {
     material.color.set(0xffffff);
   }
   const alphaProfile = resolveTextureAlphaProfile(texture);
+  const nearBlackCoverage = resolveTextureNearBlackCoverage(texture);
   const normalizedSelectedTextureReference = selectedTextureReference
     ? normalizePlaceableTextureReference(selectedTextureReference)
     : "";
@@ -2413,7 +2747,8 @@ function applyTextureToMaterial(
   const isItemShieldBlackKey = isAuroraItemShieldBlackKeyMaterial(material);
   const isTransparencyHintColorKey = isAuroraTransparencyHintColorKeyMaterial(
     material,
-    alphaProfile
+    alphaProfile,
+    nearBlackCoverage
   );
   const alphaCoverage = resolveTextureAlphaCoverage(texture);
   const isSoftAlphaLayer =
@@ -2454,7 +2789,10 @@ function applyTextureToMaterial(
     applyAuroraItemShieldBlackKeyShader(material);
   }
   if (isTransparencyHintColorKey) {
-    applyAuroraTransparencyHintColorKeyShader(material);
+    applyAuroraTransparencyHintColorKeyShader(
+      material,
+      resolveTransparencyHintNearBlackShaderThreshold(texture)
+    );
   }
   if (isSoftAlphaDecal) {
     material.alphaTest = 0;
@@ -2477,6 +2815,9 @@ function applyTextureToMaterial(
     auroraTextureTransparentPixelRatio: alphaCoverage.transparentPixelRatio,
     auroraTextureSoftAlphaPixelRatio: alphaCoverage.softAlphaPixelRatio,
     auroraTextureAlphaPixelRatio: alphaCoverage.alphaPixelRatio,
+    auroraTextureNearBlackCoverageStatus: nearBlackCoverage.status,
+    auroraTextureNearBlackPixelRatio: nearBlackCoverage.nearBlackPixelRatio,
+    auroraTextureNearBlackSampledPixelCount: nearBlackCoverage.sampledPixelCount,
     auroraTextureAlphaMode: alphaMode,
     auroraTextureAlphaTest: material.alphaTest,
     auroraSoftAlphaLayerMaterial: isSoftAlphaLayer,
@@ -2652,7 +2993,7 @@ export function applyPlaceableTexturesToModel(
   texturesByReference: Map<string, THREE.Texture>,
   fallbackTexture?: THREE.Texture,
   options: PlaceableTextureApplicationOptions = {}
-): void {
+): AuroraModelMaterialTextureApplicationReport {
   const auroraMaterialContractsByReference = buildAuroraMaterialContractsByReference(
     options.auroraMaterial
   );
@@ -2661,7 +3002,11 @@ export function applyPlaceableTexturesToModel(
   );
   const singleTextureFallback =
     fallbackTexture ??
-    (texturesByReference.size === 1 ? Array.from(texturesByReference.values())[0] : undefined);
+    (options.allowSingleTextureFallback !== false && texturesByReference.size === 1
+      ? Array.from(texturesByReference.values())[0]
+      : undefined);
+  const resolvedReferences = new Set<string>();
+  const unresolvedReferences = new Set<string>();
   model.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
       return;
@@ -2689,6 +3034,18 @@ export function applyPlaceableTexturesToModel(
       const textureSlotReferenceCandidates = resolveMaterialTextureSlots(material).map(
         (slot) => `${slot.slot}:${slot.role}:${slot.reference}`
       );
+      const expectedTextureReferences = deduplicateAliasPrefixes([
+        ...textureReferenceCandidates,
+        ...resolveMaterialTextureReferenceList(material),
+        ...resolveMaterialTextureSlots(material).map((slot) => slot.reference)
+      ]);
+      expectedTextureReferences.forEach((reference) => {
+        if (resolveTextureByReferenceCandidate(reference, texturesByReference)) {
+          resolvedReferences.add(reference);
+        } else if (!auroraMaterialContractsByReference.has(reference)) {
+          unresolvedReferences.add(reference);
+        }
+      });
       const availableTextureReferences = Array.from(texturesByReference.keys()).sort(
         (left, right) => left.localeCompare(right)
       );
@@ -2697,6 +3054,7 @@ export function applyPlaceableTexturesToModel(
         ? resolveTextureReferenceForTexture(texture, texturesByReference)
         : undefined;
       let didUpdateThisMaterial = false;
+      let customShaderInstalled = false;
       if (texture && supportsTextureMap) {
         applyTextureToMaterial(
           material,
@@ -2712,6 +3070,15 @@ export function applyPlaceableTexturesToModel(
       if (materialContract) {
         applyAuroraMaterialContractToMaterial(material, materialContract);
         didUpdateThisMaterial = true;
+        if (
+          applyAuroraMaterialReplacementTexturesToMaterial(
+            material,
+            materialContract,
+            texturesByReference
+          )
+        ) {
+          didUpdateThisMaterial = true;
+        }
       }
       if (
         applyAuroraTextureSlotsToMaterial(
@@ -2745,6 +3112,18 @@ export function applyPlaceableTexturesToModel(
             auroraTextureBindingsByReference
           )
         : null;
+      material.userData = {
+        ...material.userData,
+        auroraTextureTxiSelectedTextureReference: selectedTextureReference ?? "",
+        auroraTextureTxiAppliedReference: textureBinding?.txi
+          ? normalizePlaceableTextureReference(textureBinding.reference)
+          : "",
+        auroraTextureTxiBindingStatus: textureBinding?.txi
+          ? "applied-selected-texture-txi"
+          : textureBinding
+            ? "selected-texture-binding-without-txi"
+            : "not-applied-no-selected-texture-txi"
+      };
       if (texture && textureBinding?.txi && materialSupportsTextureMap(material)) {
         applyAuroraTextureTxiStateToMaterial(
           material,
@@ -2754,8 +3133,53 @@ export function applyPlaceableTexturesToModel(
         );
         didUpdateThisMaterial = true;
       }
+      if (materialContract) {
+        const customShaderInstall = installAuroraMtrCustomShaderProgram({
+          mesh: node,
+          material,
+          state: toPlaceableAuroraMtrCustomShaderState(materialContract.state),
+          texturesBySlot: resolveAuroraMtrTexturesBySlot(
+            materialContract.state.textureSlots,
+            texturesByReference
+          )
+        });
+        const customShaderMaterial =
+          customShaderInstall.status === "installed"
+            ? customShaderInstall.material
+            : material;
+        const customShaderInstallMetadata = {
+          auroraMaterialCustomShaderInstallStatus: customShaderInstall.status,
+          auroraMaterialCustomShaderInstallReason: customShaderInstall.reason
+        };
+        material.userData = { ...material.userData, ...customShaderInstallMetadata };
+        customShaderMaterial.userData = {
+          ...customShaderMaterial.userData,
+          ...customShaderInstallMetadata
+        };
+        if (customShaderInstall.status === "installed") {
+          customShaderInstalled = true;
+          didUpdateThisMaterial = true;
+        }
+      }
+      if (!customShaderInstalled) {
+        if (material.userData.auroraTextureTxiDecal === true) {
+          const txiDecalLighting = installAuroraTxiDecalUnlitWhite(material);
+          didUpdateThisMaterial ||=
+            txiDecalLighting.status !== "unsupported-material";
+          if (material.userData.auroraTextureTxiBlending === "additive") {
+            const rawGammaOutput =
+              installAuroraTxiAdditiveDecalRawGammaOutput(material);
+            didUpdateThisMaterial ||=
+              rawGammaOutput.status !== "unsupported-material";
+          }
+        } else {
+          const sourceMaterialLighting = installAuroraMdlSourceMaterialLighting(material);
+          didUpdateThisMaterial ||= sourceMaterialLighting.status === "installed";
+        }
+      }
       didUpdateMaterial ||= didUpdateThisMaterial;
     });
+    applyAuroraSourceMaterialColorAccumulationLaneToMesh(node, materials);
     if (itemShieldBackerMaterial) {
       ensureAuroraItemShieldBlackKeyBackerMesh(
         node,
@@ -2763,11 +3187,38 @@ export function applyPlaceableTexturesToModel(
         itemShieldBackerTexture
       );
     }
-    if (didUpdateMaterial) {
-      node.castShadow = true;
-      node.receiveShadow = true;
-    }
+      if (didUpdateMaterial) {
+        node.castShadow = true;
+        node.receiveShadow = true;
+      }
   });
+  return {
+    resolvedReferences: [...resolvedReferences].sort(),
+    unresolvedReferences: [...unresolvedReferences].sort()
+  };
+}
+
+function applyAuroraSourceMaterialColorAccumulationLaneToMesh(
+  mesh: THREE.Mesh,
+  materials: readonly THREE.Material[]
+): void {
+  const rawGammaAdditiveMaterialCount = materials.filter(
+    (material) =>
+      material.userData.auroraCanonicalColorAccumulationLane ===
+      "aurora_raw_gamma_additive_before_retail_bloom"
+  ).length;
+  if (
+    materials.length > 0 &&
+    rawGammaAdditiveMaterialCount === materials.length
+  ) {
+    mesh.userData = {
+      ...mesh.userData,
+      auroraCanonicalColorAccumulationLane:
+        "aurora_raw_gamma_additive_before_retail_bloom",
+      auroraCanonicalColorAccumulationLaneSource:
+        "source-txi-decal-additive-retail-gamma-framebuffer"
+    };
+  }
 }
 
 function resolveAuroraMaterialTextureSlotsForMaterial(
@@ -2969,6 +3420,68 @@ function applyAuroraTextureSlotsToMaterial(
   return true;
 }
 
+function applyAuroraMaterialReplacementTexturesToMaterial(
+  material: THREE.Material,
+  materialContract: AuroraMaterialContractNode,
+  texturesByReference: Map<string, THREE.Texture>
+): boolean {
+  const state = materialContract.state;
+  const references = {
+    bumpmaptexture: state.bumpmaptexture,
+    bumpyshinytexture: state.bumpyshinytexture,
+    envmaptexture: state.envmaptexture,
+    bumpreplacementtexture: state.bumpreplacementtexture
+  };
+  const authoredReferences = Object.entries(references).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string"
+  );
+  if (authoredReferences.length === 0) {
+    return false;
+  }
+
+  const slotMaterial = material as AuroraTextureSlotMaterial;
+  const bumpTexture = state.bumpmaptexture
+    ? resolveTextureByReferenceCandidate(state.bumpmaptexture, texturesByReference)
+    : undefined;
+  const environmentTexture = state.envmaptexture
+    ? resolveTextureByReferenceCandidate(state.envmaptexture, texturesByReference)
+    : undefined;
+  if (bumpTexture) {
+    slotMaterial.bumpMap = bumpTexture;
+  }
+  if (environmentTexture) {
+    slotMaterial.envMap = environmentTexture;
+  }
+
+  material.userData = {
+    ...material.userData,
+    auroraMaterialNamedTextureReferences: Object.fromEntries(authoredReferences),
+    auroraMaterialBumpMapTextureBound: Boolean(bumpTexture),
+    auroraMaterialEnvironmentMapTextureBound: Boolean(environmentTexture),
+    auroraMaterialBumpyShinyTextureBindingStatus: state.bumpyshinytexture
+      ? "source-reference-preserved-binding-unverified"
+      : undefined,
+    auroraMaterialBumpReplacementTextureBindingStatus: state.bumpreplacementtexture
+      ? "source-reference-preserved-binding-unverified"
+      : undefined
+  };
+  material.needsUpdate = true;
+  return true;
+}
+
+function resolveAuroraMtrTexturesBySlot(
+  textureSlots: readonly PlaceableRenderPackageAuroraTextureSlot[] | undefined,
+  texturesByReference: Map<string, THREE.Texture>
+): Map<number, THREE.Texture> {
+  const texturesBySlot = new Map<number, THREE.Texture>();
+  for (const slot of textureSlots ?? []) {
+    if (slot.slot < 0 || slot.slot > 15) continue;
+    const texture = resolveTextureByReferenceCandidate(slot.reference, texturesByReference);
+    if (texture) texturesBySlot.set(slot.slot, texture);
+  }
+  return texturesBySlot;
+}
+
 function resolveTextureForMaterial(
   material: THREE.Material,
   texturesByReference: Map<string, THREE.Texture>,
@@ -3118,29 +3631,47 @@ function resolveAuroraTextureBindingForMaterial(
   texturesByReference: Map<string, THREE.Texture>,
   textureBindingsByReference: Map<string, AuroraTextureBindingNode>
 ): AuroraTextureBindingNode | null {
+  for (const reference of resolveMaterialTextureReferences(material)) {
+    const textureBinding = textureBindingsByReference.get(reference);
+    if (
+      textureBinding &&
+      doesAuroraTextureBindingBelongToTexture(
+        textureBinding,
+        texture,
+        texturesByReference
+      )
+    ) {
+      return textureBinding;
+    }
+  }
+
+  const selectedTextureBindings = Array.from(
+    new Set(textureBindingsByReference.values())
+  ).filter((textureBinding) =>
+    doesAuroraTextureBindingBelongToTexture(
+      textureBinding,
+      texture,
+      texturesByReference
+    )
+  );
+  return selectedTextureBindings.length === 1 ? selectedTextureBindings[0] : null;
+}
+
+function doesAuroraTextureBindingBelongToTexture(
+  textureBinding: AuroraTextureBindingNode,
+  texture: THREE.Texture,
+  texturesByReference: Map<string, THREE.Texture>
+): boolean {
   for (const reference of deduplicateAliasPrefixes([
-    ...resolveMaterialTextureReferences(material),
-    ...resolveMaterialTextureReferenceList(material)
+    textureBinding.reference,
+    textureBinding.fileName,
+    textureBinding.objectKey
   ])) {
-    const textureBinding = textureBindingsByReference.get(reference);
-    if (textureBinding) {
-      return textureBinding;
+    if (resolveTextureByReferenceCandidate(reference, texturesByReference) === texture) {
+      return true;
     }
   }
-
-  for (const [reference, resolvedTexture] of texturesByReference.entries()) {
-    if (resolvedTexture !== texture) {
-      continue;
-    }
-    const textureBinding = textureBindingsByReference.get(reference);
-    if (textureBinding) {
-      return textureBinding;
-    }
-  }
-
-  return textureBindingsByReference.size === 1
-    ? Array.from(textureBindingsByReference.values())[0] ?? null
-    : null;
+  return false;
 }
 
 function buildAuroraMaterialContractsByReference(
@@ -3188,7 +3719,6 @@ function applyAuroraTextureTxiStateToMaterial(
   if (txi.decal) {
     material.transparent = true;
     material.depthWrite = false;
-    material.side = THREE.DoubleSide;
     material.alphaTest = 0;
   }
   if (txi.blending === "additive") {
@@ -3199,7 +3729,10 @@ function applyAuroraTextureTxiStateToMaterial(
   } else if (txi.blending === "punchthrough") {
     material.transparent = false;
     material.depthWrite = true;
-    material.alphaTest = Math.max(material.alphaTest, AURORA_HARD_ALPHA_TEST_THRESHOLD);
+    material.alphaTest = Math.max(
+      material.alphaTest,
+      AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD
+    );
   }
   if (txi.clamp && txi.clamp > 0) {
     if (txi.clamp === 1 || txi.clamp === 3) {
@@ -3243,7 +3776,7 @@ function applyAuroraTextureTxiStateToMaterial(
     }
   }
   if (cycleState) {
-    applyAuroraTextureCycleFrame(texture, cycleState.numX, cycleState.numY, cycleState.fps, 0);
+    ensureAuroraTextureCycleTextureState(texture, cycleState);
   }
   material.userData = {
     ...material.userData,
@@ -3312,16 +3845,99 @@ function applyAuroraTextureCycleFrame(
   texture: THREE.Texture,
   numX: number,
   numY: number,
-  fps: number,
-  elapsedSeconds: number
+  frameIndex: number
 ): void {
   const totalFrames = numX * numY;
-  const frameIndex = Math.floor(Math.max(0, elapsedSeconds) * fps) % totalFrames;
-  const column = frameIndex % numX;
-  const row = Math.floor(frameIndex / numX);
+  const boundedFrameIndex = Math.max(0, Math.trunc(frameIndex)) % totalFrames;
+  const column = boundedFrameIndex % numX;
+  const row = Math.floor(boundedFrameIndex / numX);
   texture.repeat.set(1 / numX, 1 / numY);
   texture.offset.set(column / numX, (numY - 1 - row) / numY);
   texture.needsUpdate = true;
+}
+
+function writeAuroraTextureCycleDiagnostics(
+  texture: THREE.Texture,
+  state: AuroraTextureCycleTextureState
+): void {
+  texture.userData = {
+    ...texture.userData,
+    auroraTextureTxiCycleFrameIndex: state.frameIndex,
+    auroraTextureTxiCycleAccumulatorSeconds: state.accumulatorSeconds,
+    auroraTextureTxiCycleLastRendererFrameSerial: state.lastRendererFrameSerial,
+    auroraTextureTxiCycleUpdateCount: state.updateCount,
+    auroraTextureTxiCycleRuntimeSource: AURORA_TEXTURE_CYCLE_RUNTIME_SOURCE
+  };
+}
+
+function ensureAuroraTextureCycleTextureState(
+  texture: THREE.Texture,
+  cycleState: AuroraTextureCycleState
+): AuroraTextureCycleTextureState {
+  const existing = auroraTextureCycleTextureStates.get(texture);
+  if (
+    existing &&
+    existing.numX === cycleState.numX &&
+    existing.numY === cycleState.numY &&
+    existing.fps === cycleState.fps
+  ) {
+    applyAuroraTextureCycleFrame(
+      texture,
+      existing.numX,
+      existing.numY,
+      existing.frameIndex
+    );
+    writeAuroraTextureCycleDiagnostics(texture, existing);
+    return existing;
+  }
+  const state: AuroraTextureCycleTextureState = {
+    ...cycleState,
+    frameIndex: 0,
+    accumulatorSeconds: 0,
+    lastRendererFrameSerial: null,
+    updateCount: 0
+  };
+  auroraTextureCycleTextureStates.set(texture, state);
+  applyAuroraTextureCycleFrame(texture, state.numX, state.numY, state.frameIndex);
+  writeAuroraTextureCycleDiagnostics(texture, state);
+  return state;
+}
+
+function advanceAuroraTextureCycleTexture(
+  binding: AuroraTextureCycleBinding,
+  deltaSeconds: number | undefined,
+  rendererFrameSerial: number | undefined
+): void {
+  const state = ensureAuroraTextureCycleTextureState(binding.texture, {
+    numX: binding.numX,
+    numY: binding.numY,
+    fps: binding.fps,
+    totalFrames: binding.numX * binding.numY
+  });
+  if (typeof deltaSeconds !== "number" || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+    return;
+  }
+  const hasRendererFrameSerial =
+    typeof rendererFrameSerial === "number" && Number.isFinite(rendererFrameSerial);
+  if (hasRendererFrameSerial && state.lastRendererFrameSerial === rendererFrameSerial) {
+    return;
+  }
+  if (hasRendererFrameSerial) {
+    state.lastRendererFrameSerial = rendererFrameSerial;
+  }
+  state.accumulatorSeconds += deltaSeconds;
+  if (1 / state.fps < state.accumulatorSeconds) {
+    state.accumulatorSeconds = 0;
+    state.frameIndex = (state.frameIndex + 1) % state.totalFrames;
+    state.updateCount += 1;
+    applyAuroraTextureCycleFrame(
+      binding.texture,
+      state.numX,
+      state.numY,
+      state.frameIndex
+    );
+  }
+  writeAuroraTextureCycleDiagnostics(binding.texture, state);
 }
 
 function readAuroraTextureCycleUserDataNumber(value: unknown): number | undefined {
@@ -3377,8 +3993,7 @@ function collectAuroraTextureCycleMaterials(root: THREE.Object3D): {
         numX,
         numY,
         fps,
-        reference,
-        elapsedSeconds: 0
+        reference
       });
     });
   });
@@ -3402,20 +4017,34 @@ export function createAuroraTextureCycleRuntime(
     materialCount,
     textureCount: bindings.length,
     references,
-    apply(deltaSeconds?: number, elapsedSeconds?: number): void {
+    apply(
+      deltaSeconds?: number,
+      _elapsedSeconds?: number,
+      rendererFrameSerial?: number
+    ): void {
       bindings.forEach((binding) => {
-        if (typeof elapsedSeconds === "number" && Number.isFinite(elapsedSeconds)) {
-          binding.elapsedSeconds = Math.max(0, elapsedSeconds);
-        } else if (typeof deltaSeconds === "number" && Number.isFinite(deltaSeconds) && deltaSeconds > 0) {
-          binding.elapsedSeconds += deltaSeconds;
-        }
-        applyAuroraTextureCycleFrame(
-          binding.texture,
-          binding.numX,
-          binding.numY,
-          binding.fps,
-          binding.elapsedSeconds
-        );
+        advanceAuroraTextureCycleTexture(binding, deltaSeconds, rendererFrameSerial);
+      });
+    },
+    snapshots(): AuroraTextureCycleRuntimeSnapshot[] {
+      return bindings.map((binding) => {
+        const state = ensureAuroraTextureCycleTextureState(binding.texture, {
+          numX: binding.numX,
+          numY: binding.numY,
+          fps: binding.fps,
+          totalFrames: binding.numX * binding.numY
+        });
+        return {
+          reference: binding.reference,
+          numX: state.numX,
+          numY: state.numY,
+          fps: state.fps,
+          frameIndex: state.frameIndex,
+          accumulatorSeconds: state.accumulatorSeconds,
+          lastRendererFrameSerial: state.lastRendererFrameSerial,
+          frameAdvanceCount: state.updateCount,
+          source: AURORA_TEXTURE_CYCLE_RUNTIME_SOURCE
+        };
       });
     }
   };
@@ -3426,8 +4055,21 @@ function applyAuroraMaterialContractToMaterial(
   materialContract: AuroraMaterialContractNode
 ): void {
   const state = materialContract.state;
+  const framebufferRuntimeLane = resolveAuroraMaterialFramebufferRuntimeLane(
+    state.sampleFramebuffer,
+    state.volumetric
+  );
   const slotMaterial = material as AuroraTextureSlotMaterial;
-  const clearCustomShaderMaterial = isAuroraClearCustomShaderMaterial(materialContract);
+  const hasCustomShaderReference = Boolean(
+    state.customShaderVS?.trim() ||
+      state.customShaderFS?.trim() ||
+      state.customShaderGS?.trim()
+  );
+  const customShaderProgramExecutionStatus = !hasCustomShaderReference
+    ? "not-requested"
+    : state.customShaderProgram?.status === "complete"
+      ? "source-graph-ready-renderer-profile-and-binding-pending"
+      : "source-graph-incomplete-execution-refused";
   if (typeof state.roughness === "number" && Number.isFinite(state.roughness)) {
     slotMaterial.roughness = Math.min(1, Math.max(0, state.roughness));
   }
@@ -3446,7 +4088,10 @@ function applyAuroraMaterialContractToMaterial(
     material.blending = THREE.AdditiveBlending;
   } else if (state.blending === "punchthrough") {
     material.transparent = false;
-    material.alphaTest = Math.max(material.alphaTest, 0.5);
+    material.alphaTest = Math.max(
+      material.alphaTest,
+      AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD
+    );
     material.depthWrite = true;
   }
   if (state.decal) {
@@ -3458,18 +4103,51 @@ function applyAuroraMaterialContractToMaterial(
     material.polygonOffsetFactor = -1;
     material.polygonOffsetUnits = -1;
   }
-  if (clearCustomShaderMaterial) {
-    material.transparent = true;
-    material.depthWrite = false;
-    material.opacity = Math.min(material.opacity, AURORA_CLEAR_CUSTOM_SHADER_OPACITY);
-    material.blending = THREE.NormalBlending;
-  }
   material.userData = {
     ...material.userData,
     auroraMaterialContractSource: materialContract.materialFileName,
     auroraMaterialCustomShaderVS: state.customShaderVS,
     auroraMaterialCustomShaderFS: state.customShaderFS,
     auroraMaterialCustomShaderGS: state.customShaderGS,
+    auroraMaterialCustomShaderProgramStatus: state.customShaderProgram?.status,
+    auroraMaterialCustomShaderReachableSourceCount: state.customShaderProgram?.sources.length,
+    auroraMaterialCustomShaderUnresolvedRefs: state.customShaderProgram
+      ? [...state.customShaderProgram.unresolvedRefs]
+      : undefined,
+    auroraMaterialCustomShaderExecutionStatus: customShaderProgramExecutionStatus,
+    auroraMaterialShaderParameters: state.parameters?.map((parameter) => ({
+      name: parameter.name,
+      kind: parameter.kind,
+      values: [...parameter.values],
+      arity: parameter.arity
+    })),
+    auroraMaterialSampleFramebuffer: state.sampleFramebuffer,
+    auroraMaterialVolumetric: state.volumetric,
+    auroraMaterialFramebufferRuntimeLane: framebufferRuntimeLane,
+    auroraMaterialFramebufferStateStatus:
+      framebufferRuntimeLane === null
+        ? "default-material-render-lane"
+        : "source-pass-confirmed-custom-program-execution-pending",
+    auroraMaterialFramebufferStateDiagnostic:
+      framebufferRuntimeLane === null
+        ? undefined
+        : "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED",
+    auroraMaterialFramebufferCaptureScope:
+      framebufferRuntimeLane === null ? undefined : "mainscene",
+    auroraMaterialFramebufferCaptureSource:
+      framebufferRuntimeLane === null ? undefined : "active-framebuffer-slot-at-renderer+0x54c",
+    auroraMaterialFramebufferCaptureDestinationSlot:
+      framebufferRuntimeLane === 5 ? 1 : framebufferRuntimeLane === 6 ? 6 : undefined,
+    auroraMaterialFramebufferAttachmentBindingMask:
+      framebufferRuntimeLane === null ? undefined : 3,
+    auroraMaterialFramebufferColorTextureUnit:
+      framebufferRuntimeLane === null ? undefined : 11,
+    auroraMaterialFramebufferDepthTextureUnit:
+      framebufferRuntimeLane === null ? undefined : 12,
+    auroraMaterialFramebufferPassSource:
+      framebufferRuntimeLane === null
+        ? undefined
+        : "nwtoolset-1.5.0.5-mtr-framebuffer-pass-disassembly",
     auroraMaterialRoughness: state.roughness,
     auroraMaterialSpecularity: state.specularity,
     auroraMaterialSpecularityMetalness:
@@ -3477,21 +4155,29 @@ function applyAuroraMaterialContractToMaterial(
         ? slotMaterial.metalness
         : undefined,
     auroraMaterialBlending: state.blending,
+    auroraMaterialPunchThroughAlphaDiscardValue:
+      state.blending === "punchthrough"
+        ? AURORA_PUNCH_THROUGH_ALPHA_DISCARD_THRESHOLD
+        : undefined,
+    auroraMaterialPunchThroughAlphaDiscardSource:
+      state.blending === "punchthrough"
+        ? "nwtoolset-1.5.0.5-fAlphaDiscardValue-state1-disassembly"
+        : undefined,
     auroraMaterialDecal: state.decal,
     auroraMaterialTransparency: state.transparency,
     auroraMaterialTwoSided: state.twoSided,
-    auroraMaterialRenderHint: state.renderHint,
-    auroraMaterialClearCustomShader: clearCustomShaderMaterial
+    auroraMaterialRenderHint: state.renderHint
   };
   material.needsUpdate = true;
 }
 
-function isAuroraClearCustomShaderMaterial(
-  materialContract: AuroraMaterialContractNode
-): boolean {
-  const materialName = materialContract.materialFileName.trim().toLowerCase();
-  const fragmentShader = materialContract.state.customShaderFS?.trim().toLowerCase();
-  return materialName.includes("iceclear") && fragmentShader === "fslit_sm";
+function resolveAuroraMaterialFramebufferRuntimeLane(
+  sampleFramebuffer: number | undefined,
+  volumetric: boolean | undefined
+): 5 | 6 | null {
+  if (sampleFramebuffer === 2) return 6;
+  if (sampleFramebuffer === 1 || volumetric === true) return 5;
+  return null;
 }
 
 function resolveTextureByAuroraMaterialAlias(
@@ -4924,16 +5610,10 @@ function readAuroraGltfQuaternion(value: unknown): [number, number, number, numb
     : undefined;
 }
 
-function ensureAuroraSourceHierarchyObjects(
+export function ensureAuroraSourceHierarchyObjects(
   scene: THREE.Object3D
-): {
-  synthesizedNodeCount: number;
-  synthesizedNodeNames: string[];
-  reparentedNodeCount: number;
-  rebasedGeometryCount: number;
-  rebasedGeometryNodeNames: string[];
-} {
-  const emptyResult = {
+): AuroraSourceHierarchySynthesisResult {
+  const emptyResult: AuroraSourceHierarchySynthesisResult = {
     synthesizedNodeCount: 0,
     synthesizedNodeNames: [],
     reparentedNodeCount: 0,
@@ -7624,16 +8304,28 @@ export function ensurePlaceableModel(
   const runtimeCacheKey = resolvePlaceableModelRuntimeCacheKeyWithOptions(modelUrl, options);
   const cachedModel = runtime.placeableModelCacheByUrl.get(runtimeCacheKey);
   if (cachedModel) {
+    recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+      stage: "cached",
+      completedAtMs: Date.now()
+    });
     return Promise.resolve(clonePlaceableModelForScene(cachedModel, options));
   }
 
   const pendingModel = runtime.placeableModelPendingByUrl.get(runtimeCacheKey);
   if (pendingModel) {
+    recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+      stage: "requested",
+      startedAtMs: Date.now()
+    });
     return pendingModel.then((resolvedModel) =>
       resolvedModel ? clonePlaceableModelForScene(resolvedModel, options) : null
     );
   }
 
+  recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+    stage: "requested",
+    startedAtMs: Date.now()
+  });
   const request = loadPlaceableModelWithRetry(
     runtime,
     modelUrl,
@@ -7644,7 +8336,27 @@ export function ensurePlaceableModel(
       sourceHierarchyMode: options.sourceHierarchyMode,
       timeoutMs: options.timeoutMs
     }
-  ).finally(() => {
+  )
+    .then((model) => {
+      if (model) {
+        recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+          stage: "decoded",
+          completedAtMs: Date.now()
+        });
+        recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+          stage: "cached",
+          completedAtMs: Date.now()
+        });
+      } else {
+        recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+          stage: "failed",
+          completedAtMs: Date.now(),
+          error: "model-load-failed"
+        });
+      }
+      return model;
+    })
+    .finally(() => {
     runtime.placeableModelPendingByUrl.delete(runtimeCacheKey);
   });
   runtime.placeableModelPendingByUrl.set(runtimeCacheKey, request);
@@ -7669,6 +8381,11 @@ async function loadPlaceableModelWithRetry(
     for (let attempt = 0; attempt <= PLACEABLE_MODEL_LOAD_RETRY_COUNT; attempt += 1) {
       const attemptUrl =
         attempt === 0 ? modelUrl : appendPlaceableModelRetryToken(modelUrl, attempt);
+      recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+        stage: "requested",
+        startedAtMs: Date.now(),
+        retryCount: attempt
+      });
       let loadedModel: THREE.Object3D | null;
       try {
         loadedModel = await schedulePlaceableModelLoad(
@@ -7691,6 +8408,9 @@ async function loadPlaceableModelWithRetry(
       if (loadedModel) {
         runtime.placeableModelCacheByUrl.set(runtimeCacheKey, loadedModel);
         return loadedModel;
+      }
+      if (hasPlaceableAssetCacheMiss(runtime, modelUrl)) {
+        return null;
       }
       if (attempt < PLACEABLE_MODEL_LOAD_RETRY_COUNT) {
         await delayPlaceableModelRetry(
@@ -7788,6 +8508,15 @@ async function loadPlaceableModelFromArrayBuffer(
         ...(abortController ? { signal: abortController.signal } : {})
       });
       if (!response || response.ok === false) {
+        if (response) {
+          await recordPlaceableAssetCacheMissIfExact(runtime, modelUrl, "model", response);
+        }
+        recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+          stage: "requested",
+          completedAtMs: Date.now(),
+          httpStatus: response?.status ?? null,
+          error: "model-http-non-ok"
+        });
         writePlaceableModelLoadOutcomeDiagnostics(runtime, modelUrl, "fetch_failed", {
           status: response?.status ?? null,
           ok: response?.ok ?? null
@@ -7795,6 +8524,11 @@ async function loadPlaceableModelFromArrayBuffer(
         return null;
       }
       const modelBuffer = await response.arrayBuffer();
+      recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+        stage: "requested",
+        completedAtMs: Date.now(),
+        httpStatus: response.status
+      });
       writePlaceableModelLoadOutcomeDiagnostics(runtime, modelUrl, "fetch_complete", {
         status: response.status ?? null,
         bytes: modelBuffer.byteLength
@@ -7811,10 +8545,22 @@ async function loadPlaceableModelFromArrayBuffer(
         parsedModel ? "parse_complete" : "parse_null",
         { bytes: modelBuffer.byteLength }
       );
+      if (parsedModel) {
+        recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+          stage: "decoded",
+          completedAtMs: Date.now(),
+          httpStatus: response.status
+        });
+      }
       return parsedModel;
     })();
     return await Promise.race([loadPromise, timeoutPromise]);
   } catch {
+    recordVfxRuntimeAssetSettlement(runtime, modelUrl, {
+      stage: "failed",
+      completedAtMs: Date.now(),
+      error: "model-fetch-or-parse-exception"
+    });
     writePlaceableModelLoadOutcomeDiagnostics(runtime, modelUrl, "exception");
     return null;
   } finally {

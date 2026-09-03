@@ -8,6 +8,9 @@ import type {
 import type { SceneObjectEmbeddedItemSummary } from "../../scene/contracts";
 
 export const STORE_CREATION_BUCKET_COUNT = 5;
+export const STORE_CREATION_BUCKET_TYPE_IDS = [0, 4, 2, 3, 1] as const;
+const STORE_CREATION_SIGNED_INT_MIN = -0x80000000;
+const STORE_CREATION_SIGNED_INT_MAX = 0x7fffffff;
 
 export interface StoreCreationEmbeddedItemSummary extends SceneObjectEmbeddedItemSummary {}
 
@@ -36,7 +39,11 @@ export interface StoreCreationWizardDraft {
   markDown: string;
   blackMarket: boolean;
   bmMarkDown: string;
+  identifyPrice: string;
+  maxBuyPrice: string;
+  storeGold: string;
   onOpenStore: string;
+  onStoreClosed: string;
   storeId: string;
   buckets: StoreCreationBucketDraft[];
   willNotBuyBaseItems: string;
@@ -51,14 +58,18 @@ export function createStoreWizardDraft(sequence: number): StoreCreationWizardDra
     tag: `CUSTOM_STORE_${suffix}`.slice(0, 32),
     overwriteExisting: false,
     comments: "",
-    markUp: "100",
-    markDown: "100",
+    markUp: "0",
+    markDown: "0",
     blackMarket: false,
-    bmMarkDown: "100",
+    bmMarkDown: "0",
+    identifyPrice: "100",
+    maxBuyPrice: "-1",
+    storeGold: "-1",
     onOpenStore: "",
-    storeId: String(sequence),
-    buckets: Array.from({ length: STORE_CREATION_BUCKET_COUNT }, (_entry, index) => ({
-      bucketTypeId: String(index),
+    onStoreClosed: "",
+    storeId: "255",
+    buckets: STORE_CREATION_BUCKET_TYPE_IDS.map((bucketTypeId) => ({
+      bucketTypeId: String(bucketTypeId),
       itemListEntries: [createEmptyStoreBucketItemDraft()]
     })),
     willNotBuyBaseItems: "",
@@ -86,7 +97,13 @@ export function createStoreWizardDraftFromStore(
     markDown: formatOptionalNumber(readNumberMetadata(metadata, "markDown")),
     blackMarket: readBooleanMetadata(metadata, "blackMarket") ?? false,
     bmMarkDown: formatOptionalNumber(readNumberMetadata(metadata, "bmMarkDown")),
+    identifyPrice: formatOptionalNumber(readNumberMetadata(metadata, "identifyPrice")),
+    maxBuyPrice: formatOptionalNumber(readNumberMetadata(metadata, "maxBuyPrice")),
+    storeGold: formatOptionalNumber(readNumberMetadata(metadata, "storeGold")),
     onOpenStore: sanitizeStoreCreationResRef(readStringMetadata(metadata, "onOpenStore") ?? ""),
+    onStoreClosed: sanitizeStoreCreationResRef(
+      readStringMetadata(metadata, "onStoreClosed") ?? ""
+    ),
     storeId: formatOptionalNumber(readNumberMetadata(metadata, "storeId")),
     buckets: buildStoreBucketsDraftFromMetadata(storeListEntries),
     willNotBuyBaseItems: formatBaseItemList(
@@ -134,6 +151,19 @@ export function sanitizeStoreCreationNumberInput(value: string, max: number): st
   return String(Math.max(0, Math.min(max, Number.parseInt(digits, 10))));
 }
 
+export function sanitizeStoreCreationSignedIntInput(value: string): string {
+  const trimmed = value.trimStart();
+  const negative = trimmed.startsWith("-");
+  const digits = trimmed.replace(/[^0-9]/gu, "");
+  if (!digits) {
+    return negative ? "-" : "";
+  }
+  const parsed = Number.parseInt(`${negative ? "-" : ""}${digits}`, 10);
+  return String(
+    Math.max(STORE_CREATION_SIGNED_INT_MIN, Math.min(STORE_CREATION_SIGNED_INT_MAX, parsed))
+  );
+}
+
 export function sanitizeStoreCreationResRef(value: string): string {
   return value
     .trimStart()
@@ -171,7 +201,11 @@ export function buildStoreBlueprintCreatePayloadFromDraft(
     markDown: optionalNumber(draft.markDown),
     blackMarket: draft.blackMarket,
     bmMarkDown: optionalNumber(draft.bmMarkDown),
+    identifyPrice: optionalNumber(draft.identifyPrice),
+    maxBuyPrice: optionalNumber(draft.maxBuyPrice),
+    storeGold: optionalNumber(draft.storeGold),
     onOpenStore: optionalString(draft.onOpenStore),
+    onStoreClosed: optionalString(draft.onStoreClosed),
     storeId: optionalNumber(draft.storeId),
     storeListEntries,
     willNotBuyBaseItems: parseBaseItemList(draft.willNotBuyBaseItems),
@@ -190,7 +224,7 @@ function buildStoreBucketPayload(
     .map(buildStoreItemPayload)
     .filter((entry): entry is StoreApiBlueprintItemEntry => Boolean(entry));
   return {
-    bucketTypeId: optionalNumber(bucket.bucketTypeId) ?? index,
+    bucketTypeId: optionalNumber(bucket.bucketTypeId) ?? STORE_CREATION_BUCKET_TYPE_IDS[index],
     itemListEntries
   };
 }
@@ -231,7 +265,8 @@ function buildStoreBucketsDraftFromMetadata(
       .map(buildStoreBucketItemDraftFromMetadata)
       .filter((item): item is StoreCreationBucketItemDraft => Boolean(item));
     return {
-      bucketTypeId: formatOptionalNumber(source?.bucketTypeId) || String(index),
+      bucketTypeId:
+        formatOptionalNumber(source?.bucketTypeId) || String(STORE_CREATION_BUCKET_TYPE_IDS[index]),
       itemListEntries: items.length > 0 ? items : [createEmptyStoreBucketItemDraft()]
     };
   });

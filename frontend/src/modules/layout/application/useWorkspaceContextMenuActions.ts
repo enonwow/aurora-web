@@ -45,17 +45,23 @@ interface UseWorkspaceContextMenuActionsArgs {
   duplicateObjects: (sourceObjects: SceneObject[], source: string) => SceneObject[];
   focusCameraOnWorldPoint: (x: number, y: number) => void;
   openAdjustLocationDialog: (targets: SceneObject[]) => void;
+  openAreaObjectPolygonDialog?: (target: SceneObject) => void;
+  openWaypointPropertiesDialog?: (target: SceneObject) => void;
   openPlaceablePropertiesDialog: (target: SceneObject) => void;
   openSoundPropertiesDialog: (target: SceneObject) => void;
   openDoorPropertiesDialog: (target: SceneObject) => void;
   openCreaturePropertiesDialog: (target: SceneObject) => void;
   openItemPropertiesDialog: (target: SceneObject) => void;
+  openStorePropertiesDialog?: (target: SceneObject) => void;
   clearAdjustLocationDialog: () => void;
+  clearAreaObjectPolygonDialog?: () => void;
+  clearWaypointPropertiesDialog?: () => void;
   clearPlaceablePropertiesDialog: () => void;
   clearSoundPropertiesDialog: () => void;
   clearDoorPropertiesDialog: () => void;
   clearCreaturePropertiesDialog: () => void;
   clearItemPropertiesDialog: () => void;
+  clearStorePropertiesDialog?: () => void;
 }
 
 export function resolveContextMenuActionObject(input: {
@@ -134,17 +140,23 @@ export function useWorkspaceContextMenuActions({
   duplicateObjects,
   focusCameraOnWorldPoint,
   openAdjustLocationDialog,
+  openAreaObjectPolygonDialog = () => undefined,
+  openWaypointPropertiesDialog = () => undefined,
   openPlaceablePropertiesDialog,
   openSoundPropertiesDialog,
   openDoorPropertiesDialog,
   openCreaturePropertiesDialog,
   openItemPropertiesDialog,
+  openStorePropertiesDialog = () => undefined,
   clearAdjustLocationDialog,
+  clearAreaObjectPolygonDialog = () => undefined,
+  clearWaypointPropertiesDialog = () => undefined,
   clearPlaceablePropertiesDialog,
   clearSoundPropertiesDialog,
   clearDoorPropertiesDialog,
   clearCreaturePropertiesDialog,
-  clearItemPropertiesDialog
+  clearItemPropertiesDialog,
+  clearStorePropertiesDialog = () => undefined,
 }: UseWorkspaceContextMenuActionsArgs) {
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -206,6 +218,7 @@ export function useWorkspaceContextMenuActions({
         clearDoorPropertiesDialog();
         clearCreaturePropertiesDialog();
         clearItemPropertiesDialog();
+        clearStorePropertiesDialog();
         openAdjustLocationDialog(editableTargets);
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -223,7 +236,11 @@ export function useWorkspaceContextMenuActions({
           contextObj.kind !== "sounds" &&
           contextObj.kind !== "doors" &&
           contextObj.kind !== "creatures" &&
-          contextObj.kind !== "items"
+          contextObj.kind !== "items" &&
+          contextObj.kind !== "stores" &&
+          contextObj.kind !== "triggers" &&
+          contextObj.kind !== "encounters" &&
+          contextObj.kind !== "waypoints"
         ) {
           trackTelemetry("scene.object_properties.blocked_kind", {
             userId,
@@ -238,35 +255,77 @@ export function useWorkspaceContextMenuActions({
         setSelectedObjectIds([contextObj.id]);
         clearAdjustLocationDialog();
         if (contextObj.kind === "placeables") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
           clearSoundPropertiesDialog();
           clearDoorPropertiesDialog();
           clearCreaturePropertiesDialog();
           clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
           openPlaceablePropertiesDialog(contextObj);
         } else if (contextObj.kind === "sounds") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
           clearPlaceablePropertiesDialog();
           clearDoorPropertiesDialog();
           clearCreaturePropertiesDialog();
           clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
           openSoundPropertiesDialog(contextObj);
         } else if (contextObj.kind === "creatures") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
           clearPlaceablePropertiesDialog();
           clearSoundPropertiesDialog();
           clearDoorPropertiesDialog();
           clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
           openCreaturePropertiesDialog(contextObj);
         } else if (contextObj.kind === "items") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
           clearPlaceablePropertiesDialog();
           clearSoundPropertiesDialog();
           clearDoorPropertiesDialog();
           clearCreaturePropertiesDialog();
+          clearStorePropertiesDialog();
           openItemPropertiesDialog(contextObj);
-        } else {
+        } else if (contextObj.kind === "stores") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
+          clearPlaceablePropertiesDialog();
+          clearSoundPropertiesDialog();
+          clearDoorPropertiesDialog();
+          clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
+          openStorePropertiesDialog(contextObj);
+        } else if (contextObj.kind === "doors") {
+          clearAreaObjectPolygonDialog();
+          clearWaypointPropertiesDialog();
           clearPlaceablePropertiesDialog();
           clearSoundPropertiesDialog();
           clearCreaturePropertiesDialog();
           clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
           openDoorPropertiesDialog(contextObj);
+        } else if (contextObj.kind === "waypoints") {
+          clearAreaObjectPolygonDialog();
+          clearPlaceablePropertiesDialog();
+          clearSoundPropertiesDialog();
+          clearDoorPropertiesDialog();
+          clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
+          openWaypointPropertiesDialog(contextObj);
+        } else {
+          clearWaypointPropertiesDialog();
+          clearPlaceablePropertiesDialog();
+          clearSoundPropertiesDialog();
+          clearDoorPropertiesDialog();
+          clearCreaturePropertiesDialog();
+          clearItemPropertiesDialog();
+          clearStorePropertiesDialog();
+          openAreaObjectPolygonDialog(contextObj);
         }
         trackTelemetry("scene.context_menu.action", {
           userId,
@@ -416,21 +475,27 @@ export function useWorkspaceContextMenuActions({
     },
     [
       clearAdjustLocationDialog,
+      clearAreaObjectPolygonDialog,
+      clearWaypointPropertiesDialog,
       clearCreaturePropertiesDialog,
       clearDoorPropertiesDialog,
       clearItemPropertiesDialog,
       clearPlaceablePropertiesDialog,
       clearSoundPropertiesDialog,
+      clearStorePropertiesDialog,
       closeContextMenu,
       contextMenu,
       duplicateObjects,
       focusCameraOnWorldPoint,
       openAdjustLocationDialog,
+      openAreaObjectPolygonDialog,
+      openWaypointPropertiesDialog,
       openCreaturePropertiesDialog,
       openDoorPropertiesDialog,
       openItemPropertiesDialog,
       openPlaceablePropertiesDialog,
       openSoundPropertiesDialog,
+      openStorePropertiesDialog,
       sceneObjects,
       sceneViewportPort,
       selectedObjectIds,

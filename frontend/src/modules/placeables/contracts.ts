@@ -40,6 +40,31 @@ export interface PlaceableApiListResult {
   offset: number;
 }
 
+export interface PlaceableApiAppearanceRowsQuery {
+  tableSha256: string;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type PlaceableApiAppearanceRow = {
+  rowIndex: number;
+  displayName: string;
+  displaySource: "strref" | "label" | "row_index";
+  strRef?: number;
+  label?: string;
+};
+
+export interface PlaceableApiAppearanceRowsResult {
+  resourceName: "placeables.2da";
+  sha256: string;
+  rowCount: number;
+  items: PlaceableApiAppearanceRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface PlaceableApiBlueprintEmbeddedItemEntry extends SceneObjectEmbeddedItemSummary {}
 
 export interface PlaceableApiBlueprintInventoryItemEntry {
@@ -322,12 +347,35 @@ export interface PlaceableRenderPackageAuroraEmitterAnimationEvent {
   animationName?: string;
 }
 
+export interface PlaceableRenderPackageAuroraEmitterControllerRow {
+  property: string;
+  rawToken: string;
+  rowKind: "direct" | "key" | "bezier-key";
+  values: number[];
+  sourceLineNumber?: number;
+  binaryControllerType?: number;
+}
+
 export interface PlaceableRenderPackageAuroraEmitterAnimation {
   animationName: string;
   lengthSeconds?: number;
   transitionSeconds?: number;
   simulation?: PlaceableRenderPackageAuroraEmitterSimulation;
   transform?: PlaceableRenderPackageAuroraEmitterTransform;
+}
+
+export interface PlaceableRenderPackageAuroraEmitterAnimationPass {
+  animationName: string;
+  lengthSeconds?: number;
+  transitionSeconds?: number;
+  emitterState?: {
+    simulation?: PlaceableRenderPackageAuroraEmitterSimulation;
+    transform?: PlaceableRenderPackageAuroraEmitterTransform;
+    directRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
+    keyRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
+    bezierKeyRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
+  };
+  events?: PlaceableRenderPackageAuroraEmitterAnimationEvent[];
 }
 
 export interface PlaceableRenderPackageAuroraEmitterSourceState {
@@ -353,6 +401,8 @@ export interface PlaceableRenderPackageAuroraEmitterNode {
   sourceModelAssetId: string;
   sourceModelFileName: string;
   sourceModelObjectKey: string;
+  /** Lowercase SHA-256 of the exact source MDL bytes; omitted only by legacy cache entries. */
+  sourceModelHash?: string;
   nodeName: string;
   texture?: string;
   chunkName?: string;
@@ -368,6 +418,10 @@ export interface PlaceableRenderPackageAuroraEmitterNode {
   referenceNodes?: PlaceableRenderPackageAuroraEmitterReferenceNode[];
   events?: PlaceableRenderPackageAuroraEmitterAnimationEvent[];
   animations?: PlaceableRenderPackageAuroraEmitterAnimation[];
+  animationPasses?: PlaceableRenderPackageAuroraEmitterAnimationPass[];
+  directRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
+  keyRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
+  bezierKeyRows?: PlaceableRenderPackageAuroraEmitterControllerRow[];
   sourceState?: PlaceableRenderPackageAuroraEmitterSourceState;
 }
 
@@ -413,6 +467,8 @@ export interface PlaceableRenderPackageAuroraLightNode {
   sourceModelAssetId: string;
   sourceModelFileName: string;
   sourceModelObjectKey: string;
+  /** Lowercase SHA-256 of the exact source MDL bytes; omitted only by legacy cache entries. */
+  sourceModelHash?: string;
   nodeName: string;
   sourceNodeKind?: string;
   parentNodeName?: string;
@@ -444,6 +500,95 @@ export interface PlaceableRenderPackageAuroraLight {
   diagnostics: PlaceableRenderPackageDiagnostic[];
 }
 
+export type PlaceableRenderPackageAuroraModelGraphSource =
+  | "aurora-mdl-binary"
+  | "aurora-mdl-ascii";
+
+export interface PlaceableRenderPackageAuroraMeshMaterialState {
+  alpha?: number;
+  alphaTimeline?: PlaceableRenderPackageAuroraEmitterNumberKeyframe[];
+}
+
+export interface PlaceableRenderPackageAuroraMeshMaterialAnimation {
+  animationName: string;
+  lengthSeconds?: number;
+  transitionSeconds?: number;
+  state: PlaceableRenderPackageAuroraMeshMaterialState;
+}
+
+export interface PlaceableRenderPackageAuroraModelGraphStaticGeometryNode {
+  source: PlaceableRenderPackageAuroraModelGraphSource;
+  sourceModelAssetId: string;
+  sourceModelFileName: string;
+  sourceModelObjectKey: string;
+  /** Lowercase SHA-256 of the exact source MDL bytes; omitted only by legacy cache entries. */
+  sourceModelHash?: string;
+  nodeName: string;
+  sourceNodeKind: "trimesh" | "animmesh" | "danglymesh" | "skin" | "binary-mesh";
+  parentNodeName?: string;
+  transform?: PlaceableRenderPackageAuroraEmitterTransform;
+  animationTracks?: Array<{
+    animationName: string;
+    lengthSeconds?: number;
+    transitionSeconds?: number;
+    transform: PlaceableRenderPackageAuroraEmitterTransform;
+  }>;
+  meshMaterialState?: PlaceableRenderPackageAuroraMeshMaterialState;
+  meshMaterialAnimationTracks?: PlaceableRenderPackageAuroraMeshMaterialAnimation[];
+}
+
+export interface PlaceableRenderPackageAuroraModelGraphNode {
+  source: PlaceableRenderPackageAuroraModelGraphSource;
+  sourceModelAssetId: string;
+  sourceModelFileName: string;
+  sourceModelObjectKey: string;
+  /** Lowercase SHA-256 of the exact source MDL bytes; omitted only by legacy cache entries. */
+  sourceModelHash?: string;
+  nodeKind: "transform" | "static-geometry" | "emitter" | "light" | "reference" | "shadowblob";
+  nodeName: string;
+  parentNodeName?: string;
+  sourceNodeKind?: string;
+  /** Raw source-node transform; world-space hierarchy composition is not implied. */
+  transform?: PlaceableRenderPackageAuroraEmitterTransform;
+  animationTracks?: Array<{
+    animationName: string;
+    lengthSeconds?: number;
+    transitionSeconds?: number;
+    transform: PlaceableRenderPackageAuroraEmitterTransform;
+  }>;
+  meshMaterialState?: PlaceableRenderPackageAuroraMeshMaterialState;
+  meshMaterialAnimationTracks?: PlaceableRenderPackageAuroraMeshMaterialAnimation[];
+}
+
+export interface PlaceableRenderPackageAuroraModelGraphPropagationEvent {
+  token: string;
+  sourceNodeName?: string;
+  sourceNodeKind?: string;
+  proofStatus: "source-only-model-graph-propagation-no-render-policy";
+}
+
+export interface PlaceableRenderPackageAuroraModelGraphAnimationEvent {
+  source: PlaceableRenderPackageAuroraModelGraphSource;
+  sourceModelAssetId: string;
+  sourceModelFileName: string;
+  sourceModelObjectKey: string;
+  /** Lowercase SHA-256 of the exact source MDL bytes; omitted only by legacy cache entries. */
+  sourceModelHash?: string;
+  time: number;
+  type: string;
+  animationName?: string;
+}
+
+export interface PlaceableRenderPackageAuroraModelGraph {
+  source: "source-mdl";
+  staticGeometryNodes: PlaceableRenderPackageAuroraModelGraphStaticGeometryNode[];
+  /** Present for source-MDL packages emitted by the unified parser; omitted by legacy cache entries. */
+  nodes?: PlaceableRenderPackageAuroraModelGraphNode[];
+  animationEvents?: PlaceableRenderPackageAuroraModelGraphAnimationEvent[];
+  propagationEvents?: PlaceableRenderPackageAuroraModelGraphPropagationEvent[];
+  diagnostics: PlaceableRenderPackageDiagnostic[];
+}
+
 export type PlaceableRenderPackageAuroraMaterialBlending =
   | "additive"
   | "punchthrough";
@@ -463,6 +608,33 @@ export interface PlaceableRenderPackageAuroraTextureSlot {
   reference: string;
 }
 
+export interface PlaceableRenderPackageAuroraShaderSource {
+  resref: string;
+  source: string;
+  includeRefs: string[];
+  sourceAssetId?: string;
+  sourceObjectKey?: string;
+}
+
+export interface PlaceableRenderPackageAuroraShaderProgram {
+  version: "aurora-shader-program-source/v1";
+  status: "complete" | "incomplete";
+  stageRoots: {
+    vertex?: string;
+    fragment?: string;
+    geometry?: string;
+  };
+  sources: PlaceableRenderPackageAuroraShaderSource[];
+  unresolvedRefs: string[];
+}
+
+export interface PlaceableRenderPackageAuroraMaterialShaderParameter {
+  name: string;
+  kind: "float" | "int";
+  values: number[];
+  arity: 1 | 2 | 3 | 4;
+}
+
 export interface PlaceableRenderPackageAuroraMaterialState {
   blending?: PlaceableRenderPackageAuroraMaterialBlending;
   auroraBlendField48?: number;
@@ -474,8 +646,16 @@ export interface PlaceableRenderPackageAuroraMaterialState {
   customShaderVS?: string;
   customShaderFS?: string;
   customShaderGS?: string;
+  customShaderProgram?: PlaceableRenderPackageAuroraShaderProgram;
+  parameters?: PlaceableRenderPackageAuroraMaterialShaderParameter[];
+  sampleFramebuffer?: number;
+  volumetric?: boolean;
   roughness?: number;
   specularity?: number;
+  bumpmaptexture?: string;
+  bumpyshinytexture?: string;
+  envmaptexture?: string;
+  bumpreplacementtexture?: string;
   textureSlots?: PlaceableRenderPackageAuroraTextureSlot[];
 }
 
@@ -503,7 +683,9 @@ export interface PlaceableRenderPackage {
   textureBindings?: PlaceableRenderPackageTextureBinding[];
   auroraEmitter?: PlaceableRenderPackageAuroraEmitter;
   auroraLight?: PlaceableRenderPackageAuroraLight;
+  auroraModelGraph?: PlaceableRenderPackageAuroraModelGraph;
   auroraMaterial?: PlaceableRenderPackageAuroraMaterial;
+  auroraVfxPayload?: unknown;
 }
 
 export type PlaceableApiAssetRole =

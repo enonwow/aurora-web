@@ -1,4 +1,4 @@
-import { resolveAuroraPltPaletteRgbSync } from "./auroraPltPalette";
+import { resolveAuroraPltPaletteRgbaSync } from "./auroraPltPalette";
 
 const AURORA_PLT_HEADER_BYTE_LENGTH = 24;
 const AURORA_PLT_SIGNATURE = "PLT V1";
@@ -85,7 +85,7 @@ export function decodeAuroraPltTexture(
     const paletteRow = options.paletteRowsByLayer?.[layerIndex];
     const paletteColor =
       typeof paletteRow === "number"
-        ? resolveAuroraPltPaletteRgbSync(layerIndex, paletteRow, colorIndex)
+        ? resolveAuroraPltPaletteRgbaSync(layerIndex, paletteRow, colorIndex)
         : null;
 
     const targetOffset = pixelIndex * 4;
@@ -93,13 +93,14 @@ export function decodeAuroraPltTexture(
       data[targetOffset] = paletteColor[0];
       data[targetOffset + 1] = paletteColor[1];
       data[targetOffset + 2] = paletteColor[2];
+      data[targetOffset + 3] = paletteColor[3];
       usedPaletteRows = true;
     } else {
       data[targetOffset] = colorIndex;
       data[targetOffset + 1] = colorIndex;
       data[targetOffset + 2] = colorIndex;
+      data[targetOffset + 3] = 255;
     }
-    data[targetOffset + 3] = 255;
   }
 
   flipRgbaRows(data, width, height);

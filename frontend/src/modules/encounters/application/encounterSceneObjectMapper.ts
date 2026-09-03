@@ -3,6 +3,8 @@ import type {
   SceneObjectEncounterCreatureEntry
 } from "../../scene/contracts";
 import { createNewSceneObject } from "../../scene/domain/sceneFactory";
+import { readDynamicAreaEncounterConstructionDefaults } from
+  "../../scene/domain/areaEncounterDynamicConstructionProfile";
 import type {
   EncounterApiListItem,
   EncounterApiMetadataPrimitive
@@ -106,6 +108,7 @@ export function mapEncounterApiListItemToSceneObject(
   sequence = 1
 ): SceneObject {
   const metadata = encounter.metadata;
+  const constructionDefaults = readDynamicAreaEncounterConstructionDefaults(encounter);
   const object = createNewSceneObject(
     "encounters",
     ENCOUNTER_TEMPLATE_X,
@@ -113,8 +116,9 @@ export function mapEncounterApiListItemToSceneObject(
     sequence
   );
   const normalizedTemplateId = sanitizeIdentifier(encounter.templateId, `encounter_${sequence}`);
-  const templateResRef = readString(metadata, "templateResRef") ?? encounter.resref;
-  const tag = readString(metadata, "tag") ?? encounter.resref;
+  const templateResRef = constructionDefaults?.resRef ??
+    readString(metadata, "templateResRef") ?? encounter.resref;
+  const tag = constructionDefaults?.tag ?? readString(metadata, "tag") ?? encounter.resref;
   const localizedName = readString(metadata, "localizedName") ?? readString(metadata, "displayName");
   const creatureList = mapCreatureListEntries(metadata);
   const scripts = mapScriptSlots(metadata);
@@ -124,9 +128,9 @@ export function mapEncounterApiListItemToSceneObject(
     id: `enc_template_${normalizedTemplateId}`,
     name: localizedName ?? encounter.name,
     resRef: templateResRef,
-    tag: tag.toUpperCase(),
+    tag: constructionDefaults ? tag : tag.toUpperCase(),
     previewImageUrl: encounter.previewImageUrl.trim() || undefined,
-    source: {
+    source: constructionDefaults?.source ?? {
       type: "aurora_git",
       sourceObjectId: encounter.templateId,
       sourceKind: "encounter",

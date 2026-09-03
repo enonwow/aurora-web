@@ -13,6 +13,8 @@ import {
   type AuroraAreaTilesetTile,
   type AuroraAreaTopology
 } from "./auroraAreaEditing";
+export { drawAuroraNativeRandom } from "./auroraAreaRandom";
+import { drawAuroraNativeRandom } from "./auroraAreaRandom";
 
 export interface ConservativeAuroraAreaEraserPlan {
   topology: AuroraAreaTopology;
@@ -387,12 +389,6 @@ export function eraseAuroraAreaConservatively(
       ? {}
       : { randomSeedAfter: planned.plan.randomSeedAfter })
   };
-}
-
-/** Exact Delphi/Aurora 32-bit LCG draw used by `FUN_00b90fe8`. */
-export function drawAuroraNativeRandom(seed: number): { seed: number; value: number } {
-  const nextSeed = (Math.imul(seed >>> 0, 0x015a4e35) + 1) >>> 0;
-  return { seed: nextSeed, value: (nextSeed >>> 16) & 0x7fff };
 }
 
 function ambiguous(message: string): ConservativeAuroraAreaEraserResult {
