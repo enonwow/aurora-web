@@ -345,9 +345,46 @@ describe("AreasApplicationService", () => {
   });
 
   it("returns full area payload with composition counts", async () => {
-    repository.findById.mockResolvedValue(
-      buildArea("area_test_001", { lighting: buildAreaGlobalLighting() })
-    );
+    const sourceArea = {
+      ...buildArea("area_test_001", {
+        comments: " exact area note ",
+        eventScripts: { onEnter: "area_enter", onExit: "" },
+        basicIdentity: { name: " Exact Area Name ", tag: "AREA_TAG" },
+        advancedFlags: {
+          terrainType: { interior: true, natural: false, subterranean: true },
+          playerVsPlayer: 2,
+          noRest: false,
+          listenCheckModifier: -8,
+          spotCheckModifier: 11,
+        },
+        audioEnvironment: {
+          ambientSoundDayId: 41,
+          ambientSoundNightId: 42,
+          ambientSoundDayVolume: 101,
+          ambientSoundNightVolume: 102,
+          environmentAudioId: 7,
+          musicBattleId: 13,
+          musicDayId: 11,
+          musicNightId: 12,
+          musicDelayMilliseconds: 3000,
+        },
+        audioEnvironmentCatalogs: buildAreaAudioCatalogBundle(),
+        visualEnvironmentCatalogs: buildAreaVisualEnvironmentCatalogBundle(),
+        visualEnvironmentCatalogSelection: { lightingSchemeRowIndex: 0, skyBoxRowIndex: 1 },
+        loadingScreenCatalog: buildAreaLoadingScreenCatalog(),
+        lighting: buildAreaGlobalLighting(),
+      }),
+      moduleStartLocation: {
+        areaResRef: "area_test_001",
+        x: Math.fround(1),
+        y: Math.fround(2),
+        z: Math.fround(3),
+        directionX: Math.fround(0),
+        directionY: Math.fround(1),
+      },
+      moduleStartLocationTargets: ["area_test_001", "other_area"],
+    } satisfies AreaRecord;
+    repository.findById.mockResolvedValue(sourceArea);
 
     const detail = await service.getArea("area_test_001");
 
@@ -365,6 +402,36 @@ describe("AreasApplicationService", () => {
     expect(detail.composition.items).toBe(1);
     expect(detail.composition.total).toBe(4);
     expect(detail.objects.length).toBe(4);
+    expect(detail.comments).toBe(" exact area note ");
+    expect(detail.eventScripts).toEqual({ onEnter: "area_enter", onExit: "" });
+    expect(detail.basicIdentity).toEqual({ name: " Exact Area Name ", tag: "AREA_TAG" });
+    expect(detail.advancedFlags).toEqual({
+      terrainType: { interior: true, natural: false, subterranean: true },
+      playerVsPlayer: 2,
+      noRest: false,
+      listenCheckModifier: -8,
+      spotCheckModifier: 11,
+    });
+    expect(detail.moduleStartLocationTargets).toEqual(["area_test_001", "other_area"]);
+    expect(detail.moduleStartLocationTargets).not.toBe(sourceArea.moduleStartLocationTargets);
+    expect(detail.audioEnvironmentCatalogs).toEqual(buildAreaAudioCatalogBundle());
+    expect(detail.visualEnvironmentCatalogs).toEqual(buildAreaVisualEnvironmentCatalogBundle());
+    expect(detail.visualEnvironmentCatalogSelection).toEqual({
+      lightingSchemeRowIndex: 0,
+      skyBoxRowIndex: 1,
+    });
+    expect(detail.visualEnvironmentCatalogSelection).not.toBe(
+      sourceArea.visualEnvironmentCatalogSelection,
+    );
+    expect(detail.visualEnvironmentCatalogs).not.toBe(sourceArea.visualEnvironmentCatalogs);
+    expect(detail.visualEnvironmentCatalogs?.lightingSchemes.rows[0]?.visualEnvironment.sun).not.toBe(
+      sourceArea.visualEnvironmentCatalogs?.lightingSchemes.rows[0]?.visualEnvironment.sun,
+    );
+    expect(detail.loadingScreenCatalog).toEqual(buildAreaLoadingScreenCatalog());
+    expect(detail.loadingScreenCatalog).not.toBe(sourceArea.loadingScreenCatalog);
+    expect(detail.loadingScreenCatalog?.rows[0]?.imageAsset).not.toBe(
+      sourceArea.loadingScreenCatalog?.rows[0]?.imageAsset,
+    );
     expect(detail.lighting).toEqual({
       source: "are-root-fields",
       fields: [
@@ -405,6 +472,25 @@ describe("AreasApplicationService", () => {
     expect(thumbnail.etag).toMatch(/^W\/"/u);
   });
 
+  it("keeps preview, topology, and thumbnail reads on the lightweight repository path", async () => {
+    const area = buildArea("area_test_001");
+    repository.findLightweightById = jest.fn().mockResolvedValue(area);
+    repository.findById.mockRejectedValue(new Error("full Area hydration must not run"));
+
+    await expect(service.getAreaPreview(area.areaId)).resolves.toMatchObject({ areaId: area.areaId });
+    await expect(service.getAreaTopologyMetadata(area.areaId)).resolves.toEqual({
+      areaId: area.areaId,
+      tileSet: area.tileSet,
+      updatedAt: area.updatedAt,
+    });
+    await expect(service.getAreaThumbnail(area.areaId)).resolves.toMatchObject({
+      contentType: "image/svg+xml; charset=utf-8",
+    });
+
+    expect(repository.findLightweightById).toHaveBeenCalledTimes(3);
+    expect(repository.findById).not.toHaveBeenCalled();
+  });
+
   it("throws AREA_NOT_FOUND when area is missing", async () => {
     repository.findById.mockResolvedValue(null);
 
@@ -419,7 +505,34 @@ describe("AreasApplicationService", () => {
 
   it("processes area and stores cache payload on miss", async () => {
     repository.findById.mockResolvedValue(
-      buildArea("area_test_001", { lighting: buildAreaGlobalLighting() })
+      buildArea("area_test_001", {
+        comments: " exact area note ",
+        eventScripts: { onEnter: "area_enter", onExit: "" },
+        basicIdentity: { name: " Exact Area Name ", tag: "AREA_TAG" },
+        advancedFlags: {
+          terrainType: { interior: true, natural: false, subterranean: true },
+          playerVsPlayer: 2,
+          noRest: false,
+          listenCheckModifier: -8,
+          spotCheckModifier: 11,
+        },
+        audioEnvironment: {
+          ambientSoundDayId: 41,
+          ambientSoundNightId: 42,
+          ambientSoundDayVolume: 101,
+          ambientSoundNightVolume: 102,
+          environmentAudioId: 7,
+          musicBattleId: 13,
+          musicDayId: 11,
+          musicNightId: 12,
+          musicDelayMilliseconds: 3000,
+        },
+        audioEnvironmentCatalogs: buildAreaAudioCatalogBundle(),
+        visualEnvironmentCatalogs: buildAreaVisualEnvironmentCatalogBundle(),
+        visualEnvironmentCatalogSelection: { lightingSchemeRowIndex: 0, skyBoxRowIndex: 1 },
+        loadingScreenCatalog: buildAreaLoadingScreenCatalog(),
+        lighting: buildAreaGlobalLighting(),
+      })
     );
     processingCache.get.mockResolvedValue(null);
     processingCache.set.mockImplementation(async (key, value) => ({
@@ -459,6 +572,34 @@ describe("AreasApplicationService", () => {
       })
     ]);
     expect(result.area.processedAt).toEqual(expect.any(String));
+    expect(result.area.comments).toBe(" exact area note ");
+    expect(result.area.eventScripts).toEqual({ onEnter: "area_enter", onExit: "" });
+    expect(result.area.basicIdentity).toEqual({ name: " Exact Area Name ", tag: "AREA_TAG" });
+    expect(result.area.advancedFlags).toEqual({
+      terrainType: { interior: true, natural: false, subterranean: true },
+      playerVsPlayer: 2,
+      noRest: false,
+      listenCheckModifier: -8,
+      spotCheckModifier: 11,
+    });
+    expect(result.area.audioEnvironment).toEqual({
+      ambientSoundDayId: 41,
+      ambientSoundNightId: 42,
+      ambientSoundDayVolume: 101,
+      ambientSoundNightVolume: 102,
+      environmentAudioId: 7,
+      musicBattleId: 13,
+      musicDayId: 11,
+      musicNightId: 12,
+      musicDelayMilliseconds: 3000,
+    });
+    expect(result.area.audioEnvironmentCatalogs).toEqual(buildAreaAudioCatalogBundle());
+    expect(result.area.visualEnvironmentCatalogs).toEqual(buildAreaVisualEnvironmentCatalogBundle());
+    expect(result.area.visualEnvironmentCatalogSelection).toEqual({
+      lightingSchemeRowIndex: 0,
+      skyBoxRowIndex: 1,
+    });
+    expect(result.area.loadingScreenCatalog).toEqual(buildAreaLoadingScreenCatalog());
     expect(result.area.lighting).toEqual(buildAreaGlobalLighting());
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
@@ -949,9 +1090,147 @@ describe("AreasApplicationService", () => {
   });
 });
 
+function buildAreaAudioCatalogBundle(): NonNullable<AreaRecord["audioEnvironmentCatalogs"]> {
+  const descriptor = (
+    resourceName: "ambientsound.2da" | "ambientmusic.2da" | "soundeax.2da",
+    sha256: string,
+  ) => ({
+    resourceName,
+    sourceObjectKey: `modules/current/${resourceName}`,
+    sourceLayer: "module" as const,
+    sha256,
+    sizeBytes: 64,
+    rowCount: 1,
+  });
+  return {
+    schemaVersion: "area-audio-environment-catalogs.v1",
+    ambientSound: {
+      descriptor: descriptor("ambientsound.2da", "a".repeat(64)),
+      rows: [{ rowIndex: 41, displayName: "Forest day", displaySource: "strref" }],
+    },
+    ambientMusic: {
+      descriptor: descriptor("ambientmusic.2da", "b".repeat(64)),
+      rows: [{
+        rowIndex: 11,
+        battleEligible: false,
+        displayName: "Rural day",
+        displaySource: "display_name",
+      }],
+    },
+    environmentalAudio: {
+      descriptor: descriptor("soundeax.2da", "c".repeat(64)),
+      rows: [{
+        rowIndex: 7,
+        label: "EAX_CAVE",
+        displayName: "Cave",
+        displaySource: "label",
+      }],
+    },
+  };
+}
+
+function buildAreaLoadingScreenCatalog(): NonNullable<AreaRecord["loadingScreenCatalog"]> {
+  return {
+    schemaVersion: "area-loading-screen-catalog.v1",
+    descriptor: {
+      resourceName: "loadscreens.2da",
+      sourceObjectKey: "modules/current/loadscreens.2da",
+      sourceLayer: "module",
+      sha256: "d".repeat(64),
+      sizeBytes: 96,
+      rowCount: 1,
+    },
+    rows: [{
+      rowIndex: 0,
+      sourceRowId: 0,
+      imageResRef: "ls_default",
+      displayName: "Default",
+      displaySource: "area_default_strref",
+      toolsetSelectable: true,
+      imageAsset: {
+        resourceName: "ls_default.tga",
+        sourceObjectKey: "modules/current/ls_default.tga",
+        sourceLayer: "module",
+        sha256: "e".repeat(64),
+        sizeBytes: 1024,
+      },
+    }],
+  };
+}
+
+function buildAreaVisualEnvironmentCatalogBundle(): NonNullable<AreaRecord["visualEnvironmentCatalogs"]> {
+  return {
+    schemaVersion: "area-visual-environment-catalogs.v1",
+    lightingSchemes: {
+      descriptor: {
+        resourceName: "environment.2da",
+        sourceObjectKey: "modules/current/environment.2da",
+        sourceLayer: "module",
+        sha256: "f".repeat(64),
+        sizeBytes: 512,
+        rowCount: 1,
+      },
+      rows: [{
+        rowIndex: 0,
+        label: "ExteriorProbe",
+        displayName: "Exterior Probe",
+        displaySource: "label",
+        visualEnvironment: {
+          dayNightMode: "cycle",
+          shadowOpacity: 65,
+          chanceRain: 4,
+          chanceSnow: 3,
+          chanceLightning: 5,
+          sun: {
+            ambientColor: 0x030201,
+            diffuseColor: 0x060504,
+            fogColor: 0x0f0e0d,
+            fogAmount: 7,
+            shadows: true,
+          },
+          moon: {
+            ambientColor: 0x090807,
+            diffuseColor: 0x0c0b0a,
+            fogColor: 0x121110,
+            fogAmount: 8,
+            shadows: false,
+          },
+        },
+        visualEnvironmentScalarControls: { fogClipDistance: 120, windPower: 2 },
+        skyBoxRowIndex: 1,
+      }],
+    },
+    skyBoxes: {
+      descriptor: {
+        resourceName: "skyboxes.2da",
+        sourceObjectKey: "modules/current/skyboxes.2da",
+        sourceLayer: "module",
+        sha256: "1".repeat(64),
+        sizeBytes: 256,
+        rowCount: 2,
+      },
+      rows: [
+        { rowIndex: 0, label: "None", displayName: "None", displaySource: "label" },
+        { rowIndex: 1, label: "Grass_Clear", displayName: "Clear Grass", displaySource: "label" },
+      ],
+    },
+  };
+}
+
 function buildArea(
   id: string,
-  options: { lighting?: AreaRecord["lighting"] } = {}
+  options: {
+    comments?: string;
+    eventScripts?: AreaRecord["eventScripts"];
+    basicIdentity?: AreaRecord["basicIdentity"];
+    advancedFlags?: AreaRecord["advancedFlags"];
+    audioEnvironment?: AreaRecord["audioEnvironment"];
+    audioEnvironmentCatalogs?: AreaRecord["audioEnvironmentCatalogs"];
+    visualEnvironmentCatalogs?: AreaRecord["visualEnvironmentCatalogs"];
+    visualEnvironmentCatalogSelection?: AreaRecord["visualEnvironmentCatalogSelection"];
+    loadingScreenCatalog?: AreaRecord["loadingScreenCatalog"];
+    lighting?: AreaRecord["lighting"];
+  } = {}
 ): AreaRecord {
   return {
     areaId: id,
@@ -969,6 +1248,38 @@ function buildArea(
     textureAtlasEtag: "atlas-urban-v1",
     textureAtlasFingerprint: "static:atlas:area_urban_v1",
     tileSet: "tno01",
+    ...(options.comments !== undefined ? { comments: options.comments } : {}),
+    ...(options.eventScripts !== undefined
+      ? { eventScripts: { ...options.eventScripts } }
+      : {}),
+    ...(options.basicIdentity !== undefined
+      ? { basicIdentity: { ...options.basicIdentity } }
+      : {}),
+    ...(options.advancedFlags !== undefined
+      ? {
+          advancedFlags: {
+            ...options.advancedFlags,
+            ...(options.advancedFlags.terrainType
+              ? { terrainType: { ...options.advancedFlags.terrainType } }
+              : {}),
+          },
+        }
+      : {}),
+    ...(options.audioEnvironment !== undefined
+      ? { audioEnvironment: { ...options.audioEnvironment } }
+      : {}),
+    ...(options.audioEnvironmentCatalogs !== undefined
+      ? { audioEnvironmentCatalogs: options.audioEnvironmentCatalogs }
+      : {}),
+    ...(options.visualEnvironmentCatalogs !== undefined
+      ? { visualEnvironmentCatalogs: options.visualEnvironmentCatalogs }
+      : {}),
+    ...(options.visualEnvironmentCatalogSelection !== undefined
+      ? { visualEnvironmentCatalogSelection: { ...options.visualEnvironmentCatalogSelection } }
+      : {}),
+    ...(options.loadingScreenCatalog !== undefined
+      ? { loadingScreenCatalog: options.loadingScreenCatalog }
+      : {}),
     tiles: [
       {
         tileInstanceId: `${id}:tile:0`,

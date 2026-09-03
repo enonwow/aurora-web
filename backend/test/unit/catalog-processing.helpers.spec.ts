@@ -701,6 +701,29 @@ describe("catalog-processing.helpers", () => {
     ).not.toContain("pmo0_head004");
   });
 
+  it("rebuilds part-model candidates for an admitted Creature Phenotype override", () => {
+    const runtime = buildCreatureRuntimeProjection({
+      templateResRef: "nw_hen_dae_01",
+      appearanceId: 18,
+      appearanceModelType: "P",
+      appearanceRaceModel: "O",
+      phenotype: 0,
+      gender: 0,
+      appearanceHead: 4,
+      bodyPartTorso: 1
+    });
+
+    const overridden = applyCreatureRuntimeAppearanceOverride(runtime, { phenotype: 5 });
+    const renderPackage = buildCreatureRenderPackage(overridden);
+
+    expect(overridden.identity.phenotype).toBe(5);
+    expect(renderPackage.partModelCandidates.map((candidate) => candidate.modelResRef)).toEqual(
+      expect.arrayContaining(["pmo5_head004", "pmo5_chest001"])
+    );
+    expect(renderPackage.partModelCandidates.map((candidate) => candidate.modelResRef))
+      .not.toContain("pmo0_head004");
+  });
+
   it("buildCreatureRenderPackage exposes source-backed equipment attachment candidates", () => {
     const runtime = buildCreatureRuntimeProjection({
       templateResRef: "cre_guard_human_001",

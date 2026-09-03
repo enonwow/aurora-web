@@ -1,4 +1,5 @@
 import {
+  buildAuroraAoeRuntimeObject,
   buildAuroraVfxPhaseSchedule,
   diagnoseCatalogVfxPreviewSourceBoundary,
   parseAuroraAoeTwoDa,
@@ -323,6 +324,62 @@ describe("aurora-vfx-source parser", () => {
       { column: "Param7", raw: "****" },
       { column: "Param8", raw: "****" }
     ]);
+  });
+
+  it("types ProgFX 7 Param1 model and Param2 animation from the retail beam loader contract", () => {
+    const source = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "607 BeamFireLash 7 vim_lashfire cast01 **** **** **** **** **** ****"
+    ].join("\n");
+
+    const parsed = parseAuroraProgFxTwoDa(source, "fixture-type7-beam");
+
+    expect(parsed.rows[0]).toMatchObject({
+      rowId: 607,
+      type: 7,
+      type7Beam: {
+        proofStatus: "retail-client-disassembly-backed-progfx-type7-beam-owner",
+        modelRaw: "vim_lashfire",
+        modelRef: "vim_lashfire",
+        animationRaw: "cast01",
+        animation: "cast01",
+        parameterSource:
+          "CNWCVisualEffectOnObject::LoadBeam Param1 model; ApplyBeam Param2 animation"
+      }
+    });
+  });
+
+  it("types ProgFX 10 parameters from the retail projectile handler contract", () => {
+    const source = [
+      "2DA V2.0",
+      "",
+      "Label Type Param1 Param2 Param3 Param4 Param5 Param6 Param7 Param8",
+      "900 MIRV 10 vpr_magmisl 340 0 4 log **** **** ****"
+    ].join("\n");
+
+    const parsed = parseAuroraProgFxTwoDa(source, "fixture-type10-projectile");
+
+    expect(parsed.rows[0]).toMatchObject({
+      rowId: 900,
+      type: 10,
+      type10Projectile: {
+        proofStatus: "retail-client-disassembly-backed-progfx-type10-projectile-owner",
+        modelRaw: "vpr_magmisl",
+        modelRef: "vpr_magmisl",
+        projectileRowRaw: "340",
+        projectileRow: 340,
+        orientationModeRaw: "0",
+        orientationMode: 0,
+        pathStyleRaw: "4",
+        pathStyle: 4,
+        timingProfileRaw: "log",
+        timingProfile: "log",
+        parameterSource:
+          "nwmain.exe 0x14096a9a0: Param1 model, Param2 projectile row, Param3 orientation mode, Param4 path style, Param5 timing profile"
+      }
+    });
   });
 
   it("preserves progfx.2da Type 4 light parameters without runtime scheduling", () => {
@@ -739,6 +796,15 @@ describe("aurora-vfx-source parser", () => {
       "MODEL01",
       "MODEL02",
       "MODEL03",
+      "NUMACT01",
+      "NUMACT02",
+      "NUMACT03",
+      "DURATION01",
+      "DURATION02",
+      "DURATION03",
+      "EDGEWGHT01",
+      "EDGEWGHT02",
+      "EDGEWGHT03",
       "SoundImpact",
       "SoundDuration",
       "SoundCessation",
@@ -766,6 +832,15 @@ describe("aurora-vfx-source parser", () => {
         MODEL01: "vps_fogacid",
         MODEL02: "vps_fogacid2",
         MODEL03: "vps_fogacid3",
+        NUMACT01: "5",
+        NUMACT02: "10",
+        NUMACT03: "5",
+        DURATION01: "3400",
+        DURATION02: "1100",
+        DURATION03: "1900",
+        EDGEWGHT01: "0",
+        EDGEWGHT02: "0.25",
+        EDGEWGHT03: "0.25",
         MODELMIN01: "vps_fogacid_low",
         SoundImpact: "sps_fog",
         SoundDuration: "sps_fog_loop",
@@ -804,6 +879,33 @@ describe("aurora-vfx-source parser", () => {
         MODEL03: "vps_fogacid3",
         MODELMIN01: "vps_fogacid_low"
       },
+      modelFootprintSchedule: [
+        {
+          slot: 1,
+          modelRefRaw: "vps_fogacid",
+          lowQualityModelRefRaw: "vps_fogacid_low",
+          activeCountRaw: "5",
+          activeCount: 5,
+          durationMillisecondsRaw: "3400",
+          durationMilliseconds: 3400,
+          edgeWeightRaw: "0",
+          edgeWeight: 0
+        },
+        {
+          slot: 2,
+          modelRefRaw: "vps_fogacid2",
+          activeCount: 10,
+          durationMilliseconds: 1100,
+          edgeWeight: 0.25
+        },
+        {
+          slot: 3,
+          modelRefRaw: "vps_fogacid3",
+          activeCount: 5,
+          durationMilliseconds: 1900,
+          edgeWeight: 0.25
+        }
+      ],
       soundFootprintRefs: {
         SoundImpact: "sps_fog",
         SoundDuration: "sps_fog_loop",
@@ -814,6 +916,89 @@ describe("aurora-vfx-source parser", () => {
     });
     expect(parsed.rows[0].diagnostics.map((entry) => entry.code)).toContain(
       "VFX_AOE_ROW_NOT_VISUALEFFECTS_ROW"
+    );
+
+    const built = buildAuroraAoeRuntimeObject(parsed.rows[0], {
+      constructorKind: "EffectAreaOfEffect",
+      sourceRowId: 0,
+      applicationMode: "static_location",
+      durationType: "temporary",
+      durationSeconds: 20,
+      creatorRef: "caster-1",
+      anchorLocation: { x: 1, y: 2, z: 3 },
+      lifecycleState: "active"
+    });
+    expect(built.runtimeObject).toMatchObject({
+      version: "aurora-aoe-runtime-object/v1",
+      sourceTable: "vfx_persistent.2da",
+      sourceRowId: 0,
+      tag: "VFX_PER_FOGACID",
+      shapeFootprint: {
+        shape: "circle",
+        radius: 5,
+        proofStatus: "selected-profile-source-backed"
+      },
+      visualFootprint: {
+        version: "aurora-aoe-visual-footprint/v1",
+        orientWithGround: false,
+        groups: [
+          {
+            slot: 1,
+            activeCount: 5,
+            durationMilliseconds: 3400,
+            edgePercent: 0
+          },
+          {
+            slot: 2,
+            activeCount: 10,
+            durationMilliseconds: 1100,
+            edgePercent: 25
+          },
+          {
+            slot: 3,
+            activeCount: 5,
+            durationMilliseconds: 1900,
+            edgePercent: 25
+          }
+        ],
+        owners: expect.arrayContaining([
+          expect.objectContaining({
+            ownerId: "aoe:0:slot:1:owner:0",
+            initialDelayMilliseconds: 0
+          }),
+          expect.objectContaining({
+            ownerId: "aoe:0:slot:3:owner:4",
+            initialDelayMilliseconds: 2100
+          })
+        ])
+      },
+      lifecycleState: "active"
+    });
+    expect(built.runtimeObject?.eventScripts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "on_enter", resourceClass: "script" }),
+        expect.objectContaining({ event: "heartbeat", resourceClass: "script" })
+      ])
+    );
+    expect(built.diagnostics.map((entry) => entry.code)).toContain(
+      "VFX_AOE_VISUAL_RUNTIME_PRIMARY_AUDIT_APPLIED"
+    );
+    expect(built.diagnostics.map((entry) => entry.code)).not.toContain(
+      "VFX_AOE_MODEL_SPAWN_SCHEMA_EXTERNAL"
+    );
+  });
+
+  it("refuses an AOE runtime object without EffectAreaOfEffect application context", () => {
+    const parsed = parseAuroraAoeTwoDa(
+      ["2DA V2.0", "", "LABEL SHAPE RADIUS", "0 VFX_PER_TEST C 5"].join("\n"),
+      "fixture-8193.34"
+    );
+
+    const built = buildAuroraAoeRuntimeObject(parsed.rows[0], undefined);
+
+    expect(built.runtimeObject).toBeUndefined();
+    expect(built.diagnostics.map((entry) => entry.code)).toContain(
+      "VFX_AOE_EFFECT_INSTANCE_REQUIRED"
     );
   });
 

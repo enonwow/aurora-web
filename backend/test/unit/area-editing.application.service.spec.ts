@@ -11,6 +11,19 @@ import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/a
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { AreasApplicationService } from "../../src/modules/areas/application/areas.application.service";
 
+describe("AreaEditingApplicationService Aurora HAK SET precedence", () => {
+  it("uses the later Mod_HakList override instead of a lexical HAK directory order", () => {
+    const { buildAuroraHakSourcePriority, compareTilesetSources } =
+      __areaEditingApplicationServiceInternals;
+    const priority = buildAuroraHakSourcePriority(["cep3_tiles", "q_tilesets"]);
+    const cep = { key: "modules/current/__aurora/sources/hak/cep3_tiles/tni01.set", size: 1 };
+    const qTilesets = { key: "modules/current/__aurora/sources/hak/q_tilesets/tni01.set", size: 1 };
+
+    expect([cep, qTilesets].sort((left, right) => compareTilesetSources(left, right, priority))[0])
+      .toBe(qTilesets);
+  });
+});
+
 describe("AreaEditingApplicationService snapshot object cache", () => {
   it("shares one snapshot listing across concurrent and repeated tileset reads", async () => {
     const setBytes = Buffer.from(
@@ -120,15 +133,60 @@ describe("AreaEditingApplicationService snapshot object cache", () => {
     await expect(service.listTilesets()).resolves.toEqual([
       {
         tilesetResRef: "second",
+        displayName: "second",
         sourceKey: "modules/current/__aurora/sources/vanilla/tilesets/second.set",
         sourceSize: 404,
         etag: "second"
       },
       {
         tilesetResRef: "testset",
+        displayName: "testset",
         sourceKey: "modules/current/TestSet.set",
         sourceSize: 303,
         etag: "module"
+      }
+    ]);
+  });
+
+  it("does not borrow presentation metadata from a lower-priority Aurora SET override", async () => {
+    const overrideKey = "modules/current/__aurora/sources/hak/cep3_tiles/tni01.set";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/tilesets/tni01.set";
+    const payloads = new Map([
+      [overrideKey, Buffer.from("[GENERAL]\nName=tni01\n", "utf8")],
+      [vanillaKey, Buffer.from("[GENERAL]\nName=tni01\nUnlocalizedName=City Interior\n", "utf8")]
+    ]);
+    const moduleBlobStorage = {
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "test",
+        prefix: "modules/current",
+        totalFiles: 2,
+        totalBytes: 42,
+        objects: [
+          { key: vanillaKey, size: 21 },
+          { key: overrideKey, size: 21 }
+        ],
+        truncated: false
+      }),
+      getModuleObject: jest.fn().mockImplementation(async (_settings, key: string) => {
+        const bytes = payloads.get(key);
+        return bytes ? { key, size: bytes.length, contentType: "text/plain", bytes } : null;
+      })
+    } as unknown as ModuleBlobStoragePort;
+    const runtimeSettingsRepository = {
+      get: jest.fn().mockResolvedValue({ blobStorage: { modulePrefix: "modules/current" } })
+    } as unknown as RuntimeSettingsRepositoryPort;
+    const service = new AreaEditingApplicationService(
+      {} as AreasApplicationService,
+      moduleBlobStorage,
+      runtimeSettingsRepository
+    );
+
+    await expect(service.listTilesets()).resolves.toEqual([
+      {
+        tilesetResRef: "tni01",
+        displayName: "tni01",
+        sourceKey: overrideKey,
+        sourceSize: 21
       }
     ]);
   });
@@ -265,8 +323,22 @@ describe("AreaEditingApplicationService safe export source contract", () => {
   it("round-trips unknown fields and struct types on every source Tile_List element", async () => {
     const sourceBytes = buildGffBuffer(
       [
-        { label: "Name", type: "cexolocstring", value: { text: "Original" } },
+        { label: "Name", type: "cexolocstring", value: {
+          strRef: 0xffff_ffff,
+          entries: [
+            { languageId: 0, text: "Original" },
+            { languageId: 2, text: "Old sibling" },
+          ],
+        } },
         { label: "Tag", type: "cexostring", value: "original_tag" },
+        { label: "Comments", type: "cexostring", value: " original note " },
+        { label: "OnEnter", type: "resref", value: "old_enter" },
+        { label: "OnExit", type: "resref", value: "" },
+        { label: "Flags", type: "dword", value: 4 },
+        { label: "PlayerVsPlayer", type: "byte", value: 0 },
+        { label: "NoRest", type: "byte", value: 0 },
+        { label: "ModListenCheck", type: "int", value: -8 },
+        { label: "ModSpotCheck", type: "int", value: 11 },
         { label: "Width", type: "dword", value: 2 },
         { label: "Height", type: "dword", value: 2 },
         { label: "Tileset", type: "resref", value: "testset" },
@@ -299,6 +371,37 @@ describe("AreaEditingApplicationService safe export source contract", () => {
         { row: 1, col: 0, sourceRow: 0, sourceCol: 0, tileId: 0, orientation: 3, height: 30, animLoop1: 13 },
         { row: 1, col: 1, sourceRow: 0, sourceCol: 1, tileId: 0, orientation: 0, height: 40, animLoop1: 14 }
       ]),
+      name: " Updated Name ",
+      comments: { expectedValue: " original note ", value: " updated note " },
+      eventScripts: {
+        onEnter: { expectedResRef: "old_enter", resRef: "new_enter" },
+      },
+      basicIdentity: {
+        name: {
+          expectedValue: "Original",
+          value: " Updated Name ",
+          expectedProfile: "multi_entry_inline_ascii" as const,
+          expectedEntries: [
+            { languageId: 0, text: "Original" },
+            { languageId: 2, text: "Old sibling" },
+          ],
+          valueEntries: [
+            { languageId: 0, text: " Updated Name " },
+            { languageId: 2, text: "New sibling" },
+          ],
+        },
+        tag: { expectedValue: "original_tag", value: "UPDATED_TAG" },
+      },
+      advancedFlags: {
+        terrainType: {
+          expectedValue: { interior: false, natural: true, subterranean: false },
+          value: { interior: true, natural: false, subterranean: true },
+        },
+        playerVsPlayer: { expectedValue: 0 as const, value: 3 as const },
+        noRest: { expectedValue: false, value: true },
+        listenCheckModifier: { expectedValue: -8, value: 9 },
+        spotCheckModifier: { expectedValue: 11, value: -12 },
+      },
       areaFingerprint: createHash("sha256").update(sourceBytes).digest("hex")
     };
 
@@ -307,7 +410,48 @@ describe("AreaEditingApplicationService safe export source contract", () => {
     expect(document?.rootStructTypeId).toBe(51);
     expect(document?.fields.find((field) => field.label === "Name")).toMatchObject({
       type: "cexolocstring",
-      value: { entries: [{ languageId: 0, text: "Original" }] }
+      value: {
+        strRef: 0xffff_ffff,
+        entries: [
+          { languageId: 0, text: " Updated Name " },
+          { languageId: 2, text: "New sibling" },
+        ],
+      }
+    });
+    expect(document?.fields.find((field) => field.label === "Tag")).toEqual({
+      label: "Tag",
+      type: "cexostring",
+      value: "UPDATED_TAG",
+    });
+    expect(document?.fields.find((field) => field.label === "Comments")).toEqual({
+      label: "Comments",
+      type: "cexostring",
+      value: " updated note "
+    });
+    expect(document?.fields.find((field) => field.label === "OnEnter")).toEqual({
+      label: "OnEnter",
+      type: "resref",
+      value: "new_enter",
+    });
+    expect(document?.fields.find((field) => field.label === "OnExit")).toEqual({
+      label: "OnExit",
+      type: "resref",
+      value: "",
+    });
+    expect(document?.fields.find((field) => field.label === "Flags")).toEqual({
+      label: "Flags", type: "dword", value: 3,
+    });
+    expect(document?.fields.find((field) => field.label === "PlayerVsPlayer")).toEqual({
+      label: "PlayerVsPlayer", type: "byte", value: 3,
+    });
+    expect(document?.fields.find((field) => field.label === "NoRest")).toEqual({
+      label: "NoRest", type: "byte", value: 1,
+    });
+    expect(document?.fields.find((field) => field.label === "ModListenCheck")).toEqual({
+      label: "ModListenCheck", type: "int", value: 9,
+    });
+    expect(document?.fields.find((field) => field.label === "ModSpotCheck")).toEqual({
+      label: "ModSpotCheck", type: "int", value: -12,
     });
     const tileList = document?.fields.find((field) => field.label === "Tile_List");
     expect(tileList).toMatchObject({ type: "list" });
@@ -393,6 +537,7 @@ describe("AreaEditingApplicationService Verify Area and New Area persistence", (
     corruptIfoRestore?: boolean;
     corruptWrittenExtension?: string;
     dropWrittenExtension?: string;
+    bypassNativeProfileValidation?: boolean;
   }) {
     const stored = new Map<string, Buffer>();
     const originalModuleIfo = buildGffBuffer(
@@ -489,6 +634,12 @@ describe("AreaEditingApplicationService Verify Area and New Area persistence", (
         tile.tileId === 0 ? { ...tile, modelResRef: "test_tile" } : tile
       )
     });
+    if (options?.bypassNativeProfileValidation !== false) {
+      jest.spyOn(service as any, "validateNewAreaResourceSet").mockReturnValue({
+        valid: true,
+        diagnostics: []
+      });
+    }
     return { service, moduleBlobStorage, stored, originalModuleIfo };
   }
 
@@ -543,19 +694,48 @@ describe("AreaEditingApplicationService Verify Area and New Area persistence", (
     expect(parseRawGffDocument(stored.get("snapshot/area_test.are")!)).toMatchObject({ fileType: "ARE " });
     const git = parseRawGffDocument(stored.get("snapshot/area_test.git")!);
     expect(git).toMatchObject({ fileType: "GIT " });
-    expect(git?.fields.map((field) => field.label)).toEqual(expect.arrayContaining([
+    expect(git?.fields.map((field) => field.label)).toEqual([
+      "AreaProperties",
       "Creature List",
       "Door List",
       "Encounter List",
-      "ItemList",
-      "Placeable List",
+      "List",
       "SoundList",
       "StoreList",
       "TriggerList",
       "WaypointList",
-      "AreaProperties"
-    ]));
-    expect(parseRawGffDocument(stored.get("snapshot/area_test.gic")!)).toMatchObject({ fileType: "GIC " });
+      "Placeable List"
+    ]);
+    expect(git?.fields.find((field) => field.label === "AreaProperties")).toMatchObject({
+      type: "struct",
+      value: {
+        typeId: 100,
+        fields: expect.arrayContaining([
+          { label: "AmbientSndDay", type: "int", value: 31 },
+          { label: "AmbientSndNight", type: "int", value: 31 },
+          { label: "AmbientSndDayVol", type: "int", value: 32 },
+          { label: "AmbientSndNitVol", type: "int", value: 32 },
+          { label: "EnvAudio", type: "int", value: 0 },
+          { label: "MusicBattle", type: "int", value: 34 },
+          { label: "MusicDay", type: "int", value: 20 },
+          { label: "MusicNight", type: "int", value: 20 },
+          { label: "MusicDelay", type: "int", value: 90000 }
+        ])
+      }
+    });
+    const gic = parseRawGffDocument(stored.get("snapshot/area_test.gic")!);
+    expect(gic).toMatchObject({ fileType: "GIC " });
+    expect(gic?.fields.map((field) => field.label)).toEqual([
+      "Creature List",
+      "Door List",
+      "Encounter List",
+      "List",
+      "SoundList",
+      "StoreList",
+      "TriggerList",
+      "WaypointList",
+      "Placeable List"
+    ]);
     expect(result.moduleIfo).toMatchObject({
       key: "snapshot/module.ifo",
       areaCount: 2
@@ -612,6 +792,28 @@ describe("AreaEditingApplicationService Verify Area and New Area persistence", (
     expect(sortRootOnly(patchedWithoutNewArea)).toEqual(
       sortRootOnly(originalParsedModuleIfo.fields)
     );
+  });
+
+  it("fails closed before the first write when the generated triplet does not match the native profile", async () => {
+    const { service, moduleBlobStorage, stored, originalModuleIfo } = createWritableService({
+      bypassNativeProfileValidation: false
+    });
+
+    await expect(
+      service.persistNewArea({
+        ...makeDraft(validTiles),
+        tilesetFingerprint: "a".repeat(64)
+      })
+    ).rejects.toMatchObject({
+      code: "AREA_CREATE_CANDIDATE_INVALID",
+      details: expect.arrayContaining([
+        expect.objectContaining({ path: "are.ChanceLightning" })
+      ])
+    });
+
+    expect(moduleBlobStorage.putModuleObject).not.toHaveBeenCalled();
+    expect(moduleBlobStorage.deleteModuleObject).not.toHaveBeenCalled();
+    expect(stored).toEqual(new Map([["snapshot/module.ifo", originalModuleIfo]]));
   });
 
   it("rolls back partial writes when a companion resource fails", async () => {

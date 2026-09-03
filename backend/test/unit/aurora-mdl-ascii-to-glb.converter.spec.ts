@@ -471,6 +471,7 @@ describe("aurora-mdl-ascii-to-glb converter", () => {
     expect(parsed.json.meshes[0].primitives[0].material).toBe(0);
     expect(parsed.json.materials[0]).toMatchObject({
       name: "Aurora material plc_test_triangle_diff",
+      doubleSided: false,
       extras: {
         aurora: {
           sourceModel: "plc_test_triangle",
@@ -479,6 +480,8 @@ describe("aurora-mdl-ascii-to-glb converter", () => {
         }
       }
     });
+    expect(parsed.json.materials[0].extensions?.KHR_materials_unlit).toBeUndefined();
+    expect(parsed.json.extensionsUsed).toBeUndefined();
     expect(result.warnings).toEqual([
       "Aurora MDL texture references were captured in GLB extras; image conversion is resolved through render package texture assets."
     ]);
@@ -501,6 +504,72 @@ describe("aurora-mdl-ascii-to-glb converter", () => {
     expect(parsed.json.buffers[0].byteLength).toBe(parsed.binary.length);
     expect(parsed.binary.length % 4).toBe(0);
   });
+
+  it("accepts a legacy DOS SUB separator between an ASCII table header and its first row", () => {
+    const legacyMdl = SAMPLE_ASCII_MDL.replace(
+      "verts 3\n    0 0 0",
+      "verts 3\u001a    0 0 0"
+    );
+
+    expect(convertAuroraMdlToGlb(legacyMdl)).toMatchObject({
+      meshCount: 1,
+      vertexCount: 3,
+      triangleCount: 1
+    });
+  });
+
+  it("uses the valid numeric prefix from a damaged Aurora ASCII float token", () => {
+    const damagedMdl = SAMPLE_ASCII_MDL.replace(
+      "    1 0 0",
+      "    2>4000001 0 0"
+    );
+    const result = convertAuroraMdlToGlb(damagedMdl);
+    const parsed = parseGlb(result.bytes);
+
+    expect(result).toMatchObject({
+      meshCount: 1,
+      vertexCount: 3,
+      triangleCount: 1
+    });
+    expect(parsed.json.accessors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          componentType: 5126,
+          count: 3,
+          type: "VEC3",
+          min: [1, 3, 2],
+          max: [3, 3, 3]
+        })
+      ])
+    );
+  });
+
+  it.each([
+    ["atj01_black", "atj01_black00"],
+    ["atj01_fence02", "tfa01_fence02"],
+    ["atj01_crvn02rf", "ttr01_crvn02rf"],
+    ["ttr01_circus3", "atj19_circus3"],
+    ["atj01_grassrim02", "atj51_grassrim02"],
+    ["tbf01_black", "ttf01_black"],
+    ["w_metal_tex", "w_metal_lok"]
+  ])(
+    "canonicalizes the known damaged Aurora texture reference %s to %s",
+    (damagedReference, canonicalReference) => {
+      const damagedMdl = SAMPLE_ASCII_MDL.replace(
+        "plc_test_triangle_diff",
+        damagedReference
+      );
+      const result = convertAuroraMdlToGlb(damagedMdl);
+      const parsed = parseGlb(result.bytes);
+
+      expect(result.textureReferences).toEqual([canonicalReference]);
+      expect(parsed.json.extras.aurora.textureReferences).toEqual([canonicalReference]);
+      expect(parsed.json.materials[0].extras.aurora).toMatchObject({
+        textureReference: canonicalReference,
+        textureReferences: [canonicalReference]
+      });
+    }
+  );
 
   it("converts ASCII animmesh geometry used by animated placeables", () => {
     const result = convertAuroraAsciiMdlToGlb(
@@ -1312,6 +1381,7 @@ function parseGlb(bytes: Buffer): {
     buffers: Array<{ byteLength: number }>;
     bufferViews: Array<{ byteOffset: number; byteLength: number; target: number }>;
     accessors: Array<Record<string, unknown>>;
+    extensionsUsed?: string[];
     scenes: Array<{
       extras: {
         aurora: {

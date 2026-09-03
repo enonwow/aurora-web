@@ -1,5 +1,6 @@
 import { AppException } from "../../src/common/http/app-exception";
 import {
+  parseCreatureBlueprintCreatePayload,
   parseItemBlueprintCreatePayload,
   parsePlaceableBlueprintCreatePayload,
   parseStoreBlueprintCreatePayload,
@@ -8,6 +9,14 @@ import {
 } from "../../src/modules/catalog/adapters/inbound/http/template-processing.schemas";
 
 describe("template-processing.schemas", () => {
+  it("rejects non-native BodyPart_Robe on a Creature blueprint", () => {
+    expect(() => parseCreatureBlueprintCreatePayload({
+      templateResRef: "cre_robe_probe",
+      name: "Robe Probe",
+      blueprint: { bodyPartRobe: 19 }
+    })).toThrow(AppException);
+  });
+
   it("accepts template process payload by templateId", () => {
     const parsed = parseTemplateProcessPayload({
       templateId: "cre_guard_human_001",
@@ -93,23 +102,146 @@ describe("template-processing.schemas", () => {
     });
   });
 
-  it("accepts item blueprint script slots as GFF-safe resrefs", () => {
-    const parsed = parseItemBlueprintCreatePayload({
+  it.each([
+    ["root CostTable", { costTable: 3 }],
+    ["root CostValue", { costValue: 1 }],
+    ["Item scripts", { scripts: { OnUsed: "itm_use" } }],
+  ])("rejects non-native Item blueprint %s", (_label, extension) => {
+    expect(() => parseItemBlueprintCreatePayload({
       templateResRef: "ctxarmor02",
-      name: "Context Armor Scripts",
+      name: "Strict Context Armor",
       baseItem: 16,
-      scripts: {
-        OnUsed: "itm_use",
-        onheartbeat: "itm_hb",
-        oninventorydisturbed: "itm_inv_dist"
-      }
+      ...extension,
+    })).toThrow();
+  });
+
+  it("continues to accept CostTable and CostValue inside PropertiesList", () => {
+    expect(parseItemBlueprintCreatePayload({
+      templateResRef: "ctxarmor02",
+      name: "Native Property Costs",
+      baseItem: 16,
+      propertyList: [{ propertyName: 15, costTable: 3, costValue: 1 }],
+    }).propertyList).toEqual([
+      { propertyName: 15, costTable: 3, costValue: 1 },
+    ]);
+  });
+
+  it("accepts exact ordered Item blueprint VarTable entries including duplicates", () => {
+    const variableListEntries = [
+      { name: " duplicate ", type: "int" as const, value: -0x80000000 },
+      { name: "duplicate", type: "float" as const, value: Math.fround(1.25) },
+      { name: "duplicate", type: "string" as const, value: " exact value " },
+    ];
+
+    expect(parseItemBlueprintCreatePayload({
+      templateResRef: "ctxarmor04",
+      name: "Native Variables",
+      baseItem: 16,
+      variableListEntries,
+    }).variableListEntries).toEqual(variableListEntries);
+  });
+
+  it.each([
+    ["unknown entry key", [{ name: "flag", type: "int", value: 1, extra: true }]],
+    ["NUL in name", [{ name: "bad\0name", type: "int", value: 1 }]],
+    ["non-binary32 float", [{ name: "float", type: "float", value: 0.1 }]],
+    ["out-of-range integer", [{ name: "int", type: "int", value: 0x80000000 }]],
+    ["NUL in string", [{ name: "text", type: "string", value: "bad\0value" }]],
+  ])("rejects Item blueprint VarTable with %s", (_label, variableListEntries) => {
+    expect(() => parseItemBlueprintCreatePayload({
+      templateResRef: "ctxarmor05",
+      name: "Invalid Variables",
+      baseItem: 16,
+      variableListEntries,
+    })).toThrow();
+  });
+
+  it("rejects Item blueprint VarTable above the entry budget", () => {
+    expect(() => parseItemBlueprintCreatePayload({
+      templateResRef: "ctxarmor06",
+      name: "Too Many Variables",
+      baseItem: 16,
+      variableListEntries: Array.from({ length: 1025 }, (_, index) => ({
+        name: `entry_${index}`,
+        type: "int",
+        value: index,
+      })),
+    })).toThrow();
+  });
+
+  it("rejects Item blueprint VarTable above the aggregate text budget", () => {
+    expect(() => parseItemBlueprintCreatePayload({
+      templateResRef: "ctxarmor07",
+      name: "Too Much Variable Text",
+      baseItem: 16,
+      variableListEntries: Array.from({ length: 257 }, (_, index) => ({
+        name: `entry_${index}`,
+        type: "string",
+        value: "x".repeat(4096),
+      })),
+    })).toThrow();
+  });
+
+  it("accepts canonical Item blueprint ItemList and Equip_ItemList references", () => {
+    const parsed = parseItemBlueprintCreatePayload({
+      templateResRef: "nested_bag",
+      name: "Nested Bag",
+      baseItem: 16,
+      inventoryItemListEntries: [
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 },
+      ],
+      equipItemListEntries: [
+        { resRef: "itm_ring", slotMask: 0x4 },
+        { resRef: "itm_cloak", slotMask: 0x2000 },
+      ],
     });
 
-    expect(parsed.scripts).toEqual({
-      onused: "itm_use",
-      onheartbeat: "itm_hb",
-      oninvdisturbed: "itm_inv_dist"
-    });
+    expect(parsed.inventoryItemListEntries).toEqual([
+      { resRef: "itm_potion", x: 3, y: 4 },
+      { resRef: "itm_scroll", x: 5, y: 6 },
+    ]);
+    expect(parsed.equipItemListEntries).toEqual([
+      { resRef: "itm_ring", slotMask: 0x4 },
+      { resRef: "itm_cloak", slotMask: 0x2000 },
+    ]);
+  });
+
+  it.each([
+    ["unknown inventory key", {
+      inventoryItemListEntries: [{ resRef: "itm_potion", x: 0, y: 0, infinite: true }],
+    }],
+    ["uppercase inventory ResRef", {
+      inventoryItemListEntries: [{ resRef: "ITM_POTION", x: 0, y: 0 }],
+    }],
+    ["self inventory reference", {
+      inventoryItemListEntries: [{ resRef: "nested_bag", x: 0, y: 0 }],
+    }],
+    ["non-Word repository coordinate", {
+      inventoryItemListEntries: [{ resRef: "itm_potion", x: 0x10000, y: 0 }],
+    }],
+    ["non-one-hot equipment slot", {
+      equipItemListEntries: [{ resRef: "itm_ring", slotMask: 3 }],
+    }],
+    ["duplicate equipment slot", {
+      equipItemListEntries: [
+        { resRef: "itm_ring", slotMask: 4 },
+        { resRef: "itm_ring_2", slotMask: 4 },
+      ],
+    }],
+    ["unordered equipment slots", {
+      equipItemListEntries: [
+        { resRef: "itm_cloak", slotMask: 0x2000 },
+        { resRef: "itm_ring", slotMask: 4 },
+      ],
+    }],
+  ])("rejects Item blueprint nested inventory with %s", (_label, extension) => {
+    expect(() => parseItemBlueprintCreatePayload({
+      templateResRef: "nested_bag",
+      name: "Invalid Nested Bag",
+      baseItem: 16,
+      ...extension,
+    })).toThrow();
   });
 
   it("accepts item blueprint localized string references for native UTI LocString fields", () => {
@@ -148,6 +280,19 @@ describe("template-processing.schemas", () => {
         torso: 1204
       }
     });
+  });
+
+  it("accepts admitted Creature Phenotype overrides and rejects row 1", () => {
+    const parsed = parseTemplateProcessPayload({
+      templateId: "cre_nw_hen_dae_01",
+      creatureAppearanceOverride: { phenotype: "5" }
+    });
+
+    expect(parsed.creatureAppearanceOverride?.phenotype).toBe(5);
+    expect(() => parseTemplateProcessPayload({
+      templateId: "cre_nw_hen_dae_01",
+      creatureAppearanceOverride: { phenotype: 1 }
+    })).toThrow();
   });
 
   it("accepts enriched Aurora creature list metadata beyond the scalar text limit", () => {
@@ -259,6 +404,47 @@ describe("template-processing.schemas", () => {
       },
       dropable: true
     });
+  });
+
+  it("accepts the complete signed native Store commerce and script payload", () => {
+    expect(parseStoreBlueprintCreatePayload({
+      resRef: "signed_store",
+      name: "Signed Store",
+      markUp: "-10",
+      markDown: "35",
+      blackMarket: true,
+      bmMarkDown: "-25",
+      identifyPrice: "150",
+      maxBuyPrice: "-1",
+      storeGold: "2000000",
+      onOpenStore: "on_store_open",
+      onStoreClosed: "on_store_close",
+      storeId: "255",
+    })).toMatchObject({
+      markUp: -10,
+      markDown: 35,
+      blackMarket: true,
+      bmMarkDown: -25,
+      identifyPrice: 150,
+      maxBuyPrice: -1,
+      storeGold: 2_000_000,
+      onOpenStore: "on_store_open",
+      onStoreClosed: "on_store_close",
+      storeId: 255,
+    });
+  });
+
+  it("rejects Store commerce outside signed Int and ID outside Byte storage", () => {
+    expect(() => parseStoreBlueprintCreatePayload({
+      resRef: "bad_store",
+      name: "Bad Store",
+      markUp: 0x8000_0000,
+    })).toThrow(AppException);
+    expect(() => parseStoreBlueprintCreatePayload({
+      resRef: "bad_store",
+      name: "Bad Store",
+      storeId: 256,
+    })).toThrow(AppException);
   });
 
   it("rejects payload without templateId/resref", () => {

@@ -36,8 +36,12 @@ describe("LayeredAreaProcessingCacheRepository", () => {
       placeables: 1,
       doors: 0,
       creatures: 0,
+      encounters: 0,
       items: 0,
       sounds: 0,
+      stores: 0,
+      triggers: 0,
+      waypoints: 0,
       total: 1
     },
     objects: [

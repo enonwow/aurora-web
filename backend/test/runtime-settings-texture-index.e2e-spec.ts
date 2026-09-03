@@ -18,6 +18,9 @@ import {
 } from "../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { PackedModuleFile } from "../src/modules/runtime-settings/application/ports/packed-module-extractor.port";
 import type { BlobStorageSettings } from "../src/modules/runtime-settings/domain/runtime-settings.types";
+import { SystemMaintenanceApplicationService } from "../src/modules/system-maintenance/application/system-maintenance.application.service";
+
+jest.setTimeout(30_000);
 
 class InMemoryModuleBlobStorage implements ModuleBlobStoragePort {
   private readonly objects = new Map<string, Buffer>();
@@ -191,9 +194,19 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
     await mkdir(path.dirname(runtimeSettingsFile), { recursive: true });
     await rm(runtimeSettingsFile, { force: true });
     await rm(moduleFixtureRoot, { recursive: true, force: true });
-    await mkdir(moduleFixtureRoot, { recursive: true });
+    await Promise.all([
+      mkdir(path.join(moduleFixtureRoot, "data"), { recursive: true }),
+      mkdir(path.join(moduleFixtureRoot, "lang", "en", "data"), {
+        recursive: true
+      })
+    ]);
     await writeFile(path.join(moduleFixtureRoot, "example.utp"), "example-utp", "utf-8");
     await writeFile(path.join(moduleFixtureRoot, "example.dds"), Buffer.from([1, 2, 3, 4]));
+    await writeFile(
+      path.join(moduleFixtureRoot, "lang", "en", "data", "dialog.tlk"),
+      "fixture-tlk",
+      "utf-8"
+    );
 
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule]
@@ -221,7 +234,7 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
     await rm(moduleFixtureRoot, { recursive: true, force: true });
   });
 
-  it("rebuild returns sourceDelta.index and textures summary is reachable with expected shape", async () => {
+  it("publishes a rebuilt texture index and exposes its summary", async () => {
     const token = await loginAndGetToken("admin.user", "admin123");
 
     const currentSettings = await supertest(httpServer)
@@ -239,81 +252,45 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
     };
 
     const payload = {
-      paths: {
-        ...current.paths,
-        moduleDecompiledPath: moduleFixtureRoot,
-        modulePackedPath: "",
-        hakDirectoryPath: moduleFixtureRoot,
-        vanillaDataPath: moduleFixtureRoot
-      },
+      paths: createFixtureRuntimePaths(),
       blobStorage: {
         ...current.blobStorage,
         modulePrefix: "modules/e2e-runtime-texture-index"
       },
       telemetryDebugMode: current.telemetryDebugMode,
       hakProfiles: current.hakProfiles,
-      sources: {
-        placeable: {
-          ...current.sources.placeable,
-          includeHaks: false,
-          includeVanilla: false
-        },
-        tile: {
-          ...current.sources.tile,
-          includeHaks: false,
-          includeVanilla: false
-        },
-        area: {
-          ...current.sources.area,
-          includeHaks: false,
-          includeVanilla: false
-        },
-        sound: {
-          ...current.sources.sound,
-          includeHaks: false,
-          includeVanilla: false
-        }
-      },
-      benchmarkCandidates: current.benchmarkCandidates
+      sources: disableExternalSources(current.sources),
+      benchmarkCandidates: current.benchmarkCandidates,
+      confirmGlobalLogout: true
     };
 
-    await supertest(httpServer)
+    const update = await supertest(httpServer)
       .put("/api/v1/settings/runtime")
       .set("Authorization", `Bearer ${token}`)
       .send(payload)
-      .expect(200);
+      .expect(202);
 
-    const rebuild = await supertest(httpServer)
-      .post("/api/v1/settings/runtime/module-cache/rebuild")
-      .set("Authorization", `Bearer ${token}`)
-      .expect(201);
-
-    expect(rebuild.body.data.sync).toEqual(
+    expect(update.body.data).toEqual(
       expect.objectContaining({
-        sourceDelta: expect.objectContaining({
-          index: expect.objectContaining({
-            uploadedFiles: expect.any(Number),
-            uploadedBytes: expect.any(Number),
-            deletedFiles: expect.any(Number),
-            deletedBytes: expect.any(Number),
-            unchangedFiles: expect.any(Number),
-            unchangedBytes: expect.any(Number)
-          })
-        })
+        outcome: "ACCEPTED",
+        operationId: expect.any(String),
+        generation: expect.stringMatching(/^g-/u)
       })
     );
+    await waitForCacheRebuildCompletion(update.body.data.operationId as string);
+    const refreshedToken = await loginAndGetToken("admin.user", "admin123");
 
     const summary = await supertest(httpServer)
       .get("/api/v1/settings/runtime/module-cache/textures/summary")
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", `Bearer ${refreshedToken}`)
       .expect(200);
 
     expect(summary.body.data).toEqual(
       expect.objectContaining({
         available: true,
-        indexObjectKey: expect.stringContaining(
-          "modules/e2e-runtime-texture-index/__aurora/meta/texture-index.v1.json"
-        ),
+        indexObjectKey:
+          `modules/e2e-runtime-texture-index/__generations/${update.body.data.generation as string}` +
+          "/__aurora/meta/texture-index.v1.json",
         version: "texture-index/v1",
         totalTextures: expect.any(Number),
         totalBytes: expect.any(Number)
@@ -324,8 +301,6 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
 
   it("exposes texture delivery contracts and blob download for scene.read role", async () => {
     const adminToken = await loginAndGetToken("admin.user", "admin123");
-    const builderToken = await loginAndGetToken("builder.user", "builder123");
-
     const currentSettings = await supertest(httpServer)
       .get("/api/v1/settings/runtime")
       .set("Authorization", `Bearer ${adminToken}`)
@@ -340,53 +315,25 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
       benchmarkCandidates: Record<string, unknown>;
     };
 
-    await supertest(httpServer)
+    const update = await supertest(httpServer)
       .put("/api/v1/settings/runtime")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
-        paths: {
-          ...current.paths,
-          moduleDecompiledPath: moduleFixtureRoot,
-          modulePackedPath: "",
-          hakDirectoryPath: moduleFixtureRoot,
-          vanillaDataPath: moduleFixtureRoot
-        },
+        paths: createFixtureRuntimePaths(),
         blobStorage: {
           ...current.blobStorage,
           modulePrefix: "modules/e2e-runtime-texture-delivery"
         },
         telemetryDebugMode: current.telemetryDebugMode,
         hakProfiles: current.hakProfiles,
-        sources: {
-          placeable: {
-            ...current.sources.placeable,
-            includeHaks: false,
-            includeVanilla: false
-          },
-          tile: {
-            ...current.sources.tile,
-            includeHaks: false,
-            includeVanilla: false
-          },
-          area: {
-            ...current.sources.area,
-            includeHaks: false,
-            includeVanilla: false
-          },
-          sound: {
-            ...current.sources.sound,
-            includeHaks: false,
-            includeVanilla: false
-          }
-        },
-        benchmarkCandidates: current.benchmarkCandidates
+        sources: disableExternalSources(current.sources),
+        benchmarkCandidates: current.benchmarkCandidates,
+        confirmGlobalLogout: true
       })
-      .expect(200);
+      .expect(202);
 
-    await supertest(httpServer)
-      .post("/api/v1/settings/runtime/module-cache/rebuild")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .expect(201);
+    await waitForCacheRebuildCompletion(update.body.data.operationId as string);
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
 
     const contracts = await supertest(httpServer)
       .get("/api/v1/settings/runtime/module-cache/textures/contracts?limit=1&offset=0")
@@ -420,6 +367,60 @@ describe("Runtime Settings texture-index/rebuild alignment (e2e)", () => {
       .expect(200);
 
     return login.body.data.session.accessToken as string;
+  }
+
+  async function waitForCacheRebuildCompletion(operationId: string): Promise<void> {
+    const maintenance = app.get(SystemMaintenanceApplicationService);
+    for (let attempt = 0; attempt < 1_000; attempt += 1) {
+      const state = await maintenance.getState();
+      if (state.operationId === operationId && state.state === "idle") {
+        return;
+      }
+      if (state.operationId === operationId && state.state === "failed") {
+        throw new Error(
+          `Runtime cache rebuild failed: ${state.errorCode ?? "UNKNOWN"}: ${state.errorMessage ?? state.phase}`
+        );
+      }
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 20));
+    }
+    throw new Error(`Runtime cache rebuild did not complete: ${operationId}`);
+  }
+
+  function createFixtureRuntimePaths() {
+    return {
+      nwnUserDir: moduleFixtureRoot,
+      nwnInstallDir: moduleFixtureRoot,
+      auroraReferenceDir: moduleFixtureRoot,
+      hakDirectories: [moduleFixtureRoot],
+      itemGeneratorSourceDirectories: [moduleFixtureRoot],
+      vanillaDataPath: path.join(moduleFixtureRoot, "data"),
+      hakDirectoryPath: moduleFixtureRoot,
+      moduleDecompiledPath: moduleFixtureRoot,
+      modulePackedPath: "",
+      tlkBasePath: path.join(
+        moduleFixtureRoot,
+        "lang",
+        "en",
+        "data",
+        "dialog.tlk"
+      ),
+      tlkCustomPath: ""
+    };
+  }
+
+  function disableExternalSources(
+    sources: Record<string, Record<string, unknown>>
+  ): Record<string, Record<string, unknown>> {
+    return Object.fromEntries(
+      Object.entries(sources).map(([kind, source]) => [
+        kind,
+        {
+          ...source,
+          includeHaks: false,
+          includeVanilla: false
+        }
+      ])
+    );
   }
 });
 

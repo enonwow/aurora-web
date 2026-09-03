@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Logger } from "@nestjs/common";
 import {
+  collectAuroraMtrTextureReferencesFromFiles,
   parsePlaceablesAppearanceModelLookup,
   RuntimeSettingsApplicationService,
-  resolveHakSettingsByAsset
+  resolveHakSettingsByAsset,
+  waitForStoredModuleObjectBytes
 } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
 import { NWN_KEY_BIF_RESOURCE_TYPES } from "../../src/modules/runtime-settings/application/nwn-key-bif-resource-reader";
 import type { DerivedAssetGeneratorPort } from "../../src/modules/runtime-settings/application/ports/derived-asset-generator.port";
@@ -53,6 +55,59 @@ describe("RuntimeSettingsApplicationService", () => {
     );
   });
 
+  it("waits until a derived module object exposes the bytes acknowledged by put", async () => {
+    const current = buildSettingsRecord();
+    const expectedBytes = Buffer.from("current-derived-model");
+    moduleBlobStorage.getModuleObject
+      .mockResolvedValueOnce({
+        key: "modules/current/__aurora/derived/models/tile.glb",
+        size: 19,
+        contentType: "model/gltf-binary",
+        bytes: Buffer.from("stale-derived-model")
+      })
+      .mockResolvedValueOnce({
+        key: "modules/current/__aurora/derived/models/tile.glb",
+        size: expectedBytes.length,
+        contentType: "model/gltf-binary",
+        bytes: expectedBytes
+      });
+
+    await expect(
+      waitForStoredModuleObjectBytes(
+        moduleBlobStorage,
+        current.blobStorage,
+        "modules/current/__aurora/derived/models/tile.glb",
+        expectedBytes
+      )
+    ).resolves.toBeUndefined();
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits when a derived module object is temporarily missing after put", async () => {
+    const current = buildSettingsRecord();
+    const expectedBytes = Buffer.from("current-derived-model");
+    moduleBlobStorage.getModuleObject
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        key: "modules/current/__aurora/derived/models/tile.glb",
+        size: expectedBytes.length,
+        contentType: "model/gltf-binary",
+        bytes: expectedBytes
+      });
+
+    await expect(
+      waitForStoredModuleObjectBytes(
+        moduleBlobStorage,
+        current.blobStorage,
+        "modules/current/__aurora/derived/models/tile.glb",
+        expectedBytes
+      )
+    ).resolves.toBeUndefined();
+
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledTimes(2);
+  });
+
   it("maps placeables.2da appearances by physical row index before USER alias fallback", () => {
     const fillerRows = Array.from(
       { length: 110 },
@@ -84,6 +139,31 @@ describe("RuntimeSettingsApplicationService", () => {
 
     expect(repository.get).toHaveBeenCalledTimes(1);
     expect(response).toEqual(current);
+  });
+
+  it("rejects an active generation when the manifest declares a missing object", async () => {
+    const current = buildSettingsRecord();
+    current.blobStorage.modulePrefix =
+      "modules/current/__generations/g-active";
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
+      bucket: current.blobStorage.bucket,
+      prefix: `${current.blobStorage.modulePrefix}/`,
+      moduleHash: "manifest-hash",
+      manifestFileCount: 3,
+      totalFiles: 2,
+      totalBytes: 128,
+      objects: [],
+      truncated: false
+    });
+
+    await expect(
+      service.validateRuntimeCacheIntegrity(current)
+    ).resolves.toEqual({
+      valid: false,
+      reason: "file_count_mismatch",
+      moduleHash: "manifest-hash",
+      totalFiles: 2
+    });
   });
 
   it("replaces settings and bumps revision metadata", async () => {
@@ -211,7 +291,7 @@ describe("RuntimeSettingsApplicationService", () => {
       expect(resolved.creature.hakPriorityList).toEqual([
         "lc_2da",
         "lc_heads",
-        "cep3_heads"
+        "cep3_heads",
       ]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -292,7 +372,7 @@ describe("RuntimeSettingsApplicationService", () => {
     }
   });
 
-  it("keeps non-placeable assets on profile fallback", async () => {
+  it("uses Aurora module.ifo precedence for tiles while non-HAK assets keep profile fallback", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "aurora-module-ifo-"));
     const moduleIfo = createModuleIfoGff(["module_fallback.hak"]);
     await writeFile(join(tempRoot, "module.ifo"), moduleIfo);
@@ -313,8 +393,8 @@ describe("RuntimeSettingsApplicationService", () => {
 
       const resolved = await service.getResolvedHakSettings();
 
-      expect(resolved.tile.mode).toBe("profile");
-      expect(resolved.tile.hakPriorityList).toEqual(current.hakProfiles.lc_tiles);
+      expect(resolved.tile.mode).toBe("module_ifo");
+      expect(resolved.tile.hakPriorityList).toEqual(["module_fallback"]);
       expect(resolved.area.mode).toBe("profile");
       expect(resolved.area.hakPriorityList).toEqual(current.hakProfiles.lc_core);
       expect(resolved.vfx.mode).toBe("profile");
@@ -626,6 +706,7 @@ describe("RuntimeSettingsApplicationService", () => {
     expect(contracts.assets[0]).toMatchObject({
       textureId: "1234567890abcdef12345678",
       objectKey: "modules/current/__aurora/sources/hak/lc_core/h_fire.tga",
+      contentSha256: "b".repeat(64),
       deliveryPath: "/api/v1/settings/runtime/module-cache/textures/1234567890abcdef12345678",
       s3Url: "s3://aurora-module-assets/modules/current/__aurora/sources/hak/lc_core/h_fire.tga"
     });
@@ -1384,7 +1465,7 @@ describe("RuntimeSettingsApplicationService", () => {
     });
   });
 
-  it("syncs hak and vanilla textures and writes texture index metadata", async () => {
+  it("syncs bounded vanilla Placeable catalog sources without bulk model assets", async () => {
     const moduleRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-module-"));
     const hakRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-haks-"));
     const vanillaRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-vanilla-"));
@@ -1421,6 +1502,11 @@ describe("RuntimeSettingsApplicationService", () => {
         resref: "plc_vanilla",
         resourceType: 2053,
         bytes: Buffer.from("pwk", "utf-8")
+      },
+      {
+        resref: "plc_vanilla",
+        resourceType: 2044,
+        bytes: Buffer.from("UTP V3.2 exact blueprint", "utf-8")
       }
     ]);
 
@@ -1478,9 +1564,14 @@ describe("RuntimeSettingsApplicationService", () => {
           "__aurora/sources/vanilla/textures/city/v_stone.tga",
           "__aurora/sources/vanilla/tilesets/tcn01.set",
           "__aurora/sources/vanilla/placeables.2da",
-          "__aurora/sources/vanilla/models/plc_vanilla.mdl",
-          "__aurora/sources/vanilla/walkmeshes/plc_vanilla.pwk",
+          "__aurora/sources/vanilla/templates/plc_vanilla.utp",
           "__aurora/meta/texture-index.v1.json"
+        ])
+      );
+      expect(uploadedNames).not.toEqual(
+        expect.arrayContaining([
+          "__aurora/sources/vanilla/models/plc_vanilla.mdl",
+          "__aurora/sources/vanilla/walkmeshes/plc_vanilla.pwk"
         ])
       );
 
@@ -1582,6 +1673,50 @@ describe("RuntimeSettingsApplicationService", () => {
     }
   });
 
+  it("reads only SET resources from a tiles HAK without extracting its full payload", async () => {
+    const hakRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-hak-tilesets-"));
+    const hakPath = join(hakRoot, "cep3_tiles.hak");
+    const setBytes = Buffer.from("[TILE0]\nModel=atj01_f06_01", "utf-8");
+    await writeFakeHak(hakPath, [
+      { resref: "atj02", resourceType: 2013, bytes: setBytes },
+      { resref: "large_model", resourceType: 2002, bytes: Buffer.alloc(128 * 1024, 7) }
+    ]);
+
+    try {
+      const current = buildSettingsRecord();
+      current.paths.hakDirectoryPath = hakRoot;
+      current.sources.tile.includeVanilla = false;
+      current.sources.tile.includeHaks = true;
+      current.sources.tile.hakProfileId = "lc_tiles";
+      current.sources.tile.hakPriorityList = ["cep3_tiles.hak"];
+      current.hakProfiles.lc_tiles = ["cep3_tiles.hak"];
+      repository.get.mockResolvedValue(current);
+      const putModuleObject = moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length,
+        etag: `etag-${file.fileName}`
+      }));
+
+      const result = await service.syncVanillaTilesetSetSources("areas-tileset-set-auto-sync");
+
+      expect(result.files).toEqual([
+        {
+          fileName: "__aurora/sources/hak/cep3_tiles/atj02.set",
+          objectKey: "modules/current/__aurora/sources/hak/cep3_tiles/atj02.set",
+          size: setBytes.length,
+          resourceType: 2013,
+          etag: "etag-__aurora/sources/hak/cep3_tiles/atj02.set"
+        }
+      ]);
+      expect(packedModuleExtractor.extractFromPackedModule).not.toHaveBeenCalled();
+    } finally {
+      await rm(hakRoot, { recursive: true, force: true });
+    }
+  });
+
   it("syncs module area source files without rebuilding the full module snapshot", async () => {
     const moduleRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-module-areas-"));
     await writeFile(join(moduleRoot, "enon_bakery.are"), Buffer.from("are", "utf-8"));
@@ -1631,6 +1766,143 @@ describe("RuntimeSettingsApplicationService", () => {
       );
     } finally {
       await rm(moduleRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("syncs vanilla Placeable catalog UTP sources without bulk model ingestion", async () => {
+    const vanillaRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-vanilla-placeables-"));
+    const twoDaBytes = Buffer.from(
+      ["2DA V2.0", "", "Label ModelName", '0 "Water Trough" plc_watertrough'].join("\n"),
+      "utf-8"
+    );
+    const utpBytes = Buffer.from("UTP V3.2 exact blueprint", "utf-8");
+    await writeFakeKeyBif(vanillaRoot, [
+      {
+        resref: "placeables",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+        bytes: twoDaBytes
+      },
+      {
+        resref: "plc_watertrough",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP,
+        bytes: utpBytes
+      },
+      {
+        resref: "plc_watertrough",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+        bytes: Buffer.alloc(128 * 1024, 7)
+      },
+      {
+        resref: "plc_watertrough",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.PWK,
+        bytes: Buffer.alloc(64 * 1024, 9)
+      }
+    ]);
+
+    try {
+      const current = buildSettingsRecord();
+      current.paths.vanillaDataPath = vanillaRoot;
+      current.sources.placeable.includeVanilla = true;
+      current.sources.placeable.includeHaks = false;
+      repository.get.mockResolvedValue(current);
+      const putModuleObject = moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length,
+        etag: `etag-${file.resourceType}`
+      }));
+
+      const result = await service.syncPlaceableModelSources("dynamic-utp-proof", {
+        appearanceTypes: [],
+        modelResRefs: []
+      });
+
+      expect(result).toMatchObject({
+        mode: "placeable-model-source-sync",
+        enabled: true,
+        requestedAppearanceTypes: [],
+        requestedModelResRefs: [],
+        missingModelResRefs: [],
+        uploadedFiles: 2,
+        uploadedBytes: twoDaBytes.length + utpBytes.length
+      });
+      expect(result.files.map((file) => file.fileName)).toEqual([
+        "__aurora/sources/vanilla/placeables.2da",
+        "__aurora/sources/vanilla/templates/plc_watertrough.utp"
+      ]);
+      expect(moduleBlobStorage.putModuleObject).not.toHaveBeenCalledWith(
+        current.blobStorage,
+        expect.objectContaining({
+          fileName: expect.stringMatching(/\.(?:mdl|pwk)$/u)
+        })
+      );
+      expect(moduleBlobStorage.replaceModuleSnapshot).not.toHaveBeenCalled();
+    } finally {
+      await rm(vanillaRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads HAK Placeable UTP sources through the resource index", async () => {
+    const hakRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-hak-placeables-"));
+    const hakPath = join(hakRoot, "placeables.hak");
+    const twoDaBytes = Buffer.from(
+      ["2DA V2.0", "", "Label ModelName", '0 "Custom Chair" plc_customchair'].join("\n"),
+      "utf-8"
+    );
+    const utpBytes = Buffer.from("UTP V3.2 custom blueprint", "utf-8");
+    await writeFakeHak(hakPath, [
+      {
+        resref: "placeables",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA,
+        bytes: twoDaBytes
+      },
+      {
+        resref: "plc_customchair",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP,
+        bytes: utpBytes
+      },
+      {
+        resref: "plc_customchair",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+        bytes: Buffer.alloc(128 * 1024, 5)
+      }
+    ]);
+
+    try {
+      const current = buildSettingsRecord();
+      current.paths.hakDirectoryPath = hakRoot;
+      current.sources.placeable.includeVanilla = false;
+      current.sources.placeable.includeHaks = true;
+      current.sources.placeable.hakPriorityList = ["placeables.hak"];
+      repository.get.mockResolvedValue(current);
+      const putModuleObject = moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length
+      }));
+
+      const result = await service.syncPlaceableModelSources("dynamic-utp-proof", {
+        appearanceTypes: [],
+        modelResRefs: []
+      });
+
+      expect(result.files.map((file) => file.fileName)).toEqual([
+        "__aurora/sources/hak/placeables/placeables.2da",
+        "__aurora/sources/hak/placeables/templates/plc_customchair.utp"
+      ]);
+      expect(packedModuleExtractor.extractFromPackedModule).not.toHaveBeenCalled();
+      expect(moduleBlobStorage.putModuleObject).not.toHaveBeenCalledWith(
+        current.blobStorage,
+        expect.objectContaining({
+          fileName: expect.stringMatching(/\.mdl$/u)
+        })
+      );
+    } finally {
+      await rm(hakRoot, { recursive: true, force: true });
     }
   });
 
@@ -1718,6 +1990,51 @@ describe("RuntimeSettingsApplicationService", () => {
       );
     } finally {
       await rm(vanillaRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads each tile HAK through its index and keeps the configured Aurora precedence", async () => {
+    const hakRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-hak-tile-models-"));
+    const preferredModel = Buffer.from("preferred-tile-mdl", "utf-8");
+    await writeFakeHak(join(hakRoot, "preferred.hak"), [
+      { resref: "atj01_s18_01", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MDL, bytes: preferredModel },
+      { resref: "atj01_s18_01", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.WOK, bytes: Buffer.from("wok") }
+    ]);
+    await writeFakeHak(join(hakRoot, "fallback.hak"), [
+      { resref: "atj01_s18_01", resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MDL, bytes: Buffer.from("fallback-tile-mdl") }
+    ]);
+
+    try {
+      const current = buildSettingsRecord();
+      current.paths.hakDirectoryPath = hakRoot;
+      current.sources.tile.includeVanilla = false;
+      current.sources.tile.includeHaks = true;
+      current.sources.tile.hakPriorityList = ["preferred.hak", "fallback.hak"];
+      repository.get.mockResolvedValue(current);
+      const putModuleObject = moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length
+      }));
+
+      const result = await service.syncVanillaTileModelSources("tile-proof", ["atj01_s18_01"]);
+
+      expect(result.missingModelResRefs).toEqual([]);
+      expect(result.files.map((file) => file.fileName)).toEqual([
+        "__aurora/sources/tiles/hak/preferred/atj01_s18_01.mdl",
+        "__aurora/sources/tiles/hak/preferred/atj01_s18_01.wok"
+      ]);
+      expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledWith(
+        current.blobStorage,
+        expect.objectContaining({
+          fileName: "__aurora/sources/tiles/hak/preferred/atj01_s18_01.mdl",
+          bytes: preferredModel
+        })
+      );
+    } finally {
+      await rm(hakRoot, { recursive: true, force: true });
     }
   });
 
@@ -1815,6 +2132,90 @@ describe("RuntimeSettingsApplicationService", () => {
     }
   });
 
+  it("expands MTR texture slots and syncs their raster dependencies from the tile HAK", async () => {
+    const hakRoot = await mkdtemp(join(tmpdir(), "aurora-runtime-hak-tile-mtr-"));
+    const mtrBytes = Buffer.from(
+      [
+        "renderhint NormalAndSpecMapped",
+        "texture0 tdm01_bone01_d",
+        "texture1 tdm01_bone01_n // normal",
+        "texture2 null",
+        "texture3 tdm01_bone01_r"
+      ].join("\r\n"),
+      "utf-8"
+    );
+    const diffuseBytes = Buffer.from([1, 2, 3]);
+    const normalBytes = Buffer.from([4, 5, 6]);
+    const roughnessBytes = Buffer.from([7, 8, 9]);
+    await writeFakeHak(join(hakRoot, "materials.hak"), [
+      {
+        resref: "tst01_a01_01",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MDL,
+        bytes: Buffer.from("bitmap tdm01_bone01", "utf-8")
+      },
+      {
+        resref: "tdm01_bone01",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.MTR,
+        bytes: mtrBytes
+      },
+      {
+        resref: "tdm01_bone01_d",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+        bytes: diffuseBytes
+      },
+      {
+        resref: "tdm01_bone01_n",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+        bytes: normalBytes
+      },
+      {
+        resref: "tdm01_bone01_r",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.DDS,
+        bytes: roughnessBytes
+      }
+    ]);
+
+    try {
+      const current = buildSettingsRecord();
+      current.paths.hakDirectoryPath = hakRoot;
+      current.sources.tile.includeVanilla = false;
+      current.sources.tile.includeHaks = true;
+      current.sources.tile.hakPriorityList = ["materials.hak"];
+      repository.get.mockResolvedValue(current);
+      const putModuleObject = moduleBlobStorage.putModuleObject as jest.MockedFunction<
+        NonNullable<ModuleBlobStoragePort["putModuleObject"]>
+      >;
+      putModuleObject.mockImplementation(async (_settings, file) => ({
+        key: `modules/current/${file.fileName}`,
+        size: file.bytes.length
+      }));
+
+      const result = await service.syncVanillaTileModelSources("tile-proof", [
+        "tst01_a01_01"
+      ]);
+      const uploadedNames = result.files.map((file) => file.fileName);
+
+      expect(collectAuroraMtrTextureReferencesFromFiles([
+        { fileName: "tdm01_bone01.mtr", resourceType: 2072, bytes: mtrBytes }
+      ])).toEqual([
+        "tdm01_bone01_d",
+        "tdm01_bone01_n",
+        "tdm01_bone01_r"
+      ]);
+      expect(uploadedNames).toEqual(
+        expect.arrayContaining([
+          "__aurora/sources/hak/materials/tdm01_bone01.mtr",
+          "__aurora/sources/hak/materials/tdm01_bone01_d.dds",
+          "__aurora/sources/hak/materials/tdm01_bone01_n.dds",
+          "__aurora/sources/hak/materials/tdm01_bone01_r.dds",
+          "__aurora/meta/texture-index.v1.json"
+        ])
+      );
+    } finally {
+      await rm(hakRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips targeted vanilla tileset SET source sync when vanilla tile sources are disabled", async () => {
     const current = buildSettingsRecord();
     current.sources.tile.includeVanilla = false;
@@ -1869,6 +2270,41 @@ async function writeFakeKeyBif(
   const key = buildFakeKey(bifFileName, bif.length, resources);
   await writeFile(join(root, bifFileName), bif);
   await writeFile(join(root, "nwn_base.key"), key);
+}
+
+async function writeFakeHak(
+  targetPath: string,
+  resources: Array<{ resref: string; resourceType: number; bytes: Buffer }>
+): Promise<void> {
+  const headerSize = 160;
+  const keyEntrySize = 24;
+  const resourceEntrySize = 8;
+  const keyListOffset = headerSize;
+  const resourceListOffset = keyListOffset + resources.length * keyEntrySize;
+  const dataOffset = resourceListOffset + resources.length * resourceEntrySize;
+  const buffer = Buffer.alloc(
+    dataOffset + resources.reduce((sum, resource) => sum + resource.bytes.length, 0)
+  );
+  buffer.write("HAK ", 0, "ascii");
+  buffer.write("V1.0", 4, "ascii");
+  buffer.writeUInt32LE(resources.length, 16);
+  buffer.writeUInt32LE(keyListOffset, 24);
+  buffer.writeUInt32LE(resourceListOffset, 28);
+
+  let cursor = dataOffset;
+  resources.forEach((resource, index) => {
+    const keyOffset = keyListOffset + index * keyEntrySize;
+    Buffer.from(resource.resref.toLowerCase().slice(0, 16), "ascii").copy(buffer, keyOffset);
+    buffer.writeUInt32LE(index, keyOffset + 16);
+    buffer.writeUInt16LE(resource.resourceType, keyOffset + 20);
+    const resourceOffset = resourceListOffset + index * resourceEntrySize;
+    buffer.writeUInt32LE(cursor, resourceOffset);
+    buffer.writeUInt32LE(resource.bytes.length, resourceOffset + 4);
+    resource.bytes.copy(buffer, cursor);
+    cursor += resource.bytes.length;
+  });
+
+  await writeFile(targetPath, buffer);
 }
 
 function buildFakeBif(

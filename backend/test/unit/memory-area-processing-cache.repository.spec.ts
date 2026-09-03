@@ -84,8 +84,12 @@ function buildAreaResult(areaId: string): AreaProcessingResult {
       placeables: 0,
       doors: 0,
       creatures: 0,
+      encounters: 0,
       items: 0,
       sounds: 0,
+      stores: 0,
+      triggers: 0,
+      waypoints: 0,
       total: 0
     },
     objects: [],

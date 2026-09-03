@@ -1,4 +1,5 @@
 import type { AuroraMdlEmitterNode } from "../../src/modules/vfx/domain/aurora-mdl-vfx-source.parser";
+import type { AuroraVfxDependencyGraph } from "../../src/modules/vfx/domain/aurora-vfx-dependency-graph";
 import {
   buildAuroraVfxRuntimeRenderContract,
   compareAuroraVfxRenderOrder
@@ -34,26 +35,148 @@ describe("aurora VFX render contract", () => {
         route: "non_indexed_draw_arrays",
         indexed: false,
         drawModeArgument: 3,
-        enumTableCaptured: false
+        enumTableCaptured: true,
+        glPrimitiveMode: "GL_TRIANGLES",
+        glPrimitiveModeEnum: 0x0004,
+        triangleListInferenceProof: "confirmed_draw_wrapper_table_index_3_gl_triangles"
       }
     });
     expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_PARTICLE_DRAW_NON_INDEXED_ARRAYS_REQUIRED",
-        "VFX_PARTICLE_DRAW_MODE_ARG3_ENUM_TABLE_CAPTURE_REQUIRED",
-        "VFX_PARTICLE_DRAW_TRIANGLE_INFERENCE_NOT_ENUM_PROOF"
+        "VFX_PARTICLE_DRAW_GL_TRIANGLES_CONFIRMED"
       ])
     );
   });
 
   it("carries runtime particle rotation radians into draw records", () => {
     const emitter = fountainEmitter({ birthrate: 1 });
+    const runtimeState = runtimeStateWithParticles(emitter, 1, { rotations: [1.25] });
+    runtimeState.particles[0]!.ageSeconds = 0.375;
+    runtimeState.particles[0]!.lifetimeSeconds = 1.25;
     const contract = buildAuroraVfxRuntimeRenderContract({
-      runtimeState: runtimeStateWithParticles(emitter, 1, { rotations: [1.25] }),
+      runtimeState,
       sourceEmitter: emitter
     });
 
-    expect(contract.drawRecords[0]?.rotationRadians).toBe(1.25);
+    expect(contract.drawRecords[0]).toMatchObject({
+      rotationRadians: 1.25,
+      ageSeconds: 0.375,
+      lifetimeSeconds: 1.25
+    });
+  });
+
+  it("carries the source-derived particle orientation into aligned-to-particle draw records", () => {
+    const emitter = fountainEmitter({ renderMode: "Aligned_to_Particle_Dir" });
+    const runtimeState = runtimeStateWithParticles(emitter, 1);
+    runtimeState.particles[0]!.particleOrientation = {
+      axis: [0, 1, 0],
+      angleRadians: Math.PI / 2
+    };
+    const contract = buildAuroraVfxRuntimeRenderContract({ runtimeState, sourceEmitter: emitter });
+
+    expect(contract.drawRecords[0]?.particleOrientation).toEqual({
+      axis: [0, 1, 0],
+      angleRadians: Math.PI / 2
+    });
+  });
+
+  it("classifies the source Normal render token as Aurora mode zero", () => {
+    const emitter = fountainEmitter({ renderMode: "Normal" });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter
+    });
+
+    expect(contract.renderMode).toEqual({
+      enum: "normal",
+      rawToken: "Normal",
+      source: "mdl-emitter-render-token"
+    });
+  });
+
+  it("carries the evaluated emitter orientation into Local-Z draw records", () => {
+    const emitter = fountainEmitter({ renderMode: "Billboard_to_Local_Z" });
+    emitter.transform = {
+      orientation: { axis: [0, 1, 0], angleRadians: Math.PI / 2 }
+    };
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter
+    });
+
+    expect(contract.drawRecords[0]?.emitterOrientation).toEqual({
+      axis: [0, 1, 0],
+      angleRadians: Math.PI / 2
+    });
+  });
+
+  it("carries airborne and landed Chunk orientation state into the chunk render lane", () => {
+    const emitter = fountainEmitter({
+      nodeName: "emit_chunk_axis",
+      chunkName: "fx_chunk01"
+    });
+    const runtimeState = runtimeStateWithParticles(emitter, 1, { family: "Chunk" });
+    runtimeState.particles[0]!.rotationAxis = { x: 0, y: 0, z: 1 };
+    runtimeState.particles[0]!.particleOrientation = {
+      axis: [-1, 0, 0],
+      angleRadians: Math.PI / 2
+    };
+    runtimeState.particles[0]!.landed = true;
+    runtimeState.particles[0]!.contactNormal = { x: 0, y: 1, z: 0 };
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState,
+      sourceEmitter: emitter
+    });
+
+    expect(contract.chunkLane?.particleInstances[0]).toMatchObject({
+      rotationAxis: { x: 0, y: 0, z: 1 },
+      particleOrientation: {
+        axis: [-1, 0, 0],
+        angleRadians: Math.PI / 2
+      },
+      landed: true,
+      contactNormal: { x: 0, y: 1, z: 0 }
+    });
+  });
+
+  it("carries landed splat contact state into canonical draw records", () => {
+    const emitter = fountainEmitter({ birthrate: 1 });
+    emitter.sourceState = { ...emitter.sourceState, splat: true };
+    const runtimeState = runtimeStateWithParticles(emitter, 1);
+    runtimeState.particles[0]!.landed = true;
+    runtimeState.particles[0]!.contactNormal = { x: 0, y: 0, z: 1 };
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState,
+      sourceEmitter: emitter
+    });
+
+    expect(contract.drawRecords[0]).toMatchObject({
+      landed: true,
+      splat: true,
+      contactNormal: { x: 0, y: 0, z: 1 }
+    });
+  });
+
+  it("keeps Aurora inheritVel state separate in particle draw records", () => {
+    const emitter = fountainEmitter({ birthrate: 1 });
+    emitter.simulation = { ...emitter.simulation, inheritPart: true };
+    const runtimeState = runtimeStateWithParticles(emitter, 1);
+    runtimeState.particles[0]!.inheritedVelocityMagnitude = 4;
+    runtimeState.particles[0]!.inheritedVelocityDirection = { x: 1, y: 0, z: 0 };
+    runtimeState.particles[0]!.direction = { x: 0, y: 1, z: 0 };
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState,
+      sourceEmitter: emitter
+    });
+
+    expect(contract.drawRecords[0]).toMatchObject({
+      velocity: { x: 0, y: 0, z: 0 },
+      direction: { x: 0, y: 1, z: 0 },
+      inheritedVelocityMagnitude: 4,
+      inheritedVelocityDirection: { x: 1, y: 0, z: 0 },
+      inheritPart: true
+    });
   });
 
   it("uses full texture UVs for a single-cell atlas", () => {
@@ -139,6 +262,16 @@ describe("aurora VFX render contract", () => {
       frameStart: 5,
       frameEnd: 1
     });
+    expect(contract.drawRecords[0]?.atlasUv).toMatchObject({
+      frameIndex: 5,
+      rawFrameIndex: 5,
+      column: 1,
+      row: 2,
+      u0: 0.5,
+      u1: 1,
+      v0: -0.5,
+      v1: 0
+    });
     expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_ATLAS_FRAME_RANGE_NOT_SORTED",
@@ -160,21 +293,40 @@ describe("aurora VFX render contract", () => {
     });
 
     expect(normal.renderState).toMatchObject({
+      blendMode: {
+        exactGlBlendFactors: {
+          status: "confirmed",
+          sourceFactor: "GL_SRC_ALPHA",
+          destinationFactor: "GL_ONE_MINUS_SRC_ALPHA",
+          blendTableIndices: [0, 1]
+        }
+      },
       depthWriteLane: "non_punch_transparent_depth_write_off",
       transparentLane: "non_punch_transparent_lane",
       shaderVariantLane: "non_punch_particle_shader_variant"
     });
     expect(punch.renderState).toMatchObject({
+      blendMode: {
+        exactGlBlendFactors: {
+          status: "not_invoked_punch_through_lane"
+        }
+      },
       depthWriteLane: "punch_through_depth_write_enabled",
       transparentLane: "punch_through_cutout_lane",
-      shaderVariantLane: "punch_through_particle_shader_variant"
+      shaderVariantLane: "punch_through_particle_shader_variant",
+      alphaDiscardLane: "punch_through_runtime_uniform_0_2",
+      alphaDiscardValue: 0.2,
+      alphaDiscardValueSource: "nwtoolset-1.5.0.5-disassembly"
     });
     expect(punch.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "VFX_PUNCH_THROUGH_DEPTHWRITE_LANE_REQUIRED"
     );
+    expect(punch.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_PUNCH_THROUGH_RUNTIME_ALPHA_DISCARD_CONFIRMED"
+    );
   });
 
-  it("preserves raw blend mode 2 token and keeps exact GL factors diagnostic", () => {
+  it("preserves raw blend mode 2 token with recovered exact GL factors", () => {
     const emitter = fountainEmitter({ blendMode: "Lighten" });
     const contract = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(emitter, 1),
@@ -185,29 +337,39 @@ describe("aurora VFX render contract", () => {
       enum: "mode_2",
       rawToken: "Lighten",
       modeNumber: 2,
-      exactGlBlendFactors: "diagnostic_pending"
+      exactGlBlendFactors: {
+        status: "confirmed",
+        sourceFactor: "GL_SRC_ALPHA",
+        sourceFactorGlEnum: 0x0302,
+        destinationFactor: "GL_ONE",
+        destinationFactorGlEnum: 0x0001,
+        blendTableIndices: [0, 2],
+        source: "nwtoolset-1.5.0.5-disassembly"
+      }
     });
     expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_PARTICLE_BLEND_MODE_2_RAW_PRESERVED",
-        "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED"
+        "VFX_BLEND_FUNC_FACTORS_CONFIRMED_NWTOOLSET_DISASSEMBLY"
       ])
+    );
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED"
     );
   });
 
   it("keeps source transparency false as an opaque non-punch depth-write lane", () => {
-    const opaqueEmitter = fountainEmitter({ blendMode: "Normal", transparency: false });
-    const punchEmitter = fountainEmitter({
-      blendMode: "Punch-Through",
-      transparency: false
-    });
+    const opaqueEmitter = fountainEmitter({ blendMode: "Normal" });
+    const punchEmitter = fountainEmitter({ blendMode: "Punch-Through" });
     const opaque = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(opaqueEmitter, 1),
-      sourceEmitter: opaqueEmitter
+      sourceEmitter: opaqueEmitter,
+      materialState: { source: "aurora-mtr", transparency: false }
     });
     const punch = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(punchEmitter, 1),
-      sourceEmitter: punchEmitter
+      sourceEmitter: punchEmitter,
+      materialState: { source: "aurora-mtr", transparency: false }
     });
 
     expect(opaque.renderState).toMatchObject({
@@ -231,8 +393,11 @@ describe("aurora VFX render contract", () => {
 
   it("tracks linked-particle draw count as active minus one", () => {
     const emitter = fountainEmitter({ renderMode: "Linked" });
+    const runtimeState = runtimeStateWithParticles(emitter, 3);
+    runtimeState.activeParticleIds = [3, 1, 2];
+    runtimeState.particles.reverse();
     const contract = buildAuroraVfxRuntimeRenderContract({
-      runtimeState: runtimeStateWithParticles(emitter, 3),
+      runtimeState,
       sourceEmitter: emitter
     });
 
@@ -243,8 +408,15 @@ describe("aurora VFX render contract", () => {
     expect(contract.drawVertexCount).toBe(12);
     expect(contract.drawRecords[0]).toMatchObject({
       lane: "linked_textured_quad",
+      particleId: 3,
+      position: { x: 2, y: 3, z: 4 },
+      linkedNextParticleId: 1,
+      linkedNextPosition: { x: 0, y: 1, z: 2 }
+    });
+    expect(contract.drawRecords[1]).toMatchObject({
       particleId: 1,
-      linkedNextParticleId: 2
+      linkedNextParticleId: 2,
+      linkedNextPosition: { x: 1, y: 2, z: 3 }
     });
   });
 
@@ -265,10 +437,11 @@ describe("aurora VFX render contract", () => {
     expect(high.renderOrder).toMatchObject({ value: 5, source: "mdl-emitter-renderorder" });
     expect(comparison).toMatchObject({
       valueRelation: "left_lower",
-      drawDirection: "diagnostic_pending"
+      drawDirection: "lower_renderorder_first_when_primary_keys_tie",
+      comparisonScope: "depth_and_referenced_object_keys_tie"
     });
     expect(comparison.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-      "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED"
+      "VFX_RENDERORDER_CONTEXTUAL_TIE_BREAK_CONFIRMED"
     );
   });
 
@@ -291,20 +464,15 @@ describe("aurora VFX render contract", () => {
   });
 
   it("keeps twosided material branch separate from twosidedtex cull state", () => {
-    const materialEmitter = fountainEmitter({
-      twoSidedMaterial: true,
-      twoSidedTexture: false
-    });
+    const materialEmitter = fountainEmitter({ twoSidedTexture: false });
     const textureEmitter = fountainEmitter({
       twoSidedTexture: true
     });
-    const volumetricMaterialEmitter = fountainEmitter({
-      twoSidedMaterial: true,
-      volumetric: true
-    });
+    const volumetricMaterialEmitter = fountainEmitter();
     const material = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(materialEmitter, 1),
-      sourceEmitter: materialEmitter
+      sourceEmitter: materialEmitter,
+      materialState: { source: "aurora-mtr", twoSided: true }
     });
     const texture = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(textureEmitter, 1),
@@ -312,7 +480,8 @@ describe("aurora VFX render contract", () => {
     });
     const volumetricMaterial = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(volumetricMaterialEmitter, 1),
-      sourceEmitter: volumetricMaterialEmitter
+      sourceEmitter: volumetricMaterialEmitter,
+      materialState: { source: "aurora-mtr", twoSided: true, volumetric: true }
     });
 
     expect(material.renderState).toMatchObject({
@@ -321,7 +490,15 @@ describe("aurora VFX render contract", () => {
         twoSidedMaterial: true,
         volumetric: false,
         renderWrapperArgument: 1,
-        lane: "two_sided_material_non_volumetric_runtime_arg1"
+        lane: "two_sided_material_non_volumetric_runtime_arg1",
+        exactGlState: {
+          state3CullFace: "disabled",
+          retainedCullFaceMode: "GL_BACK",
+          frontFaceWinding: "not_modified_by_render_wrapper",
+          particleEmitterOverride: "twosidedtex_live_read_after_render_wrapper",
+          queueExitRestore: "state3_enabled_gl_back",
+          source: "nwtoolset-1.5.0.5-scene-queue-cull-disassembly"
+        }
       }
     });
     expect(material.drawRecords[0]?.renderState.twoSidedMaterialLane).toMatchObject({
@@ -343,7 +520,12 @@ describe("aurora VFX render contract", () => {
       twoSidedMaterial: true,
       volumetric: true,
       renderWrapperArgument: 0,
-      lane: "two_sided_material_volumetric_runtime_arg0"
+      lane: "two_sided_material_volumetric_runtime_arg0",
+      exactGlState: {
+        state3CullFace: "enabled",
+        retainedCullFaceMode: "GL_BACK",
+        frontFaceWinding: "not_modified_by_render_wrapper"
+      }
     });
     expect(volumetricMaterial.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "VFX_TWOSIDED_MATERIAL_VOLUMETRIC_ARG0_REQUIRED"
@@ -351,20 +533,23 @@ describe("aurora VFX render contract", () => {
   });
 
   it("keeps sample_framebuffer and volumetric on Aurora framebuffer runtime lanes", () => {
-    const mode2Emitter = fountainEmitter({ sampleFramebuffer: 2, volumetric: true });
-    const mode1Emitter = fountainEmitter({ sampleFramebuffer: 1 });
-    const volumetricEmitter = fountainEmitter({ sampleFramebuffer: 0, volumetric: true });
+    const mode2Emitter = fountainEmitter();
+    const mode1Emitter = fountainEmitter();
+    const volumetricEmitter = fountainEmitter();
     const mode2 = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(mode2Emitter, 1),
-      sourceEmitter: mode2Emitter
+      sourceEmitter: mode2Emitter,
+      materialState: { source: "aurora-mtr", sampleFramebuffer: 2, volumetric: true }
     });
     const mode1 = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(mode1Emitter, 1),
-      sourceEmitter: mode1Emitter
+      sourceEmitter: mode1Emitter,
+      materialState: { source: "aurora-mtr", sampleFramebuffer: 1 }
     });
     const volumetric = buildAuroraVfxRuntimeRenderContract({
       runtimeState: runtimeStateWithParticles(volumetricEmitter, 1),
-      sourceEmitter: volumetricEmitter
+      sourceEmitter: volumetricEmitter,
+      materialState: { source: "aurora-mtr", sampleFramebuffer: 0, volumetric: true }
     });
 
     expect(mode2.renderState.framebufferLane).toMatchObject({
@@ -372,7 +557,13 @@ describe("aurora VFX render contract", () => {
       volumetric: true,
       runtimeLane: 6,
       lane: "sample_framebuffer_mode_2_runtime_lane_6",
-      exactGlState: "diagnostic_pending"
+      exactGlState: "confirmed_active_framebuffer_copy_and_texture_units_11_12",
+      captureScope: "mainscene_only",
+      captureSource: "active_framebuffer_slot",
+      captureDestinationSlot: 6,
+      attachmentBindingMask: 3,
+      colorTextureUnit: 11,
+      depthTextureUnit: 12
     });
     expect(mode2.drawRecords[0]?.renderState.framebufferLane).toMatchObject({
       runtimeLane: 6,
@@ -393,7 +584,7 @@ describe("aurora VFX render contract", () => {
     expect(mode2.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_SAMPLE_FRAMEBUFFER_MODE2_RUNTIME_LANE_6_REQUIRED",
-        "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED"
+        "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED"
       ])
     );
     expect(mode1.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
@@ -401,6 +592,34 @@ describe("aurora VFX render contract", () => {
     );
     expect(volumetric.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "VFX_VOLUMETRIC_RUNTIME_LANE_5_REQUIRED"
+    );
+  });
+
+  it("does not promote material-only fields from node emitter into canonical render state", () => {
+    const emitter = fountainEmitter({
+      transparency: false,
+      twoSidedMaterial: true,
+      sampleFramebuffer: 2,
+      volumetric: true
+    });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter
+    });
+
+    expect(contract.renderState).toMatchObject({
+      depthWriteLane: "non_punch_transparent_depth_write_off",
+      twoSidedMaterialLane: {
+        twoSidedMaterial: false,
+        lane: "default_material_sidedness_runtime_arg0"
+      },
+      framebufferLane: {
+        runtimeLane: null,
+        lane: "default_framebuffer_runtime_lane"
+      }
+    });
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_MTR_FIELDS_ON_EMITTER_SOURCE_IGNORED"
     );
   });
 
@@ -425,18 +644,113 @@ describe("aurora VFX render contract", () => {
     expect(contract.chunkLane).toMatchObject({
       lane: "chunk_model",
       chunkName: "fx_chunk01",
+      modelAnimation: {
+        animationName: "impact",
+        playbackRate: 1,
+        startPolicy: "once_on_particle_activation",
+        rawArguments: {
+          argumentAfterRate: 1,
+          finalArgument: 0
+        },
+        source: "nwtoolset-1.5.0.5-chunk-particle-init-disassembly",
+        binarySha256:
+          "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
+      },
       texturedQuadCanonical: false,
       collapseAttempted: true
     });
     expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
+        "VFX_CHUNK_MODEL_IMPACT_ANIMATION_START_CONFIRMED",
         "VFX_TEXTURE_FIELD_LANE_COLLAPSED"
       ])
     );
   });
 
-  it("preserves ticked Chunk runtime placeholders in the chunk-model render lane", () => {
+  it("preserves resolved chunk-model dependency candidates on the chunk lane", () => {
+    const emitter = fountainEmitter({
+      nodeName: "emit_chunk_resolved",
+      chunkName: "fx_chunk01",
+      texture: "fx_texture_raw"
+    });
+    const dependencyGraph = createChunkDependencyGraph("fx_chunk01", {
+      candidateId: "candidate:fx_chunk01.glb",
+      sourceLayer: "hak",
+      resourceKey: "fx_chunk01.glb",
+      sourcePath: "hak/models/fx_chunk01.glb",
+      hakName: "vfx_assets.hak",
+      resourceHash: "chunk-glb-hash",
+      precedenceRank: 2
+    });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 2, { family: "Chunk" }),
+      sourceEmitter: emitter,
+      dependencyGraph,
+      collapseChunkToTextureLane: true
+    });
+
+    expect(contract.drawLane).toBe("chunk_model");
+    expect(contract.drawParticleCount).toBe(0);
+    expect(contract.drawVertexCount).toBe(0);
+    expect(contract.drawRecords).toEqual([]);
+    expect(contract.chunkLane).toMatchObject({
+      lane: "chunk_model",
+      chunkName: "fx_chunk01",
+      activeParticleCount: 2,
+      particleInstances: [
+        { particleId: 1, position: { x: 0, y: 1, z: 2 } },
+        { particleId: 2, position: { x: 1, y: 2, z: 3 } }
+      ],
+      texturedQuadCanonical: false,
+      collapseAttempted: true,
+      resourceResolveStatus: "resolved",
+      resolvedResource: {
+        requestedRef: "fx_chunk01",
+        resourceKey: "fx_chunk01.glb",
+        sourceLayer: "hak",
+        sourcePath: "hak/models/fx_chunk01.glb",
+        hakName: "vfx_assets.hak",
+        resourceHash: "chunk-glb-hash",
+        candidateId: "candidate:fx_chunk01.glb",
+        precedenceRank: 2,
+        resolutionSource: "dependency-graph-selected-candidate"
+      }
+    });
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
+        "VFX_TEXTURE_FIELD_LANE_COLLAPSED",
+        "VFX_CHUNK_MODEL_RESOURCE_RESOLVED"
+      ])
+    );
+  });
+
+  it("does not route a textured emitter through a sibling chunk dependency", () => {
+    const emitter = fountainEmitter({
+      nodeName: "emit_textured_sibling",
+      texture: "fxpa_smoke01"
+    });
+    const dependencyGraph = createChunkDependencyGraph("fx_chunk01", {
+      candidateId: "candidate:fx_chunk01.glb",
+      sourceLayer: "hak",
+      resourceKey: "fx_chunk01.glb",
+      sourcePath: "hak/models/fx_chunk01.glb",
+      resourceHash: "chunk-glb-hash",
+      precedenceRank: 2
+    });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 2, { family: "Fountain" }),
+      sourceEmitter: emitter,
+      dependencyGraph
+    });
+
+    expect(contract.drawLane).toBe("textured_quad");
+    expect(contract.drawParticleCount).toBe(2);
+    expect(contract.chunkLane).toBeUndefined();
+  });
+
+  it("preserves the chunk-model lane without synthesizing standalone Chunk particles", () => {
     const emitter = chunkEmitter({
       nodeName: "emit_chunk_runtime",
       chunkName: "progfx_type9_chunk_model_pending",
@@ -452,17 +766,17 @@ describe("aurora VFX render contract", () => {
       collapseChunkToTextureLane: true
     });
 
-    expect(runtimeState.activeParticleIds).toHaveLength(2);
+    expect(runtimeState.activeParticleIds).toHaveLength(0);
     expect(contract).toMatchObject({
       drawLane: "chunk_model",
-      activeParticleCount: 2,
+      activeParticleCount: 0,
       drawParticleCount: 0,
       verticesPerDrawParticle: 0,
       drawVertexCount: 0,
       chunkLane: {
         lane: "chunk_model",
         chunkName: "progfx_type9_chunk_model_pending",
-        activeParticleCount: 2,
+        activeParticleCount: 0,
         texturedQuadCanonical: false,
         collapseAttempted: true
       }
@@ -470,9 +784,8 @@ describe("aurora VFX render contract", () => {
     expect(contract.drawRecords).toEqual([]);
     expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
-        "VFX_CHUNK_MODEL_LANE_PRESERVED",
-        "VFX_CHUNK_LOCAL_PLACEHOLDER_DIAGNOSTIC",
-        "VFX_CHUNK_RETAIL_RESOURCE_CAPTURE_REQUIRED",
+        "VFX_CHUNK_NAME_IS_RENDER_LANE_NOT_UPDATE_FAMILY",
+        "VFX_CHUNK_UPDATE_FAMILY_REQUIRED",
         "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
         "VFX_TEXTURE_FIELD_LANE_COLLAPSED"
       ])
@@ -794,6 +1107,79 @@ describe("aurora VFX render contract", () => {
     );
   });
 
+  it("keeps a selected PLT particle texture non-canonical without target palette context", () => {
+    const emitter = fountainEmitter({ nodeName: "emit_plt", texture: "robe_fx" });
+    emitter.textureRaw = "robe_fx.plt";
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter,
+      dependencyGraph: createPltDependencyGraph()
+    });
+
+    expect(contract.pltRenderContext).toMatchObject({
+      status: "missing_target_context",
+      requestedTextureRef: "robe_fx",
+      selectedResourceKey: "textures/robe_fx.plt",
+      shaderLane: {
+        vertexShader: "vs_pltgen",
+        fragmentShader: "fs_pltgen",
+        schemeUniformPattern: "PLTscheme[%d]",
+        schemeUniformCount: 15
+      }
+    });
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_PLT_TARGET_CONTEXT_REQUIRED"
+    );
+  });
+
+  it("preserves target palette rows and the EE PLT generation profile", () => {
+    const visualEffect = parseAuroraVisualEffectsTwoDa(
+      ["2DA V2.0", "", "Label Type_FD Imp_Impact_Node", "901 VFX_PLT_TARGET F fx_plt"].join(
+        "\n"
+      ),
+      "plt-target-context-fixture"
+    ).rows[0]!;
+    const phaseSchedule = buildAuroraVfxPhaseSchedule(visualEffect, {
+      constructorKind: "EffectVisualEffect",
+      sourceRowId: 901,
+      applicationMode: "object",
+      durationType: "instant",
+      targetRef: "creature:target",
+      targetPltContext: {
+        paletteRowsByLayer: { "0": 12, "3": 77 },
+        profile: "nwn-ee-8193.15+",
+        provenance: "effect-target-object-layer-colors"
+      }
+    });
+    const emitter = fountainEmitter({ nodeName: "emit_plt", texture: "robe_fx" });
+    const contract = buildAuroraVfxRuntimeRenderContract({
+      runtimeState: runtimeStateWithParticles(emitter, 1),
+      sourceEmitter: emitter,
+      dependencyGraph: createPltDependencyGraph(),
+      phaseSchedule
+    });
+
+    expect(contract.pltRenderContext).toEqual({
+      status: "ready",
+      requestedTextureRef: "robe_fx",
+      selectedResourceKey: "textures/robe_fx.plt",
+      targetRef: "creature:target",
+      paletteRowsByLayer: { "0": 12, "3": 77 },
+      profile: "nwn-ee-8193.15+",
+      provenance: "effect-target-object-layer-colors",
+      shaderLane: {
+        vertexShader: "vs_pltgen",
+        fragmentShader: "fs_pltgen",
+        schemeUniformPattern: "PLTscheme[%d]",
+        schemeUniformCount: 15
+      },
+      proofStatus: "source-backed-contract-retail-visual-unverified"
+    });
+    expect(contract.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_PLT_TARGET_CONTEXT_PRESERVED"
+    );
+  });
+
   it("stays renderer-agnostic and does not depend on Three.js, GLB, screenshots, or frontend code", () => {
     const emitter = fountainEmitter();
     const contract = buildAuroraVfxRuntimeRenderContract({
@@ -911,6 +1297,82 @@ function chunkEmitter(overrides: Parameters<typeof fountainEmitter>[0] = {}): Au
   };
 }
 
+function createChunkDependencyGraph(
+  requestedRef: string,
+  selectedCandidate: NonNullable<AuroraVfxDependencyGraph["edges"][number]["selectedCandidate"]>
+): AuroraVfxDependencyGraph {
+  return {
+    version: "aurora-vfx-dependency-graph/v1",
+    edges: [
+      {
+        edgeId: "chunk-edge:fx_chunk01",
+        edgeType: "chunk_model",
+        ownerPath: "mdl:fountain.mdl/emitter:emit_chunk_resolved/chunkName",
+        requestedResourceClass: "chunk_model",
+        requestedRef,
+        selectedCandidate,
+        lowerPrecedenceCandidates: [],
+        resolveStatus: "resolved",
+        diagnostics: [],
+        cacheKeyParts: {
+          version: "aurora-vfx-dependency-edge/v1",
+          edgeType: "chunk_model",
+          ownerPath: "mdl:fountain.mdl/emitter:emit_chunk_resolved/chunkName",
+          requestedResourceClass: "chunk_model",
+          requestedRef,
+          selectedResourceKey: selectedCandidate.resourceKey,
+          selectedResourceHash: selectedCandidate.resourceHash
+        },
+        preloadIntent: "runtime_required"
+      }
+    ],
+    diagnostics: [],
+    cacheKeyParts: {
+      version: "aurora-vfx-dependency-graph/v1",
+      edgeKeys: ["chunk-edge:fx_chunk01"]
+    }
+  };
+}
+
+function createPltDependencyGraph(): AuroraVfxDependencyGraph {
+  return {
+    version: "aurora-vfx-dependency-graph/v1",
+    edges: [
+      {
+        edgeId: "texture-edge:robe_fx",
+        edgeType: "texture",
+        ownerPath: "mdl:fx_plt.mdl/emitter:emit_plt/texture",
+        requestedResourceClass: "texture",
+        requestedRef: "robe_fx",
+        selectedCandidate: {
+          candidateId: "vanilla:robe_fx.plt",
+          sourceLayer: "vanilla",
+          resourceKey: "textures/robe_fx.plt",
+          resourceHash: "sha256:robe-plt"
+        },
+        lowerPrecedenceCandidates: [],
+        resolveStatus: "resolved",
+        diagnostics: [],
+        cacheKeyParts: {
+          version: "aurora-vfx-dependency-edge/v1",
+          edgeType: "texture",
+          ownerPath: "mdl:fx_plt.mdl/emitter:emit_plt/texture",
+          requestedResourceClass: "texture",
+          requestedRef: "robe_fx",
+          selectedResourceKey: "textures/robe_fx.plt",
+          selectedResourceHash: "sha256:robe-plt"
+        },
+        preloadIntent: "runtime_required"
+      }
+    ],
+    diagnostics: [],
+    cacheKeyParts: {
+      version: "aurora-vfx-dependency-graph/v1",
+      edgeKeys: ["texture-edge:robe_fx"]
+    }
+  };
+}
+
 function runtimeStateWithParticles(
   emitter: AuroraMdlEmitterNode,
   count: number,
@@ -937,6 +1399,7 @@ function runtimeStateWithParticles(
       rotationRadians: options.rotations?.[index] ?? 0,
       position: { x: index, y: index + 1, z: index + 2 },
       velocity: { x: 0, y: 0, z: 0 },
+      landed: false,
       acceleration: { x: 0, y: 0, z: 0 },
       color: { r: 1, g: 1, b: 1 },
       alpha: 1,

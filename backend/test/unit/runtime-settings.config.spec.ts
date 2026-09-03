@@ -17,4 +17,15 @@ describe("runtime settings config", () => {
       "npc_sounds.hak"
     ]);
   });
+
+  it("keeps CEP tile model sources available to the Area tileset profile", () => {
+    const configPath = resolve(__dirname, "../../config/runtime-settings.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
+      hakProfiles?: Record<string, string[]>;
+    };
+    const defaults = buildDefaultRuntimeSettings("2026-06-16T00:00:00.000Z");
+
+    expect(config.hakProfiles?.lc_tiles).toEqual(defaults.hakProfiles.lc_tiles);
+    expect(config.hakProfiles?.lc_tiles).toContain("cep3_tiles.hak");
+  });
 });

@@ -132,8 +132,12 @@ describe("ProcessingGraphApplicationService", () => {
             placeables: 1,
             doors: 0,
             creatures: 1,
+            encounters: 0,
             items: 0,
             sounds: 0,
+            stores: 0,
+            triggers: 0,
+            waypoints: 0,
             total: 2
           },
           updatedAt: areas[0].updatedAt

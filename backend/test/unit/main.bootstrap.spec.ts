@@ -7,7 +7,7 @@ describe("main bootstrap", () => {
   it("creates app, applies setup and starts listening", async () => {
     const setupCors = jest.fn();
     const setupSwagger = jest.fn();
-    const config = { port: 4321 };
+    const config = { port: 4321, bindHost: "0.0.0.0" };
     const app = {
       setGlobalPrefix: jest.fn(),
       get: jest.fn().mockReturnValue(config),

@@ -95,14 +95,45 @@ describe("area-lighting-evidence", () => {
                 red: 1,
                 green: 0.75,
                 blue: 0.25,
-                sourceKey: "modules/current/__aurora/sources/vanilla/lightcolor.2da"
+                sourceKey: "modules/current/__aurora/sources/vanilla/lightcolor.2da",
+                nativeNode: {
+                  status: "main-native-node-resolved",
+                  name: "tno01_a01_01ml1",
+                  position: [0, 0, 5],
+                  coordinateSpace: "model-local-aurora-z-up",
+                  radius: 14,
+                  multiplier: 1,
+                  lightPriority: 5,
+                  ambientOnly: false,
+                  dynamicType: 0,
+                  affectDynamic: true,
+                  shadow: false,
+                  sourceModelFileName: "tno01_a01_01.mdl",
+                  sourceModelObjectKey:
+                    "modules/current/__aurora/sources/vanilla/tno01_a01_01.mdl",
+                  sourceModelHash: "tile-model-sha256",
+                  proofStatus: "source-backed-tile-mdl-native-main-light"
+                }
               },
               sourceLight1Color: {
                 rowId: 5,
                 red: 0.25,
                 green: 0.5,
                 blue: 1,
-                sourceKey: "modules/current/__aurora/sources/vanilla/tilecolor.2da"
+                sourceKey: "modules/current/__aurora/sources/vanilla/fx_flame01.mdl",
+                sourceNode: {
+                  status: "source-node-resolved",
+                  slotIndex: 1,
+                  sourceNodeCount: 1,
+                  name: "tno01_a01_01sl1",
+                  position: [-1.25, 1.5, 1],
+                  coordinateSpace: "model-local-aurora-z-up",
+                  sourceModelFileName: "tno01_a01_01.mdl",
+                  sourceModelObjectKey:
+                    "modules/current/__aurora/sources/vanilla/tno01_a01_01.mdl",
+                  sourceModelHash: "tile-model-sha256",
+                  proofStatus: "source-backed-tile-mdl-source-light-slot-count"
+                }
               },
               animLoop1: 1
             }
@@ -217,11 +248,11 @@ describe("area-lighting-evidence", () => {
       shadowMdlLightNodes: 1,
       shadowCatalogShadowSizeTemplates: 1,
       auditCoverageEntries: 18,
-      auditCoverageSourceBacked: 12,
-      auditCoveragePreviewOnly: 1,
+      auditCoverageSourceBacked: 13,
+      auditCoveragePreviewOnly: 0,
       auditCoverageBlocked: 4,
       auditCoverageNotObserved: 1,
-      auditGaps: 6,
+      auditGaps: 5,
       remainingRetailBlockers: 3
     });
     expect(report.tileLights[0]).toMatchObject({
@@ -371,11 +402,18 @@ describe("area-lighting-evidence", () => {
           evidence: "2/2 non-zero tile light ids carry decoded 2DA RGB metadata (2 raw fields scanned; 0 decoded RGB entries are black and are not renderer candidates)."
         }),
         expect.objectContaining({
+          key: "area-tile-light-position",
+          status: "source-backed",
+          evidence: expect.stringContaining(
+            "1 main-light references bind exact source-MDL ml1/ml2 nodes"
+          )
+        }),
+        expect.objectContaining({
           key: "area-tile-light-radius-falloff",
           status: "source-backed",
           proof: expect.stringContaining("Tile_MainLight1/Tile_MainLight2"),
           evidence:
-            "1 renderable main-light references use recovered static lightcolor.2da tile lane with no point radius/falloff; 1 renderable source-light references use recovered fx_flame01/AuroraLight01 radius/falloff."
+            "1 main-light references use exact native MDL radius/multiplier and 1 source-light references use recovered fx_flame01/AuroraLight01 radius/falloff; 0 source references create no Aurora carrier by slot count; 0 references remain unresolved."
         }),
         expect.objectContaining({
           key: "area-tile-source-light-proxy",
@@ -677,7 +715,6 @@ describe("area-lighting-evidence", () => {
     );
     expect(report.auditGaps.map((entry) => entry.key)).toEqual(
       expect.arrayContaining([
-        "area-tile-light-position",
         "area-shadow-volume-implementation",
         "item-property-light-runtime-scheduler",
         "progfx-type4-runtime-scheduler",
@@ -692,11 +729,6 @@ describe("area-lighting-evidence", () => {
           nextStep: expect.stringContaining(
             "cross-lane insertion order and retail shadow-volume projection parity"
           )
-        }),
-        expect.objectContaining({
-          key: "area-tile-light-position",
-          status: "preview-only",
-          nextStep: expect.stringContaining("tile-center preview")
         }),
         expect.objectContaining({
           status: "not-observed",

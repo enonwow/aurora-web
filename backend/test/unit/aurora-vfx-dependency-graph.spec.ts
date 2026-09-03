@@ -277,6 +277,63 @@ describe("aurora-vfx dependency graph", () => {
     );
   });
 
+  it("preserves Aurora texture NULL as source no-texture state without resource edges", () => {
+    const sourceRow = parseGraphSourceRow();
+    const graph = buildAuroraVfxDependencyGraph({
+      sourceRow,
+      phaseSchedule: scheduleFor(sourceRow),
+      sourcePolicyTrace: sourcePolicyTrace(),
+      emitters: [
+        {
+          nodeName: "emit_no_texture",
+          texture: "  nUlL  "
+        }
+      ]
+    });
+
+    expect(graph.edges.some((edge) => edge.edgeType === "emitter_node")).toBe(true);
+    expect(
+      graph.edges.filter(
+        (edge) => edge.edgeType === "texture" || edge.edgeType === "txi_sidecar"
+      )
+    ).toEqual([]);
+    expect(graph.diagnostics.map((entry) => entry.code)).not.toContain(
+      "VFX_TEXTURE_RESOURCE_MISSING_DIAGNOSTIC"
+    );
+    expect(
+      graph.edges
+        .find((edge) => edge.edgeType === "emitter_node")
+        ?.diagnostics.map((entry) => entry.code)
+    ).toContain("VFX_TEXTURE_NULL_NO_CHUNK_NO_TEXTURED_DRAW");
+  });
+
+  it("keeps chunkName on the chunk lane when Aurora texture is NULL", () => {
+    const sourceRow = parseGraphSourceRow();
+    const graph = buildAuroraVfxDependencyGraph({
+      sourceRow,
+      phaseSchedule: scheduleFor(sourceRow),
+      sourcePolicyTrace: sourcePolicyTrace(),
+      emitters: [
+        {
+          nodeName: "emit_null_texture_chunk",
+          texture: "NULL",
+          chunkName: "fx_chunk"
+        }
+      ]
+    });
+
+    expect(graph.edges.filter((edge) => edge.edgeType === "texture")).toEqual([]);
+    expect(graph.edges.find((edge) => edge.edgeType === "chunk_model")).toMatchObject({
+      requestedRef: "fx_chunk",
+      preloadIntent: "runtime_required"
+    });
+    expect(
+      graph.edges
+        .find((edge) => edge.edgeType === "emitter_node")
+        ?.diagnostics.map((entry) => entry.code)
+    ).toContain("VFX_CHUNKNAME_TEXTURE_NULL_STATE_SEPARATE");
+  });
+
   it("keeps missing chunk model unresolved and does not fall back to texture billboard", () => {
     const sourceRow = parseGraphSourceRow();
     const graph = buildAuroraVfxDependencyGraph({
@@ -389,6 +446,32 @@ describe("aurora-vfx dependency graph", () => {
         "VFX_PLT_PROFILE_GATED",
         "VFX_TEXTURE_RESOURCE_MISSING_DIAGNOSTIC"
       ])
+    );
+  });
+
+  it("classifies a normalized texture as PLT from the selected resource candidate", () => {
+    const sourceRow = parseGraphSourceRow();
+    const graph = buildAuroraVfxDependencyGraph({
+      sourceRow,
+      phaseSchedule: scheduleFor(sourceRow),
+      sourcePolicyTrace: sourcePolicyTrace(),
+      emitters: [{ nodeName: "emit_plt", texture: "robe_fx" }],
+      resourceTraces: [
+        trace(
+          "texture",
+          "robe_fx",
+          candidate("vanilla", "textures/robe_fx.plt", "sha256:robe-plt")
+        )
+      ]
+    });
+
+    const textureEdge = graph.edges.find((edge) => edge.edgeType === "texture");
+    expect(textureEdge).toMatchObject({
+      resolveStatus: "resolved",
+      selectedCandidate: { resourceKey: "textures/robe_fx.plt" }
+    });
+    expect(textureEdge?.diagnostics.map((entry) => entry.code)).toContain(
+      "VFX_PLT_PROFILE_GATED"
     );
   });
 

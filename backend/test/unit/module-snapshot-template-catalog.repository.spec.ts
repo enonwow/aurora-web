@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,10 @@ import {
 } from "../../src/modules/runtime-settings/application/nwn-key-bif-resource-reader";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
 import type { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
+import { dynamicEncounterBlueprintFixture } from
+  "../support/area-encounter-construction-fixture";
+import { dynamicWaypointBlueprintFixture } from
+  "../support/area-waypoint-construction-fixture";
 
 describe("catalog-processing helpers (placeable asset lookup)", () => {
   it("buildLookupSeeds normalizes template/model/dependency metadata into deterministic seeds", () => {
@@ -497,6 +502,10 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
         "",
         "Label MOVERATE MODELTYPE RACE PORTRAIT ENVMAP DefaultPhenoType BLOODCOLR WEAPONSCALE SIZECATEGORY",
         "0 Invalid WALK **** **** **** **** **** N 1.0 0",
+        ...Array.from(
+          { length: 16 },
+          (_, index) => `${index + 1} **** **** **** **** **** **** **** **** **** ****`,
+        ),
         "17 Guard_Human WALK P Human po_hm_guard default_env 2 R 0.65 4"
       ].join("\n"),
       "utf-8"
@@ -1659,6 +1668,18 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       ["2DA V2.0", "", "  MODELNAME", "0 ****", "42 plc_lookup_model"].join("\n"),
       "utf-8"
     );
+    const creatureAppearance2daKey =
+      "modules/current/__aurora/sources/hak/lc_2da/appearance.2da";
+    const creatureAppearance2daBytes = Buffer.from(
+      [
+        "2DA V2.0",
+        "",
+        "  Label MOVERATE MODELTYPE RACE PORTRAIT ENVMAP DefaultPhenoType BLOODCOLR WEAPONSCALE SIZECATEGORY",
+        "0 **** **** **** **** **** **** **** **** **** ****",
+        "42 Demon_Quasit NORM S c_quasit po_quasit **** 0 R 1.0 2"
+      ].join("\n"),
+      "utf-8"
+    );
 
     const repository = new ModuleSnapshotTemplateCatalogRepository(
       createRuntimeSettingsRepository(),
@@ -1675,6 +1696,12 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
             size: placeables2daBytes.length,
             lastModified: "2026-05-25T10:00:00.000Z",
             etag: "appearance-2da"
+          },
+          {
+            key: creatureAppearance2daKey,
+            size: creatureAppearance2daBytes.length,
+            lastModified: "2026-05-25T10:00:00.000Z",
+            etag: "creature-appearance-2da"
           }
         ],
         payloadOverrides: new Map([
@@ -1699,6 +1726,17 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
               lastModified: "2026-05-25T10:00:00.000Z",
               bytes: placeables2daBytes
             }
+          ],
+          [
+            creatureAppearance2daKey,
+            {
+              key: creatureAppearance2daKey,
+              size: creatureAppearance2daBytes.length,
+              contentType: "text/plain",
+              etag: "creature-appearance-2da",
+              lastModified: "2026-05-25T10:00:00.000Z",
+              bytes: creatureAppearance2daBytes
+            }
           ]
         ])
       })
@@ -1713,6 +1751,9 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     const record = placeables.items.find((item) => item.resref === "plc_appearance_lookup");
     expect(record).toBeDefined();
     expect(record!.metadata?.appearanceId).toBe(42);
+    expect(record!.metadata).not.toHaveProperty("appearanceLabel");
+    expect(record!.metadata).not.toHaveProperty("appearanceLabelSourceKey");
+    expect(record!.metadata).not.toHaveProperty("appearanceRaceModel");
     expect(record!.metadata?.modelResRef).toBeUndefined();
     expect(record!.metadata?.lookupModelResRef).toBe("plc_lookup_model");
     expect(record!.metadata?.lookupDependencyCount).toBe(3);
@@ -1739,7 +1780,10 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
         "2DA V2.0",
         "",
         "  Label MOVERATE MODELTYPE RACE PORTRAIT ENVMAP DefaultPhenoType BLOODCOLR WEAPONSCALE SIZECATEGORY",
-        "0 **** **** **** **** **** **** **** **** **** ****",
+        ...Array.from(
+          { length: 42 },
+          (_, index) => `${index} **** **** **** **** **** **** **** **** **** ****`,
+        ),
         "42 Guard NORM P Human po_hm_guard default_env 2 R 0.75 4"
       ].join("\n"),
       "utf-8"
@@ -1853,7 +1897,10 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
           "2DA V2.0",
           "",
           "  Label MOVERATE MODELTYPE RACE PORTRAIT ENVMAP DefaultPhenoType BLOODCOLR WEAPONSCALE SIZECATEGORY",
-          "0 **** **** **** **** **** **** **** **** **** ****",
+          ...Array.from(
+            { length: 42 },
+            (_, index) => `${index} **** **** **** **** **** **** **** **** **** ****`,
+          ),
           `42 Guard NORM P ${raceModel} po_hm_guard default_env 2 R 0.75 4`
         ].join("\n"),
         "utf-8"
@@ -2430,7 +2477,8 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
         "2DA V2.0",
         "",
         "  Label StrRef ModelName Static",
-        "12301 \"[Q]Fence 1, Hill Crosser (open end) A\" **** pms_z21 1"
+        "12301 \"[Q]Fence 1, Hill Crosser (open end) A\" **** pms_z21 1",
+        "12302 Reserved **** **** 0"
       ].join("\n"),
       "utf-8"
     );
@@ -2510,7 +2558,1680 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     await expect(repository.resolvePlaceableAppearanceModel(12301)).resolves.toEqual({
       modelResRef: "pms_z21",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 12301
+    });
+    const descriptor = await repository.resolveEffectivePlaceablesTwoDaDescriptor();
+    expect(descriptor).toEqual({
+      resourceName: "placeables.2da",
+      sourceObjectKey: lcTwoDaKey,
+      sourceLayer: "hak",
+      sha256: createHash("sha256").update(lcTwoDaBytes).digest("hex"),
+      sizeBytes: lcTwoDaBytes.length,
+      rowCount: 2,
+    });
+    const secondDescriptor = await repository.resolveEffectivePlaceablesTwoDaDescriptor();
+    expect(secondDescriptor).toEqual(descriptor);
+    expect(secondDescriptor).not.toBe(descriptor);
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      query: "reserved",
+      limit: 1,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [{
+        rowIndex: 1,
+        displayName: "Reserved",
+        displaySource: "label",
+        label: "Reserved",
+      }],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    });
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      limit: 1,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [{
+        rowIndex: 0,
+        displayName: "[Q]Fence 1, Hill Crosser (open end) A",
+        displaySource: "label",
+        label: "[Q]Fence 1, Hill Crosser (open end) A",
+      }],
+      total: 2,
+      limit: 1,
+      offset: 0,
+    });
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      query: "0",
+      limit: 10,
+      offset: 0,
+    })).resolves.toMatchObject({
+      items: [expect.objectContaining({ rowIndex: 0 })],
+      total: 1,
+    });
+  });
+
+  it("exposes selectable physical rows from one strongest effective waypoint.2da", async () => {
+    const key = "modules/current/waypoint.2da";
+    const bytes = Buffer.from([
+      "2DA V2.0",
+      "",
+      "  LABEL RESREF STRREF",
+      "0 **** **** ****",
+      "1 blue gi_waypoint01 67281",
+      "2 yellow gi_waypoint04 67285",
+    ].join("\n"), "utf-8");
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("module-waypoint-2da", {
+        snapshotObjects: [{
+          key,
+          size: bytes.length,
+          lastModified: "2026-09-01T12:00:00.000Z",
+          etag: "module-waypoint-2da",
+        }],
+        payloadOverrides: new Map([[key, {
+          key,
+          size: bytes.length,
+          contentType: "text/plain",
+          etag: "module-waypoint-2da",
+          lastModified: "2026-09-01T12:00:00.000Z",
+          bytes,
+        }]]),
+      }),
+    );
+
+    const descriptor = await repository.resolveEffectiveWaypointTwoDaDescriptor();
+    expect(descriptor).toEqual({
+      resourceName: "waypoint.2da",
+      sourceObjectKey: key,
+      sourceLayer: "module",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      sizeBytes: bytes.length,
+      rowCount: 3,
+    });
+    await expect(repository.listEffectiveWaypointTwoDaRows({
+      query: "yellow",
+      limit: 256,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [{
+        rowIndex: 2,
+        modelResRef: "gi_waypoint04",
+        strRef: 67285,
+        label: "yellow",
+        displayName: "yellow",
+        displaySource: "label",
+      }],
+      total: 1,
+      limit: 256,
+      offset: 0,
+    });
+    await expect(repository.resolveEffectiveWaypointTwoDaRow(1)).resolves.toEqual({
+      descriptor,
+      row: {
+        rowIndex: 1,
+        modelResRef: "gi_waypoint01",
+        strRef: 67281,
+        label: "blue",
+        displayName: "blue",
+        displaySource: "label",
+      },
+    });
+    await expect(repository.resolveEffectiveWaypointTwoDaRow(0)).resolves.toEqual({
+      descriptor,
+      row: null,
+    });
+  });
+
+  it("resolves one strongest exact appearance.2da and exposes only Toolset-admitted Word rows", async () => {
+    const moduleKey = "modules/current/appearance.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/appearance.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/base_2da.key/appearance.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL STRING_REF MODELTYPE RACE",
+      "100 ModuleCreature **** P Human",
+      "101 ExplicitZero 0 P Human",
+      "102 TlkCreature 5000 F Elemental",
+    ].join("\n"), "utf-8");
+    const hakBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL STRING_REF MODELTYPE RACE",
+      "200 HakOnly **** P Dwarf",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL STRING_REF MODELTYPE RACE",
+      "300 VanillaOnly **** P Elf",
+    ].join("\n"), "utf-8");
+    const payloads = new Map([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        etag: "module-appearance",
+        lastModified: "2026-08-27T00:00:00.000Z",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: hakBytes.length,
+        contentType: "text/plain",
+        etag: "hak-appearance",
+        lastModified: "2026-08-27T00:00:00.000Z",
+        bytes: hakBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: vanillaBytes.length,
+        contentType: "text/plain",
+        etag: "vanilla-appearance",
+        lastModified: "2026-08-27T00:00:00.000Z",
+        bytes: vanillaBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-appearance", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified,
+          etag: payload.etag,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const descriptor = await repository.resolveEffectiveCreatureAppearanceTwoDaDescriptor();
+    expect(descriptor).toEqual({
+      resourceName: "appearance.2da",
+      sourceObjectKey: moduleKey,
+      sourceLayer: "module",
+      sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+      sizeBytes: moduleBytes.length,
+      rowCount: 3,
+    });
+    await expect(repository.listEffectiveCreatureAppearanceTwoDaRows({
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [
+        {
+          rowIndex: 0,
+          displayName: "ModuleCreature",
+          displaySource: "label",
+          label: "ModuleCreature",
+        },
+        {
+          rowIndex: 2,
+          displayName: "StringRef 5000",
+          displaySource: "strref_id",
+          strRef: 5000,
+          label: "TlkCreature",
+        },
+      ],
+      total: 2,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(repository.resolveEffectiveCreatureAppearanceTwoDaRow(2)).resolves.toEqual({
+      descriptor,
+      row: {
+        rowIndex: 2,
+        displayName: "StringRef 5000",
+        displaySource: "strref_id",
+        strRef: 5000,
+        label: "TlkCreature",
+      },
+    });
+    await expect(repository.resolveEffectiveCreatureAppearanceTwoDaRow(1)).resolves.toEqual({
+      descriptor,
+      row: null,
+    });
+    await expect(repository.resolveCreatureAppearanceProfile(0)).resolves.toMatchObject({
+      appearanceLabel: "ModuleCreature",
+      appearanceSourceKey: moduleKey,
+    });
+    await expect(repository.resolveCreatureAppearanceProfile(200)).resolves.toBeNull();
+  });
+
+  it("resolves one strongest exact gender.2da and exposes physical Toolset Byte rows without merging", async () => {
+    const moduleKey = "modules/current/gender.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/gender.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/base_2da.key/gender.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "NAME GENDER GRAPHIC CONSTANT",
+      "0 156 M **** GENDER_MALE",
+      "1 0 F **** GENDER_FEMALE",
+      "2 4771 B **** GENDER_BOTH",
+      "3 201 O **** GENDER_OTHER",
+      "4 202 N **** GENDER_NONE",
+    ].join("\n"), "utf-8");
+    const hakBytes = Buffer.from([
+      "2DA V2.0",
+      "NAME GENDER GRAPHIC CONSTANT",
+      "0 900 M **** HAK_ONLY",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0",
+      "NAME GENDER GRAPHIC CONSTANT",
+      "0 901 M **** VANILLA_ONLY",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: hakBytes.length,
+        contentType: "text/plain",
+        bytes: hakBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: vanillaBytes.length,
+        contentType: "text/plain",
+        bytes: vanillaBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-gender", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: "2026-08-27T00:00:00.000Z",
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const descriptor = await repository.resolveEffectiveCreatureGenderTwoDaDescriptor();
+    expect(descriptor).toEqual({
+      resourceName: "gender.2da",
+      sourceObjectKey: moduleKey,
+      sourceLayer: "module",
+      sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+      sizeBytes: moduleBytes.length,
+      rowCount: 5,
+    });
+    await expect(repository.listEffectiveCreatureGenderTwoDaRows({
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [
+        {
+          rowIndex: 0,
+          displayName: "StringRef 156",
+          displaySource: "strref_id",
+          nameStrRef: 156,
+          genderToken: "M",
+          constant: "GENDER_MALE",
+        },
+        {
+          rowIndex: 2,
+          displayName: "StringRef 4771",
+          displaySource: "strref_id",
+          nameStrRef: 4771,
+          genderToken: "B",
+          constant: "GENDER_BOTH",
+        },
+        {
+          rowIndex: 3,
+          displayName: "StringRef 201",
+          displaySource: "strref_id",
+          nameStrRef: 201,
+          genderToken: "O",
+          constant: "GENDER_OTHER",
+        },
+        {
+          rowIndex: 4,
+          displayName: "StringRef 202",
+          displaySource: "strref_id",
+          nameStrRef: 202,
+          genderToken: "N",
+          constant: "GENDER_NONE",
+        },
+      ],
+      total: 4,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(repository.resolveEffectiveCreatureGenderTwoDaRow(3)).resolves.toEqual({
+      descriptor,
+      row: {
+        rowIndex: 3,
+        displayName: "StringRef 201",
+        displaySource: "strref_id",
+        nameStrRef: 201,
+        genderToken: "O",
+        constant: "GENDER_OTHER",
+      },
+    });
+    await expect(repository.resolveEffectiveCreatureGenderTwoDaRow(1)).resolves.toEqual({
+      descriptor,
+      row: null,
+    });
+    await expect(repository.listEffectiveCreatureGenderTwoDaRows({
+      query: "GENDER_NONE",
+      limit: 10,
+      offset: 0,
+    })).resolves.toMatchObject({
+      items: [expect.objectContaining({ rowIndex: 4 })],
+      total: 1,
+    });
+  });
+
+  it("resolves only the strongest exact Item baseitems.2da with numeric ModelType provenance", async () => {
+    const moduleKey = "modules/current/baseitems.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/baseitems.2da";
+    const vanillaKey =
+      "modules/current/__aurora/sources/vanilla/base_2da.key/baseitems.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "",
+      "Name label ModelType ItemClass",
+      "0 100 ModuleZero 0 it_zero",
+      "1 **** ModuleArmor 3 AArCl",
+      "2 102 ModuleWeapon 2 WSwLs",
+    ].join("\n"), "utf-8");
+    const weakerBytes = Buffer.from([
+      "2DA V2.0",
+      "",
+      "Name label ModelType ItemClass",
+      "0 900 WeakZero 1 weak_zero",
+      "1 901 WeakArmor 1 weak_armor",
+      "2 902 WeakWeapon 1 weak_weapon",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-item-baseitems", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveItemBaseItemsTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "baseitems.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 3,
+      },
+      rows: [
+        { rowIndex: 0, nameStrRef: 100, label: "ModuleZero", modelType: 0,
+          itemClass: "it_zero", displayName: "ModuleZero" },
+        { rowIndex: 1, label: "ModuleArmor", modelType: 3,
+          itemClass: "AArCl", displayName: "ModuleArmor" },
+        { rowIndex: 2, nameStrRef: 102, label: "ModuleWeapon", modelType: 2,
+          itemClass: "WSwLs", displayName: "ModuleWeapon" },
+      ],
+    });
+    const clone = await repository.resolveEffectiveItemBaseItemsTwoDaTable();
+    expect(clone).toEqual(table);
+    expect(clone).not.toBe(table);
+    expect(clone!.rows).not.toBe(table!.rows);
+  });
+
+  it("does not fall through malformed stronger baseitems.2da to a valid weaker table", async () => {
+    const moduleKey = "modules/current/baseitems.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/baseitems.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0",
+      "ModelType",
+      "0 9",
+    ].join("\n"), "utf-8");
+    const validHakBytes = Buffer.from([
+      "2DA V2.0",
+      "ModelType",
+      "0 0",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: malformedModuleBytes.length,
+        contentType: "text/plain",
+        bytes: malformedModuleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: validHakBytes.length,
+        contentType: "text/plain",
+        bytes: validHakBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-stronger-item-baseitems", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectiveItemBaseItemsTwoDaTable()).resolves.toBeNull();
+  });
+
+  it("resolves only the strongest exact ranges.2da and exposes the four Toolset rows", async () => {
+    const moduleKey = "modules/current/ranges.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/ranges.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/base_2da.key/ranges.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "Name",
+      ...Array.from({ length: 8 }, (_, index) => `${index} 600${index}`),
+      "8 6668",
+      "9 6669",
+      "10 6670",
+      "11 6671",
+      "12 7777",
+    ].join("\n"), "utf-8");
+    const weakerBytes = Buffer.from([
+      "2DA V2.0",
+      "Name",
+      ...Array.from({ length: 8 }, (_, index) => `${index} 800${index}`),
+      "8 9008",
+      "9 9009",
+      "10 9010",
+      "11 9011",
+      "12 9012",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-ranges", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveCreaturePerceptionRangesTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "ranges.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 13,
+      },
+      rows: [
+        { rowIndex: 8, displayName: "StringRef 6668", displaySource: "strref_id", nameStrRef: 6668 },
+        { rowIndex: 9, displayName: "StringRef 6669", displaySource: "strref_id", nameStrRef: 6669 },
+        { rowIndex: 10, displayName: "StringRef 6670", displaySource: "strref_id", nameStrRef: 6670 },
+        { rowIndex: 11, displayName: "StringRef 6671", displaySource: "strref_id", nameStrRef: 6671 },
+      ],
+    });
+    const clone = await repository.resolveEffectiveCreaturePerceptionRangesTwoDaTable();
+    expect(clone).toEqual(table);
+    expect(clone).not.toBe(table);
+    expect(clone!.rows).not.toBe(table!.rows);
+  });
+
+  it("does not fall through a malformed stronger ranges.2da to a valid weaker table", async () => {
+    const moduleKey = "modules/current/ranges.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/ranges.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0",
+      "Name NAME",
+      "0 6000 6000",
+    ].join("\n"), "utf-8");
+    const validHakBytes = Buffer.from([
+      "2DA V2.0",
+      "Name",
+      ...Array.from({ length: 8 }, (_, index) => `${index} 600${index}`),
+      "8 6668",
+      "9 6669",
+      "10 6670",
+      "11 6671",
+      "12 7777",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: malformedModuleBytes.length,
+        contentType: "text/plain",
+        bytes: malformedModuleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: validHakBytes.length,
+        contentType: "text/plain",
+        bytes: validHakBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-stronger-creature-ranges", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectiveCreaturePerceptionRangesTwoDaTable())
+      .resolves.toBeNull();
+  });
+
+  it("resolves only the strongest exact creaturespeed.2da and excludes selector row zero", async () => {
+    const moduleKey = "modules/current/creaturespeed.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/creaturespeed.2da";
+    const vanillaKey =
+      "modules/current/__aurora/sources/vanilla/base_2da.key/creaturespeed.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "Name 2DAName",
+      "0 **** DEFAULT",
+      "1 1001 IMMOBILE",
+      "2 1002 SLOW",
+      "3 1003 WALK",
+      "4 1004 NORM",
+    ].join("\n"), "utf-8");
+    const weakerBytes = Buffer.from([
+      "2DA V2.0",
+      "Name 2DAName",
+      "0 **** DEFAULT",
+      "1 9001 WEAK_IMMOBILE",
+      "2 9002 WEAK_SLOW",
+      "3 9003 WEAK_WALK",
+      "4 9004 WEAK_NORM",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-walk-rates", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveCreatureWalkRatesTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "creaturespeed.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 5,
+      },
+      rows: [
+        {
+          rowIndex: 1,
+          displayName: "StringRef 1001",
+          displaySource: "strref_id",
+          nameStrRef: 1001,
+          twoDaName: "IMMOBILE",
+        },
+        {
+          rowIndex: 2,
+          displayName: "StringRef 1002",
+          displaySource: "strref_id",
+          nameStrRef: 1002,
+          twoDaName: "SLOW",
+        },
+        {
+          rowIndex: 3,
+          displayName: "StringRef 1003",
+          displaySource: "strref_id",
+          nameStrRef: 1003,
+          twoDaName: "WALK",
+        },
+        {
+          rowIndex: 4,
+          displayName: "StringRef 1004",
+          displaySource: "strref_id",
+          nameStrRef: 1004,
+          twoDaName: "NORM",
+        },
+      ],
+    });
+    const clone = await repository.resolveEffectiveCreatureWalkRatesTwoDaTable();
+    expect(clone).toEqual(table);
+    expect(clone).not.toBe(table);
+    expect(clone!.rows).not.toBe(table!.rows);
+  });
+
+  it("does not fall through malformed stronger creaturespeed.2da to a valid weaker table", async () => {
+    const moduleKey = "modules/current/creaturespeed.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/creaturespeed.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0",
+      "Name 2DAName",
+      "0 **** DEFAULT",
+      "1 1001 IMMOBILE",
+      "2 **** WALK",
+    ].join("\n"), "utf-8");
+    const validHakBytes = Buffer.from([
+      "2DA V2.0",
+      "Name 2DAName",
+      "0 **** DEFAULT",
+      "1 1001 IMMOBILE",
+      "2 1002 SLOW",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: malformedModuleBytes.length,
+        contentType: "text/plain",
+        bytes: malformedModuleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: validHakBytes.length,
+        contentType: "text/plain",
+        bytes: validHakBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-stronger-creature-walk-rates", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectiveCreatureWalkRatesTwoDaTable())
+      .resolves.toBeNull();
+  });
+
+  it("resolves the strongest exact sparse soundset.2da including admitted row zero", async () => {
+    const moduleKey = "modules/current/soundset.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/soundset.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL RESREF STRREF GENDER TYPE",
+      "0 Zero zero_vo 100 0 4",
+      "1 Broken **** **** 0 4",
+      "2 Two two_vo 102 1 4",
+    ].join("\n"), "utf-8");
+    const weakerBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL RESREF STRREF GENDER TYPE",
+      "0 Weaker weak_vo 900 0 4",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-sound-sets", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveCreatureSoundSetsTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "soundset.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 3,
+      },
+      rows: [
+        {
+          rowIndex: 0,
+          displayName: "StringRef 100",
+          displaySource: "strref_id",
+          nameStrRef: 100,
+          resRef: "zero_vo",
+        },
+        {
+          rowIndex: 2,
+          displayName: "StringRef 102",
+          displaySource: "strref_id",
+          nameStrRef: 102,
+          resRef: "two_vo",
+        },
+      ],
+    });
+    const clone = await repository.resolveEffectiveCreatureSoundSetsTwoDaTable();
+    expect(clone).toEqual(table);
+    expect(clone).not.toBe(table);
+    expect(clone!.rows).not.toBe(table!.rows);
+  });
+
+  it("resolves and clones the strongest exact sparse spells.2da special-ability table", async () => {
+    const moduleKey = "modules/current/spells.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/spells.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL NAME SpellDesc UserType Master",
+      "0 AcidFog 100 200 1 ****",
+      "1 HiddenType 101 201 3 ****",
+      "2 AuraCold 102 **** 2 ****",
+      "3 ChildSpell 103 203 1 0",
+    ].join("\n"), "utf-8");
+    const weakerBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL NAME SpellDesc UserType Master",
+      "0 Weaker 900 901 1 ****",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: weakerBytes.length,
+        contentType: "text/plain",
+        bytes: weakerBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-special-abilities", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveCreatureSpecialAbilitiesTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "spells.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 4,
+      },
+      rows: [
+        {
+          rowIndex: 0,
+          nameStrRef: 100,
+          spellDescStrRef: 200,
+          userType: 1,
+          displayName: "StringRef 100",
+          displaySource: "strref_id",
+        },
+        {
+          rowIndex: 2,
+          nameStrRef: 102,
+          userType: 2,
+          displayName: "StringRef 102",
+          displaySource: "strref_id",
+        },
+      ],
+    });
+    const clone = await repository.resolveEffectiveCreatureSpecialAbilitiesTwoDaTable();
+    expect(clone).toEqual(table);
+    expect(clone).not.toBe(table);
+    expect(clone!.rows).not.toBe(table!.rows);
+  });
+
+  it("does not fall through malformed stronger soundset.2da to a valid weaker table", async () => {
+    const moduleKey = "modules/current/soundset.2da";
+    const hakKey = "modules/current/__aurora/sources/hak/lc_2da/soundset.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL RESREF STRREF GENDER KIND",
+      "0 Module module_vo 100 0 4",
+    ].join("\n"), "utf-8");
+    const validHakBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL RESREF STRREF GENDER TYPE",
+      "0 Hak hak_vo 200 0 4",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: malformedModuleBytes.length,
+        contentType: "text/plain",
+        bytes: malformedModuleBytes,
+      }],
+      [hakKey, {
+        key: hakKey,
+        size: validHakBytes.length,
+        contentType: "text/plain",
+        bytes: validHakBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-stronger-creature-sound-sets", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectiveCreatureSoundSetsTwoDaTable())
+      .resolves.toBeNull();
+  });
+
+  it("resolves one strongest exact traps.2da table without row-merging weaker sources", async () => {
+    const moduleKey = "modules/current/traps.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/base_2da.key/traps.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0",
+      "Label TrapScript SetDC DetectDCMod DisarmDCMod TrapName ResRef IconResRef",
+      "0 ModuleMinor script 5 10 22 **** trap1 icon1",
+      "1 ModuleDeadly script 35 22 36 **** trap2 icon2",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0",
+      "Label TrapScript SetDC DetectDCMod DisarmDCMod TrapName ResRef IconResRef",
+      "0 VanillaOnly script 1 2 3 **** trap0 icon0",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: moduleBytes.length,
+        contentType: "text/plain",
+        bytes: moduleBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: vanillaBytes.length,
+        contentType: "text/plain",
+        bytes: vanillaBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-traps-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveTrapsTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "traps.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 2,
+      },
+      rows: [
+        {
+          rowIndex: 0,
+          label: "ModuleMinor",
+          setDc: 5,
+          detectDcMod: 10,
+          disarmDcMod: 22,
+          displayName: "ModuleMinor",
+          displaySource: "label",
+        },
+        {
+          rowIndex: 1,
+          label: "ModuleDeadly",
+          setDc: 35,
+          detectDcMod: 22,
+          disarmDcMod: 36,
+          displayName: "ModuleDeadly",
+          displaySource: "label",
+        },
+      ],
+    });
+    const second = await repository.resolveEffectiveTrapsTwoDaTable();
+    expect(second).toEqual(table);
+    expect(second).not.toBe(table);
+    expect(second!.rows).not.toBe(table!.rows);
+  });
+
+  it("resolves one all-or-nothing effective Area audio catalog bundle with exact source hashes", async () => {
+    const sources = [
+      ["ambientsound.2da", [
+        "2DA V2.0", "Description Resource DisplayName",
+        "0 7028 **** ****", "7 66963 al_pl_tavhubbub1 Tavern",
+      ]],
+      ["ambientmusic.2da", [
+        "2DA V2.0", "Description Resource DisplayName",
+        "0 61901 **** ****", "2 61843 mus_bat_boss BossBattle",
+      ]],
+      ["soundeax.2da", [
+        "2DA V2.0", "Label Description",
+        "0 EAX30_PRESET_GENERIC 63451", "8 EAX30_PRESET_CAVE ****",
+      ]],
+    ] as const;
+    const payloads = new Map<string, ModuleBlobObjectPayload>();
+    for (const [fileName, lines] of sources) {
+      const key = `modules/current/${fileName}`;
+      const bytes = Buffer.from(lines.join("\n"), "utf8");
+      payloads.set(key, { key, size: bytes.length, contentType: "text/plain", bytes });
+    }
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-area-audio-2da", {
+        snapshotObjects: [...payloads.values()].map(({ key, size }) => ({ key, size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const catalogs = await repository.resolveEffectiveAreaAudioCatalogs();
+    expect(catalogs).toMatchObject({
+      schemaVersion: "area-audio-environment-catalogs.v1",
+      ambientSound: {
+        descriptor: {
+          resourceName: "ambientsound.2da",
+          sourceObjectKey: "modules/current/ambientsound.2da",
+          sourceLayer: "module",
+          sha256: createHash("sha256").update(payloads.get("modules/current/ambientsound.2da")!.bytes).digest("hex"),
+          rowCount: 2,
+        },
+        rows: [
+          expect.objectContaining({ rowIndex: 0, displayName: "Row 0" }),
+          expect.objectContaining({ rowIndex: 7, resourceResRef: "al_pl_tavhubbub1", displayName: "Tavern" }),
+        ],
+      },
+      ambientMusic: {
+        rows: [
+          expect.objectContaining({ rowIndex: 0, battleEligible: false }),
+          expect.objectContaining({ rowIndex: 2, battleEligible: true }),
+        ],
+      },
+      environmentalAudio: {
+        rows: [
+          expect.objectContaining({ rowIndex: 0, label: "EAX30_PRESET_GENERIC" }),
+          expect.objectContaining({ rowIndex: 8, label: "EAX30_PRESET_CAVE" }),
+        ],
+      },
+    });
+    const second = await repository.resolveEffectiveAreaAudioCatalogs();
+    expect(second).toEqual(catalogs);
+    expect(second).not.toBe(catalogs);
+    expect(second!.ambientSound.rows).not.toBe(catalogs!.ambientSound.rows);
+  });
+
+  it("resolves one all-or-nothing effective Area visual-environment catalog bundle with detached nested rows", async () => {
+    const environmentBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL STRREF DAYNIGHT LIGHT_AMB_RED LIGHT_AMB_GREEN LIGHT_AMB_BLUE " +
+        "LIGHT_DIFF_RED LIGHT_DIFF_GREEN LIGHT_DIFF_BLUE LIGHT_SHADOWS " +
+        "DARK_AMB_RED DARK_AMB_GREEN DARK_AMB_BLUE DARK_DIFF_RED DARK_DIFF_GREEN " +
+        "DARK_DIFF_BLUE DARK_SHADOWS LIGHT_FOG_RED LIGHT_FOG_GREEN LIGHT_FOG_BLUE " +
+        "DARK_FOG_RED DARK_FOG_GREEN DARK_FOG_BLUE LIGHT_FOG DARK_FOG WIND SNOW " +
+        "RAIN LIGHTNING SHADOW_ALPHA FOG_CLIP_DIST SKYBOX",
+      "10 ExteriorProbe 123 cycle 1 2 3 4 5 6 1 7 8 9 10 11 12 0 " +
+        "13 14 15 16 17 18 7 8 2 3 4 5 0.65 120 1",
+    ].join("\n"), "utf8");
+    const skyBoxesBytes = Buffer.from([
+      "2DA V2.0",
+      "LABEL STRING_REF CYCLICAL DAWN DAY DUSK NIGHT",
+      "10 None **** **** **** **** **** ****",
+      "42 Grass_Clear 456 1 Skyda_001 Sky_001 Skyd_001 Skyn_001",
+    ].join("\n"), "utf8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      ["modules/current/environment.2da", {
+        key: "modules/current/environment.2da",
+        size: environmentBytes.length,
+        contentType: "text/plain",
+        bytes: environmentBytes,
+      }],
+      ["modules/current/skyboxes.2da", {
+        key: "modules/current/skyboxes.2da",
+        size: skyBoxesBytes.length,
+        contentType: "text/plain",
+        bytes: skyBoxesBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-area-visual-2da", {
+        snapshotObjects: [...payloads.values()].map(({ key, size }) => ({ key, size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const catalogs = await repository.resolveEffectiveAreaVisualEnvironmentCatalogs();
+    expect(catalogs).toMatchObject({
+      schemaVersion: "area-visual-environment-catalogs.v1",
+      lightingSchemes: {
+        descriptor: {
+          resourceName: "environment.2da",
+          sourceObjectKey: "modules/current/environment.2da",
+          sourceLayer: "module",
+          sha256: createHash("sha256").update(environmentBytes).digest("hex"),
+          rowCount: 1,
+        },
+        rows: [{
+          rowIndex: 0,
+          displayName: "ExteriorProbe",
+          displaySource: "label",
+          visualEnvironment: {
+            dayNightMode: "cycle",
+            shadowOpacity: 65,
+            chanceRain: 4,
+            chanceSnow: 3,
+            chanceLightning: 5,
+            sun: expect.objectContaining({ ambientColor: 0x030201 }),
+            moon: expect.objectContaining({ ambientColor: 0x090807 }),
+          },
+          visualEnvironmentScalarControls: { fogClipDistance: 120, windPower: 2 },
+          skyBoxRowIndex: 1,
+        }],
+      },
+      skyBoxes: {
+        descriptor: {
+          resourceName: "skyboxes.2da",
+          sourceObjectKey: "modules/current/skyboxes.2da",
+          sourceLayer: "module",
+          sha256: createHash("sha256").update(skyBoxesBytes).digest("hex"),
+          rowCount: 2,
+        },
+        rows: [
+          expect.objectContaining({ rowIndex: 0, displayName: "None" }),
+          expect.objectContaining({ rowIndex: 1, displayName: "Grass_Clear" }),
+        ],
+      },
+    });
+    const second = await repository.resolveEffectiveAreaVisualEnvironmentCatalogs();
+    expect(second).toEqual(catalogs);
+    expect(second).not.toBe(catalogs);
+    expect(second!.lightingSchemes.rows).not.toBe(catalogs!.lightingSchemes.rows);
+    expect(second!.lightingSchemes.rows[0]!.visualEnvironment).not.toBe(
+      catalogs!.lightingSchemes.rows[0]!.visualEnvironment,
+    );
+    expect(second!.lightingSchemes.rows[0]!.visualEnvironment.sun).not.toBe(
+      catalogs!.lightingSchemes.rows[0]!.visualEnvironment.sun,
+    );
+  });
+
+  it("resolves and clones the strongest exact Encounter encdifficulty.2da catalog", async () => {
+    const bytes = Buffer.from(
+      "2DA V2.0\n\nSTRREF VALUE\n0 100 -5\n1 101 0\n2 102 5\n",
+      "utf8",
+    );
+    const key = "modules/current/encdifficulty.2da";
+    const payloads = new Map([
+      [key, {
+        key,
+        size: bytes.length,
+        contentType: "text/plain",
+        bytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-area-encounter-difficulty-2da", {
+        snapshotObjects: [...payloads.values()].map(({ key: objectKey, size }) => ({
+          key: objectKey,
+          size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const catalog = await repository.resolveEffectiveAreaEncounterDifficultyCatalog();
+    expect(catalog).toEqual({
+      schemaVersion: "area-encounter-difficulty-catalog.v1",
+      descriptor: {
+        resourceName: "encdifficulty.2da",
+        sourceObjectKey: key,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        sizeBytes: bytes.length,
+        rowCount: 3,
+      },
+      rows: [
+        { rowIndex: 0, strRef: 100, value: -5, displayName: "Row 0", displaySource: "row_index" },
+        { rowIndex: 1, strRef: 101, value: 0, displayName: "Row 1", displaySource: "row_index" },
+        { rowIndex: 2, strRef: 102, value: 5, displayName: "Row 2", displaySource: "row_index" },
+      ],
+    });
+    const second = await repository.resolveEffectiveAreaEncounterDifficultyCatalog();
+    expect(second).toEqual(catalog);
+    expect(second).not.toBe(catalog);
+    expect(second!.descriptor).not.toBe(catalog!.descriptor);
+    expect(second!.rows).not.toBe(catalog!.rows);
+    expect(second!.rows[0]).not.toBe(catalog!.rows[0]);
+  });
+
+  it("resolves one strongest exact bodybag.2da table without row-merging weaker sources", async () => {
+    const moduleKey = "modules/current/bodybag.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/bodybag.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0", "LABEL Name Appearance",
+      "0 ModuleDefault 6671 ****", "1 ModuleTreasure 66490 196",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0", "LABEL Name Appearance", "0 VanillaOnly 6671 ****",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, { key: moduleKey, size: moduleBytes.length, contentType: "text/plain", bytes: moduleBytes }],
+      [vanillaKey, { key: vanillaKey, size: vanillaBytes.length, contentType: "text/plain", bytes: vanillaBytes }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-bodybag-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({ key: payload.key, size: payload.size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveBodyBagTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "bodybag.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 2,
+      },
+      rows: [
+        { rowIndex: 0, label: "ModuleDefault", nameStrRef: 6671, displayName: "ModuleDefault", displaySource: "label" },
+        { rowIndex: 1, label: "ModuleTreasure", nameStrRef: 66490, displayName: "ModuleTreasure", displaySource: "label" },
+      ],
+    });
+    const second = await repository.resolveEffectiveBodyBagTwoDaTable();
+    expect(second).toEqual(table);
+    expect(second).not.toBe(table);
+    expect(second!.rows).not.toBe(table!.rows);
+  });
+
+  it("resolves one strongest exact portraits.2da table with sparse physical rows", async () => {
+    const moduleKey = "modules/current/portraits.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/portraits.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race",
+      "0 po_module_a 0 6", "1 **** 0 6", "2 po_module_b 1 1",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race", "0 po_vanilla 0 6",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, { key: moduleKey, size: moduleBytes.length, contentType: "text/plain", bytes: moduleBytes }],
+      [vanillaKey, { key: vanillaKey, size: vanillaBytes.length, contentType: "text/plain", bytes: vanillaBytes }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-portraits-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({ key: payload.key, size: payload.size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectivePortraitsTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "portraits.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 3,
+      },
+      rows: [
+        { rowIndex: 0, baseResRef: "po_module_a" },
+        { rowIndex: 2, baseResRef: "po_module_b" },
+      ],
+    });
+    const second = await repository.resolveEffectivePortraitsTwoDaTable();
+    expect(second).toEqual(table);
+    expect(second).not.toBe(table);
+    expect(second!.rows).not.toBe(table!.rows);
+  });
+
+  it("resolves the strongest exact Creature portrait selector rows without merging", async () => {
+    const moduleKey = "modules/current/portraits.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/portraits.2da";
+    const moduleBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race Plot",
+      "0 po_module_hm 0 6 0", "1 po_module_plot 0 6 1",
+      "2 po_module_em 0 1 0", "3 po_module_hf 1 6 0",
+    ].join("\n"), "utf-8");
+    const vanillaBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race Plot", "0 po_vanilla 0 6 0",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, { key: moduleKey, size: moduleBytes.length, contentType: "text/plain", bytes: moduleBytes }],
+      [vanillaKey, { key: vanillaKey, size: vanillaBytes.length, contentType: "text/plain", bytes: vanillaBytes }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("effective-creature-portraits-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const table = await repository.resolveEffectiveCreaturePortraitsTwoDaTable();
+    expect(table).toEqual({
+      descriptor: {
+        resourceName: "portraits.2da",
+        sourceObjectKey: moduleKey,
+        sourceLayer: "module",
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        rowCount: 4,
+      },
+      rows: [
+        { rowIndex: 0, baseResRef: "po_module_hm", sex: 0, race: 6, plot: 0 },
+        { rowIndex: 2, baseResRef: "po_module_em", sex: 0, race: 1, plot: 0 },
+        { rowIndex: 3, baseResRef: "po_module_hf", sex: 1, race: 6, plot: 0 },
+      ],
+    });
+    const second = await repository.resolveEffectiveCreaturePortraitsTwoDaTable();
+    expect(second).toEqual(table);
+    expect(second).not.toBe(table);
+    expect(second!.rows).not.toBe(table!.rows);
+  });
+
+  it("fails closed when the strongest portraits.2da is malformed", async () => {
+    const moduleKey = "modules/current/portraits.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/portraits.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race", "0 po-broken 0 6",
+    ].join("\n"), "utf-8");
+    const validVanillaBytes = Buffer.from([
+      "2DA V2.0", "BaseResRef Sex Race", "0 po_vanilla 0 6",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, { key: moduleKey, size: malformedModuleBytes.length, contentType: "text/plain", bytes: malformedModuleBytes }],
+      [vanillaKey, { key: vanillaKey, size: validVanillaBytes.length, contentType: "text/plain", bytes: validVanillaBytes }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-effective-portraits-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({ key: payload.key, size: payload.size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectivePortraitsTwoDaTable()).resolves.toBeNull();
+  });
+
+  it("resolves the exact module repute.fac catalog without source fallback", async () => {
+    const moduleKey = "modules/current/repute.fac";
+    const decoyKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/repute.fac";
+    const moduleBytes = buildGffBuffer([
+      { label: "FactionList", type: "list", value: [
+        { typeId: 0, fields: [
+          { label: "FactionName", type: "cexostring", value: "PC" },
+          { label: "FactionParentID", type: "dword", value: 0xffffffff },
+          { label: "FactionGlobal", type: "word", value: 1 },
+        ] },
+        { typeId: 1, fields: [
+          { label: "FactionName", type: "cexostring", value: "Hostile" },
+          { label: "FactionParentID", type: "dword", value: 0xffffffff },
+          { label: "FactionGlobal", type: "word", value: 1 },
+        ] },
+      ] },
+      { label: "RepList", type: "list", value: [
+        { typeId: 0, fields: [
+          { label: "FactionID1", type: "dword", value: 0 },
+          { label: "FactionID2", type: "dword", value: 1 },
+          { label: "FactionRep", type: "dword", value: 0 },
+        ] },
+      ] },
+    ], "FAC ");
+    moduleBytes.writeUInt32LE(0xffffffff, 56);
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, { key: moduleKey, size: moduleBytes.length, contentType: "application/octet-stream", bytes: moduleBytes }],
+      [decoyKey, { key: decoyKey, size: moduleBytes.length, contentType: "application/octet-stream", bytes: moduleBytes }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("module-factions", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({ key: payload.key, size: payload.size })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    const catalog = await repository.resolveModuleFactionCatalog();
+    expect(catalog).toEqual({
+      descriptor: {
+        resourceName: "repute.fac",
+        sourceObjectKey: moduleKey,
+        sha256: createHash("sha256").update(moduleBytes).digest("hex"),
+        sizeBytes: moduleBytes.length,
+        factionCount: 2,
+      },
+      rows: [
+        { factionId: 0, name: "PC", parentFactionId: 0xffffffff, isGlobal: true },
+        { factionId: 1, name: "Hostile", parentFactionId: 0xffffffff, isGlobal: true },
+      ],
+    });
+    const second = await repository.resolveModuleFactionCatalog();
+    expect(second).toEqual(catalog);
+    expect(second).not.toBe(catalog);
+    expect(second!.rows).not.toBe(catalog!.rows);
+  });
+
+  it("fails closed when the strongest bodybag.2da is malformed instead of falling through", async () => {
+    const moduleKey = "modules/current/bodybag.2da";
+    const vanillaKey = "modules/current/__aurora/sources/vanilla/nwn_base.key/bodybag.2da";
+    const malformedModuleBytes = Buffer.from([
+      "2DA V2.0", "LABEL Name Appearance", "0 Broken not-a-strref ****",
+    ].join("\n"), "utf-8");
+    const validVanillaBytes = Buffer.from([
+      "2DA V2.0", "LABEL Name Appearance", "0 VanillaDefault 6671 ****",
+    ].join("\n"), "utf-8");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [moduleKey, {
+        key: moduleKey,
+        size: malformedModuleBytes.length,
+        contentType: "text/plain",
+        bytes: malformedModuleBytes,
+      }],
+      [vanillaKey, {
+        key: vanillaKey,
+        size: validVanillaBytes.length,
+        contentType: "text/plain",
+        bytes: validVanillaBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("malformed-effective-bodybag-2da", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+
+    await expect(repository.resolveEffectiveBodyBagTwoDaTable()).resolves.toBeNull();
+  });
+
+  it("resolves effective placeables.2da Appearance display names through the base TLK", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "aurora-placeables-row-tlk-"));
+    const tlkBasePath = join(tempDir, "dialog.tlk");
+    const key = "modules/current/__aurora/sources/hak/lc_2da/placeables.2da";
+    const bytes = Buffer.from([
+      "2DA V2.0",
+      "Label StrRef ModelName Static",
+      "104 WaterTrough 5747 plc_water_trough 1",
+    ].join("\n"), "utf-8");
+
+    try {
+      await writeFile(tlkBasePath, buildTlkBuffer({ 5747: "Water Trough" }));
+      const repository = new ModuleSnapshotTemplateCatalogRepository(
+        createRuntimeSettingsRepository("modules/current", { tlkBasePath }),
+        createModuleBlobStorage("placeables-row-tlk", {
+          snapshotObjects: [{
+            key,
+            size: bytes.length,
+            lastModified: "2026-08-18T12:00:00.000Z",
+            etag: "placeables-row-tlk",
+          }],
+          payloadOverrides: new Map([[key, {
+            key,
+            size: bytes.length,
+            contentType: "text/plain",
+            lastModified: "2026-08-18T12:00:00.000Z",
+            etag: "placeables-row-tlk",
+            bytes,
+          }]]),
+        }),
+      );
+
+      await expect(repository.listEffectivePlaceablesTwoDaRows({
+        query: "5747",
+        limit: 10,
+        offset: 0,
+      })).resolves.toMatchObject({
+        items: [{
+          rowIndex: 0,
+          displayName: "Water Trough",
+          displaySource: "strref",
+          strRef: 5747,
+          label: "WaterTrough",
+        }],
+        total: 1,
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits a descriptor when the selected renderable table is not exact 2DA V2.0", async () => {
+    const key = "modules/current/__aurora/sources/hak/lc_2da/placeables.2da";
+    const bytes = Buffer.from("2da v2.0\nLabel ModelName\n0 Row plc_row", "utf-8");
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("invalid-exact-placeables-descriptor", {
+        snapshotObjects: [{
+          key,
+          size: bytes.length,
+          lastModified: "2026-08-17T16:45:00.000Z",
+          etag: "invalid-exact-placeables-descriptor",
+        }],
+        payloadOverrides: new Map([[key, {
+          key,
+          size: bytes.length,
+          contentType: "text/plain",
+          lastModified: "2026-08-17T16:45:00.000Z",
+          etag: "invalid-exact-placeables-descriptor",
+          bytes,
+        }]]),
+      }),
+    );
+
+    await expect(repository.resolvePlaceableAppearanceModel(0)).resolves.toEqual({
+      modelResRef: "plc_row",
+      source2da: "placeables.2da",
+      rowId: 0,
+    });
+    await expect(repository.resolveEffectivePlaceablesTwoDaDescriptor()).resolves.toBeNull();
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      limit: 100,
+      offset: 0,
+    })).resolves.toBeNull();
+  });
+
+  it("keeps the physical Appearance catalog when the authoritative table has only reserved rows", async () => {
+    const key = "modules/current/__aurora/sources/hak/reserved/placeables.2da";
+    const bytes = Buffer.from([
+      "2DA V2.0",
+      "Label StrRef ModelName Static",
+      "847 **** **** **** 0",
+    ].join("\n"), "utf-8");
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("reserved-only-placeables-row-catalog", {
+        snapshotObjects: [{
+          key,
+          size: bytes.length,
+          lastModified: "2026-08-18T12:30:00.000Z",
+          etag: "reserved-only-placeables-row-catalog",
+        }],
+        payloadOverrides: new Map([[key, {
+          key,
+          size: bytes.length,
+          contentType: "text/plain",
+          lastModified: "2026-08-18T12:30:00.000Z",
+          etag: "reserved-only-placeables-row-catalog",
+          bytes,
+        }]]),
+      }),
+    );
+
+    const descriptor = await repository.resolveEffectivePlaceablesTwoDaDescriptor();
+    expect(descriptor).toMatchObject({ sourceObjectKey: key, rowCount: 1 });
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      descriptor,
+      items: [{ rowIndex: 0, displayName: "Row 0", displaySource: "row_index" }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+  });
+
+  it("skips a stronger unreadable placeables.2da and selects the next exact physical table", async () => {
+    const unreadableKey = "modules/current/__aurora/sources/hak/broken/placeables.2da";
+    const exactKey = "modules/current/__aurora/sources/vanilla/placeables.2da";
+    const unreadableBytes = Buffer.from("not a 2da table", "utf-8");
+    const exactBytes = Buffer.from([
+      "2DA V2.0",
+      "Label StrRef ModelName Static",
+      "0 ExactFallback **** plc_exact_fallback 1",
+    ].join("\n"), "utf-8");
+    const payloadOverrides = new Map<string, ModuleBlobObjectPayload>([
+      [unreadableKey, {
+        key: unreadableKey,
+        size: unreadableBytes.length,
+        contentType: "text/plain",
+        lastModified: "2026-08-18T13:00:00.000Z",
+        etag: "unreadable-placeables",
+        bytes: unreadableBytes,
+      }],
+      [exactKey, {
+        key: exactKey,
+        size: exactBytes.length,
+        contentType: "text/plain",
+        lastModified: "2026-08-18T12:00:00.000Z",
+        etag: "exact-placeables",
+        bytes: exactBytes,
+      }],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("skip-unreadable-placeables", {
+        snapshotObjects: [...payloadOverrides.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified ?? "2026-08-18T00:00:00.000Z",
+          etag: payload.etag,
+        })),
+        payloadOverrides,
+      }),
+    );
+
+    await expect(repository.resolveEffectivePlaceablesTwoDaDescriptor()).resolves.toMatchObject({
+      sourceObjectKey: exactKey,
+      rowCount: 1,
+    });
+    await expect(repository.listEffectivePlaceablesTwoDaRows({
+      limit: 100,
+      offset: 0,
+    })).resolves.toMatchObject({
+      items: [{
+        rowIndex: 0,
+        displayName: "ExactFallback",
+        displaySource: "label",
+        label: "ExactFallback",
+      }],
+      total: 1,
     });
   });
 
@@ -2575,6 +4296,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     await expect(repository.resolvePlaceableAppearanceModel(8589)).resolves.toEqual({
       modelResRef: "bhp_crys6f",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 8589
     });
     await expect(
@@ -2639,6 +4361,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     ).resolves.toEqual({
       modelResRef: "wit2_0004",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 7004
     });
     await expect(
@@ -2737,6 +4460,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     await expect(repository.resolvePlaceableAppearanceModel(110)).resolves.toEqual({
       modelResRef: "d_good",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 110
     });
     await expect(
@@ -2748,6 +4472,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     ).resolves.toEqual({
       modelResRef: "d_good",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 110
     });
   });
@@ -2802,6 +4527,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     ).resolves.toEqual({
       modelResRef: "nw2breadbasket",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 4742
     });
   });
@@ -2857,6 +4583,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     ).resolves.toEqual({
       modelResRef: "zlc_srclight_28",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 5846
     });
   });
@@ -2937,6 +4664,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 100,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: lcTwoDaKey
     });
   });
@@ -3058,6 +4786,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     await expect(repository.resolvePlaceableAppearanceModel(6098)).resolves.toEqual({
       modelResRef: "plc_wit98",
       source2da: "placeables.2da",
+      source2daStatic: true,
       rowId: 6098
     });
   });
@@ -3114,6 +4843,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "nwic-user-row-minus-100",
       rowId: 7360,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(7560)).resolves.toEqual({
@@ -3122,6 +4852,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100-chain",
       rowId: 7360,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
   });
@@ -3186,7 +4917,8 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     await expect(repository.resolvePlaceableAppearanceModel(300)).resolves.toEqual({
       modelResRef: "plc_direct",
       rowId: 300,
-      source2da: "placeables.2da"
+      source2da: "placeables.2da",
+      source2daStatic: true
     });
     await expect(repository.resolvePlaceableAppearanceModel(1169)).resolves.toEqual({
       modelResRef: "ptr_d08",
@@ -3194,6 +4926,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 1069,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(15481)).resolves.toEqual({
@@ -3202,6 +4935,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 15381,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(24363)).resolves.toEqual({
@@ -3210,6 +4944,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 24263,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(25788)).resolves.toEqual({
@@ -3218,6 +4953,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 25688,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(25876)).resolves.toEqual({
@@ -3226,6 +4962,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100-chain",
       rowId: 25676,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
     await expect(repository.resolvePlaceableAppearanceModel(27213)).resolves.toEqual({
@@ -3234,6 +4971,7 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
       resolutionPath: "placeables-user-row-minus-100",
       rowId: 27113,
       source2da: "placeables.2da",
+      source2daStatic: true,
       sourceKey: placeables2daKey
     });
   });
@@ -3622,6 +5360,23 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
         "placeables",
         NWN_KEY_BIF_RESOURCE_TYPES.TWO_DA
       );
+      const descriptor = await repository.resolveEffectivePlaceablesTwoDaDescriptor();
+      await expect(repository.listEffectivePlaceablesTwoDaRows({
+        limit: 100,
+        offset: 0,
+      })).resolves.toEqual({
+        descriptor,
+        items: [{
+          rowIndex: 0,
+          displayName: "Brazier",
+          displaySource: "label",
+          strRef: 123,
+          label: "Brazier",
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
     } finally {
       openSpy.mockRestore();
     }
@@ -3749,6 +5504,627 @@ describe("ModuleSnapshotTemplateCatalogRepository", () => {
     expect(repository.getPrecomputedTemplateCacheKey("creature", "cre_cre_guard")).toEqual(
       expect.stringMatching(/^[a-f0-9]{64}$/u)
     );
+  });
+
+  it("publishes and resolves one exact effective UTP blueprint without exposing arbitrary object reads", async () => {
+    const sourceObjectKey = "modules/current/blueprints/placeables/plc_dynamic.utp";
+    const sourceBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_dynamic" },
+      { label: "LocName", type: "cexolocstring", value: "Dynamic Placeable" },
+      { label: "Tag", type: "cexostring", value: "DYNAMIC_PLACEABLE" },
+      { label: "Comment", type: "cexostring", value: "Exact UTP source" },
+    ], "UTP ", 0xffffffff);
+    const sourcePayload: ModuleBlobObjectPayload = {
+      key: sourceObjectKey,
+      size: sourceBytes.length,
+      contentType: "application/octet-stream",
+      etag: "dynamic-utp",
+      lastModified: "2026-08-19T10:00:00.000Z",
+      bytes: sourceBytes,
+    };
+    const storage = createModuleBlobStorage("dynamic-utp", {
+      snapshotObjects: [{
+        key: sourceObjectKey,
+        size: sourceBytes.length,
+        lastModified: sourcePayload.lastModified,
+        etag: sourcePayload.etag,
+      }],
+      payloadOverrides: new Map([[sourceObjectKey, sourcePayload]]),
+    });
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      storage
+    );
+    const catalog = await repository.listByKind("placeable", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "plc_dynamic");
+    expect(candidate).toBeDefined();
+    expect(candidate!.metadata).toMatchObject({
+      sourceExtension: "utp",
+      sourceFileType: "UTP ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      sourceObjectKey: expect.any(String),
+      templateResRef: expect.any(String),
+      tag: expect.any(String),
+    });
+
+    const result = await repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate!.templateId,
+      sourceObjectKey: String(candidate!.metadata.sourceObjectKey),
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    });
+
+    expect(result).toMatchObject({
+      kind: "placeable",
+      templateId: candidate!.templateId,
+      resref: candidate!.resref,
+      sourceObjectKey: candidate!.metadata.sourceObjectKey,
+      sha256: candidate!.metadata.sourceSha256,
+      bytes: expect.any(Buffer),
+    });
+    const repeated = await repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate!.templateId,
+      sourceObjectKey: String(candidate!.metadata.sourceObjectKey),
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    });
+    expect(repeated!.bytes).toEqual(result!.bytes);
+    expect(repeated!.bytes).not.toBe(result!.bytes);
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate!.templateId,
+      sourceObjectKey: `${String(candidate!.metadata.sourceObjectKey)}.stale`,
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    })).resolves.toBeNull();
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate!.templateId,
+      sourceObjectKey: String(candidate!.metadata.sourceObjectKey),
+      expectedSha256: "f".repeat(64),
+    })).resolves.toBeNull();
+  });
+
+  it("publishes and resolves one exact effective UTI blueprint with immutable size provenance", async () => {
+    const sourceObjectKey = "modules/current/blueprints/items/itm_dynamic.uti";
+    const sourceBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "itm_dynamic" },
+      { label: "LocalizedName", type: "cexolocstring", value: "Dynamic Item" },
+      { label: "Tag", type: "cexostring", value: "DYNAMIC_ITEM" },
+      { label: "BaseItem", type: "int", value: 16 },
+      { label: "Comment", type: "cexostring", value: "Exact UTI source" },
+    ], "UTI ", 0xffffffff);
+    const sourcePayload: ModuleBlobObjectPayload = {
+      key: sourceObjectKey,
+      size: sourceBytes.length,
+      contentType: "application/octet-stream",
+      etag: "dynamic-uti",
+      lastModified: "2026-08-30T10:00:00.000Z",
+      bytes: sourceBytes,
+    };
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("dynamic-uti", {
+        snapshotObjects: [{
+          key: sourceObjectKey,
+          size: sourceBytes.length,
+          lastModified: sourcePayload.lastModified,
+          etag: sourcePayload.etag,
+        }],
+        payloadOverrides: new Map([[sourceObjectKey, sourcePayload]]),
+      }),
+    );
+    const catalog = await repository.listByKind("item", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "itm_dynamic");
+    expect(candidate).toBeDefined();
+    expect(candidate!.metadata).toMatchObject({
+      sourceExtension: "uti",
+      sourceFileType: "UTI ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+      sourceSizeBytes: sourceBytes.length,
+      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      sourceObjectKey,
+      templateResRef: "itm_dynamic",
+      tag: "DYNAMIC_ITEM",
+    });
+
+    const request = {
+      kind: "item" as const,
+      templateId: candidate!.templateId,
+      sourceObjectKey,
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    };
+    await expect(repository.resolveEffectiveTemplateBlueprint(request)).resolves.toMatchObject({
+      kind: "item",
+      templateId: candidate!.templateId,
+      resref: "itm_dynamic",
+      sourceObjectKey,
+      sha256: candidate!.metadata.sourceSha256,
+      bytes: sourceBytes,
+    });
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      ...request,
+      kind: "placeable",
+    })).resolves.toBeNull();
+  });
+
+  it("publishes and resolves one exact effective UTE blueprint with immutable size provenance", async () => {
+    const sourceObjectKey = "modules/current/blueprints/encounters/enc_dynamic.ute";
+    const sourceBytes = dynamicEncounterBlueprintFixture();
+    const sourcePayload: ModuleBlobObjectPayload = {
+      key: sourceObjectKey,
+      size: sourceBytes.length,
+      contentType: "application/octet-stream",
+      etag: "dynamic-ute",
+      lastModified: "2026-09-01T10:00:00.000Z",
+      bytes: sourceBytes,
+    };
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("dynamic-ute", {
+        snapshotObjects: [{
+          key: sourceObjectKey,
+          size: sourceBytes.length,
+          lastModified: sourcePayload.lastModified,
+          etag: sourcePayload.etag,
+        }],
+        payloadOverrides: new Map([[sourceObjectKey, sourcePayload]]),
+      }),
+    );
+    const catalog = await repository.listByKind("encounter", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "enc_dynamic");
+    expect(candidate).toBeDefined();
+    expect(candidate!.metadata).toMatchObject({
+      sourceExtension: "ute",
+      sourceFileType: "UTE ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+      sourceSizeBytes: sourceBytes.length,
+      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      sourceObjectKey,
+      templateResRef: "enc_dynamic",
+      tag: "DYNAMIC_ENCOUNTER",
+    });
+
+    const request = {
+      kind: "encounter" as const,
+      templateId: candidate!.templateId,
+      sourceObjectKey,
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    };
+    await expect(repository.resolveEffectiveTemplateBlueprint(request)).resolves.toMatchObject({
+      kind: "encounter",
+      templateId: candidate!.templateId,
+      resref: "enc_dynamic",
+      sourceObjectKey,
+      sha256: candidate!.metadata.sourceSha256,
+      bytes: sourceBytes,
+    });
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      ...request,
+      expectedSha256: "f".repeat(64),
+    })).resolves.toBeNull();
+  });
+
+  it("publishes and resolves one exact effective UTW blueprint with immutable size provenance", async () => {
+    const sourceObjectKey = "modules/current/blueprints/waypoints/wp_dynamic.utw";
+    const sourceBytes = dynamicWaypointBlueprintFixture();
+    const sourcePayload: ModuleBlobObjectPayload = {
+      key: sourceObjectKey,
+      size: sourceBytes.length,
+      contentType: "application/octet-stream",
+      etag: "dynamic-utw",
+      lastModified: "2026-09-01T11:00:00.000Z",
+      bytes: sourceBytes,
+    };
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("dynamic-utw", {
+        snapshotObjects: [{
+          key: sourceObjectKey,
+          size: sourceBytes.length,
+          lastModified: sourcePayload.lastModified,
+          etag: sourcePayload.etag,
+        }],
+        payloadOverrides: new Map([[sourceObjectKey, sourcePayload]]),
+      }),
+    );
+    const catalog = await repository.listByKind("waypoint", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "wp_dynamic");
+    expect(candidate).toBeDefined();
+    expect(candidate!.metadata).toMatchObject({
+      sourceExtension: "utw",
+      sourceFileType: "UTW ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+      sourceSizeBytes: sourceBytes.length,
+      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      sourceObjectKey,
+      templateResRef: "wp_dynamic",
+      tag: "WP_DYNAMIC",
+    });
+
+    const request = {
+      kind: "waypoint" as const,
+      templateId: candidate!.templateId,
+      sourceObjectKey,
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    };
+    await expect(repository.resolveEffectiveTemplateBlueprint(request)).resolves.toMatchObject({
+      kind: "waypoint",
+      templateId: candidate!.templateId,
+      resref: "wp_dynamic",
+      sourceObjectKey,
+      sha256: candidate!.metadata.sourceSha256,
+      bytes: sourceBytes,
+    });
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      ...request,
+      sourceObjectKey: `${sourceObjectKey}.stale`,
+    })).resolves.toBeNull();
+  });
+
+  it("publishes and resolves one exact effective UTM with its recursive UTI closure", async () => {
+    const storeKey = "modules/current/blueprints/stores/str_dynamic.utm";
+    const itemKey = "modules/current/blueprints/items/itm_store_child.uti";
+    const itemBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "itm_store_child" },
+      { label: "Tag", type: "cexostring", value: "ITM_STORE_CHILD" },
+      { label: "BaseItem", type: "int", value: 22 },
+    ], "UTI ", 0xffffffff);
+    const storeBytes = buildGffBuffer([
+      { label: "ResRef", type: "resref", value: "str_dynamic" },
+      { label: "LocName", type: "cexolocstring", value: "Dynamic Store" },
+      { label: "Tag", type: "cexostring", value: "Dynamic_Store" },
+      {
+        label: "StoreList",
+        type: "list",
+        value: [
+          {
+            typeId: 0,
+            fields: [{
+              label: "ItemList",
+              type: "list",
+              value: [{
+                typeId: 0,
+                fields: [
+                  { label: "Repos_Posy", type: "word", value: 2 },
+                  { label: "InventoryRes", type: "resref", value: "itm_store_child" },
+                  { label: "Repos_PosX", type: "word", value: 1 },
+                  { label: "Infinite", type: "byte", value: 1 },
+                ],
+              }],
+            }],
+          },
+          { typeId: 4, fields: [] },
+          { typeId: 2, fields: [] },
+          { typeId: 3, fields: [] },
+          { typeId: 1, fields: [] },
+        ],
+      },
+    ], "UTM ", 0xffffffff);
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [storeKey, templatePayload(storeKey, storeBytes, "dynamic-store")],
+      [itemKey, templatePayload(itemKey, itemBytes, "dynamic-store-item")],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("dynamic-utm", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified,
+          etag: payload.etag,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+    const catalog = await repository.listByKind("store", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((entry) => entry.resref === "str_dynamic");
+    expect(candidate?.metadata).toMatchObject({
+      sourceExtension: "utm",
+      sourceFileType: "UTM ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+      sourceSizeBytes: storeBytes.length,
+      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      sourceObjectKey: storeKey,
+      templateResRef: "str_dynamic",
+      tag: "Dynamic_Store",
+    });
+
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      kind: "store",
+      templateId: candidate!.templateId,
+      sourceObjectKey: storeKey,
+      expectedSha256: String(candidate!.metadata.sourceSha256),
+    })).resolves.toMatchObject({
+      kind: "store",
+      templateId: candidate!.templateId,
+      resref: "str_dynamic",
+      sourceObjectKey: storeKey,
+      bytes: storeBytes,
+      dependencies: [{
+        templateResRef: "itm_store_child",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        bytes: itemBytes,
+      }],
+    });
+  });
+
+  it("resolves a deduplicated recursive effective UTI dependency closure", async () => {
+    const rootKey = "modules/current/blueprints/items/nested_root.uti";
+    const childKey = "modules/current/blueprints/items/nested_child.uti";
+    const grandKey = "modules/current/blueprints/items/nested_grand.uti";
+    const grandBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "nested_grand" },
+      { label: "Tag", type: "cexostring", value: "NESTED_GRAND" },
+      { label: "BaseItem", type: "int", value: 2 },
+    ], "UTI ", 0xffffffff);
+    const childBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "nested_child" },
+      { label: "Tag", type: "cexostring", value: "NESTED_CHILD" },
+      { label: "BaseItem", type: "int", value: 1 },
+      {
+        label: "Equip_ItemList",
+        type: "list",
+        value: [{
+          typeId: 4,
+          fields: [{ label: "EquippedRes", type: "resref", value: "nested_grand" }],
+        }],
+      },
+    ], "UTI ", 0xffffffff);
+    const rootBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "nested_root" },
+      { label: "Tag", type: "cexostring", value: "NESTED_ROOT" },
+      { label: "BaseItem", type: "int", value: 0 },
+      {
+        label: "ItemList",
+        type: "list",
+        value: [
+          {
+            typeId: 0,
+            fields: [
+              { label: "InventoryRes", type: "resref", value: "nested_child" },
+              { label: "Repos_PosX", type: "word", value: 3 },
+              { label: "Repos_Posy", type: "word", value: 4 },
+            ],
+          },
+          {
+            typeId: 1,
+            fields: [
+              { label: "InventoryRes", type: "resref", value: "nested_grand" },
+              { label: "Repos_PosX", type: "word", value: 5 },
+              { label: "Repos_Posy", type: "word", value: 6 },
+            ],
+          },
+        ],
+      },
+    ], "UTI ", 0xffffffff);
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [rootKey, templatePayload(rootKey, rootBytes, "nested-root")],
+      [childKey, templatePayload(childKey, childBytes, "nested-child")],
+      [grandKey, templatePayload(grandKey, grandBytes, "nested-grand")],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("nested-uti-closure", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified,
+          etag: payload.etag,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+    const catalog = await repository.listByKind("item", { limit: 100, offset: 0 });
+    const root = catalog.items.find((item) => item.resref === "nested_root")!;
+
+    const resolved = await repository.resolveEffectiveTemplateBlueprint({
+      kind: "item",
+      templateId: root.templateId,
+      sourceObjectKey: String(root.metadata.sourceObjectKey),
+      expectedSha256: String(root.metadata.sourceSha256),
+    });
+
+    expect(resolved?.dependencies?.map((dependency) => dependency.templateResRef)).toEqual([
+      "nested_child",
+      "nested_grand",
+    ]);
+    expect(resolved?.dependencies).toEqual([
+      expect.objectContaining({
+        templateResRef: "nested_child",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
+        bytes: childBytes,
+      }),
+      expect.objectContaining({
+        templateResRef: "nested_grand",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
+        bytes: grandBytes,
+      }),
+    ]);
+    expect(resolved?.dependencies?.[0]?.bytes).not.toBe(childBytes);
+  });
+
+  it("fails closed for a recursive effective UTI dependency cycle", async () => {
+    const rootKey = "modules/current/blueprints/items/cycle_root.uti";
+    const childKey = "modules/current/blueprints/items/cycle_child.uti";
+    const reference = (templateResRef: string, inventoryRes: string) => buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: templateResRef },
+      { label: "Tag", type: "cexostring", value: templateResRef.toUpperCase() },
+      { label: "BaseItem", type: "int", value: 0 },
+      {
+        label: "ItemList",
+        type: "list",
+        value: [{
+          typeId: 0,
+          fields: [
+            { label: "InventoryRes", type: "resref", value: inventoryRes },
+            { label: "Repos_PosX", type: "word", value: 0 },
+            { label: "Repos_Posy", type: "word", value: 0 },
+          ],
+        }],
+      },
+    ], "UTI ", 0xffffffff);
+    const rootBytes = reference("cycle_root", "cycle_child");
+    const childBytes = reference("cycle_child", "cycle_root");
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [rootKey, templatePayload(rootKey, rootBytes, "cycle-root")],
+      [childKey, templatePayload(childKey, childBytes, "cycle-child")],
+    ]);
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("cycle-uti-closure", {
+        snapshotObjects: [...payloads.values()].map((payload) => ({
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified,
+          etag: payload.etag,
+        })),
+        payloadOverrides: payloads,
+      }),
+    );
+    const catalog = await repository.listByKind("item", { limit: 100, offset: 0 });
+    const root = catalog.items.find((item) => item.resref === "cycle_root")!;
+
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      kind: "item",
+      templateId: root.templateId,
+      sourceObjectKey: String(root.metadata.sourceObjectKey),
+      expectedSha256: String(root.metadata.sourceSha256),
+    })).resolves.toBeNull();
+  });
+
+  it("resolves the exact effective UTI closure for an admitted non-empty dynamic Placeable ItemList", async () => {
+    const placeableKey = "modules/current/__aurora/sources/vanilla/templates/plc_fenbush.utp";
+    const itemKey = "modules/current/__aurora/sources/vanilla/items/nw_it_msmlmisc12.uti";
+    const placeableBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_fenbush" },
+      { label: "LocName", type: "cexolocstring", value: "Fern Bush" },
+      { label: "Tag", type: "cexostring", value: "PLC_FENBUSH" },
+      { label: "Comment", type: "cexostring", value: "" },
+      {
+        label: "ItemList",
+        type: "list",
+        value: [{
+          typeId: 0,
+          fields: [
+            { label: "InventoryRes", type: "resref", value: "nw_it_msmlmisc12" },
+            { label: "Repos_PosX", type: "word", value: 0 },
+            { label: "Repos_Posy", type: "word", value: 0 },
+          ],
+        }],
+      },
+    ], "UTP ", 0xffffffff);
+    const itemBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "nw_it_msmlmisc12" },
+      { label: "LocalizedName", type: "cexolocstring", value: "Small Miscellaneous 12" },
+      { label: "Tag", type: "cexostring", value: "NW_IT_MSMLMISC12" },
+      { label: "Comment", type: "cexostring", value: "1" },
+    ], "UTI ", 0xffffffff);
+    const payloads = new Map<string, ModuleBlobObjectPayload>([
+      [placeableKey, {
+        key: placeableKey,
+        size: placeableBytes.length,
+        contentType: "application/octet-stream",
+        etag: "fenbush-utp",
+        lastModified: "2026-08-19T12:00:00.000Z",
+        bytes: placeableBytes,
+      }],
+      [itemKey, {
+        key: itemKey,
+        size: itemBytes.length,
+        contentType: "application/octet-stream",
+        etag: "misc12-uti",
+        lastModified: "2026-08-19T12:00:01.000Z",
+        bytes: itemBytes,
+      }],
+    ]);
+    const storage = createModuleBlobStorage("dynamic-itemlist", {
+      snapshotObjects: [...payloads.values()].map((payload) => ({
+        key: payload.key,
+        size: payload.size,
+        lastModified: payload.lastModified,
+        etag: payload.etag,
+      })),
+      payloadOverrides: payloads,
+    });
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      storage,
+    );
+    const catalog = await repository.listByKind("placeable", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "plc_fenbush")!;
+
+    const result = await repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate.templateId,
+      sourceObjectKey: String(candidate.metadata.sourceObjectKey),
+      expectedSha256: String(candidate.metadata.sourceSha256),
+    });
+
+    expect(result?.dependencies).toEqual([{
+      templateResRef: "nw_it_msmlmisc12",
+      resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
+      sha256: createHash("sha256").update(itemBytes).digest("hex"),
+      bytes: itemBytes,
+    }]);
+    expect(result?.dependencies?.[0]?.bytes).not.toBe(itemBytes);
+  });
+
+  it("fails closed when a non-empty dynamic Placeable ItemList dependency is not an effective UTI", async () => {
+    const placeableKey = "modules/current/__aurora/sources/vanilla/templates/plc_fenbush.utp";
+    const placeableBytes = buildGffBuffer([
+      { label: "TemplateResRef", type: "resref", value: "plc_fenbush" },
+      { label: "LocName", type: "cexolocstring", value: "Fern Bush" },
+      { label: "Tag", type: "cexostring", value: "PLC_FENBUSH" },
+      { label: "Comment", type: "cexostring", value: "" },
+      {
+        label: "ItemList",
+        type: "list",
+        value: [{
+          typeId: 0,
+          fields: [
+            { label: "InventoryRes", type: "resref", value: "nw_it_msmlmisc12" },
+            { label: "Repos_PosX", type: "word", value: 0 },
+            { label: "Repos_Posy", type: "word", value: 0 },
+          ],
+        }],
+      },
+    ], "UTP ", 0xffffffff);
+    const payload: ModuleBlobObjectPayload = {
+      key: placeableKey,
+      size: placeableBytes.length,
+      contentType: "application/octet-stream",
+      etag: "missing-item",
+      lastModified: "2026-08-19T12:00:00.000Z",
+      bytes: placeableBytes,
+    };
+    const repository = new ModuleSnapshotTemplateCatalogRepository(
+      createRuntimeSettingsRepository(),
+      createModuleBlobStorage("dynamic-itemlist-missing", {
+        snapshotObjects: [{
+          key: payload.key,
+          size: payload.size,
+          lastModified: payload.lastModified,
+          etag: payload.etag,
+        }],
+        payloadOverrides: new Map([[placeableKey, payload]]),
+      }),
+    );
+    const catalog = await repository.listByKind("placeable", { limit: 100, offset: 0 });
+    const candidate = catalog.items.find((item) => item.resref === "plc_fenbush")!;
+
+    await expect(repository.resolveEffectiveTemplateBlueprint({
+      kind: "placeable",
+      templateId: candidate.templateId,
+      sourceObjectKey: String(candidate.metadata.sourceObjectKey),
+      expectedSha256: String(candidate.metadata.sourceSha256),
+    })).resolves.toBeNull();
   });
 
   it("changes precomputed cache keys when source etag changes", async () => {
@@ -4208,7 +6584,11 @@ function buildTlkBuffer(entries: Record<number, string>): Buffer {
   return Buffer.concat([header, table, ...stringChunks]);
 }
 
-function buildGffBuffer(fields: SupportedField[], fileType = "UTP "): Buffer {
+function buildGffBuffer(
+  fields: SupportedField[],
+  fileType = "UTP ",
+  rootStructTypeId = 1
+): Buffer {
   const uniqueLabels = [...new Set(collectFieldLabels(fields))];
   const labelIndexByName = new Map(uniqueLabels.map((label, index) => [label, index]));
 
@@ -4368,7 +6748,7 @@ function buildGffBuffer(fields: SupportedField[], fileType = "UTP "): Buffer {
     return index;
   };
 
-  addStruct(fields, 1);
+  addStruct(fields, rootStructTypeId);
 
   const fieldData = Buffer.concat(fieldDataChunks);
   const listIndices = Buffer.concat(listIndicesChunks);
@@ -4429,6 +6809,21 @@ function buildGffBuffer(fields: SupportedField[], fileType = "UTP "): Buffer {
     fieldIndices,
     listIndices
   ]);
+}
+
+function templatePayload(
+  key: string,
+  bytes: Buffer,
+  etag: string,
+): ModuleBlobObjectPayload {
+  return {
+    key,
+    size: bytes.length,
+    contentType: "application/octet-stream",
+    etag,
+    lastModified: "2026-08-30T10:00:00.000Z",
+    bytes,
+  };
 }
 
 function collectFieldLabels(fields: SupportedField[]): string[] {

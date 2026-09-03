@@ -1,9 +1,15 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppException } from "../../src/common/http/app-exception";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
-import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
+import {
+  CatalogApplicationService,
+  compactPlaceableProcessingResultForCacheAdmission,
+  compactPlaceableRenderPackageForViewportBatch,
+  selectCanonicalRuntimeSourceEmitters
+} from "../../src/modules/catalog/application/catalog.application.service";
 import type {
   PlaceableProcessingCachePort,
   PlaceableProcessingResult
@@ -18,6 +24,7 @@ import { convertAuroraAsciiMdlToGlb } from "../../src/modules/runtime-settings/a
 import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
 import { parseTemplateBlueprintFromGff } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-template-parser";
 import { serializeCreatureBlueprintToUtcGff } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-utc-writer";
+import { serializeItemBlueprintToUtiGff } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-uti-writer";
 import { parseAuroraItpPalette } from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-itp-palette-parser";
 import type {
   PlaceableRenderPackage,
@@ -63,6 +70,167 @@ const RETAIL_ITEMPALSTD_ITP_PATH =
   "C:/Projects/New Folder/item-retail-extract/itp/itempalstd.itp";
 
 describe("CatalogApplicationService", () => {
+  it("publishes a versioned cache hydration contract when viewport VFX frames are deferred", () => {
+    const renderPackage = {
+      status: "ready",
+      diagnostics: [],
+      assetRefs: {},
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        contracts: {
+          runtimeEmitters: [
+            { emitterNodeName: "fire", runtimeFrames: [{ timeSeconds: 0 }] },
+            { emitterNodeName: "smoke", runtimeFrames: [{ timeSeconds: 0 }] }
+          ],
+          renderContract: { emitterNodeName: "fire" }
+        }
+      }
+    } as PlaceableRenderPackage;
+
+    const compact = compactPlaceableRenderPackageForViewportBatch(
+      renderPackage,
+      "cache_shared"
+    );
+    const contracts = (
+      compact?.auroraVfxPayload as {
+        contracts: Record<string, unknown>;
+      }
+    ).contracts;
+
+    expect(contracts.runtimeEmitters).toEqual([]);
+    expect(contracts.runtimeEmittersDeferred).toBe(true);
+    expect(contracts.runtimeEmittersHydration).toEqual({
+      version: "aurora-vfx-runtime-emitter-hydration/v1",
+      status: "deferred",
+      source: "placeable-processing-cache",
+      cacheKey: "cache_shared",
+      expectedEmitterCount: 2,
+      hydrationPath: "/api/v1/catalog/placeables/cache/cache_shared"
+    });
+    expect(
+      (
+        (renderPackage.auroraVfxPayload as { contracts: { runtimeEmitters: unknown[] } })
+          .contracts.runtimeEmitters
+      )
+    ).toHaveLength(2);
+  });
+
+  it("compacts only cached VFX simulation frames while preserving delivery metadata", () => {
+    const value = {
+      templateId: "plc_large_vfx",
+      resref: "plc_large_vfx",
+      name: "Large VFX",
+      category: "placeables",
+      placeableSubtype: "vfx",
+      render: {
+        backendType: "vfx",
+        frontendType: "placeable",
+        rendererPreset: "vfx-emitter",
+        isDoor: false,
+        isVfx: true
+      },
+      benchmarkCandidate: false,
+      metadata: {},
+      assetManifest: buildEmptyManifest(),
+      renderPackage: {
+        status: "ready",
+        diagnostics: [],
+        assetRefs: {},
+        auroraVfxPayload: {
+          version: "aurora-vfx-payload/v1",
+          contracts: {
+            runtimeEmitters: [
+              { emitterNodeName: "fire", runtimeFrames: [{ timeSeconds: 0 }] }
+            ]
+          }
+        }
+      },
+      classification: {
+        source: "template",
+        normalizedSubtype: "vfx",
+        mismatchWithTemplate: false
+      },
+      processedAt: "2026-08-18T19:00:00.000Z"
+    } as unknown as PlaceableProcessingResult;
+
+    const compact = compactPlaceableProcessingResultForCacheAdmission(
+      value,
+      "cache_large_vfx"
+    );
+
+    expect(compact).not.toBe(value);
+    expect(compact.assetManifest).toBe(value.assetManifest);
+    expect(compact.renderPackage?.assetRefs).toBe(value.renderPackage?.assetRefs);
+    expect(
+      (compact.renderPackage?.auroraVfxPayload as {
+        contracts: { runtimeEmitters: unknown[]; runtimeEmittersDeferred: boolean };
+      }).contracts
+    ).toMatchObject({ runtimeEmitters: [], runtimeEmittersDeferred: true });
+    expect(
+      (value.renderPackage?.auroraVfxPayload as {
+        contracts: { runtimeEmitters: unknown[] };
+      }).contracts.runtimeEmitters
+    ).toHaveLength(1);
+  });
+
+  it("preserves the exact cache value when there are no VFX frames to compact", () => {
+    const value = {
+      templateId: "plc_non_vfx_cache_value",
+      renderPackage: {
+        status: "ready",
+        diagnostics: [],
+        assetRefs: {}
+      }
+    } as unknown as PlaceableProcessingResult;
+
+    expect(
+      compactPlaceableProcessingResultForCacheAdmission(
+        value,
+        "cache_non_vfx"
+      )
+    ).toBe(value);
+  });
+
+  it("excludes animation-only duplicate emitter shells from canonical runtime packaging", () => {
+    const emitters = [
+      {
+        source: "aurora-mdl-binary",
+        sourceModelFileName: "plc_i06.mdl",
+        sourceModelObjectKey: "runtime-source/vanilla/nwn_base.key/plc_i06.mdl",
+        nodeName: "OmenEmitter250",
+        texture: "fxpa_flame00",
+        emitterType: "Fountain"
+      },
+      {
+        source: "aurora-mdl-binary",
+        sourceModelFileName: "plc_i06.mdl",
+        sourceModelObjectKey: "runtime-source/vanilla/nwn_base.key/plc_i06.mdl",
+        nodeName: "fire!52",
+        texture: "fxpa_smoke01",
+        emitterType: "Fountain"
+      },
+      {
+        source: "aurora-mdl-binary",
+        sourceModelFileName: "plc_i06.mdl",
+        sourceModelObjectKey: "runtime-source/vanilla/nwn_base.key/plc_i06.mdl",
+        nodeName: "OmenEmitter250",
+        simulation: { birthrate: 6 }
+      },
+      {
+        source: "aurora-mdl-binary",
+        sourceModelFileName: "plc_i06.mdl",
+        sourceModelObjectKey: "runtime-source/vanilla/nwn_base.key/plc_i06.mdl",
+        nodeName: "fire!52",
+        simulation: { birthrate: 20 }
+      }
+    ] as NonNullable<PlaceableRenderPackage["auroraEmitter"]>["emitters"];
+
+    expect(selectCanonicalRuntimeSourceEmitters(emitters)).toEqual([
+      emitters[0],
+      emitters[1]
+    ]);
+  });
+
   let repository: jest.Mocked<TemplateCatalogRepositoryPort>;
   let placeableCache: jest.Mocked<PlaceableProcessingCachePort>;
   let service: CatalogApplicationService;
@@ -77,7 +245,559 @@ describe("CatalogApplicationService", () => {
       get: jest.fn(),
       set: jest.fn()
     };
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-08-18T19:00:00.000Z",
+      hits: 0,
+      retained: true
+    }));
     service = new CatalogApplicationService(repository, placeableCache);
+  });
+
+  it("returns a physical Appearance page only for the requested current table digest", async () => {
+    const descriptor = {
+      resourceName: "placeables.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/placeables.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "a".repeat(64),
+      sizeBytes: 3019695,
+      rowCount: 16500,
+    };
+    repository.listEffectivePlaceablesTwoDaRows = jest.fn().mockResolvedValue({
+      descriptor,
+      items: [{ rowIndex: 104, displayName: "Water Trough", displaySource: "strref", strRef: 5747, label: "WaterTrough" }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listPlaceableAppearanceRows({
+      tableSha256: descriptor.sha256,
+      query: "water",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "placeables.2da",
+      sha256: descriptor.sha256,
+      rowCount: 16500,
+      items: [{ rowIndex: 104, displayName: "Water Trough", displaySource: "strref", strRef: 5747, label: "WaterTrough" }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listPlaceableAppearanceRows({
+      tableSha256: "b".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "PLACEABLE_APPEARANCE_TABLE_STALE" });
+  });
+
+  it("fails closed when the effective Appearance table is unavailable", async () => {
+    repository.listEffectivePlaceablesTwoDaRows = jest.fn().mockResolvedValue(null);
+    await expect(service.listPlaceableAppearanceRows({
+      tableSha256: "a".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "PLACEABLE_APPEARANCE_TABLE_NOT_FOUND" });
+  });
+
+  it("returns digest-bound physical Waypoint Appearance rows", async () => {
+    const descriptor = {
+      resourceName: "waypoint.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/waypoint.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "f".repeat(64),
+      sizeBytes: 272,
+      rowCount: 5,
+    };
+    repository.listEffectiveWaypointTwoDaRows = jest.fn().mockResolvedValue({
+      descriptor,
+      items: [{
+        rowIndex: 1,
+        label: "blue",
+        modelResRef: "gi_waypoint01",
+        strRef: 67281,
+        displayName: "Blue marker",
+        displaySource: "strref",
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listWaypointAppearanceRows({
+      tableSha256: descriptor.sha256,
+      query: "blue",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "waypoint.2da",
+      sha256: descriptor.sha256,
+      rowCount: 5,
+      items: [{
+        rowIndex: 1,
+        label: "blue",
+        modelResRef: "gi_waypoint01",
+        strRef: 67281,
+        displayName: "Blue marker",
+        displaySource: "strref",
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listWaypointAppearanceRows({
+      tableSha256: "e".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "WAYPOINT_APPEARANCE_TABLE_STALE" });
+  });
+
+  it("fails closed when the effective Waypoint Appearance table is unavailable", async () => {
+    repository.listEffectiveWaypointTwoDaRows = jest.fn().mockResolvedValue(null);
+    await expect(service.listWaypointAppearanceRows({
+      tableSha256: "f".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "WAYPOINT_APPEARANCE_TABLE_NOT_FOUND" });
+  });
+
+  it("returns only Toolset-admitted Creature Appearance rows for the current digest", async () => {
+    const descriptor = {
+      resourceName: "appearance.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/appearance.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "c".repeat(64),
+      sizeBytes: 200_000,
+      rowCount: 1_000,
+    };
+    repository.listEffectiveCreatureAppearanceTwoDaRows = jest.fn().mockResolvedValue({
+      descriptor,
+      items: [{
+        rowIndex: 249,
+        displayName: "Dwarf, Male",
+        displaySource: "strref",
+        strRef: 1234,
+        label: "DwarfMale",
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listCreatureAppearanceRows({
+      tableSha256: descriptor.sha256,
+      query: "dwarf",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "appearance.2da",
+      sha256: descriptor.sha256,
+      rowCount: 1_000,
+      items: [{
+        rowIndex: 249,
+        displayName: "Dwarf, Male",
+        displaySource: "strref",
+        strRef: 1234,
+        label: "DwarfMale",
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+
+    await expect(service.listCreatureAppearanceRows({
+      tableSha256: "d".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({
+      code: "CREATURE_APPEARANCE_TABLE_STALE",
+      details: [],
+    });
+  });
+
+  it("fails closed when the effective Creature Appearance table is unavailable", async () => {
+    repository.listEffectiveCreatureAppearanceTwoDaRows = jest.fn().mockResolvedValue(null);
+    await expect(service.listCreatureAppearanceRows({
+      tableSha256: "a".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_APPEARANCE_TABLE_NOT_FOUND" });
+  });
+
+  it("returns digest-bound Toolset-admitted Creature Gender rows and exact lookup", async () => {
+    const descriptor = {
+      resourceName: "gender.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/gender.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "e".repeat(64),
+      sizeBytes: 250,
+      rowCount: 5,
+    };
+    const row = {
+      rowIndex: 3,
+      displayName: "Other",
+      displaySource: "strref" as const,
+      nameStrRef: 201,
+      genderToken: "O",
+      constant: "GENDER_OTHER",
+    };
+    repository.listEffectiveCreatureGenderTwoDaRows = jest.fn().mockResolvedValue({
+      descriptor,
+      items: [row],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    repository.resolveEffectiveCreatureGenderTwoDaRow = jest.fn().mockResolvedValue({
+      descriptor,
+      row,
+    });
+
+    await expect(service.listCreatureGenderRows({
+      tableSha256: descriptor.sha256,
+      query: "other",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "gender.2da",
+      sha256: descriptor.sha256,
+      rowCount: 5,
+      items: [row],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(service.listCreatureGenderRows({
+      tableSha256: descriptor.sha256,
+      rowIndex: 3,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [row], total: 1 });
+    await expect(service.listCreatureGenderRows({
+      tableSha256: "f".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_GENDER_TABLE_STALE" });
+  });
+
+  it("returns member-specific digest-bound Creature appendage rows", async () => {
+    const descriptor = {
+      resourceName: "wingmodel.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/wingmodel.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "9".repeat(64),
+      sizeBytes: 500,
+      rowCount: 8,
+    };
+    const row = { rowIndex: 3, displayName: "Angel" };
+    repository.listEffectiveCreatureAppendageTwoDaRows = jest.fn().mockResolvedValue({
+      descriptor,
+      items: [row],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    repository.resolveEffectiveCreatureAppendageTwoDaRow = jest.fn().mockResolvedValue({
+      descriptor,
+      row,
+    });
+
+    await expect(service.listCreatureAppendageRows({
+      kind: "wings",
+      tableSha256: descriptor.sha256,
+      query: "angel",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "wingmodel.2da",
+      sha256: descriptor.sha256,
+      rowCount: 8,
+      items: [row],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    expect(repository.listEffectiveCreatureAppendageTwoDaRows).toHaveBeenCalledWith(
+      "wingmodel.2da",
+      { query: "angel", limit: 100, offset: 0 },
+    );
+    await expect(service.listCreatureAppendageRows({
+      kind: "tail",
+      tableSha256: descriptor.sha256,
+      rowIndex: 3,
+      limit: 1,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_APPENDAGE_TABLE_MISMATCH" });
+    await expect(service.listCreatureAppendageRows({
+      kind: "wings",
+      tableSha256: "8".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_APPENDAGE_TABLE_STALE" });
+  });
+
+  it("returns only digest-bound native Toolset PerceptionRange rows", async () => {
+    const descriptor = {
+      resourceName: "ranges.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/ranges.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "e".repeat(64),
+      sizeBytes: 1220,
+      rowCount: 12,
+    };
+    const rows = [
+      { rowIndex: 8 as const, displayName: "Short", displaySource: "strref" as const, nameStrRef: 6668 },
+      { rowIndex: 9 as const, displayName: "Medium", displaySource: "strref" as const, nameStrRef: 6669 },
+      { rowIndex: 10 as const, displayName: "Long", displaySource: "strref" as const, nameStrRef: 6670 },
+      { rowIndex: 11 as const, displayName: "Default", displaySource: "strref" as const, nameStrRef: 6671 },
+    ];
+    repository.resolveEffectiveCreaturePerceptionRangesTwoDaTable =
+      jest.fn().mockResolvedValue({ descriptor, rows });
+
+    await expect(service.listCreaturePerceptionRangeRows({
+      tableSha256: descriptor.sha256,
+      query: "medium",
+      limit: 16,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "ranges.2da",
+      sha256: descriptor.sha256,
+      rowCount: 12,
+      items: [rows[1]],
+      total: 1,
+      limit: 16,
+      offset: 0,
+    });
+    await expect(service.listCreaturePerceptionRangeRows({
+      tableSha256: descriptor.sha256,
+      rowIndex: 11,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [rows[3]], total: 1 });
+    await expect(service.listCreaturePerceptionRangeRows({
+      tableSha256: "f".repeat(64),
+      limit: 16,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_PERCEPTION_RANGE_TABLE_STALE" });
+  });
+
+  it("returns only digest-bound positive Toolset WalkRate rows", async () => {
+    const descriptor = {
+      resourceName: "creaturespeed.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/creaturespeed.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "d".repeat(64),
+      sizeBytes: 4_096,
+      rowCount: 9,
+    };
+    const rows = [
+      {
+        rowIndex: 1,
+        displayName: "Immobile",
+        displaySource: "strref" as const,
+        nameStrRef: 1001,
+        twoDaName: "IMMOBILE",
+      },
+      {
+        rowIndex: 4,
+        displayName: "Normal",
+        displaySource: "strref" as const,
+        nameStrRef: 1004,
+        twoDaName: "NORM",
+      },
+    ];
+    repository.resolveEffectiveCreatureWalkRatesTwoDaTable =
+      jest.fn().mockResolvedValue({ descriptor, rows });
+
+    await expect(service.listCreatureWalkRateRows({
+      tableSha256: descriptor.sha256,
+      query: "normal",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "creaturespeed.2da",
+      sha256: descriptor.sha256,
+      rowCount: 9,
+      items: [rows[1]],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(service.listCreatureWalkRateRows({
+      tableSha256: descriptor.sha256,
+      rowIndex: 4,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [rows[1]], total: 1 });
+    await expect(service.listCreatureWalkRateRows({
+      tableSha256: "f".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_WALK_RATE_TABLE_STALE" });
+  });
+
+  it("returns only digest-bound sparse Toolset SoundSetFile rows", async () => {
+    const descriptor = {
+      resourceName: "soundset.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/soundset.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "a".repeat(64),
+      sizeBytes: 336_678,
+      rowCount: 5_100,
+    };
+    const rows = [
+      {
+        rowIndex: 0,
+        displayName: "Aasimar",
+        displaySource: "strref" as const,
+        nameStrRef: 8291,
+        resRef: "c_aasimar",
+      },
+      {
+        rowIndex: 27,
+        displayName: "Custom Dragon",
+        displaySource: "label" as const,
+        nameStrRef: null,
+        resRef: "c_dragon",
+      },
+    ];
+    repository.resolveEffectiveCreatureSoundSetsTwoDaTable =
+      jest.fn().mockResolvedValue({ descriptor, rows });
+
+    await expect(service.listCreatureSoundSetRows({
+      tableSha256: descriptor.sha256,
+      query: "dragon",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "soundset.2da",
+      sha256: descriptor.sha256,
+      rowCount: 5_100,
+      items: [rows[1]],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(service.listCreatureSoundSetRows({
+      tableSha256: descriptor.sha256,
+      rowIndex: 0,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [rows[0]], total: 1 });
+    await expect(service.listCreatureSoundSetRows({
+      tableSha256: descriptor.sha256,
+      query: "c_aasimar",
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [rows[0]], total: 1 });
+    await expect(service.listCreatureSoundSetRows({
+      tableSha256: "f".repeat(64),
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_SOUND_SET_TABLE_STALE" });
+  });
+
+  it("returns only digest- and ClassList-bound sparse StartingPackage rows", async () => {
+    const descriptor = {
+      resourceName: "packages.2da" as const,
+      sourceObjectKey: "runtime-source/module/packages.2da",
+      sourceLayer: "module" as const,
+      sha256: "b".repeat(64),
+      sizeBytes: 200,
+      rowCount: 5,
+    };
+    const rows = [
+      { rowIndex: 0, classId: 4, displayName: "Fighter", displaySource: "strref" as const, nameStrRef: 100 },
+      { rowIndex: 1, classId: 2, displayName: "Cleric", displaySource: "strref" as const, nameStrRef: 101 },
+      { rowIndex: 4, classId: 4, displayName: "Fighter Commander", displaySource: "label" as const, nameStrRef: null },
+    ];
+    repository.resolveEffectiveCreatureStartingPackagesTwoDaTable =
+      jest.fn().mockResolvedValue({ descriptor, rows });
+
+    await expect(service.listCreatureStartingPackageRows({
+      tableSha256: descriptor.sha256,
+      classIds: [4],
+      query: "commander",
+      limit: 100,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "packages.2da",
+      sha256: descriptor.sha256,
+      rowCount: 5,
+      classIds: [4],
+      items: [rows[2]],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    await expect(service.listCreatureStartingPackageRows({
+      tableSha256: descriptor.sha256,
+      classIds: [4],
+      rowIndex: 0,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [rows[0]], total: 1 });
+    await expect(service.listCreatureStartingPackageRows({
+      tableSha256: descriptor.sha256,
+      classIds: [2],
+      rowIndex: 0,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({ items: [], total: 0 });
+    await expect(service.listCreatureStartingPackageRows({
+      tableSha256: "f".repeat(64),
+      classIds: [4],
+      limit: 100,
+      offset: 0,
+    })).rejects.toMatchObject({ code: "CREATURE_STARTING_PACKAGE_TABLE_STALE" });
+  });
+
+  it("resolves one exact Toolset-admitted Creature Appearance row for the current digest", async () => {
+    const descriptor = {
+      resourceName: "appearance.2da" as const,
+      sourceObjectKey: "runtime-source/vanilla/nwn_base.key/appearance.2da",
+      sourceLayer: "vanilla" as const,
+      sha256: "c".repeat(64),
+      sizeBytes: 200_000,
+      rowCount: 1_000,
+    };
+    repository.resolveEffectiveCreatureAppearanceTwoDaRow = jest.fn().mockResolvedValue({
+      descriptor,
+      row: {
+        rowIndex: 249,
+        displayName: "Dwarf, Male",
+        displaySource: "strref",
+        strRef: 1234,
+        label: "DwarfMale",
+      },
+    });
+    repository.listEffectiveCreatureAppearanceTwoDaRows = jest.fn();
+
+    await expect(service.listCreatureAppearanceRows({
+      tableSha256: descriptor.sha256,
+      rowIndex: 249,
+      limit: 1,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "appearance.2da",
+      sha256: descriptor.sha256,
+      rowCount: 1_000,
+      items: [{
+        rowIndex: 249,
+        displayName: "Dwarf, Male",
+        displaySource: "strref",
+        strRef: 1234,
+        label: "DwarfMale",
+      }],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    });
+    expect(repository.listEffectiveCreatureAppearanceTwoDaRows).not.toHaveBeenCalled();
   });
 
   it("resolves item palette folder labels through the base TLK", async () => {
@@ -376,11 +1096,11 @@ describe("CatalogApplicationService", () => {
           chanceAppear: 100
         }
       ],
-      scripts: {
-        onused: "test_use",
-        onheartbeat: "test_hb",
-        oninventorydisturbed: "test_inv"
-      },
+      variableListEntries: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: Math.fround(1.25) },
+        { name: "duplicate", type: "string", value: " exact value " }
+      ],
       overwrite: false
     });
 
@@ -413,11 +1133,18 @@ describe("CatalogApplicationService", () => {
       modelPart3: 63,
       stackSize: 1,
       metal1Color: 8,
-      scripts: {
-        onused: "test_use",
-        onheartbeat: "test_hb",
-        oninvdisturbed: "test_inv"
-      }
+      itemPropertyListEntries: [{
+        propertyName: 15,
+        subtype: 66,
+        costTable: 3,
+        costValue: 1,
+        chanceAppear: 100
+      }],
+      variableListEntries: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: 1.25 },
+        { name: "duplicate", type: "string", value: " exact value " }
+      ]
     });
     expect(updated).toMatchObject({
       blueprint: {
@@ -437,9 +1164,13 @@ describe("CatalogApplicationService", () => {
           itemArmorPreviewGender: 1,
           itemArmorPreviewPhenotype: 2,
           itemArmorPreviewRaceModel: "human",
-          "script.onused": "test_use",
-          "script.onheartbeat": "test_hb",
-          "script.oninvdisturbed": "test_inv"
+          itemPropertyListEntries: expect.any(String),
+          variableListCount: 3,
+          variableListEntries: JSON.stringify([
+            { name: " duplicate ", type: "int", value: -7 },
+            { name: "duplicate", type: "float", value: 1.25 },
+            { name: "duplicate", type: "string", value: " exact value " }
+          ])
         }),
         itemRuntime: expect.objectContaining({
           visual: expect.objectContaining({
@@ -467,6 +1198,239 @@ describe("CatalogApplicationService", () => {
       objectKey: "modules/current/test_item.uti",
       deleted: true
     });
+  });
+
+  it("creates an Item UTI only from exact effective nested inventory references", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn(),
+    };
+    const moduleBlobStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn().mockResolvedValue({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "hash-item-nested-authoring",
+        totalFiles: 0,
+        totalBytes: 0,
+        objects: [],
+        truncated: false,
+      }),
+      getModuleObject: jest.fn().mockResolvedValue(null),
+      putModuleObject: jest.fn(async (settings, file) => ({
+        key: `${settings.modulePrefix}/${file.fileName}`,
+        size: file.bytes.length,
+        etag: `etag-${file.fileName}`,
+      })),
+      deleteModuleObject: jest.fn(),
+    };
+    const dependencyResRefs = ["itm_potion", "itm_scroll", "itm_ring"];
+    const dependencies = new Map(dependencyResRefs.map((resref) => {
+      const bytes = serializeItemBlueprintToUtiGff({
+        templateResRef: resref,
+        localizedName: resref,
+        tag: resref.toUpperCase(),
+        baseItem: 0,
+      });
+      return [resref, {
+        bytes,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        sourceObjectKey: `runtime-source/vanilla/${resref}.uti`,
+      }] as const;
+    }));
+    repository.findByKindAndResref.mockImplementation(async (kind, resref) => {
+      const dependency = dependencies.get(resref);
+      return kind === "item" && dependency
+        ? {
+            templateId: `itm_${resref}`,
+            kind: "item",
+            resref,
+            name: resref,
+            category: "items",
+            tags: [],
+            previewImageUrl: "",
+            metadata: {
+              sourceObjectKey: dependency.sourceObjectKey,
+              sourceSha256: dependency.sha256,
+              sourceSizeBytes: dependency.bytes.length,
+              sourceExtension: "uti",
+              sourceFileType: "UTI ",
+              sourceFileVersion: "V3.2",
+              sourceStructTypeId: 0xffffffff,
+            },
+          }
+        : null;
+    });
+    repository.resolveEffectiveTemplateBlueprint = jest.fn(async (request) => {
+      const dependency = dependencies.get(request.templateId.replace(/^itm_/u, ""));
+      return dependency
+        ? {
+            kind: "item",
+            templateId: request.templateId,
+            resref: request.templateId.replace(/^itm_/u, ""),
+            sourceObjectKey: dependency.sourceObjectKey,
+            sha256: dependency.sha256,
+            bytes: Buffer.from(dependency.bytes),
+          }
+        : null;
+    });
+    const serviceWithStorage = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+    );
+
+    const result = await serviceWithStorage.createItemBlueprint({
+      templateResRef: "nested_bag",
+      name: "Nested Bag",
+      baseItem: 16,
+      inventoryItemListEntries: [
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 },
+      ],
+      equipItemListEntries: [{ resRef: "itm_ring", slotMask: 4 }],
+      overwrite: false,
+    });
+
+    expect(repository.findByKindAndResref).toHaveBeenCalledTimes(3);
+    expect(repository.resolveEffectiveTemplateBlueprint).toHaveBeenCalledTimes(3);
+    const written = (moduleBlobStorage.putModuleObject as jest.Mock).mock.calls[0]?.[1]
+      .bytes as Buffer;
+    expect(parseTemplateBlueprintFromGff(written)).toMatchObject({
+      inventoryItemListEntries: [
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 },
+      ],
+      equipItemListEntries: [{ resRef: "itm_ring", slotMask: 4 }],
+    });
+    expect(result.item.metadata).toEqual(expect.objectContaining({
+      sourceSha256: createHash("sha256").update(written).digest("hex"),
+      inventoryItemListCount: 2,
+      equipItemListCount: 1,
+      inventoryItemListEntries: JSON.stringify([
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 },
+      ]),
+      equipItemListEntries: JSON.stringify([{ resRef: "itm_ring", slotMask: 4 }]),
+    }));
+  });
+
+  it("fails closed before publishing missing or cyclic nested Item UTI references", async () => {
+    const runtimeSettings = buildRuntimeSettingsRecord();
+    const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
+      get: jest.fn().mockResolvedValue(runtimeSettings),
+      save: jest.fn(),
+    };
+    const missingStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue(null),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn(),
+    };
+    repository.findByKindAndResref.mockResolvedValue(null);
+    repository.resolveEffectiveTemplateBlueprint = jest.fn();
+    const missingService = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      missingStorage,
+    );
+
+    await expect(missingService.createItemBlueprint({
+      templateResRef: "missing_bag",
+      name: "Missing Bag",
+      baseItem: 16,
+      inventoryItemListEntries: [{ resRef: "itm_missing", x: 0, y: 0 }],
+      overwrite: false,
+    })).rejects.toMatchObject({
+      code: "ITEM_BLUEPRINT_REFERENCE_INVALID",
+      details: [{ path: "inventoryItemListEntries.0.resRef" }],
+    });
+    expect(missingStorage.putModuleObject).not.toHaveBeenCalled();
+    expect(repository.resolveEffectiveTemplateBlueprint).not.toHaveBeenCalled();
+
+    const childBytes = serializeItemBlueprintToUtiGff({
+      templateResRef: "itm_child",
+      localizedName: "Child",
+      tag: "ITM_CHILD",
+      baseItem: 0,
+    });
+    const childSha256 = createHash("sha256").update(childBytes).digest("hex");
+    const rootBytes = serializeItemBlueprintToUtiGff({
+      templateResRef: "cycle_bag",
+      localizedName: "Cycle Bag",
+      tag: "CYCLE_BAG",
+      baseItem: 16,
+    });
+    const rootSha256 = createHash("sha256").update(rootBytes).digest("hex");
+    repository.findByKindAndResref.mockResolvedValue({
+      templateId: "itm_itm_child",
+      kind: "item",
+      resref: "itm_child",
+      name: "Child",
+      category: "items",
+      tags: [],
+      previewImageUrl: "",
+      metadata: {
+        sourceObjectKey: "runtime-source/vanilla/itm_child.uti",
+        sourceSha256: childSha256,
+        sourceSizeBytes: childBytes.length,
+        sourceExtension: "uti",
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+    repository.resolveEffectiveTemplateBlueprint = jest.fn().mockResolvedValue({
+      kind: "item",
+      templateId: "itm_itm_child",
+      resref: "itm_child",
+      sourceObjectKey: "runtime-source/vanilla/itm_child.uti",
+      sha256: childSha256,
+      bytes: childBytes,
+      dependencies: [{
+        templateResRef: "cycle_bag",
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
+        sha256: rootSha256,
+        bytes: rootBytes,
+      }],
+    });
+    const cyclicStorage: jest.Mocked<ModuleBlobStoragePort> = {
+      replaceModuleSnapshot: jest.fn(),
+      listModuleSnapshot: jest.fn(),
+      getModuleObject: jest.fn().mockResolvedValue({
+        key: "modules/current/cycle_bag.uti",
+        size: rootBytes.length,
+        contentType: "application/octet-stream",
+        bytes: rootBytes,
+      }),
+      putModuleObject: jest.fn(),
+      deleteModuleObject: jest.fn(),
+    };
+    const cyclicService = new CatalogApplicationService(
+      repository,
+      placeableCache,
+      undefined,
+      runtimeSettingsRepository,
+      cyclicStorage,
+    );
+
+    await expect(cyclicService.updateItemBlueprint("cycle_bag", {
+      templateResRef: "ignored_by_update",
+      name: "Cycle Bag",
+      baseItem: 16,
+      inventoryItemListEntries: [{ resRef: "itm_child", x: 0, y: 0 }],
+      overwrite: true,
+    })).rejects.toMatchObject({
+      code: "ITEM_BLUEPRINT_REFERENCE_CYCLE",
+      details: [{ path: "inventoryItemListEntries.0.resRef" }],
+    });
+    expect(cyclicStorage.putModuleObject).not.toHaveBeenCalled();
   });
 
   it("updates and deletes module-backed creature UTC blueprints", async () => {
@@ -961,6 +1925,13 @@ describe("CatalogApplicationService", () => {
         kind: "store",
         resref: "test_store",
         metadata: {
+          sourceObjectKey: "modules/current/test_store.utm",
+          sourceSizeBytes: (written as Buffer).length,
+          sourceSha256: createHash("sha256").update(written as Buffer).digest("hex"),
+          sourceExtension: "utm",
+          sourceFileType: "UTM ",
+          sourceFileVersion: "V3.2",
+          sourceStructTypeId: 0xffffffff,
           sourceGeneratedBy: "aurora-web-store-wizard",
           storeListCount: 5,
           storeItemListTotal: 2,
@@ -4553,7 +5524,7 @@ describe("CatalogApplicationService", () => {
     );
   });
 
-  it("extracts Aurora MTR material blending/decal source state", async () => {
+  it("extracts Aurora MTR state and its reachable custom-shader source graph", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
       get: jest.fn(),
       save: jest.fn()
@@ -4573,9 +5544,17 @@ describe("CatalogApplicationService", () => {
             "decal 0",
             "transparency 0",
             "twosided 0",
+            "sample_framebuffer 2",
+            "volumetric 1",
             "renderhint NormalTangents",
+            "customShaderVS fx_add_vs",
+            "customShaderFS fx_add_fs",
             "texture0 fx_add_d",
-            "texture1 fx_add_n"
+            "texture1 fx_add_n",
+            "bumpmaptexture fx_add_bump",
+            "bumpyshinytexture fx_add_shiny",
+            "envmaptexture fx_add_env",
+            "bumpreplacementtexture fx_add_replacement"
           ].join("\n")
         ],
         [
@@ -4590,12 +5569,27 @@ describe("CatalogApplicationService", () => {
             "texture0 fx_punch_d",
             "texture2 fx_punch_s",
             "parameter float Roughness 0.62",
-            "parameter float Specularity 0.45"
+            "parameter float Specularity 0.45",
+            "parameter float Metallicness 0.001",
+            "parameter float CustomTint 1 0.5 0.25 1",
+            "parameter int CustomMode 2"
           ].join("\n")
         ],
         [
           "modules/current/materials/fx_unknown.mtr",
           ["blending alpha", "decal maybe"].join("\n")
+        ],
+        [
+          "modules/current/shaders/fx_add_vs.shd",
+          ['#include "inc_common"', "void main() {}"].join("\n")
+        ],
+        [
+          "modules/current/shaders/fx_add_fs.shd",
+          ['#include "inc_common.shd"', "void main() {}"].join("\n")
+        ],
+        [
+          "modules/current/shaders/inc_common.shd",
+          "uniform mat4 m_mvp;"
         ]
       ]);
       const source = sourceByKey.get(key);
@@ -4637,6 +5631,27 @@ describe("CatalogApplicationService", () => {
         fileName: "fx_unknown.mtr",
         objectKey: "modules/current/materials/fx_unknown.mtr",
         extension: "mtr"
+      },
+      {
+        assetId: "asset_shader_vs",
+        role: "material",
+        fileName: "fx_add_vs.shd",
+        objectKey: "modules/current/shaders/fx_add_vs.shd",
+        extension: "shd"
+      },
+      {
+        assetId: "asset_shader_fs",
+        role: "material",
+        fileName: "fx_add_fs.shd",
+        objectKey: "modules/current/shaders/fx_add_fs.shd",
+        extension: "shd"
+      },
+      {
+        assetId: "asset_shader_include",
+        role: "material",
+        fileName: "inc_common.shd",
+        objectKey: "modules/current/shaders/inc_common.shd",
+        extension: "shd"
       }
     ];
 
@@ -4669,7 +5684,47 @@ describe("CatalogApplicationService", () => {
             decal: false,
             transparency: false,
             twoSided: false,
+            sampleFramebuffer: 2,
+            volumetric: true,
             renderHint: "NormalTangents",
+            customShaderVS: "fx_add_vs",
+            customShaderFS: "fx_add_fs",
+            customShaderProgram: {
+              version: "aurora-shader-program-source/v1",
+              status: "complete",
+              stageRoots: {
+                vertex: "fx_add_vs",
+                fragment: "fx_add_fs"
+              },
+              sources: [
+                {
+                  resref: "fx_add_fs",
+                  source: ['#include "inc_common.shd"', "void main() {}"].join("\n"),
+                  includeRefs: ["inc_common"],
+                  sourceAssetId: "asset_shader_fs",
+                  sourceObjectKey: "modules/current/shaders/fx_add_fs.shd"
+                },
+                {
+                  resref: "fx_add_vs",
+                  source: ['#include "inc_common"', "void main() {}"].join("\n"),
+                  includeRefs: ["inc_common"],
+                  sourceAssetId: "asset_shader_vs",
+                  sourceObjectKey: "modules/current/shaders/fx_add_vs.shd"
+                },
+                {
+                  resref: "inc_common",
+                  source: "uniform mat4 m_mvp;",
+                  includeRefs: [],
+                  sourceAssetId: "asset_shader_include",
+                  sourceObjectKey: "modules/current/shaders/inc_common.shd"
+                }
+              ],
+              unresolvedRefs: []
+            },
+            bumpmaptexture: "fx_add_bump",
+            bumpyshinytexture: "fx_add_shiny",
+            envmaptexture: "fx_add_env",
+            bumpreplacementtexture: "fx_add_replacement",
             textureSlots: [
               {
                 slot: 0,
@@ -4699,6 +5754,18 @@ describe("CatalogApplicationService", () => {
             renderHint: "NormalAndSpecMapped",
             roughness: 0.62,
             specularity: 0.45,
+            parameters: [
+              { name: "Roughness", kind: "float", values: [0.62], arity: 1 },
+              { name: "Specularity", kind: "float", values: [0.45], arity: 1 },
+              { name: "Metallicness", kind: "float", values: [0.001], arity: 1 },
+              {
+                name: "CustomTint",
+                kind: "float",
+                values: [1, 0.5, 0.25, 1],
+                arity: 4
+              },
+              { name: "CustomMode", kind: "int", values: [2], arity: 1 }
+            ],
             textureSlots: [
               {
                 slot: 0,
@@ -4714,7 +5781,14 @@ describe("CatalogApplicationService", () => {
           }
         }
       ],
-      diagnostics: []
+      diagnostics: [
+        {
+          code: "VFX_AURORA_MTR_CUSTOM_SHADER_SOURCE_GRAPH_READY",
+          severity: "warn",
+          message:
+            "Material fx_add.mtr has a complete custom shader source/include graph; browser program binding and visual parity are still separate gates."
+        }
+      ]
     });
 
     const decorated = await (
@@ -5174,6 +6248,22 @@ describe("CatalogApplicationService", () => {
     });
   });
 
+  it("lists waypoints through repository", async () => {
+    repository.listByKind.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0
+    });
+
+    await service.listWaypoints({ limit: 20, offset: 0 });
+
+    expect(repository.listByKind).toHaveBeenCalledWith("waypoint", {
+      limit: 20,
+      offset: 0
+    });
+  });
+
   it("attaches source MDL emitter payloads to ordinary placeables without reclassifying them as VFX", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
       get: jest.fn(),
@@ -5215,12 +6305,25 @@ describe("CatalogApplicationService", () => {
         position: [0, 0, 1.5]
       }
     });
+    const materialBytes = Buffer.from(
+      [
+        "transparency 0",
+        "twosided 1",
+        "sample_framebuffer 2",
+        "volumetric 1",
+        "bumpmaptexture fxpa_flare_bump",
+        "bumpyshinytexture fxpa_flare_shiny",
+        "envmaptexture fxpa_flare_env",
+        "bumpreplacementtexture fxpa_flare_replacement",
+        "texture6 fxpa_flare_flow"
+      ].join("\n")
+    );
     moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
       bucket: "aurora-module-assets",
       prefix: "modules/current/",
       moduleHash: "hash-generic-emitter",
-      totalFiles: 2,
-      totalBytes: sourceModelBytes.length + 16,
+      totalFiles: 3,
+      totalBytes: sourceModelBytes.length + materialBytes.length + 16,
       objects: [
         {
           key: "modules/current/models/plc_magic_mouth.mdl",
@@ -5231,6 +6334,11 @@ describe("CatalogApplicationService", () => {
           key: "modules/current/textures/fxpa_flare.tga",
           size: 16,
           etag: "source-texture"
+        },
+        {
+          key: "modules/current/materials/fxpa_flare.mtr",
+          size: materialBytes.length,
+          etag: "source-material"
         }
       ],
       truncated: false,
@@ -5243,6 +6351,14 @@ describe("CatalogApplicationService", () => {
           size: sourceModelBytes.length,
           contentType: "application/octet-stream",
           bytes: sourceModelBytes
+        };
+      }
+      if (key === "modules/current/materials/fxpa_flare.mtr") {
+        return {
+          key,
+          size: materialBytes.length,
+          contentType: "text/plain",
+          bytes: materialBytes
         };
       }
       return null;
@@ -5264,6 +6380,54 @@ describe("CatalogApplicationService", () => {
       storedAt: "2026-05-24T10:10:00.000Z",
       hits: 0
     }));
+    const vfxService = {
+      processVfxPackage: jest.fn().mockResolvedValue({
+        cache: {
+          key: "vfx-cache",
+          hit: false,
+          storedAt: "2026-05-24T10:10:00.000Z",
+          hits: 0
+        },
+        vfx: {
+          version: "aurora-vfx-package/v1",
+          packageKind: "runtime_package",
+          sourcePolicyTrace: { diagnostics: [] },
+          sourceRows: [],
+          dependencyGraph: {
+            version: "aurora-vfx-dependency-graph/v1",
+            edges: [],
+            diagnostics: []
+          },
+          runtimeEmitters: [
+            {
+              emitterIndex: 0,
+              emitterNodeName: "glow",
+              runtimeState: { diagnostics: [], lastTickDiagnostics: [] },
+              runtimeSnapshot: {},
+              renderContract: {
+                version: "aurora-vfx-runtime-render-contract/v1",
+                diagnostics: [],
+                drawRecords: []
+              }
+            }
+          ],
+          renderContract: {
+            version: "aurora-vfx-runtime-render-contract/v1",
+            diagnostics: [],
+            drawRecords: []
+          },
+          diagnostics: [],
+          observability: {
+            sourceHash: "hash",
+            cacheHit: false,
+            diagnosticsCount: 0,
+            unresolvedDependencyCount: 0,
+            runtimePackageStatus: "runtime_ready",
+            renderContractStatus: "ready"
+          }
+        }
+      })
+    };
 
     const serviceWithBlob = new CatalogApplicationService(
       repository,
@@ -5271,7 +6435,8 @@ describe("CatalogApplicationService", () => {
       undefined,
       runtimeSettingsRepository,
       moduleBlobStorage,
-      derivedAssetGenerator
+      derivedAssetGenerator,
+      vfxService as never
     );
 
     const result = await serviceWithBlob.processPlaceable({
@@ -5311,9 +6476,84 @@ describe("CatalogApplicationService", () => {
         "PLACEABLE_RENDER_READY",
         "PLACEABLE_AURORA_MDL_EMITTER_PAYLOAD_READY",
         "VFX_AURORA_MDL_EMITTER_PAYLOAD_READY",
+        "VFX_AURORA_MDL_EMITTER_BACKEND_RUNTIME_PAYLOAD_READY",
         "VFX_AURORA_MDL_EMITTER_PREVIEW_NON_CANONICAL"
       ])
     );
+    expect(vfxService.processVfxPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageKind: "model_graph_runtime",
+        sourceProfile: "catalog-placeable-source-mdl",
+        runtime: {
+          dtSeconds: 0.125,
+          simulationStepSeconds: 1 / 60,
+          tickCount: 80,
+          executionParticleBudget: 4096,
+          seed: 211
+        },
+        sourceEmitters: [
+          expect.objectContaining({
+            nodeKind: "emitter",
+            nodeName: "emit_smoke",
+            texture: "fxpa_flare",
+            emitterType: "Fountain",
+            renderMode: "Normal",
+            blendMode: "Lighten"
+          })
+        ],
+        sourceEmitterMaterials: [
+          {
+            emitterIndex: 0,
+            emitterNodeName: "emit_smoke",
+            materialState: {
+              source: "aurora-mtr",
+              materialRef: "fxpa_flare.mtr",
+              transparency: false,
+              twoSided: true,
+              sampleFramebuffer: 2,
+              volumetric: true,
+              bumpmaptexture: "fxpa_flare_bump",
+              bumpyshinytexture: "fxpa_flare_shiny",
+              envmaptexture: "fxpa_flare_env",
+              bumpreplacementtexture: "fxpa_flare_replacement",
+              textureSlots: [
+                {
+                  slot: 6,
+                  role: "unknown",
+                  reference: "fxpa_flare_flow"
+                }
+              ]
+            }
+          }
+        ]
+      })
+    );
+    expect(result.placeable.renderPackage?.auroraVfxPayload).toMatchObject({
+      version: "aurora-vfx-payload/v1",
+      canonicalStatus: "canonical",
+      backendCanonical: true,
+      rendererEligibility: "source_backed",
+      retailParityStatus: "blocked",
+      sourceKind: "source_mdl_graph",
+      previewMode: "none",
+      contracts: {
+        runtimeReplayCommand: expect.objectContaining({
+          packageKind: "model_graph_runtime",
+          sourceProfile: "catalog-placeable-source-mdl",
+          sourceEmitters: [expect.objectContaining({ nodeName: "emit_smoke" })],
+          runtime: {
+            dtSeconds: 0.125,
+            simulationStepSeconds: 1 / 60,
+            tickCount: 80,
+            executionParticleBudget: 4096,
+            seed: 211
+          },
+          bypassCache: true
+        })
+      },
+      localOnlyNotRetailEvidence: true,
+      canonicalParityPromoted: false
+    });
     expect(result.placeable.renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "VFX_AURORA_MDL_EMITTER_PAYLOAD_MISSING"
     );
@@ -5776,7 +7016,7 @@ describe("CatalogApplicationService", () => {
     ]);
   });
 
-  it("promotes source MDL light-node VFX without derived model assets", async () => {
+  it("derives and composes source-MDL static geometry, emitters, and lights for VFX placeables", async () => {
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
       get: jest.fn(),
       save: jest.fn()
@@ -5791,14 +7031,26 @@ describe("CatalogApplicationService", () => {
       generateDerivedAssets: jest.fn()
     };
     runtimeSettingsRepository.get.mockResolvedValue(buildRuntimeSettingsRecord());
+    const derivedModelBytes = Buffer.from("source-mdl-static-core-glb");
     derivedAssetGenerator.generateDerivedAssets.mockResolvedValue({
-      files: [],
+      files: [
+        {
+          fileName: "__aurora/derived/models/dlp_light_08.glb",
+          resourceType: 0,
+          bytes: derivedModelBytes
+        }
+      ],
       summary: {
         generator: "test-generator",
-        generatedFiles: 0,
-        generatedBytes: 0,
-        failureReasons: ["no renderable geometry"]
+        generatedFiles: 1,
+        generatedBytes: derivedModelBytes.length,
+        failureReasons: []
       }
+    });
+    (moduleBlobStorage.putModuleObject as jest.Mock).mockResolvedValue({
+      key: "modules/current/__aurora/derived/models/dlp_light_08.glb",
+      etag: "derived-static-core",
+      size: derivedModelBytes.length
     });
 
     const sourceModel = Buffer.from(
@@ -5808,6 +7060,29 @@ describe("CatalogApplicationService", () => {
         "beginmodelgeom dlp_light_08",
         "node dummy dlp_light_08",
         "  parent NULL",
+        "endnode",
+        "node trimesh static_core",
+        "  parent dlp_light_08",
+        "  alpha 0.75",
+        "  verts 3",
+        "    0 0 0",
+        "    1 0 0",
+        "    0 1 0",
+        "  tverts 3",
+        "    0 0",
+        "    1 0",
+        "    0 1",
+        "  faces 1",
+        "    0 1 2 1 0 1 2 1",
+        "endnode",
+        "node emitter paired_emitter",
+        "  parent dlp_light_08",
+        "  update Fountain",
+        "  render Normal",
+        "  blend Normal",
+        "  texture fx_pair",
+        "  birthrate 2",
+        "  lifeExp 1",
         "endnode",
         "node light pulsing_light03",
         "  parent dlp_light_08",
@@ -5880,9 +7155,9 @@ describe("CatalogApplicationService", () => {
         "      4.66667   3.0",
         "    endlist",
         "    shadowradiusbezierkey",
-        "      0.0   1.25",
-        "      2.33333   2.5",
-        "      4.66667   1.25",
+        "      0.0   1.25 0.0 0.0",
+        "      2.33333   2.5 0.0 0.0",
+        "      4.66667   1.25 0.0 0.0",
         "    endlist",
         "    verticaldisplacementkey",
         "      0.0   0.35",
@@ -5895,10 +7170,22 @@ describe("CatalogApplicationService", () => {
         "      4.66667   3.0",
         "    endlist",
         "endnode",
+        "node trimesh static_core",
+        "  parent dlp_light_08",
+        "  positionkey 2",
+        "    0.0 0.0 0.0 3.0",
+        "    4.66667 0.0 0.0 -1.0",
+        "  alphakey 2",
+        "    0.0 1.0",
+        "    4.66667 0.0",
+        "endnode",
         "doneanim default dlp_light_08",
         "donemodel dlp_light_08"
       ].join("\n")
     );
+    const sourceModelSha256 = createHash("sha256")
+      .update(sourceModel)
+      .digest("hex");
     moduleBlobStorage.listModuleSnapshot.mockResolvedValue({
       bucket: "aurora-module-assets",
       prefix: "modules/current/",
@@ -5909,7 +7196,7 @@ describe("CatalogApplicationService", () => {
         {
           key: "modules/current/models/dlp_light_08.mdl",
           size: sourceModel.length,
-          etag: "source-light-model"
+          etag: "1311385953ab5ffd861b1d457847fbe9"
         }
       ],
       truncated: false,
@@ -5933,6 +7220,18 @@ describe("CatalogApplicationService", () => {
           resref: "dlp_light_08",
           name: "Light: Pulse Light, Green*",
           placeableSubtype: "light_source",
+          metadata: {
+            lookupModelResRef: "dlp_light_08"
+          }
+        };
+      }
+
+      if (templateId === "plc_dlp_light_08_generic") {
+        return {
+          ...buildTemplate("placeable", "plc_dlp_light_08_generic"),
+          resref: "dlp_light_08",
+          name: "Campfire-style generic source model",
+          placeableSubtype: "generic",
           metadata: {
             lookupModelResRef: "dlp_light_08"
           }
@@ -5974,7 +7273,26 @@ describe("CatalogApplicationService", () => {
 
     const renderPackage = result.placeable.renderPackage;
     expect(renderPackage?.status).toBe("ready");
-    expect(renderPackage?.glbUrl).toBeUndefined();
+    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceFiles: [
+          expect.objectContaining({
+            fileName: "modules/current/models/dlp_light_08.mdl",
+            bytes: sourceModel
+          })
+        ]
+      })
+    );
+    expect(result.placeable.assetManifest.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: "dlp_light_08.glb",
+          objectKey: "modules/current/__aurora/derived/models/dlp_light_08.glb"
+        })
+      ])
+    );
+    expect(renderPackage?.assetRefs.derivedModelAssetIds).toHaveLength(1);
+    expect(renderPackage?.glbUrl).toMatch(/\/assets\/[a-f0-9]+\.glb$/u);
     expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "PLACEABLE_RENDER_READY",
@@ -5990,11 +7308,85 @@ describe("CatalogApplicationService", () => {
     expect(renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "VFX_AURORA_MDL_EMITTER_PAYLOAD_MISSING"
     );
+    expect(renderPackage?.auroraEmitter?.emitters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeName: "paired_emitter",
+          sourceModelHash: sourceModelSha256,
+          emitterType: "Fountain",
+          texture: "fx_pair",
+          directRows: expect.arrayContaining([
+            expect.objectContaining({
+              property: "birthrate",
+              rawToken: "birthrate",
+              rowKind: "direct",
+              values: [2]
+            })
+          ])
+        })
+      ])
+    );
+    expect(renderPackage?.auroraModelGraph?.staticGeometryNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "aurora-mdl-ascii",
+          sourceModelFileName: "dlp_light_08.mdl",
+          sourceModelHash: sourceModelSha256,
+          nodeName: "static_core",
+          sourceNodeKind: "trimesh",
+          parentNodeName: "dlp_light_08",
+          meshMaterialState: { alpha: 0.75 },
+          animationTracks: [
+            expect.objectContaining({
+              animationName: "default",
+              transform: expect.objectContaining({
+                positionTimeline: [
+                  { time: 0, value: [0, 0, 3] },
+                  { time: expect.closeTo(4.66667, 6), value: [0, 0, -1] }
+                ]
+              })
+            })
+          ],
+          meshMaterialAnimationTracks: [
+            expect.objectContaining({
+              animationName: "default",
+              state: {
+                alpha: 1,
+                alphaTimeline: [
+                  { time: 0, value: 1 },
+                  { time: expect.closeTo(4.66667, 6), value: 0 }
+                ]
+              }
+            })
+          ]
+        })
+      ])
+    );
+    expect(renderPackage?.auroraModelGraph?.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeKind: "static-geometry",
+          sourceModelHash: sourceModelSha256,
+          nodeName: "static_core",
+          animationTracks: expect.any(Array),
+          meshMaterialAnimationTracks: expect.any(Array)
+        }),
+        expect.objectContaining({
+          nodeKind: "light",
+          sourceModelHash: sourceModelSha256,
+          nodeName: "pulsing_light03",
+          transform: {
+            position: [0, 0, 2.5]
+          }
+        })
+      ])
+    );
 
     const light = renderPackage?.auroraLight?.lights[0];
     expect(light).toMatchObject({
       source: "aurora-mdl-ascii",
       sourceModelFileName: "dlp_light_08.mdl",
+      sourceModelHash: sourceModelSha256,
       nodeName: "pulsing_light03",
       sourceNodeKind: "light",
       parentNodeName: "dlp_light_08",
@@ -6101,6 +7493,56 @@ describe("CatalogApplicationService", () => {
       multiplier: 3,
       color: [0, expect.closeTo(0.592157, 6), expect.closeTo(0.141176, 6)]
     });
+    expect(lightSourceRenderPackage?.auroraModelGraph?.staticGeometryNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "aurora-mdl-ascii",
+          sourceModelFileName: "dlp_light_08.mdl",
+          nodeName: "static_core",
+          sourceNodeKind: "trimesh",
+          parentNodeName: "dlp_light_08"
+        })
+      ])
+    );
+    expect(lightSourceRenderPackage?.auroraModelGraph?.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeKind: "emitter",
+          nodeName: "paired_emitter"
+        }),
+        expect.objectContaining({
+          nodeKind: "light",
+          nodeName: "pulsing_light03"
+        })
+      ])
+    );
+
+    const genericResult = await serviceWithBlob.processPlaceable({
+      templateId: "plc_dlp_light_08_generic",
+      bypassCache: true,
+      includeBenchmarkMetadata: true
+    });
+    const genericRenderPackage = genericResult.placeable.renderPackage;
+    expect(genericResult.placeable.placeableSubtype).toBe("generic");
+    expect(genericResult.placeable.render.isVfx).toBe(false);
+    expect(genericRenderPackage?.auroraModelGraph?.staticGeometryNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceModelFileName: "dlp_light_08.mdl",
+          nodeName: "static_core",
+          sourceNodeKind: "trimesh"
+        })
+      ])
+    );
+    expect(genericRenderPackage?.auroraLight?.lights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeName: "pulsing_light03",
+          radius: 3,
+          multiplier: 3
+        })
+      ])
+    );
   });
 
   it("preserves binary Aurora emitter animation-state controllers from source MDL animation roots", async () => {
@@ -6503,8 +7945,13 @@ describe("CatalogApplicationService", () => {
       { time: 0, value: expect.closeTo(0.25, 6) },
       { time: 1, value: 1 }
     ]);
-    expect(emitter?.events).toEqual([
+    expect(emitter?.events).toBeUndefined();
+    expect(result.placeable.renderPackage?.auroraModelGraph?.animationEvents).toEqual([
       {
+        source: "aurora-mdl-ascii",
+        sourceModelAssetId: expect.any(String),
+        sourceModelFileName: "plc_ascii_keyed.mdl",
+        sourceModelObjectKey: "modules/current/models/plc_ascii_keyed.mdl",
         time: expect.closeTo(0.25, 6),
         type: "detonate",
         animationName: "impact"
@@ -7691,7 +9138,23 @@ describe("CatalogApplicationService", () => {
       rowId: 12304,
       requestedRowId: 12304,
       modelResRef: "plc_wt305",
-      sourceKey: "modules/current/__aurora/sources/hak/lc_2da/placeables.2da"
+      sourceKey: "modules/current/__aurora/sources/hak/lc_2da/placeables.2da",
+      source2daLightColorRaw: "6",
+      source2daLightColorRow: 6,
+      source2daLightColorLabel: "PaleYellow",
+      source2daLightColorSourceKey:
+        "modules/current/__aurora/sources/vanilla/nwn_base.key/lightcolor.2da",
+      source2daLightRed: 1.9,
+      source2daLightGreen: 1.9,
+      source2daLightBlue: 1,
+      source2daToolsetRed: 0.94,
+      source2daToolsetGreen: 0.94,
+      source2daToolsetBlue: 0.77,
+      source2daLightOffsetX: 0.12,
+      source2daLightOffsetY: 0.1,
+      source2daLightOffsetZ: 0.01,
+      source2daShadowSize: 1,
+      source2daStatic: false
     });
     placeableCache.get.mockResolvedValue({
       key: "950d837a".padEnd(64, "0"),
@@ -7767,7 +9230,23 @@ describe("CatalogApplicationService", () => {
       areaInstanceAppearanceType: 12304,
       source2daRow: 12304,
       modelResRef: "plc_wt305",
-      lookupModelResRef: "plc_wt305"
+      lookupModelResRef: "plc_wt305",
+      source2daLightColorRaw: "6",
+      source2daLightColorRow: 6,
+      source2daLightColorLabel: "PaleYellow",
+      source2daLightColorSourceKey:
+        "modules/current/__aurora/sources/vanilla/nwn_base.key/lightcolor.2da",
+      source2daLightRed: 1.9,
+      source2daLightGreen: 1.9,
+      source2daLightBlue: 1,
+      source2daToolsetRed: 0.94,
+      source2daToolsetGreen: 0.94,
+      source2daToolsetBlue: 0.77,
+      source2daLightOffsetX: 0.12,
+      source2daLightOffsetY: 0.1,
+      source2daLightOffsetZ: 0.01,
+      source2daShadowSize: 1,
+      source2daStatic: false
     });
     expect(result.placeable.renderPackage?.glbUrl).toContain("plc_wt305.glb");
   });
@@ -8185,7 +9664,7 @@ describe("CatalogApplicationService", () => {
     expect(placeableCache.set).not.toHaveBeenCalled();
   });
 
-  it("processPlaceable cache hit reuses cached Aurora emitter payload without rereading source MDL", async () => {
+  it("processPlaceable cache hit upgrades a legacy Aurora emitter payload with the source model graph", async () => {
     const sourceModelAssetId = "sourcemdl001";
     const textureAssetId = "texturetga001";
     const runtimeSettingsRepository: jest.Mocked<RuntimeSettingsRepositoryPort> = {
@@ -8317,6 +9796,41 @@ describe("CatalogApplicationService", () => {
       placeableSubtype: "vfx",
       resref: "phod_fx_pntgrm2"
     });
+    const sourceModel = Buffer.from(
+      [
+        "newmodel phod_fx_pntgrm2",
+        "beginmodelgeom phod_fx_pntgrm2",
+        "node dummy phod_fx_pntgrm2",
+        "  parent NULL",
+        "endnode",
+        "node emitter cached_emitter",
+        "  parent phod_fx_pntgrm2",
+        "  update Fountain",
+        "  render Billboard_to_World_Z",
+        "  texture phod_fx_pntgrm2",
+        "  birthrate 12",
+        "  lifeExp 1.5",
+        "endnode",
+        "node light cached_light",
+        "  parent phod_fx_pntgrm2",
+        "  position 0 0 1",
+        "  radius 2",
+        "  multiplier 1",
+        "  color 1 0.5 0.1",
+        "endnode",
+        "endmodelgeom phod_fx_pntgrm2"
+      ].join("\n")
+    );
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) =>
+      key === "modules/current/models/phod_fx_pntgrm2.mdl"
+        ? {
+            key,
+            size: sourceModel.length,
+            contentType: "application/octet-stream",
+            bytes: sourceModel
+          }
+        : null
+    );
 
     const result = await serviceWithBlob.processPlaceable({
       templateId: "plc_cached_vfx",
@@ -8331,10 +9845,18 @@ describe("CatalogApplicationService", () => {
     expect(
       result.placeable.renderPackage?.diagnostics.map((diagnostic) => diagnostic.code)
     ).toContain("VFX_AURORA_MDL_EMITTER_PAYLOAD_READY");
+    expect(result.placeable.renderPackage?.auroraLight?.lights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeName: "cached_light", radius: 2, multiplier: 1 })
+      ])
+    );
     expect(result.placeable.renderPackage?.textureUrls).toEqual([
       `/api/v1/catalog/placeables/cache/${result.cache.key}/assets/${textureAssetId}.tga`
     ]);
-    expect(moduleBlobStorage.getModuleObject).not.toHaveBeenCalled();
+    expect(moduleBlobStorage.getModuleObject).toHaveBeenCalledWith(
+      expect.anything(),
+      "modules/current/models/phod_fx_pntgrm2.mdl"
+    );
   });
 
   it("processPlaceable bypassCache=true skips cache read/write", async () => {
@@ -8356,6 +9878,165 @@ describe("CatalogApplicationService", () => {
     expect(placeableCache.set).toHaveBeenCalledTimes(1);
     expect(result.cache.hit).toBe(false);
     expect(result.placeable.benchmarkCandidate).toBe(false);
+  });
+
+  it("falls back to a retained compact cache value when full VFX admission is rejected", async () => {
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "plc_large_vfx_admission"),
+      placeableSubtype: "vfx"
+    });
+    const fullRenderPackage = {
+      status: "ready",
+      diagnostics: [],
+      assetRefs: {},
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        contracts: {
+          runtimeEmitters: [
+            {
+              emitterNodeName: "large_emitter",
+              runtimeFrames: Array.from({ length: 64 }, (_, index) => ({
+                timeSeconds: index / 30,
+                particles: [{ x: index, y: index, z: index }]
+              }))
+            }
+          ]
+        }
+      }
+    } as PlaceableRenderPackage;
+    (
+      service as unknown as {
+        buildPlaceableRenderPackageForCacheEntry: jest.Mock;
+      }
+    ).buildPlaceableRenderPackageForCacheEntry = jest.fn().mockResolvedValue(fullRenderPackage);
+    let compactStoredValue: PlaceableProcessingResult | null = null;
+    placeableCache.set
+      .mockImplementationOnce(async (key, value) => ({
+        key,
+        value,
+        storedAt: "2026-08-18T19:10:00.000Z",
+        hits: 0,
+        retained: false
+      }))
+      .mockImplementationOnce(async (key, value) => {
+        compactStoredValue = value as PlaceableProcessingResult;
+        return {
+          key,
+          value,
+          storedAt: "2026-08-18T19:10:00.001Z",
+          hits: 0,
+          retained: true
+        };
+      });
+
+    const result = await service.processPlaceable({
+      templateId: "plc_large_vfx_admission",
+      bypassCache: true,
+      includeBenchmarkMetadata: false
+    });
+
+    expect(placeableCache.set).toHaveBeenCalledTimes(2);
+    expect(
+      (result.placeable.renderPackage?.auroraVfxPayload as {
+        contracts: { runtimeEmitters: unknown[] };
+      }).contracts.runtimeEmitters
+    ).toHaveLength(1);
+    expect(compactStoredValue).not.toBeNull();
+    const admittedValue = compactStoredValue as unknown as PlaceableProcessingResult;
+    expect(
+      (admittedValue.renderPackage?.auroraVfxPayload as {
+        contracts: { runtimeEmitters: unknown[]; runtimeEmittersDeferred: boolean };
+      }).contracts
+    ).toMatchObject({ runtimeEmitters: [], runtimeEmittersDeferred: true });
+
+    placeableCache.get.mockResolvedValue({
+      key: result.cache.key,
+      value: admittedValue,
+      storedAt: "2026-08-18T19:10:00.001Z",
+      hits: 1,
+      retained: true
+    });
+    await expect(service.getProcessedPlaceable(result.cache.key)).resolves.toMatchObject({
+      cache: { key: result.cache.key, hit: true },
+      placeable: { assetManifest: expect.any(Object) }
+    });
+  });
+
+  it("fails closed instead of publishing a cache key when compact admission is also rejected", async () => {
+    repository.findByKindAndId.mockResolvedValue({
+      ...buildTemplate("placeable", "plc_unretainable_vfx"),
+      placeableSubtype: "vfx"
+    });
+    const fullRenderPackage = {
+      status: "ready",
+      diagnostics: [],
+      assetRefs: {},
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        contracts: {
+          runtimeEmitters: [{ emitterNodeName: "large_emitter", runtimeFrames: [{}] }]
+        }
+      }
+    } as PlaceableRenderPackage;
+    (
+      service as unknown as {
+        buildPlaceableRenderPackageForCacheEntry: jest.Mock;
+      }
+    ).buildPlaceableRenderPackageForCacheEntry = jest.fn().mockResolvedValue(fullRenderPackage);
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-08-18T19:11:00.000Z",
+      hits: 0,
+      retained: false
+    }));
+
+    await expect(service.processPlaceable({
+      templateId: "plc_unretainable_vfx",
+      bypassCache: true,
+      includeBenchmarkMetadata: false
+    })).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_ADMISSION_FAILED",
+      details: [
+        {
+          path: "placeableCache",
+          reason: "compact_entry_rejected"
+        }
+      ]
+    });
+    expect(placeableCache.set).toHaveBeenCalledTimes(2);
+  });
+
+  it("diagnoses an uncompactable cache rejection without publishing a ghost key", async () => {
+    placeableCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-08-18T19:12:00.000Z",
+      hits: 0,
+      retained: false
+    }));
+    const privateService = service as unknown as {
+      storePlaceableProcessingResult: (
+        cacheKey: string,
+        value: PlaceableProcessingResult
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      privateService.storePlaceableProcessingResult(
+        "cache_uncompactable",
+        { templateId: "plc_uncompactable" } as unknown as PlaceableProcessingResult
+      )
+    ).rejects.toMatchObject({
+      code: "PLACEABLE_CACHE_ADMISSION_FAILED",
+      details: [
+        {
+          path: "placeableCache",
+          reason: "full_entry_rejected_without_compactable_vfx_frames"
+        }
+      ]
+    });
+    expect(placeableCache.set).toHaveBeenCalledTimes(2);
   });
 
   it("returns explicit message when processed placeable cache key is missing", async () => {
@@ -15670,17 +17351,38 @@ function buildEmitterOnlyBinaryMdl(
   let controllerCount = 0;
   let dataCount = 0;
   const controllerRows = Math.max(1, Math.trunc(options.controllerRows ?? 1));
-  const writeControllerRows = (type: number, rows: number[][]): void => {
-    const columns = rows[0]?.length ?? 0;
-    if (rows.length === 0 || columns === 0 || rows.some((row) => row.length !== columns)) {
+  const writeControllerRows = (
+    type: number,
+    rows: number[][],
+    hasExplicitTimes = false
+  ): void => {
+    const keyTimes = rows.map((row, index) =>
+      hasExplicitTimes
+        ? row[0]!
+        : rows.length > 1
+          ? index / (rows.length - 1)
+          : 0
+    );
+    const valueRows = rows.map((row) => (hasExplicitTimes ? row.slice(1) : row));
+    const columns = valueRows[0]?.length ?? 0;
+    if (
+      rows.length === 0 ||
+      columns === 0 ||
+      valueRows.some((row) => row.length !== columns)
+    ) {
       return;
     }
     const keyAbsOffset = 12 + controllerKeysOffset + controllerCount * 12;
     bytes.writeUInt32LE(type, keyAbsOffset);
     bytes.writeUInt16LE(rows.length, keyAbsOffset + 4);
+    bytes.writeUInt16LE(dataCount, keyAbsOffset + 6);
+    keyTimes.forEach((time, row) => {
+      bytes.writeFloatLE(time, 12 + controllerDataOffset + (dataCount + row) * 4);
+    });
+    dataCount += rows.length;
     bytes.writeUInt16LE(dataCount, keyAbsOffset + 8);
     bytes.writeUInt8(columns, keyAbsOffset + 10);
-    rows.forEach((rowValues, row) => {
+    valueRows.forEach((rowValues, row) => {
       rowValues.forEach((value, index) => {
         bytes.writeFloatLE(
           value,
@@ -15710,22 +17412,22 @@ function buildEmitterOnlyBinaryMdl(
   writeNumberController(136, options.frameStart);
   writeNumberController(132, options.frameEnd);
   if (simulation?.colorStartKeyframes) {
-    writeControllerRows(108, simulation.colorStartKeyframes);
+    writeControllerRows(108, simulation.colorStartKeyframes, true);
   } else if (simulation?.colorStart) {
     writeController(108, simulation.colorStart);
   }
   if (simulation?.colorMidKeyframes) {
-    writeControllerRows(472, simulation.colorMidKeyframes);
+    writeControllerRows(472, simulation.colorMidKeyframes, true);
   } else if (simulation?.colorMid) {
     writeController(472, simulation.colorMid);
   }
   if (simulation?.colorEndKeyframes) {
-    writeControllerRows(96, simulation.colorEndKeyframes);
+    writeControllerRows(96, simulation.colorEndKeyframes, true);
   } else if (simulation?.colorEnd) {
     writeController(96, simulation.colorEnd);
   }
   if (simulation?.alphaStartKeyframes) {
-    writeControllerRows(84, simulation.alphaStartKeyframes);
+    writeControllerRows(84, simulation.alphaStartKeyframes, true);
   } else {
     writeNumberController(84, simulation?.alphaStart);
   }
@@ -15734,7 +17436,7 @@ function buildEmitterOnlyBinaryMdl(
   writeNumberController(196, simulation?.xSize);
   writeNumberController(200, simulation?.ySize);
   if (simulation?.birthrateKeyframes) {
-    writeControllerRows(88, simulation.birthrateKeyframes);
+    writeControllerRows(88, simulation.birthrateKeyframes, true);
   } else {
     writeNumberController(88, simulation?.birthrate);
   }
@@ -15753,22 +17455,22 @@ function buildEmitterOnlyBinaryMdl(
   writeNumberController(124, simulation?.drag);
   writeNumberController(188, simulation?.threshold);
   if (simulation?.sizeStartKeyframes) {
-    writeControllerRows(168, simulation.sizeStartKeyframes);
+    writeControllerRows(168, simulation.sizeStartKeyframes, true);
   } else {
     writeNumberController(168, simulation?.sizeStart);
   }
   if (simulation?.percentStartKeyframes) {
-    writeControllerRows(484, simulation.percentStartKeyframes);
+    writeControllerRows(484, simulation.percentStartKeyframes, true);
   } else {
     writeNumberController(484, simulation?.percentStart);
   }
   if (simulation?.percentMidKeyframes) {
-    writeControllerRows(485, simulation.percentMidKeyframes);
+    writeControllerRows(485, simulation.percentMidKeyframes, true);
   } else {
     writeNumberController(485, simulation?.percentMid);
   }
   if (simulation?.percentEndKeyframes) {
-    writeControllerRows(486, simulation.percentEndKeyframes);
+    writeControllerRows(486, simulation.percentEndKeyframes, true);
   } else {
     writeNumberController(486, simulation?.percentEnd);
   }
@@ -15801,7 +17503,7 @@ function buildEmitterOnlyBinaryMdl(
     options.animations.forEach((animation, index) => {
       const animationOffset = animationBlockStartOffset + index * animationBlockSize;
       const animationAbsOffset = 12 + animationOffset;
-      const animationNodeOffset = animationOffset + 160;
+      const animationNodeOffset = animationOffset + 300;
       const animationNodeAbsOffset = 12 + animationNodeOffset;
       const animationControllerKeysOffset = animationNodeOffset + 360;
       const animationControllerDataOffset = animationControllerKeysOffset + 160;
@@ -15809,47 +17511,52 @@ function buildEmitterOnlyBinaryMdl(
       let animationDataCount = 0;
 
       bytes.writeUInt32LE(animationOffset, 12 + animationArrayOffset + index * 4);
-      bytes.writeFloatLE(animation.lengthSeconds ?? 2, animationAbsOffset);
-      bytes.writeFloatLE(animation.transitionSeconds ?? 0, animationAbsOffset + 4);
       writeCString(bytes, animationAbsOffset + 8, 64, animation.name);
       bytes.writeUInt32LE(animationNodeOffset, animationAbsOffset + 72);
       bytes.writeUInt32LE(11, animationAbsOffset + 76);
+      bytes.writeFloatLE(animation.lengthSeconds ?? 2, animationAbsOffset + 0x70);
+      bytes.writeFloatLE(animation.transitionSeconds ?? 0, animationAbsOffset + 0x74);
+      writeCString(bytes, animationAbsOffset + 0x78, 64, "emit_smoke");
 
       writeCString(bytes, animationNodeAbsOffset + 32, 32, "emit_smoke");
       bytes.writeUInt32LE(0x0004, animationNodeAbsOffset + 108);
 
-      const writeAnimationControllerRows = (type: number, rows: number[][]): void => {
-        const columns = rows[0]?.length ?? 0;
-        if (rows.length === 0 || columns === 0 || rows.some((row) => row.length !== columns)) {
+      const writeAnimationControllerRows = (type: number, values: number[]): void => {
+        if (values.length === 0) {
           return;
         }
+        const duration = animation.lengthSeconds ?? 2;
+        const keyTimes = values.map((_, valueIndex) =>
+          values.length > 1 ? (duration * valueIndex) / (values.length - 1) : 0
+        );
         const keyAbsOffset =
           12 + animationControllerKeysOffset + animationControllerCount * 12;
         bytes.writeUInt32LE(type, keyAbsOffset);
-        bytes.writeUInt16LE(rows.length, keyAbsOffset + 4);
+        bytes.writeUInt16LE(values.length, keyAbsOffset + 4);
+        bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 6);
+        keyTimes.forEach((time, valueIndex) => {
+          bytes.writeFloatLE(
+            time,
+            12 + animationControllerDataOffset + (animationDataCount + valueIndex) * 4
+          );
+        });
+        animationDataCount += values.length;
         bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 8);
-        bytes.writeUInt8(columns, keyAbsOffset + 10);
-        rows.forEach((rowValues, row) => {
-          rowValues.forEach((value, valueIndex) => {
-            bytes.writeFloatLE(
-              value,
-              12 +
-                animationControllerDataOffset +
-                (animationDataCount + row * columns + valueIndex) * 4
-            );
-          });
+        bytes.writeUInt8(1, keyAbsOffset + 10);
+        values.forEach((value, valueIndex) => {
+          bytes.writeFloatLE(
+            value,
+            12 + animationControllerDataOffset + (animationDataCount + valueIndex) * 4
+          );
         });
         animationControllerCount += 1;
-        animationDataCount += columns * rows.length;
+        animationDataCount += values.length;
       };
       const writeAnimationScalarController = (type: number, values?: number[]): void => {
         if (!values || values.length === 0) {
           return;
         }
-        writeAnimationControllerRows(
-          type,
-          values.map((value) => [value])
-        );
+        writeAnimationControllerRows(type, values);
       };
 
       writeAnimationScalarController(88, animation.birthrateValues);

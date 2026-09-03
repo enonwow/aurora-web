@@ -226,6 +226,307 @@ describe("Areas API v1 (e2e)", () => {
     expect(response.body.error.message).toBe("Area was not found.");
   });
 
+  it("guards Area Update validation with the narrow privileged permission", async () => {
+    const path =
+      "/api/v1/modules/workspace-module/areas/crypt01/update-validations";
+
+    await supertest(httpServer).post(path).send({}).expect(401);
+
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const builderDenied = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .send({})
+      .expect(403);
+    expect(builderDenied.body.error.code).toBe("FORBIDDEN_ROLE");
+
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const admittedToBoundary = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({})
+      .expect(422);
+    expect(admittedToBoundary.body.error.code).toBe("AREA_UPDATE_INVALID");
+  });
+
+  it("guards Area Update materialization with admin role and the narrow privileged permission", async () => {
+    const path = "/api/v1/modules/workspace-module/areas/crypt01";
+
+    await supertest(httpServer).put(path).send({}).expect(401);
+
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const builderDenied = await supertest(httpServer)
+      .put(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("Idempotency-Key", "update-e2e-builder")
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(403);
+    expect(builderDenied.body.error.code).toBe("FORBIDDEN_ROLE");
+
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const admittedToBoundary = await supertest(httpServer)
+      .put(path)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Idempotency-Key", "update-e2e-admin")
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(422);
+    expect(admittedToBoundary.body.error.code).toBe("AREA_UPDATE_INVALID");
+  });
+
+  it("guards Area Delete preview with admin role and the narrow privileged permission", async () => {
+    const path =
+      "/api/v1/modules/workspace-module/areas/crypt01/delete-previews";
+
+    await supertest(httpServer).post(path).send({}).expect(401);
+
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const builderDenied = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(403);
+    expect(builderDenied.body.error.code).toBe("FORBIDDEN_ROLE");
+
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const admittedToBoundary = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(422);
+    expect(admittedToBoundary.body.error.code).toBe("AREA_DELETE_INVALID");
+  });
+
+  it("guards Area Delete materialization with admin role and the narrow privileged permission", async () => {
+    const path = "/api/v1/modules/workspace-module/areas/crypt01";
+
+    await supertest(httpServer).delete(path).send({}).expect(401);
+
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const builderDenied = await supertest(httpServer)
+      .delete(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("Idempotency-Key", "delete-e2e-builder")
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(403);
+    expect(builderDenied.body.error.code).toBe("FORBIDDEN_ROLE");
+
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const admittedToBoundary = await supertest(httpServer)
+      .delete(path)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Idempotency-Key", "delete-e2e-admin")
+      .set("If-Match", `"${"1".repeat(64)}"`)
+      .send({})
+      .expect(422);
+    expect(admittedToBoundary.body.error.code).toBe("AREA_DELETE_INVALID");
+  });
+
+  it("copies a production Area into one owner draft before editing", async () => {
+    const viewerToken = await loginAndGetToken("viewer.user", "viewer123");
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const path =
+      "/api/v1/areas/production/area_market_district_001/open-as-draft";
+    const body = {
+      schemaVersion: "area-draft-open.v1",
+      draftTitle: "Market District - E2E Working Copy"
+    };
+
+    await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .set("Idempotency-Key", "draft-open-e2e-viewer")
+      .send(body)
+      .expect(403);
+
+    const created = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("Idempotency-Key", "draft-open-e2e-0001")
+      .send(body)
+      .expect(201);
+    expect(created.headers.etag).toBe('"1"');
+    expect(created.headers["cache-control"]).toBe("no-store");
+    expect(created.body.data).toMatchObject({
+      idempotency: "created",
+      snapshot: {
+        draftId: expect.stringMatching(/^draft_[a-f0-9]{32}$/u),
+        revision: 1,
+        source: {
+          type: "production_area",
+          areaId: "area_market_district_001"
+        },
+        draft: {
+          schemaVersion: "area-draft.v1",
+          title: body.draftTitle,
+          payload: {
+            schemaVersion: "production-area-draft-payload.v1",
+            sourceArea: {
+              areaId: "area_market_district_001",
+              objects: expect.any(Array),
+              tiles: expect.any(Array)
+            },
+            provenance: {
+              areaId: "area_market_district_001",
+              sourceUpdatedAt: expect.any(String),
+              processingCacheKey: expect.any(String)
+            }
+          }
+        }
+      }
+    });
+
+    const replayed = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("Idempotency-Key", "draft-open-e2e-0001")
+      .send(body)
+      .expect(201);
+    expect(replayed.body.data).toMatchObject({
+      idempotency: "replayed",
+      snapshot: {
+        draftId: created.body.data.snapshot.draftId,
+        revision: 1
+      }
+    });
+
+    const conflicted = await supertest(httpServer)
+      .post(path)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("Idempotency-Key", "draft-open-e2e-0001")
+      .send({ ...body, draftTitle: "Different working copy" })
+      .expect(409);
+    expect(conflicted.body.error.code).toBe("AREA_DRAFT_IDEMPOTENCY_CONFLICT");
+
+    await supertest(httpServer)
+      .delete(`/api/v1/area-drafts/${created.body.data.snapshot.draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"1"')
+      .set("Idempotency-Key", "draft-open-e2e-delete")
+      .expect(200);
+  });
+
+  it("enforces owner-scoped Area draft CRUD, CAS, and idempotent replay over HTTP", async () => {
+    const viewerToken = await loginAndGetToken("viewer.user", "viewer123");
+    const builderToken = await loginAndGetToken("builder.user", "builder123");
+    const dmToken = await loginAndGetToken("dm.user", "dm123");
+    const draftId = "area_draft_e2e_01";
+    const initialDocument = {
+      schemaVersion: "area-draft.v1",
+      title: "E2E Area draft",
+      source: { type: "new" },
+      payload: { sceneId: draftId, tiles: [], objects: [] }
+    };
+
+    const denied = await supertest(httpServer)
+      .put(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .set("If-Match", '"0"')
+      .set("Idempotency-Key", "draft-e2e-viewer-denied")
+      .send(initialDocument)
+      .expect(403);
+    expect(denied.body.error.code).toBe("FORBIDDEN_ROLE");
+
+    const created = await supertest(httpServer)
+      .put(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"0"')
+      .set("Idempotency-Key", "draft-e2e-save-0001")
+      .send(initialDocument)
+      .expect(200);
+    expect(created.headers.etag).toBe('"1"');
+    expect(created.headers["cache-control"]).toBe("no-store");
+    expect(created.body.data).toMatchObject({
+      idempotency: "created",
+      snapshot: { draftId, revision: 1, draft: initialDocument }
+    });
+
+    const replayedCreate = await supertest(httpServer)
+      .put(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"0"')
+      .set("Idempotency-Key", "draft-e2e-save-0001")
+      .send(initialDocument)
+      .expect(200);
+    expect(replayedCreate.body.data.idempotency).toBe("replayed");
+    expect(replayedCreate.body.data.snapshot.revision).toBe(1);
+
+    const listed = await supertest(httpServer)
+      .get("/api/v1/area-drafts?pageSize=25")
+      .set("Authorization", `Bearer ${builderToken}`)
+      .expect(200);
+    expect(listed.body.data.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ draftId, revision: 1 })])
+    );
+
+    const hiddenFromOtherOwner = await supertest(httpServer)
+      .get(`/api/v1/area-drafts/${draftId}?revision=1`)
+      .set("Authorization", `Bearer ${dmToken}`)
+      .expect(404);
+    expect(hiddenFromOtherOwner.body.error.code).toBe("AREA_DRAFT_NOT_FOUND");
+
+    const opened = await supertest(httpServer)
+      .get(`/api/v1/area-drafts/${draftId}?revision=1`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .expect(200);
+    expect(opened.headers.etag).toBe('"1"');
+    expect(opened.body.data.draft).toEqual(initialDocument);
+
+    const updatedDocument = {
+      ...initialDocument,
+      title: "E2E Area draft updated",
+      payload: { ...initialDocument.payload, tiles: [{ row: 0, col: 0, tileId: 12 }] }
+    };
+    const updated = await supertest(httpServer)
+      .put(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"1"')
+      .set("Idempotency-Key", "draft-e2e-save-0002")
+      .send(updatedDocument)
+      .expect(200);
+    expect(updated.headers.etag).toBe('"2"');
+    expect(updated.body.data.snapshot).toMatchObject({ revision: 2, draft: updatedDocument });
+
+    const staleDelete = await supertest(httpServer)
+      .delete(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"1"')
+      .set("Idempotency-Key", "draft-e2e-delete-stale")
+      .expect(412);
+    expect(staleDelete.body.error).toMatchObject({
+      code: "AREA_DRAFT_REVISION_CONFLICT",
+      details: [{ path: "revision", reason: "expected=1;actual=2" }]
+    });
+
+    const deleted = await supertest(httpServer)
+      .delete(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"2"')
+      .set("Idempotency-Key", "draft-e2e-delete-0002")
+      .expect(200);
+    expect(deleted.body.data).toEqual({
+      idempotency: "created",
+      result: { draftId, deletedRevision: 2, deleted: true }
+    });
+
+    const replayedDelete = await supertest(httpServer)
+      .delete(`/api/v1/area-drafts/${draftId}`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .set("If-Match", '"2"')
+      .set("Idempotency-Key", "draft-e2e-delete-0002")
+      .expect(200);
+    expect(replayedDelete.body.data.idempotency).toBe("replayed");
+
+    await supertest(httpServer)
+      .get(`/api/v1/area-drafts/${draftId}?revision=2`)
+      .set("Authorization", `Bearer ${builderToken}`)
+      .expect(404);
+  });
+
   async function loginAndGetToken(username: string, password: string): Promise<string> {
     const login = await supertest(httpServer)
       .post("/api/v1/auth/login")

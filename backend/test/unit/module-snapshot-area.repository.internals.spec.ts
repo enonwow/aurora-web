@@ -2,6 +2,7 @@ import {
   __moduleSnapshotAreaRepositoryInternals
 } from "../../src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository";
 import type { ModuleBlobObjectSummary } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
+import { parseAuroraAsciiWokWalkmesh } from "../../src/modules/vfx/domain/aurora-wok-walkmesh";
 
 describe("module-snapshot-area.repository internals", () => {
   it("extracts file names and extensions from mixed key styles", () => {
@@ -42,91 +43,6 @@ describe("module-snapshot-area.repository internals", () => {
     expect(__moduleSnapshotAreaRepositoryInternals.estimateDimensions(1).height).toBeGreaterThanOrEqual(8);
     expect(__moduleSnapshotAreaRepositoryInternals.estimateDimensions(8_000_000).width).toBeLessThanOrEqual(64);
     expect(__moduleSnapshotAreaRepositoryInternals.estimateDimensions(8_000_000).height).toBeLessThanOrEqual(64);
-  });
-
-  it("classifies and maps sound helpers", () => {
-    expect(
-      __moduleSnapshotAreaRepositoryInternals.inferAreaSoundSourceField(
-        "modules/current/sounds/ambient/amb_city_day_41.wav",
-        "amb_city_day_41"
-      )
-    ).toBe("AmbientSoundDay");
-    expect(
-      __moduleSnapshotAreaRepositoryInternals.inferAreaSoundSourceField(
-        "modules/current/sounds/music/mus_city_night_11.bmu",
-        "mus_city_night_11"
-      )
-    ).toBe("MusicNight");
-    expect(
-      __moduleSnapshotAreaRepositoryInternals.inferAreaSoundSourceField(
-        "modules/current/sounds/music/mus_city_battle_09.bmu",
-        "mus_city_battle_09"
-      )
-    ).toBe("MusicBattle");
-    expect(__moduleSnapshotAreaRepositoryInternals.buildSoundId("sound_foo")).toBe("sound_foo");
-    expect(__moduleSnapshotAreaRepositoryInternals.buildSoundId("foo")).toBe("sound_foo");
-    expect(__moduleSnapshotAreaRepositoryInternals.extractNumericTokens("amb_day_12_v2_12")).toEqual([2, 12]);
-  });
-
-  it("deduplicates and resolves area sounds from lookup", () => {
-    const objects: ModuleBlobObjectSummary[] = [
-      {
-        key: "modules/current/sounds/ambient/amb_city_day_41.wav",
-        size: 10,
-        lastModified: "2026-05-26T00:00:00.000Z",
-        etag: "1"
-      },
-      {
-        key: "modules/current/sounds/ambient/amb_city_day_41.ogg",
-        size: 11,
-        lastModified: "2026-05-26T00:00:01.000Z",
-        etag: "2"
-      },
-      {
-        key: "modules/current/sounds/music/mus_city_day_11.bmu",
-        size: 12,
-        lastModified: "2026-05-26T00:00:02.000Z",
-        etag: "3"
-      }
-    ];
-
-    const lookup = __moduleSnapshotAreaRepositoryInternals.buildSnapshotSoundLookup(objects);
-    const ambient = lookup.bySourceField.get("AmbientSoundDay");
-    expect(ambient).toHaveLength(1);
-
-    const resolved = __moduleSnapshotAreaRepositoryInternals.resolveAreaSoundFromLookup(
-      lookup,
-      "AmbientSoundDay",
-      41
-    );
-    expect(resolved).toMatchObject({
-      soundId: "sound_amb_city_day_41",
-      category: "ambient"
-    });
-  });
-
-  it("builds synthetic sound references with correct category and mode", () => {
-    const ambient = __moduleSnapshotAreaRepositoryInternals.buildSyntheticAreaSoundReference({
-      sourceField: "AmbientSoundNight",
-      rawId: 7
-    });
-    expect(ambient).toMatchObject({
-      soundId: "sound_ambient_night_7",
-      category: "ambient",
-      playbackMode: "interval",
-      ambientOnly: true
-    });
-
-    const battle = __moduleSnapshotAreaRepositoryInternals.buildSyntheticAreaSoundReference({
-      sourceField: "MusicBattle",
-      rawId: 9
-    });
-    expect(battle).toMatchObject({
-      soundId: "sound_music_battle_9",
-      category: "music",
-      playbackMode: "continuous",
-      ambientOnly: false
-    });
   });
 
   it("builds area candidates and picks benchmark ids from snapshot objects", () => {
@@ -195,6 +111,101 @@ describe("module-snapshot-area.repository internals", () => {
     );
     expect(derived.width).toBeGreaterThanOrEqual(8);
     expect(derived.height).toBeGreaterThanOrEqual(8);
+  });
+
+  it("deduplicates WOK resources and places tile instances at Aurora tile centers", () => {
+    const walkmesh = parseAuroraAsciiWokWalkmesh(`beginwalkmeshgeom test_tile
+node aabb walkmesh
+position 0 0 0
+orientation 1 0 0 0
+verts 3
+-1 -1 0
+1 -1 0
+0 1 0
+faces 1
+0 1 2 0 0 0 0 0
+endnode
+endwalkmeshgeom test_tile`);
+    const resource = {
+      resourceId: "wok:test_tile:hash",
+      modelResRef: "test_tile",
+      sourceObjectKey: "modules/current/test_tile.wok",
+      sourceLayer: "module" as const,
+      sourceHash: "a".repeat(64),
+      walkmesh
+    };
+    const collision = __moduleSnapshotAreaRepositoryInternals.buildAreaAuroraVfxCollision(
+      [
+        {
+          tileInstanceId: "area:test:tile:0",
+          areaId: "area:test",
+          tilesetResRef: "test",
+          row: 2,
+          col: 1,
+          tileIndex: 0,
+          modelResRef: "test_tile",
+          orientation: 3,
+          height: 0.5,
+          source: "are-tile-list" as const
+        },
+        {
+          tileInstanceId: "area:test:tile:1",
+          areaId: "area:test",
+          tilesetResRef: "test",
+          row: 2,
+          col: 2,
+          tileIndex: 1,
+          modelResRef: "test_tile",
+          source: "are-tile-list" as const
+        }
+      ],
+      new Map([["test_tile", resource]])
+    );
+
+    expect(collision).toMatchObject({
+      version: "aurora-area-vfx-collision/v1",
+      status: "ready",
+      resources: [expect.objectContaining({ resourceId: resource.resourceId })],
+      instances: [
+        expect.objectContaining({
+          instanceId: "area:test:tile:0",
+          translation: { x: 15, y: 25, z: 5 },
+          orientationQuarterTurns: 3
+        }),
+        expect.objectContaining({
+          instanceId: "area:test:tile:1",
+          translation: { x: 25, y: 25, z: 0 },
+          orientationQuarterTurns: 0
+        })
+      ]
+    });
+    expect(collision?.resources).toHaveLength(1);
+  });
+
+  it("keeps module, configured HAK, and vanilla WOK precedence explicit", () => {
+    const priority = ["first.hak", "second.hak"];
+    expect(
+      __moduleSnapshotAreaRepositoryInternals.resolveAreaWokSourcePriority(
+        "modules/current/test.wok",
+        priority
+      )
+    ).toBeLessThan(
+      __moduleSnapshotAreaRepositoryInternals.resolveAreaWokSourcePriority(
+        "modules/current/__aurora/sources/hak/first/test.wok",
+        priority
+      )
+    );
+    expect(
+      __moduleSnapshotAreaRepositoryInternals.resolveAreaWokSourcePriority(
+        "modules/current/__aurora/sources/hak/first/test.wok",
+        priority
+      )
+    ).toBeLessThan(
+      __moduleSnapshotAreaRepositoryInternals.resolveAreaWokSourcePriority(
+        "modules/current/__aurora/sources/vanilla/walkmeshes/test.wok",
+        priority
+      )
+    );
   });
 
   it("keeps SET ImageMap2D on parsed tile blueprints", () => {

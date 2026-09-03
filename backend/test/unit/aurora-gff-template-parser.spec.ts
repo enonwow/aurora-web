@@ -414,11 +414,11 @@ describe("aurora-gff-template-parser", () => {
           chanceAppear: 100
         }
       ],
-      scripts: {
-        onused: "wiz_use",
-        onheartbeat: "wiz_hb",
-        oninventorydisturbed: "wiz_inv"
-      }
+      variableListEntries: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: Math.fround(1.25) },
+        { name: "duplicate", type: "string", value: " exact value " }
+      ]
     });
 
     expect(bytes.toString("ascii", 0, 4)).toBe("UTI ");
@@ -473,11 +473,6 @@ describe("aurora-gff-template-parser", () => {
       cloth2Color: 3,
       metal1Color: 17,
       metal2Color: 8,
-      scripts: {
-        onused: "wiz_use",
-        onheartbeat: "wiz_hb",
-        oninvdisturbed: "wiz_inv"
-      },
       itemPropertyListCount: 2,
       itemPropertyListEntries: [
         {
@@ -498,8 +493,14 @@ describe("aurora-gff-template-parser", () => {
           param1Value: 0,
           chanceAppear: 100
         }
+      ],
+      variableListEntries: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: 1.25 },
+        { name: "duplicate", type: "string", value: " exact value " }
       ]
     });
+    expect(parsed?.scripts).toEqual({});
   });
 
   it("serializes creature inventory and equipment lists to UTC GFF", () => {
@@ -760,7 +761,23 @@ describe("aurora-gff-template-parser", () => {
       skillListEntries: [{ rank: 4 }, { rank: 5 }]
     });
 
+    const raw = parseRawGffDocument(bytes);
     const parsed = parseTemplateBlueprintFromGff(bytes);
+    expect(raw?.fields.find((field) => field.label === "WalkRate")).toEqual({
+      label: "WalkRate",
+      type: "int",
+      value: 3
+    });
+    expect(raw?.fields.find((field) => field.label === "Wings_New")).toEqual({
+      label: "Wings_New",
+      type: "dword",
+      value: 1
+    });
+    expect(raw?.fields.find((field) => field.label === "Tail_New")).toEqual({
+      label: "Tail_New",
+      type: "dword",
+      value: 2
+    });
     expect(parsed).toMatchObject({
       sourceFileType: "UTC ",
       templateResRef: "cre_full_guard",
@@ -824,6 +841,18 @@ describe("aurora-gff-template-parser", () => {
     expect(parsed?.templateListEntries).toEqual([{ templateId: 21 }]);
     expect(parsed?.specAbilityListEntries).toEqual([{ spellId: 33, flags: 3, casterLevel: 4 }]);
     expect(parsed?.skillListEntries?.slice(0, 2)).toEqual([{ rank: 4 }, { rank: 5 }]);
+  });
+
+  it("never serializes non-native BodyPart_Robe into a Creature UTC", () => {
+    const bytes = serializeCreatureBlueprintToUtcGff({
+      templateResRef: "cre_robe_probe",
+      bodyPartRobe: 19
+    } as unknown as Parameters<typeof serializeCreatureBlueprintToUtcGff>[0]);
+
+    const raw = parseRawGffDocument(bytes);
+    expect(raw?.fields).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "BodyPart_Robe" })])
+    );
   });
 
   it("preserves embedded Item structs in creature inventory and equipment summaries", () => {
@@ -1025,12 +1054,9 @@ describe("aurora-gff-template-parser", () => {
     const expectedFullEmbeddedItem = {
       ...fullEmbeddedItemInput,
       itemPropertyListCount: 2,
-      scripts: {
-        onused: "it_onuse",
-        onheartbeat: "it_hb",
-        onuserdefined: "it_user",
-        oninvdisturbed: "it_inv"
-      }
+      costTable: undefined,
+      costValue: undefined,
+      scripts: undefined
     };
     const bytes = serializeCreatureInventoryToUtcGff({
       templateResRef: "cre_full_emb",
@@ -1100,12 +1126,9 @@ describe("aurora-gff-template-parser", () => {
     expect(parsed?.equipItemListEntries?.[0]?.embeddedItem).toEqual(
       expect.objectContaining({
         itemPropertyListEntries: expectedPropertyEntries,
-        scripts: {
-          onused: "it_onuse",
-          onheartbeat: "it_hb",
-          onuserdefined: "it_user",
-          oninvdisturbed: "it_inv"
-        }
+        costTable: undefined,
+        costValue: undefined,
+        scripts: undefined
       })
     );
   });
@@ -1322,12 +1345,9 @@ describe("aurora-gff-template-parser", () => {
       embeddedItem: {
         ...fullEmbeddedItemInput,
         itemPropertyListCount: 2,
-        scripts: {
-          onused: "it_onuse",
-          onheartbeat: "it_hb",
-          onuserdefined: "it_user",
-          oninvdisturbed: "it_inv"
-        }
+        costTable: undefined,
+        costValue: undefined,
+        scripts: undefined
       }
     });
   });
@@ -1548,7 +1568,7 @@ describe("aurora-gff-template-parser", () => {
       },
       {
         bucketIndex: 1,
-        bucketTypeId: 1,
+        bucketTypeId: 4,
         itemListCount: 2,
         itemListEntries: [
           {
@@ -1559,7 +1579,7 @@ describe("aurora-gff-template-parser", () => {
             infinite: false
           },
           {
-            embeddedItem: {
+            embeddedItem: expect.objectContaining({
               sourceStructTypeId: 0xffffffff,
               templateResRef: "emb_store_ring",
               tag: "EMB_STORE_RING",
@@ -1567,7 +1587,7 @@ describe("aurora-gff-template-parser", () => {
               baseItem: 52,
               itemPropertyListCount: undefined,
               fieldCount: 4
-            },
+            }),
             x: 3,
             y: 4,
             infinite: true
@@ -1576,7 +1596,7 @@ describe("aurora-gff-template-parser", () => {
       },
       { bucketIndex: 2, bucketTypeId: 2, itemListCount: 0, itemListEntries: [] },
       { bucketIndex: 3, bucketTypeId: 3, itemListCount: 0, itemListEntries: [] },
-      { bucketIndex: 4, bucketTypeId: 4, itemListCount: 0, itemListEntries: [] }
+      { bucketIndex: 4, bucketTypeId: 1, itemListCount: 0, itemListEntries: [] }
     ]);
   });
 
@@ -1687,8 +1707,8 @@ describe("aurora-gff-template-parser", () => {
         modelPart3: 63,
         cost: 19463,
         addCost: 321,
-        costTable: 4,
-        costValue: 11,
+        costTable: undefined,
+        costValue: undefined,
         charges: 3,
         stackSize: 1,
         identified: true,
@@ -1731,10 +1751,7 @@ describe("aurora-gff-template-parser", () => {
             chanceAppear: 100
           }
         ],
-        scripts: {
-          onheartbeat: "st_hb",
-          oninvdisturbed: "st_inv"
-        }
+        scripts: undefined
       }
     });
   });
@@ -1954,7 +1971,6 @@ describe("aurora-gff-template-parser", () => {
       bodyPartLShoul: 16,
       bodyPartRHand: 17,
       bodyPartLHand: 18,
-      bodyPartRobe: 19,
       colorSkin: 20,
       colorHair: 21,
       colorTattoo1: 22,
@@ -1963,6 +1979,7 @@ describe("aurora-gff-template-parser", () => {
       tailNew: 25,
       equipItemListCount: 4
     });
+    expect(parsed).not.toHaveProperty("bodyPartRobe");
   });
 
   it("extracts creature class, feat and special ability list entries", () => {

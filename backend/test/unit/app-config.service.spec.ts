@@ -9,6 +9,7 @@ describe("AppConfigService", () => {
       ...originalEnv,
       NODE_ENV: "test",
       PORT: "4040",
+      AURORA_BIND_HOST: "127.0.0.1",
       DATABASE_URL: "mysql://user:pass@localhost:3306/db",
       CORS_ALLOWED_ORIGINS: "http://a.local, http://b.local, http://a.local",
       CONTRACT_VERSION: "9.9.9",
@@ -36,7 +37,17 @@ describe("AppConfigService", () => {
       PROCESSING_CACHE_L2_AREA_TIMEOUT_MS: "5000",
       PROCESSING_CACHE_L2_TILE_TIMEOUT_MS: "5000",
       RUNTIME_SETTINGS_FILE: "./tmp/runtime-settings.json",
-      PROCESSING_GRAPH_SNAPSHOT_FILE: "./tmp/graph-snapshot.json"
+      PROCESSING_GRAPH_SNAPSHOT_FILE: "./tmp/graph-snapshot.json",
+      AURORA_AREA_CERTIFICATION_REPORT_PATH: " ./tmp/area-certification.json ",
+      AURORA_NWNSCRIPT_COMPILER_PATH: " C:/tools/nwn_script_comp.exe ",
+      AURORA_NWNSCRIPT_COMPILER_SHA256: "a".repeat(64),
+      AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER: " neverwinter 2.1.2 ",
+      AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH: " C:/nwn/nwscript.nss ",
+      AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256: "b".repeat(64),
+      AURORA_NWNSCRIPT_RUNTIME_LIBRARY_DIRS: " C:/runtime-a ; C:/runtime-b ; C:/runtime-a ",
+      AURORA_NWNSCRIPT_COMPILER_TIMEOUT_MS: "12345",
+      AURORA_NWNSCRIPT_COMPILER_OUTPUT_BYTES: "32000",
+      AURORA_NWNSCRIPT_COMPILER_ARTIFACT_BYTES: "2000000"
     };
   });
 
@@ -50,6 +61,7 @@ describe("AppConfigService", () => {
     expect(config.nodeEnv).toBe("test");
     expect(config.isTest).toBe(true);
     expect(config.port).toBe(4040);
+    expect(config.bindHost).toBe("127.0.0.1");
     expect(config.databaseUrl).toBe("mysql://user:pass@localhost:3306/db");
     expect(config.contractVersion).toBe("9.9.9");
     expect(config.corsAllowedOrigins).toEqual(["http://a.local", "http://b.local"]);
@@ -78,6 +90,22 @@ describe("AppConfigService", () => {
     expect(config.processingCacheL2TileTimeoutMs).toBe(5000);
     expect(config.runtimeSettingsFile).toBe("./tmp/runtime-settings.json");
     expect(config.processingGraphSnapshotFile).toBe("./tmp/graph-snapshot.json");
+    expect(config.areaCertificationReportPath).toBe(
+      "./tmp/area-certification.json",
+    );
+    expect(config.nwnScriptCompilerConfigured).toBe(true);
+    expect(config.nwnScriptCompilerPath).toBe("C:/tools/nwn_script_comp.exe");
+    expect(config.nwnScriptCompilerSha256).toBe("a".repeat(64));
+    expect(config.nwnScriptCompilerVersionMarker).toBe("neverwinter 2.1.2");
+    expect(config.nwnScriptLanguageSpecPath).toBe("C:/nwn/nwscript.nss");
+    expect(config.nwnScriptLanguageSpecSha256).toBe("b".repeat(64));
+    expect(config.nwnScriptRuntimeLibraryDirectories).toEqual([
+      "C:/runtime-a",
+      "C:/runtime-b",
+    ]);
+    expect(config.nwnScriptCompilerTimeoutMs).toBe(12345);
+    expect(config.nwnScriptCompilerOutputBytes).toBe(32000);
+    expect(config.nwnScriptCompilerArtifactBytes).toBe(2000000);
   });
 
   it("parses boolean env aliases for true/false", () => {
@@ -118,6 +146,33 @@ describe("AppConfigService", () => {
       "http://localhost:5173",
       "http://127.0.0.1:5173"
     ]);
+  });
+
+  it("keeps the compiler provider disabled when every identity field is absent", () => {
+    process.env = { ...originalEnv, NODE_ENV: "test" };
+    delete process.env.AURORA_NWNSCRIPT_COMPILER_PATH;
+    delete process.env.AURORA_NWNSCRIPT_COMPILER_SHA256;
+    delete process.env.AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER;
+    delete process.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH;
+    delete process.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256;
+
+    const config = new AppConfigService();
+    expect(config.nwnScriptCompilerConfigured).toBe(false);
+    expect(config.nwnScriptRuntimeLibraryDirectories).toEqual([]);
+  });
+
+  it("rejects a partially configured compiler provider", () => {
+    process.env = {
+      ...originalEnv,
+      NODE_ENV: "test",
+      AURORA_NWNSCRIPT_COMPILER_PATH: "C:/tools/nwn_script_comp.exe",
+    };
+    delete process.env.AURORA_NWNSCRIPT_COMPILER_SHA256;
+    delete process.env.AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER;
+    delete process.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH;
+    delete process.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256;
+
+    expect(() => new AppConfigService()).toThrow(/all be configured together/iu);
   });
 
   it("declares config module providers", () => {

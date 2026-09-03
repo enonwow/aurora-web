@@ -3,6 +3,8 @@ import { AppConfigService } from "../../src/common/config/app-config.service";
 import { AppException } from "../../src/common/http/app-exception";
 import { AuthApplicationService } from "../../src/modules/auth/application/auth.application.service";
 import type { AuthRepositoryPort } from "../../src/modules/auth/application/ports/auth-repository.port";
+import { MemorySystemMaintenanceRepository } from "../../src/modules/system-maintenance/adapters/outbound/memory/memory-system-maintenance.repository";
+import { SystemMaintenanceApplicationService } from "../../src/modules/system-maintenance/application/system-maintenance.application.service";
 import type {
   SessionRecord,
   SessionWithUser,
@@ -17,9 +19,11 @@ describe("AuthApplicationService", () => {
     repository = {
       upsertUser: jest.fn(),
       findUserByUsername: jest.fn(),
+      findUserById: jest.fn(),
       createSession: jest.fn(),
       findSessionWithUserByToken: jest.fn(),
-      deleteSession: jest.fn()
+      deleteSession: jest.fn(),
+      deleteAllSessions: jest.fn().mockResolvedValue(0)
     };
 
     process.env.NODE_ENV = "test";
@@ -27,7 +31,10 @@ describe("AuthApplicationService", () => {
     process.env.AUTH_REPOSITORY_DRIVER = "memory";
 
     const config = new AppConfigService();
-    service = new AuthApplicationService(repository, config);
+    const maintenance = new SystemMaintenanceApplicationService(
+      new MemorySystemMaintenanceRepository()
+    );
+    service = new AuthApplicationService(repository, config, maintenance);
   });
 
   afterEach(() => {

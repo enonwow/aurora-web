@@ -21,6 +21,7 @@ describe("auth policy", () => {
     expect(ROLE_PERMISSIONS.dm).toContain("processing.sound.read");
     expect(ROLE_PERMISSIONS.dm).toContain("processing.vfx.read");
     expect(ROLE_PERMISSIONS.admin).toContain("admin.config.write");
+    expect(ROLE_PERMISSIONS.admin).toContain("area.materialize.rename");
   });
 
   it("returns true when no permission is required", () => {

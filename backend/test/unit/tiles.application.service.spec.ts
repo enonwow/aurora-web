@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AppException } from "../../src/common/http/app-exception";
 import {
   TilesApplicationService,
@@ -198,6 +199,559 @@ describe("TilesApplicationService", () => {
     expect(processingCache.set).toHaveBeenCalledTimes(1);
   });
 
+  it("parses raster texture slots from an Aurora MTR without treating the MTR as an image", () => {
+    const references =
+      __tilesApplicationServiceInternals.collectTileMtrTextureSlotReferences(
+        Buffer.from(
+          [
+            "renderhint NormalAndSpecMapped",
+            "texture0 tdm01_bone01_d",
+            "texture1 tdm01_bone01_n // normal",
+            "texture2 null",
+            "texture3 tdm01_bone01_r",
+            "texture0 duplicate_should_not_replace_authored_slot"
+          ].join("\r\n")
+        )
+      );
+
+    expect(references).toEqual([
+      { slot: 0, reference: "tdm01_bone01_d" },
+      { slot: 1, reference: "tdm01_bone01_n" },
+      { slot: 3, reference: "tdm01_bone01_r" }
+    ]);
+  });
+
+  it("keeps numbered-MTR diffuse-family recovery exact and fail-closed", () => {
+    expect(
+      __tilesApplicationServiceInternals.resolveSourceProvenNumberedMtrDiffuseReference(
+        "mtr_nkey_0531"
+      )
+    ).toBe("tex_core_0531_d");
+    expect(
+      __tilesApplicationServiceInternals.expandTileMaterialTextureSourceSyncReferences([
+        "mtr_nkey_0531"
+      ])
+    ).toEqual(["mtr_nkey_0531", "tex_core_0531_d"]);
+
+    for (const reference of [
+      "mtr_nkey_531",
+      "mtr_nkey_black",
+      "mtr_nkey_0531_extra",
+      "mtr_other_0531",
+      "tex_core_0531_d"
+    ]) {
+      expect(
+        __tilesApplicationServiceInternals.resolveSourceProvenNumberedMtrDiffuseReference(
+          reference
+        )
+      ).toBeNull();
+    }
+  });
+
+  it("collects scoped GLB material references without emitter-wide provenance", () => {
+    const references =
+      __tilesApplicationServiceInternals.collectTileDerivedModelTextureReferences({
+        extras: {
+          aurora: {
+            textureReferences: ["sdg_dir02", "tdm01_bone01"]
+          }
+        },
+        materials: [
+          {
+            extras: {
+              aurora: {
+                textureReference: "tdm01_bone01",
+                textureSlots: [
+                  { slot: 0, reference: "tdm01_bone01" },
+                  { slot: 1, reference: "tdm01_bone01_n" }
+                ]
+              }
+            }
+          }
+        ],
+        meshes: [
+          {
+            primitives: [
+              {
+                extras: {
+                  aurora: {
+                    textureReference: "mi_scv01_p11_01"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      });
+
+    expect(references).toEqual([
+      "mi_scv01_p11_01",
+      "tdm01_bone01",
+      "tdm01_bone01_n"
+    ]);
+  });
+
+  it("marks an intentionally untextured source model ready without inventing a material binding", async () => {
+    const tile = {
+      ...buildTile("tile_bci01_o20_02"),
+      resref: "bci01_o20_02",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/tiles/hak/lc_legacy_tiles/bci01_o20_02.mdl",
+      sourceAssetExtension: "mdl" as const,
+      sourceAssetSizeBytes: 6651,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey:
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/bci01_o20_02.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096
+    };
+    repository.findById.mockResolvedValue(tile);
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-19T00:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const isGlb = key.endsWith(".glb");
+      const bytes = isGlb
+        ? buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION)
+        : Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel bci01_o20_02\r\nendmodel bci01_o20_02\r\n",
+            "latin1"
+          );
+      return {
+        key,
+        size: bytes.length,
+        contentType: isGlb ? "model/gltf-binary" : "application/octet-stream",
+        bytes
+      };
+    });
+    const syncVanillaTileModelSources = jest.fn().mockResolvedValue({ uploadedFiles: 0 });
+    const getTextureDeliveryContracts = jest.fn().mockResolvedValue({
+      indexObjectKey: "modules/current/__aurora/textures/index.json",
+      available: true,
+      totalEntries: 0,
+      query: { limit: 8, offset: 0 },
+      assets: []
+    });
+    const serviceWithMaterials = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      {
+        syncVanillaTileModelSources,
+        getTextureDeliveryContracts
+      } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithMaterials.processTile({
+      tileId: tile.tileId,
+      bypassCache: true
+    });
+
+    expect(result.tile.renderAssetContract).toMatchObject({
+      materialBindingStatus: "ready",
+      blockers: []
+    });
+    expect(result.tile.renderAssetContract?.materialTextureAssets).toBeUndefined();
+  });
+
+  it("syncs an exact GLB-only texture reference before declaring the tile ready", async () => {
+    const tile = {
+      ...buildTile("tile_tdc01_o15_01"),
+      resref: "tdc01_o15_01",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/vanilla/models/tdc01_o15_01.mdl",
+      sourceAssetExtension: "mdl" as const,
+      sourceAssetSizeBytes: 2048,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/tdc01_o15_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096
+    };
+    repository.findById.mockResolvedValue(tile);
+    repository.refreshSnapshot = jest.fn();
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-18T00:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const isGlb = key.endsWith(".glb");
+      const bytes = isGlb
+        ? buildGlbWithConverterVersion(
+            AURORA_MDL_TO_GLB_CONVERTER_VERSION,
+            undefined,
+            ["tdc01_flrcrack"]
+          )
+        : Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel tdc01_o15_01\r\nendmodel tdc01_o15_01\r\n",
+            "latin1"
+          );
+      return {
+        key,
+        size: bytes.length,
+        contentType: isGlb ? "model/gltf-binary" : "application/octet-stream",
+        bytes
+      };
+    });
+    let exactTextureSynced = false;
+    const syncVanillaTileModelSources = jest.fn().mockImplementation(
+      async (_triggeredBy: string, _modelResRefs: string[], textureResRefs?: string[]) => {
+        exactTextureSynced = textureResRefs?.includes("tdc01_flrcrack") === true;
+        return { uploadedFiles: exactTextureSynced ? 1 : 0 };
+      }
+    );
+    const getTextureDeliveryContracts = jest.fn().mockImplementation(
+      async ({ resref }: { resref: string }) => ({
+        indexObjectKey: "modules/current/__aurora/textures/index.json",
+        available: true,
+        totalEntries: 1,
+        query: { resref, limit: 8, offset: 0 },
+        assets:
+          resref === `mi_${tile.resref}` || (resref === "tdc01_flrcrack" && exactTextureSynced)
+            ? [buildTextureDeliveryContract(resref)]
+            : []
+      })
+    );
+    const serviceWithMaterials = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      {
+        syncVanillaTileModelSources,
+        getTextureDeliveryContracts
+      } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithMaterials.processTile({
+      tileId: tile.tileId,
+      bypassCache: true
+    });
+
+    expect(syncVanillaTileModelSources).toHaveBeenCalledWith(
+      "areas-tile-process-auto-sync",
+      [tile.resref],
+      ["tdc01_flrcrack"]
+    );
+    expect(result.tile.renderAssetContract).toMatchObject({
+      materialBindingStatus: "ready",
+      mdlSourceContentSha256: createHash("sha256")
+        .update(
+          Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel tdc01_o15_01\r\nendmodel tdc01_o15_01\r\n",
+            "latin1"
+          )
+        )
+        .digest("hex"),
+      blockers: []
+    });
+    expect(result.tile.renderAssetContract?.materialTextureAssets?.map((asset) => asset.reference))
+      .toEqual([`mi_${tile.resref}`, "tdc01_flrcrack"]);
+    expect(
+      result.tile.renderAssetContract?.materialTextureAssets?.map(
+        (asset) => asset.contentSha256
+      )
+    ).toEqual(["d".repeat(64), "d".repeat(64)]);
+  });
+
+  it("recovers an absent numbered MTR through its exact source-proven diffuse family", async () => {
+    const tile = {
+      ...buildTile("tile_mst01_o50_03"),
+      resref: "mst01_o50_03",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/hak/vale_core_tis_01/mst01_o50_03.mdl",
+      sourceAssetExtension: "mdl" as const,
+      sourceAssetSizeBytes: 1_758_150,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey:
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/mst01_o50_03.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096
+    };
+    repository.findById.mockResolvedValue(tile);
+    repository.refreshSnapshot = jest.fn();
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-29T22:30:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const isGlb = key.endsWith(".glb");
+      const bytes = isGlb
+        ? buildGlbWithConverterVersion(
+            AURORA_MDL_TO_GLB_CONVERTER_VERSION,
+            undefined,
+            ["mtr_nkey_0531"]
+          )
+        : Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel mst01_o50_03\r\nendmodel mst01_o50_03\r\n",
+            "latin1"
+          );
+      return {
+        key,
+        size: bytes.length,
+        contentType: isGlb ? "model/gltf-binary" : "application/octet-stream",
+        bytes
+      };
+    });
+    let exactDiffuseFamilySynced = false;
+    const syncVanillaTileModelSources = jest.fn().mockImplementation(
+      async (_triggeredBy: string, _modelResRefs: string[], textureResRefs?: string[]) => {
+        exactDiffuseFamilySynced =
+          textureResRefs?.includes("mtr_nkey_0531") === true &&
+          textureResRefs.includes("tex_core_0531_d");
+        return { uploadedFiles: exactDiffuseFamilySynced ? 1 : 0 };
+      }
+    );
+    const getTextureDeliveryContracts = jest.fn().mockImplementation(
+      async ({ resref }: { resref: string }) => ({
+        indexObjectKey: "modules/current/__aurora/textures/index.json",
+        available: true,
+        totalEntries: 1,
+        query: { resref, limit: 8, offset: 0 },
+        assets:
+          resref === `mi_${tile.resref}` ||
+          (resref === "tex_core_0531_d" && exactDiffuseFamilySynced)
+            ? [buildTextureDeliveryContract(resref)]
+            : []
+      })
+    );
+    const serviceWithMaterials = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      {
+        syncVanillaTileModelSources,
+        getTextureDeliveryContracts
+      } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithMaterials.processTile({
+      tileId: tile.tileId,
+      bypassCache: true
+    });
+
+    expect(syncVanillaTileModelSources).toHaveBeenCalledWith(
+      "areas-tile-process-auto-sync",
+      [tile.resref],
+      ["mtr_nkey_0531", "tex_core_0531_d"]
+    );
+    expect(result.tile.renderAssetContract).toMatchObject({
+      materialBindingStatus: "ready",
+      blockers: []
+    });
+    expect(
+      result.tile.renderAssetContract?.materialTextureAssets?.find(
+        (asset) => asset.reference === "mtr_nkey_0531"
+      )
+    ).toMatchObject({
+      reference: "mtr_nkey_0531",
+      resref: "tex_core_0531_d"
+    });
+  });
+
+  it("re-inspects a derived model changed by material source sync before declaring it ready", async () => {
+    const tile = {
+      ...buildTile("tile_tdc01_p11_01"),
+      resref: "tdc01_p11_01",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/vanilla/models/tdc01_p11_01.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 109490,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey:
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/tdc01_p11_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 110704
+    };
+    repository.findById.mockResolvedValue(tile);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-19T01:20:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const oldModelBytes = buildGlbWithConverterVersion(
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION,
+      undefined,
+      ["tdc01_flrcrack"]
+    );
+    const newModelBytes = buildGlbWithConverterVersion(
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION,
+      undefined,
+      ["tdc01_flrcrack", "tdc01_floor_detail"]
+    );
+    let materialSourcesSynced = false;
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const isGlb = key.endsWith(".glb");
+      const bytes = isGlb
+        ? materialSourcesSynced
+          ? newModelBytes
+          : oldModelBytes
+        : Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel tdc01_p11_01\r\nendmodel tdc01_p11_01\r\n",
+            "latin1"
+          );
+      return {
+        key,
+        size: bytes.length,
+        contentType: isGlb ? "model/gltf-binary" : "application/octet-stream",
+        bytes
+      };
+    });
+    const syncVanillaTileModelSources = jest.fn().mockImplementation(async () => {
+      materialSourcesSynced = true;
+      return { uploadedFiles: 3 };
+    });
+    const getTextureDeliveryContracts = jest.fn().mockImplementation(
+      async ({ resref }: { resref: string }) => ({
+        indexObjectKey: "modules/current/__aurora/textures/index.json",
+        available: true,
+        totalEntries: materialSourcesSynced ? 2 : 0,
+        query: { resref, limit: 8, offset: 0 },
+        assets:
+          materialSourcesSynced &&
+          (resref === "tdc01_flrcrack" || resref === "tdc01_floor_detail")
+            ? [buildTextureDeliveryContract(resref)]
+            : []
+      })
+    );
+    const serviceWithMaterials = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      {
+        syncVanillaTileModelSources,
+        getTextureDeliveryContracts
+      } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithMaterials.processTile({
+      tileId: tile.tileId,
+      bypassCache: true
+    });
+
+    expect(result.tile.renderAssetContract).toMatchObject({
+      materialBindingStatus: "ready",
+      blockers: [],
+      modelAsset: {
+        sizeBytes: newModelBytes.length,
+        contentSha256: createHash("sha256").update(newModelBytes).digest("hex")
+      },
+      requiredMaterialTextureReferences: [
+        "tdc01_floor_detail",
+        "tdc01_flrcrack"
+      ]
+    });
+    expect(
+      result.tile.renderAssetContract?.materialTextureAssets?.map(
+        (asset) => asset.reference
+      )
+    ).toEqual(["tdc01_floor_detail", "tdc01_flrcrack"]);
+  });
+
+  it("blocks false-ready when an authored GLB texture remains unresolved after exact sync", async () => {
+    const tile = {
+      ...buildTile("tile_tdc01_o15_01"),
+      resref: "tdc01_o15_01",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/vanilla/models/tdc01_o15_01.mdl",
+      sourceAssetExtension: "mdl" as const,
+      sourceAssetSizeBytes: 2048,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey: "modules/current/__aurora/derived/models/tdc01_o15_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 4096
+    };
+    repository.findById.mockResolvedValue(tile);
+    repository.refreshSnapshot = jest.fn();
+    processingCache.get.mockResolvedValue(null);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-18T00:00:00.000Z",
+      hits: 0
+    }));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
+      const isGlb = key.endsWith(".glb");
+      const bytes = isGlb
+        ? buildGlbWithConverterVersion(
+            AURORA_MDL_TO_GLB_CONVERTER_VERSION,
+            undefined,
+            ["tdc01_flrcrack"]
+          )
+        : Buffer.from(
+            "#MAXMODEL ASCII\r\nnewmodel tdc01_o15_01\r\nendmodel tdc01_o15_01\r\n",
+            "latin1"
+          );
+      return {
+        key,
+        size: bytes.length,
+        contentType: isGlb ? "model/gltf-binary" : "application/octet-stream",
+        bytes
+      };
+    });
+    const syncVanillaTileModelSources = jest.fn().mockResolvedValue({ uploadedFiles: 0 });
+    const getTextureDeliveryContracts = jest.fn().mockImplementation(
+      async ({ resref }: { resref: string }) => ({
+        indexObjectKey: "modules/current/__aurora/textures/index.json",
+        available: true,
+        totalEntries: 1,
+        query: { resref, limit: 8, offset: 0 },
+        assets:
+          resref === `mi_${tile.resref}` ? [buildTextureDeliveryContract(resref)] : []
+      })
+    );
+    const serviceWithMaterials = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage,
+      {
+        syncVanillaTileModelSources,
+        getTextureDeliveryContracts
+      } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithMaterials.processTile({
+      tileId: tile.tileId,
+      bypassCache: true
+    });
+
+    expect(result.tile.renderAssetContract?.materialBindingStatus).toBe(
+      "blocked_tile_process_contract_missing_material_bindings"
+    );
+    expect(result.tile.renderAssetContract?.blockers).toContain(
+      "blocked_tile_material_texture_references_missing:tdc01_flrcrack"
+    );
+  });
+
   it("returns source and GLB delivery contracts for every edited Tile_ID model candidate", async () => {
     const records = new Map(
       ["sic11_a00_00", "sic11_a01_02"].map((resref) => {
@@ -248,6 +802,93 @@ describe("TilesApplicationService", () => {
       expect(item.result?.tile.renderAssetContract?.modelDeliveryStatus).toBe("ready");
       expect(item.result?.tile.renderAssetContract?.rendererHandoffStatus).toBe("ready");
     }
+  });
+
+  it("does not rescan an unavailable SET model after the active source revision confirmed it missing", async () => {
+    const syncVanillaTileModelSources = jest.fn().mockResolvedValue({
+      mode: "vanilla-tile-model-source-sync",
+      settingsRevision: 42,
+      triggeredBy: "areas-tile-process-auto-sync",
+      triggeredAt: "2026-07-16T00:00:00.000Z",
+      enabled: true,
+      source: { vanillaDataPath: "C:/NWN/data", hakPaths: ["C:/NWN/hak/q_!tilesets.hak"] },
+      requestedModelResRefs: ["twl01_g04_21_01"],
+      missingModelResRefs: ["twl01_g04_21_01"],
+      uploadedFiles: 0,
+      uploadedBytes: 0,
+      derivedAssets: { generator: "test", generatedFiles: 0, generatedBytes: 0 },
+      files: []
+    });
+    repository.findById.mockResolvedValue(null);
+    repository.refreshSnapshot = jest.fn();
+    const serviceWithSync = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      undefined,
+      undefined,
+      { syncVanillaTileModelSources } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const first = await serviceWithSync.processTilesBatch([
+      { tileId: "tile_twl01_g04_21_01" }
+    ]);
+    const second = await serviceWithSync.processTilesBatch([
+      { tileId: "tile_twl01_g04_21_01" }
+    ]);
+
+    expect(syncVanillaTileModelSources).toHaveBeenCalledTimes(1);
+    expect(first.items[0]).toMatchObject({
+      status: "blocked",
+      error: { code: "TILE_NOT_FOUND" }
+    });
+    expect(second.items[0]).toMatchObject({
+      status: "blocked",
+      error: { code: "TILE_NOT_FOUND" }
+    });
+  });
+
+  it("retries an unavailable SET model after the source settings revision changes", async () => {
+    const buildSync = (settingsRevision: number) => ({
+      mode: "vanilla-tile-model-source-sync" as const,
+      settingsRevision,
+      triggeredBy: "areas-tile-process-auto-sync",
+      triggeredAt: "2026-07-16T00:00:00.000Z",
+      enabled: true,
+      source: { vanillaDataPath: "C:/NWN/data", hakPaths: ["C:/NWN/hak/q_!tilesets.hak"] },
+      requestedModelResRefs: ["twl01_g04_21_01"],
+      missingModelResRefs: ["twl01_g04_21_01"],
+      uploadedFiles: 0,
+      uploadedBytes: 0,
+      derivedAssets: { generator: "test", generatedFiles: 0, generatedBytes: 0 },
+      files: []
+    });
+    const syncVanillaTileModelSources = jest
+      .fn()
+      .mockResolvedValueOnce(buildSync(42))
+      .mockResolvedValueOnce(buildSync(43));
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const baseSettings = await runtimeSettingsRepository.get();
+    runtimeSettingsRepository.get
+      .mockReset()
+      .mockResolvedValue({ ...baseSettings, revision: 43 })
+      .mockResolvedValueOnce({ ...baseSettings, revision: 42 })
+      .mockResolvedValueOnce({ ...baseSettings, revision: 43 });
+    repository.findById.mockResolvedValue(null);
+    repository.refreshSnapshot = jest.fn();
+    const serviceWithSync = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      undefined,
+      { syncVanillaTileModelSources } as unknown as RuntimeSettingsApplicationService
+    );
+
+    await serviceWithSync.processTilesBatch([{ tileId: "tile_twl01_g04_21_01" }]);
+    await serviceWithSync.processTilesBatch([{ tileId: "tile_twl01_g04_21_01" }]);
+
+    expect(syncVanillaTileModelSources).toHaveBeenCalledTimes(2);
   });
 
   it("processTile bypassCache=true refreshes source-backed tile models missing derived GLB", async () => {
@@ -304,6 +945,49 @@ describe("TilesApplicationService", () => {
     );
   });
 
+  it("processTile bypassCache=true does not overwrite an existing current derived model", async () => {
+    const currentTile = {
+      ...buildTile("tile_tdc01_p11_01"),
+      resref: "tdc01_p11_01",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/vanilla/models/tdc01_p11_01.mdl",
+      sourceAssetExtension: "mdl" as const,
+      sourceAssetSizeBytes: 109490,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey:
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/tdc01_p11_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: 110704
+    };
+    const syncVanillaTileModelSources = jest.fn().mockResolvedValue({
+      uploadedFiles: 2
+    });
+    repository.refreshSnapshot = jest.fn();
+    repository.findById.mockResolvedValue(currentTile);
+    processingCache.set.mockImplementation(async (key, value) => ({
+      key,
+      value,
+      storedAt: "2026-07-19T01:20:00.000Z",
+      hits: 0
+    }));
+    const serviceWithSync = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      undefined,
+      undefined,
+      { syncVanillaTileModelSources } as unknown as RuntimeSettingsApplicationService
+    );
+
+    const result = await serviceWithSync.processTile({
+      tileId: currentTile.tileId,
+      bypassCache: true
+    });
+
+    expect(syncVanillaTileModelSources).not.toHaveBeenCalled();
+    expect(result.tile.renderAssetContract?.modelAsset?.sizeBytes).toBe(110704);
+  });
+
   it("regenerates source-backed tile GLB when the stored derived model uses an old converter", async () => {
     const tile = {
       ...buildTile("tile_sic11_a01_07"),
@@ -328,12 +1012,16 @@ describe("TilesApplicationService", () => {
     }));
     const runtimeSettingsRepository = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();
-    moduleBlobStorage.putModuleObject = jest.fn().mockResolvedValue({
-      key: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
-      size: 4096,
-      etag: "glb-v5"
-    });
     const generatedBytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION);
+    let derivedModelStored = false;
+    moduleBlobStorage.putModuleObject = jest.fn().mockImplementation(async () => {
+      derivedModelStored = true;
+      return {
+        key: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
+        size: 4096,
+        etag: "glb-v5"
+      };
+    });
     const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
       generateDerivedAssets: jest.fn().mockResolvedValue({
         files: [
@@ -352,7 +1040,9 @@ describe("TilesApplicationService", () => {
     };
     moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
       if (key.endsWith(".glb")) {
-        const bytes = buildGlbWithConverterVersion("aurora-mdl-to-glb/v2-material-scoped-primitives");
+        const bytes = derivedModelStored
+          ? generatedBytes
+          : buildGlbWithConverterVersion("aurora-mdl-to-glb/v2-material-scoped-primitives");
         return {
           key,
           size: bytes.length,
@@ -410,7 +1100,30 @@ describe("TilesApplicationService", () => {
     });
   });
 
-  it("keeps a source-backed tile GLB when the stored derived model uses the current converter", async () => {
+  it("rejects a current GLB payload stored below an obsolete versioned converter path", () => {
+    const currentVersionSegment = AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+      /[^a-zA-Z0-9._-]+/gu,
+      "_"
+    );
+
+    expect(
+      __tilesApplicationServiceInternals.isVersionedTileDerivedModelObjectKeyCurrent(
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v14-native-lit-single-sided-material-defaults/atj19_a01_01.glb"
+      )
+    ).toBe(false);
+    expect(
+      __tilesApplicationServiceInternals.isVersionedTileDerivedModelObjectKeyCurrent(
+        `modules/current/__aurora/derived/models/${currentVersionSegment}/atj19_a01_01.glb`
+      )
+    ).toBe(true);
+    expect(
+      __tilesApplicationServiceInternals.isVersionedTileDerivedModelObjectKeyCurrent(
+        "modules/current/__aurora/derived/models/legacy_unversioned.glb"
+      )
+    ).toBe(true);
+  });
+
+  it("keeps current-converter GLB for a legitimate multi-cell feature tile", async () => {
     const tile = {
       ...buildTile("tile_sic11_a01_07"),
       resref: "sic11_a01_07",
@@ -440,7 +1153,10 @@ describe("TilesApplicationService", () => {
       size: 4096,
       contentType: "model/gltf-binary",
       etag: "glb-v5",
-      bytes: buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION)
+      bytes: buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION, {
+        min: [-11.5, 0, -6.2],
+        max: [5.41, 1, 5]
+      })
     });
     const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
       generateDerivedAssets: jest.fn()
@@ -464,104 +1180,6 @@ describe("TilesApplicationService", () => {
     expect(moduleBlobStorage.putModuleObject).not.toHaveBeenCalled();
     expect(result.tile.renderAssetContract?.modelAsset).toMatchObject({
       objectKey: tile.renderModelObjectKey,
-      extension: "glb",
-      sizeBytes: 4096,
-      etag: "glb-v5"
-    });
-  });
-
-  it("regenerates source-backed tile GLB when current converter output exceeds tile footprint", async () => {
-    const tile = {
-      ...buildTile("tile_sic11_a01_07"),
-      resref: "sic11_a01_07",
-      sourceAssetObjectKey: "modules/current/__aurora/sources/hak/_sic11/sic11_a01_07.mdl",
-      sourceAssetExtension: "mdl",
-      sourceAssetSizeBytes: 8192,
-      sourceAssetEtag: "mdl-current",
-      sourceAssetOrigin: "module-snapshot" as const,
-      renderModelObjectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
-      renderModelExtension: "glb" as const,
-      renderModelSizeBytes: 4096,
-      renderModelEtag: "glb-wide"
-    };
-    repository.findById.mockResolvedValue(tile);
-    processingCache.get.mockResolvedValue(null);
-    processingCache.set.mockImplementation(async (key, value) => ({
-      key,
-      value,
-      storedAt: "2026-05-25T11:00:00.000Z",
-      hits: 0
-    }));
-    const runtimeSettingsRepository = createRuntimeSettingsRepository();
-    const moduleBlobStorage = createModuleBlobStorage();
-    moduleBlobStorage.putModuleObject = jest.fn().mockResolvedValue({
-      key: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
-      size: 4096,
-      etag: "glb-v5"
-    });
-    const generatedBytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION);
-    const derivedAssetGenerator: jest.Mocked<DerivedAssetGeneratorPort> = {
-      generateDerivedAssets: jest.fn().mockResolvedValue({
-        files: [
-          {
-            fileName: "__aurora/derived/models/sic11_a01_07.glb",
-            resourceType: 0,
-            bytes: generatedBytes
-          }
-        ],
-        summary: {
-          generator: "test",
-          generatedFiles: 1,
-          generatedBytes: generatedBytes.length
-        }
-      })
-    };
-    moduleBlobStorage.getModuleObject.mockImplementation(async (_settings, key) => {
-      if (key.endsWith(".glb")) {
-        const bytes = buildGlbWithConverterVersion(AURORA_MDL_TO_GLB_CONVERTER_VERSION, {
-          min: [-5.0001, -0.0045, -7.301],
-          max: [8.0894, 4.6677, 5.0001]
-        });
-        return {
-          key,
-          size: bytes.length,
-          contentType: "model/gltf-binary",
-          etag: "glb-wide",
-          bytes
-        };
-      }
-      return {
-        key,
-        size: 8192,
-        contentType: "application/octet-stream",
-        etag: "mdl-current",
-        bytes: Buffer.from("#MAXMODEL ASCII\r\nnewmodel sic11_a01_07\r\nendmodel sic11_a01_07\r\n", "latin1")
-      };
-    });
-    const serviceWithGenerator = new TilesApplicationService(
-      repository,
-      processingCache,
-      undefined,
-      runtimeSettingsRepository,
-      moduleBlobStorage,
-      undefined,
-      derivedAssetGenerator
-    );
-
-    const result = await serviceWithGenerator.processTile({
-      tileId: "tile_sic11_a01_07",
-      bypassCache: false
-    });
-
-    expect(derivedAssetGenerator.generateDerivedAssets).toHaveBeenCalled();
-    expect(moduleBlobStorage.putModuleObject).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({
-        fileName: "__aurora/derived/models/sic11_a01_07.glb"
-      })
-    );
-    expect(result.tile.renderAssetContract?.modelAsset).toMatchObject({
-      objectKey: "modules/current/__aurora/derived/models/sic11_a01_07.glb",
       extension: "glb",
       sizeBytes: 4096,
       etag: "glb-v5"
@@ -708,6 +1326,69 @@ describe("TilesApplicationService", () => {
       }),
       cached.textureAtlas.objectKey
     );
+  });
+
+  it("fails closed when delivered model bytes differ from the processed contract hash", async () => {
+    const runtimeSettingsRepository = createRuntimeSettingsRepository();
+    const moduleBlobStorage = createModuleBlobStorage();
+    const serviceWithBlob = new TilesApplicationService(
+      repository,
+      processingCache,
+      undefined,
+      runtimeSettingsRepository,
+      moduleBlobStorage
+    );
+    const cacheKey = "c".repeat(64);
+    const contractedBytes = Buffer.from("contracted-model");
+    const deliveredBytes = Buffer.from("different-delivered-model");
+    const tile = {
+      ...buildTile("tile_tdc01_p11_01"),
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/vanilla/models/tdc01_p11_01.mdl",
+      sourceAssetExtension: "mdl",
+      sourceAssetSizeBytes: 109490,
+      sourceAssetOrigin: "module-snapshot" as const,
+      renderModelObjectKey:
+        "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v18-source-proven-texture-aliases/tdc01_p11_01.glb",
+      renderModelExtension: "glb" as const,
+      renderModelSizeBytes: contractedBytes.length
+    };
+    const cached = buildProcessedTileResult(tile.tileId);
+    cached.sourceAsset =
+      __tilesApplicationServiceInternals.buildTileSourceAssetContract(tile);
+    cached.renderAssetContract =
+      __tilesApplicationServiceInternals.buildTileRenderAssetContract(
+        tile,
+        cacheKey,
+        [],
+        [],
+        false,
+        {
+          objectKey: tile.renderModelObjectKey,
+          sizeBytes: contractedBytes.length,
+          contentSha256: createHash("sha256")
+            .update(contractedBytes)
+            .digest("hex"),
+          materialTextureReferences: []
+        }
+      );
+    processingCache.get.mockResolvedValue({
+      key: cacheKey,
+      value: cached,
+      storedAt: "2026-07-19T01:20:00.000Z",
+      hits: 0
+    });
+    moduleBlobStorage.getModuleObject.mockResolvedValue({
+      key: tile.renderModelObjectKey,
+      size: deliveredBytes.length,
+      contentType: "model/gltf-binary",
+      bytes: deliveredBytes
+    });
+
+    await expect(serviceWithBlob.getProcessedTileModel(cacheKey)).rejects.toMatchObject({
+      status: 409,
+      code: "TILE_MODEL_CONTENT_MISMATCH"
+    });
   });
 
   it("builds proxy tile texture delivery contract for cached tile", async () => {
@@ -1163,6 +1844,19 @@ describe("TilesApplicationService", () => {
     ]);
   });
 
+  it("reports a missing derived tile model in the module Aurora namespace", () => {
+    const tile = {
+      ...buildTile("tile_atj01_g12_04"),
+      resref: "atj01_g12_04",
+      sourceAssetObjectKey:
+        "modules/current/__aurora/sources/tiles/hak/lc_legacy_tiles/atj01_g12_04.mdl"
+    };
+
+    expect(__tilesApplicationServiceInternals.buildExpectedTileDerivedModelObjectKey(tile)).toBe(
+      "modules/current/__aurora/derived/models/atj01_g12_04.glb"
+    );
+  });
+
   it("benchmark validation fails for unknown tile ids", async () => {
     repository.findById.mockResolvedValue(null);
 
@@ -1319,7 +2013,8 @@ function buildGlbWithConverterVersion(
   bounds: { min: [number, number, number]; max: [number, number, number] } = {
     min: [-5, 0, -5],
     max: [5, 1, 5]
-  }
+  },
+  textureReferences: string[] = []
 ): Buffer {
   const json = {
     asset: {
@@ -1343,9 +2038,23 @@ function buildGlbWithConverterVersion(
         max: bounds.max
       }
     ],
+    ...(textureReferences.length > 0
+      ? {
+          materials: textureReferences.map((reference) => ({
+            name: `Aurora material ${reference}`,
+            extras: {
+              aurora: {
+                textureReference: reference,
+                textureReferences
+              }
+            }
+          }))
+        }
+      : {}),
     extras: {
       aurora: {
-        converterVersion
+        converterVersion,
+        ...(textureReferences.length > 0 ? { textureReferences } : {})
       }
     }
   };
@@ -1360,6 +2069,23 @@ function buildGlbWithConverterVersion(
   glb.writeUInt32LE(0x4e4f534a, 16);
   jsonChunk.copy(glb, 20);
   return glb;
+}
+
+function buildTextureDeliveryContract(resref: string) {
+  return {
+    textureId: `texture_${resref}`,
+    resref,
+    objectKey: `modules/current/__aurora/sources/vanilla/textures/${resref}.dds`,
+    extension: "dds",
+    contentType: "image/vnd-ms.dds",
+    sizeBytes: 43_724,
+    contentSha256: "d".repeat(64),
+    source: "vanilla" as const,
+    sourcePath: `data/${resref}.dds`,
+    deliveryPath: `/api/v1/runtime-settings/textures/texture_${resref}`,
+    deliveryUrl: `http://localhost/api/v1/runtime-settings/textures/texture_${resref}`,
+    s3Url: `s3://aurora-module-assets/modules/current/__aurora/sources/vanilla/textures/${resref}.dds`
+  };
 }
 
 function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {

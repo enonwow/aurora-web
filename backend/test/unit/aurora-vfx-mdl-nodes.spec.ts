@@ -7,6 +7,174 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("aurora MDL VFX source nodes", () => {
+  it("preserves local ASCII static-geometry transforms in the unified model graph", () => {
+    const result = parseAuroraMdlVfxSource(
+      Buffer.from(
+        [
+          "newmodel plc_geometry",
+          "beginmodelgeom plc_geometry",
+          "node dummy plc_geometry",
+          "  parent NULL",
+          "  position 4 5 6",
+          "  positionkey 2",
+          "    0 4 5 6",
+          "    1 7 8 9",
+          "  orientationkey 2",
+          "    0 0 0 1 0",
+          "    1 0 0 1 1.5708",
+          "  scalekey 2",
+          "    0 1",
+          "    1 2",
+          "endnode",
+          "node trimesh geometry_core",
+          "  parent plc_geometry",
+          "  position 1 2 3",
+          "  orientation 0 0 1 1.5708",
+          "  scale 1.5",
+          "endnode",
+          "endmodelgeom plc_geometry",
+          "newanim rise plc_geometry",
+          "  length 1",
+          "  transtime 0.25",
+          "  node dummy plc_geometry",
+          "    positionkey 2",
+          "      0 4 5 6",
+          "      1 8 5 6",
+          "  endnode",
+          "doneanim"
+        ].join("\n"),
+        "latin1"
+      )
+    );
+
+    expect(result.staticGeometryNodes).toEqual([
+      expect.objectContaining({
+        nodeName: "geometry_core",
+        parentNodeName: "plc_geometry",
+        transform: {
+          position: [1, 2, 3],
+          orientation: {
+            axis: [0, 0, 1],
+            angleRadians: 1.5708
+          },
+          scale: 1.5
+        }
+      })
+    ]);
+    expect(result.modelGraph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeKind: "transform",
+          nodeName: "plc_geometry",
+          sourceNodeKind: "dummy",
+          transform: expect.objectContaining({
+            position: [4, 5, 6],
+            positionTimeline: [
+              { time: 0, value: [4, 5, 6] },
+              { time: 1, value: [7, 8, 9] }
+            ],
+            orientationTimeline: [
+              { time: 0, value: { axis: [0, 0, 1], angleRadians: 0 } },
+              { time: 1, value: { axis: [0, 0, 1], angleRadians: 1.5708 } }
+            ],
+            scaleTimeline: [
+              { time: 0, value: 1 },
+              { time: 1, value: 2 }
+            ]
+          }),
+          animationTracks: [
+              {
+                animationName: "rise",
+                lengthSeconds: 1,
+                transitionSeconds: 0.25,
+                transform: {
+                  position: [4, 5, 6],
+                  positionTimeline: [
+                    { time: 0, value: [4, 5, 6] },
+                    { time: 1, value: [8, 5, 6] }
+                  ]
+                }
+              }
+            ]
+        }),
+        expect.objectContaining({
+          nodeKind: "static-geometry",
+          nodeName: "geometry_core",
+          transform: expect.objectContaining({ position: [1, 2, 3] })
+        })
+      ])
+    );
+  });
+
+  it.each(["renamed_mesh_a", "unrelated_geometry_q7"])(
+    "preserves identity-neutral ASCII transform and mesh-alpha animation tracks for %s",
+    (nodeName) => {
+      const result = parseAuroraMdlVfxSource(
+        Buffer.from(
+          [
+            "newmodel arbitrary_model",
+            "beginmodelgeom arbitrary_model",
+            `node trimesh ${nodeName}`,
+            "  parent arbitrary_model",
+            "  position 1 2 3",
+            "  alpha 0.8",
+            "endnode",
+            "endmodelgeom arbitrary_model",
+            "newanim arbitrary_motion arbitrary_model",
+            "  length 2",
+            "  transtime 0.25",
+            `  node trimesh ${nodeName}`,
+            "    positionkey 2",
+            "      0 1 2 9",
+            "      2 1 2 -1",
+            "    alphakey 2",
+            "      0 1",
+            "      2 0",
+            "  endnode",
+            "doneanim"
+          ].join("\n"),
+          "latin1"
+        )
+      );
+
+      expect(result.staticGeometryNodes).toHaveLength(1);
+      expect(result.staticGeometryNodes[0]).toMatchObject({
+        nodeKind: "static-geometry",
+        nodeName,
+        transform: { position: [1, 2, 3] },
+        meshMaterialState: { alpha: 0.8 },
+        animationTracks: [
+          {
+            animationName: "arbitrary_motion",
+            lengthSeconds: 2,
+            transitionSeconds: 0.25,
+            transform: {
+              position: [1, 2, 9],
+              positionTimeline: [
+                { time: 0, value: [1, 2, 9] },
+                { time: 2, value: [1, 2, -1] }
+              ]
+            }
+          }
+        ],
+        meshMaterialAnimationTracks: [
+          {
+            animationName: "arbitrary_motion",
+            lengthSeconds: 2,
+            transitionSeconds: 0.25,
+            state: {
+              alpha: 1,
+              alphaTimeline: [
+                { time: 0, value: 1 },
+                { time: 2, value: 0 }
+              ]
+            }
+          }
+        ]
+      });
+    }
+  );
+
   it("preserves ASCII emitter nodes as domain contract with raw tokens, timelines, events, and references", () => {
     const result = parseAuroraMdlVfxSource(
       Buffer.from(
@@ -55,26 +223,26 @@ describe("aurora MDL VFX source nodes", () => {
           "    0.25 12",
           "    1.00 0",
           "  fpsbezierkey 2",
-          "    0.00 4",
-          "    1.00 12",
+          "    0.00 4 0 0",
+          "    1.00 12 0 0",
           "  frameStartkey 2",
           "    0.00 4",
           "    1.00 4",
           "  frameEndbezierkey 2",
-          "    0.00 7",
-          "    1.00 7",
+          "    0.00 7 0 0",
+          "    1.00 7 0 0",
           "  xsizekey 2",
           "    0.00 0",
           "    1.00 80",
           "  ysizebezierkey 2",
-          "    0.00 0",
-          "    1.00 20",
+          "    0.00 0 0 0",
+          "    1.00 20 0 0",
           "  detonatekey 2",
           "    0.00 0",
           "    0.25 1",
           "  sizeEndbezierkey 2",
-          "    0.00 1",
-          "    1.00 4",
+          "    0.00 1 0 0",
+          "    1.00 4 0 0",
           "  colorStartkey 2",
           "    0.00 1 0 0",
           "    1.00 0 0 1",
@@ -101,6 +269,16 @@ describe("aurora MDL VFX source nodes", () => {
     expect(result.source).toBe("aurora-mdl-ascii");
     expect(result.emitters).toHaveLength(1);
     expect(result.referenceNodes).toHaveLength(1);
+    expect(result.modelGraph).toMatchObject({
+      version: "aurora-mdl-model-graph/v1",
+      sourceFormat: "aurora-mdl-ascii",
+      sourceModelObjectKey: "modules/current/models/fx_ascii.mdl",
+      sourceModelHash: "hash-ascii"
+    });
+    expect(result.modelGraph.nodes.map((node) => `${node.nodeKind}:${node.nodeName}`)).toEqual([
+      "emitter:emit_lightning",
+      "reference:ref_target"
+    ]);
 
     const emitter = result.emitters[0]!;
     expect(emitter).toMatchObject({
@@ -232,13 +410,6 @@ describe("aurora MDL VFX source nodes", () => {
             }
           }
         }
-      ],
-      events: [
-        {
-          time: 0.25,
-          type: "detonate",
-          animationName: "impact"
-        }
       ]
     });
     expect(emitter.directRows.map((row) => row.property)).toEqual(
@@ -259,18 +430,120 @@ describe("aurora MDL VFX source nodes", () => {
     expect(emitter.bezierKeyRows.map((row) => row.property)).toEqual(
       expect.arrayContaining(["fps", "frameEnd", "ySize", "sizeEnd"])
     );
-    expect(emitter.animationPasses).toEqual([
+    expect(emitter.events).toBeUndefined();
+    expect(emitter.animationPasses).toBeUndefined();
+    expect(result.animationEvents).toEqual([
+      { time: 0.25, type: "detonate", animationName: "impact" }
+    ]);
+    expect(result.modelGraph.animationEvents).toEqual(result.animationEvents);
+  });
+
+  it("preserves an authored PLT extension while keeping the normalized texture resref", () => {
+    const result = parseAuroraMdlVfxSource(
+      Buffer.from(
+        [
+          "newmodel fx_plt",
+          "beginmodelgeom fx_plt",
+          "node emitter emit_plt",
+          "  parent fx_plt",
+          "  texture robe_fx.plt",
+          "endnode",
+          "endmodelgeom fx_plt"
+        ].join("\n"),
+        "latin1"
+      )
+    );
+
+    expect(result.emitters[0]).toMatchObject({
+      texture: "robe_fx",
+      textureRaw: "robe_fx.plt"
+    });
+  });
+
+  it("preserves Aurora Bezier component triples without inventing linear keyframes", () => {
+    const result = parseAuroraMdlVfxSource(
+      Buffer.from(
+        [
+          "newmodel fx_bezier_layout",
+          "beginmodelgeom fx_bezier_layout",
+          "node emitter emit_bezier",
+          "  parent fx_bezier_layout",
+          "  positionbezierkey 2",
+          "    0 1 2 3 100 300 500 200 400 600",
+          "    1 4 5 6 110 310 510 210 410 610",
+          "endnode",
+          "endmodelgeom fx_bezier_layout"
+        ].join("\n"),
+        "latin1"
+      )
+    );
+
+    expect(result.emitters[0]?.transform?.positionTimeline).toEqual([
       {
-        animationName: "impact",
-        events: [
-          {
-            time: 0.25,
-            type: "detonate",
-            animationName: "impact"
-          }
-        ]
+        time: 0,
+        value: [1, 2, 3],
+        interpolation: "bezier",
+        bezierIncomingTangent: [100, 300, 500],
+        bezierOutgoingTangent: [200, 400, 600]
+      },
+      {
+        time: 1,
+        value: [4, 5, 6],
+        interpolation: "bezier",
+        bezierIncomingTangent: [110, 310, 510],
+        bezierOutgoingTangent: [210, 410, 610]
       }
     ]);
+    expect(result.emitters[0]?.bezierKeyRows).toEqual([
+      expect.objectContaining({ values: [0, 1, 2, 3, 100, 300, 500, 200, 400, 600] }),
+      expect.objectContaining({ values: [1, 4, 5, 6, 110, 310, 510, 210, 410, 610] })
+    ]);
+  });
+
+  it("preserves ASCII orientation Bezier rows as Aurora no-op source evidence", () => {
+    const result = parseAuroraMdlVfxSource(
+      Buffer.from(
+        [
+          "newmodel fx_orientation_bezier_layout",
+          "beginmodelgeom fx_orientation_bezier_layout",
+          "node dummy pivot",
+          "  parent fx_orientation_bezier_layout",
+          "  orientationbezierkey 2",
+          "    0 0 0 1 0 10 11 12 13 20 21 22 23",
+          "    1 0 1 0 1.5708 30 31 32 33 40 41 42 43",
+          "endnode",
+          "node emitter emit_bezier",
+          "  parent fx_orientation_bezier_layout",
+          "  orientation 0 0 1 0.25",
+          "  orientationbezierkey 2",
+          "    0 0 0 1 0 10 11 12 13 20 21 22 23",
+          "    1 0 1 0 1.5708 30 31 32 33 40 41 42 43",
+          "endnode",
+          "endmodelgeom fx_orientation_bezier_layout"
+        ].join("\n"),
+        "latin1"
+      )
+    );
+
+    expect(result.transformNodes[0]?.transform).toBeUndefined();
+    expect(result.emitters[0]?.transform).toEqual({
+      orientation: { axis: [0, 0, 1], angleRadians: 0.25 }
+    });
+    expect(result.emitters[0]?.bezierKeyRows).toEqual([
+      expect.objectContaining({
+        property: "orientation",
+        rawToken: "orientationbezierkey",
+        values: [0, 0, 0, 1, 0, 10, 11, 12, 13, 20]
+      }),
+      expect.objectContaining({
+        property: "orientation",
+        rawToken: "orientationbezierkey",
+        values: [1, 0, 1, 0, 1.5708, 30, 31, 32, 33, 40]
+      })
+    ]);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "VFX_MDL_ORIENTATION_BEZIER_AURORA_NOOP" })
+    );
   });
 
   it("preserves Aurora direct detonate scalar as an emitter controller", () => {
@@ -350,6 +623,25 @@ describe("aurora MDL VFX source nodes", () => {
     });
   });
 
+  it("normalizes ASCII renderorder through Aurora's signed 16-bit emitter field", () => {
+    const result = parseAuroraMdlVfxSource(
+      Buffer.from(
+        [
+          "newmodel fx_renderorder_short",
+          "beginmodelgeom fx_renderorder_short",
+          "node emitter emit_renderorder_short",
+          "  parent fx_renderorder_short",
+          "  renderorder 65535",
+          "endnode",
+          "endmodelgeom fx_renderorder_short"
+        ].join("\n"),
+        "latin1"
+      )
+    );
+
+    expect(result.emitters[0]?.sourceState?.renderOrder).toBe(-1);
+  });
+
   it("preserves binary emitter nodes and keyed controller rows without GLB conversion", () => {
     const result = parseAuroraMdlVfxSource(
       buildEmitterOnlyBinaryMdl("fxpa_binary", {
@@ -363,6 +655,7 @@ describe("aurora MDL VFX source nodes", () => {
         twoSidedTexture: true,
         loop: true,
         renderOrder: -3,
+        spawnType: 1,
         simulation: {
           birthrateKeyframes: [
             [0, 0],
@@ -383,7 +676,12 @@ describe("aurora MDL VFX source nodes", () => {
           {
             name: "on",
             lengthSeconds: 2,
-            birthrateValues: [10, 10]
+            birthrateTimes: [0.7, 1.2],
+            birthrateValues: [10, 10],
+            events: [
+              { time: 0, type: "detonate" },
+              { time: 0.25, type: "detonate" }
+            ]
           }
         ]
       }),
@@ -417,6 +715,7 @@ describe("aurora MDL VFX source nodes", () => {
         renderOrder: -3
       },
       simulation: {
+        spawnType: 1,
         birthrate: 0,
         lifeExp: 2,
         mass: -0.25,
@@ -446,16 +745,31 @@ describe("aurora MDL VFX source nodes", () => {
       lengthSeconds: 2,
       emitterState: {
         simulation: {
-          birthrate: 10,
-          timeline: {
-            birthrate: [
-              { time: 0, value: 10 },
-              { time: 2, value: 10 }
-            ]
-          }
+          birthrate: 10
         }
       }
     });
+    const animationBirthrateTimeline =
+      emitter.animationPasses?.[0]?.emitterState?.simulation?.timeline?.birthrate;
+    expect(animationBirthrateTimeline?.map((entry) => entry.value)).toEqual([10, 10]);
+    expect(animationBirthrateTimeline?.[0]?.time).toBeCloseTo(0.7, 6);
+    expect(animationBirthrateTimeline?.[1]?.time).toBeCloseTo(1.2, 6);
+    expect(emitter.animationPasses?.[0]?.emitterState?.simulation).not.toHaveProperty(
+      "spawnType"
+    );
+    expect(emitter.animationPasses?.[0]?.emitterState?.simulation).not.toHaveProperty(
+      "affectedByWind"
+    );
+    expect(emitter.animationPasses?.[0]?.emitterState?.simulation).not.toHaveProperty("p2p");
+    expect(emitter.animationPasses?.[0]?.emitterState?.simulation).not.toHaveProperty(
+      "p2pType"
+    );
+    expect(emitter.events).toBeUndefined();
+    expect(result.animationEvents).toEqual([
+      { time: 0, type: "detonate", animationName: "on" },
+      { time: 0.25, type: "detonate", animationName: "on" }
+    ]);
+    expect(result.modelGraph.animationEvents).toEqual(result.animationEvents);
   });
 
   it("drops nonphysical binary animation header durations before building implicit timelines", () => {
@@ -488,7 +802,72 @@ describe("aurora MDL VFX source nodes", () => {
     expect(result.emitters[0]?.animationPasses?.[0]?.lengthSeconds).toBeUndefined();
     expect(result.emitters[0]?.animationPasses?.[0]?.transitionSeconds).toBeUndefined();
     const animationPass = result.emitters[0]?.animationPasses?.[0];
-    expect(animationPass?.emitterState?.simulation?.timeline?.birthrate).toBeUndefined();
+    expect(animationPass?.emitterState?.simulation?.timeline?.birthrate).toEqual([
+      { time: 0, value: 10 },
+      { time: 1, value: 20 }
+    ]);
+  });
+
+  it("keeps row50 retail trail spawn type on the base emitter", () => {
+    const fixturePath = resolve(
+      __dirname,
+      "../../docs/aurora-reverse/evidence/vfx-nwn-broad-proof-2026-07-16/row50/sources/vim_negdeath.mdl"
+    );
+    const bytes = readFileSync(fixturePath);
+    const result = parseAuroraMdlVfxSource(bytes, {
+      sourceModelObjectKey: "proof/vfx-broad/row50/vim_negdeath.mdl",
+      sourceModelFileName: "vim_negdeath.mdl",
+      sourceModelHash: createHash("sha256").update(bytes).digest("hex")
+    });
+
+    const souldust = result.emitters.find((emitter) => emitter.nodeName === "souldust");
+    const impact = souldust?.animationPasses?.find(
+      (animation) => animation.animationName === "impact"
+    );
+    expect(souldust?.simulation?.spawnType).toBe(1);
+    expect(impact?.emitterState?.simulation).not.toHaveProperty("spawnType");
+    expect(impact?.emitterState?.simulation?.timeline?.birthrate).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ time: expect.closeTo(0.2666670083999634, 6), value: 50 }),
+        expect.objectContaining({ time: expect.closeTo(2.6333301067352295, 6), value: 0 })
+      ])
+    );
+  });
+
+  it("preserves the audited retail binary mesh descent and alpha lifecycle", () => {
+    const fixturePath = resolve(
+      __dirname,
+      "../../docs/aurora-reverse/evidence/vfx-nwn-web-row28/sources/vff_rainmeteor.mdl"
+    );
+    const bytes = readFileSync(fixturePath);
+    const result = parseAuroraMdlVfxSource(bytes);
+    const animatedMeshes = result.staticGeometryNodes.filter(
+      (node) =>
+        (node.animationTracks?.length ?? 0) > 0 ||
+        (node.meshMaterialAnimationTracks?.length ?? 0) > 0
+    );
+    const fallingBodies = animatedMeshes.filter(
+      (node) =>
+        (node.animationTracks?.[0]?.transform.positionTimeline?.length ?? 0) >= 2
+    );
+    const fadingMeshes = animatedMeshes.filter(
+      (node) =>
+        (node.meshMaterialAnimationTracks?.[0]?.state.alphaTimeline?.length ?? 0) >= 2
+    );
+
+    expect(fallingBodies).toHaveLength(6);
+    expect(fadingMeshes).toHaveLength(12);
+    fallingBodies.forEach((node) => {
+      const timeline = node.animationTracks![0]!.transform.positionTimeline!;
+      expect(node.animationTracks![0]!.animationName).toBe("impact");
+      expect(timeline[0]!.value[2]).toBeGreaterThan(timeline.at(-1)!.value[2]);
+    });
+    fadingMeshes.forEach((node) => {
+      const timeline = node.meshMaterialAnimationTracks![0]!.state.alphaTimeline!;
+      expect(node.meshMaterialAnimationTracks![0]!.animationName).toBe("impact");
+      expect(timeline[0]!.value).toBe(1);
+      expect(timeline.at(-1)!.value).toBe(0);
+    });
   });
 
   it("drops positive denormal binary animation durations before building implicit timelines", () => {
@@ -521,7 +900,10 @@ describe("aurora MDL VFX source nodes", () => {
     });
     expect(animationPass?.lengthSeconds).toBeUndefined();
     expect(animationPass?.transitionSeconds).toBeUndefined();
-    expect(animationPass?.emitterState?.simulation?.timeline?.birthrate).toBeUndefined();
+    expect(animationPass?.emitterState?.simulation?.timeline?.birthrate).toEqual([
+      { time: 0, value: 6 },
+      { time: 1, value: 3 }
+    ]);
   });
 
   it("parses the retail plc_t04 fixture with source animation gates intact", () => {
@@ -608,9 +990,9 @@ describe("aurora MDL VFX source nodes", () => {
         ?.emitterState?.directRows?.find((row) => row.property === "birthrate")?.values
     ).toEqual([5, -15]);
     result.emitters.flatMap((emitter) => emitter.animationPasses ?? []).forEach((animation) => {
-      expect(animation.lengthSeconds).toBeUndefined();
-      expect(animation.transitionSeconds).toBeUndefined();
-      expect(animation.emitterState?.simulation?.timeline?.birthrate).toBeUndefined();
+      expect(animation.lengthSeconds).toBeCloseTo(0.0333333, 6);
+      expect(animation.transitionSeconds).toBe(0);
+      expect(animation.emitterState?.simulation?.timeline?.birthrate).toHaveLength(2);
     });
 
     const rendererFixture = JSON.parse(
@@ -669,6 +1051,30 @@ describe("aurora MDL VFX source nodes", () => {
     expect(result.emitters).toHaveLength(1);
     const emitter = result.emitters[0]!;
     expect(emitter.simulation?.lightningScale).toBeCloseTo(1.75, 5);
+  });
+
+  it("maps binary emitter controllers 208/212 to lightningDelay and lightningRadius", () => {
+    const result = parseAuroraMdlVfxSource(
+      buildEmitterOnlyBinaryMdl("fxlightning_binary", {
+        emitterType: "Lightning",
+        renderMode: "Linked",
+        blendMode: "Normal",
+        simulation: {
+          lightningDelay: 0.25,
+          lightningRadius: 0.04
+        }
+      }),
+      {
+        sourceModelObjectKey: "modules/current/models/fx_lightning.mdl",
+        sourceModelFileName: "fx_lightning.mdl",
+        sourceModelHash: "hash-lightning"
+      }
+    );
+
+    expect(result.emitters).toHaveLength(1);
+    const emitter = result.emitters[0]!;
+    expect(emitter.simulation?.lightningDelay).toBeCloseTo(0.25, 5);
+    expect(emitter.simulation?.lightningRadius).toBeCloseTo(0.04, 5);
   });
 
   it("preserves binary light nodes with Aurora light controllers and flare payload", () => {
@@ -802,14 +1208,14 @@ describe("aurora MDL VFX source nodes", () => {
           "      0 3",
           "      4 10",
           "    shadowradiusbezierkey 2",
-          "      0 1.25",
-          "      4 2.5",
+          "      0 1.25 0 0",
+          "      4 2.5 0 0",
           "    verticaldisplacementkey 2",
           "      0 0.35",
           "      4 0.75",
           "    multiplierbezierkey 2",
-          "      0 2",
-          "      4 4",
+          "      0 2 0 0",
+          "      4 4 0 0",
           "  endnode",
           "doneanim",
           "endmodelgeom fx_light"
@@ -1027,7 +1433,7 @@ describe("aurora MDL VFX source nodes", () => {
       expect.objectContaining({
         token: "propagateillumination",
         sourceNodeName: "plc_light_graph",
-        sourceNodeKind: "other",
+        sourceNodeKind: "transform",
         proofStatus: "source-only-model-graph-propagation-no-render-policy"
       })
     ]);
@@ -1071,11 +1477,14 @@ function buildEmitterOnlyBinaryMdl(
     twoSidedTexture?: boolean;
     loop?: boolean;
     renderOrder?: number;
+    spawnType?: number;
     simulation?: {
       birthrateKeyframes?: number[][];
       colorStartKeyframes?: number[][];
       lifeExp?: number;
       mass?: number;
+      lightningDelay?: number;
+      lightningRadius?: number;
       lightningScale?: number;
       p2p?: boolean;
       p2pBezier?: boolean;
@@ -1085,7 +1494,9 @@ function buildEmitterOnlyBinaryMdl(
       name: string;
       lengthSeconds?: number;
       transitionSeconds?: number;
+      birthrateTimes?: number[];
       birthrateValues?: number[];
+      events?: Array<{ time: number; type: string }>;
     }>;
   } = {}
 ): Buffer {
@@ -1138,6 +1549,9 @@ function buildEmitterOnlyBinaryMdl(
   if (options.renderOrder !== undefined) {
     bytes.writeInt16LE(options.renderOrder, rootAbsOffset + 0x140);
   }
+  if (options.spawnType !== undefined) {
+    bytes.writeUInt32LE(options.spawnType, rootAbsOffset + 0x84);
+  }
   writeCString(bytes, rootAbsOffset + 232, 64, textureName);
 
   const controllerKeysOffset = 620;
@@ -1145,16 +1559,29 @@ function buildEmitterOnlyBinaryMdl(
   let controllerCount = 0;
   let dataCount = 0;
   const writeControllerRows = (type: number, rows: number[][]): void => {
-    const columns = rows[0]?.length ?? 0;
-    if (rows.length === 0 || columns === 0 || rows.some((row) => row.length !== columns)) {
+    const hasExplicitTimes =
+      rows.length > 1 || rows[0]?.length === 2 || rows[0]?.length === 4;
+    const keyTimes = rows.map((row) => (hasExplicitTimes ? row[0]! : 0));
+    const valueRows = rows.map((row) => (hasExplicitTimes ? row.slice(1) : row));
+    const columns = valueRows[0]?.length ?? 0;
+    if (
+      rows.length === 0 ||
+      columns === 0 ||
+      valueRows.some((row) => row.length !== columns)
+    ) {
       return;
     }
     const keyAbsOffset = 12 + controllerKeysOffset + controllerCount * 12;
     bytes.writeUInt32LE(type, keyAbsOffset);
     bytes.writeUInt16LE(rows.length, keyAbsOffset + 4);
+    bytes.writeUInt16LE(dataCount, keyAbsOffset + 6);
+    keyTimes.forEach((time, row) => {
+      bytes.writeFloatLE(time, 12 + controllerDataOffset + (dataCount + row) * 4);
+    });
+    dataCount += rows.length;
     bytes.writeUInt16LE(dataCount, keyAbsOffset + 8);
     bytes.writeUInt8(columns, keyAbsOffset + 10);
-    rows.forEach((rowValues, row) => {
+    valueRows.forEach((rowValues, row) => {
       rowValues.forEach((value, index) => {
         bytes.writeFloatLE(
           value,
@@ -1163,7 +1590,7 @@ function buildEmitterOnlyBinaryMdl(
       });
     });
     controllerCount += 1;
-    dataCount += columns * rows.length;
+    dataCount += columns * valueRows.length;
   };
   const writeNumberController = (type: number, value: number | undefined): void => {
     if (value !== undefined) {
@@ -1180,6 +1607,8 @@ function buildEmitterOnlyBinaryMdl(
   }
   writeNumberController(144, options.simulation?.lifeExp);
   writeNumberController(148, options.simulation?.mass);
+  writeNumberController(208, options.simulation?.lightningDelay);
+  writeNumberController(212, options.simulation?.lightningRadius);
   writeNumberController(216, options.simulation?.lightningScale);
   if (controllerCount > 0 && dataCount > 0) {
     bytes.writeUInt32LE(controllerKeysOffset, rootAbsOffset + 84);
@@ -1198,7 +1627,8 @@ function buildEmitterOnlyBinaryMdl(
     options.animations.forEach((animation, index) => {
       const animationOffset = animationBlockStartOffset + index * animationBlockSize;
       const animationAbsOffset = 12 + animationOffset;
-      const animationNodeOffset = animationOffset + 160;
+      const animationEventDataOffset = animationOffset + 196;
+      const animationNodeOffset = animationOffset + 300;
       const animationNodeAbsOffset = 12 + animationNodeOffset;
       const animationControllerKeysOffset = animationNodeOffset + 360;
       const animationControllerDataOffset = animationControllerKeysOffset + 160;
@@ -1206,22 +1636,58 @@ function buildEmitterOnlyBinaryMdl(
       let animationDataCount = 0;
 
       bytes.writeUInt32LE(animationOffset, 12 + animationArrayOffset + index * 4);
-      bytes.writeFloatLE(animation.lengthSeconds ?? 2, animationAbsOffset);
-      bytes.writeFloatLE(animation.transitionSeconds ?? 0, animationAbsOffset + 4);
       writeCString(bytes, animationAbsOffset + 8, 64, animation.name);
       bytes.writeUInt32LE(animationNodeOffset, animationAbsOffset + 72);
       bytes.writeUInt32LE(11, animationAbsOffset + 76);
+      bytes.writeFloatLE(animation.lengthSeconds ?? 2, animationAbsOffset + 0x70);
+      bytes.writeFloatLE(animation.transitionSeconds ?? 0, animationAbsOffset + 0x74);
+      writeCString(bytes, animationAbsOffset + 0x78, 64, "emit_smoke");
+      if (animation.events && animation.events.length > 0) {
+        bytes.writeUInt32LE(animationEventDataOffset, animationAbsOffset + 0xb8);
+        bytes.writeUInt32LE(animation.events.length, animationAbsOffset + 0xbc);
+        bytes.writeUInt32LE(animation.events.length, animationAbsOffset + 0xc0);
+        animation.events.forEach((event, eventIndex) => {
+          const eventAbsOffset = 12 + animationEventDataOffset + eventIndex * 0x24;
+          bytes.writeFloatLE(event.time, eventAbsOffset);
+          writeCString(bytes, eventAbsOffset + 4, 32, event.type);
+        });
+      }
       writeCString(bytes, animationNodeAbsOffset + 32, 32, "emit_smoke");
       bytes.writeUInt32LE(0x0004, animationNodeAbsOffset + 108);
 
-      const writeAnimationScalarController = (type: number, values?: number[]): void => {
+      const writeAnimationScalarController = (
+        type: number,
+        values?: number[],
+        times?: number[]
+      ): void => {
         if (!values || values.length === 0) {
           return;
         }
+        const keyTimes =
+          times?.length === values.length
+            ? times
+            : values.map((_, valueIndex) => {
+                const duration = animation.lengthSeconds;
+                return typeof duration === "number" &&
+                  Number.isFinite(duration) &&
+                  duration >= 1e-6 &&
+                  duration <= 24 * 60 * 60 &&
+                  values.length > 1
+                  ? (duration * valueIndex) / (values.length - 1)
+                  : valueIndex;
+              });
         const keyAbsOffset =
           12 + animationControllerKeysOffset + animationControllerCount * 12;
         bytes.writeUInt32LE(type, keyAbsOffset);
         bytes.writeUInt16LE(values.length, keyAbsOffset + 4);
+        bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 6);
+        keyTimes.forEach((time, valueIndex) => {
+          bytes.writeFloatLE(
+            time,
+            12 + animationControllerDataOffset + (animationDataCount + valueIndex) * 4
+          );
+        });
+        animationDataCount += values.length;
         bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 8);
         bytes.writeUInt8(1, keyAbsOffset + 10);
         values.forEach((value, valueIndex) => {
@@ -1234,7 +1700,11 @@ function buildEmitterOnlyBinaryMdl(
         animationDataCount += values.length;
       };
 
-      writeAnimationScalarController(88, animation.birthrateValues);
+      writeAnimationScalarController(
+        88,
+        animation.birthrateValues,
+        animation.birthrateTimes
+      );
       if (animationControllerCount > 0 && animationDataCount > 0) {
         bytes.writeUInt32LE(animationControllerKeysOffset, animationNodeAbsOffset + 84);
         bytes.writeUInt32LE(animationControllerCount, animationNodeAbsOffset + 88);
@@ -1281,6 +1751,11 @@ function buildLightOnlyBinaryMdl(): Buffer {
     const keyAbsOffset = 12 + controllerKeysOffset + controllerCount * 12;
     bytes.writeUInt32LE(type, keyAbsOffset);
     bytes.writeUInt16LE(rows.length, keyAbsOffset + 4);
+    bytes.writeUInt16LE(dataCount, keyAbsOffset + 6);
+    rows.forEach((_, row) => {
+      bytes.writeFloatLE(0, 12 + controllerDataOffset + (dataCount + row) * 4);
+    });
+    dataCount += rows.length;
     bytes.writeUInt16LE(dataCount, keyAbsOffset + 8);
     bytes.writeUInt8(columns, keyAbsOffset + 10);
     rows.forEach((rowValues, row) => {
@@ -1353,26 +1828,41 @@ function buildLightOnlyBinaryMdl(): Buffer {
   bytes.writeUInt32LE(animationArrayOffset, 12 + 120);
   bytes.writeUInt32LE(1, 12 + 124);
   bytes.writeUInt32LE(animationOffset, 12 + animationArrayOffset);
-  bytes.writeFloatLE(4, animationAbsOffset);
-  bytes.writeFloatLE(0.25, animationAbsOffset + 4);
   writeCString(bytes, animationAbsOffset + 8, 64, "default");
   bytes.writeUInt32LE(animationNodeOffset, animationAbsOffset + 72);
   bytes.writeUInt32LE(11, animationAbsOffset + 76);
+  bytes.writeFloatLE(4, animationAbsOffset + 0x70);
+  bytes.writeFloatLE(0.25, animationAbsOffset + 0x74);
+  writeCString(bytes, animationAbsOffset + 0x78, 64, "aur_light01");
   writeCString(bytes, animationNodeAbsOffset + 32, 32, "aur_light01");
   bytes.writeUInt32LE(0x0002, animationNodeAbsOffset + 108);
 
   const writeAnimationControllerRows = (type: number, rows: number[][]): void => {
-    const columns = rows[0]?.length ?? 0;
-    if (rows.length === 0 || columns === 0 || rows.some((row) => row.length !== columns)) {
+    const keyTimes = rows.map((row) => row[0]!);
+    const valueRows = rows.map((row) => row.slice(1));
+    const columns = valueRows[0]?.length ?? 0;
+    if (
+      rows.length === 0 ||
+      columns === 0 ||
+      valueRows.some((row) => row.length !== columns)
+    ) {
       return;
     }
     const keyAbsOffset =
       12 + animationControllerKeysOffset + animationControllerCount * 12;
     bytes.writeUInt32LE(type, keyAbsOffset);
     bytes.writeUInt16LE(rows.length, keyAbsOffset + 4);
+    bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 6);
+    keyTimes.forEach((time, row) => {
+      bytes.writeFloatLE(
+        time,
+        12 + animationControllerDataOffset + (animationDataCount + row) * 4
+      );
+    });
+    animationDataCount += rows.length;
     bytes.writeUInt16LE(animationDataCount, keyAbsOffset + 8);
     bytes.writeUInt8(columns, keyAbsOffset + 10);
-    rows.forEach((rowValues, row) => {
+    valueRows.forEach((rowValues, row) => {
       rowValues.forEach((value, index) => {
         bytes.writeFloatLE(
           value,
@@ -1381,7 +1871,7 @@ function buildLightOnlyBinaryMdl(): Buffer {
       });
     });
     animationControllerCount += 1;
-    animationDataCount += columns * rows.length;
+    animationDataCount += columns * valueRows.length;
   };
 
   writeAnimationControllerRows(8, [

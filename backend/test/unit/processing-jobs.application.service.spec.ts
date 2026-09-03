@@ -7,6 +7,8 @@ import { MemoryProcessingJobsRepository } from "../../src/modules/processing-job
 import type { ProcessingJobsPublisherPort } from "../../src/modules/processing-jobs/application/ports/processing-jobs-publisher.port";
 import { ProcessingJobsApplicationService } from "../../src/modules/processing-jobs/application/processing-jobs.application.service";
 import type { ProcessingJobRecord } from "../../src/modules/processing-jobs/domain/processing-job.types";
+import { MemorySystemMaintenanceRepository } from "../../src/modules/system-maintenance/adapters/outbound/memory/memory-system-maintenance.repository";
+import { SystemMaintenanceApplicationService } from "../../src/modules/system-maintenance/application/system-maintenance.application.service";
 
 describe("ProcessingJobsApplicationService", () => {
   let catalogService: jest.Mocked<CatalogApplicationService>;
@@ -14,6 +16,7 @@ describe("ProcessingJobsApplicationService", () => {
   let vfxService: jest.Mocked<VfxApplicationService>;
   let publisher: jest.Mocked<ProcessingJobsPublisherPort>;
   let repository: MemoryProcessingJobsRepository;
+  let maintenance: SystemMaintenanceApplicationService;
   let service: ProcessingJobsApplicationService;
 
   beforeEach(async () => {
@@ -53,11 +56,15 @@ describe("ProcessingJobsApplicationService", () => {
     };
 
     repository = new MemoryProcessingJobsRepository();
+    maintenance = new SystemMaintenanceApplicationService(
+      new MemorySystemMaintenanceRepository()
+    );
     service = new ProcessingJobsApplicationService(
       catalogService,
       areasService,
       vfxService,
       buildConfig({ processingJobsInlineEnabled: true, processingJobsMaxAttempts: 2 }),
+      maintenance,
       repository,
       publisher
     );
@@ -233,6 +240,7 @@ describe("ProcessingJobsApplicationService", () => {
       areasService,
       vfxService,
       buildConfig({ processingJobsInlineEnabled: false }),
+      maintenance,
       new MemoryProcessingJobsRepository(),
       publisher
     );
@@ -261,6 +269,7 @@ describe("ProcessingJobsApplicationService", () => {
       areasService,
       vfxService,
       buildConfig({ processingJobsInlineEnabled: false }),
+      maintenance,
       new MemoryProcessingJobsRepository(),
       publisher
     );

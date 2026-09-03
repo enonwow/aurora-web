@@ -45,10 +45,12 @@ describe("MemoryPlaceableProcessingCacheRepository", () => {
 
     const firstHit = await repository.get("hot-key");
     expect(firstHit?.hits).toBe(1);
+    expect(firstHit?.retained).toBe(true);
 
     jest.advanceTimersByTime(700);
     const secondHit = await repository.get("hot-key");
     expect(secondHit?.hits).toBe(2);
+    expect(secondHit?.retained).toBe(true);
   });
 
   it("skips storing oversized entries", async () => {
@@ -56,10 +58,11 @@ describe("MemoryPlaceableProcessingCacheRepository", () => {
       createConfig(2000, 900, 32)
     );
 
-    await repository.set("big-key", {
+    const admission = await repository.set("big-key", {
       value: "x".repeat(512)
     });
 
+    expect(admission.retained).toBe(false);
     expect(await repository.get("big-key")).toBeNull();
   });
 
@@ -68,10 +71,11 @@ describe("MemoryPlaceableProcessingCacheRepository", () => {
       createConfig(2000, 900, 32, true)
     );
 
-    await repository.set("large-creature-key", {
+    const admission = await repository.set("large-creature-key", {
       value: "x".repeat(512)
     });
 
+    expect(admission.retained).toBe(true);
     expect(await repository.get("large-creature-key")).toMatchObject({
       value: {
         value: expect.stringMatching(/^x+$/u)

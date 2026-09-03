@@ -155,7 +155,164 @@ describe("create-area-lighting-pixel-diff-artifacts", () => {
       })
     );
   });
+
+  it("accepts a settled same-camera placeable-lighting OFF/ON pair as functional ablation only", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "aurora-placeable-light-ablation-"));
+    const artifactDir = "backend/docs/aurora-reverse/artifacts/placeable-lighting";
+    const absoluteArtifactDir = join(tempRoot, artifactDir);
+    await mkdir(absoluteArtifactDir, { recursive: true });
+
+    await writeFile(
+      join(absoluteArtifactDir, "pointlight-off.png"),
+      makePngRgba(4, 4, [20, 20, 20, 255])
+    );
+    await writeFile(
+      join(absoluteArtifactDir, "pointlight-on.png"),
+      makePngRgba(4, 4, [80, 60, 20, 255])
+    );
+    await writeFile(
+      join(absoluteArtifactDir, "pointlight-off.frame.json"),
+      JSON.stringify(makePlaceableLightingFrame(false))
+    );
+    await writeFile(
+      join(absoluteArtifactDir, "pointlight-on.frame.json"),
+      JSON.stringify(makePlaceableLightingFrame(true))
+    );
+
+    const { stdout } = await execFileAsync(
+      "node",
+      [
+        scriptPath,
+        "--repoRoot",
+        tempRoot,
+        "--artifactDir",
+        artifactDir,
+        "--mode",
+        "placeable-lighting-off-on-ablation",
+        "--off",
+        "pointlight-off.png",
+        "--on",
+        "pointlight-on.png",
+        "--offFrame",
+        "pointlight-off.frame.json",
+        "--onFrame",
+        "pointlight-on.frame.json",
+        "--diff",
+        "pointlight-off-on-diff.png",
+        "--comparison",
+        "pointlight-off-on-comparison.png",
+        "--cropComparison",
+        "pointlight-off-on-crop-comparison.png",
+        "--cropScale",
+        "2",
+        "--cropMargin",
+        "0",
+        "--out",
+        "pointlight-off-on-report.json",
+        "--sampleWidth",
+        "4",
+        "--sampleHeight",
+        "4"
+      ],
+      { maxBuffer: 1024 * 1024 }
+    );
+
+    const cli = JSON.parse(stdout);
+    const report = JSON.parse(
+      await readFile(join(absoluteArtifactDir, "pointlight-off-on-report.json"), "utf8")
+    );
+
+    expect(cli).toMatchObject({
+      status: "functional-ablation-delta-observed-retail-parity-unpromoted",
+      summary: { caseCount: 1, passedCaseCount: 1 }
+    });
+    expect(report).toMatchObject({
+      passed: true,
+      canonicalParityPromoted: false,
+      status: "functional-ablation-delta-observed-retail-parity-unpromoted"
+    });
+    expect(report.cases[0]).toMatchObject({
+      status: "functional-ablation-delta-observed-retail-parity-unpromoted",
+      passed: true,
+      canonicalParityPromoted: false,
+      pairValidation: {
+        passed: true,
+        sameCamera: true,
+        sameViewport: true,
+        sameSceneIdentity: true,
+        offPointLightCount: 0,
+        onPointLightCount: 1
+      },
+      metric: {
+        changedSampleRatioGt5: 1
+      },
+      comparison: expect.objectContaining({
+        name: "pointlight-off-on-comparison.png",
+        width: 8,
+        height: 4
+      }),
+      cropComparison: expect.objectContaining({
+        name: "pointlight-off-on-crop-comparison.png",
+        width: 16,
+        height: 8,
+        scale: 2
+      })
+    });
+    const comparison = await readFile(
+      join(absoluteArtifactDir, "pointlight-off-on-comparison.png")
+    );
+    expect(comparison.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+  });
 });
+
+function makePlaceableLightingFrame(pointLight: boolean) {
+  const route = new URL("http://127.0.0.1:5173/dev/area-light-shadow-preview");
+  route.searchParams.set("areaId", "area__winds_study");
+  route.searchParams.set("lightingReceiver", "area");
+  route.searchParams.set("lightingPointLight", String(pointLight));
+  route.searchParams.set("lightingHalo", "false");
+  route.searchParams.set("lightingVfx", "false");
+  route.searchParams.set("lightingShadow", "false");
+  route.searchParams.set("lightingPostprocess", "false");
+  return {
+    accepted: false,
+    captureIntegrityAccepted: true,
+    retailParityAccepted: false,
+    finalRoute: route.toString(),
+    requestedViewport: { width: 4, height: 4, deviceScaleFactor: 1 },
+    proofGateReport: {
+      identity: {
+        status: "ready",
+        frontend: { commit: "same-build" },
+        backend: { commit: "same-build" },
+        contractVersion: "1.0.0",
+        cacheKey: "area__winds_study:same-cache"
+      }
+    },
+    domStatus: {
+      placeableLightingProof: {
+        profile: {
+          receiver: "area",
+          pointLight,
+          halo: false,
+          vfx: false,
+          shadow: false,
+          postprocess: false
+        },
+        status: pointLight ? "eligible_for_off_on_ablation" : "blocked",
+        blockerCodes: pointLight ? [] : ["APL-PROOF-POINT-LIGHT-DISABLED"],
+        facts: {
+          assetSettlementStatus: "settled",
+          pointLightCount: pointLight ? 1 : 0
+        }
+      },
+      areaFrameJson: {
+        cameraPosition: [2.3, 1.9, 2.3],
+        injectedCampfirePosition: [1, 1, 0.5]
+      }
+    }
+  };
+}
 
 function makePngRgba(width: number, height: number, rgba: [number, number, number, number]) {
   const raw = Buffer.alloc((width * 4 + 1) * height);

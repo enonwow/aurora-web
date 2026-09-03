@@ -1,0 +1,202 @@
+import { createHash } from "node:crypto";
+import {
+  buildGffBuffer,
+  type SupportedGffField,
+} from "../../src/modules/catalog/adapters/outbound/blob/aurora-gff-uti-writer";
+
+const SOURCE_SKILL_RANKS = Object.freeze([
+  0, 0, 0, 0, 0, 0, 2, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 2, 0, 0,
+] as const);
+
+export function creatureBlueprintFixture(): Buffer {
+  return buildGffBuffer(creatureBlueprintFields(), "UTC ", 0xffffffff);
+}
+
+export function creatureAdditionFixture(
+  transform: Readonly<{ x: number; y: number; z: number; bearing: number }> = {
+    x: 1.5,
+    y: 2.25,
+    z: 0.1,
+    bearing: Math.PI / 4,
+  },
+) {
+  const blueprintBytes = creatureBlueprintFixture();
+  return {
+    kind: "creature" as const,
+    localObjectId: "cre_001",
+    sourceProfileId: "nwn-base-key-utc-nw-chicken-v1",
+    templateResRef: "nw_chicken",
+    resRef: "nw_chicken",
+    tag: "NW_CHICKEN",
+    sourceSha256: createHash("sha256").update(blueprintBytes).digest("hex"),
+    blueprintBytes,
+    ...transform,
+  };
+}
+
+export function expectedCreatureGitFields(
+  transform: Readonly<{ x: number; y: number; z: number; bearing: number }>,
+): SupportedGffField[] {
+  const source = new Map(creatureBlueprintFields().map((field) => [field.label, field]));
+  const field = (label: string): SupportedGffField => ({ ...source.get(label)! } as SupportedGffField);
+  const skillList = field("SkillList");
+  if (skillList.type !== "list") throw new Error("invalid creature fixture SkillList");
+  return [
+    { label: "XPosition", type: "float", value: Math.fround(transform.x * 10) },
+    { label: "YPosition", type: "float", value: Math.fround(transform.y * 10) },
+    { label: "ZPosition", type: "float", value: Math.fround(transform.z * 10) },
+    { label: "XOrientation", type: "float", value: Math.fround(Math.cos(transform.bearing)) },
+    { label: "YOrientation", type: "float", value: Math.fround(-Math.sin(transform.bearing)) },
+    field("TemplateResRef"),
+    field("Race"),
+    field("FirstName"),
+    field("LastName"),
+    field("Appearance_Type"),
+    field("Gender"),
+    field("Phenotype"),
+    field("PortraitId"),
+    field("Description"),
+    field("Tag"),
+    field("Conversation"),
+    field("IsPC"),
+    field("FactionID"),
+    field("Disarmable"),
+    field("Subrace"),
+    field("Deity"),
+    { label: "Wings_New", type: "dword", value: 0 },
+    { label: "Tail_New", type: "dword", value: 0 },
+    field("SoundSetFile"),
+    field("Plot"),
+    { label: "IsImmortal", type: "byte", value: 0 },
+    field("Interruptable"),
+    { label: "Lootable", type: "byte", value: 0 },
+    field("NoPermDeath"),
+    field("BodyBag"),
+    { label: "StartingPackage", type: "byte", value: 0 },
+    { label: "DecayTime", type: "dword", value: 0 },
+    field("Str"),
+    field("Dex"),
+    field("Con"),
+    field("Int"),
+    field("Wis"),
+    field("Cha"),
+    field("WalkRate"),
+    field("NaturalAC"),
+    field("HitPoints"),
+    field("CurrentHitPoints"),
+    { label: "MaxHitPoints", type: "short", value: 4 },
+    field("refbonus"),
+    field("willbonus"),
+    field("fortbonus"),
+    field("GoodEvil"),
+    field("LawfulChaotic"),
+    field("ChallengeRating"),
+    field("CRAdjust"),
+    field("PerceptionRange"),
+    field("ScriptHeartbeat"),
+    field("ScriptOnNotice"),
+    field("ScriptSpellAt"),
+    field("ScriptAttacked"),
+    field("ScriptDamaged"),
+    field("ScriptDisturbed"),
+    field("ScriptEndRound"),
+    field("ScriptDialogue"),
+    field("ScriptSpawn"),
+    field("ScriptRested"),
+    field("ScriptDeath"),
+    field("ScriptUserDefine"),
+    field("ScriptOnBlocked"),
+    {
+      label: "SkillList",
+      type: "list",
+      value: [
+        ...skillList.value,
+        ...Array.from({ length: 8 }, () => ({
+          typeId: 0,
+          fields: [{ label: "Rank", type: "byte" as const, value: 0 }],
+        })),
+      ],
+    },
+    field("FeatList"),
+    field("TemplateList"),
+    field("SpecAbilityList"),
+    field("ClassList"),
+    field("Equip_ItemList"),
+  ];
+}
+
+export function creatureBlueprintFields(): SupportedGffField[] {
+  const skillList = SOURCE_SKILL_RANKS.map((value) => ({
+    typeId: 0,
+    fields: [{ label: "Rank", type: "byte" as const, value }],
+  }));
+  return [
+    { label: "Deity", type: "cexostring", value: "" },
+    { label: "PerceptionRange", type: "byte", value: 11 },
+    { label: "Int", type: "byte", value: 3 },
+    { label: "NaturalAC", type: "byte", value: 0 },
+    { label: "SkillList", type: "list", value: skillList },
+    { label: "ScriptOnBlocked", type: "resref", value: "nw_c2_defaulte" },
+    { label: "Tag", type: "cexostring", value: "NW_CHICKEN" },
+    { label: "NoPermDeath", type: "byte", value: 0 },
+    { label: "Plot", type: "byte", value: 0 },
+    { label: "Wis", type: "byte", value: 8 },
+    { label: "fortbonus", type: "short", value: 0 },
+    { label: "FeatList", type: "list", value: [{ typeId: 1, fields: [{ label: "Feat", type: "word", value: 289 }] }] },
+    { label: "ScriptAttacked", type: "resref", value: "nw_c2_default5" },
+    { label: "PortraitId", type: "word", value: 168 },
+    { label: "FirstName", type: "cexolocstring", value: { strRef: 12416, entries: [] } },
+    { label: "Appearance_Type", type: "word", value: 31 },
+    { label: "Wings", type: "byte", value: 0 },
+    { label: "TemplateList", type: "list", value: [] },
+    { label: "FactionID", type: "word", value: 2 },
+    { label: "Description", type: "cexolocstring", value: { strRef: 12415, entries: [] } },
+    { label: "SpecAbilityList", type: "list", value: [] },
+    { label: "Equip_ItemList", type: "list", value: [] },
+    { label: "Comment", type: "cexostring", value: "" },
+    { label: "TemplateResRef", type: "resref", value: "nw_chicken" },
+    { label: "Interruptable", type: "byte", value: 1 },
+    { label: "PaletteID", type: "byte", value: 6 },
+    { label: "Str", type: "byte", value: 3 },
+    { label: "ScriptUserDefine", type: "resref", value: "nw_c2_defaultd" },
+    { label: "ScriptSpellAt", type: "resref", value: "nw_c2_defaultb" },
+    { label: "ScriptDisturbed", type: "resref", value: "nw_c2_default8" },
+    { label: "ScriptDamaged", type: "resref", value: "nw_c2_default6" },
+    { label: "ScriptRested", type: "resref", value: "nw_c2_defaulta" },
+    { label: "GoodEvil", type: "byte", value: 50 },
+    { label: "ClassList", type: "list", value: [{ typeId: 2, fields: [
+      { label: "Class", type: "int", value: 12 },
+      { label: "ClassLevel", type: "short", value: 1 },
+    ] }] },
+    { label: "Phenotype", type: "int", value: 0 },
+    { label: "WalkRate", type: "int", value: 7 },
+    { label: "MaxHitPoints", type: "short", value: 6 },
+    { label: "ChallengeRating", type: "float", value: 0.25 },
+    { label: "BodyBag", type: "byte", value: 0 },
+    { label: "HitPoints", type: "short", value: 5 },
+    { label: "LawfulChaotic", type: "byte", value: 50 },
+    { label: "ScriptEndRound", type: "resref", value: "nw_c2_default3" },
+    { label: "ScriptSpawn", type: "resref", value: "nw_c2_herbivore" },
+    { label: "Race", type: "byte", value: 8 },
+    { label: "IsPC", type: "byte", value: 0 },
+    { label: "Subrace", type: "cexostring", value: "" },
+    { label: "ScriptDeath", type: "resref", value: "nw_c2_default7" },
+    { label: "LastName", type: "cexolocstring", value: { strRef: 0xffffffff, entries: [] } },
+    { label: "Con", type: "byte", value: 8 },
+    { label: "Dex", type: "byte", value: 7 },
+    { label: "ScriptOnNotice", type: "resref", value: "nw_c2_default2" },
+    { label: "CRAdjust", type: "int", value: 0 },
+    { label: "ScriptHeartbeat", type: "resref", value: "nw_c2_default1" },
+    { label: "Conversation", type: "resref", value: "" },
+    { label: "ScriptDialogue", type: "resref", value: "nw_c2_default4" },
+    { label: "Gender", type: "byte", value: 1 },
+    { label: "willbonus", type: "short", value: 0 },
+    { label: "Cha", type: "byte", value: 6 },
+    { label: "Tail", type: "byte", value: 0 },
+    { label: "SoundSetFile", type: "word", value: 21 },
+    { label: "CurrentHitPoints", type: "short", value: 5 },
+    { label: "refbonus", type: "short", value: 0 },
+    { label: "Disarmable", type: "byte", value: 0 },
+  ];
+}

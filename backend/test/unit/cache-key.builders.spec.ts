@@ -7,7 +7,10 @@ import {
   ITEM_TEMPLATE_RENDER_FINGERPRINT
 } from "../../src/modules/catalog/domain/cache-key.builders";
 import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
-import { buildTileProcessCacheKey } from "../../src/modules/tiles/domain/tile-processing.builders";
+import {
+  buildTileProcessCacheKey,
+  TILE_PROCESS_CONTRACT_FINGERPRINT
+} from "../../src/modules/tiles/domain/tile-processing.builders";
 import type { TileRecord } from "../../src/modules/tiles/domain/tile.types";
 
 describe("cache key builders", () => {
@@ -21,7 +24,7 @@ describe("cache key builders", () => {
     const expected = createHash("sha256")
       .update(
         [
-          "placeable-process/v7",
+          "placeable-process/v8",
           AURORA_MDL_TO_GLB_CONVERTER_VERSION,
           "plc_nw2barrel4",
           "nw2barrel4",
@@ -65,6 +68,9 @@ describe("cache key builders", () => {
   });
 
   it("includes the Aurora MDL converter version in tile process cache keys", () => {
+    expect(TILE_PROCESS_CONTRACT_FINGERPRINT).toBe(
+      "tile-process/v18-numbered-mtr-diffuse-family"
+    );
     const tile: TileRecord = {
       tileId: "tile_sic11_f03_01",
       resref: "sic11_f03_01",
@@ -99,7 +105,7 @@ describe("cache key builders", () => {
     };
     const expected = createHash("sha256")
       .update(
-        `tile-process/v13|${AURORA_MDL_TO_GLB_CONVERTER_VERSION}|tile_sic11_f03_01|sic11_f03_01|sic11|f03_01|atlas_sic11_v1|modules/current/tiles/atlases/atlas_sic11_v1.webp|image/webp|262144|atlas-sic11-v1|static:atlas:sic11|modules/current/__aurora/sources/hak/_sic11/sic11_f03_01.mdl|mdl|1024|mdl-v1|module-snapshot|modules/current/__aurora/derived/models/sic11_f03_01.glb|glb|2048|glb-v1|walkable`
+        `${TILE_PROCESS_CONTRACT_FINGERPRINT}|${AURORA_MDL_TO_GLB_CONVERTER_VERSION}|tile_sic11_f03_01|sic11_f03_01|sic11|f03_01|atlas_sic11_v1|modules/current/tiles/atlases/atlas_sic11_v1.webp|image/webp|262144|atlas-sic11-v1|static:atlas:sic11|modules/current/__aurora/sources/hak/_sic11/sic11_f03_01.mdl|mdl|1024|mdl-v1|module-snapshot|modules/current/__aurora/derived/models/sic11_f03_01.glb|glb|2048|glb-v1|walkable`
       );
     expected.update("|10|2|0");
     expected.update("|interior");

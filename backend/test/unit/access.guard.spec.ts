@@ -8,10 +8,12 @@ import { AccessGuard } from "../../src/modules/auth/adapters/inbound/http/access
 import { IS_PUBLIC_KEY } from "../../src/modules/auth/adapters/inbound/http/public.decorator";
 import { PERMISSIONS_KEY } from "../../src/modules/auth/adapters/inbound/http/permissions.decorator";
 import { ROLES_KEY } from "../../src/modules/auth/adapters/inbound/http/roles.decorator";
+import { SystemMaintenanceApplicationService } from "../../src/modules/system-maintenance/application/system-maintenance.application.service";
 
 describe("AccessGuard", () => {
   let reflector: Reflector;
   let authService: jest.Mocked<AuthApplicationService>;
+  let maintenance: jest.Mocked<SystemMaintenanceApplicationService>;
   let guard: AccessGuard;
 
   beforeEach(() => {
@@ -22,8 +24,11 @@ describe("AccessGuard", () => {
     authService = {
       resolveSession: jest.fn()
     } as unknown as jest.Mocked<AuthApplicationService>;
+    maintenance = {
+      assertRequestAllowed: jest.fn()
+    } as unknown as jest.Mocked<SystemMaintenanceApplicationService>;
 
-    guard = new AccessGuard(reflector, authService);
+    guard = new AccessGuard(reflector, authService, maintenance);
   });
 
   afterEach(() => {

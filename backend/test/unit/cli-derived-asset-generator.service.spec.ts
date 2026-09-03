@@ -3,6 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CliDerivedAssetGeneratorService } from "../../src/modules/runtime-settings/adapters/outbound/derived/cli-derived-asset-generator.service";
 import type { AppConfigService } from "../../src/common/config/app-config.service";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
+
+const DERIVED_MODEL_VERSION_SEGMENT = AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+  /[^a-zA-Z0-9._-]+/gu,
+  "_"
+);
+const DERIVED_MODEL_ROOT = `__aurora/derived/models/${DERIVED_MODEL_VERSION_SEGMENT}`;
 
 describe("CliDerivedAssetGeneratorService", () => {
   it("uses the in-process Aurora MDL converter when no converter command is configured", async () => {
@@ -33,7 +40,7 @@ describe("CliDerivedAssetGeneratorService", () => {
 
     expect(result.files).toHaveLength(1);
     expect(result.files[0]).toMatchObject({
-      fileName: "__aurora/derived/models/plc_city_gate.glb",
+      fileName: `${DERIVED_MODEL_ROOT}/plc_city_gate.glb`,
       resourceType: 0
     });
     expect(result.files[0]!.bytes.readUInt32LE(0)).toBe(0x46546c67);
@@ -102,7 +109,7 @@ describe("CliDerivedAssetGeneratorService", () => {
 
       expect(result.files).toHaveLength(1);
       expect(result.files[0]).toMatchObject({
-        fileName: "__aurora/derived/models/plc_city_gate.glb",
+        fileName: `${DERIVED_MODEL_ROOT}/plc_city_gate.glb`,
         resourceType: 0
       });
       expect(result.files[0]!.bytes.toString("utf-8")).toBe("glb:mdl");
@@ -166,7 +173,7 @@ describe("CliDerivedAssetGeneratorService", () => {
 
     expect(result.files).toHaveLength(1);
     expect(result.files[0]).toMatchObject({
-      fileName: "__aurora/derived/models/plc_native_wrapper.glb",
+      fileName: `${DERIVED_MODEL_ROOT}/plc_native_wrapper.glb`,
       resourceType: 0
     });
     expect(result.files[0]!.bytes.readUInt32LE(0)).toBe(0x46546c67);

@@ -1,5 +1,6 @@
 import { RuntimeSettingsBootstrapService } from "../../src/modules/runtime-settings/application/runtime-settings-bootstrap.service";
 import type { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
+import type { AppConfigService } from "../../src/common/config/app-config.service";
 
 describe("RuntimeSettingsBootstrapService", () => {
   const previousNodeEnv = process.env.NODE_ENV;
@@ -31,7 +32,10 @@ describe("RuntimeSettingsBootstrapService", () => {
       rebuildModuleBlobCache: jest.fn()
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
 
-    service = new RuntimeSettingsBootstrapService(settingsService);
+    service = new RuntimeSettingsBootstrapService(
+      settingsService,
+      { hostLocalRuntime: false } as AppConfigService
+    );
   });
 
   it("runs incremental module cache sync on startup", async () => {

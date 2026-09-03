@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Test } from "@nestjs/testing";
@@ -8,6 +8,9 @@ import { AppModule } from "../src/app.module";
 import { AppConfigService } from "../src/common/config/app-config.service";
 import { setupCors } from "../src/common/http/cors";
 import { setupSwagger } from "../src/common/openapi/swagger";
+import { AuthApplicationService } from "../src/modules/auth/application/auth.application.service";
+import { RuntimeSettingsApplicationService } from "../src/modules/runtime-settings/application/runtime-settings.application.service";
+import { SystemMaintenanceApplicationService } from "../src/modules/system-maintenance/application/system-maintenance.application.service";
 
 const POC_PATHS = {
   vanillaDataPath:
@@ -94,6 +97,59 @@ describe("Runtime Settings API v1 (e2e)", () => {
     );
   });
 
+  it("returns readiness to a non-admin without exposing configured paths", async () => {
+    const token = await loginAndGetToken("builder.user", "builder123");
+
+    const response = await supertest(httpServer)
+      .get("/api/v1/settings/runtime/readiness")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.data.ready).toEqual(expect.any(Boolean));
+    expect(response.body.data.canConfigure).toBe(false);
+    expect(response.body.data.values).toBeUndefined();
+  });
+
+  it("validates onboarding paths and requires explicit global-logout confirmation before save", async () => {
+    const userRoot = path.join(tempRoot, "onboarding-user");
+    const installRoot = path.join(tempRoot, "onboarding-install");
+    const packedModulePath = path.join(userRoot, "module.mod");
+    const hakRoot = path.join(userRoot, "hak");
+    const generatorRoot = path.join(tempRoot, "reference", "utg");
+    await Promise.all([
+      mkdir(hakRoot, { recursive: true }),
+      mkdir(generatorRoot, { recursive: true }),
+      mkdir(path.join(installRoot, "data"), { recursive: true }),
+      mkdir(path.join(installRoot, "lang", "en", "data"), { recursive: true })
+    ]);
+    await writeFile(path.join(installRoot, "lang", "en", "data", "dialog.tlk"), "tlk");
+    await writeFile(packedModulePath, "module");
+    const input = {
+      nwnUserDir: userRoot,
+      nwnInstallDir: installRoot,
+      auroraReferenceDir: path.join(tempRoot, "reference"),
+      hakDirectories: [hakRoot],
+      itemGeneratorSourceDirectories: [generatorRoot],
+      moduleDecompiledPath: "",
+      modulePackedPath: packedModulePath
+    };
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+
+    const validation = await supertest(httpServer)
+      .post("/api/v1/settings/runtime/onboarding/validate")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(input)
+      .expect(200);
+    expect(validation.body.data.ready).toBe(true);
+
+    const save = await supertest(httpServer)
+      .put("/api/v1/settings/runtime/onboarding")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send(input)
+      .expect(422);
+    expect(save.body.error.code).toBe("CACHE_REBUILD_CONFIRMATION_REQUIRED");
+  });
+
   it("GET /api/v1/settings/runtime/haks/resolved returns resolved hak lists", async () => {
     const token = await loginAndGetToken("admin.user", "admin123");
 
@@ -103,7 +159,7 @@ describe("Runtime Settings API v1 (e2e)", () => {
       .expect(200);
 
     expect(response.body.data.placeable).toMatchObject({
-      mode: "profile",
+      mode: "module_ifo",
       includeHaks: true,
       hakProfileId: "lc_models"
     });
@@ -111,7 +167,7 @@ describe("Runtime Settings API v1 (e2e)", () => {
     expect(response.body.data.area.hakPaths.length).toBeGreaterThan(0);
   });
 
-  it("PUT /api/v1/settings/runtime lets admin overwrite settings", async () => {
+  it("PUT /api/v1/settings/runtime cannot bypass confirmed generation rebuild", async () => {
     const token = await loginAndGetToken("admin.user", "admin123");
 
     const payload = {
@@ -132,7 +188,9 @@ describe("Runtime Settings API v1 (e2e)", () => {
         lc_core: ["lc_core.hak"],
         lc_models: ["lc_placeables.hak", "lc_creatures.hak"],
         lc_tiles: ["lc_tiles.hak"],
-        lc_audio: ["lc_sounds.hak"]
+        lc_audio: ["lc_sounds.hak"],
+        lc_vfx: ["lc_vfx.hak"],
+        lc_creatures: ["lc_creatures.hak"]
       },
       sources: {
         placeable: {
@@ -165,6 +223,14 @@ describe("Runtime Settings API v1 (e2e)", () => {
           includeHaks: true,
           includeVanilla: false,
           hakProfileId: "lc_audio",
+          hakPriorityList: []
+        },
+        vfx: {
+          includeModuleTemp0: true,
+          includeModulePacked: false,
+          includeHaks: true,
+          includeVanilla: true,
+          hakProfileId: "lc_vfx",
           hakPriorityList: []
         }
       },
@@ -214,23 +280,9 @@ describe("Runtime Settings API v1 (e2e)", () => {
       .put("/api/v1/settings/runtime")
       .set("Authorization", `Bearer ${token}`)
       .send(payload)
-      .expect(200);
-
-    expect(update.body.data.revision).toBe(2);
-    expect(update.body.data.updatedBy).toBe("admin.user");
-    expect(update.body.data.telemetryDebugMode).toBe("basic");
-    expect(update.body.data.sources.area.hakPriorityList).toEqual([
-      "lc_core",
-      "lc_overrides"
-    ]);
-
-    const readBack = await supertest(httpServer)
-      .get("/api/v1/settings/runtime")
-      .set("Authorization", `Bearer ${token}`)
-      .expect(200);
-    expect(readBack.body.data.revision).toBe(2);
-    expect(readBack.body.data.paths.modulePackedPath).toBe(
-      POC_PATHS.modulePackedPath
+      .expect(422);
+    expect(update.body.error.code).toBe(
+      "CACHE_REBUILD_CONFIRMATION_REQUIRED"
     );
   });
 
@@ -246,6 +298,90 @@ describe("Runtime Settings API v1 (e2e)", () => {
       .expect(403);
 
     expect(response.body.error.code).toBe("FORBIDDEN_ROLE");
+  });
+
+  it("blocks workspace and login globally, then permits admin-only failed recovery", async () => {
+    const adminToken = await loginAndGetToken("admin.user", "admin123");
+    const viewerToken = await loginAndGetToken("viewer.user", "viewer123");
+    const maintenance = app.get(SystemMaintenanceApplicationService);
+    const auth = app.get(AuthApplicationService);
+    const runtimeSettings = app.get(RuntimeSettingsApplicationService);
+    const currentSettings = await runtimeSettings.getRuntimeSettings();
+    const lease = await maintenance.beginPreflight("admin.user", "e2e-maintenance");
+    await maintenance.enterRebuilding({
+      operationId: lease.record.operationId!,
+      candidateRuntimeFingerprint: "e2e-candidate",
+      stagingGeneration: "g-e2e",
+      candidateSettings: currentSettings,
+      previousSettings: currentSettings,
+      participants: [{ name: "module-snapshot", status: "running" }]
+    });
+    await auth.revokeAllSessions();
+
+    const publicStatus = await supertest(httpServer)
+      .get("/api/v1/system/maintenance")
+      .expect(200);
+    expect(publicStatus.body.data).toMatchObject({
+      state: "rebuilding",
+      maintenance: true,
+      loginAvailable: false,
+      operationId: lease.record.operationId
+    });
+
+    const blockedLogin = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({ username: "admin.user", password: "admin123" })
+      .expect(503);
+    expect(blockedLogin.body.error.code).toBe("MAINTENANCE_REBUILDING");
+
+    const blockedWorkspace = await supertest(httpServer)
+      .get("/api/v1/settings/runtime")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .expect(503);
+    expect(blockedWorkspace.body.error.code).toBe("MAINTENANCE_REBUILDING");
+
+    await maintenance.fail(
+      lease.record.operationId,
+      "CACHE_GENERATION_INTEGRITY_FAILED",
+      "Staging generation is incomplete."
+    );
+
+    const recoveryToken = await loginAndGetToken("admin.user", "admin123");
+    const blockedViewerLogin = await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({ username: "viewer.user", password: "viewer123" })
+      .expect(503);
+    expect(blockedViewerLogin.body.error.code).toBe(
+      "MAINTENANCE_REBUILD_FAILED"
+    );
+
+    const details = await supertest(httpServer)
+      .get(
+        `/api/v1/settings/runtime/cache-rebuilds/${lease.record.operationId}`
+      )
+      .set("Authorization", `Bearer ${recoveryToken}`)
+      .expect(200);
+    expect(details.body.data).toMatchObject({
+      state: "failed",
+      error: { code: "CACHE_GENERATION_INTEGRITY_FAILED" }
+    });
+
+    await supertest(httpServer)
+      .post(
+        `/api/v1/settings/runtime/cache-rebuilds/${lease.record.operationId}/rollback`
+      )
+      .set("Authorization", `Bearer ${recoveryToken}`)
+      .expect(201);
+
+    await supertest(httpServer)
+      .post("/api/v1/auth/login")
+      .send({ username: "viewer.user", password: "viewer123" })
+      .expect(200);
+
+    await supertest(httpServer)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(401);
   });
 
   async function loginAndGetToken(username: string, password: string): Promise<string> {

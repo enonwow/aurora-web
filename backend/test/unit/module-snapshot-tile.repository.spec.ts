@@ -1,6 +1,7 @@
 import { ModuleSnapshotTileRepository } from "../../src/modules/tiles/adapters/outbound/blob/module-snapshot-tile.repository";
 import type { ModuleBlobStoragePort } from "../../src/modules/runtime-settings/application/ports/module-blob-storage.port";
 import type { RuntimeSettingsRepositoryPort } from "../../src/modules/runtime-settings/application/ports/runtime-settings-repository.port";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../src/modules/runtime-settings/domain/derived-asset-versions";
 
 describe("ModuleSnapshotTileRepository", () => {
   function createRuntimeSettingsRepository(): jest.Mocked<RuntimeSettingsRepositoryPort> {
@@ -178,6 +179,42 @@ describe("ModuleSnapshotTileRepository", () => {
     });
   });
 
+  it("indexes legacy transition tile models synced from a HAK", async () => {
+    const moduleBlobStorage = createModuleBlobStorage();
+    moduleBlobStorage.listModuleSnapshot.mockResolvedValueOnce({
+      bucket: "aurora-module-assets",
+      prefix: "modules/current/",
+      moduleHash: "legacy-transition-v1",
+      totalFiles: 2,
+      totalBytes: 1200,
+      truncated: false,
+      continuationToken: undefined,
+      objects: [
+        {
+          key: "modules/current/__aurora/sources/tiles/hak/lc_legacy_tiles/gi_a01_01.mdl",
+          size: 1000,
+          lastModified: "2026-07-18T13:00:00.000Z",
+          etag: "legacy-mdl"
+        },
+        {
+          key: "modules/current/__aurora/sources/tiles/hak/lc_legacy_tiles/gi_a01_01.wok",
+          size: 200,
+          lastModified: "2026-07-18T13:00:00.000Z",
+          etag: "legacy-wok"
+        }
+      ]
+    });
+    const repository = new ModuleSnapshotTileRepository(
+      createRuntimeSettingsRepository(),
+      moduleBlobStorage
+    );
+
+    await expect(repository.findById("tile_gi_a01_01")).resolves.toMatchObject({
+      resref: "gi_a01_01",
+      sourceAssetExtension: "mdl"
+    });
+  });
+
   it("falls back to static repository when no tile candidates found", async () => {
     const runtimeSettings = createRuntimeSettingsRepository();
     const moduleBlobStorage = createModuleBlobStorage();
@@ -206,4 +243,59 @@ describe("ModuleSnapshotTileRepository", () => {
     });
     expect(list.total).toBeGreaterThan(0);
   });
+
+  it.each([
+    ["old-first", false],
+    ["current-first", true]
+  ])(
+    "prefers the current versioned derived model over a larger obsolete model (%s)",
+    async (_label, currentFirst) => {
+      const moduleBlobStorage = createModuleBlobStorage();
+      const currentVersionSegment = AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+        /[^a-zA-Z0-9._-]+/gu,
+        "_"
+      );
+      const source = {
+        key: "modules/current/__aurora/sources/vanilla/models/tdc01_p11_01.mdl",
+        size: 109490,
+        lastModified: "2026-07-19T01:00:00.000Z",
+        etag: "source"
+      };
+      const obsolete = {
+        key: "modules/current/__aurora/derived/models/aurora-mdl-to-glb_v17/tdc01_p11_01.glb",
+        size: 900000,
+        lastModified: "2026-07-19T01:01:00.000Z",
+        etag: "obsolete"
+      };
+      const current = {
+        key: `modules/current/__aurora/derived/models/${currentVersionSegment}/tdc01_p11_01.glb`,
+        size: 156896,
+        lastModified: "2026-07-19T01:02:00.000Z",
+        etag: "current"
+      };
+      moduleBlobStorage.listModuleSnapshot.mockResolvedValueOnce({
+        bucket: "aurora-module-assets",
+        prefix: "modules/current/",
+        moduleHash: "version-choice-v1",
+        totalFiles: 3,
+        totalBytes: source.size + obsolete.size + current.size,
+        truncated: false,
+        continuationToken: undefined,
+        objects: [
+          source,
+          ...(currentFirst ? [current, obsolete] : [obsolete, current])
+        ]
+      });
+      const repository = new ModuleSnapshotTileRepository(
+        createRuntimeSettingsRepository(),
+        moduleBlobStorage
+      );
+
+      await expect(repository.findById("tile_tdc01_p11_01")).resolves.toMatchObject({
+        renderModelObjectKey: current.key,
+        renderModelSizeBytes: current.size,
+        renderModelEtag: current.etag
+      });
+    }
+  );
 });

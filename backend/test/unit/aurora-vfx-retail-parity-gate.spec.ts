@@ -40,6 +40,61 @@ describe("Aurora VFX retail parity gate", () => {
     );
   });
 
+  it("indexes saved NWN and Web diagnostics without treating them as canonical evidence", () => {
+    const manifest = readManifest();
+    const row22 = manifest.fixtures.find(
+      (fixture) => fixture.fixtureId === "vfx-retail-explosion-detonate-fireball"
+    );
+    const row68 = manifest.fixtures.find(
+      (fixture) => fixture.fixtureId === "vfx-retail-dm-visualeffect-row-68-duration-0"
+    );
+
+    expect(row22?.diagnosticEvidenceRefs).toHaveLength(3);
+    expect(row22?.implementationRevision?.revisionId).toBe(
+      "row22-source-contract-diagnostic-2026-07-14"
+    );
+    expect(row68?.diagnosticEvidenceRefs).toHaveLength(2);
+    expect(row68?.implementationRevision?.revisionId).toBe(
+      "row68-web-v22-creature-native-head-attachment-diagnostic-2026-08-13"
+    );
+    expect(row68?.diagnosticEvidenceRefs?.[1]?.path).toBe(
+      "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/web/validated-summary-v22-creature-native-head-attachment-20260813.json"
+    );
+
+    const row22Result = validateAuroraVfxRetailParityFixture(row22!);
+    const row68Result = validateAuroraVfxRetailParityFixture(row68!);
+
+    expect(row22Result.diagnosticEvidenceRefCount).toBe(3);
+    expect(row22Result.hasImplementationRevision).toBe(true);
+    expect(row22Result.evidence.hasCaptureReference).toBe(false);
+    expect(row22Result.missingEvidence).toContain("captureReference");
+    expect(row22Result.canonicalAllowed).toBe(false);
+    expect(row68Result.diagnosticEvidenceRefCount).toBe(2);
+    expect(row68Result.hasImplementationRevision).toBe(true);
+    expect(row68Result.evidence.hasComparison).toBe(false);
+    expect(row68Result.canonicalAllowed).toBe(false);
+  });
+
+  it("does not allow diagnostic evidence references to satisfy canonical proof gates", () => {
+    const fixture = readManifest().fixtures.find(
+      (entry) => entry.fixtureId === "vfx-retail-explosion-detonate-fireball"
+    )!;
+
+    const result = validateAuroraVfxRetailParityFixture({
+      ...fixture,
+      status: "passed",
+      behaviorClaim: "canonical"
+    });
+
+    expect(result.diagnosticEvidenceRefCount).toBe(3);
+    expect(result.evidence.hasCaptureReference).toBe(false);
+    expect(result.evidence.hasComparison).toBe(false);
+    expect(result.canonicalAllowed).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_CANONICAL_RETAIL_EVIDENCE_REQUIRED"
+    );
+  });
+
   it("declares expected capture and comparison blockers for fixtures missing those evidence refs", () => {
     const manifest = readManifest();
 

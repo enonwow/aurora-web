@@ -9,9 +9,12 @@ import { CreaturesController } from "../../src/modules/catalog/adapters/inbound/
 import { EncountersController } from "../../src/modules/catalog/adapters/inbound/http/encounters.controller";
 import { ItemsController } from "../../src/modules/catalog/adapters/inbound/http/items.controller";
 import { PlaceablesController } from "../../src/modules/catalog/adapters/inbound/http/placeables.controller";
+import { WaypointsController } from "../../src/modules/catalog/adapters/inbound/http/waypoints.controller";
 import { CatalogApplicationService } from "../../src/modules/catalog/application/catalog.application.service";
 import { RuntimeSettingsController } from "../../src/modules/runtime-settings/adapters/inbound/http/runtime-settings.controller";
 import { RuntimeSettingsApplicationService } from "../../src/modules/runtime-settings/application/runtime-settings.application.service";
+import { RuntimeCacheRebuildApplicationService } from "../../src/modules/runtime-settings/application/runtime-cache-rebuild.application.service";
+import { RuntimePathBrowserApplicationService } from "../../src/modules/runtime-settings/application/runtime-path-browser.application.service";
 import { buildDefaultRuntimeSettings } from "../../src/modules/runtime-settings/domain/runtime-settings.defaults";
 import { SoundsController } from "../../src/modules/sounds/adapters/inbound/http/sounds.controller";
 import { SoundsApplicationService } from "../../src/modules/sounds/application/sounds.application.service";
@@ -22,15 +25,45 @@ describe("HTTP controllers", () => {
   const config = { contractVersion: "1.0.0" } as AppConfigService;
 
   it("returns health payload", () => {
-    const controller = new HealthController();
-    expect(controller.getHealth()).toEqual({
+    const controller = new HealthController({
+      contractVersion: "1.0.0",
+      runtimeBuildCommit: "backend-commit-sha",
+      runtimeBuildImageDigest: "sha256:backend-image",
+      runtimeBuildBuiltAt: "2026-07-19T10:00:00.000Z"
+    } as AppConfigService);
+    expect(controller.getHealth()).toEqual(
+      expect.objectContaining({
       status: "ok",
-      service: "aurora-backend"
-    });
+        service: "aurora-backend",
+        runtimeStartedAt: expect.any(String),
+        processId: process.pid,
+        vfxRuntimeRevision:
+          "vfx-placeable-canonical-host-light-source-v2-emitter-shell-filter",
+        runtimeBuild: {
+          commit: "backend-commit-sha",
+          imageDigest: "sha256:backend-image",
+          builtAt: "2026-07-19T10:00:00.000Z",
+          processStartedAt: expect.any(String),
+          contractVersion: "1.0.0",
+          vfxRuntimeRevision:
+            "vfx-placeable-canonical-host-light-source-v2-emitter-shell-filter"
+        }
+      })
+    );
   });
 
   it("delegates area controller calls", async () => {
     const service = {
+      getAreaCapabilities: jest.fn().mockReturnValue({
+        schemaVersion: "area-capabilities.v1",
+        catalogRevision: "2026-08-20.1",
+        items: [],
+        summary: {
+          total: 0,
+          implementation: { implemented: 0, partial: 0, preserve_only: 0, not_started: 0 },
+          release: { available: 0, blocked: 0, hidden: 0 }
+        }
+      }),
       listAreas: jest.fn().mockResolvedValue({ items: [], total: 0 }),
       getAreaLightingEvidence: jest.fn().mockResolvedValue({
         summary: {
@@ -156,6 +189,10 @@ describe("HTTP controllers", () => {
     const response = createReply();
     const thumbnailResponse = createReply();
 
+    await expect(controller.capabilities(request)).resolves.toMatchObject({
+      contractVersion: "1.0.0",
+      data: { schemaVersion: "area-capabilities.v1" }
+    });
     await expect(controller.list(request, {})).resolves.toMatchObject({
       contractVersion: "1.0.0"
     });
@@ -172,6 +209,7 @@ describe("HTTP controllers", () => {
       limit: 20,
       offset: 0
     });
+    expect(service.getAreaCapabilities).toHaveBeenCalledTimes(1);
     expect(service.getAreaLightingEvidence).toHaveBeenCalled();
     expect(service.getArea).toHaveBeenCalledWith("area-1");
     expect(service.getAreaPreview).toHaveBeenCalledWith("area-1");
@@ -441,15 +479,6 @@ describe("HTTP controllers", () => {
         totalEntries: 1,
         entries: []
       }),
-      rebuildModuleBlobCache: jest.fn().mockResolvedValue({
-        status: "updated",
-        sourceDelta: {
-          module: { uploadedFiles: 2 },
-          hak: { uploadedFiles: 1 },
-          vanilla: { uploadedFiles: 0 },
-          index: { uploadedFiles: 1 }
-        }
-      }),
       syncVanillaTilesetSetSources: jest.fn().mockResolvedValue({
         mode: "vanilla-tileset-set-source-sync",
         enabled: true,
@@ -487,9 +516,27 @@ describe("HTTP controllers", () => {
           }
         ]
       }),
-      replaceRuntimeSettings: jest.fn().mockResolvedValue({ revision: 2 })
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
-    const controller = new RuntimeSettingsController(service, config);
+    const cacheRebuildService = {
+      startCurrent: jest.fn().mockResolvedValue({
+        outcome: "NO_CHANGES",
+        operationId: "operation-legacy",
+        fingerprint: "fingerprint-legacy",
+        integrity: { valid: true, reason: "ok" }
+      }),
+      startForRuntimeSettings: jest.fn().mockResolvedValue({
+        outcome: "NO_CHANGES",
+        operationId: "operation-1",
+        fingerprint: "fingerprint-1",
+        integrity: { valid: true, reason: "ok" }
+      })
+    } as unknown as jest.Mocked<RuntimeCacheRebuildApplicationService>;
+    const controller = new RuntimeSettingsController(
+      service,
+      cacheRebuildService,
+      {} as jest.Mocked<RuntimePathBrowserApplicationService>,
+      config
+    );
     const request = appRequest("admin.user");
     const payload = buildRuntimeSettingsPayload();
 
@@ -503,16 +550,17 @@ describe("HTTP controllers", () => {
       offset: "2"
     });
     await expect(
-      controller.rebuildModuleCache(request, { forceFull: "true" })
+      controller.rebuildModuleCache(
+        request,
+        { forceFull: "true" },
+        { confirmGlobalLogout: true },
+        "idempotency-legacy",
+        createReply() as unknown as FastifyReply
+      )
     ).resolves.toMatchObject({
       data: {
-        status: "updated",
-        sourceDelta: expect.objectContaining({
-          module: expect.any(Object),
-          hak: expect.any(Object),
-          vanilla: expect.any(Object),
-          index: expect.any(Object)
-        })
+        outcome: "NO_CHANGES",
+        operationId: "operation-legacy"
       }
     });
     await expect(controller.syncVanillaTilesetSetSources(request)).resolves.toMatchObject({
@@ -545,7 +593,12 @@ describe("HTTP controllers", () => {
         ]
       }
     });
-    await controller.replaceRuntimeSettings(request, payload);
+    await controller.replaceRuntimeSettings(
+      request,
+      { ...payload, confirmGlobalLogout: true },
+      "idempotency-1",
+      createReply() as unknown as FastifyReply
+    );
 
     expect(service.getRuntimeSettings).toHaveBeenCalledTimes(1);
     expect(service.getResolvedHakSettings).toHaveBeenCalledTimes(1);
@@ -556,21 +609,26 @@ describe("HTTP controllers", () => {
       limit: 10,
       offset: 2
     });
-    expect(service.rebuildModuleBlobCache).toHaveBeenCalledWith("admin.user", {
-      forceFull: true
-    });
+    expect(cacheRebuildService.startCurrent).toHaveBeenCalledWith(
+      "admin.user",
+      "idempotency-legacy"
+    );
     expect(service.syncVanillaTilesetSetSources).toHaveBeenCalledWith("admin.user");
     expect(service.syncVanillaTileModelSources).toHaveBeenCalledWith("admin.user", [
       "tcn01_c01_01"
     ]);
-    expect(service.replaceRuntimeSettings).toHaveBeenCalledWith(payload, "admin.user");
+    expect(cacheRebuildService.startForRuntimeSettings).toHaveBeenCalledWith(
+      payload,
+      "admin.user",
+      "idempotency-1"
+    );
   });
 
   it("validates runtime texture index query params", async () => {
     const service = {
       queryTextureIndex: jest.fn()
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
-    const controller = new RuntimeSettingsController(service, config);
+    const controller = createRuntimeSettingsController(service);
     const request = appRequest("admin.user");
 
     await expect(
@@ -600,7 +658,7 @@ describe("HTTP controllers", () => {
         entries: []
       })
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
-    const controller = new RuntimeSettingsController(service, config);
+    const controller = createRuntimeSettingsController(service);
     const request = appRequest("admin.user");
 
     await controller.queryTextureIndex(request, {});
@@ -636,7 +694,7 @@ describe("HTTP controllers", () => {
         }
       })
     } as unknown as jest.Mocked<RuntimeSettingsApplicationService>;
-    const controller = new RuntimeSettingsController(service, config);
+    const controller = createRuntimeSettingsController(service);
     const response = createReply();
 
     await controller.getTextureBlob(
@@ -659,6 +717,133 @@ describe("HTTP controllers", () => {
       processTemplateKind: jest.fn().mockResolvedValue({ cacheKey: "d".repeat(64) }),
       getProcessedTemplateKind: jest.fn().mockResolvedValue({ cacheKey: "d".repeat(64) }),
       listPlaceables: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+      listWaypoints: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+      getWaypointPreview: jest.fn().mockResolvedValue({ templateId: "waypoint-id" }),
+      listWaypointAppearanceRows: jest.fn().mockResolvedValue({
+        resourceName: "waypoint.2da",
+        sha256: "f".repeat(64),
+        rowCount: 5,
+        items: [{ rowIndex: 1, displayName: "Blue marker", displaySource: "strref" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      }),
+      listPlaceableAppearanceRows: jest.fn().mockResolvedValue({
+        resourceName: "placeables.2da",
+        sha256: "a".repeat(64),
+        rowCount: 1,
+        items: [{ rowIndex: 0, displayName: "Row 0", displaySource: "row_index" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      }),
+      listCreatureAppearanceRows: jest.fn().mockResolvedValue({
+        resourceName: "appearance.2da",
+        sha256: "b".repeat(64),
+        rowCount: 1,
+        items: [{ rowIndex: 0, displayName: "Dwarf, Male", displaySource: "strref" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      }),
+      listCreatureGenderRows: jest.fn().mockResolvedValue({
+        resourceName: "gender.2da",
+        sha256: "c".repeat(64),
+        rowCount: 5,
+        items: [{
+          rowIndex: 3,
+          displayName: "Other",
+          displaySource: "strref",
+          nameStrRef: 201,
+          genderToken: "O",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0
+      }),
+      listCreatureAppendageRows: jest.fn().mockResolvedValue({
+        resourceName: "wingmodel.2da",
+        sha256: "9".repeat(64),
+        rowCount: 8,
+        items: [{ rowIndex: 3, displayName: "Angel" }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      }),
+      listCreaturePerceptionRangeRows: jest.fn().mockResolvedValue({
+        resourceName: "ranges.2da",
+        sha256: "e".repeat(64),
+        rowCount: 12,
+        items: [{
+          rowIndex: 11,
+          displayName: "Default",
+          displaySource: "strref",
+          nameStrRef: 6671,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0
+      }),
+      listCreatureWalkRateRows: jest.fn().mockResolvedValue({
+        resourceName: "creaturespeed.2da",
+        sha256: "d".repeat(64),
+        rowCount: 9,
+        items: [{
+          rowIndex: 4,
+          displayName: "Normal",
+          displaySource: "strref",
+          nameStrRef: 1004,
+          twoDaName: "NORM",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0
+      }),
+      listCreatureSoundSetRows: jest.fn().mockResolvedValue({
+        resourceName: "soundset.2da",
+        sha256: "a".repeat(64),
+        rowCount: 5_100,
+        items: [{
+          rowIndex: 0,
+          displayName: "Aasimar",
+          displaySource: "strref",
+          nameStrRef: 8291,
+          resRef: "c_aasimar",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0
+      }),
+      listCreatureStartingPackageRows: jest.fn().mockResolvedValue({
+        resourceName: "packages.2da",
+        sha256: "b".repeat(64),
+        rowCount: 132,
+        classIds: [4],
+        items: [{
+          rowIndex: 0,
+          classId: 4,
+          displayName: "Fighter",
+          displaySource: "strref",
+          nameStrRef: 6894,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0
+      }),
+      listCreatureSpecialAbilityRows: jest.fn().mockResolvedValue({
+        resourceName: "spells.2da",
+        sha256: "f".repeat(64),
+        rowCount: 5,
+        items: [{
+          rowIndex: 2,
+          displayName: "Aura of Cold",
+          nameStrRef: 102,
+          userType: 2,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      }),
       getPlaceablePreview: jest.fn().mockResolvedValue({ templateId: "id" }),
       getPlaceableThumbnail: jest.fn().mockResolvedValue({
         contentType: "image/svg+xml; charset=utf-8",
@@ -704,10 +889,52 @@ describe("HTTP controllers", () => {
     const encountersController = new EncountersController(service, config);
     const itemsController = new ItemsController(service, config);
     const placeablesController = new PlaceablesController(service, config);
+    const waypointsController = new WaypointsController(service, config);
     const response = createReply();
     const placeableThumbnailResponse = createReply();
 
     await creaturesController.list(request, {});
+    await creaturesController.listAppearanceRows(request, {
+      tableSha256: "b".repeat(64),
+      rowIndex: "249"
+    });
+    await creaturesController.listGenderRows(request, {
+      tableSha256: "c".repeat(64),
+      rowIndex: "3",
+      limit: "1"
+    });
+    await creaturesController.listAppendageRows(request, {
+      kind: "wings",
+      tableSha256: "9".repeat(64),
+      rowIndex: "3",
+      limit: "1",
+    });
+    await creaturesController.listPerceptionRangeRows(request, {
+      tableSha256: "e".repeat(64),
+      rowIndex: "11",
+      limit: "1"
+    });
+    await creaturesController.listWalkRateRows(request, {
+      tableSha256: "d".repeat(64),
+      rowIndex: "4",
+      limit: "1"
+    });
+    await creaturesController.listSoundSetRows(request, {
+      tableSha256: "a".repeat(64),
+      rowIndex: "0",
+      limit: "1"
+    });
+    await creaturesController.listStartingPackageRows(request, {
+      tableSha256: "b".repeat(64),
+      classIds: "4",
+      rowIndex: "0",
+      limit: "1"
+    });
+    await creaturesController.listSpecialAbilityRows(request, {
+      tableSha256: "f".repeat(64),
+      rowIndex: "2",
+      limit: "1",
+    });
     await creaturesController.preview(request, "template-1");
     await creaturesController.process(request, { resref: "cre_guard_human" });
     await creaturesController.getCached(request, "d".repeat(16));
@@ -717,12 +944,21 @@ describe("HTTP controllers", () => {
     await encountersController.process(request, { templateId: "enc_forest_ambush" });
     await encountersController.getCached(request, "d".repeat(16));
 
+    await waypointsController.list(request, {});
+    await waypointsController.listAppearanceRows(request, {
+      tableSha256: "f".repeat(64)
+    });
+    await waypointsController.preview(request, "template-wpt");
+
     await itemsController.list(request, {});
     await itemsController.preview(request, "template-2");
     await itemsController.process(request, { templateId: "itm_health_potion_001" });
     await itemsController.getCached(request, "d".repeat(16));
 
     await placeablesController.list(request, {});
+    await placeablesController.listAppearanceRows(request, {
+      tableSha256: "a".repeat(64)
+    });
     await placeablesController.preview(request, "plc_market_stall_001");
     await placeablesController.thumbnail(
       "plc_market_stall_001",
@@ -752,12 +988,76 @@ describe("HTTP controllers", () => {
       "item",
       expect.objectContaining({ limit: 20, offset: 0 })
     );
+    expect(service.listCreatureAppearanceRows).toHaveBeenCalledWith({
+      tableSha256: "b".repeat(64),
+      rowIndex: 249,
+      limit: 100,
+      offset: 0
+    });
+    expect(service.listCreatureGenderRows).toHaveBeenCalledWith({
+      tableSha256: "c".repeat(64),
+      rowIndex: 3,
+      limit: 1,
+      offset: 0
+    });
+    expect(service.listCreatureAppendageRows).toHaveBeenCalledWith({
+      kind: "wings",
+      tableSha256: "9".repeat(64),
+      rowIndex: 3,
+      limit: 1,
+      offset: 0,
+    });
+    expect(service.listCreaturePerceptionRangeRows).toHaveBeenCalledWith({
+      tableSha256: "e".repeat(64),
+      rowIndex: 11,
+      limit: 1,
+      offset: 0
+    });
+    expect(service.listCreatureWalkRateRows).toHaveBeenCalledWith({
+      tableSha256: "d".repeat(64),
+      rowIndex: 4,
+      limit: 1,
+      offset: 0
+    });
+    expect(service.listCreatureSoundSetRows).toHaveBeenCalledWith({
+      tableSha256: "a".repeat(64),
+      rowIndex: 0,
+      limit: 1,
+      offset: 0
+    });
+    expect(service.listCreatureStartingPackageRows).toHaveBeenCalledWith({
+      tableSha256: "b".repeat(64),
+      classIds: [4],
+      rowIndex: 0,
+      limit: 1,
+      offset: 0
+    });
+    expect(service.listCreatureSpecialAbilityRows).toHaveBeenCalledWith({
+      tableSha256: "f".repeat(64),
+      rowIndex: 2,
+      limit: 1,
+      offset: 0,
+    });
     expect(service.listTemplateKind).toHaveBeenCalledWith(
       "encounter",
       expect.objectContaining({ limit: 20, offset: 0 })
     );
+    expect(service.listWaypoints).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 20, offset: 0 })
+    );
+    expect(service.listWaypointAppearanceRows).toHaveBeenCalledWith({
+      tableSha256: "f".repeat(64),
+      limit: 100,
+      offset: 0
+    });
+    expect(service.getWaypointPreview).toHaveBeenCalledWith("template-wpt");
     expect(service.processTemplateKind).toHaveBeenCalledTimes(3);
     expect(service.listPlaceables).toHaveBeenCalledTimes(1);
+    expect(service.listPlaceableAppearanceRows).toHaveBeenCalledWith({
+      tableSha256: "a".repeat(64),
+      limit: 100,
+      offset: 0
+    });
     expect(service.getPlaceableThumbnail).toHaveBeenCalledWith("plc_market_stall_001");
     expect(service.processPlaceable).toHaveBeenCalledWith({
       templateId: "plc_market_stall_001",
@@ -801,6 +1101,57 @@ describe("HTTP controllers", () => {
       message: "Placeable asset delivery query validation failed."
     });
     expect(service.getProcessedPlaceableAssetDelivery).not.toHaveBeenCalled();
+  });
+
+  it("validates the digest-bound Appearance row query before calling service", async () => {
+    const service = {
+      listPlaceableAppearanceRows: jest.fn()
+    } as unknown as jest.Mocked<CatalogApplicationService>;
+    const request = appRequest();
+    const placeablesController = new PlaceablesController(service, config);
+
+    await expect(placeablesController.listAppearanceRows(request, {
+      tableSha256: "A".repeat(64),
+      extra: "rejected"
+    })).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "Placeable Appearance row query validation failed."
+    });
+    expect(service.listPlaceableAppearanceRows).not.toHaveBeenCalled();
+  });
+
+  it("validates the digest-bound Waypoint Appearance row query before calling service", async () => {
+    const service = {
+      listWaypointAppearanceRows: jest.fn(),
+    } as unknown as jest.Mocked<CatalogApplicationService>;
+    const request = appRequest();
+    const waypointsController = new WaypointsController(service, config);
+
+    await expect(waypointsController.listAppearanceRows(request, {
+      tableSha256: "F".repeat(64),
+      extra: "rejected",
+    })).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "Waypoint Appearance row query validation failed.",
+    });
+    expect(service.listWaypointAppearanceRows).not.toHaveBeenCalled();
+  });
+
+  it("validates the digest-bound Creature Appearance row query before calling service", async () => {
+    const service = {
+      listCreatureAppearanceRows: jest.fn()
+    } as unknown as jest.Mocked<CatalogApplicationService>;
+    const request = appRequest();
+    const creaturesController = new CreaturesController(service, config);
+
+    await expect(creaturesController.listAppearanceRows(request, {
+      tableSha256: "B".repeat(64),
+      extra: "rejected"
+    })).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      message: "Creature Appearance row query validation failed."
+    });
+    expect(service.listCreatureAppearanceRows).not.toHaveBeenCalled();
   });
 
   it("normalizes repeated placeable assetIds query params and forwards them to service", async () => {
@@ -882,14 +1233,27 @@ function appRequest(username = "builder.user") {
   } as any;
 }
 
+function createRuntimeSettingsController(
+  service: jest.Mocked<RuntimeSettingsApplicationService>
+) {
+  return new RuntimeSettingsController(
+    service,
+    {} as jest.Mocked<RuntimeCacheRebuildApplicationService>,
+    {} as jest.Mocked<RuntimePathBrowserApplicationService>,
+    { contractVersion: "1.0.0" } as AppConfigService
+  );
+}
+
 function createReply() {
   const reply = {
     header: jest.fn(),
     code: jest.fn(),
+    status: jest.fn(),
     send: jest.fn()
   };
   reply.header.mockReturnValue(reply);
   reply.code.mockReturnValue(reply);
+  reply.status.mockReturnValue(reply);
   return reply;
 }
 

@@ -42,4 +42,49 @@ describe("Aurora proof packet", () => {
     expect(result).toMatchObject({ status: "verified" });
     expect(result.acceptance.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "source_targeted_tile_selection", status: "verified" })]));
   });
+  it("uses monitor evidence attached by the viewport capture when no sidecar is supplied", async () => {
+    const observation = { ...valid.observation, capture: { ...valid.observation.capture, monitorEvidence: valid.monitorEvidence } };
+    const result = await assemble({ ...valid, observation, monitorEvidence: null });
+    expect(result).toMatchObject({ status: "verified" });
+  });
+
+  it("accepts native absolute camera state only with an independent Eye transaction", async () => {
+    const absoluteCoreResult = {
+      status: "at_target",
+      adapter: { readback: "native", provenance: "native_toolset", binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24" },
+      achievedState: { area: "enon_bakery", provenance: "native_toolset", camera: { yawDegrees: 45, pitchDegrees: 45, zoom: 25.5, centreX: 15, centreY: 15 } },
+    };
+    const eyeEvidence = {
+      beforeA: { status: "verified" }, beforeB: { status: "verified" }, after: { status: "verified" },
+      baseline: { status: "verified", changedSamples: 0, changedRatio: 0 },
+      effect: { status: "verified", changedSamples: 42, changedRatio: 0.25 },
+    };
+    const result = await assemble({ ...valid, absoluteCoreResult, eyeEvidence });
+    expect(result).toMatchObject({ status: "verified", blockerCodes: [] });
+    expect(result.acceptance.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "native_absolute_camera", status: "verified" }),
+      expect.objectContaining({ name: "independent_aurora_eye", status: "verified" }),
+    ]));
+  });
+
+  it("rejects native state without a changed-after Eye result", async () => {
+    const absoluteCoreResult = {
+      status: "at_target",
+      adapter: { readback: "native", provenance: "native_toolset", binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24" },
+      achievedState: { camera: { yawDegrees: 45, pitchDegrees: 45, zoom: 25.5, centreX: 15, centreY: 15 } },
+    };
+    const result = await assemble({ ...valid, absoluteCoreResult, eyeEvidence: { beforeA: { status: "verified" }, beforeB: { status: "verified" }, after: { status: "verified" }, baseline: { status: "verified", changedSamples: 0, changedRatio: 0 }, effect: { status: "verified", changedSamples: 0 } } });
+    expect(result).toMatchObject({ status: "blocked", blockerCodes: expect.arrayContaining(["proof_aurora_eye_transaction_unverified"]) });
+  });
+
+  it("rejects an Eye baseline above the measured 0.1 percent noise ceiling", async () => {
+    const absoluteCoreResult = {
+      status: "at_target",
+      adapter: { readback: "native", provenance: "native_toolset", binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24" },
+      achievedState: { camera: { yawDegrees: 45, pitchDegrees: 45, zoom: 25.5, centreX: 15, centreY: 15 } },
+    };
+    const eyeEvidence = { beforeA: { status: "verified" }, beforeB: { status: "verified" }, after: { status: "verified" }, baseline: { status: "verified", changedSamples: 500, changedRatio: 0.002 }, effect: { status: "verified", changedSamples: 50000, changedRatio: 0.2 } };
+    const result = await assemble({ ...valid, absoluteCoreResult, eyeEvidence });
+    expect(result).toMatchObject({ status: "blocked", blockerCodes: expect.arrayContaining(["proof_aurora_eye_transaction_unverified"]) });
+  });
 });

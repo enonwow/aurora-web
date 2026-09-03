@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -31,11 +32,13 @@ describe("S3ModuleBlobStorageService", () => {
   let sendSpy: jest.SpyInstance;
   let store: Map<string, Map<string, MockObjectEntry>>;
   let putCalls: string[];
+  let copyCalls: string[];
 
   beforeEach(() => {
     service = new S3ModuleBlobStorageService();
     store = new Map();
     putCalls = [];
+    copyCalls = [];
 
     sendSpy = jest
       .spyOn(S3Client.prototype, "send")
@@ -60,6 +63,9 @@ describe("S3ModuleBlobStorageService", () => {
           const bucket = command.input.Bucket!;
           const key = command.input.Key!;
           const bucketStore = ensureBucket(store, bucket);
+          if (command.input.IfNoneMatch === "*" && bucketStore.has(key)) {
+            throw preconditionFailedError();
+          }
           const body = toBuffer(command.input.Body);
           bucketStore.set(key, {
             body,
@@ -67,6 +73,26 @@ describe("S3ModuleBlobStorageService", () => {
             etag: `"${body.length.toString(16)}"`
           });
           putCalls.push(key);
+          return {};
+        }
+
+        if (command instanceof CopyObjectCommand) {
+          const targetBucket = command.input.Bucket!;
+          const targetKey = command.input.Key!;
+          const copySource = decodeURIComponent(command.input.CopySource!);
+          const separator = copySource.indexOf("/");
+          const sourceBucket = copySource.slice(0, separator);
+          const sourceKey = copySource.slice(separator + 1);
+          const source = store.get(sourceBucket)?.get(sourceKey);
+          if (!source) {
+            throw missingObjectError();
+          }
+          ensureBucket(store, targetBucket).set(targetKey, {
+            body: Buffer.from(source.body),
+            lastModified: new Date("2026-05-24T10:00:00.000Z"),
+            etag: source.etag
+          });
+          copyCalls.push(targetKey);
           return {};
         }
 
@@ -123,6 +149,50 @@ describe("S3ModuleBlobStorageService", () => {
 
   afterEach(() => {
     sendSpy.mockRestore();
+  });
+
+  it("creates immutable objects once and verifies an identical replay", async () => {
+    const bytes = Buffer.from("immutable-area");
+    const digest = sha256(bytes);
+
+    await expect(
+      service.putImmutableModuleObject(settings, file("__aurora/cas/object", bytes), digest)
+    ).resolves.toEqual(
+      expect.objectContaining({ status: "created", sha256: digest })
+    );
+    await expect(
+      service.putImmutableModuleObject(settings, file("__aurora/cas/object", bytes), digest)
+    ).resolves.toEqual(
+      expect.objectContaining({ status: "already_exists", sha256: digest })
+    );
+
+    const conditionalPuts = sendSpy.mock.calls
+      .map(([command]) => command)
+      .filter((command): command is PutObjectCommand => command instanceof PutObjectCommand)
+      .filter((command) => command.input.Key?.endsWith("__aurora/cas/object"));
+    expect(conditionalPuts).toHaveLength(2);
+    expect(conditionalPuts.every((command) => command.input.IfNoneMatch === "*")).toBe(true);
+  });
+
+  it("rejects an immutable-key conflict without replacing retained bytes", async () => {
+    const original = Buffer.from("immutable-area");
+    const replacement = Buffer.from("different-area");
+    await service.putImmutableModuleObject(
+      settings,
+      file("__aurora/cas/object", original),
+      sha256(original)
+    );
+
+    await expect(
+      service.putImmutableModuleObject(
+        settings,
+        file("__aurora/cas/object", replacement),
+        sha256(replacement)
+      )
+    ).rejects.toThrow("MODULE_BLOB_IMMUTABLE_CONFLICT");
+    expect(
+      store.get(settings.bucket)?.get("modules/current/__aurora/cas/object")?.body
+    ).toEqual(original);
   });
 
   it("creates first snapshot and stores manifest hash", async () => {
@@ -377,6 +447,49 @@ describe("S3ModuleBlobStorageService", () => {
     expect(object?.contentType).toBe("application/octet-stream");
   });
 
+  it("copies unchanged objects from the active generation and uploads only changed objects", async () => {
+    const activeSettings = {
+      ...settings,
+      modulePrefix: "modules/current/__generations/g-active"
+    };
+    const stagingSettings = {
+      ...settings,
+      modulePrefix: "modules/current/__generations/g-staging"
+    };
+    await service.replaceModuleSnapshot(activeSettings, [
+      file("areas/unchanged.are", "same"),
+      file("areas/changed.are", "before")
+    ]);
+    putCalls = [];
+    copyCalls = [];
+
+    const result = await service.replaceModuleSnapshot(
+      stagingSettings,
+      [
+        file("areas/unchanged.are", "same"),
+        file("areas/changed.are", "after")
+      ],
+      { baselineSettings: activeSettings }
+    );
+
+    expect(result.status).toBe("updated");
+    expect(result.uploadedFiles).toBe(1);
+    expect(result.unchangedFiles).toBe(1);
+    expect(copyCalls).toEqual([
+      "modules/current/__generations/g-staging/areas/unchanged.are"
+    ]);
+    expect(
+      putCalls.filter((key) =>
+        key.startsWith("modules/current/__generations/g-staging/")
+      )
+    ).toEqual([
+      "modules/current/__generations/g-staging/areas/changed.are"
+    ]);
+    const summary = await service.listModuleSnapshot(stagingSettings);
+    expect(summary.totalFiles).toBe(2);
+    expect(summary.manifestFileCount).toBe(2);
+  });
+
   it("serves derived glb assets with a GLTF binary content type", async () => {
     await service.replaceModuleSnapshot(settings, [
       file("__aurora/derived/models/p_gate.glb", "glb-v1")
@@ -431,11 +544,11 @@ describe("S3ModuleBlobStorageService", () => {
   });
 });
 
-function file(fileName: string, content: string) {
+function file(fileName: string, content: string | Buffer) {
   return {
     fileName,
     resourceType: 0,
-    bytes: Buffer.from(content, "utf-8")
+    bytes: Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(content, "utf-8")
   };
 }
 
@@ -485,4 +598,15 @@ function missingObjectError() {
       httpStatusCode: 404
     }
   };
+}
+
+function preconditionFailedError() {
+  return Object.assign(new Error("precondition failed"), {
+    name: "PreconditionFailed",
+    $metadata: { httpStatusCode: 412 }
+  });
+}
+
+function sha256(bytes: Uint8Array): string {
+  return require("node:crypto").createHash("sha256").update(bytes).digest("hex");
 }
