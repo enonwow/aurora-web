@@ -130,6 +130,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    minWorkers: 1,
+    maxWorkers: 2,
     setupFiles: "./tests/setup.ts",
     exclude: [...configDefaults.exclude, "**/.stryker-tmp/**"],
     coverage: {

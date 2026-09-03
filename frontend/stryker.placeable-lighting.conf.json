@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/placeable-lighting.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": [
+      "StringLiteral",
+      "ObjectLiteral",
+      "BlockStatement",
+      "OptionalChaining"
+    ]
+  },
+  "vitest": {
+    "configFile": "vite.placeable-lighting-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/layout/adapters/three/canonicalSourceMdlLightFallbackPolicy.ts"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

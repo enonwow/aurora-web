@@ -1,8 +1,30 @@
 {
   "paths": {
+    "hostPaths": {
+      "nwnUserDir": "C:/Users/enonw/Documents/Neverwinter Nights",
+      "nwnInstallDir": "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights",
+      "auroraReferenceDir": "C:/Projects/New Folder",
+      "hakDirectories": [
+        "C:/Users/enonw/Documents/Neverwinter Nights/hak"
+      ],
+      "itemGeneratorSourceDirectories": [
+        "C:/Projects/New Folder/item-retail-extract/utg"
+      ],
+      "moduleDecompiledPath": "C:/Users/enonw/Documents/Neverwinter Nights/LC-Decompiled/temp0",
+      "modulePackedPath": ""
+    },
+    "nwnUserDir": "/host/nwn-user",
+    "nwnInstallDir": "/host/nwn-game",
+    "auroraReferenceDir": "/host/aurora-reference",
+    "hakDirectories": [
+      "/host/nwn-user/hak"
+    ],
+    "itemGeneratorSourceDirectories": [
+      "/host/aurora-reference/item-retail-extract/utg"
+    ],
     "vanillaDataPath": "/host/nwn-game/data",
-    "hakDirectoryPath": "/host/nwn-docs/hak",
-    "moduleDecompiledPath": "/host/nwn-docs/LC-Decompiled/temp0",
+    "hakDirectoryPath": "/host/nwn-user/hak",
+    "moduleDecompiledPath": "/host/nwn-user/LC-Decompiled/temp0",
     "modulePackedPath": "",
     "tlkBasePath": "/host/nwn-game/lang/en/data/dialog.tlk",
     "tlkCustomPath": ""
@@ -32,7 +54,8 @@
     ],
     "lc_tiles": [
       "medieval.hak",
-      "+sic11.hak"
+      "+sic11.hak",
+      "cep3_tiles.hak"
     ],
     "lc_audio": [
       "lc_music.hak",
@@ -210,7 +233,7 @@
       }
     }
   },
-  "revision": 9,
-  "updatedAt": "2026-06-16T15:14:23.027Z",
+  "revision": 10,
+  "updatedAt": "2026-07-17T15:30:00.000Z",
   "updatedBy": "admin.user"
 }

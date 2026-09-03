@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-door-hook-construction.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-door-construction-profile.ts",
+    "src/modules/areas/adapters/outbound/blob/aurora-set-tileset-parser.ts:375-417",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:334-352",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:355-373",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:470-473",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:485-533",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:583-608",
+    "src/modules/areas/domain/area-update-draft-projector.ts:500-505",
+    "src/modules/areas/domain/area-update-draft-projector.ts:577-579",
+    "src/modules/areas/domain/area-update-draft-projector.ts:617-697",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:150-210",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:435-465",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts:72-82",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts:146-166"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-door-hook-construction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

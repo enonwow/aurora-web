@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/placeable-cache-admission.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/common/processing-cache/memory-processing-cache.store.ts:35-35",
+    "src/common/processing-cache/memory-processing-cache.store.ts:48-55",
+    "src/common/processing-cache/memory-processing-cache.store.ts:69-79",
+    "src/modules/catalog/application/catalog.application.service.ts:213-226",
+    "src/modules/catalog/application/catalog.application.service.ts:1749-1783",
+    "src/modules/catalog/application/catalog.application.service.ts:2098-2104",
+    "src/modules/catalog/application/catalog.application.service.ts:2173-2187",
+    "src/modules/catalog/application/catalog.application.service.ts:7816-7821",
+    "src/modules/catalog/application/catalog.application.service.ts:7840-7845",
+    "src/modules/catalog/application/catalog.application.service.ts:7867-7872",
+    "src/modules/catalog/application/catalog.application.service.ts:7910-7915",
+    "src/modules/catalog/application/catalog.application.service.ts:7936-7941",
+    "src/modules/catalog/application/catalog.application.service.ts:7962-7967",
+    "src/modules/catalog/application/catalog.application.service.ts:7989-7994",
+    "src/modules/catalog/application/catalog.application.service.ts:8025-8030"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.placeable-cache-admission.config.js",
+    "enableFindRelatedTests": false
+  }
+}

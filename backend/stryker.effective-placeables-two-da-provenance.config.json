@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/effective-placeables-two-da-provenance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["ObjectLiteral", "BlockStatement", "OptionalChaining", "StringLiteral", "ArrayDeclaration", "MethodExpression"]
+  },
+  "mutate": [
+    "src/modules/catalog/domain/effective-placeables-two-da-descriptor.ts",
+    "src/modules/areas/domain/area-placeable-basic-identity-table.ts",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:914-916",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1651-1651",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1942-1946",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1953-1953",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:267-275",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:447-448",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2404-2410",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2426-2433"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.effective-placeables-two-da-provenance.config.js",
+    "enableFindRelatedTests": false
+  }
+}

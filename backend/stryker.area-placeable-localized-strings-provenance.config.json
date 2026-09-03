@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-localized-strings-provenance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "ObjectLiteral", "BlockStatement", "OptionalChaining"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-localized-strings.ts",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1065-1066",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1085-1085",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1150-1178",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2217-2217",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2632-2644",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2646-2674",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2436-2442",
+    "src/modules/areas/domain/area-processing.builders.ts:102-106"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-localized-strings-provenance.config.js",
+    "enableFindRelatedTests": false
+  }
+}

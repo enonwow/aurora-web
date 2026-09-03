@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-localized-string-mutation.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "ObjectLiteral", "BlockStatement", "OptionalChaining", "MethodExpression"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-localized-string-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableLocalizedStrings.ts",
+    "src/modules/layout/application/placeableLocalizedStringProvenance.ts",
+    "src/modules/areas/application/areaSceneMapper.ts:283-293",
+    "src/modules/areas/application/areaSceneMapper.ts:335-336",
+    "src/modules/areas/application/areaSceneMapper.ts:836-846",
+    "src/modules/scene/domain/sceneFactory.ts:1899-1903",
+    "src/modules/scene/domain/sceneFactory.ts:2045-2050",
+    "src/modules/scene/domain/sceneFactory.ts:2114-2118",
+    "src/modules/scene/domain/sceneFactory.ts:2165-2166",
+    "src/modules/scene/domain/sceneFactory.ts:2198-2198",
+    "src/modules/layout/application/workspaceObjectPropertyDrafts.ts:1218-1218",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:391-398",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:558-573",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:1190-1198"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

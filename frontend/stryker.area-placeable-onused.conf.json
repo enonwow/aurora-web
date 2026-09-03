@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-onused.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-onused-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/adapters/httpAreaApiPort.ts:650-650",
+    "src/modules/areas/adapters/httpAreaApiPort.ts:905-905",
+    "src/modules/areas/application/areaSceneMapper.ts:197-201",
+    "src/modules/areas/application/areaSceneMapper.ts:241-243",
+    "src/modules/areas/application/areaSceneMapper.ts:533-554",
+    "src/modules/scene/application/sceneMutationsFacade.ts:411-425",
+    "src/modules/scene/application/sceneMutationsFacade.ts:443-445",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:345-349",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:899-905"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

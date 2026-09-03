@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-item-list.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-item-list-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableInventory.ts:21-126",
+    "src/modules/areas/application/areaSceneMapper.ts:241-253",
+    "src/modules/areas/application/areaSceneMapper.ts:318-325",
+    "src/modules/areas/application/areaSceneMapper.ts:677-693",
+    "src/modules/layout/application/placeableInventoryProvenance.ts:17-72",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:325-325",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:660-670",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:703-733",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:738-766",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:771-774"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

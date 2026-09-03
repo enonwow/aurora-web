@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aurora Toolset Authoring"
+  short_description: "Twórz i edytuj zawartoœæ modu³ów Aurora"
+  default_prompt: "Use $aurora-toolset-author to create or edit Aurora module content through verified native workflows."

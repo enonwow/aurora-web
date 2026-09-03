@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-delete.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-delete-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/application/areaDeleteAdmission.ts:5-49",
+    "src/modules/areas/application/areaDeleteFacade.ts:17-55",
+    "src/modules/areas/adapters/httpAreaDeleteApiPort.ts:214-345"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

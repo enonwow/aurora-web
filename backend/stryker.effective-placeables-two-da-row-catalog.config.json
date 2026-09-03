@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/effective-placeables-two-da-row-catalog.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["ObjectLiteral", "BlockStatement", "OptionalChaining", "StringLiteral", "ArrayDeclaration", "MethodExpression"]
+  },
+  "mutate": [
+    "src/modules/catalog/domain/effective-placeables-two-da-row-catalog.ts",
+    "src/modules/catalog/adapters/inbound/http/catalog.schemas.ts:29-35",
+    "src/modules/catalog/adapters/inbound/http/catalog.schemas.ts:53-68",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:923-950",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1441-1444",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1547-1548",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1692-1693",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1981-1993",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:1997-2000",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:3814-3818",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:3822-3830",
+    "src/modules/catalog/adapters/outbound/blob/module-snapshot-template-catalog.repository.ts:5790-5793",
+    "src/modules/catalog/application/catalog.application.service.ts:1732-1772"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.effective-placeables-two-da-row-catalog.config.js",
+    "enableFindRelatedTests": false
+  }
+}

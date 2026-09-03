@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-update-validation.json"
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-update-validation-command.validation.ts",
+    "src/modules/areas/domain/area-update-draft-projector.ts",
+    "src/modules/areas/adapters/outbound/blob/aurora-area-update-candidate-validator.ts",
+    "src/modules/areas/application/area-update-validation.application.service.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-update-validation.config.js",
+    "enableFindRelatedTests": false
+  }
+}

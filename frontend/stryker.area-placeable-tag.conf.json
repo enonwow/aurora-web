@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-tag.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-tag-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableTag.ts:1-7",
+    "src/modules/layout/application/placeableTagProvenance.ts:4-32",
+    "src/modules/areas/application/areaSceneMapper.ts:276-280",
+    "src/modules/areas/application/areaSceneMapper.ts:318-319",
+    "src/modules/areas/application/areaSceneMapper.ts:338-340",
+    "src/modules/areas/application/areaSceneMapper.ts:399-401",
+    "src/modules/layout/application/placeableBasicIdentityPreservation.ts:46-66",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:380-386",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:561-580"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

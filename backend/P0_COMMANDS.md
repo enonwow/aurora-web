@@ -39,7 +39,10 @@ npm run start:prod
 Powody:
 
 - `test:watch` nie jest deterministycznym gate (tryb interaktywny).
-- `test:mutation` jest ciężkie czasowo i nie jest minimalnym verify przed merge.
+- `test:mutation` jest kosztowne pamięciowo i pozostaje wyłącznie opcjonalnym
+  testem na wyraźne żądanie użytkownika. Wrapper wymaga wtedy
+  `AURORA_MUTATION_TESTS=1`, wymusza concurrency `1` i blokuje drugi równoległy
+  run; bez tego opt-in komenda kończy się bez uruchomienia Strykera.
 - `start*` uruchamia aplikację, ale nie weryfikuje jakości zmian.
 
 ## Minimalna sekwencja verify przed merge

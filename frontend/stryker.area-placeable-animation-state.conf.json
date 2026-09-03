@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-animation-state.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-animation-state-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableAnimationState.ts:1-38",
+    "src/modules/layout/application/placeableAnimationStateProvenance.ts:10-49",
+    "src/modules/areas/application/areaSceneMapper.ts:268-268",
+    "src/modules/areas/application/areaSceneMapper.ts:367-368",
+    "src/modules/areas/application/areaSceneMapper.ts:748-748",
+    "src/modules/areas/application/areaSceneMapper.ts:759-760",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:354-354",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:936-936",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:942-942",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:958-958",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:965-965",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:971-971",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:386-386",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:399-399",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:469-469",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:487-487",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:504-504",
+    "src/modules/layout/application/placeableConversationInterruptableProvenance.ts:54-65",
+    "src/modules/scene/domain/sceneFactory.ts:2018-2022"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/vfx-row28.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": [
+      "StringLiteral",
+      "Regex",
+      "ArithmeticOperator",
+      "OptionalChaining",
+      "ObjectLiteral",
+      "MethodExpression",
+      "ArrayDeclaration"
+    ]
+  },
+  "vitest": {
+    "configFile": "vite.config.ts",
+    "related": true
+  },
+  "mutate": [
+    "src/modules/layout/adapters/three/auroraVfxCanonicalRenderer.ts:2534-2534",
+    "src/modules/layout/adapters/three/auroraVfxCanonicalRenderer.ts:2873-2983",
+    "src/modules/vfx/application/vfxRuntimeObservability.ts:220-224",
+    "src/modules/vfx/application/vfxRuntimeObservability.ts:265-323",
+    "src/modules/vfx/dev/NwnVfxComparisonRunner.tsx:999-1023"
+  ],
+  "testFiles": [
+    "tests/unit/modules/layout/auroraVfxCanonicalRenderer.test.ts",
+    "tests/unit/modules/vfx/application/vfxRuntimeObservability.test.ts",
+    "tests/unit/modules/vfx/dev/NwnVfxComparisonRunner.test.ts"
+  ],
+  "ignorePatterns": ["public/**", "dist/**", "coverage/**"]
+}

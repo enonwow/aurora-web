@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+  "concurrency": 1,
+  "maxTestRunnerReuse": 20,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text"],
+  "mutate": [
+    "src/modules/areas/application/area-create-recovery.coordinator.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-create-control.config.js",
+    "enableFindRelatedTests": false
+  }
+}

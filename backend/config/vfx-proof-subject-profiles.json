@@ -1,0 +1,76 @@
+{
+  "version": "aurora-vfx-proof-subject-profiles/v1",
+  "subjects": [
+    {
+      "subjectId": "vfx-retail-chunk-particles-progfx-type9",
+      "subjectKind": "manifest-fixture",
+      "tags": ["chunk-model-resource-oracle", "high-priority-blocker"],
+      "additionalMissingPrerequisites": [
+        "real progfx Type 9 source row",
+        "retail chunk capture"
+      ],
+      "additionalMissingEvidence": [
+        "real progfx Type 9 source row",
+        "real chunk model resource/class",
+        "retail chunk capture showing actual chunk behavior"
+      ],
+      "nextOperatorAction": "Locate the real chunk source/resource row, then capture retail runtime/render/capture/comparison files into the listed pack path before rerunning validation.",
+      "renderVisibilityPolicy": {
+        "kind": "contract-lane-without-canvas",
+        "requiredDrawLane": "chunk_model"
+      },
+      "backlogProfile": {
+        "first": true,
+        "type": "missing-retail-resource-oracle",
+        "title": "Collect or admit real chunk model resource/source row and retail chunk capture",
+        "evidence": [
+          "Latest local diagnostic preserves the chunk_model lane and does not synthesize fake particles.",
+          "Local implementation cannot resolve the real resource/source/retail oracle without admitted evidence."
+        ],
+        "recommendedAction": "Keep the behavior diagnostic and collect real resource/source plus retail capture evidence before any parity claim."
+      }
+    },
+    {
+      "subjectId": "catalog-placeable-plc_zlc_o45",
+      "subjectKind": "catalog-item",
+      "tags": ["catalog-retail-oracle", "high-priority-blocker"],
+      "priority": 2,
+      "requiredCase": "catalog_placeable_plc_zlc_o45",
+      "title": "Collect retail runtime/render/capture/comparison evidence for the catalog placeable",
+      "titleOverride": "plc_zlc_o45 / zlc_o45 / VFX: Magic Mouth, Flat Anim P* (dobervich)",
+      "manifestStatus": "not_in_manifest_catalog_backlog_item",
+      "behaviorClaim": "diagnostic",
+      "requiredEvidencePacket": "backend/test/fixtures/vfx-retail/catalog-placeable-plc_zlc_o45 or explicit catalog evidence packet",
+      "missingManifestFields": [
+        "catalog capture pack manifest entry or explicit catalog evidence packet"
+      ],
+      "additionalMissingPrerequisites": [
+        "catalog capture pack manifest entry or explicit catalog evidence packet",
+        "retail zlc_o45 Magic Mouth placement",
+        "retail fxpa_flare texture appearance",
+        "retail Fountain particle timing",
+        "retail Lighten intensity",
+        "retail framebuffer comparison",
+        "retail build/profile",
+        "retail parser snapshot",
+        "retail resolver trace",
+        "retail runtime tick dump",
+        "retail render-contract snapshot",
+        "retail capture reference",
+        "retail comparison evidence"
+      ],
+      "additionalMissingEvidence": [
+        "retail zlc_o45 Magic Mouth placement",
+        "retail fxpa_flare texture appearance",
+        "retail Fountain particle timing",
+        "retail Lighten intensity",
+        "retail framebuffer comparison"
+      ],
+      "nextOperatorAction": "Create the required catalog retail evidence packet with placement, texture appearance, particle timing, blend intensity, framebuffer capture, and comparison evidence.",
+      "backlogProfile": {
+        "first": false,
+        "type": "catalog-retail-human-review-needed"
+      }
+    }
+  ]
+}

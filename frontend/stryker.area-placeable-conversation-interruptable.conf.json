@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-conversation-interruptable.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-conversation-interruptable-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableConversationInterruptable.ts:1-35",
+    "src/modules/areas/application/areaSceneMapper.ts:255-256",
+    "src/modules/areas/application/areaSceneMapper.ts:344-349",
+    "src/modules/areas/application/areaSceneMapper.ts:723-737",
+    "src/modules/layout/application/placeableConversationInterruptableProvenance.ts:16-81",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:347-348",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:935-945",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:399-436",
+    "src/modules/scene/domain/sceneFactory.ts:2005-2010"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

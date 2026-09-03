@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-tag.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "OptionalChaining", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-tag.ts:1-21",
+    "src/modules/areas/domain/area-placeable-tag.ts:25-36",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1049-1050",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1068-1068",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1086-1120",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2169-2169",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2413-2413",
+    "src/modules/areas/domain/area-update-draft-projector.ts:581-586",
+    "src/modules/areas/domain/area-update-draft-projector.ts:653-654",
+    "src/modules/areas/domain/area-update-draft-projector.ts:677-677",
+    "src/modules/areas/domain/area-update-draft-projector.ts:715-715",
+    "src/modules/areas/domain/area-update-draft-projector.ts:751-760",
+    "src/modules/areas/domain/area-update-draft-projector.ts:948-948",
+    "src/modules/areas/domain/area-update-draft-projector.ts:956-971",
+    "src/modules/areas/domain/area-update-draft-projector.ts:1576-1578",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:109-112",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:123-136",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:169-170",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:201-216",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:222-225",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:275-275",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:294-301",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:479-501",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:1577-1586",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:1696-1698",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2385-2385",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2405-2405",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2477-2479",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2506-2506",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2512-2524",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3586-3591",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3765-3786",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:4508-4508",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:4561-4561"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-tag.config.js",
+    "enableFindRelatedTests": false
+  }
+}

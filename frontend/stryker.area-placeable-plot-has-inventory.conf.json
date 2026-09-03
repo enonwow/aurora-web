@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-plot-has-inventory.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-plot-has-inventory-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/application/areaSceneMapper.ts:226-238",
+    "src/modules/areas/application/areaSceneMapper.ts:294-299",
+    "src/modules/areas/application/areaSceneMapper.ts:634-648",
+    "src/modules/layout/application/placeableBooleanProvenance.ts:1-24",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:349-356",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:625-665"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-localized-string.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "ObjectLiteral", "OptionalChaining", "MethodExpression"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-localized-string-mutation.ts",
+    "src/modules/areas/domain/area-update-draft-projector.ts:950-957",
+    "src/modules/areas/domain/area-update-draft-projector.ts:987-1032",
+    "src/modules/areas/domain/area-update-draft-projector.ts:1034-1034",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:490-498",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:503-559",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2393-2393",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2489-2491",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2519-2536",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3618-3627",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3806-3815",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3819-3819",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3821-3849",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:4623-4623",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:4654-4654",
+    "src/modules/catalog/adapters/outbound/blob/aurora-gff-raw-field-payload.ts",
+    "src/modules/catalog/adapters/outbound/blob/aurora-gff-template-parser.ts:1838-1838",
+    "src/modules/catalog/adapters/outbound/blob/aurora-gff-template-parser.ts:1849-1849"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-localized-string.config.js",
+    "enableFindRelatedTests": false
+  }
+}

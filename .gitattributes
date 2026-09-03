@@ -1,0 +1,25 @@
+# Large, canonical proof evidence is versioned through Git LFS.
+backend/docs/aurora-reverse/evidence/**/*.json filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.png filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.webm filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.tga filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.dds filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.2da filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.ncs filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.mod filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.erf filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.are filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.gic filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.utp filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.wok filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.db filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.db-wal filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.db-journal filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.pma filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.dat filter=lfs diff=lfs merge=lfs -text
+backend/docs/aurora-reverse/evidence/**/*.bf filter=lfs diff=lfs merge=lfs -text
+
+# Runtime dev fixtures contain large payloads and derived binary assets.
+frontend/public/dev-fixtures/** filter=lfs diff=lfs merge=lfs -text

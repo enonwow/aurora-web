@@ -1,0 +1,22 @@
+/** @type {import('jest').Config} */
+module.exports = {
+  moduleFileExtensions: ["js", "json", "ts"],
+  rootDir: ".",
+  maxWorkers: 1,
+  testMatch: [
+    "<rootDir>/test/unit/area-update-transaction-coordinator.spec.ts",
+    "<rootDir>/test/unit/area-update-recovery.coordinator.spec.ts",
+    "<rootDir>/test/unit/memory-area-create-control-store.spec.ts",
+    "<rootDir>/test/unit/memory-area-lifecycle-mutation-control-store.spec.ts",
+    "<rootDir>/test/unit/aurora-area-update-persisted-readback-verifier.spec.ts",
+    "<rootDir>/test/unit/area-update-candidate-compiler.spec.ts",
+    "<rootDir>/test/unit/aurora-gff-area-object-pair-writer.spec.ts",
+    "<rootDir>/test/unit/nwn-base-key-area-object-blueprint-source.adapter.spec.ts",
+    "<rootDir>/test/unit/area-existing-object-deletion-planner.spec.ts",
+    "<rootDir>/test/unit/area-object-source-identity.spec.ts"
+  ],
+  transform: {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  testEnvironment: "node"
+};

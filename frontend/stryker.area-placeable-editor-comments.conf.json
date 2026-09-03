@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-editor-comments.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-editor-comments-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableEditorComment.ts:1-14",
+    "src/modules/layout/application/placeableEditorCommentProvenance.ts:10-48",
+    "src/modules/areas/application/areaSceneMapper.ts:270-270",
+    "src/modules/areas/application/areaSceneMapper.ts:373-374",
+    "src/modules/areas/application/areaSceneMapper.ts:752-753",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:357-357",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:1042-1042",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:1055-1056",
+    "src/modules/layout/components/properties/SharedPropertyDialogSections.tsx:298-303"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-durability-save-bytes.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-durability-save-bytes-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableDurabilitySaveBytes.ts:3-30",
+    "src/modules/areas/application/areaSceneMapper.ts:246-248",
+    "src/modules/areas/application/areaSceneMapper.ts:331-333",
+    "src/modules/layout/application/placeableDurabilitySaveProvenance.ts:16-53",
+    "src/modules/layout/application/workspaceObjectPropertyDrafts.ts:1234-1238",
+    "src/modules/layout/application/workspaceSceneObjectClone.ts:143-145",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:327-343",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:533-639",
+    "src/modules/scene/domain/sceneFactory.ts:2037-2048"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

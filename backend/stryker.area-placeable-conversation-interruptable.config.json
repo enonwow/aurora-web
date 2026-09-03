@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-conversation-interruptable.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-conversation-interruptable.ts:1-23",
+    "src/modules/areas/domain/area-update-draft-projector.ts:585-586",
+    "src/modules/areas/domain/area-update-draft-projector.ts:599-600",
+    "src/modules/areas/domain/area-update-draft-projector.ts:627-629",
+    "src/modules/areas/domain/area-update-draft-projector.ts:771-792",
+    "src/modules/areas/domain/area-update-draft-projector.ts:805-806",
+    "src/modules/areas/domain/area-update-draft-projector.ts:843-874",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:172-173",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:187-188",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:310-327",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:470-589",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1182-1190",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2092-2102",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2135-2142",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2337-2338",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2352-2353",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2405-2410",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2433-2434",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2519-2615",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3416-3433",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3679-3724",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:4090-4091"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-conversation-interruptable.config.js",
+    "enableFindRelatedTests": false
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-script-resrefs.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-script-resrefs-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/application/areaSceneMapper.ts:51-66",
+    "src/modules/areas/application/areaSceneMapper.ts:216-225",
+    "src/modules/areas/application/areaSceneMapper.ts:265-272",
+    "src/modules/areas/application/areaSceneMapper.ts:571-615",
+    "src/modules/layout/application/placeableScriptProvenance.ts:1-55",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:905-918"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

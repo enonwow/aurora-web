@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-construction.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "vitest": {
+    "configFile": "vite.area-placeable-construction-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/areaWaypointConstructionProfile.ts"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"],
+  "timeoutMS": 20000
+}

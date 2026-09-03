@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aurora Model Proof 120s"
+  short_description: "Toolset-to-NWN proof within 120 seconds"
+  default_prompt: "Use $aurora-model-proof-120s to prove an immutable model in Aurora Toolset and NWN within the 120-second live SLO."

@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress"],
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 80
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-update-journal-policy.ts",
+    "src/modules/areas/application/area-update-transaction.coordinator.ts",
+    "src/modules/areas/application/area-update-recovery.coordinator.ts",
+    "src/modules/areas/application/area-update-candidate.compiler.ts",
+    "src/modules/areas/adapters/outbound/memory/memory-area-lifecycle-mutation-control-store.ts",
+    "src/modules/areas/adapters/outbound/blob/aurora-area-update-persisted-readback-verifier.ts",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts",
+    "src/modules/areas/domain/area-object-source-identity.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-update-transaction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

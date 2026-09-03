@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress"],
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 80
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-delete-journal-policy.ts",
+    "src/modules/areas/application/area-delete-candidate.compiler.ts",
+    "src/modules/areas/application/area-delete-transaction.coordinator.ts",
+    "src/modules/areas/application/area-delete-recovery.coordinator.ts",
+    "src/modules/areas/adapters/outbound/memory/memory-area-delete-control-store.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-delete-transaction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress"],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "vitest": {
+    "configFile": "vite.area-draft-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/application/areaDraftSaveQueue.ts",
+    "src/modules/layout/application/useWorkspaceCommandSignal.ts:230-230",
+    "src/modules/layout/components/AreasModePanel.tsx:214-214",
+    "src/modules/layout/components/WorkspaceLayout.tsx:2024-2026",
+    "src/modules/layout/components/WorkspaceLayout.tsx:6783-6783",
+    "src/modules/layout/components/WorkspaceLayout.tsx:7647-7647"
+  ],
+  "mutator": {
+    "excludedMutations": ["ArithmeticOperator"]
+  },
+  "ignorePatterns": ["dist/**", "coverage/**"],
+  "timeoutMS": 20000
+}

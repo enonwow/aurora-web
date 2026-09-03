@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": ["typescript"],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress"],
+  "mutate": [
+    "src/modules/areas/domain/area-create-idempotency.ts",
+    "src/modules/areas/domain/area-create-journal-policy.ts",
+    "src/modules/areas/application/area-create-recovery.coordinator.ts",
+    "src/modules/areas/adapters/outbound/memory/memory-area-create-control-store.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-create-control.config.js",
+    "enableFindRelatedTests": false
+  }
+}

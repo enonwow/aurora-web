@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-trap-type.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-trap-type-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableTrapType.ts:8-15",
+    "src/modules/scene/domain/placeableTrapType.ts:17-115",
+    "src/modules/layout/application/placeableTrapTypeProvenance.ts:10-49",
+    "src/modules/areas/application/areaSceneMapper.ts:291-296",
+    "src/modules/areas/application/areaSceneMapper.ts:439-440",
+    "src/modules/areas/application/areaSceneMapper.ts:924-931",
+    "src/modules/areas/application/areaSceneMapper.ts:1540-1547",
+    "src/modules/areas/application/areaSceneMapper.ts:1568-1568",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:411-420",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:1032-1035",
+    "src/modules/scene/domain/sceneFactory.ts:1983-1987"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-trap-script-resrefs.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-trap-script-fields.ts:1-30",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1113-1128",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1157-1162",
+    "src/modules/areas/domain/area-update-draft-projector.ts:534-548",
+    "src/modules/areas/domain/area-update-draft-projector.ts:602-621",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:131-132",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:180-188",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:195-294",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2260-2261",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2288-2290",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2302-2306",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2375-2452",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2667-2678",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3009-3009"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-trap-script-resrefs.config.js",
+    "enableFindRelatedTests": false
+  }
+}

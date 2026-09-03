@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-appearance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-appearance-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/layout/application/placeableAppearanceProvenance.ts:36-83",
+    "src/modules/layout/application/placeableAppearanceProvenance.ts:85-226",
+    "src/modules/layout/application/placeableAppearanceProvenance.ts:228-349",
+    "src/modules/layout/application/placeableAppearanceProvenance.ts:351-358",
+    "src/modules/areas/application/areaSceneMapper.ts:273-274",
+    "src/modules/areas/application/areaSceneMapper.ts:276-295",
+    "src/modules/areas/application/areaSceneMapper.ts:747-760",
+    "src/modules/areas/application/areaSceneMapper.ts:762-765",
+    "src/modules/scene/domain/sceneFactory.ts:1878-1882",
+    "src/modules/scene/domain/sceneFactory.ts:2079-2083",
+    "src/modules/scene/domain/sceneFactory.ts:2159-2162",
+    "src/modules/layout/application/workspaceObjectPropertyDrafts.ts:1220-1222",
+    "src/modules/layout/application/workspaceObjectPropertyDrafts.ts:1929-1929",
+    "src/modules/layout/application/workspacePlaceableRenderContracts.ts:144-155",
+    "src/modules/layout/application/workspacePlaceableRenderContracts.ts:157-158",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:381-389",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:594-603",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:605-652"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

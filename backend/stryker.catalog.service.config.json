@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "jest",
   "checkers": ["typescript"],
-  "concurrency": 2,
+"concurrency": 1,
   "coverageAnalysis": "off",
   "reporters": ["clear-text", "progress"],
   "mutate": ["src/modules/catalog/application/catalog.application.service.ts"],

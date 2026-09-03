@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-object-transform.json"
+  },
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 80
+  },
+  "mutate": [
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-object-transform.config.js",
+    "enableFindRelatedTests": false
+  }
+}

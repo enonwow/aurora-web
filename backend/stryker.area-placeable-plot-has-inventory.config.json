@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-plot-has-inventory.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-update-draft-projector.ts:537-564",
+    "src/modules/areas/domain/area-update-draft-projector.ts:614-635",
+    "src/modules/areas/domain/area-update-draft-projector.ts:662-663",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:130-145",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:179-203",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2263-2277",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2300-2308"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-plot-has-inventory.config.js",
+    "enableFindRelatedTests": false
+  }
+}

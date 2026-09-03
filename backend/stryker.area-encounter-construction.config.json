@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-encounter-construction.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-encounter-construction-profile.ts",
+    "src/modules/areas/domain/area-update-draft-projector.ts:426-461",
+    "src/modules/areas/domain/area-update-draft-projector.ts:496-512",
+    "src/modules/areas/domain/area-update-draft-projector.ts:528-540",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:150-229",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:373-378",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:397-547",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts:55-56"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-encounter-construction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

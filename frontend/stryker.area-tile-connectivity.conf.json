@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-tile-connectivity.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "OptionalChaining", "ObjectLiteral", "BlockStatement", "EqualityOperator"]
+  },
+  "vitest": {
+    "configFile": "vite.area-tile-connectivity-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:251-338",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:351-359",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:361-636",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:637-642",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:645-664",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:672-678",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:681-700",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:705-710",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:718-730",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:733-774",
+    "src/modules/scene/domain/areaTileConnectivityDiagnostics.ts:777-838"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

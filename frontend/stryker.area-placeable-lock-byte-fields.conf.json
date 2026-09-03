@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-lock-byte-fields.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-lock-byte-fields-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableLockFields.ts:1-34",
+    "src/modules/layout/application/placeableLockProvenance.ts:1-39",
+    "src/modules/areas/application/areaSceneMapper.ts:239-248",
+    "src/modules/areas/application/areaSceneMapper.ts:310-312",
+    "src/modules/areas/application/areaSceneMapper.ts:641-689",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:118-205",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:878-879"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

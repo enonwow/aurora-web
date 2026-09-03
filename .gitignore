@@ -38,6 +38,29 @@ runtime-cache/
 .aurora-cache/
 .codex/
 .codex-tmp/
+.codex-runtime/
+.codex-tmp-*
+
+# Repository-local generated workspaces and runner output
+/output/
+/.playwright-cli/
+/backend/output/
+/backend/output-*.json
+/backend/reports/
+/frontend/reports/
+/frontend/.vite-*-cache/
+/backend/.codex-*
+/frontend/.codex-*
+/row28-*.png
+
+# Alternate local package-manager experiments (npm lockfiles are canonical)
+/backend/pnpm-lock.yaml
+/backend/pnpm-workspace.yaml
+
+# Accidental REPL/shell scratch files
+/({state
+/document.querySelector*
+/frontend/k.startsWith*
 
 # Local proof and generated Aurora artifacts
 backend/backend/

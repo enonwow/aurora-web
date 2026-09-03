@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-door-hook-construction.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["ArithmeticOperator", "OptionalChaining"]
+  },
+  "vitest": {
+    "configFile": "vite.area-door-hook-construction-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/areaWaypointConstructionProfile.ts:105-136",
+    "src/modules/scene/domain/areaWaypointConstructionProfile.ts:228-272",
+    "src/modules/scene/domain/sceneFactory.ts:3880-3980",
+    "src/modules/scene/application/sceneAuthoringFacade.ts:50-52",
+    "src/modules/layout/application/useWorkspacePointerSelection.ts:859-878",
+    "src/modules/layout/components/useWorkspaceObjectAddDragDrop.ts:222-249",
+    "src/modules/layout/application/useWorkspaceObjectCommands.ts:90-111"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"],
+  "timeoutMS": 30000
+}

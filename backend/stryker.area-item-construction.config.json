@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-item-construction.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-item-construction-profile.ts",
+    "src/modules/areas/domain/area-update-draft-projector.ts:346-434",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:150-229",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:425-451",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:281-338",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:737-907",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts:42-102"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-sound-construction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

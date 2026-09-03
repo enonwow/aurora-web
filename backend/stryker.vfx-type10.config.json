@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": ["typescript"],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "reporters": ["clear-text"],
+  "mutate": [
+    "src/modules/vfx/domain/aurora-vfx-progfx-type10-projectile.ts:80-165",
+    "src/modules/vfx/domain/aurora-vfx-progfx-type10-projectile.ts:197-230",
+    "src/modules/vfx/application/vfx.application.service.ts:277-286",
+    "src/modules/vfx/application/vfx.application.service.ts:612-642",
+    "src/modules/vfx/application/vfx.application.service.ts:1030-1040"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.vfx-type10.config.js",
+    "enableFindRelatedTests": false
+  }
+}

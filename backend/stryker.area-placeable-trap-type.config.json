@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["docs/**", "reports/**", "output/**"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-trap-type.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-trap-type.ts:14-28",
+    "src/modules/areas/domain/area-placeable-trap-type.ts:30-34",
+    "src/modules/areas/domain/area-placeable-trap-type.ts:36-46",
+    "src/modules/areas/domain/area-placeable-trap-type.ts:48-74",
+    "src/modules/areas/domain/area-update-draft-projector.ts:657-657",
+    "src/modules/areas/domain/area-update-draft-projector.ts:952-962",
+    "src/modules/areas/domain/area-update-draft-projector.ts:1012-1034",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:265-265",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:486-493",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:643-668",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1161-1169",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2244-2244",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2396-2396",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2490-2492",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2588-2598",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3736-3741",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3926-3944",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:594-650"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-trap-type.config.js",
+    "enableFindRelatedTests": false
+  }
+}

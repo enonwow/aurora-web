@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-trap-script-resrefs.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-trap-script-resrefs-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/areas/application/areaSceneMapper.ts:71-74",
+    "src/modules/areas/application/areaSceneMapper.ts:223-230",
+    "src/modules/areas/application/areaSceneMapper.ts:278-280",
+    "src/modules/areas/application/areaSceneMapper.ts:594-650",
+    "src/modules/layout/application/placeableTrapScriptProvenance.ts:1-40",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:222-223",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:240-240",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:250-250",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:267-267",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:278-278",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:297-297",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:311-311",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:323-323",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:332-332",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:341-341",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:363-363",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:376-376",
+    "src/modules/layout/components/properties/LockTrapPropertySections.tsx:390-390",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:893-893"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

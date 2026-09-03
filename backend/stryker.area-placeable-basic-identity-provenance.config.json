@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-basic-identity-provenance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral", "BlockStatement"]
+  },
+  "mutate": [
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1044-1045",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1063-1063",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1084-1086",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1089-1119",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1121-1127",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2133-2133",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2386-2391"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-basic-identity-provenance.config.js",
+    "enableFindRelatedTests": false
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-basic-identity-provenance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "ObjectLiteral", "BlockStatement", "OptionalChaining", "MethodExpression"]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-basic-identity-provenance-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableBasicIdentity.ts",
+    "src/modules/areas/application/areaSceneMapper.ts:272-272",
+    "src/modules/areas/application/areaSceneMapper.ts:378-380",
+    "src/modules/layout/application/workspaceSceneObjectClone.ts:149-154",
+    "src/modules/layout/application/placeableBasicIdentityPreservation.ts:20-26",
+    "src/modules/layout/components/properties/PlaceablePropertiesDialog.tsx:576-579"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

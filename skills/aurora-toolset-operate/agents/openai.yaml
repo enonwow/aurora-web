@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aurora Toolset Operator"
+  short_description: "Bezpiecznie prowadŸ jedn¹ sesjê Aurory"
+  default_prompt: "Use $aurora-toolset-operate to inspect and operate one Aurora Toolset session safely."

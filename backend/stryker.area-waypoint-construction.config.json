@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "thresholds": {
+    "high": 95,
+    "low": 90,
+    "break": 90
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-update-draft-projector.ts:234-333",
+    "src/modules/areas/domain/area-update-draft-projector.ts:408-420",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:157-226",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:495-509",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:205-244",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:254-411",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:619-621",
+    "src/modules/areas/adapters/outbound/blob/nwn-base-key-area-object-blueprint-source.adapter.ts:35-94"
+  ],
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex"]
+  },
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-waypoint-construction.config.js",
+    "enableFindRelatedTests": false
+  }
+}

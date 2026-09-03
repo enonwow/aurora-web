@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-render-payload-revalidation.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": [
+      "StringLiteral",
+      "ObjectLiteral",
+      "BlockStatement",
+      "OptionalChaining"
+    ]
+  },
+  "vitest": {
+    "configFile": "vite.area-placeable-render-payload-revalidation-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/placeables/domain/placeableCacheMiss.ts",
+    "src/modules/layout/application/areaPlaceableRenderPayloadRevalidation.ts",
+    "src/modules/placeables/application/placeableRenderPayloadResolver.ts:1078-1089",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:1404-1458",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:1494-1494",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:1770-1772",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:1843-1843",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:1855-1855",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:8219-8221",
+    "src/modules/placeables/adapters/three/placeableThreeAssetLoader.ts:8319-8319"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

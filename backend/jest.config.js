@@ -2,6 +2,7 @@
 module.exports = {
   moduleFileExtensions: ["js", "json", "ts"],
   rootDir: ".",
+  maxWorkers: 2,
   testRegex: ".*\\.spec\\.ts$",
   modulePathIgnorePatterns: ["<rootDir>/.stryker-tmp"],
   testPathIgnorePatterns: ["<rootDir>/.stryker-tmp"],

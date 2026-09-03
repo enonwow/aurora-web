@@ -3,7 +3,7 @@
   "testRunner": "vitest",
   "checkers": [],
   "reporters": ["clear-text", "progress"],
-  "concurrency": 12,
+"concurrency": 1,
   "coverageAnalysis": "off",
   "vitest": {
     "configFile": "vite.config.ts"

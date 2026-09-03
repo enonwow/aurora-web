@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "checkers": [],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/effective-placeables-two-da-provenance.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "mutator": {
+    "excludedMutations": ["ObjectLiteral", "BlockStatement", "OptionalChaining", "StringLiteral", "ArrayDeclaration", "MethodExpression"]
+  },
+  "vitest": {
+    "configFile": "vite.effective-placeables-two-da-provenance-mutation.config.ts"
+  },
+  "mutate": [
+    "src/modules/scene/domain/placeableBasicIdentity.ts",
+    "src/modules/areas/adapters/httpAreaApiPort.ts:249-258",
+    "src/modules/areas/adapters/httpAreaApiPort.ts:265-273"
+  ],
+  "ignorePatterns": ["dist/**", "coverage/**"]
+}

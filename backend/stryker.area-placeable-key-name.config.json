@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-key-name.json"
+  },
+  "thresholds": { "high": 100, "low": 100, "break": 100 },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining", "ObjectLiteral"]
+  },
+  "mutate": [
+    "src/modules/areas/domain/area-placeable-key-name.ts:1-10",
+    "src/modules/areas/domain/area-update-draft-projector.ts:687-730",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:441-444",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1147-1147",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1363-1369",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:2040-2047",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:144-159",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:230-317",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2290-2305",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2342-2362",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2367-2410",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2861-2866",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2924-2950",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:3288-3288"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-key-name.config.js",
+    "enableFindRelatedTests": false
+  }
+}

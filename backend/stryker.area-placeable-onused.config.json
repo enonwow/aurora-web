@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "checkers": [],
+"concurrency": 1,
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["/docs"],
+  "reporters": ["clear-text", "progress", "json"],
+  "jsonReporter": {
+    "fileName": "reports/mutation/area-placeable-onused.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
+  },
+  "mutator": {
+    "excludedMutations": ["StringLiteral", "Regex", "ArithmeticOperator", "OptionalChaining"]
+  },
+  "mutate": [
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-parser.ts:1156-1161",
+    "src/modules/areas/adapters/outbound/blob/module-snapshot-area.repository.ts:2336-2338",
+    "src/modules/areas/domain/area-update-draft-projector.ts:494-524",
+    "src/modules/areas/adapters/outbound/blob/area-existing-object-deletion-planner.ts:88-142",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2208-2255",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2421-2443",
+    "src/modules/areas/adapters/outbound/blob/aurora-gff-area-object-pair-writer.ts:2626-2656",
+    "src/modules/areas/application/area-update-candidate.compiler.ts:210-232"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "jest": {
+    "projectType": "custom",
+    "configFile": "jest.mutation.area-placeable-onused.config.js",
+    "enableFindRelatedTests": false
+  }
+}

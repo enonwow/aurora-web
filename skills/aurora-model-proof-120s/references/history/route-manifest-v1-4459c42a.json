@@ -1,0 +1,306 @@
+{
+  "version": "aurora-model-proof-120s-route-manifest/v1",
+  "supersession": {
+    "version": "aurora-model-proof-120s-route-manifest-supersession/v2",
+    "from": {
+      "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-17c4cbd7.json",
+      "sha256": "17c4cbd7e6419488ee1cd0efb80d4bc98da56e72384a0da1e4653e435490c70e",
+      "byteLength": 7070
+    },
+    "transitions": [
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-39540d66.json",
+          "sha256": "39540d666dc1b3ca9125317d5df700a2ef01fc607673a15a44040009271b284b",
+          "byteLength": 7071
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\close-aurora-toolset-window-no-global-input.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-skill-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-0807b4e6.json",
+          "sha256": "0807b4e655f7314489bb966e74ff3166c76dd16183911b875b08c83302d8a3e3",
+          "byteLength": 9407
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-skill-contract.mjs"
+        ],
+        "addedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs"
+        ]
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-35529d03.json",
+          "sha256": "35529d03fe25f28ec1fff65ba72512d2babd35ffcbe281219ef1170b12398715",
+          "byteLength": 10539
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-skill-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-2f381f5f.json",
+          "sha256": "2f381f5fefdda97a3248de9a757ab720b05cae8cc9748495ef23c674e38f3347",
+          "byteLength": 11522
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\close-aurora-toolset-window-no-global-input.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-skill-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-a52c8f2e.json",
+          "sha256": "a52c8f2e15f31ef8403a720512ddadf3a12ec4a5e7758149bc727164909c0aad",
+          "byteLength": 12308
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-3eb44a9d.json",
+          "sha256": "3eb44a9d53a946ebd33ca03fe52e687b5a9ec61f917dc5dbdf3bdc6f30ee9da9",
+          "byteLength": 12949
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-41ea27ff.json",
+          "sha256": "41ea27ff899a65eae34a101c00739e402c09dfa6bb918e7b21a59d34b3f341ae",
+          "byteLength": 13524
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "to": {
+          "path": "C:\\Projects\\aurora-web\\skills\\aurora-model-proof-120s\\references\\history\\route-manifest-v1-2a6085c7.json",
+          "sha256": "2a6085c7e7c56e00394e41656a34d944d9d20082393caf966db3542795f9a3a8",
+          "byteLength": 14093
+        },
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs"
+        ],
+        "addedRoutes": []
+      },
+      {
+        "toCurrent": true,
+        "changedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-aurora-model-proof-120s.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+          "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs"
+        ],
+        "addedRoutes": [
+          "C:\\Projects\\aurora-web\\backend\\scripts\\close-aurora-toolset-dialog-no-global-input.mjs"
+        ]
+      }
+    ],
+    "coordinatorSemanticLock": {
+      "routePath": "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-model-proof-120s.mjs",
+      "mode": "model-proof-coordinator-excluding-route-manifest-load-and-post-proof-cleanup/v2",
+      "sha256": "2d25dea2cf510b565bed79072fd496d5c10663d5f6a9856b2d68b00bacc2952b"
+    }
+  },
+  "routes": [
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-model-proof-120s.mjs",
+      "sha256": "e457c23a6db9acc6125ca91f2979eeda2186b5ef634d640843751a50dda218e6",
+      "byteLength": 75261
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-contract.mjs",
+      "sha256": "e05866d30cddc773ac1ad85974d90d668616a0b1bb927a685a6e5d03d99c47d9",
+      "byteLength": 25030
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-route-manifest-supersession.mjs",
+      "sha256": "1e28e62f0caf0a914addc41fddc8de531ee9816ea0ed49d5b16499900d07506a",
+      "byteLength": 15669
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-aurora-model-proof-120s.mjs",
+      "sha256": "d72dd0d1ae7ed58a7e9c79a1bc451e7150a03c8cda7951275f82dca082838449",
+      "byteLength": 76136
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-model-proof-120s-prep-contract.mjs",
+      "sha256": "97d7950357de27fb7416895988bb30a2546203c8ab3e404030bd9cb8764b3166",
+      "byteLength": 72967
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-toolset-binary-module-native-geometry.mjs",
+      "sha256": "4c069baeee9b11106d81a5e3d475643bb6d5f1f304e38013999d44ab9c5da786",
+      "byteLength": 52353
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\open-last-city-module-and-area-toolset-no-global-input.mjs",
+      "sha256": "05e85c8cc110776594d3388d5a0e5e234c14acc20811165c75191a54a7ed2810",
+      "byteLength": 102946
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\post-aurora-toolset-verified-temp0-recovery-client-click-no-global-input.mjs",
+      "sha256": "148d2fe4e6f3fcba721de8fc587c4c7781b2ee28b2ded1e2457828d770b30694",
+      "byteLength": 6668
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\aurora-toolset-verified-temp0-recovery.mjs",
+      "sha256": "5e003f7ee75ab608c0d271b1bc881c2f8e3fbbee4d2c7c349ba4ae900487c6a9",
+      "byteLength": 5213
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\lib\\nwmain-close-or-terminate-contract.mjs",
+      "sha256": "698add396e928ba9fd4b82d29408dccce7564d1ec6d22d96adca128f30fffd2d",
+      "byteLength": 1992
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\validate-aurora-toolset-binary-module-bootstrap.mjs",
+      "sha256": "36bc95b21795bcd6f87e9d63c02602dd1e636dd6d211f27731a26175b2c896fb",
+      "byteLength": 6380
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\set-aurora-toolset-selection-mode-no-global-input.mjs",
+      "sha256": "af3fbabf8fd7ba97c87ee6fffb7a6dcf5f527a3c9300a11dc040ee51f41ff00c",
+      "byteLength": 6879
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\inspect-aurora-toolset-area-tree-object-context-no-global-input.mjs",
+      "sha256": "6be307289c80e8545976d59f46044bc30b9e2e2f95474e5fc86b84eb213c3b1d",
+      "byteLength": 11671
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\probe-aurora-toolset-area-tree-selection-no-global-input.mjs",
+      "sha256": "e775be98dcf757f0a75ded3ceb3bd71d11c1ce06e3219e2d3ceba45ced5765f5",
+      "byteLength": 7038
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-toolset-viewport-proof.mjs",
+      "sha256": "3107b007fb9c9104424dec1aaa2d1c39056a6355b6493e87272331b2732753df",
+      "byteLength": 18301
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\aur-s07-runtime-execution.mjs",
+      "sha256": "c54c84d57612508464662f7e7bb2a398314acc0c6aafcdd7ce2932414287dd4e",
+      "byteLength": 7495
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\aurora-toolset-test-module-nonblocking.mjs",
+      "sha256": "a1ac7528986177823e5098a58155f1217d855341cff5e557a31fc4180fbf5772",
+      "byteLength": 5897
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\prepare-nwmain-proof-window-no-global-input.mjs",
+      "sha256": "745622e75db755d7d0ecddbba9dff8e467dfe3a3143624cc92bff25dfe2ab031",
+      "byteLength": 7013
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\capture-nwmain-proof-window-no-global-input.mjs",
+      "sha256": "9bfdad4e81fd3f932ba7dd27fc2c6d2d30fdd00ffb79091074e84cac7f0708b3",
+      "byteLength": 23636
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\close-nwmain-window-no-global-input.mjs",
+      "sha256": "96a2449ad06ab0c62e734d834aaa9d4fc62b0773e674889dbaf30e9a161d56f5",
+      "byteLength": 16201
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\close-aurora-toolset-dialog-no-global-input.mjs",
+      "sha256": "2750662038ad380645da2b70844d45e4841dbaada32510ac9a08a3f9437d2acc",
+      "byteLength": 6121
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\close-aurora-toolset-window-no-global-input.mjs",
+      "sha256": "1dd7e5b6a8ef53232700b1687867e842e69acea5fe408110e052cf884bf4aa1b",
+      "byteLength": 12527
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-model-proof-120s-contract.mjs",
+      "sha256": "a38755f523f371447d84443958e986b18525c745c13f456d617e3a3dc983521d",
+      "byteLength": 41098
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-aurora-model-proof-120s-contract.mjs",
+      "sha256": "e5649eb37923579d2fa7d955ce2ed8debfb855ae52e7d21f1aa15a47e0a085aa",
+      "byteLength": 91532
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-binary-module-native-geometry-contract.mjs",
+      "sha256": "137e556c780ab0362ab26dc6d02aa5b06620db906af628f4e40d2078958b9bce",
+      "byteLength": 12864
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-toolset-explicit-open-startup-admission-integration.mjs",
+      "sha256": "8df93647583da3dd7b461a4bf1f0d3da4adc4458895d11dd0efba91f243e4a73",
+      "byteLength": 5002
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-verified-temp0-recovery-contract.mjs",
+      "sha256": "03c6d7cde15571b03b8c5f972430732584e701589b4fc51d3c7726cc44b0f7ee",
+      "byteLength": 9477
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-test-module-nonblocking-contract.mjs",
+      "sha256": "d90ce4138b20e7d0c333e238c7abbab91318132694194642a11d33dc69dd7036",
+      "byteLength": 1296
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-capture-nwmain-proof-window-contract.mjs",
+      "sha256": "5c28f42c5795b804a18d3734c7d61a7277f18437ce3cded18ca394c54b85abf4",
+      "byteLength": 6422
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-prepare-nwmain-proof-window-no-global-input-contract.mjs",
+      "sha256": "ec51b83ba8c83a1efcaef5db30b2d70f471d1e5bfd46566e5f41e97f8dbba417",
+      "byteLength": 2973
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-close-nwmain-window-no-global-input-contract.mjs",
+      "sha256": "6dec9215aeb7209ac0b2b779ffc0bb61bd4542d8fbb6894f3e06c55837ee62e0",
+      "byteLength": 6470
+    },
+    {
+      "path": "C:\\Projects\\aurora-web\\backend\\scripts\\test-aurora-toolset-skill-contract.mjs",
+      "sha256": "85cbc0b293b3aba2d29ca9c8fc0fb914b416c07a48248943e0c756b80046eb68",
+      "byteLength": 6000
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aurora Toolset Proof"
+  short_description: "Zbieraj i waliduj proof Toolsetu oraz NWN"
+  default_prompt: "Use $aurora-toolset-prove to capture and validate an Aurora Toolset or NWN proof packet."
