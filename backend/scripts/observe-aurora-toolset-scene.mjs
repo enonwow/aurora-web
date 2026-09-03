@@ -35,9 +35,10 @@ currently-open validated Toolset viewport without global input.`);
   const outDir = resolve(requiredText(options.outDir, "--outDir"));
   mkdirSync(outDir, { recursive: true });
 
-  const capturePath = options.capturePath
-    ? requiredFile(options.capturePath, "--capturePath")
+  const capture = options.capturePath
+    ? { pngPath: requiredFile(options.capturePath, "--capturePath"), safety: null }
     : captureLiveViewport({ module, area, outPath: join(outDir, "viewport.png") });
+  const capturePath = capture.pngPath;
   const sourcePackDir = buildSourcePack({ area, sourceModulePath, outDir });
   const sourceManifest = readJson(join(sourcePackDir, "manifest.json"));
   const sourceGit = readJson(join(sourcePackDir, "raw.git.summary.json"));
@@ -52,6 +53,7 @@ currently-open validated Toolset viewport without global input.`);
     sourceManifest,
     sourceGit,
     visualFeatures,
+    monitorEvidence: capture.safety,
     cameraPoseAnalysis,
   });
   const observationPath = join(outDir, "scene-observation.json");
@@ -68,6 +70,7 @@ export function buildSceneObservation({
   sourceManifest,
   sourceGit,
   visualFeatures,
+  monitorEvidence = null,
   cameraPoseAnalysis = null,
 }) {
   const counts = sourceManifest?.parsed?.git?.counts ?? {};
@@ -94,6 +97,7 @@ export function buildSceneObservation({
         width: numberOrNull(visualFeatures?.image?.width),
         height: numberOrNull(visualFeatures?.image?.height),
       },
+      monitorEvidence: monitorEvidence ?? null,
     },
     sourceScene: {
       sourceModulePath,
@@ -156,8 +160,7 @@ export function normalizeCameraPose(cameraPoseAnalysis) {
 }
 
 function captureLiveViewport({ module, area, outPath }) {
-  runNode([join(scriptDir, "aurora-toolset-viewport-proof.mjs"), "capture", "--module", module, "--area", area, "--out", outPath]);
-  return outPath;
+  return runNode([join(scriptDir, "aurora-toolset-viewport-proof.mjs"), "capture", "--module", module, "--area", area, "--out", outPath]);
 }
 
 function buildSourcePack({ area, sourceModulePath, outDir }) {
@@ -222,7 +225,8 @@ try {
 }
 
 function runNode(args) {
-  execFileSync(process.execPath, args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 8, timeout: 120_000, windowsHide: true });
+  const output = execFileSync(process.execPath, args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 8, timeout: 120_000, windowsHide: true }).trim();
+  return JSON.parse(output);
 }
 
 function readJson(path) { return JSON.parse(readFileSync(path, "utf8")); }

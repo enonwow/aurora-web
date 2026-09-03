@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import "../../scripts/proof-capture-lock-auto.cjs";
 
 import { installCaptureProcessGuard } from "./capture-process-lifecycle.mjs";
+import { hasVisibleCanonicalVfxPlayback } from "./vfx-proof-playback-visibility.mjs";
 
 const DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const DEFAULT_BASE_URL = "http://127.0.0.1:5173";
@@ -24,10 +26,14 @@ const password = options.password ?? process.env.AURORA_TEST_PASSWORD ?? DEFAULT
 const authBaseUrl = (options.authBaseUrl ?? `${baseUrl}/_aurora/v1`).replace(/\/+$/u, "");
 const clickMagicMouthDemo = options.clickMagicMouthDemo === "true";
 const waitAttempts = Number(options.waitAttempts ?? 240);
-const requirePlaceableTextureSettled = options.requirePlaceableTextureSettled === "true";
+const skipAuth = options.skipAuth === "true";
 const profileDir = path.join(outDir, `${fileStem}.chrome-profile`);
 const keepProfile = options.keepProfile === "true";
 const route = new URL(routePath, baseUrl).toString();
+const isAreaPlaceableLightingRoute =
+  new URL(route).pathname === "/dev/area-light-shadow-preview";
+const requirePlaceableTextureSettled =
+  isAreaPlaceableLightingRoute || options.requirePlaceableTextureSettled === "true";
 const bootstrapRoute = new URL("/login", baseUrl).toString();
 const pngPath = path.join(outDir, `${fileStem}.png`);
 const framePath = path.join(outDir, `${fileStem}.frame.json`);
@@ -38,6 +44,13 @@ const mp4Path = path.join(outDir, `${fileStem}.mp4`);
 const ffmpegPath = options.ffmpegPath ?? process.env.FFMPEG_PATH ?? DEFAULT_LOCAL_FFMPEG_PATH;
 const videoDurationMs = Number(options.videoDurationMs ?? 3200);
 const videoFps = Number(options.videoFps ?? 30);
+const captureTimeSeconds =
+  options.captureTimeSeconds === undefined ? null : Number(options.captureTimeSeconds);
+const allowDiagnosticProofFailure =
+  options.allowDiagnosticProofFailure === "true" &&
+  new URL(route).searchParams.get("render") === "direct" &&
+  !recordVideo &&
+  !recordMp4;
 const viewportWidth = Number(options.viewportWidth ?? options.width ?? 1440);
 const viewportHeight = Number(options.viewportHeight ?? options.height ?? 760);
 const captureHardTimeoutMs = Math.max(
@@ -48,32 +61,44 @@ const captureHardTimeoutMs = Math.max(
       waitAttempts * 250 + videoDurationMs + DEFAULT_CAPTURE_HARD_TIMEOUT_BUFFER_MS
   )
 );
+const backendRuntimeIdentity = await readBackendRuntimeIdentity(
+  new URL("/_aurora/v1/health", baseUrl).toString()
+);
 
 fs.mkdirSync(profileDir, { recursive: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-const seededAuthState = await createPersistedAuthState({
-  authBaseUrl,
-  username,
-  password
-});
+const seededAuthState = skipAuth
+  ? null
+  : await createPersistedAuthState({
+      authBaseUrl,
+      username,
+      password
+    });
+const initialRoute = skipAuth ? route : bootstrapRoute;
 
 const chrome = spawn(
   chromePath,
   [
-    "--headless=new",
+  "--headless=new",
+  "--renderer-process-limit=2",
     "--disable-gpu",
     "--no-sandbox",
     "--noerrdialogs",
     "--no-first-run",
     "--no-default-browser-check",
+    "--disable-extensions",
+    "--disable-component-extensions-with-background-pages",
     "--disable-background-mode",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
     "--disable-breakpad",
     "--disable-crash-reporter",
     `--remote-debugging-port=${port}`,
     `--window-size=${viewportWidth},${viewportHeight}`,
     `--user-data-dir=${profileDir}`,
-    bootstrapRoute
+    initialRoute
   ],
   { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: false }
 );
@@ -91,7 +116,7 @@ try {
   const result = await captureFromChrome({
     port,
     route,
-    bootstrapRoute,
+    initialRoute,
     pngPath,
     framePath,
     seededAuthState,
@@ -104,8 +129,11 @@ try {
     ffmpegPath,
     videoDurationMs,
     videoFps,
+    captureTimeSeconds,
     viewportWidth,
-    viewportHeight
+    viewportHeight,
+    backendRuntimeIdentity,
+    allowDiagnosticProofFailure
   });
   console.log(JSON.stringify(result, null, 2));
 } finally {
@@ -118,7 +146,7 @@ try {
 async function captureFromChrome({
   port,
   route,
-  bootstrapRoute,
+  initialRoute,
   pngPath,
   framePath,
   seededAuthState,
@@ -131,22 +159,33 @@ async function captureFromChrome({
   ffmpegPath,
   videoDurationMs,
   videoFps,
+  captureTimeSeconds,
   viewportWidth,
-  viewportHeight
+  viewportHeight,
+  backendRuntimeIdentity,
+  allowDiagnosticProofFailure
 }) {
-  const tab = await waitForTab(port, bootstrapRoute);
+  const tab = await waitForTab(port, initialRoute);
   const ws = new WebSocket(tab.webSocketDebuggerUrl);
   let messageId = 0;
   const pending = new Map();
   const networkEvents = [];
+  const runtimeEvents = [];
 
   ws.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.method?.startsWith("Network.")) {
       networkEvents.push({
         method: message.method,
-        params: message.params
+        params: message.params,
+        receivedAtMs: Date.now()
       });
+    }
+    if (
+      message.method === "Runtime.consoleAPICalled" ||
+      message.method === "Runtime.exceptionThrown"
+    ) {
+      runtimeEvents.push({ method: message.method, params: message.params });
     }
     if (!message.id || !pending.has(message.id)) {
       return;
@@ -181,9 +220,11 @@ async function captureFromChrome({
     deviceScaleFactor: 1,
     mobile: false,
   });
-  const loginReady = await waitForLoginOrApp(send);
-  await seedBrowserAuthState(send, seededAuthState);
-  await send("Page.navigate", { url: route });
+  const loginReady = seededAuthState ? await waitForLoginOrApp(send) : null;
+  if (seededAuthState) {
+    await seedBrowserAuthState(send, seededAuthState);
+    await send("Page.navigate", { url: route });
+  }
   if (clickMagicMouthDemo) {
     await waitForMagicMouthDemoEntry(send);
     await send("Runtime.evaluate", {
@@ -203,12 +244,65 @@ async function captureFromChrome({
   const domStatus = await waitForAppVfxStatus(send, waitAttempts, {
     requirePlaceableTextureSettled
   });
-  if (!domStatus?.ok) {
+  if (!domStatus?.ok && !allowDiagnosticProofFailure) {
+    const networkSummary = summarizeNetworkEvents(networkEvents);
+    const blockerManifest = {
+      version: "aurora-vfx-app-route-cdp-blocker/v1",
+      accepted: false,
+      captureIntegrityAccepted: false,
+      retailParityAccepted: false,
+      capturedAt: new Date().toISOString(),
+      blockerCode: "APP_VFX_ROUTE_READINESS_TIMEOUT",
+      requestedRoute: route,
+      finalRoute: domStatus?.href ?? null,
+      framePath,
+      backendRuntimeIdentity,
+      proofGateReport:
+        domStatus?.runtimeObservability ??
+        domStatus?.proofGates ??
+        null,
+      domStatus,
+      networkSummary,
+      runtimeEvents: runtimeEvents.slice(-40),
+      screenshotPath: null,
+      mp4Path: null,
+      localOnlyNotRetailEvidence: true
+    };
+    fs.writeFileSync(framePath, `${JSON.stringify(blockerManifest, null, 2)}\n`);
     throw new Error(
-      `App VFX route did not reach ready draw metrics before timeout: ${JSON.stringify({
+      `App VFX route did not reach ready draw metrics before timeout; blocker manifest: ${framePath}; ${JSON.stringify({
         domStatus,
-        networkSummary: summarizeNetworkEvents(networkEvents)
+        networkSummary
       })}`
+    );
+  }
+
+  const deterministicCaptureRequested =
+    recordMp4 || Number.isFinite(captureTimeSeconds);
+  const deterministicCapture = deterministicCaptureRequested
+    ? await beginDeterministicAppCapture(send)
+    : false;
+  if (deterministicCaptureRequested && !deterministicCapture) {
+    const blockerManifest = {
+      version: "aurora-vfx-app-route-cdp-blocker/v1",
+      accepted: false,
+      captureIntegrityAccepted: false,
+      retailParityAccepted: false,
+      capturedAt: new Date().toISOString(),
+      blockerCode: "DETERMINISTIC_CAPTURE_HOOK_UNAVAILABLE",
+      requestedRoute: route,
+      finalRoute: domStatus.href,
+      framePath,
+      backendRuntimeIdentity,
+      proofGateReport: domStatus.runtimeObservability ?? domStatus.proofGates ?? null,
+      domStatus,
+      screenshotPath: null,
+      mp4Path: null,
+      localOnlyNotRetailEvidence: true
+    };
+    fs.writeFileSync(framePath, `${JSON.stringify(blockerManifest, null, 2)}\n`);
+    throw new Error(
+      `Deterministic VFX capture hook was unavailable; blocker manifest: ${framePath}`
     );
   }
 
@@ -224,9 +318,132 @@ async function captureFromChrome({
         mp4Path,
         ffmpegPath,
         durationMs: videoDurationMs,
-        fps: videoFps
+        fps: videoFps,
+        deterministicCapture
       })
     : null;
+
+  const staticPlaybackState = Number.isFinite(captureTimeSeconds)
+    ? await renderDeterministicStaticFrame(
+        send,
+        captureTimeSeconds,
+        deterministicCapture
+      )
+    : null;
+
+  const finalDomStatus = await readAppVfxStatus(send, {
+    requirePlaceableTextureSettled
+  });
+  const visibleMp4Samples =
+    mp4Video?.playbackSamples.filter(({ playbackState }) =>
+      hasVisibleCanonicalVfxPlayback(playbackState)
+    ) ?? [];
+  const areaPlaceableLightingProof =
+    finalDomStatus?.areaPreview?.placeableLightingProof ?? null;
+  const isAreaPlaceableLightingCapture =
+    finalDomStatus?.routePath === "/dev/area-light-shadow-preview";
+  const isAreaPlaceableLightingVfxDisabled =
+    isAreaPlaceableLightingCapture &&
+    areaPlaceableLightingProof?.profile?.vfx === false;
+  const areaPlaceableModelTextureSettled =
+    finalDomStatus?.areaPreview?.placeableModelTextureSettled === true;
+  const requestedOracleFixture = new URL(route).searchParams.get("oracleFixture");
+  const isAlsOracleCampfireCapture =
+    isAreaPlaceableLightingCapture &&
+    requestedOracleFixture === "als-oracle-campfire-v1";
+  const isAlsOracleCampfirePointLightEnabledCapture =
+    isAlsOracleCampfireCapture &&
+    new URL(route).searchParams.get("lightingPointLight") !== "false";
+  const areaPlaceableSourceLineageStatus =
+    finalDomStatus?.areaPreview?.placeableSourceLineageStatus ?? null;
+  const areaPlaceableLightProjectionStatus =
+    finalDomStatus?.areaPreview?.placeableLightProjectionStatus ?? null;
+  const areaTerrainSourceLineageStatus =
+    finalDomStatus?.areaPreview?.terrainSourceLineageStatus ?? null;
+  const captureValidationBlockers = [
+    ...(finalDomStatus?.runtimeObservability?.version !==
+    "aurora-vfx-runtime-observability/v1"
+      ? ["runtime-observability-report-missing"]
+      : []),
+    ...(!isAreaPlaceableLightingVfxDisabled &&
+    finalDomStatus?.runtimeObservability?.proofGate?.status !== "pass"
+      ? ["runtime-observability-proof-gate-failed"]
+      : []),
+    ...(isAreaPlaceableLightingVfxDisabled &&
+    finalDomStatus?.runtimeObservability?.assetSettlement?.status !== "settled"
+      ? ["placeable-lighting-assets-not-settled"]
+      : []),
+    ...(isAreaPlaceableLightingCapture && !areaPlaceableModelTextureSettled
+      ? ["area-placeable-texture-not-settled"]
+      : []),
+    ...(isAlsOracleCampfireCapture && areaPlaceableSourceLineageStatus !== "pass"
+      ? ["area-placeable-source-lineage-not-retail"]
+      : []),
+    ...(isAlsOracleCampfireCapture && areaTerrainSourceLineageStatus !== "pass"
+      ? ["area-placeable-terrain-source-lineage-not-retail"]
+      : []),
+    ...(isAlsOracleCampfirePointLightEnabledCapture &&
+    areaPlaceableLightProjectionStatus !== "pass"
+      ? ["area-placeable-light-projection-invalid"]
+      : []),
+    ...(isAlsOracleCampfireCapture &&
+    finalDomStatus?.areaPreview?.oracleFixture !== requestedOracleFixture
+      ? ["area-placeable-oracle-fixture-mismatch"]
+      : []),
+    ...(isAreaPlaceableLightingCapture &&
+    areaPlaceableLightingProof?.version !==
+      "aurora-placeable-lighting-proof-snapshot/v2"
+      ? ["placeable-lighting-proof-snapshot-missing"]
+      : []),
+    ...(isAreaPlaceableLightingCapture &&
+    areaPlaceableLightingProof?.retailParityStatus !==
+      "blocked_pending_matched_nwn_oracle"
+      ? ["placeable-lighting-retail-parity-boundary-invalid"]
+      : []),
+    ...(finalDomStatus?.comparison?.phase === "post" &&
+    finalDomStatus?.runtimeObservability?.playbackGuard?.postDurationHidden !== true
+      ? ["post-duration-playback-not-hidden"]
+      : []),
+    ...(recordMp4 && visibleMp4Samples.length === 0
+      ? ["mp4-has-no-visible-canonical-vfx-sample"]
+      : []),
+    ...(Number.isFinite(captureTimeSeconds) &&
+    !isAreaPlaceableLightingVfxDisabled &&
+    !hasVisibleCanonicalVfxPlayback(staticPlaybackState)
+      ? ["static-frame-has-no-visible-canonical-vfx"]
+      : [])
+  ];
+  if (captureValidationBlockers.length > 0 && !allowDiagnosticProofFailure) {
+    if (mp4Video?.path) fs.rmSync(mp4Video.path, { force: true });
+    if (video?.path) fs.rmSync(video.path, { force: true });
+    const blockerManifest = {
+      version: "aurora-vfx-app-route-cdp-blocker/v1",
+      accepted: false,
+      captureIntegrityAccepted: false,
+      retailParityAccepted: false,
+      capturedAt: new Date().toISOString(),
+      blockerCode: "APP_VFX_CAPTURE_VALIDATION_FAILED",
+      blockerManifest: captureValidationBlockers,
+      requestedRoute: route,
+      finalRoute: finalDomStatus?.href ?? domStatus.href,
+      framePath,
+      backendRuntimeIdentity,
+      proofGateReport:
+        finalDomStatus?.runtimeObservability ??
+        finalDomStatus?.proofGates ??
+        null,
+      domStatus: finalDomStatus,
+      mp4PlaybackSamples: mp4Video?.playbackSamples ?? [],
+      staticPlaybackState,
+      screenshotPath: null,
+      mp4Path: null,
+      localOnlyNotRetailEvidence: true
+    };
+    fs.writeFileSync(framePath, `${JSON.stringify(blockerManifest, null, 2)}\n`);
+    throw new Error(
+      `VFX capture validation failed; blocker manifest: ${framePath}; ${captureValidationBlockers.join("|")}`
+    );
+  }
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
@@ -235,11 +452,14 @@ async function captureFromChrome({
   });
 
   fs.writeFileSync(pngPath, Buffer.from(screenshot.data, "base64"));
+  const captureIntegrityAccepted =
+    domStatus?.ok === true && captureValidationBlockers.length === 0;
+  const retailParityAccepted = false;
   const frame = {
     version: "aurora-vfx-app-route-cdp-capture/v1",
     capturedAt: new Date().toISOString(),
     requestedRoute: route,
-    finalRoute: domStatus.href,
+    finalRoute: finalDomStatus?.href ?? domStatus.href,
     screenshotPath: pngPath,
     screenshotBytes: fs.statSync(pngPath).size,
     requestedViewport: {
@@ -256,14 +476,32 @@ async function captureFromChrome({
     mp4DurationMs: mp4Video?.durationMs ?? null,
     mp4FrameCount: mp4Video?.frameCount ?? null,
     mp4Fps: mp4Video?.fps ?? null,
+    mp4DeterministicCapture: mp4Video?.deterministicCapture ?? null,
+    mp4PlaybackSamples: mp4Video?.playbackSamples ?? [],
+    staticCaptureTimeSeconds: Number.isFinite(captureTimeSeconds) ? captureTimeSeconds : null,
+    staticPlaybackState,
     framePath,
+    accepted: isAreaPlaceableLightingCapture
+      ? retailParityAccepted
+      : captureIntegrityAccepted,
+    captureIntegrityAccepted,
+    retailParityAccepted,
+    diagnosticProofFailureAllowed: allowDiagnosticProofFailure,
+    diagnosticValidationBlockers: captureValidationBlockers,
+    backendRuntimeIdentity,
+    proofGateReport:
+      finalDomStatus?.runtimeObservability ??
+      finalDomStatus?.proofGates ??
+      null,
     loginReady,
-    seededAuth: {
-      source: authBaseUrl,
-      userId: seededAuthState.session.user.id,
-      role: seededAuthState.session.user.role,
-      permissionCount: seededAuthState.authorization.permissions.length
-    },
+    seededAuth: seededAuthState
+      ? {
+          source: authBaseUrl,
+          userId: seededAuthState.session.user.id,
+          role: seededAuthState.session.user.role,
+          permissionCount: seededAuthState.authorization.permissions.length
+        }
+      : null,
     entryPointAction: clickMagicMouthDemo
       ? {
           initialRoute: route,
@@ -271,8 +509,9 @@ async function captureFromChrome({
           finalRoute: domStatus.href
         }
       : null,
-    domStatus,
+    domStatus: finalDomStatus ?? domStatus,
     networkSummary: summarizeNetworkEvents(networkEvents),
+    runtimeEvents: runtimeEvents.slice(-40),
     captureMethod: "chrome-devtools-protocol Page.captureScreenshot plus app workspace VFX draw-metrics dataset capture",
     videoCaptureMethod: video
       ? "browser canvas captureStream plus MediaRecorder WebM"
@@ -287,6 +526,15 @@ async function captureFromChrome({
   fs.writeFileSync(framePath, `${JSON.stringify(frame, null, 2)}\n`);
   ws.close();
   return frame;
+}
+
+async function renderDeterministicStaticFrame(
+  send,
+  elapsedSeconds,
+  deterministicCapture
+) {
+  if (!deterministicCapture) return null;
+  return renderAppAtTime(send, Math.max(0, elapsedSeconds));
 }
 
 async function waitForMagicMouthDemoEntry(send) {
@@ -315,6 +563,7 @@ async function recordCanvasVideo(send, { videoPath, durationMs, fps }) {
     returnByValue: true,
     expression: `(() => new Promise((resolve) => {
       const canvas =
+        document.querySelector("[data-testid='nwn-vfx-comparison-runner'] canvas") ??
         document.querySelector("[data-testid='catalog-vfx-preview-runner'] canvas") ??
         document.querySelector("[data-testid='vfx-fixture-runner'] canvas") ??
         document.querySelector(".workspace-render-canvas") ??
@@ -451,7 +700,10 @@ async function recordCanvasVideo(send, { videoPath, durationMs, fps }) {
   };
 }
 
-async function recordScreenshotMp4(send, { mp4Path, ffmpegPath, durationMs, fps }) {
+async function recordScreenshotMp4(
+  send,
+  { mp4Path, ffmpegPath, durationMs, fps, deterministicCapture }
+) {
   if (!fs.existsSync(ffmpegPath)) {
     throw new Error(`MP4 capture requires ffmpeg, but it was not found at: ${ffmpegPath}`);
   }
@@ -459,8 +711,15 @@ async function recordScreenshotMp4(send, { mp4Path, ffmpegPath, durationMs, fps 
   const frameDir = `${mp4Path}.frames`;
   fs.rmSync(frameDir, { recursive: true, force: true });
   fs.mkdirSync(frameDir, { recursive: true });
+  const playbackSamples = [];
   for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-    await forceAppRenderFrame(send);
+    const elapsedSeconds = frameIndex / Math.max(1, fps);
+    const playbackState = deterministicCapture
+      ? await renderAppAtTime(send, elapsedSeconds)
+      : await forceAppRenderFrame(send);
+    if (frameIndex === 0 || frameIndex === frameCount - 1 || frameIndex % Math.max(1, fps) === 0) {
+      playbackSamples.push({ frameIndex, elapsedSeconds, playbackState });
+    }
     const screenshot = await send("Page.captureScreenshot", {
       format: "png",
       fromSurface: true,
@@ -508,20 +767,69 @@ async function recordScreenshotMp4(send, { mp4Path, ffmpegPath, durationMs, fps 
     bytes,
     durationMs,
     fps,
-    frameCount
+    frameCount,
+    deterministicCapture,
+    playbackSamples
   };
 }
 
+async function beginDeterministicAppCapture(send) {
+  const result = await send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(() => {
+      const begin = window.__auroraCatalogVfxPreviewBeginDeterministicCapture;
+      const areaBegin = window.__auroraAreaVfxPreviewBeginDeterministicCapture;
+      const proofStart = window.__AURORA_VFX_PROOF_START__;
+      const selected =
+        typeof begin === "function"
+          ? begin
+          : typeof areaBegin === "function"
+            ? areaBegin
+            : proofStart;
+      if (typeof selected === "function") {
+        return Boolean(selected());
+      }
+      return typeof window.__AURORA_VFX_PROOF_RENDER_AT__ === "function";
+    })()`
+  });
+  return result.result.value === true;
+}
+
+async function renderAppAtTime(send, elapsedSeconds) {
+  const result = await send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(() => {
+      const renderAtTime = window.__auroraCatalogVfxPreviewRenderAtTime;
+      const areaRenderAtTime = window.__auroraAreaVfxPreviewRenderAtTime;
+      const proofRenderAtTime = window.__AURORA_VFX_PROOF_RENDER_AT__;
+      const selected =
+        typeof renderAtTime === "function"
+          ? renderAtTime
+          : typeof areaRenderAtTime === "function"
+            ? areaRenderAtTime
+            : proofRenderAtTime;
+      return typeof selected === "function"
+        ? selected(${JSON.stringify(elapsedSeconds)})
+        : null;
+    })()`
+  });
+  return result.result.value ?? null;
+}
+
 async function forceAppRenderFrame(send) {
-  await send("Runtime.evaluate", {
+  const result = await send("Runtime.evaluate", {
     awaitPromise: true,
     returnByValue: true,
     expression: `(() => new Promise((resolve) => {
       const finish = (value) => resolve(value);
       const forceRender = window.__auroraCatalogVfxPreviewForceRender;
-      if (typeof forceRender === "function") {
+      const areaForceRender = window.__auroraAreaVfxPreviewForceRender;
+      const selected = typeof forceRender === "function" ? forceRender : areaForceRender;
+      if (typeof selected === "function") {
         try {
-          finish({ ok: Boolean(forceRender()), source: "catalog-vfx-preview-force-render" });
+          finish({ ok: Boolean(selected()), source: "vfx-preview-force-render" });
         } catch (error) {
           finish({
             ok: false,
@@ -534,6 +842,7 @@ async function forceAppRenderFrame(send) {
       requestAnimationFrame(() => finish({ ok: true, source: "requestAnimationFrame" }));
     }))()`
   });
+  return result.result.value ?? null;
 }
 
 function parseDataUrlPayload(dataUrl) {
@@ -659,7 +968,10 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
       const requirePlaceableTextureSettled = ${JSON.stringify(requirePlaceableTextureSettled)};
       const runner = document.querySelector("[data-testid='catalog-vfx-preview-runner']");
       const fixtureRunner = document.querySelector("[data-testid='vfx-fixture-runner']");
+      const comparisonRunner = document.querySelector("[data-testid='nwn-vfx-comparison-runner']");
+      const areaRunner = document.querySelector("[data-testid='area-light-shadow-preview-runner']");
       const catalogFrameScript = document.querySelector("#catalog-vfx-preview-frame");
+      const areaFrameScript = document.querySelector("#area-light-shadow-preview-frame");
       const catalogFrameJson = (() => {
         try {
           return catalogFrameScript?.textContent ? JSON.parse(catalogFrameScript.textContent) : null;
@@ -667,6 +979,56 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
           return {
             parseError: String(error),
             text: catalogFrameScript?.textContent ?? ""
+          };
+        }
+      })();
+      const areaFrameJson = (() => {
+        try {
+          return areaFrameScript?.textContent ? JSON.parse(areaFrameScript.textContent) : null;
+        } catch (error) {
+          return {
+            parseError: String(error),
+            text: areaFrameScript?.textContent ?? ""
+          };
+        }
+      })();
+      const runtimeObservability = (() => {
+        try {
+          const comparisonReport =
+            window.__AURORA_VFX_PROOF__?.runtimeObservability ?? null;
+          if (
+            window.location.pathname === "/dev/nwn-vfx-comparison" &&
+            comparisonReport
+          ) {
+            return comparisonReport;
+          }
+          const readReport =
+            window.location.pathname === "/dev/area-light-shadow-preview"
+              ? window.__auroraAreaVfxPreviewGetRuntimeObservability
+              : window.__auroraCatalogVfxPreviewGetRuntimeObservability;
+          return typeof readReport === "function" ? readReport() : null;
+        } catch (error) {
+          return {
+            version: null,
+            proofGate: {
+              status: "fail",
+              blockerManifest: ["runtime-observability-read-failed"]
+            },
+            readError: error instanceof Error ? error.message : String(error)
+          };
+        }
+      })();
+      const placeableLightingProof = (() => {
+        try {
+          const readSnapshot = window.__auroraAreaPlaceableLightingGetProofSnapshot;
+          return typeof readSnapshot === "function" ? readSnapshot() : null;
+        } catch (error) {
+          return {
+            version: null,
+            status: "blocked",
+            retailParityStatus: "blocked_pending_matched_nwn_oracle",
+            blockerCodes: ["APL-PROOF-SNAPSHOT-READ-FAILED"],
+            readError: error instanceof Error ? error.message : String(error)
           };
         }
       })();
@@ -695,6 +1057,8 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         placeableModelTextureStatus === "applied" &&
         Number(placeableModelTextureLoaded ?? 0) === Number(placeableModelTextureCount ?? -1);
       const devRenderStatus = runner?.getAttribute("data-render-status") ?? null;
+      const devFrontendRuntimeRevision =
+        runner?.getAttribute("data-vfx-preview-runtime-revision") ?? null;
       const devCanvasNonblank = runner?.getAttribute("data-canvas-nonblank") ?? null;
       const devObjectPixels = Number(runner?.getAttribute("data-object-pixels") ?? 0);
       const devDrawParticles = Number(runner?.getAttribute("data-draw-particles") ?? 0);
@@ -735,6 +1099,57 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
       );
       const devCampfireCoreSamples =
         runner?.getAttribute("data-campfire-core-samples") ?? "";
+      const readFrameBooleanString = (value) =>
+        typeof value === "boolean" ? String(value) : value == null ? null : String(value);
+      const devAuroraVfxPayloadReady =
+        runner?.getAttribute("data-aurora-vfx-payload-ready") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxPayloadReady);
+      const devAuroraVfxBackendPayloadReady =
+        runner?.getAttribute("data-aurora-vfx-backend-payload-ready") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxBackendPayloadReady);
+      const devAuroraVfxBackendCanonical =
+        runner?.getAttribute("data-aurora-vfx-backend-canonical") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxBackendCanonical);
+      const devAuroraVfxCanonicalStatus =
+        runner?.getAttribute("data-aurora-vfx-canonical-status") ??
+        catalogFrameJson?.auroraVfxCanonicalStatus ??
+        null;
+      const devAuroraVfxPreviewMode =
+        runner?.getAttribute("data-aurora-vfx-preview-mode") ??
+        catalogFrameJson?.auroraVfxPreviewMode ??
+        null;
+      const devAuroraVfxRenderer =
+        runner?.getAttribute("data-aurora-vfx-renderer") ??
+        catalogFrameJson?.auroraVfxRenderer ??
+        null;
+      const devAuroraVfxCanonicalRenderer =
+        runner?.getAttribute("data-aurora-vfx-canonical-renderer") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxCanonicalRenderer);
+      const devAuroraVfxCanonicalPlaceableComposition =
+        runner?.getAttribute("data-aurora-vfx-canonical-placeable-composition") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxCanonicalPlaceableComposition);
+      const devAuroraVfxCanonicalPlaceableCompositionMode =
+        runner?.getAttribute("data-aurora-vfx-canonical-placeable-composition-mode") ??
+        catalogFrameJson?.auroraVfxCanonicalPlaceableCompositionMode ??
+        null;
+      const devAuroraVfxCanonicalPlaceableCompositionReason =
+        runner?.getAttribute("data-aurora-vfx-canonical-placeable-composition-reason") ??
+        catalogFrameJson?.auroraVfxCanonicalPlaceableCompositionReason ??
+        null;
+      const devAuroraVfxCanonicalLightSibling =
+        runner?.getAttribute("data-aurora-vfx-canonical-light-sibling") ??
+        readFrameBooleanString(catalogFrameJson?.auroraVfxCanonicalLightSibling);
+      const devAuroraVfxCanonicalLightSiblingMode =
+        runner?.getAttribute("data-aurora-vfx-canonical-light-sibling-mode") ??
+        catalogFrameJson?.auroraVfxCanonicalLightSiblingMode ??
+        null;
+      const devAuroraVfxDiagnosticCodes = (
+        runner?.getAttribute("data-aurora-vfx-diagnostic-codes") ??
+        catalogFrameJson?.auroraVfxDiagnosticCodes?.join("|") ??
+        ""
+      )
+        .split("|")
+        .filter(Boolean);
       const devSourceMdlEmitterPreviewStatus =
         runner?.getAttribute("data-source-mdl-emitter-preview-status") ??
         catalogFrameJson?.sourceMdlEmitterPreviewStatus ??
@@ -747,6 +1162,18 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         runner?.getAttribute("data-source-mdl-emitter-preview-visibility-mode") ??
         catalogFrameJson?.sourceMdlEmitterPreviewVisibilityMode ??
         null;
+      const devSourceMdlStaticGeometryNodeCount = Number(
+        runner?.getAttribute("data-source-mdl-static-geometry-node-count") ??
+          catalogFrameJson?.sourceMdlStaticGeometryNodeCount ??
+          0
+      );
+      const devSourceMdlStaticGeometryNodes = (
+        runner?.getAttribute("data-source-mdl-static-geometry-nodes") ??
+        catalogFrameJson?.sourceMdlStaticGeometryNodes?.join("|") ??
+        ""
+      )
+        .split("|")
+        .filter(Boolean);
       const devEmitterCount = Number(
         runner?.getAttribute("data-emitter-count") ?? catalogFrameJson?.emitterCount ?? 0
       );
@@ -764,13 +1191,12 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         runner?.getAttribute("data-placeable-model-texture-count") ?? 0
       );
       const devPlaceableModelTextureSettled =
-        devTextureUrls.length === 0 ||
         (devPlaceableModelTextureStatus === "applied" &&
-          (devPlaceableModelTextureCount < 1 ||
-            devPlaceableModelTextureLoaded >= devPlaceableModelTextureCount)) ||
-        ["fallback", "missing", "partial", "skipped", "not-applicable"].includes(
-          devPlaceableModelTextureStatus ?? ""
-        );
+          devPlaceableModelTextureCount > 0 &&
+          devPlaceableModelTextureLoaded >= devPlaceableModelTextureCount) ||
+        (devPlaceableModelTextureStatus === "not-applicable" &&
+          devTextureUrls.length === 0 &&
+          devPlaceableModelTextureCount === 0);
       const devPlaceableTwoDaLightStatus =
         runner?.getAttribute("data-placeable-2da-light-status") ?? null;
       const devPlaceableTwoDaLightSamples =
@@ -802,6 +1228,37 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         devPreviewVisibleMeshCount > 0 &&
         devTextureStatus === "chunk-model-applied" &&
         devPlaceableModelTextureSettled;
+      const devCanonicalRendererReady =
+        devAuroraVfxBackendPayloadReady === "true" &&
+        devAuroraVfxBackendCanonical === "true" &&
+        devAuroraVfxCanonicalStatus === "canonical" &&
+        devAuroraVfxRenderer === "canonical" &&
+        devAuroraVfxCanonicalRenderer === "true" &&
+        (devCanvasNonblank === "true" || devObjectPixels > 80) &&
+        (devDrawParticles > 0 || devRenderedVertices > 0 || devPreviewVisibleMeshCount > 0);
+      const devCanonicalHybridCompositionReady =
+        devCanonicalRendererReady &&
+        devAuroraVfxCanonicalPlaceableComposition === "true" &&
+        devAuroraVfxCanonicalPlaceableCompositionMode === "source-mdl-static-emitter-light" &&
+        devSourceMdlStaticGeometryNodeCount > 0 &&
+        devEmitterCount > 0 &&
+        devSourceMdlEmitterPreviewStatus !== "active";
+      const devCanonicalSourceMdlCompositionRequired =
+        devAuroraVfxBackendCanonical === "true" &&
+        devSourceMdlStaticGeometryNodeCount > 0;
+      const devCanvasReady = devCanvasNonblank === "true" || devObjectPixels > 80;
+      const devDrawReady =
+        devDrawParticles > 0 ||
+        devRenderedVertices > 0 ||
+        devPlaceableTwoDaLightProofReady ||
+        devSourceMdlEmitterOverlayReady ||
+        devCanonicalRendererReady;
+      const devCompositionGateReady =
+        !devCanonicalSourceMdlCompositionRequired ||
+        devCanonicalHybridCompositionReady;
+      const devRuntimeObservabilityReady =
+        runtimeObservability?.version === "aurora-vfx-runtime-observability/v1" &&
+        runtimeObservability?.proofGate?.status === "pass";
       const fixtureRenderStatus = fixtureRunner?.getAttribute("data-render-status") ?? null;
       const fixtureCanvasNonblank = fixtureRunner?.getAttribute("data-canvas-nonblank") ?? null;
       const fixtureObjectPixels = Number(fixtureRunner?.getAttribute("data-object-pixels") ?? 0);
@@ -811,19 +1268,96 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
       const fixtureRenderedVertices = Number(
         fixtureRunner?.getAttribute("data-rendered-vertices") ?? 0
       );
+      const fixtureRenderedChunkModelCount = Number(
+        fixtureRunner?.getAttribute("data-rendered-chunk-model-count") ?? 0
+      );
+      const fixtureRenderedChunkLaneCount = Number(
+        fixtureRunner?.getAttribute("data-rendered-chunk-lane-count") ?? 0
+      );
+      const fixtureRenderedChunkLaneResourceResolveStatus =
+        fixtureRunner?.getAttribute("data-rendered-chunk-lane-resource-resolve-status") ??
+        null;
+      const fixtureRenderedChunkLaneRendererPending =
+        fixtureRunner?.getAttribute("data-rendered-chunk-lane-renderer-pending") ?? null;
+      const fixtureRenderedChunkLaneModelPreviewStatus =
+        fixtureRunner?.getAttribute("data-rendered-chunk-lane-model-preview-status") ?? null;
+      const fixtureRenderedBoundsWidth = Number(
+        fixtureRunner?.getAttribute("data-rendered-bounds-width") ?? 0
+      );
+      const fixtureRenderedBoundsHeight = Number(
+        fixtureRunner?.getAttribute("data-rendered-bounds-height") ?? 0
+      );
+      const fixtureChunkModelReady =
+        fixtureRenderedChunkModelCount > 0 &&
+        fixtureRenderedChunkLaneCount > 0 &&
+        fixtureRenderedChunkLaneResourceResolveStatus === "resolved" &&
+        fixtureRenderedChunkLaneRendererPending === "false" &&
+        fixtureRenderedChunkLaneModelPreviewStatus ===
+          "applied-local-model-preview-retail-unverified" &&
+        fixtureRenderedBoundsWidth > 0 &&
+        fixtureRenderedBoundsHeight > 0;
       const devReady =
         window.location.pathname === "/dev/catalog-vfx-preview" &&
         devRenderStatus === "ready" &&
-        (devCanvasNonblank === "true" || devObjectPixels > 80) &&
-        (devDrawParticles > 0 ||
-          devRenderedVertices > 0 ||
-          devPlaceableTwoDaLightProofReady ||
-          devSourceMdlEmitterOverlayReady);
+        (!requirePlaceableTextureSettled || devPlaceableModelTextureSettled) &&
+        devCompositionGateReady &&
+        devRuntimeObservabilityReady &&
+        devCanvasReady &&
+        devDrawReady;
       const fixtureReady =
         window.location.pathname.startsWith("/dev/vfx-fixture") &&
         fixtureRenderStatus === "rendered" &&
         (fixtureCanvasNonblank === "true" || fixtureObjectPixels > 80) &&
-        (fixtureRenderedDrawParticles > 0 || fixtureRenderedVertices > 0);
+        (fixtureRenderedDrawParticles > 0 || fixtureRenderedVertices > 0 || fixtureChunkModelReady);
+      const comparisonReady =
+        window.location.pathname === "/dev/nwn-vfx-comparison" &&
+        comparisonRunner?.getAttribute("data-render-state") === "ready" &&
+        comparisonRunner?.getAttribute("data-one-trigger") === "true" &&
+        comparisonRunner?.getAttribute("data-loop") === "false" &&
+        runtimeObservability?.version === "aurora-vfx-runtime-observability/v1" &&
+        runtimeObservability?.proofGate?.status === "pass" &&
+        ((comparisonRunner?.getAttribute("data-message") === "armed" &&
+          typeof window.__AURORA_VFX_PROOF_START__ === "function" &&
+          typeof window.__AURORA_VFX_PROOF_RENDER_AT__ === "function") ||
+          (comparisonRunner?.getAttribute("data-message") ===
+            "static-timeline-armed" &&
+            typeof window.__AURORA_VFX_PROOF_RENDER_AT__ === "function") ||
+          Number(comparisonRunner?.getAttribute("data-visible-frame-count") ?? 0) === 1);
+      const areaReady =
+        window.location.pathname === "/dev/area-light-shadow-preview" &&
+        areaRunner?.getAttribute("data-render-status") === "ready" &&
+        Number(areaRunner?.getAttribute("data-vfx-playback-root-count") ?? 0) > 0 &&
+        (areaRunner?.getAttribute("data-placeable-lighting-proof-vfx") === "false" ||
+          (Number(areaRunner?.getAttribute("data-vfx-visible-draw-mesh-count") ?? 0) > 0 &&
+            Number(areaRunner?.getAttribute("data-vfx-visible-draw-particle-count") ?? 0) > 0)) &&
+        areaRunner?.getAttribute("data-placeable-model-status") === "loaded" &&
+        runtimeObservability?.version === "aurora-vfx-runtime-observability/v1" &&
+        (areaRunner?.getAttribute("data-placeable-lighting-proof-vfx") === "false"
+          ? runtimeObservability?.assetSettlement?.status === "settled" &&
+            placeableLightingProof?.version === "aurora-placeable-lighting-proof-snapshot/v2"
+          : runtimeObservability?.proofGate?.status === "pass");
+      const isAreaRoute =
+        window.location.pathname === "/dev/area-light-shadow-preview";
+      const areaDrawReady =
+        areaRunner?.getAttribute("data-placeable-lighting-proof-vfx") === "false" ||
+        (Number(areaRunner?.getAttribute("data-vfx-visible-draw-mesh-count") ?? 0) > 0 &&
+          Number(areaRunner?.getAttribute("data-vfx-visible-draw-particle-count") ?? 0) > 0);
+      const areaPlaceableModelTextureStatus =
+        areaRunner?.getAttribute("data-placeable-model-texture-status") ?? null;
+      const areaPlaceableModelTextureCount = Number(
+        areaRunner?.getAttribute("data-placeable-model-texture-count") ?? 0
+      );
+      const areaPlaceableModelTextureLoaded = Number(
+        areaRunner?.getAttribute("data-placeable-model-texture-loaded") ?? 0
+      );
+      const areaPlaceableModelTextureSettled =
+        areaRunner?.getAttribute("data-placeable-model-texture-settled") === "true" &&
+        ((areaPlaceableModelTextureStatus === "applied" &&
+          areaPlaceableModelTextureCount > 0 &&
+          areaPlaceableModelTextureLoaded >= areaPlaceableModelTextureCount) ||
+          (areaPlaceableModelTextureStatus === "not-applicable" &&
+            areaPlaceableModelTextureCount === 0 &&
+            areaPlaceableModelTextureLoaded === 0));
       const appReady =
         window.location.pathname === "/app" &&
         appVfxDrawMetricsStatus === "ready" &&
@@ -831,9 +1365,191 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         appVfxRenderedVerticesNumber > 0 &&
         textureApplied;
       return {
-        ok: appReady || devReady || fixtureReady,
+        ok:
+          appReady ||
+          devReady ||
+          fixtureReady ||
+          comparisonReady ||
+          (areaReady && areaPlaceableModelTextureSettled),
+        proofGates: {
+          routeReady:
+            window.location.pathname === "/dev/catalog-vfx-preview" ||
+            window.location.pathname === "/dev/nwn-vfx-comparison" ||
+            isAreaRoute,
+          renderStatusReady: isAreaRoute
+            ? areaRunner?.getAttribute("data-render-status") === "ready"
+            : devRenderStatus === "ready",
+          canvasReady: isAreaRoute ? Boolean(canvas) : devCanvasReady,
+          drawReady: isAreaRoute ? areaDrawReady : devDrawReady,
+          textureSettlementRequired: isAreaRoute
+            ? true
+            : requirePlaceableTextureSettled,
+          textureSettled: isAreaRoute
+            ? areaPlaceableModelTextureSettled
+            : devPlaceableModelTextureSettled,
+          canonicalSourceMdlCompositionRequired:
+            isAreaRoute
+              ? runtimeObservability?.hostGraph?.compositionRequired === true
+              : devCanonicalSourceMdlCompositionRequired,
+          canonicalSourceMdlCompositionReady:
+            isAreaRoute
+              ? runtimeObservability?.hostGraph?.composition === true
+              : devCanonicalHybridCompositionReady,
+          canonicalSourceMdlCompositionReason:
+            isAreaRoute
+              ? runtimeObservability?.hostGraph?.compositionReason ?? null
+              : devAuroraVfxCanonicalPlaceableCompositionReason,
+          runtimeObservabilityReady: devRuntimeObservabilityReady,
+          runtimeObservabilityVersion: runtimeObservability?.version ?? null,
+          runtimeObservabilityProofStatus:
+            runtimeObservability?.proofGate?.status ?? null,
+          runtimeObservabilityBlockers:
+            runtimeObservability?.proofGate?.blockerManifest ?? []
+        },
+        runtimeObservability,
+        placeableLightingProof,
+        areaFrameJson,
         href: window.location.href,
         routePath: window.location.pathname,
+        comparison: comparisonRunner
+          ? {
+              fixtureId: comparisonRunner.getAttribute("data-fixture-id"),
+              renderState: comparisonRunner.getAttribute("data-render-state"),
+              phase: comparisonRunner.getAttribute("data-phase"),
+              elapsedSeconds: Number(comparisonRunner.getAttribute("data-elapsed-seconds") ?? 0),
+              effectSeconds: Number(comparisonRunner.getAttribute("data-effect-seconds") ?? 0),
+              frameIndex: Number(comparisonRunner.getAttribute("data-frame-index") ?? 0),
+              frameCount: Number(comparisonRunner.getAttribute("data-frame-count") ?? 0),
+              drawParticles: Number(comparisonRunner.getAttribute("data-draw-particles") ?? 0),
+              visibleFrameCount: Number(comparisonRunner.getAttribute("data-visible-frame-count") ?? 0),
+              meshDiagnostics: JSON.parse(
+                comparisonRunner.getAttribute("data-mesh-diagnostics") ?? "[]"
+              ),
+              runtimeObservabilityVersion:
+                comparisonRunner.getAttribute("data-vfx-runtime-observability-version"),
+              runtimeObservabilityProofStatus:
+                comparisonRunner.getAttribute("data-vfx-runtime-proof-gate-status"),
+              runtimeObservabilityBlockers:
+                (comparisonRunner.getAttribute("data-vfx-runtime-proof-blockers") ?? "")
+                  .split("|")
+                  .filter(Boolean),
+              oneTrigger: comparisonRunner.getAttribute("data-one-trigger"),
+              loop: comparisonRunner.getAttribute("data-loop"),
+              message: comparisonRunner.getAttribute("data-message"),
+              hasStartHook: typeof window.__AURORA_VFX_PROOF_START__ === "function",
+              hasRenderAtHook: typeof window.__AURORA_VFX_PROOF_RENDER_AT__ === "function"
+            }
+          : null,
+        areaPreview: areaRunner
+          ? {
+              renderStatus: areaRunner.getAttribute("data-render-status"),
+              areaId: areaRunner.getAttribute("data-area-id"),
+              oracleFixture: areaRunner.getAttribute("data-oracle-fixture"),
+              renderObjectCount: Number(areaRunner.getAttribute("data-render-object-count") ?? 0),
+              renderedObjectSamples: JSON.parse(
+                areaRunner.getAttribute("data-rendered-object-samples") ?? "[]"
+              ),
+              captureTimeSeconds: Number(areaRunner.getAttribute("data-capture-time-seconds") ?? 0),
+              playbackRootCount: Number(areaRunner.getAttribute("data-vfx-playback-root-count") ?? 0),
+              visibleDrawMeshCount: Number(areaRunner.getAttribute("data-vfx-visible-draw-mesh-count") ?? 0),
+              visibleDrawParticleCount: Number(areaRunner.getAttribute("data-vfx-visible-draw-particle-count") ?? 0),
+              textureReferences: (areaRunner.getAttribute("data-vfx-visible-texture-references") ?? "")
+                .split("|")
+                .filter(Boolean),
+              placeableModelStatus: areaRunner.getAttribute("data-placeable-model-status"),
+              placeableModelTextureStatus: areaPlaceableModelTextureStatus,
+              placeableModelTextureCount: areaPlaceableModelTextureCount,
+              placeableModelTextureLoaded: areaPlaceableModelTextureLoaded,
+              placeableModelTextureSettled: areaPlaceableModelTextureSettled,
+              placeableModelMeshCount: Number(
+                areaRunner.getAttribute("data-placeable-model-mesh-count") ?? 0
+              ),
+              placeableModelUrl: areaRunner.getAttribute("data-placeable-model-url"),
+              placeableSourceLineageStatus: areaRunner.getAttribute(
+                "data-placeable-source-lineage-status"
+              ),
+              placeableSourceModelObjectKeys: (
+                areaRunner.getAttribute("data-placeable-source-model-object-keys") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              placeableSourceModelHashes: (
+                areaRunner.getAttribute("data-placeable-source-model-hashes") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              placeableSourceLineageBlockers: (
+                areaRunner.getAttribute("data-placeable-source-lineage-blockers") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              placeableLightProjectionStatus: areaRunner.getAttribute(
+                "data-placeable-light-projection-status"
+              ),
+              placeableLightProjectionBlockers: (
+                areaRunner.getAttribute("data-placeable-light-projection-blockers") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainSourceLineageStatus: areaRunner.getAttribute(
+                "data-terrain-source-lineage-status"
+              ),
+              terrainSourceModelObjectKeys: (
+                areaRunner.getAttribute("data-terrain-source-model-object-keys") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainSourceModelHashes: (
+                areaRunner.getAttribute("data-terrain-source-model-hashes") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainModelAssetObjectKeys: (
+                areaRunner.getAttribute("data-terrain-model-asset-object-keys") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainModelAssetHashes: (
+                areaRunner.getAttribute("data-terrain-model-asset-hashes") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainTextureObjectKeys: (
+                areaRunner.getAttribute("data-terrain-texture-object-keys") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainTextureHashes: (
+                areaRunner.getAttribute("data-terrain-texture-hashes") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              terrainSourceLineageBlockers: (
+                areaRunner.getAttribute("data-terrain-source-lineage-blockers") ?? ""
+              )
+                .split("|")
+                .filter(Boolean),
+              pointLightCount: Number(areaRunner.getAttribute("data-placeable-two-da-light-point-light-count") ?? 0),
+              scenePointLightSamples: (runtime?.getAttribute("data-scene-point-light-samples") ?? "")
+                .split("|")
+                .filter(Boolean),
+              placeableLightingProof,
+              placeableLightingProofDom: {
+                status: areaRunner.getAttribute("data-placeable-lighting-proof-status"),
+                retailParityStatus: areaRunner.getAttribute(
+                  "data-placeable-lighting-proof-retail-parity-status"
+                ),
+                blockers: (areaRunner.getAttribute("data-placeable-lighting-proof-blockers") ?? "")
+                  .split("|")
+                  .filter(Boolean),
+                receiverMaterialFamilies: JSON.parse(
+                  areaRunner.getAttribute(
+                    "data-placeable-lighting-proof-receiver-material-families"
+                  ) ?? "[]"
+                )
+              }
+            }
+          : null,
         headings: Array.from(document.querySelectorAll("h1,h2,h3"))
           .map((heading) => heading.textContent?.trim())
           .filter(Boolean),
@@ -866,6 +1582,7 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         placeableModelTextureCount,
         placeableModelTextureStatus,
         devRenderStatus,
+        devFrontendRuntimeRevision,
         devCanvasNonblank,
         devObjectPixels,
         devDrawParticles,
@@ -888,9 +1605,26 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         devEmitterAxisDebugSamples,
         devCampfireCoreCount,
         devCampfireCoreSamples,
+        devAuroraVfxPayloadReady,
+        devAuroraVfxBackendPayloadReady,
+        devAuroraVfxBackendCanonical,
+        devAuroraVfxCanonicalStatus,
+        devAuroraVfxPreviewMode,
+        devAuroraVfxRenderer,
+        devAuroraVfxCanonicalRenderer,
+        devAuroraVfxCanonicalPlaceableComposition,
+        devAuroraVfxCanonicalPlaceableCompositionMode,
+        devAuroraVfxCanonicalPlaceableCompositionReason,
+        devAuroraVfxCanonicalLightSibling,
+        devAuroraVfxCanonicalLightSiblingMode,
+        devAuroraVfxDiagnosticCodes,
+        devCanonicalRendererReady,
+        devCanonicalHybridCompositionReady,
         devSourceMdlEmitterPreviewStatus,
         devSourceMdlEmitterPreviewMode,
         devSourceMdlEmitterPreviewVisibilityMode,
+        devSourceMdlStaticGeometryNodeCount,
+        devSourceMdlStaticGeometryNodes,
         devEmitterCount,
         devPreviewMeshCount,
         devPreviewVisibleMeshCount,
@@ -906,6 +1640,10 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
           runner?.getAttribute("data-placeable-model-texture-count") ?? null,
         devPlaceableModelTextureSource:
           runner?.getAttribute("data-placeable-model-texture-source") ?? null,
+        devPlaceableWorldBoundsCenter:
+          runner?.getAttribute("data-placeable-world-bounds-center") ?? null,
+        devPlaceableWorldBoundsSize:
+          runner?.getAttribute("data-placeable-world-bounds-size") ?? null,
         devPlaceableModelTextureSettled,
         devPlaceableTextureProofMode: requirePlaceableTextureSettled
           ? "require-texture-settled"
@@ -1072,6 +1810,50 @@ async function readAppVfxStatus(send, { requirePlaceableTextureSettled = false }
         fixtureObjectPixels,
         fixtureRenderedDrawParticles,
         fixtureRenderedVertices,
+        fixtureRenderedChunkModelCount,
+        fixtureRenderedChunkLaneCount,
+        fixtureRenderedChunkLaneResourceResolveStatus,
+        fixtureRenderedChunkLaneChunkName:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-chunk-name") ?? null,
+        fixtureRenderedChunkLaneActiveParticleCount:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-active-particle-count") ??
+          null,
+        fixtureRenderedChunkLaneResolvedResourceKey:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-resolved-resource-key") ??
+          null,
+        fixtureRenderedChunkLaneResolvedResourceLayer:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-resolved-resource-layer") ??
+          null,
+        fixtureRenderedChunkLaneResolvedResourcePath:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-resolved-resource-path") ??
+          null,
+        fixtureRenderedChunkLaneResolvedResourceHash:
+          fixtureRunner?.getAttribute("data-rendered-chunk-lane-resolved-resource-hash") ??
+          null,
+        fixtureRenderedChunkLaneResolvedResourceCandidateId:
+          fixtureRunner?.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-candidate-id"
+          ) ?? null,
+        fixtureRenderedChunkLaneRendererPending,
+        fixtureRenderedChunkLaneModelPreviewStatus,
+        fixtureChunkModelReady,
+        fixtureRenderedGeometryLinkedSegmentTopology:
+          fixtureRunner?.getAttribute("data-rendered-geometry-linked-segment-topology") ??
+          null,
+        fixtureRenderedGeometryLinkedSegmentCount:
+          fixtureRunner?.getAttribute("data-rendered-geometry-linked-segment-count") ?? null,
+        fixtureRenderedGeometryLinkedSegmentSource:
+          fixtureRunner?.getAttribute("data-rendered-geometry-linked-segment-source") ?? null,
+        fixtureRenderedGeometryRenderModeBasisModes:
+          fixtureRunner?.getAttribute("data-rendered-geometry-render-mode-basis-modes") ??
+          null,
+        fixtureRenderedGeometryRenderModeBasisSources:
+          fixtureRunner?.getAttribute("data-rendered-geometry-render-mode-basis-sources") ??
+          null,
+        fixtureRenderedGeometryRenderModeUsesVelocityBasis:
+          fixtureRunner?.getAttribute(
+            "data-rendered-geometry-render-mode-uses-velocity-basis"
+          ) ?? null,
         fixtureDrawLane: fixtureRunner?.getAttribute("data-draw-lane") ?? null,
         fixtureRenderedColorR:
           fixtureRunner?.getAttribute("data-rendered-color-r") ?? null,
@@ -1433,6 +2215,8 @@ function summarizeNetworkEvents(events) {
       record.url = event.params.request?.url;
       record.method = event.params.request?.method;
       record.type = event.params.type;
+      record.startedAtMonotonicSeconds = event.params.timestamp;
+      record.startedAtEpochMs = event.receivedAtMs;
     }
     if (event.method === "Network.responseReceived") {
       record.status = event.params.response?.status;
@@ -1441,12 +2225,30 @@ function summarizeNetworkEvents(events) {
     if (event.method === "Network.loadingFinished") {
       record.finished = true;
       record.encodedDataLength = event.params.encodedDataLength;
+      record.finishedAtMonotonicSeconds = event.params.timestamp;
+      record.finishedAtEpochMs = event.receivedAtMs;
     }
     if (event.method === "Network.loadingFailed") {
       record.failed = true;
       record.errorText = event.params.errorText;
       record.canceled = event.params.canceled;
+      record.finishedAtMonotonicSeconds = event.params.timestamp;
+      record.finishedAtEpochMs = event.receivedAtMs;
     }
+    if (
+      Number.isFinite(record.startedAtMonotonicSeconds) &&
+      Number.isFinite(record.finishedAtMonotonicSeconds)
+    ) {
+      record.durationMs = Math.round(
+        (record.finishedAtMonotonicSeconds - record.startedAtMonotonicSeconds) * 1000
+      );
+    }
+    record.settlement = record.failed
+      ? "failed"
+      : record.finished
+        ? "finished"
+        : "pending";
+    record.assetKind = classifyNetworkAssetKind(record.url);
     byRequestId.set(requestId, record);
   }
   return Array.from(byRequestId.values()).filter((record) => {
@@ -1458,6 +2260,41 @@ function summarizeNetworkEvents(events) {
       record.failed
     );
   });
+}
+
+function classifyNetworkAssetKind(value) {
+  const url = String(value ?? "").toLowerCase();
+  if (url.includes("/catalog/placeables/process")) return "placeable-process";
+  if (url.includes("/assets/contracts")) return "asset-contracts";
+  if (/\.(?:tga|dds|plt)(?:[?#]|$)/u.test(url)) return "texture";
+  if (/\.(?:glb|mdl|mdx)(?:[?#]|$)/u.test(url)) return "model";
+  if (url.includes("/auth/")) return "auth";
+  if (url.includes("/health")) return "health";
+  return "other";
+}
+
+async function readBackendRuntimeIdentity(url) {
+  const startedAtMs = Date.now();
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000)
+    });
+    const payload = await response.json();
+    return {
+      url,
+      status: response.status,
+      elapsedMs: Date.now() - startedAtMs,
+      payload
+    };
+  } catch (error) {
+    return {
+      url,
+      status: null,
+      elapsedMs: Date.now() - startedAtMs,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 function removeProfileDirBestEffort(profileDir) {

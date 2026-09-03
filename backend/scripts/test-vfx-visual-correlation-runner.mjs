@@ -16,6 +16,16 @@ import {
   validateFixtureSnapshotIds
 } from "./run-vfx-visual-correlation.mjs";
 
+const TEST_ANALYSIS_FEATURES_BY_FIXTURE_ID = new Map([
+  ["vfx-retail-explosion-detonate-fireball", ["explosion-detonate-particle-pair"]],
+  ["vfx-retail-fountain-atlas-cot-fx01", ["fountain-atlas-particles"]],
+  ["vfx-retail-p2p-gravity-reference-node", ["gravity-reference-arc"]],
+  ["vfx-retail-plt-known-layer-colors", ["plt-layer-color-order"]],
+  ["vfx-retail-scripted-effectvisualeffect-row-50", ["purple-pale-particle-pair"]],
+  ["vfx-retail-scripted-effectbeam-row-210-body-chest", ["source-target-beam-segments"]],
+  ["vfx-retail-dm-visualeffect-row-68-duration-0", ["warm-turquoise-particle-pair"]]
+]);
+
 validateFixtureSnapshotIds({
   fixtureId: "vfx-retail-scripted-effectvisualeffect-row-50",
   snapshot: {
@@ -62,6 +72,36 @@ const generic = correlate({
 assert.equal(generic.checks.visibleComponentsWithinDrawParticleBudget, true);
 assert.equal(generic.checks.drawParticlesVisible, true);
 assert.deepEqual(getFailedChecks(generic), []);
+
+const identityNeutralPurplePairA = correlate({
+  fixtureId: "test-arbitrary-alpha",
+  analysisFeatures: ["purple-pale-particle-pair"],
+  drawParticleCount: 2,
+  drawVertexCount: 12,
+  drawRecords: [
+    row50DeathRecord({ id: 0, x: -0.16, y: -0.08, color: { r: 0.72, g: 0.5, b: 1 } }),
+    row50DeathRecord({ id: 1, x: 0.14, y: 0.11, color: { r: 0.9, g: 0.9, b: 1 } })
+  ],
+  drawParticles: 2,
+  components: 1
+});
+const identityNeutralPurplePairB = correlate({
+  fixtureId: "test-arbitrary-beta",
+  analysisFeatures: ["purple-pale-particle-pair"],
+  drawParticleCount: 2,
+  drawVertexCount: 12,
+  drawRecords: [
+    row50DeathRecord({ id: 0, x: -0.16, y: -0.08, color: { r: 0.72, g: 0.5, b: 1 } }),
+    row50DeathRecord({ id: 1, x: 0.14, y: 0.11, color: { r: 0.9, g: 0.9, b: 1 } })
+  ],
+  drawParticles: 2,
+  components: 1
+});
+assert.equal(identityNeutralPurplePairA.visualSemanticChecks.row50DeathColorPair, true);
+assert.deepEqual(
+  identityNeutralPurplePairA.visualSemanticChecks,
+  identityNeutralPurplePairB.visualSemanticChecks
+);
 
 const row50StabilityFrameA = correlate({
   fixtureId: "vfx-retail-scripted-effectvisualeffect-row-50",
@@ -1833,7 +1873,7 @@ const linkedChain = correlate({
   fixtureId: "vfx-retail-linked-chain",
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.4, y: 0 }),
     linkedRecord({ id: 1, x: -0.2, y: 0.1 }),
@@ -1868,7 +1908,7 @@ const bunchedLinkedChain = correlate({
   fixtureId: "vfx-retail-linked-chain",
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.4, y: 0 }),
     linkedRecord({ id: 1, x: -0.35, y: 0.1 }),
@@ -1888,7 +1928,7 @@ const brokenLinkedChainColorAlternation = correlate({
   fixtureId: "vfx-retail-linked-chain",
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.4, y: 0 }),
     linkedRecord({ id: 2, x: -0.2, y: 0.1 }),
@@ -1908,7 +1948,7 @@ const flatAlphaLinkedChain = correlate({
   fixtureId: "vfx-retail-linked-chain",
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.4, y: 0, alpha: 0.7 }),
     linkedRecord({ id: 1, x: -0.2, y: 0.1, alpha: 0.7 }),
@@ -1931,7 +1971,7 @@ const sizeDriftLinkedChain = correlate({
   fixtureId: "vfx-retail-linked-chain",
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.4, y: 0 }),
     linkedRecord({ id: 1, x: -0.2, y: 0.1 }),
@@ -1956,7 +1996,7 @@ const linkedChainNextFrame = correlate({
   seed: 78,
   drawLane: "linked_textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     linkedRecord({ id: 0, x: -0.42, y: -0.03 }),
     linkedRecord({ id: 1, x: -0.21, y: 0.08 }),
@@ -1991,7 +2031,7 @@ const brokenLinkedChainNextFrame = correlate({
   seed: 78,
   drawLane: "textured_quad",
   drawParticleCount: 5,
-  drawVertexCount: 30,
+  drawVertexCount: 24,
   drawRecords: [
     drawRecord({ id: 0, x: -0.42, y: -0.03 }),
     drawRecord({ id: 1, x: -0.21, y: 0.08 }),
@@ -2023,7 +2063,11 @@ const chunk = correlate({
   chunkLane: {
     lane: "chunk_model",
     chunkName: "progfx_type9_chunk_model_pending",
-    canonicalResourceResolved: false
+    canonicalResourceResolved: true,
+    resourceResolveStatus: "resolved",
+    resolvedResource: {
+      resolutionSource: "dev-fixture-local-template"
+    }
   },
   activeParticleCount: 2,
   drawParticleCount: 0,
@@ -2034,15 +2078,15 @@ const chunk = correlate({
   objectPixels: 1331
 });
 assert.equal(chunk.checks.chunkLanePreserved, true);
-assert.equal(chunk.checks.canonicalResourceUnresolved, true);
+assert.equal(chunk.checks.localPreviewResourceResolved, true);
 assert.equal(chunk.checks.noFakeParticleDrawRecords, true);
-assert.equal(chunk.checks.placeholderVisibleWithoutDrawParticles, true);
+assert.equal(chunk.checks.localPreviewVisibleWithoutDrawParticles, true);
 assert.equal(chunk.visualSemanticChecks.diagnosticVisible, true);
 assert.equal(chunk.visualSemanticChecks.chunkLanePreserved, true);
 assert.equal(chunk.visualSemanticChecks.noFakeParticles, true);
-assert.equal(chunk.visualSemanticChecks.unresolvedResource, true);
-assert.equal(chunk.visualSemanticChecks.diagnosticCodesExplainPlaceholder, true);
-assert.equal(chunk.visualSemanticChecks.placeholderDiagnosticOnly, true);
+assert.equal(chunk.visualSemanticChecks.localPreviewResourceResolved, true);
+assert.equal(chunk.visualSemanticChecks.diagnosticCodesExplainLocalPreview, true);
+assert.equal(chunk.visualSemanticChecks.localPreviewRetailUnverified, true);
 assert.equal(
   chunk.visualSemanticOracle.humanReviewNeeded[0].missingOracle,
   "Real progfx Type 9 chunk model resource/source row plus retail runtime/render/capture/comparison evidence."
@@ -2058,7 +2102,11 @@ const chunkNextFrame = correlate({
   chunkLane: {
     lane: "chunk_model",
     chunkName: "progfx_type9_chunk_model_pending",
-    canonicalResourceResolved: false
+    canonicalResourceResolved: true,
+    resourceResolveStatus: "resolved",
+    resolvedResource: {
+      resolutionSource: "dev-fixture-local-template"
+    }
   },
   activeParticleCount: 2,
   drawParticleCount: 0,
@@ -2081,7 +2129,11 @@ const brokenChunkNextFrame = correlate({
   chunkLane: {
     lane: "textured_quad",
     chunkName: "progfx_type9_chunk_model_pending",
-    canonicalResourceResolved: false
+    canonicalResourceResolved: true,
+    resourceResolveStatus: "resolved",
+    resolvedResource: {
+      resolutionSource: "dev-fixture-local-template"
+    }
   },
   activeParticleCount: 2,
   drawParticleCount: 0,
@@ -2123,6 +2175,7 @@ console.log("vfx visual correlation runner self-test passed");
 
 function correlate({
   fixtureId,
+  analysisFeatures = TEST_ANALYSIS_FEATURES_BY_FIXTURE_ID.get(fixtureId) ?? [],
   timeSeconds = 0.5,
   seed = 1,
   drawLane = "textured_quad",
@@ -2142,12 +2195,15 @@ function correlate({
   renderContractSha256 = "test-render-contract",
   diagnosticCodes = chunkLane
     ? [
-        "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
+        "VFX_CHUNK_MODEL_RETAIL_RESOURCE_REQUIRED",
         "VFX_DEV_CHUNK_LANE_DIAGNOSTIC_ONLY",
-        "VFX_CANONICAL_CHUNK_LANE_RENDERER_PENDING"
+        "VFX_CANONICAL_CHUNK_MODEL_PREVIEW_RETAIL_PROOF_PENDING"
       ]
     : []
 }) {
+  const linkedSegmentTopology = drawLane === "linked_textured_quad" && drawRecords.length > 1;
+  const geometryDrawRecordCount = linkedSegmentTopology ? drawRecords.length - 1 : drawRecords.length;
+
   return createCorrelation({
     snapshot: {
       fixtureId,
@@ -2169,6 +2225,10 @@ function correlate({
         drawLane,
         renderMode,
         blendMode,
+        analysisProfile: {
+          version: "aurora-vfx-analysis-profile/v1",
+          features: analysisFeatures
+        },
         chunkLane,
         fountainAtlas,
         drawParticleCount,
@@ -2281,29 +2341,38 @@ function correlate({
           atlasUvSource: drawRecords.length > 0 ? "aurora-particle-draw-record" : "",
           colorAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
           colorAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
+          colorAttributeCount: drawVertexCount,
           alphaAttributeMin:
             drawRecords.length > 0 ? Math.min(...drawRecords.map((record) => Number(record.alpha))) : 0,
           alphaAttributeMax:
             drawRecords.length > 0 ? Math.max(...drawRecords.map((record) => Number(record.alpha))) : 0,
+          alphaAttributeCount: drawVertexCount,
           alphaAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
           alphaAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
+          particleSizeAttributeCount: drawVertexCount,
           particleSizeAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
           particleSizeAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
+          atlasFrameAttributeCount: drawVertexCount,
           atlasFrameAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
           atlasFrameAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 1 : 0,
+          positionAttributeCount: drawVertexCount,
           positionAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 4 : 0,
           positionAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 4 : 0,
+          uvAttributeCount: drawVertexCount,
           uvAttributeMinUniqueValuesPerRecord: drawRecords.length > 0 ? 4 : 0,
           uvAttributeMaxUniqueValuesPerRecord: drawRecords.length > 0 ? 4 : 0,
           drawRecordIndexAttributeCount: drawVertexCount,
           drawRecordIndexAttributeItemSize: drawRecords.length > 0 ? 1 : 0,
           drawRecordIndexAttributeSource:
             drawRecords.length > 0 ? "auroraDrawRecordIndex-buffer-attribute" : "",
-          drawRecordIndexAttributeUniqueCount: drawRecords.length,
+          drawRecordIndexAttributeUniqueCount: geometryDrawRecordCount,
           drawRecordIndexAttributeMin: 0,
-          drawRecordIndexAttributeMax: drawRecords.length > 0 ? drawRecords.length - 1 : 0,
+          drawRecordIndexAttributeMax: geometryDrawRecordCount > 0 ? geometryDrawRecordCount - 1 : 0,
           drawRecordIndexAttributeMinVerticesPerRecord: drawRecords.length > 0 ? 6 : 0,
-          drawRecordIndexAttributeMaxVerticesPerRecord: drawRecords.length > 0 ? 6 : 0
+          drawRecordIndexAttributeMaxVerticesPerRecord: drawRecords.length > 0 ? 6 : 0,
+          linkedSegmentTopology: linkedSegmentTopology ? "true" : "false",
+          linkedSegmentCount: linkedSegmentTopology ? geometryDrawRecordCount : 0,
+          linkedSegmentSource: linkedSegmentTopology ? "aurora-linked-draw-record-pairs" : ""
         },
         canonicalParityPromoted: "false"
       }
@@ -2466,8 +2535,10 @@ function drawRecord({
       indexed: false,
       drawModeArgument: 3,
       drawModeArgumentSource: "aurora-draw-wrapper-mode-arg3",
-      enumTableCaptured: false,
-      triangleListInferenceProof: "diagnostic_pending"
+      enumTableCaptured: true,
+      glPrimitiveMode: "GL_TRIANGLES",
+      glPrimitiveModeEnum: 0x0004,
+      triangleListInferenceProof: "confirmed_draw_wrapper_table_index_3_gl_triangles"
     },
     ...(pltLayer ? { pltLayer } : {}),
     ...(pltLayerColorSource ? { pltLayerColorSource } : {}),

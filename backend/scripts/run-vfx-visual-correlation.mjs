@@ -711,7 +711,7 @@ export function createLinkedChainStabilityReport(correlations) {
         requiredSemanticChecks.every((checkName) => frame.visualSemanticChecks?.[checkName] === true)
       ),
     linkedChainStabilityDrawParticleCountStable: drawParticleCounts.size === 1 && drawParticleCounts.has(5),
-    linkedChainStabilityDrawVertexCountStable: drawVertexCounts.size === 1 && drawVertexCounts.has(30),
+    linkedChainStabilityDrawVertexCountStable: drawVertexCounts.size === 1 && drawVertexCounts.has(24),
     linkedChainStabilityDrawRecordCountStable: drawRecordCounts.size === 1 && drawRecordCounts.has(5),
     linkedChainStabilityLaneStable:
       linkedFrames.length > 0 &&
@@ -800,9 +800,14 @@ export function createChunkType9StabilityReport(correlations) {
       ),
     chunkType9StabilityChunkNamePendingStable:
       chunkNames.size === 1 && chunkNames.has("progfx_type9_chunk_model_pending"),
-    chunkType9StabilityCanonicalResourceUnresolvedEveryFrame:
+    chunkType9StabilityLocalPreviewResourceResolvedEveryFrame:
       chunkFrames.length > 0 &&
-      chunkFrames.every((frame) => frame.laneProbe?.chunkLane?.canonicalResourceResolved === false),
+      chunkFrames.every(
+        (frame) =>
+          frame.laneProbe?.chunkLane?.canonicalResourceResolved === true &&
+          frame.laneProbe?.chunkLane?.resourceResolveStatus === "resolved" &&
+          frame.laneProbe?.chunkLane?.resolvedResource?.resolutionSource === "dev-fixture-local-template"
+      ),
     chunkType9StabilityNoFakeParticleDrawRecordsEveryFrame:
       chunkFrames.length > 0 &&
       chunkFrames.every(
@@ -812,7 +817,7 @@ export function createChunkType9StabilityReport(correlations) {
           frame.contractMetrics?.drawRecordCount === 0 &&
           getAllDrawRecordsFromCorrelation(frame).length === 0
       ),
-    chunkType9StabilityPlaceholderVisibleEveryFrame:
+    chunkType9StabilityLocalPreviewVisibleEveryFrame:
       chunkFrames.length > 0 &&
       chunkFrames.every(
         (frame) =>
@@ -1399,6 +1404,17 @@ export function createRow68DmVisualEffectStabilityReport(correlations) {
   };
 }
 
+function readAnalysisFeatureSet(profile) {
+  if (
+    profile?.version !== "aurora-vfx-analysis-profile/v1" ||
+    !Array.isArray(profile.features)
+  ) {
+    return new Set();
+  }
+
+  return new Set(profile.features.filter((feature) => typeof feature === "string"));
+}
+
 export function createCorrelation({
   snapshot,
   frame,
@@ -1417,13 +1433,14 @@ export function createCorrelation({
   const isChunkLane = renderContract.drawLane === "chunk_model";
   const isLinkedLane = renderContract.drawLane === "linked_textured_quad";
   const isMode2Lighten = renderContract.blendMode?.rawToken === "Mode2_Lighten";
-  const isP2pGravity = snapshot.fixtureId === "vfx-retail-p2p-gravity-reference-node";
-  const isFireballDetonate = snapshot.fixtureId === "vfx-retail-explosion-detonate-fireball";
-  const isRow68Healing = snapshot.fixtureId === "vfx-retail-dm-visualeffect-row-68-duration-0";
-  const isRow50Death = snapshot.fixtureId === "vfx-retail-scripted-effectvisualeffect-row-50";
-  const isPltLayerColors = snapshot.fixtureId === "vfx-retail-plt-known-layer-colors";
-  const isEffectBeam = snapshot.fixtureId === "vfx-retail-scripted-effectbeam-row-210-body-chest";
-  const isFountainAtlas = snapshot.fixtureId === "vfx-retail-fountain-atlas-cot-fx01";
+  const analysisFeatures = readAnalysisFeatureSet(renderContract.analysisProfile);
+  const hasGravityReferenceArcAnalysis = analysisFeatures.has("gravity-reference-arc");
+  const hasExplosionDetonatePairAnalysis = analysisFeatures.has("explosion-detonate-particle-pair");
+  const hasWarmTurquoisePairAnalysis = analysisFeatures.has("warm-turquoise-particle-pair");
+  const hasPurplePalePairAnalysis = analysisFeatures.has("purple-pale-particle-pair");
+  const hasPltLayerColorOrderAnalysis = analysisFeatures.has("plt-layer-color-order");
+  const hasSourceTargetBeamAnalysis = analysisFeatures.has("source-target-beam-segments");
+  const hasFountainAtlasParticleAnalysis = analysisFeatures.has("fountain-atlas-particles");
 
   const checks = {
     renderContractDrawParticlesMatchesDom: renderContract.drawParticleCount === drawParticles,
@@ -1600,15 +1617,19 @@ export function createCorrelation({
       : [];
     Object.assign(checks, {
       chunkLanePreserved: renderContract.chunkLane?.lane === "chunk_model",
-      canonicalResourceUnresolved: renderContract.chunkLane?.canonicalResourceResolved === false,
-      chunkRenderedDiagnosticCodesIncludeUnresolvedResource:
-        renderedDiagnosticCodes.includes("VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED") &&
-        renderedDiagnosticCodes.includes("VFX_DEV_CHUNK_LANE_DIAGNOSTIC_ONLY"),
+      localPreviewResourceResolved:
+        renderContract.chunkLane?.canonicalResourceResolved === true &&
+        renderContract.chunkLane?.resourceResolveStatus === "resolved" &&
+        renderContract.chunkLane?.resolvedResource?.resolutionSource === "dev-fixture-local-template",
+      chunkRenderedDiagnosticCodesIncludeRetailProofPending:
+        renderedDiagnosticCodes.includes("VFX_CHUNK_MODEL_RETAIL_RESOURCE_REQUIRED") &&
+        renderedDiagnosticCodes.includes("VFX_DEV_CHUNK_LANE_DIAGNOSTIC_ONLY") &&
+        renderedDiagnosticCodes.includes("VFX_CANONICAL_CHUNK_MODEL_PREVIEW_RETAIL_PROOF_PENDING"),
       noFakeParticleDrawRecords:
         renderContract.drawParticleCount === 0 &&
         renderContract.drawVertexCount === 0 &&
         drawRecords.length === 0,
-      placeholderVisibleWithoutDrawParticles: components > 0 && comparison.metrics.objectPixels > 0
+      localPreviewVisibleWithoutDrawParticles: components > 0 && comparison.metrics.objectPixels > 0
     });
   } else {
     Object.assign(checks, {
@@ -1620,15 +1641,22 @@ export function createCorrelation({
 
   if (isLinkedLane) {
     const renderedGeometry = frame.domStatus?.renderedGeometry ?? {};
-    const expectedVerticesPerDrawRecord =
-      drawRecords.length > 0 ? renderContract.drawVertexCount / drawRecords.length : 0;
+    const isLinkedSegmentTopology = renderedGeometry.linkedSegmentTopology === "true";
+    const expectedLinkedRecordBucketCount = isLinkedSegmentTopology
+      ? Math.max(0, drawRecords.length - 1)
+      : drawRecords.length;
+    const expectedVerticesPerDrawRecord = isLinkedSegmentTopology
+      ? 6
+      : drawRecords.length > 0
+      ? renderContract.drawVertexCount / drawRecords.length
+      : 0;
     checks.linkedLanePreserved = drawRecords.every((record) => record.lane === "linked_textured_quad");
     checks.linkedRenderedDrawRecordIndexAttributeBucketsMatchVerticesPerParticle =
       Number(renderedGeometry.drawRecordIndexAttributeMinVerticesPerRecord) ===
         expectedVerticesPerDrawRecord &&
       Number(renderedGeometry.drawRecordIndexAttributeMaxVerticesPerRecord) ===
         expectedVerticesPerDrawRecord &&
-      Number(renderedGeometry.drawRecordIndexAttributeUniqueCount) === drawRecords.length;
+      Number(renderedGeometry.drawRecordIndexAttributeUniqueCount) === expectedLinkedRecordBucketCount;
     checks.linkedRenderedDiagnosticCodesIncludeSegmentBufferBoundary =
       frame.domStatus?.renderedDiagnosticCodes?.includes("VFX_LINKED_CHAIN_SOURCE_EVIDENCE_REQUIRED") &&
       frame.domStatus?.renderedDiagnosticCodes?.includes("VFX_DEV_LINKED_CHAIN_DIAGNOSTIC_ONLY") &&
@@ -1668,7 +1696,7 @@ export function createCorrelation({
     });
   }
 
-  if (isP2pGravity) {
+  if (hasGravityReferenceArcAnalysis) {
     const first = drawRecords[0]?.position;
     const middle = drawRecords[Math.floor(drawRecords.length / 2)]?.position;
     const last = drawRecords.at(-1)?.position;
@@ -1735,7 +1763,7 @@ export function createCorrelation({
     });
   }
 
-  if (isFireballDetonate && drawRecords.length > 0) {
+  if (hasExplosionDetonatePairAnalysis && drawRecords.length > 0) {
     const sizeX = Array.isArray(frame.domStatus?.renderedParticleSizeX)
       ? frame.domStatus.renderedParticleSizeX
       : [];
@@ -1773,7 +1801,7 @@ export function createCorrelation({
     });
   }
 
-  if (isEffectBeam) {
+  if (hasSourceTargetBeamAnalysis) {
     const first = drawRecords[0]?.position;
     const last = drawRecords.at(-1)?.position;
     const beamContext = renderContract.beamContext;
@@ -1797,7 +1825,7 @@ export function createCorrelation({
     });
   }
 
-  if (isFountainAtlas) {
+  if (hasFountainAtlasParticleAnalysis) {
     const fountainAtlas = renderContract.fountainAtlas;
     const frameIndexes = drawRecords
       .map((record) => record.atlasUv?.frameIndex)
@@ -1885,7 +1913,7 @@ export function createCorrelation({
     });
   }
 
-  if (isPltLayerColors) {
+  if (hasPltLayerColorOrderAnalysis) {
     const layers = drawRecords
       .map((record) => record.atlasProvenance?.pltLayer)
       .filter((layer) => typeof layer === "string");
@@ -1955,13 +1983,13 @@ export function createCorrelation({
     checks,
     isChunkLane,
     isMode2Lighten,
-    isFireballDetonate,
-    isRow68Healing,
-    isRow50Death,
-    isEffectBeam,
-    isFountainAtlas,
-    isPltLayerColors,
-    isP2pGravity,
+    hasExplosionDetonatePairAnalysis,
+    hasWarmTurquoisePairAnalysis,
+    hasPurplePalePairAnalysis,
+    hasSourceTargetBeamAnalysis,
+    hasFountainAtlasParticleAnalysis,
+    hasPltLayerColorOrderAnalysis,
+    hasGravityReferenceArcAnalysis,
     isLinkedLane
   });
   const visualSemanticChecks = visualSemanticOracle.checks;
@@ -2015,13 +2043,13 @@ function buildVisualSemanticOracle({
   checks,
   isChunkLane,
   isMode2Lighten,
-  isFireballDetonate,
-  isRow68Healing,
-  isRow50Death,
-  isEffectBeam,
-  isFountainAtlas,
-  isPltLayerColors,
-  isP2pGravity,
+  hasExplosionDetonatePairAnalysis,
+  hasWarmTurquoisePairAnalysis,
+  hasPurplePalePairAnalysis,
+  hasSourceTargetBeamAnalysis,
+  hasFountainAtlasParticleAnalysis,
+  hasPltLayerColorOrderAnalysis,
+  hasGravityReferenceArcAnalysis,
   isLinkedLane
 }) {
   const renderedMaterial = frame.domStatus?.renderedMaterial ?? {};
@@ -2109,7 +2137,7 @@ function buildVisualSemanticOracle({
         approxEqual(Number(renderedColorB[index]), Number(record.color?.b))
     );
   const fireballDrawModeRoute =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (checks.analyzerRenderedGeometryNonIndexedDrawArrays === true &&
       checks.analyzerRenderedGeometryIndexedDrawArrays === true &&
       checks.analyzerRenderedGeometryDrawModeArgumentMatchesContract === true &&
@@ -2127,11 +2155,14 @@ function buildVisualSemanticOracle({
           record.drawRoute?.indexed === false &&
           record.drawRoute?.drawModeArgument === 3 &&
           record.drawRoute?.drawModeArgumentSource === "aurora-draw-wrapper-mode-arg3" &&
-          record.drawRoute?.enumTableCaptured === false &&
-          record.drawRoute?.triangleListInferenceProof === "diagnostic_pending"
+          record.drawRoute?.enumTableCaptured === true &&
+          record.drawRoute?.glPrimitiveMode === "GL_TRIANGLES" &&
+          Number(record.drawRoute?.glPrimitiveModeEnum) === 0x0004 &&
+          record.drawRoute?.triangleListInferenceProof ===
+            "confirmed_draw_wrapper_table_index_3_gl_triangles"
       ));
   const fireballWarmColorPair =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.every((record) => {
@@ -2141,7 +2172,7 @@ function buildVisualSemanticOracle({
       drawRecords.some((record) => Number(record.color?.g) >= 0.6) &&
       drawRecords.some((record) => Number(record.color?.g) <= 0.25));
   const fireballWarmColorOrder =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedColorsMatchDrawRecords &&
       Number(drawRecords[0]?.color?.r) >= 0.9 &&
@@ -2152,7 +2183,7 @@ function buildVisualSemanticOracle({
       Number(drawRecords[1]?.color?.g) <= 0.25 &&
       Number(drawRecords[1]?.color?.b) <= 0.15);
   const fireballDrawShape =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 2 &&
       drawRecords.length === 2 &&
@@ -2161,14 +2192,14 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const fireballParticleSize =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (checks.fireballParticleSizeXPositive === true &&
       checks.fireballParticleSizeYPositive === true &&
       checks.fireballParticleSizeVectorsMatchDrawRecordCount === true &&
       checks.fireballRenderedParticleSizeAttributeBucketsAreUniformPerRecord === true &&
       checks.analyzerRenderedParticleSizeVectorsMatchContract === true);
   const fireballDetonateAlphaFade =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedAlpha.length === 2 &&
       Number(renderedAlpha[0]) > Number(renderedAlpha[1]) &&
@@ -2176,7 +2207,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedAlphaMatchesContract === true &&
       checks.analyzerRenderedGeometryAlphaAttributeUniqueValuesPerRecordMatchContract === true);
   const fireballDetonateOutwardMotion =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedPositionX.length === 2 &&
       renderedVelocityX.length === 2 &&
@@ -2190,7 +2221,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedPositionVectorsMatchContract === true &&
       checks.analyzerRenderedVelocityVectorsMatchContract === true);
   const fireballAtlasAndMaterial =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (frame.domStatus?.textureProfile === "radial-soft-atlas-4x4-v2" &&
       checks.analyzerTextureStatusApplied === true &&
       checks.analyzerTextureAtlasDimensionsConsistent === true &&
@@ -2199,7 +2230,7 @@ function buildVisualSemanticOracle({
       renderedMaterial.vertexColors === "true" &&
       renderedMaterial.side === "DoubleSide");
   const fireballParticleOrder =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (drawRecords.length === 2 &&
       renderContract.drawParticleCount === 2 &&
       frame.domStatus?.drawParticles === 2 &&
@@ -2208,18 +2239,18 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedParticleIndexesMatchContract === true &&
       checks.analyzerRenderedRecordVerticesPerParticleMatchContract === true);
   const fireballDiagnosticBoundary =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (renderedDiagnosticCodes.includes("VFX_DEV_VISUAL_RUNNER_NOT_PARITY_PROOF") &&
       renderedDiagnosticCodes.includes("VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED") &&
       renderedDiagnosticCodes.includes("VFX_PARTICLE_DRAW_NON_INDEXED_ARRAYS_REQUIRED"));
   const fireballFraming =
-    !isFireballDetonate ||
+    !hasExplosionDetonatePairAnalysis ||
     (comparison.metrics?.connectedComponentCount >= 1 &&
       comparison.metrics?.connectedComponentCount <= 2 &&
       boundsAreFinite &&
       comparison.metrics?.objectPixels > 0);
   const row68HealingColorPair =
-    !isRow68Healing ||
+    !hasWarmTurquoisePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.some(
@@ -2236,7 +2267,7 @@ function buildVisualSemanticOracle({
           Number(record.color?.b) >= 0.7
       ));
   const row68HealingColorPlacement =
-    !isRow68Healing ||
+    !hasWarmTurquoisePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedPositionX.length === 2 &&
       renderedPositionY.length === 2 &&
@@ -2255,7 +2286,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedPositionVectorsMatchContract === true &&
       checks.analyzerRenderedColorVectorsMatchContract === true);
   const row68HealingAlphaFade =
-    !isRow68Healing ||
+    !hasWarmTurquoisePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedAlpha.length === 2 &&
       Number(renderedAlpha[0]) > Number(renderedAlpha[1]) &&
@@ -2263,7 +2294,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedAlphaMatchesContract === true &&
       checks.analyzerRenderedGeometryAlphaAttributeUniqueValuesPerRecordMatchContract === true);
   const row68HealingParticleSize =
-    !isRow68Healing ||
+    !hasWarmTurquoisePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedParticleSizeX.length === 2 &&
       renderedParticleSizeY.length === 2 &&
@@ -2274,7 +2305,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedParticleSizeVectorsMatchContract === true &&
       checks.analyzerRenderedGeometryParticleSizeAttributeUniqueValuesPerRecordMatchContract === true);
   const row68HealingDrawShape =
-    !isRow68Healing ||
+    !hasWarmTurquoisePairAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 2 &&
       drawRecords.length === 2 &&
@@ -2283,7 +2314,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const row50DeathColorPair =
-    !isRow50Death ||
+    !hasPurplePalePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.some(
@@ -2301,7 +2332,7 @@ function buildVisualSemanticOracle({
           Number(record.color?.b) >= 0.9
       ));
   const row50DeathDrawShape =
-    !isRow50Death ||
+    !hasPurplePalePairAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 2 &&
       drawRecords.length === 2 &&
@@ -2310,7 +2341,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const row50DeathColorPlacement =
-    !isRow50Death ||
+    !hasPurplePalePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedPositionX.length === 2 &&
       renderedPositionY.length === 2 &&
@@ -2330,7 +2361,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedPositionVectorsMatchContract === true &&
       checks.analyzerRenderedColorVectorsMatchContract === true);
   const row50DeathAlphaFade =
-    !isRow50Death ||
+    !hasPurplePalePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedAlpha.length === 2 &&
       Number(renderedAlpha[0]) > Number(renderedAlpha[1]) &&
@@ -2338,7 +2369,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedAlphaMatchesContract === true &&
       checks.analyzerRenderedGeometryAlphaAttributeUniqueValuesPerRecordMatchContract === true);
   const row50DeathParticleSize =
-    !isRow50Death ||
+    !hasPurplePalePairAnalysis ||
     (drawRecords.length === 2 &&
       renderedParticleSizeX.length === 2 &&
       renderedParticleSizeY.length === 2 &&
@@ -2349,7 +2380,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedParticleSizeVectorsMatchContract === true &&
       checks.analyzerRenderedGeometryParticleSizeAttributeUniqueValuesPerRecordMatchContract === true);
   const effectBeamColorPair =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (drawRecords.length === 5 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.some(
@@ -2367,7 +2398,7 @@ function buildVisualSemanticOracle({
           Number(record.color?.b) <= 0.35
       ));
   const effectBeamColorAlternation =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (drawRecords.length === 5 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.every((record, index) => {
@@ -2385,7 +2416,7 @@ function buildVisualSemanticOracle({
         return index % 2 === 0 ? isOrange : isYellow;
       }));
   const effectBeamDrawShape =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 5 &&
       drawRecords.length === 5 &&
@@ -2394,7 +2425,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const effectBeamBodyNodeChest =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (checks.effectBeamBodyNodeChestPreserved === true &&
       drawRecords.length === 5 &&
       drawRecords.every(
@@ -2403,7 +2434,7 @@ function buildVisualSemanticOracle({
           record.atlasProvenance?.beamContextSource === "dev_effectbeam_context_diagnostic"
       ));
   const effectBeamSegmentOrder =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (checks.effectBeamStartsAtSourceLeft === true &&
       checks.effectBeamEndsAtTargetRight === true &&
       checks.effectBeamSegmentsOrdered === true &&
@@ -2413,7 +2444,7 @@ function buildVisualSemanticOracle({
           record.atlasProvenance?.beamSegmentCount === 5
       ));
   const effectBeamSegmentSpacing =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (drawRecords.length === 5 &&
       drawRecords.every((record) => Number.isFinite(Number(record.position?.x))) &&
       drawRecords
@@ -2428,7 +2459,7 @@ function buildVisualSemanticOracle({
             Number(record.position?.y) >= Number(drawRecords[index - 1]?.position?.y))
       ));
   const effectBeamAlphaFade =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (drawRecords.length === 5 &&
       renderedAlpha.length === 5 &&
       renderedAlpha.every(
@@ -2436,7 +2467,7 @@ function buildVisualSemanticOracle({
       ) &&
       checks.analyzerRenderedAlphaMatchesContract === true);
   const effectBeamParticleSizeWaist =
-    !isEffectBeam ||
+    !hasSourceTargetBeamAnalysis ||
     (drawRecords.length === 5 &&
       renderedParticleSizeX.length === 5 &&
       renderedParticleSizeY.length === 5 &&
@@ -2455,7 +2486,7 @@ function buildVisualSemanticOracle({
   const fountainAtlasDistinctFrames = new Set(fountainAtlasFrameIndexes);
   const fountainAtlasContext = renderContract.fountainAtlas;
   const fountainAtlasDrawShape =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 6 &&
       drawRecords.length === 6 &&
@@ -2464,13 +2495,13 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const fountainAtlasGridAndFrameRange =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (checks.fountainAtlasContextPreserved === true &&
       checks.fountainAtlasFrameRangePreserved === true &&
       fountainAtlasContext?.randomFrameStart === true &&
       fountainAtlasContext?.retailPlaybackResolved === false);
   const fountainAtlasFramePlayback =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (checks.fountainAtlasFrameIndexesInRange === true &&
       checks.fountainAtlasRenderedFramesMatchDrawRecords === true &&
       checks.fountainAtlasRenderedAtlasFrameAttributeBucketsAreUniformPerRecord === true &&
@@ -2478,7 +2509,7 @@ function buildVisualSemanticOracle({
       checks.fountainAtlasMaterialOffsetBlocked === true &&
       fountainAtlasDistinctFrames.size >= 3);
   const fountainAtlasTrajectory =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (drawRecords.length === 6 &&
       renderedPositionX.length === 6 &&
       renderedPositionY.length === 6 &&
@@ -2490,14 +2521,14 @@ function buildVisualSemanticOracle({
       Math.min(...renderedPositionX.map(Number)) < 0 &&
       Math.max(...renderedPositionX.map(Number)) > 0);
   const fountainAtlasUvGrid =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (checks.fountainAtlasRenderedUvRectCountMatchesDrawRecords === true &&
       checks.fountainAtlasRenderedUvRectsStayWithinUnitRange === true &&
       checks.fountainAtlasRenderedUvRectsMatchDrawRecordOrder === true &&
       checks.fountainAtlasRenderedUvRectsUseQuarterGrid === true &&
       checks.fountainAtlasRenderedUvAttributeBucketsHaveFourCornersPerRecord === true);
   const fountainAtlasParticleOrder =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (drawRecords.length === 6 &&
       renderContract.drawParticleCount === 6 &&
       frame.domStatus?.drawParticles === 6 &&
@@ -2506,7 +2537,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedParticleIndexesMatchContract === true &&
       checks.analyzerRenderedRecordVerticesPerParticleMatchContract === true);
   const fountainAtlasAlphaFade =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (drawRecords.length === 6 &&
       renderedAlpha.length === 6 &&
       renderedAlpha.every(
@@ -2516,7 +2547,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedAlphaMatchesContract === true &&
       checks.analyzerRenderedGeometryAlphaAttributeUniqueValuesPerRecordMatchContract === true);
   const fountainAtlasParticleSizeEnvelope =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (drawRecords.length === 6 &&
       renderedParticleSizeX.length === 6 &&
       renderedParticleSizeY.length === 6 &&
@@ -2527,7 +2558,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedParticleSizeVectorsMatchContract === true &&
       checks.analyzerRenderedGeometryParticleSizeAttributeUniqueValuesPerRecordMatchContract === true);
   const fountainAtlasAtlasAndMaterial =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (frame.domStatus?.textureProfile === "radial-soft-atlas-4x4-v2" &&
       checks.analyzerTextureStatusApplied === true &&
       checks.analyzerTextureAtlasDimensionsConsistent === true &&
@@ -2536,11 +2567,11 @@ function buildVisualSemanticOracle({
       renderedMaterial.vertexColors === "true" &&
       renderedMaterial.side === "DoubleSide");
   const fountainAtlasDiagnosticBoundary =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (checks.fountainAtlasRetailPlaybackNotResolved === true &&
       checks.fountainAtlasMaterialOffsetBlocked === true);
   const fountainAtlasFraming =
-    !isFountainAtlas ||
+    !hasFountainAtlasParticleAnalysis ||
     (comparison.metrics?.connectedComponentCount >= 1 &&
       comparison.metrics?.connectedComponentCount <= 6 &&
       boundsAreFinite &&
@@ -2556,7 +2587,7 @@ function buildVisualSemanticOracle({
     pltLayerOrder[2] === "cloth1" &&
     pltLayerOrder[3] === "cloth2";
   const pltLayerDrawShape =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 4 &&
       drawRecords.length === 4 &&
@@ -2565,7 +2596,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const pltLayerPaletteOrder =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (checks.pltLayerCountMatchesDrawRecords === true &&
       checks.pltRequiredLayersPresent === true &&
       pltExpectedLayerOrder &&
@@ -2574,7 +2605,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedPltLayersMatchContract === true &&
       checks.analyzerRenderedPltLayerColorSourcesMatchContract === true);
   const pltLayerColorVectors =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (renderedColorsMatchDrawRecords &&
       checks.pltLayerColorsAreDistinct === true &&
       checks.pltRenderedColorVectorCountMatchesDrawRecords === true &&
@@ -2583,7 +2614,7 @@ function buildVisualSemanticOracle({
       checks.pltRenderedColorVectorsDistinct === true &&
       checks.pltRenderedColorAttributeBucketsAreUniformPerRecord === true);
   const pltLayerOpacity =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (drawRecords.length === 4 &&
       renderedAlpha.length === 4 &&
       renderedAlpha.every((value) => Number(value) >= 0 && Number(value) <= 1) &&
@@ -2597,7 +2628,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.alphaAttributeMin) >= 0 &&
       Number(renderedGeometry.alphaAttributeMax) <= 1);
   const pltLayerParticleSizeEnvelope =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (drawRecords.length === 4 &&
       renderedParticleSizeX.length === 4 &&
       renderedParticleSizeY.length === 4 &&
@@ -2607,7 +2638,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedGeometryParticleSizeAttributeUniqueValuesPerRecordMatchContract === true &&
       checks.analyzerRenderedGeometryParticleSizeAttributeRangeMatchesContract === true);
   const pltLayerAtlasFrameOrder =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (drawRecords.length === 4 &&
       renderedAtlasFrames.length === 4 &&
       renderedAtlasFrames.every((frameIndex) => Number(frameIndex) >= 0 && Number(frameIndex) <= 15) &&
@@ -2621,7 +2652,7 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedGeometryAtlasFrameAttributeUniqueValuesPerRecordMatchContract === true &&
       checks.analyzerRenderedGeometryAtlasFrameAttributeRangeMatchesContract === true);
   const pltLayerUvRectGrid =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (drawRecords.length === 4 &&
       renderedAtlasFrames.length === 4 &&
       renderedAtlasUvU0.length === 4 &&
@@ -2645,14 +2676,14 @@ function buildVisualSemanticOracle({
       checks.analyzerRenderedGeometryUvAttributeUniqueValuesPerRecordMatchContract === true &&
       checks.analyzerRenderedGeometryUvAttributeRangeMatchesContract === true);
   const pltLayerSpatialOrder =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (pltExpectedLayerOrder &&
       renderedPositionX.length === 4 &&
       renderedPositionX.every((value) => Number.isFinite(Number(value))) &&
       renderedPositionX.every((value, index) => index === 0 || Number(value) > Number(renderedPositionX[index - 1])) &&
       checks.analyzerRenderedPositionVectorsMatchContract === true);
   const pltLayerMaterialAndAtlas =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (frame.domStatus?.textureProfile === "radial-soft-atlas-4x4-v2" &&
       checks.analyzerTextureStatusApplied === true &&
       checks.analyzerTextureAtlasDimensionsConsistent === true &&
@@ -2661,18 +2692,18 @@ function buildVisualSemanticOracle({
       renderedMaterial.vertexColors === "true" &&
       renderedMaterial.side === "DoubleSide");
   const pltLayerDiagnosticBoundary =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (renderedDiagnosticCodes.includes("VFX_PLT_LAYER_COLOR_SOURCE_EVIDENCE_REQUIRED") &&
       renderedDiagnosticCodes.includes("VFX_DEV_PLT_LAYER_COLORS_DIAGNOSTIC_ONLY") &&
       renderedDiagnosticCodes.includes("VFX_PLT_RETAIL_LAYER_PALETTE_REQUIRED"));
   const pltLayerFraming =
-    !isPltLayerColors ||
+    !hasPltLayerColorOrderAnalysis ||
     (comparison.metrics?.connectedComponentCount >= 1 &&
       comparison.metrics?.connectedComponentCount <= 4 &&
       boundsAreFinite &&
       comparison.metrics?.objectPixels > 0);
   const p2pGravityDrawShape =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (renderContract.drawLane === "textured_quad" &&
       renderContract.drawParticleCount === 7 &&
       drawRecords.length === 7 &&
@@ -2681,7 +2712,7 @@ function buildVisualSemanticOracle({
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
   const p2pGravityArcPath =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (checks.p2pArcStartsLeft === true &&
       checks.p2pArcEndsRight === true &&
       checks.p2pArcMiddleHigherThanEnds === true &&
@@ -2690,7 +2721,7 @@ function buildVisualSemanticOracle({
       checks.p2pRenderedPositionYMiddleHigherThanEnds === true &&
       checks.p2pRenderedPositionVectorsMatchDrawRecordOrder === true);
   const p2pGravitySegmentSpacing =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderedPositionX.length === 7 &&
       renderedPositionX.every((value) => Number.isFinite(Number(value))) &&
@@ -2699,12 +2730,12 @@ function buildVisualSemanticOracle({
         .map((value, index) => Number(value) - Number(renderedPositionX[index]))
         .every((delta, index, deltas) => delta > 0 && approxEqual(delta, deltas[0], 0.000001)));
   const p2pGravityVelocityPath =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (checks.p2pVelocityXPositive === true &&
       checks.p2pVelocityYFallsAcrossArc === true &&
       checks.analyzerRenderedVelocityVectorsMatchContract === true);
   const p2pGravityAlphaFade =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderedAlpha.length === 7 &&
       renderedAlpha.every(
@@ -2712,7 +2743,7 @@ function buildVisualSemanticOracle({
       ) &&
       checks.analyzerRenderedAlphaMatchesContract === true);
   const p2pGravityParticleSizeEnvelope =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderedParticleSizeX.length === 7 &&
       renderedParticleSizeY.length === 7 &&
@@ -2727,7 +2758,7 @@ function buildVisualSemanticOracle({
       new Set(renderedParticleSizeX.map((value) => Number(value).toFixed(3))).size >= 4 &&
       new Set(renderedParticleSizeY.map((value) => Number(value).toFixed(3))).size >= 4);
   const p2pGravityColorPair =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.some(
@@ -2747,7 +2778,7 @@ function buildVisualSemanticOracle({
           Number(record.color?.b) <= 0.3
       ));
   const p2pGravityColorAlternation =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderedColorsMatchDrawRecords &&
       drawRecords.every((record, index) => {
@@ -2767,7 +2798,7 @@ function buildVisualSemanticOracle({
         return index % 2 === 0 ? isBlue : isYellow;
       }));
   const p2pGravityParticleOrder =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (drawRecords.length === 7 &&
       renderContract.drawParticleCount === 7 &&
       frame.domStatus?.drawParticles === 7 &&
@@ -2779,7 +2810,7 @@ function buildVisualSemanticOracle({
       checks.p2pRenderedDrawRecordIndexAttributeRangeMatchesDrawRecordOrder === true &&
       checks.p2pRenderedDrawRecordIndexAttributeSourceIsCanonical === true);
   const p2pGravityAtlasAndMaterial =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (frame.domStatus?.textureProfile === "radial-soft-atlas-4x4-v2" &&
       checks.analyzerTextureStatusApplied === true &&
       checks.analyzerTextureAtlasDimensionsConsistent === true &&
@@ -2788,12 +2819,12 @@ function buildVisualSemanticOracle({
       renderedMaterial.vertexColors === "true" &&
       renderedMaterial.side === "DoubleSide");
   const p2pGravityDiagnosticBoundary =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     renderedDiagnosticCodes.includes("VFX_P2P_GRAVITY_SOURCE_EVIDENCE_REQUIRED") &&
       renderedDiagnosticCodes.includes("VFX_DEV_P2P_GRAVITY_DIAGNOSTIC_ONLY") &&
       renderedDiagnosticCodes.includes("VFX_P2P_GRAVITY_REFERENCE_NODE_REQUIRED");
   const p2pGravityFraming =
-    !isP2pGravity ||
+    !hasGravityReferenceArcAnalysis ||
     (comparison.metrics?.connectedComponentCount >= 1 &&
       comparison.metrics?.connectedComponentCount <= 7 &&
       boundsAreFinite &&
@@ -2803,7 +2834,10 @@ function buildVisualSemanticOracle({
     (renderContract.drawLane === "linked_textured_quad" &&
       renderContract.drawParticleCount === 5 &&
       drawRecords.length === 5 &&
-      Number(renderContract.drawVertexCount) === 30 &&
+      Number(renderContract.drawVertexCount) === 24 &&
+      renderedGeometry.linkedSegmentTopology === "true" &&
+      Number(renderedGeometry.linkedSegmentCount) === 4 &&
+      Number(renderedGeometry.positionAttributeCount) === 24 &&
       Number(renderedGeometry.verticesPerParticle) === 6 &&
       Number(renderedGeometry.positionAttributeMinUniqueValuesPerRecord) >= 4 &&
       Number(renderedGeometry.positionAttributeMaxUniqueValuesPerRecord) >= 4);
@@ -2814,23 +2848,21 @@ function buildVisualSemanticOracle({
       renderedPositionX.length === 5 &&
       renderedPositionY.length === 5 &&
       renderedPositionX.every((value, index) => index === 0 || Number(value) > Number(renderedPositionX[index - 1])) &&
-      Number(renderedPositionY[2]) > Number(renderedPositionY[0]) &&
-      Number(renderedPositionY[2]) > Number(renderedPositionY[4]) &&
+      Math.max(...renderedPositionY.map(Number)) - Math.min(...renderedPositionY.map(Number)) > 0.05 &&
       drawRecords.every((record, index) => record.particleIndex == null || record.particleIndex === index));
   const linkedChainSegmentSpacing =
     !isLinkedLane ||
     (drawRecords.length === 5 &&
       renderedPositionX.length === 5 &&
+      Number(renderedGeometry.linkedSegmentCount) === 4 &&
+      Number(renderedGeometry.drawRecordIndexAttributeUniqueCount) === 4 &&
+      Number(renderedGeometry.drawRecordIndexAttributeMin) === 0 &&
+      Number(renderedGeometry.drawRecordIndexAttributeMax) === 3 &&
       renderedPositionX.every((value) => Number.isFinite(Number(value))) &&
       renderedPositionX
         .slice(1)
         .map((value, index) => Number(value) - Number(renderedPositionX[index]))
-        .every((delta, index, deltas) => delta > 0 && approxEqual(delta, deltas[0], 0.000001)) &&
-      renderedPositionY.every((value, index) =>
-        index === 0 || index === renderedPositionY.length - 1
-          ? Number(value) <= Number(renderedPositionY[2])
-          : true
-      ));
+        .every((delta, index, deltas) => delta > 0 && approxEqual(delta, deltas[0], 0.000001)));
   const linkedChainParticleOrder =
     !isLinkedLane ||
     (drawRecords.length === 5 &&
@@ -3028,7 +3060,7 @@ function buildVisualSemanticOracle({
   const semanticChecks = {
     expectedShape:
       isChunkLane
-        ? checks.placeholderVisibleWithoutDrawParticles === true
+        ? checks.localPreviewVisibleWithoutDrawParticles === true
         : checks.canvasNonblank === true &&
           checks.localStructuralVisible === true &&
           checks.analyzerRenderedGeometryNonIndexedDrawArrays === true &&
@@ -3054,7 +3086,9 @@ function buildVisualSemanticOracle({
           renderedColorsMatchDrawRecords,
     blendMaterial:
       isChunkLane
-        ? checks.chunkRenderedDiagnosticCodesIncludeUnresolvedResource === true
+        ? frame.domStatus?.renderedTextureStatus === "chunk-lane-preserved" &&
+          frame.domStatus?.renderedMaterial?.status === "not-applied" &&
+          checks.localPreviewResourceResolved === true
         : checks.analyzerMaterialTransparentMatchesBlend === true &&
           checks.analyzerMaterialDepthWriteMatchesBlend === true &&
           checks.analyzerMaterialDepthTestEnabled === true &&
@@ -3066,7 +3100,8 @@ function buildVisualSemanticOracle({
           renderedMaterial.depthTest === "true",
     textureAtlas:
       isChunkLane
-        ? checks.canonicalResourceUnresolved === true
+        ? checks.localPreviewResourceResolved === true &&
+          checks.chunkRenderedDiagnosticCodesIncludeRetailProofPending === true
         : checks.analyzerTextureReferenceMatchesDependency === true &&
           checks.analyzerTextureStatusApplied === true &&
           checks.analyzerTextureProfilePresent === true &&
@@ -3095,7 +3130,7 @@ function buildVisualSemanticOracle({
       boundsAreFinite &&
       comparison.metrics?.objectPixels > 0 &&
       checks.visibleComponentsWithinDrawParticleBudget !== false,
-    ...(isFireballDetonate
+    ...(hasExplosionDetonatePairAnalysis
       ? {
           drawModeRoute: fireballDrawModeRoute,
           fireballDetonateDrawShape: fireballDrawShape,
@@ -3110,7 +3145,7 @@ function buildVisualSemanticOracle({
           fireballDetonateFraming: fireballFraming
         }
       : {}),
-    ...(isRow68Healing
+    ...(hasWarmTurquoisePairAnalysis
       ? {
           row68HealingDrawShape,
           row68HealingColorPair,
@@ -3137,7 +3172,7 @@ function buildVisualSemanticOracle({
             comparison.metrics?.objectPixels > 0
         }
       : {}),
-    ...(isRow50Death
+    ...(hasPurplePalePairAnalysis
       ? {
           row50DeathDrawShape,
           row50DeathColorPair,
@@ -3166,7 +3201,7 @@ function buildVisualSemanticOracle({
             comparison.metrics?.objectPixels > 0
         }
       : {}),
-    ...(isEffectBeam
+    ...(hasSourceTargetBeamAnalysis
       ? {
           effectBeamDrawShape,
           effectBeamBodyNodeChest,
@@ -3194,7 +3229,7 @@ function buildVisualSemanticOracle({
             comparison.metrics?.objectPixels > 0
         }
       : {}),
-    ...(isFountainAtlas
+    ...(hasFountainAtlasParticleAnalysis
       ? {
           fountainAtlasDrawShape,
           fountainAtlasGridAndFrameRange,
@@ -3209,7 +3244,7 @@ function buildVisualSemanticOracle({
           fountainAtlasFraming
         }
       : {}),
-    ...(isPltLayerColors
+    ...(hasPltLayerColorOrderAnalysis
       ? {
           pltLayerDrawShape,
           pltLayerPaletteOrder,
@@ -3224,7 +3259,7 @@ function buildVisualSemanticOracle({
           pltLayerFraming
         }
       : {}),
-    ...(isP2pGravity
+    ...(hasGravityReferenceArcAnalysis
       ? {
           p2pGravityDrawShape,
           p2pGravityArcPath,
@@ -3271,16 +3306,16 @@ function buildVisualSemanticOracle({
       : {}),
     ...(isChunkLane
       ? {
-          diagnosticVisible: checks.placeholderVisibleWithoutDrawParticles === true,
+          diagnosticVisible: checks.localPreviewVisibleWithoutDrawParticles === true,
           chunkLanePreserved: checks.chunkLanePreserved === true,
           noFakeParticles: checks.noFakeParticleDrawRecords === true,
-          unresolvedResource: checks.canonicalResourceUnresolved === true,
-          diagnosticCodesExplainPlaceholder:
-            checks.chunkRenderedDiagnosticCodesIncludeUnresolvedResource === true,
-          placeholderDiagnosticOnly:
+          localPreviewResourceResolved: checks.localPreviewResourceResolved === true,
+          diagnosticCodesExplainLocalPreview:
+            checks.chunkRenderedDiagnosticCodesIncludeRetailProofPending === true,
+          localPreviewRetailUnverified:
             frame.domStatus?.renderedTextureStatus === "chunk-lane-preserved" &&
             frame.domStatus?.renderedMaterial?.status === "not-applied" &&
-            renderedDiagnosticCodes.includes("VFX_CANONICAL_CHUNK_LANE_RENDERER_PENDING")
+            renderedDiagnosticCodes.includes("VFX_CANONICAL_CHUNK_MODEL_PREVIEW_RETAIL_PROOF_PENDING")
         }
       : {}),
     localOnlyNotCanonical:
@@ -3301,19 +3336,19 @@ function buildVisualSemanticOracle({
       "backend/docs/aurora-reverse/vfx-context-pack.md prior local evidence for this fixture family",
       isChunkLane
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found, but real progfx Type 9 chunk model resource/source row and retail chunk capture are still missing"
-        : isFireballDetonate
+        : hasExplosionDetonatePairAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found, direct retail detonate timing/pre-post burst oracle still missing"
-        : isRow68Healing
+        : hasWarmTurquoisePairAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local dm_visualeffect row 68 payload provides a two-particle warm/turquoise healing diagnostic, but exact retail framebuffer palette/timing remains missing"
-        : isRow50Death
+        : hasPurplePalePairAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local EffectVisualEffect row 50 payload provides a two-particle purple/pale death diagnostic, but exact retail framebuffer shape/timing remains missing"
-        : isEffectBeam
+        : hasSourceTargetBeamAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local EffectBeam row 210 payload provides a five-segment VFX_BEAM_FIRE BODY_NODE_CHEST diagnostic, but exact retail beam volume/source-target anchoring remains missing"
-        : isFountainAtlas
+        : hasFountainAtlasParticleAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local cot_fx01 Fountain atlas payload provides 4x4 grid, frame range, fps, randomFrameStart, UV, and draw-record diagnostics, but exact retail atlas playback timing/frame offset remains missing"
-        : isPltLayerColors
+        : hasPltLayerColorOrderAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local PLT layer-color fixture payload provides four named skin/hair/cloth1/cloth2 diagnostic layer colors, but exact retail PLT palette/profile/material lookup remains missing"
-        : isP2pGravity
+        : hasGravityReferenceArcAnalysis
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local P2P gravity fixture payload provides a seven-particle source-target arc with reference-node/gravity diagnostics, but exact retail reference-node mapping and gravity solver ticks remain missing"
         : isLinkedLane
         ? "C:/Projects/New Folder/export strings/functions/xrefs searches documented in context pack; visualeffects table bootstrap found and local linked-chain fixture payload provides a five-record linked_textured_quad diagnostic, but exact retail contiguous segment-buffer behavior remains missing"
@@ -3331,25 +3366,25 @@ function buildVisualSemanticOracle({
           ? "Chunk/progfx Type 9 must not synthesize fake particle motion/path vectors when the real chunk model source is unresolved."
           : isMode2Lighten
           ? "Mode2 local diagnostic preserves the left-to-right alternating four-particle path plus render-contract velocity vectors."
-          : isP2pGravity
+          : hasGravityReferenceArcAnalysis
           ? "P2P gravity local diagnostic must preserve a left-to-right seven-particle arc whose middle point rises above the endpoints plus render-contract velocity vectors."
           : isLinkedLane
-          ? "Linked-chain local diagnostic must preserve a left-to-right five-particle chain path with the middle record above the endpoints plus render-contract position/velocity vectors."
+          ? "Linked-chain local diagnostic must preserve a left-to-right five-particle source chain and contiguous four-segment local topology plus render-contract position/velocity vectors."
           : "Rendered positions and velocities must match the local render-contract draw records.",
       colorOpacityAlpha:
         isChunkLane
           ? "Chunk/progfx Type 9 must not synthesize fake color/alpha particle attributes while resource resolution is diagnostic-only."
           : isMode2Lighten
           ? "Mode2/Lighten local diagnostic must preserve cyan/blue plus yellow punch-through color records, draw-record alpha arrays in order, and a strictly fading four-particle alpha path."
-          : isRow68Healing
+          : hasWarmTurquoisePairAnalysis
           ? "Row 68 VFX_IMP_HEALING_M local payload must preserve the warm orange plus turquoise healing color pair in draw-record order with alpha arrays matching render-contract data."
-          : isRow50Death
+          : hasPurplePalePairAnalysis
           ? "Row 50 VFX_IMP_DEATH local payload must preserve the purple plus pale death-effect color pair in draw-record order with alpha arrays matching render-contract data."
-          : isEffectBeam
+          : hasSourceTargetBeamAnalysis
           ? "EffectBeam row 210 VFX_BEAM_FIRE must preserve alternating warm fire-orange/yellow color records and alpha arrays in source-to-target draw-record order."
-          : isFountainAtlas
+          : hasFountainAtlasParticleAnalysis
           ? "cot_fx01 Fountain atlas particles must preserve draw-record RGB and alpha arrays while using the local fire atlas; exact retail color grading still requires retail capture."
-          : isPltLayerColors
+          : hasPltLayerColorOrderAnalysis
           ? "PLT layer-color diagnostic must preserve the local skin, hair, cloth1, and cloth2 color vectors in layer order with alpha arrays matching render-contract data."
           : "Draw-record RGB and alpha arrays must match render-contract order, alpha must stay in unit range, and material opacity/color remain neutral.",
       blendMaterial:
@@ -3375,20 +3410,20 @@ function buildVisualSemanticOracle({
           ? "Rendered particle count, draw records, and vertex count must stay zero until a real chunk resource/source row is available."
           : isMode2Lighten
           ? "Mode2/Lighten must preserve exactly four textured_quad draw records, particle ids/indexes, and 24 total vertices with six vertices per particle."
-          : isRow68Healing
+          : hasWarmTurquoisePairAnalysis
           ? "Row 68 healing must preserve exactly two textured_quad draw records, particle ids/indexes, and 12 total vertices with six vertices per particle."
-          : isRow50Death
+          : hasPurplePalePairAnalysis
           ? "Row 50 death effect must preserve exactly two textured_quad draw records, particle ids/indexes, and 12 total vertices with six vertices per particle."
-          : isEffectBeam
+          : hasSourceTargetBeamAnalysis
           ? "EffectBeam row 210 must preserve exactly five source-to-target beam segment draw records, particle ids/indexes, and 30 total vertices with six vertices per segment."
-          : isFountainAtlas
+          : hasFountainAtlasParticleAnalysis
           ? "cot_fx01 Fountain atlas must preserve exactly six textured_quad draw records, particle ids/indexes, and 36 total vertices with six vertices per particle."
-          : isPltLayerColors
+          : hasPltLayerColorOrderAnalysis
           ? "PLT layer-color diagnostic must preserve exactly four textured_quad draw records for skin, hair, cloth1, and cloth2 with 24 total vertices and six vertices per layer record."
-          : isP2pGravity
+          : hasGravityReferenceArcAnalysis
           ? "P2P gravity must preserve exactly seven textured_quad draw records, particle ids/indexes, draw-record index attribute coverage, and 42 total vertices with six vertices per particle."
           : isLinkedLane
-          ? "Linked-chain must preserve exactly five linked_textured_quad draw records, particle ids/indexes, draw-record index bucket coverage, and 30 total vertices with six vertices per record."
+          ? "Linked-chain must preserve exactly five linked_textured_quad source draw records, particle ids/indexes, four contiguous segment buckets, and 24 total rendered vertices with six vertices per segment."
           : "Rendered particle count, draw record ids, particle ids/indexes, and vertices-per-particle must preserve draw-record order.",
       lifetimeFraming:
         isChunkLane
@@ -3396,10 +3431,10 @@ function buildVisualSemanticOracle({
           : isMode2Lighten
           ? "Deterministic time/seed capture must keep the four-particle Mode2/Lighten zig-zag visible inside finite analyzer bounds and within the four-component budget."
           : "Deterministic time/seed capture must keep visible output inside finite analyzer bounds and within the draw-particle component budget.",
-      ...(isFireballDetonate
+      ...(hasExplosionDetonatePairAnalysis
         ? {
             drawModeRoute:
-              "Fireball detonate draw records must use renderer-agnostic non-indexed draw arrays, draw mode argument 3 from aurora-draw-wrapper-mode-arg3, six vertices per particle, no index buffer, and the diagnostic_pending enum-table proof marker until retail enum evidence exists.",
+              "Fireball detonate draw records must use renderer-agnostic non-indexed GL_TRIANGLES draw arrays, draw mode argument 3 from aurora-draw-wrapper-mode-arg3, enum 0x0004, six vertices per particle, and no index buffer.",
             fireballDetonateDrawShape:
               "Fireball detonate must render as two non-indexed textured quads with finite bounds and six vertices per particle.",
             fireballDetonateWarmColorPair:
@@ -3422,7 +3457,7 @@ function buildVisualSemanticOracle({
               "Fireball detonate must keep deterministic warm particles visible inside finite analyzer bounds and within the two-particle component budget."
           }
         : {}),
-      ...(isRow68Healing
+      ...(hasWarmTurquoisePairAnalysis
         ? {
             row68HealingDrawShape:
               "Row 68 healing must render as two non-indexed textured quads with finite bounds and six vertices per particle.",
@@ -3442,7 +3477,7 @@ function buildVisualSemanticOracle({
               "Row 68 healing must produce two visible components inside finite analyzer bounds at deterministic time/seed."
           }
         : {}),
-      ...(isRow50Death
+      ...(hasPurplePalePairAnalysis
         ? {
             row50DeathDrawShape:
               "Row 50 death effect must render as two non-indexed textured quads with finite bounds and six vertices per particle.",
@@ -3462,7 +3497,7 @@ function buildVisualSemanticOracle({
               "Row 50 death effect may merge into one visible impact cluster or show two components, but must stay visible inside finite analyzer bounds."
           }
         : {}),
-      ...(isEffectBeam
+      ...(hasSourceTargetBeamAnalysis
         ? {
             effectBeamDrawShape:
               "EffectBeam row 210 must render as five non-indexed textured quads with finite bounds and six vertices per segment.",
@@ -3488,7 +3523,7 @@ function buildVisualSemanticOracle({
             "EffectBeam row 210 must keep the deterministic beam visible inside finite analyzer bounds and within the five-segment component budget."
         }
       : {}),
-      ...(isFountainAtlas
+      ...(hasFountainAtlasParticleAnalysis
         ? {
             fountainAtlasDrawShape:
               "cot_fx01 Fountain atlas must render as six non-indexed textured quads with finite bounds and six vertices per particle.",
@@ -3514,7 +3549,7 @@ function buildVisualSemanticOracle({
               "cot_fx01 Fountain atlas must keep deterministic particles visible inside finite analyzer bounds and within the six-particle component budget."
           }
         : {}),
-      ...(isPltLayerColors
+      ...(hasPltLayerColorOrderAnalysis
         ? {
             pltLayerDrawShape:
               "PLT layer-color diagnostic must render as four non-indexed textured quads with finite bounds and six vertices per layer record.",
@@ -3540,7 +3575,7 @@ function buildVisualSemanticOracle({
               "PLT layer-color diagnostic must keep deterministic layer records visible inside finite analyzer bounds and within the four-layer component budget."
           }
         : {}),
-      ...(isP2pGravity
+      ...(hasGravityReferenceArcAnalysis
         ? {
             p2pGravityDrawShape:
               "P2P gravity reference-node diagnostic must render as seven non-indexed textured quads with finite bounds and six vertices per particle.",
@@ -3571,13 +3606,13 @@ function buildVisualSemanticOracle({
       ...(isLinkedLane
         ? {
             linkedChainDrawShape:
-              "Linked-chain diagnostic must render as five non-indexed linked_textured_quad records with finite bounds and six vertices per record.",
+              "Linked-chain diagnostic must render five source linked_textured_quad records as four contiguous local segments with finite bounds and 24 total vertices.",
             linkedChainPathOrder:
-              "Linked-chain diagnostic must preserve left-to-right record order with the middle record above the endpoint records and rendered positions matching draw-record order.",
+              "Linked-chain diagnostic must preserve left-to-right source record order, visible non-flat chain variation, and rendered positions matching draw-record order.",
             linkedChainSegmentSpacing:
-              "Linked-chain diagnostic must keep five evenly spaced local chain records across the source-target span, so ordered but bunched-up records fail semantic visual correctness.",
+              "Linked-chain diagnostic must keep five evenly spaced source records across the source-target span and four contiguous segment buckets, so ordered but bunched-up records fail semantic visual correctness.",
             linkedChainParticleOrder:
-              "Linked-chain diagnostic must preserve five draw record ids, particle ids, particle indexes, draw-record index bucket coverage, and per-record vertices.",
+              "Linked-chain diagnostic must preserve five source draw record ids, particle ids, particle indexes, and four rendered segment draw-record index buckets.",
             linkedChainColorPair:
               "Linked-chain diagnostic must preserve the local cyan/yellow chain color pair in draw-record order; exact retail color grading still requires retail capture.",
             linkedChainColorAlternation:
@@ -3591,7 +3626,7 @@ function buildVisualSemanticOracle({
             linkedChainDiagnosticBoundary:
               "Linked-chain diagnostic must surface source-evidence, dev-diagnostic, and retail-segment-buffer-required diagnostics until retail linked segment-buffer evidence exists.",
             linkedChainFraming:
-              "Linked-chain diagnostic must keep deterministic chain particles visible inside finite analyzer bounds and within the five-record component budget."
+              "Linked-chain diagnostic must keep deterministic chain segments visible inside finite analyzer bounds and within the five-source-record component budget."
           }
         : {}),
       ...(isMode2Lighten
@@ -3621,17 +3656,17 @@ function buildVisualSemanticOracle({
       ...(isChunkLane
         ? {
             diagnosticVisible:
-              "The chunk diagnostic placeholder must be visible and nonblank so the unresolved resource state is inspectable.",
+              "The local chunk model preview must be visible and nonblank so the retail-unverified resource state is inspectable.",
             chunkLanePreserved:
               "The chunk_model lane must survive parser/runtime/render/DOM/analyzer correlation unchanged.",
             noFakeParticles:
               "The diagnostic must prove no fake textured_quad particles, draw records, or vertices were synthesized.",
-            unresolvedResource:
-              "The oracle must keep canonicalResourceResolved=false until real chunk model resource evidence exists.",
-            diagnosticCodesExplainPlaceholder:
-              "Rendered diagnostic codes must include the unresolved chunk resource and diagnostic-only lane markers.",
-            placeholderDiagnosticOnly:
-              "Rendered texture/material state must make the placeholder explicitly diagnostic-only, not a canonical model render."
+            localPreviewResourceResolved:
+              "The oracle may resolve the dev-fixture local chunk template while keeping the resource marked retail-unverified.",
+            diagnosticCodesExplainLocalPreview:
+              "Rendered diagnostic codes must include the retail-resource-required and local-preview-retail-proof-pending markers.",
+            localPreviewRetailUnverified:
+              "Rendered texture/material state must keep the local model preview out of textured-particle parity claims."
           }
         : {})
     },
@@ -3645,7 +3680,7 @@ function buildVisualSemanticOracle({
             blocksCanonicalParity: true
           }
         ]
-      : isFireballDetonate
+      : hasExplosionDetonatePairAnalysis
       ? [
           {
             missingOracle:
@@ -3655,7 +3690,7 @@ function buildVisualSemanticOracle({
             blocksCanonicalParity: true
           }
         ]
-      : isRow68Healing
+      : hasWarmTurquoisePairAnalysis
         ? [
             {
               missingOracle:
@@ -3665,7 +3700,7 @@ function buildVisualSemanticOracle({
               blocksCanonicalParity: true
             }
           ]
-      : isRow50Death
+      : hasPurplePalePairAnalysis
         ? [
             {
               missingOracle:
@@ -3675,7 +3710,7 @@ function buildVisualSemanticOracle({
               blocksCanonicalParity: true
             }
           ]
-      : isEffectBeam
+      : hasSourceTargetBeamAnalysis
         ? [
             {
               missingOracle:
@@ -3685,7 +3720,7 @@ function buildVisualSemanticOracle({
               blocksCanonicalParity: true
             }
           ]
-      : isFountainAtlas
+      : hasFountainAtlasParticleAnalysis
         ? [
             {
               missingOracle:
@@ -3695,7 +3730,7 @@ function buildVisualSemanticOracle({
               blocksCanonicalParity: true
             }
           ]
-      : isPltLayerColors
+      : hasPltLayerColorOrderAnalysis
         ? [
             {
               missingOracle:
@@ -3705,7 +3740,7 @@ function buildVisualSemanticOracle({
               blocksCanonicalParity: true
             }
           ]
-      : isP2pGravity
+      : hasGravityReferenceArcAnalysis
         ? [
             {
               missingOracle:

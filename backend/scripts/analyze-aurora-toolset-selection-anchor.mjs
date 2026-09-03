@@ -64,6 +64,26 @@ try {
   };
 }
 
+export function analyzeAuroraToolsetSelectionDelta({ beforeImagePath, afterImagePath }) {
+  const beforePath = resolve(requiredText(beforeImagePath, "beforeImagePath"));
+  const afterPath = resolve(requiredText(afterImagePath, "afterImagePath"));
+  if (!existsSync(beforePath) || !existsSync(afterPath)) throw new Error("Selection delta images must exist.");
+  const result = runPowerShell(String.raw`
+$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Drawing
+$before=[System.Drawing.Bitmap]::new($env:AURORA_SELECTION_BEFORE);$after=[System.Drawing.Bitmap]::new($env:AURORA_SELECTION_AFTER)
+try{
+ if($before.Width-ne$after.Width-or$before.Height-ne$after.Height){throw 'Selection delta image dimensions differ.'}
+ $minimumPixels=80;$minimumExtent=20;$count=0;$sumX=0.0;$sumY=0.0;$minX=$after.Width;$minY=$after.Height;$maxX=-1;$maxY=-1
+ for($y=0;$y-lt$after.Height;$y++){for($x=0;$x-lt$after.Width;$x++){$a=$before.GetPixel($x,$y);$b=$after.GetPixel($x,$y);$beforeBlue=([int]$a.B-ge100-and[int]$a.B-ge(1.5*[Math]::Max([int]$a.R,[int]$a.G)));$afterBlue=([int]$b.B-ge100-and[int]$b.B-ge(1.5*[Math]::Max([int]$b.R,[int]$b.G)));$delta=[Math]::Abs([int]$a.R-[int]$b.R)+[Math]::Abs([int]$a.G-[int]$b.G)+[Math]::Abs([int]$a.B-[int]$b.B);if($afterBlue-and(-not$beforeBlue)-and$delta-ge48){$count++;$sumX+=$x;$sumY+=$y;if($x-lt$minX){$minX=$x};if($x-gt$maxX){$maxX=$x};if($y-lt$minY){$minY=$y};if($y-gt$maxY){$maxY=$y}}}}
+ $width=$maxX-$minX+1;$height=$maxY-$minY+1
+ if($count-lt$minimumPixels-or$width-lt$minimumExtent-or$height-lt$minimumExtent){[pscustomobject]@{status='blocked';blockerCode='toolset_selection_delta_not_visible';candidates=[pscustomobject]@{newBluePixels=$count;minimumPixels=$minimumPixels;width=$width;height=$height;minimumExtent=$minimumExtent}}|ConvertTo-Json -Compress;exit 0}
+ [pscustomobject]@{status='estimated';selectionAnchor=[pscustomobject]@{type='visual_blue_selection_outline_delta';semanticIdentity='not inferred: differential visual anchor only';bluePixels=$count;bounds=[pscustomobject]@{left=$minX;top=$minY;right=$maxX;bottom=$maxY;width=$width;height=$height};center=[pscustomobject]@{x=[Math]::Round($sumX/$count,3);y=[Math]::Round($sumY/$count,3)};confidence=[Math]::Round([Math]::Min(1.0,$count/500.0),3)}}|ConvertTo-Json -Depth 6 -Compress
+}finally{$before.Dispose();$after.Dispose()}
+`, { AURORA_SELECTION_BEFORE: beforePath, AURORA_SELECTION_AFTER: afterPath });
+  const accepted = result.status === "estimated";
+  return { ...result, acceptance: { accepted, blockerCode: accepted ? null : result.blockerCode ?? "toolset_selection_delta_unavailable" } };
+}
+
 function runPowerShell(source, env) {
   const dir = mkdtempSync(join(tmpdir(), "aurora-selection-anchor-"));
   const path = join(dir, "analyze.ps1");

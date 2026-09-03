@@ -1,0 +1,220 @@
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+import {
+  NWN_KEY_BIF_RESOURCE_TYPES,
+  NwnKeyBifResourceReader
+} from "../src/modules/runtime-settings/application/nwn-key-bif-resource-reader";
+
+const DEFAULT_NWN_ROOT = "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights";
+const DEFAULT_OUTPUT =
+  "frontend/src/modules/placeables/adapters/aurora/auroraPltPaletteData.ts";
+const PALETTE_WIDTH = 256;
+const PALETTE_HEIGHT = 176;
+
+const EXPECTED_KEY_SHA256 =
+  "09cdafb6dbfb9cdb544993154c514c65ef9fd5be4e0c1b8fd971ed05aff90935";
+
+const RETAIL_PALETTES = [
+  {
+    resref: "pal_skin01",
+    sha256: "78ba81891b576c213390b01c04ed157fed7b9a21f5e67ca1eabb0c830f3ea86c",
+    layers: [0]
+  },
+  {
+    resref: "pal_hair01",
+    sha256: "1ebf3fb816efe7367afc012de2dc95876fc0f0ae97b78a0eb9db01772f619eda",
+    layers: [1]
+  },
+  {
+    resref: "pal_armor01",
+    sha256: "7d2cf58c2c03524c5361ba9a323d5c5281237645336d0f8b8bd21f045a542469",
+    layers: [2]
+  },
+  {
+    resref: "pal_armor02",
+    sha256: "c7be9533b3e3709186ca86e8b2bf807d39bf877a2919b1aaa4262cca95580bef",
+    layers: [3]
+  },
+  {
+    resref: "pal_cloth01",
+    sha256: "9b37b1016a23b935e3eeddb9c2e6a14c276364f3f65f54184c6852036609430a",
+    layers: [4, 5]
+  },
+  {
+    resref: "pal_leath01",
+    sha256: "9b37b1016a23b935e3eeddb9c2e6a14c276364f3f65f54184c6852036609430a",
+    layers: [6, 7]
+  },
+  {
+    resref: "pal_tattoo01",
+    sha256: "9b37b1016a23b935e3eeddb9c2e6a14c276364f3f65f54184c6852036609430a",
+    layers: [8, 9]
+  }
+] as const;
+
+interface Options {
+  nwnRoot: string;
+  output: string;
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function requireValue(flag: string, value: string | undefined): string {
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return value;
+}
+
+function parseOptions(argv: string[]): Options {
+  const options: Options = {
+    nwnRoot: DEFAULT_NWN_ROOT,
+    output: DEFAULT_OUTPUT
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--nwnRoot") {
+      options.nwnRoot = requireValue(argument, argv[++index]);
+    } else if (argument === "--output") {
+      options.output = requireValue(argument, argv[++index]);
+    } else if (argument === "--help" || argument === "-h") {
+      console.log(
+        "Usage: ts-node scripts/generate-aurora-plt-palette-data.ts " +
+          "[--nwnRoot <path>] [--output <path>]"
+      );
+      process.exit(0);
+    } else {
+      throw new Error(`Unknown argument: ${argument}`);
+    }
+  }
+  return options;
+}
+
+function resolveOutputPath(path: string): string {
+  return isAbsolute(path) ? path : resolve(process.cwd(), "..", path);
+}
+
+function decodeRetailPaletteTga(bytes: Buffer, resref: string): Uint8Array {
+  if (bytes.length < 18) {
+    throw new Error(`${resref}.tga is too small.`);
+  }
+  const idLength = bytes[0] ?? 0;
+  const colorMapType = bytes[1] ?? 0;
+  const imageType = bytes[2] ?? 0;
+  const width = bytes.readUInt16LE(12);
+  const height = bytes.readUInt16LE(14);
+  const pixelDepth = bytes[16] ?? 0;
+  const descriptor = bytes[17] ?? 0;
+  if (
+    colorMapType !== 0 ||
+    imageType !== 2 ||
+    width !== PALETTE_WIDTH ||
+    height !== PALETTE_HEIGHT ||
+    pixelDepth !== 32 ||
+    descriptor !== 8
+  ) {
+    throw new Error(
+      `${resref}.tga does not match the audited 256x176 BGRA retail palette contract.`
+    );
+  }
+
+  const sourceOffset = 18 + idLength;
+  const rowByteLength = width * 4;
+  const expectedEnd = sourceOffset + rowByteLength * height;
+  if (expectedEnd > bytes.length) {
+    throw new Error(`${resref}.tga has a truncated pixel payload.`);
+  }
+
+  const rgba = new Uint8Array(width * height * 4);
+  for (let sourceRow = 0; sourceRow < height; sourceRow += 1) {
+    const targetRow = height - 1 - sourceRow;
+    for (let x = 0; x < width; x += 1) {
+      const sourcePixel = sourceOffset + sourceRow * rowByteLength + x * 4;
+      const targetPixel = (targetRow * width + x) * 4;
+      rgba[targetPixel] = bytes[sourcePixel + 2] ?? 0;
+      rgba[targetPixel + 1] = bytes[sourcePixel + 1] ?? 0;
+      rgba[targetPixel + 2] = bytes[sourcePixel] ?? 0;
+      rgba[targetPixel + 3] = bytes[sourcePixel + 3] ?? 0;
+    }
+  }
+  return rgba;
+}
+
+function formatGeneratedModule(tablesByLayer: ReadonlyMap<number, Uint8Array>): string {
+  const sourceHashes = RETAIL_PALETTES.map(
+    ({ resref, sha256: hash }) => `    ${JSON.stringify(resref)}: ${JSON.stringify(hash)}`
+  ).join(",\n");
+  const tableEntries = [...tablesByLayer.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(
+      ([layer, bytes]) =>
+        `  ${JSON.stringify(layer)}: ${JSON.stringify(Buffer.from(bytes).toString("base64"))}`
+    )
+    .join(",\n");
+  return `// Generated by backend/scripts/generate-aurora-plt-palette-data.ts.\n` +
+    `// Source: active Aurora retail KEY/BIF resources; do not edit manually.\n` +
+    `export const AURORA_PLT_PALETTE_PROVENANCE = {\n` +
+    `  sourceClass: "aurora-retail-key-bif",\n` +
+    `  keySha256: ${JSON.stringify(EXPECTED_KEY_SHA256)},\n` +
+    `  rowTransform: "aurora-native-reverse-rows",\n` +
+    `  channelLayout: "rgba",\n` +
+    `  sourceSha256ByResref: {\n${sourceHashes}\n  }\n` +
+    `} as const;\n\n` +
+    `export const AURORA_PLT_PALETTE_B64: Readonly<Record<number, string>> = {\n` +
+    `${tableEntries}\n};\n`;
+}
+
+async function main(): Promise<void> {
+  const options = parseOptions(process.argv.slice(2));
+  const nwnRoot = resolve(options.nwnRoot);
+  const keyPath = resolve(nwnRoot, "data", "nwn_base.key");
+  const keyBytes = await readFile(keyPath);
+  const actualKeySha256 = sha256(keyBytes);
+  if (actualKeySha256 !== EXPECTED_KEY_SHA256) {
+    throw new Error(
+      `nwn_base.key SHA-256 mismatch: expected ${EXPECTED_KEY_SHA256}, received ${actualKeySha256}.`
+    );
+  }
+
+  const reader = await NwnKeyBifResourceReader.open(keyPath, nwnRoot);
+  const tablesByLayer = new Map<number, Uint8Array>();
+  for (const palette of RETAIL_PALETTES) {
+    const bytes = await reader.read(palette.resref, NWN_KEY_BIF_RESOURCE_TYPES.TGA);
+    if (!bytes) {
+      throw new Error(`Missing active retail resource ${palette.resref}.tga.`);
+    }
+    const actualSha256 = sha256(bytes);
+    if (actualSha256 !== palette.sha256) {
+      throw new Error(
+        `${palette.resref}.tga SHA-256 mismatch: expected ${palette.sha256}, received ${actualSha256}.`
+      );
+    }
+    const rgba = decodeRetailPaletteTga(bytes, palette.resref);
+    palette.layers.forEach((layer) => tablesByLayer.set(layer, rgba));
+  }
+  if (tablesByLayer.size !== 10) {
+    throw new Error(`Expected 10 generated PLT layer tables, received ${tablesByLayer.size}.`);
+  }
+
+  const outputPath = resolveOutputPath(options.output);
+  await writeFile(outputPath, formatGeneratedModule(tablesByLayer), "utf8");
+  console.log(
+    JSON.stringify(
+      {
+        status: "generated",
+        outputPath,
+        keyPath,
+        keySha256: actualKeySha256,
+        layers: tablesByLayer.size,
+        tableBytes: [...tablesByLayer.values()].reduce((sum, bytes) => sum + bytes.length, 0)
+      },
+      null,
+      2
+    )
+  );
+}
+
+void main();

@@ -26,7 +26,7 @@ const {
   NWN_KEY_BIF_RESOURCE_TYPES
 } = require("../src/modules/runtime-settings/application/nwn-key-bif-resource-reader");
 const {
-  readModuleIfOHakList
+  extractModuleIfoHakList
 } = require("../src/modules/runtime-settings/application/runtime-settings.application.service");
 
 const FIELD_TYPE = {
@@ -100,19 +100,21 @@ async function main() {
   const outputName =
     options.name ?? `${areaResref}-source-pack-${generatedAt.replace(/[:.]/gu, "").replace("T", "T").replace("Z", "Z")}`;
   const outputDir = resolve(options.outDir ?? defaultOutputRoot, outputName);
+  const moduleStat = await statSafe(modulePath);
+  const packedModule = moduleStat?.isFile() === true;
 
   const sourceFiles = {
-    are: join(modulePath, `${areaResref}.are`),
-    git: join(modulePath, `${areaResref}.git`),
-    gic: join(modulePath, `${areaResref}.gic`),
-    ifo: join(modulePath, "module.ifo")
+    are: packedModule ? `${modulePath}::${areaResref}.are` : join(modulePath, `${areaResref}.are`),
+    git: packedModule ? `${modulePath}::${areaResref}.git` : join(modulePath, `${areaResref}.git`),
+    gic: packedModule ? `${modulePath}::${areaResref}.gic` : join(modulePath, `${areaResref}.gic`),
+    ifo: packedModule ? `${modulePath}::module.ifo` : join(modulePath, "module.ifo")
   };
 
   const [areBytes, gitBytes, gicBytes, ifoBytes] = await Promise.all([
-    readRequired(sourceFiles.are),
-    readRequired(sourceFiles.git),
-    readOptional(sourceFiles.gic),
-    readOptional(sourceFiles.ifo)
+    readAreaResource({ modulePath, packedModule, resref: areaResref, resourceType: 2012, sourcePath: sourceFiles.are, required: true }),
+    readAreaResource({ modulePath, packedModule, resref: areaResref, resourceType: 2023, sourcePath: sourceFiles.git, required: true }),
+    readAreaResource({ modulePath, packedModule, resref: areaResref, resourceType: 2046, sourcePath: sourceFiles.gic, required: false }),
+    readAreaResource({ modulePath, packedModule, resref: "module", resourceType: 2014, sourcePath: sourceFiles.ifo, required: false })
   ]);
 
   const parsedAre = parseAreaMetadataFromAreGff(areBytes);
@@ -125,9 +127,12 @@ async function main() {
   }
 
   const tilesetResref = normalizeResref(parsedAre.tileSet ?? "");
-  const moduleIfoHakList = ifoBytes ? await readModuleIfOHakList(modulePath).catch(() => []) : [];
+  const moduleIfoHakListAuthoritative = Boolean(ifoBytes);
+  const moduleIfoHakList = ifoBytes ? extractModuleIfoHakList(ifoBytes) : [];
   const tilesetSetSource = tilesetResref
-    ? await resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakList)
+    ? await resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakList, {
+        moduleIfoHakListAuthoritative
+      })
     : null;
   const setTiles =
     tilesetSetSource?.bytes && typeof __moduleSnapshotAreaRepositoryInternals.parseAuroraSetTiles === "function"
@@ -192,6 +197,8 @@ async function main() {
     generatedAt,
     tilesetResref,
     tilesetSetSource,
+    moduleIfoHakList,
+    moduleIfoHakListAuthoritative,
     setTiles,
     parsedAre,
     tileContractRows
@@ -251,7 +258,8 @@ async function main() {
         parsedTileCount: tilesetSetSummary.parsedTileCount,
         referencedTileCount: tilesetSetSummary.referencedTileCount,
         referencedModelResolvedCount: tilesetSetSummary.referencedModelResolvedCount,
-        referencedImageMap2DCount: tilesetSetSummary.referencedImageMap2DCount
+        referencedImageMap2DCount: tilesetSetSummary.referencedImageMap2DCount,
+        sourceResolution: tilesetSetSummary.sourceResolution
       },
       git: {
         counts,
@@ -315,6 +323,19 @@ async function main() {
   );
 }
 
+async function readAreaResource({ modulePath, packedModule, resref, resourceType, sourcePath, required }) {
+  if (!packedModule) return required ? readRequired(sourcePath) : readOptional(sourcePath);
+  try {
+    const bytes = await readNwnErfResource(modulePath, resref, resourceType);
+    if (bytes) return bytes;
+  } catch (error) {
+    if (required) throw new Error(`Required packed-module resource is missing or unreadable: ${sourcePath}. ${error.message}`);
+    return null;
+  }
+  if (required) throw new Error(`Required packed-module resource is missing: ${sourcePath}.`);
+  return null;
+}
+
 function parseArgs(args) {
   const parsed = {};
   for (let index = 0; index < args.length; index += 1) {
@@ -370,8 +391,16 @@ async function readRuntimeSettings() {
   }
 }
 
-async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakList = []) {
+async function resolveTilesetSetSource(
+  modulePath,
+  tilesetResref,
+  moduleIfoHakList = [],
+  { moduleIfoHakListAuthoritative = false } = {}
+) {
   const runtimeSettings = await readRuntimeSettings();
+  const hakResolution = resolveTileHakPaths(runtimeSettings, moduleIfoHakList, {
+    moduleIfoHakListAuthoritative
+  });
   const candidates = [
     join(modulePath, `${tilesetResref}.set`),
     join(modulePath, `${tilesetResref.toLowerCase()}.set`),
@@ -391,6 +420,7 @@ async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakLi
         sourceKind: "loose-set",
         path: candidate,
         bytes,
+        sourceResolution: hakResolution.summary,
         attempts: [{ source: "module-path-loose-set", path: candidate, exists: true }]
       };
     }
@@ -401,10 +431,10 @@ async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakLi
     exists: false
   }));
 
-  for (const hakPath of resolveTileHakPaths(runtimeSettings, moduleIfoHakList)) {
+  for (const hakPath of hakResolution.paths) {
     const fileStat = await statSafe(hakPath);
     const attempt = {
-      source: "runtime-tile-hak-profile",
+      source: hakResolution.summary.selectedHakSource,
       path: hakPath,
       exists: Boolean(fileStat?.isFile()),
       resourceType: "SET",
@@ -428,6 +458,7 @@ async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakLi
           path: hakPath,
           resref: tilesetResref,
           bytes,
+          sourceResolution: hakResolution.summary,
           attempts
         };
       }
@@ -462,6 +493,7 @@ async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakLi
           path: keyPath,
           resref: tilesetResref,
           bytes,
+          sourceResolution: hakResolution.summary,
           attempts
         };
       }
@@ -474,6 +506,7 @@ async function resolveTilesetSetSource(modulePath, tilesetResref, moduleIfoHakLi
     status: "missing",
     path: candidates[0],
     bytes: null,
+    sourceResolution: hakResolution.summary,
     attempts
   };
 }
@@ -487,6 +520,10 @@ function mapRuntimeHostPath(value) {
     return normalized;
   }
   const mappings = [
+    {
+      prefix: "/host/nwn-user",
+      hostRoot: join("C:", "Users", "enonw", "Documents", "Neverwinter Nights")
+    },
     {
       prefix: "/host/nwn-docs",
       hostRoot: join("C:", "Users", "enonw", "Documents", "Neverwinter Nights")
@@ -505,24 +542,53 @@ function mapRuntimeHostPath(value) {
   return normalized;
 }
 
-function resolveTileHakPaths(runtimeSettings, moduleIfoHakList = []) {
+function resolveTileHakPaths(
+  runtimeSettings,
+  moduleIfoHakList = [],
+  { moduleIfoHakListAuthoritative = false } = {}
+) {
   const hakDirectoryPath = mapRuntimeHostPath(runtimeSettings?.paths?.hakDirectoryPath);
-  if (!hakDirectoryPath) {
-    return [];
-  }
   const tileSource = runtimeSettings?.sources?.tile ?? {};
   const profileId = tileSource.hakProfileId ?? "lc_tiles";
   const profile = runtimeSettings?.hakProfiles?.[profileId] ?? [];
   const priority = Array.isArray(tileSource.hakPriorityList) ? tileSource.hakPriorityList : [];
   const sourceHaks =
-    priority.length > 0 ? priority : moduleIfoHakList.length > 0 ? moduleIfoHakList : profile;
+    moduleIfoHakListAuthoritative
+      ? moduleIfoHakList
+      : priority.length > 0
+        ? priority
+        : profile;
+  const selectedHakSource = moduleIfoHakListAuthoritative
+    ? "module-ifo"
+    : priority.length > 0
+      ? "runtime-explicit-priority-fallback"
+      : "runtime-hak-profile-fallback";
+  const policy = moduleIfoHakListAuthoritative
+    ? "module-ifo-hak-list-then-vanilla"
+    : priority.length > 0
+      ? "runtime-explicit-priority-fallback-then-vanilla"
+      : "runtime-hak-profile-fallback-then-vanilla";
   const haks = sourceHaks
     .flatMap((name) => {
       const text = String(name ?? "").trim();
       return text.startsWith("+") ? [text, text.replace(/^\+/u, "")] : [text];
     })
     .filter(Boolean);
-  return [...new Set(haks)].map((name) => join(hakDirectoryPath, toHakFileName(name)));
+  const selectedHakNames = [...new Set(haks)];
+  return {
+    paths: hakDirectoryPath
+      ? selectedHakNames.map((name) => join(hakDirectoryPath, toHakFileName(name)))
+      : [],
+    summary: {
+      policy,
+      selectedHakSource,
+      moduleIfoHakListAuthoritative,
+      moduleIfoHakList: [...moduleIfoHakList],
+      selectedHakNames,
+      runtimeFallbackProfileId: profileId,
+      runtimeFallbackProfileIgnored: moduleIfoHakListAuthoritative
+    }
+  };
 }
 
 function toHakFileName(name) {
@@ -542,9 +608,12 @@ function formatErrorForSummary(error) {
 }
 
 async function summarizeSourceFile(path, bytes) {
-  const info = await stat(path);
+  const packedSeparator = path.indexOf("::");
+  const containerPath = packedSeparator >= 0 ? path.slice(0, packedSeparator) : path;
+  const info = await stat(containerPath);
   return {
     path,
+    ...(packedSeparator >= 0 ? { containerPath, sourceKind: "packed-module-erf" } : { sourceKind: "loose-file" }),
     sizeBytes: bytes.length,
     mtime: info.mtime.toISOString(),
     sha256: createHash("sha256").update(bytes).digest("hex"),
@@ -553,9 +622,12 @@ async function summarizeSourceFile(path, bytes) {
 }
 
 async function summarizePlainSourceFile(path, bytes) {
-  const info = await stat(path);
+  const packedSeparator = path.indexOf("::");
+  const containerPath = packedSeparator >= 0 ? path.slice(0, packedSeparator) : path;
+  const info = await stat(containerPath);
   return {
     path,
+    ...(packedSeparator >= 0 ? { containerPath, sourceKind: "packed-module-erf" } : { sourceKind: "loose-file" }),
     sizeBytes: bytes.length,
     mtime: info.mtime.toISOString(),
     sha256: createHash("sha256").update(bytes).digest("hex")
@@ -661,6 +733,8 @@ function buildTilesetSetSummary({
   generatedAt,
   tilesetResref,
   tilesetSetSource,
+  moduleIfoHakList,
+  moduleIfoHakListAuthoritative,
   setTiles,
   parsedAre,
   tileContractRows
@@ -699,6 +773,15 @@ function buildTilesetSetSummary({
     generatedAt,
     status: tilesetSetSource?.status ?? "not-requested",
     tilesetResref,
+    sourceResolution: tilesetSetSource?.sourceResolution ?? {
+      policy: moduleIfoHakListAuthoritative
+        ? "module-ifo-hak-list-then-vanilla"
+        : "runtime-fallback-then-vanilla",
+      selectedHakSource: moduleIfoHakListAuthoritative ? "module-ifo" : "runtime-fallback",
+      moduleIfoHakListAuthoritative,
+      moduleIfoHakList: [...moduleIfoHakList],
+      selectedHakNames: []
+    },
     source: tilesetSetSource?.bytes
       ? {
           path: tilesetSetSource.path,

@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const cp = require("node:child_process");
+require("../../scripts/proof-capture-lock-auto.cjs");
 
 const chrome =
   process.env.CHROME_PATH ||
@@ -16,6 +17,18 @@ const url =
   process.env.AREA_LIGHT_SHADOW_PREVIEW_URL ||
   "http://127.0.0.1:5173/dev/area-light-shadow-preview?areaId=area__winds_study";
 const name = process.env.AREA_LIGHT_SHADOW_PREVIEW_NAME || "winds-study-area-light-shadow-preview";
+const virtualTimeBudgetMs = Math.max(
+  1000,
+  Number(process.env.AREA_LIGHT_SHADOW_PREVIEW_VIRTUAL_TIME_BUDGET_MS || 10000)
+);
+const windowWidth = Math.max(
+  320,
+  Number(process.env.AREA_LIGHT_SHADOW_PREVIEW_WINDOW_WIDTH || 1280)
+);
+const windowHeight = Math.max(
+  240,
+  Number(process.env.AREA_LIGHT_SHADOW_PREVIEW_WINDOW_HEIGHT || 720)
+);
 const png = path.join(outDir, `${name}.png`);
 const framePath = path.join(outDir, `${name}.frame.json`);
 
@@ -24,13 +37,15 @@ const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "aurora-area-light-shad
 
 const baseArgs = [
   "--headless=new",
+  "--renderer-process-limit=2",
   "--disable-gpu",
   "--no-sandbox",
   "--disable-background-networking",
   "--disable-extensions",
-  "--window-size=1280,720",
+  `--window-size=${windowWidth},${windowHeight}`,
+  "--hide-scrollbars",
   `--user-data-dir=${profileDir}`,
-  "--virtual-time-budget=10000"
+  `--virtual-time-budget=${virtualTimeBudgetMs}`
 ];
 
 try {

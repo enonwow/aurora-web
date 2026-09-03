@@ -55,9 +55,9 @@ const fixtureRequirements = {
     expectedDrawLane: "chunk_model",
     requiredChecks: [
       "chunkLanePreserved",
-      "canonicalResourceUnresolved",
+      "localPreviewResourceResolved",
       "noFakeParticleDrawRecords",
-      "placeholderVisibleWithoutDrawParticles"
+      "localPreviewVisibleWithoutDrawParticles"
     ],
     expectedCounts: {
       drawParticleCount: 0,
@@ -174,6 +174,7 @@ function checkFixture(fixtureId, entry) {
       failedChecks: ["correlationArtifactMissing"],
       missingVisualArtifacts: ["renderContractSnapshot", "screenshot", "frame"],
       visualArtifactMismatches: [],
+      renderContractHashMismatches: [],
       requiredChecks: [],
       failedRequiredChecks: [],
       visualSemanticOraclePresent: false,

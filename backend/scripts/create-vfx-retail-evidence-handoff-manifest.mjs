@@ -3,6 +3,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  indexVfxProofSubjectProfiles,
+  parseVfxProofSubjectProfiles
+} from "./lib/vfx-proof-subject-profile-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
@@ -21,10 +25,6 @@ const defaultMarkdownPath = path.join(
 );
 const assignmentId = "vfx-worker-iteration-218-retail-evidence-handoff-manifest";
 const dispatchTimestamp = "2026-06-16T22:54:45.9147826+02:00";
-const highPriorityFixtures = [
-  "vfx-retail-chunk-particles-progfx-type9",
-  "catalog-placeable-plc_zlc_o45"
-];
 const captureReadyStatuses = new Set(["capture_setup_ready", "ready", "captured", "compared", "passed", "fixed"]);
 const categoryOrder = [
   "retail_pack_file",
@@ -54,10 +54,18 @@ const coordinatorMdPath = path.resolve(
   repoRoot,
   args.coordinatorMd ?? path.join(guardRoot, "vfx-domain-coordinator-latest.md")
 );
+const proofProfilesPath = path.resolve(
+  repoRoot,
+  args.proofProfiles ?? path.join(repoRoot, "backend/config/vfx-proof-subject-profiles.json")
+);
 
 const packet = readJson(packetPath);
 const coordinator = readJson(coordinatorJsonPath);
+const proofProfiles = parseVfxProofSubjectProfiles(readJson(proofProfilesPath));
+const proofProfilesBySubjectId = indexVfxProofSubjectProfiles(proofProfiles);
 const handoffSubjects = packet.captureSubjects.map(toHandoffSubject);
+const chunkResourceSubject = getSubjectByTag("chunk-model-resource-oracle");
+const catalogOracleSubject = getSubjectByTag("catalog-retail-oracle");
 const missingCategoryCounts = summarizeCategories(handoffSubjects);
 const visualSemanticOracle = {
   version: "aurora-vfx-retail-evidence-handoff-manifest-oracle/v1",
@@ -113,19 +121,13 @@ const visualSemanticChecks = {
     ),
   allSubjectsHaveNextOperatorAction: handoffSubjects.every((subject) => Boolean(subject.nextHumanOperatorAction)),
   chunkType9HighPriority:
-    handoffSubjects[0]?.fixtureId === "vfx-retail-chunk-particles-progfx-type9" &&
-    handoffSubjects[0]?.highPriorityBlocker === true,
+    handoffSubjects[0] === chunkResourceSubject && chunkResourceSubject?.highPriorityBlocker === true,
   catalogPlcZlcO45SecondPriority:
-    handoffSubjects[1]?.fixtureId === "catalog-placeable-plc_zlc_o45" &&
-    handoffSubjects[1]?.highPriorityBlocker === true,
+    handoffSubjects[1] === catalogOracleSubject && catalogOracleSubject?.highPriorityBlocker === true,
   type9KeepsRealResourceBlocker:
-    getSubject("vfx-retail-chunk-particles-progfx-type9").missingPrerequisites.includes(
-      "real progfx Type 9 source row"
-    ),
+    chunkResourceSubject?.missingPrerequisites.includes("real progfx Type 9 source row") === true,
   plcZlcKeepsRetailOracleBlocker:
-    getSubject("catalog-placeable-plc_zlc_o45").missingPrerequisites.includes(
-      "retail zlc_o45 Magic Mouth placement"
-    ),
+    catalogOracleSubject?.missingPrerequisites.includes("retail zlc_o45 Magic Mouth placement") === true,
   manifestDoesNotClaimCaptureReadiness: true,
   manifestDoesNotClaimRetailCapture: true,
   manifestDoesNotMarkBlockersFixed: true,
@@ -216,15 +218,14 @@ if (manifest.result !== "retail-evidence-handoff-manifest-created-canonical-bloc
 }
 
 function toHandoffSubject(subject) {
+  const proofSubjectProfile =
+    subject.proofSubjectProfile ?? proofProfilesBySubjectId.get(subject.fixtureId) ?? null;
   const missingPrerequisiteCategories = orderedCategories(
     new Set(subject.missingPrerequisites.flatMap(categorizePrerequisite))
   );
   const captureReady = captureReadyStatuses.has(subject.status);
-  const highPriorityBlocker = highPriorityFixtures.includes(subject.fixtureId);
-  const requiredCatalogEvidencePacket =
-    subject.fixtureId === "catalog-placeable-plc_zlc_o45"
-      ? "backend/test/fixtures/vfx-retail/catalog-placeable-plc_zlc_o45 or explicit catalog evidence packet"
-      : null;
+  const highPriorityBlocker = proofSubjectProfile?.tags?.includes("high-priority-blocker") === true;
+  const requiredCatalogEvidencePacket = proofSubjectProfile?.requiredEvidencePacket ?? null;
   return {
     priority: subject.priority,
     fixtureId: subject.fixtureId,
@@ -243,7 +244,8 @@ function toHandoffSubject(subject) {
     missingManifestFields: subject.missingManifestFields,
     missingPrerequisiteCategories,
     missingPrerequisites: subject.missingPrerequisites,
-    nextHumanOperatorAction: nextOperatorAction(subject, missingPrerequisiteCategories),
+    proofSubjectProfile,
+    nextHumanOperatorAction: nextOperatorAction(proofSubjectProfile, missingPrerequisiteCategories),
     captureReady,
     fixedFlag: false,
     retailCaptureRun: false,
@@ -300,12 +302,9 @@ function orderedCategories(categories) {
   return categoryOrder.filter((category) => categories.has(category));
 }
 
-function nextOperatorAction(subject, categories) {
-  if (subject.fixtureId === "vfx-retail-chunk-particles-progfx-type9") {
-    return "Locate the real progfx Type 9 chunk source/resource row, then capture retail runtime/render/capture/comparison files into the listed pack path before rerunning validation.";
-  }
-  if (subject.fixtureId === "catalog-placeable-plc_zlc_o45") {
-    return "Create an explicit catalog retail evidence packet for plc_zlc_o45 with retail placement, fxpa_flare appearance, Fountain timing, Lighten intensity, framebuffer capture, and comparison evidence.";
+function nextOperatorAction(proofSubjectProfile, categories) {
+  if (proofSubjectProfile?.nextOperatorAction) {
+    return proofSubjectProfile.nextOperatorAction;
   }
   if (categories.includes("non_placeholder_pack_file")) {
     return "Replace placeholder fixture-pack JSON with concrete retail build/source/parser/resolver/runtime/render/capture/comparison evidence, then rerun validation.";
@@ -376,8 +375,8 @@ function renderMarkdown(manifest) {
   return `${lines.join("\n")}\n`;
 }
 
-function getSubject(fixtureId) {
-  return packet.captureSubjects.find((subject) => subject.fixtureId === fixtureId) ?? { missingPrerequisites: [] };
+function getSubjectByTag(tag) {
+  return handoffSubjects.find((subject) => subject.proofSubjectProfile?.tags?.includes(tag));
 }
 
 function readJson(filePath) {

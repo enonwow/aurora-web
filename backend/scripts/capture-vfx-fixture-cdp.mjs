@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import "../../scripts/proof-capture-lock-auto.cjs";
+
+import { installCaptureProcessGuard } from "./capture-process-lifecycle.mjs";
+import { assertRequestedVfxFixture } from "./lib/vfx-fixture-capture-contract.mjs";
 
 const DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const DEFAULT_BASE_URL = "http://127.0.0.1:5173";
@@ -28,6 +32,7 @@ const chrome = spawn(
   chromePath,
   [
     "--headless=new",
+    "--renderer-process-limit=2",
     "--disable-gpu",
     "--no-sandbox",
     `--remote-debugging-port=${port}`,
@@ -37,6 +42,10 @@ const chrome = spawn(
   ],
   { stdio: ["ignore", "pipe", "pipe"] }
 );
+const chromeProcessGuard = installCaptureProcessGuard(chrome, {
+  hardTimeoutMs: 30_000,
+  label: `vfx-fixture:${fixtureId}`
+});
 
 let chromeStderr = "";
 chrome.stderr.on("data", (chunk) => {
@@ -47,8 +56,7 @@ try {
   const result = await captureFromChrome({ port, route, pngPath, framePath });
   console.log(JSON.stringify(result, null, 2));
 } finally {
-  chrome.kill("SIGTERM");
-  await onceProcessExits(chrome);
+  await chromeProcessGuard.terminate();
   if (!keepProfile) {
     removeProfileDirBestEffort(profileDir);
   }
@@ -93,6 +101,10 @@ async function captureFromChrome({ port, route, pngPath, framePath }) {
   if (!domStatus) {
     throw new Error("VFX fixture runner was not present in the browser DOM.");
   }
+  assertRequestedVfxFixture({
+    requestedFixtureId: fixtureId,
+    renderedFixtureId: domStatus.fixtureId
+  });
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
@@ -147,6 +159,38 @@ async function readDomStatus(send) {
         drawLane: el.getAttribute("data-draw-lane"),
         drawParticles: Number(el.getAttribute("data-rendered-draw-particles") || 0),
         renderedVertices: Number(el.getAttribute("data-rendered-vertices") || 0),
+        renderedChunkModelCount: Number(
+          el.getAttribute("data-rendered-chunk-model-count") || 0
+        ),
+        chunkLane: {
+          count: Number(el.getAttribute("data-rendered-chunk-lane-count") || 0),
+          resourceResolveStatus: el.getAttribute(
+            "data-rendered-chunk-lane-resource-resolve-status"
+          ),
+          chunkName: el.getAttribute("data-rendered-chunk-lane-chunk-name"),
+          activeParticleCount: Number(
+            el.getAttribute("data-rendered-chunk-lane-active-particle-count") || 0
+          ),
+          resolvedResourceKey: el.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-key"
+          ),
+          resolvedResourceLayer: el.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-layer"
+          ),
+          resolvedResourcePath: el.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-path"
+          ),
+          resolvedResourceHash: el.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-hash"
+          ),
+          resolvedResourceCandidateId: el.getAttribute(
+            "data-rendered-chunk-lane-resolved-resource-candidate-id"
+          ),
+          rendererPending: el.getAttribute("data-rendered-chunk-lane-renderer-pending"),
+          modelPreviewStatus: el.getAttribute(
+            "data-rendered-chunk-lane-model-preview-status"
+          )
+        },
         renderedDrawRecordIds: (el.getAttribute("data-rendered-draw-record-ids") || "")
           .split(",")
           .filter(Boolean),
@@ -275,6 +319,28 @@ async function readDomStatus(send) {
         renderedGeometry: {
           nonIndexedDrawArrays: el.getAttribute("data-rendered-geometry-non-indexed-draw-arrays"),
           indexedDrawArrays: el.getAttribute("data-rendered-geometry-indexed-draw-arrays"),
+          linkedSegmentTopology: el.getAttribute(
+            "data-rendered-geometry-linked-segment-topology"
+          ),
+          linkedSegmentCount: Number(
+            el.getAttribute("data-rendered-geometry-linked-segment-count") || 0
+          ),
+          linkedSegmentSource: el.getAttribute(
+            "data-rendered-geometry-linked-segment-source"
+          ),
+          renderModeBasisModes: (
+            el.getAttribute("data-rendered-geometry-render-mode-basis-modes") || ""
+          )
+            .split(",")
+            .filter(Boolean),
+          renderModeBasisSources: (
+            el.getAttribute("data-rendered-geometry-render-mode-basis-sources") || ""
+          )
+            .split(",")
+            .filter(Boolean),
+          renderModeUsesVelocityBasis: el.getAttribute(
+            "data-rendered-geometry-render-mode-uses-velocity-basis"
+          ),
           drawModeArgument: Number(el.getAttribute("data-rendered-geometry-draw-mode-argument") || 0),
           drawModeArgumentSource: el.getAttribute(
             "data-rendered-geometry-draw-mode-argument-source"
@@ -537,12 +603,22 @@ async function readDomStatus(send) {
 
 function isRenderedDomStatus(status) {
   const requiresDrawGeometry = status.drawLane !== "chunk_model";
+  const hasChunkModelGeometry =
+    status.drawLane === "chunk_model" &&
+    Number(status.renderedChunkModelCount) > 0 &&
+    Number(status.chunkLane?.count) > 0 &&
+    status.chunkLane?.resourceResolveStatus === "resolved" &&
+    status.chunkLane?.rendererPending === "false" &&
+    status.chunkLane?.modelPreviewStatus === "applied-local-model-preview-retail-unverified" &&
+    Number(status.renderedBounds?.width) > 0 &&
+    Number(status.renderedBounds?.height) > 0;
   return (
     status.renderStatus === "rendered" &&
     status.canvasNonblank === "true" &&
     Number(status.objectPixels) > 0 &&
-    (!requiresDrawGeometry ||
-      (Number(status.drawParticles) > 0 &&
+    (hasChunkModelGeometry ||
+      (requiresDrawGeometry &&
+        Number(status.drawParticles) > 0 &&
         Number(status.renderedVertices) > 0 &&
         Number(status.renderedBounds?.width) > 0 &&
         Number(status.renderedBounds?.height) > 0))

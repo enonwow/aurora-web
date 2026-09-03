@@ -32,9 +32,13 @@ if (completedAreaOpenGuard && !allowRepeatAreaOpen) {
         ok: false,
         blockerCode: "area_open_session_already_completed",
         safety: {
+          usesGlobalInput: false,
           usesGlobalCursor: false,
           usesGlobalKeyboard: false,
+          usesGlobalMouse: false,
           usesGlobalMouseWheel: false,
+          savesModule: false,
+          changesIniOrMru: false,
           usesGlobalDrag: false,
           method: "persistent area-open guard; refuse a second TreeView double-click for an already-opened area"
         },
@@ -418,6 +422,15 @@ try {
 
   @{
     ok = $true
+    safety = @{
+      usesGlobalInput = $false
+      usesGlobalCursor = $false
+      usesGlobalKeyboard = $false
+      usesGlobalMouse = $false
+      usesGlobalMouseWheel = $false
+      savesModule = $false
+      changesIniOrMru = $false
+    }
     method = 'targeted TreeView messages, no global mouse or keyboard'
     moduleWindowTitle = $window.title
     treeViewHwnd = $tree.ToInt64()

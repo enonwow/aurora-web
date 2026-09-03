@@ -100,7 +100,7 @@ function buildChunkModelLaneContractCase() {
     runtimeSnapshot,
     contract,
     checks: [
-      check("runtime produced two local chunk placeholders", runtimeSnapshot.activeParticles.length === 2),
+      check("runtime produced no standalone Chunk placeholders", runtimeSnapshot.activeParticles.length === 0),
       check("render contract keeps chunk model lane", contract.drawLane === "chunk_model"),
       check("chunk lane preserves chunkName", contract.chunkLane?.chunkName === emitter.chunkName),
       check("chunk lane has no textured draw particles", contract.drawParticleCount === 0),
@@ -108,12 +108,12 @@ function buildChunkModelLaneContractCase() {
       check("chunk lane has no textured draw records", contract.drawRecords.length === 0),
       check("collapse attempt was diagnosed", diagnosticCodes.includes("VFX_TEXTURE_FIELD_LANE_COLLAPSED")),
       check(
-        "runtime chunk placeholder diagnostic survived render contract merge",
-        diagnosticCodes.includes("VFX_CHUNK_LOCAL_PLACEHOLDER_DIAGNOSTIC")
+        "chunk update-family guard survived render contract merge",
+        diagnosticCodes.includes("VFX_CHUNK_UPDATE_FAMILY_REQUIRED")
       ),
       check(
-        "retail chunk resource blocker remains present",
-        diagnosticCodes.includes("VFX_CHUNK_RETAIL_RESOURCE_CAPTURE_REQUIRED")
+        "chunkName render-lane diagnostic survived render contract merge",
+        diagnosticCodes.includes("VFX_CHUNK_NAME_IS_RENDER_LANE_NOT_UPDATE_FAMILY")
       )
     ]
   });

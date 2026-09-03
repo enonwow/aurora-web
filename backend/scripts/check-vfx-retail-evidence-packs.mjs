@@ -12,7 +12,7 @@ const defaultManifestPath = path.join(
 const defaultPackRoot = path.join(repoRoot, "backend/test/fixtures/vfx-retail");
 const defaultOutPath = path.join(
   repoRoot,
-  "backend/docs/aurora-reverse/artifacts/vfx-iteration-90/vfx-retail-evidence-pack-dry-run.json"
+  "backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-evidence-pack-dry-run.json"
 );
 
 const requiredPackFiles = [

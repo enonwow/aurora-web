@@ -3,6 +3,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { blockVfxControlGateOnMissingPrerequisites } from "./lib/vfx-control-gate-prerequisites.mjs";
+import {
+  indexVfxProofSubjectProfiles,
+  parseVfxProofSubjectProfiles
+} from "./lib/vfx-proof-subject-profile-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
@@ -39,7 +44,6 @@ const requiredManifestCases = [
   "plt_visual_known_layer_colors"
 ];
 const placeholderTokens = new Set(["", "todo", "missing", "tbd", "n/a", "null", "unknown"]);
-const specialCatalogFixtureId = "catalog-placeable-plc_zlc_o45";
 const assignmentId = "vfx-worker-iteration-217-retail-capture-setup-validation-packet";
 const dispatchTimestamp = "2026-06-16T22:14:10.4547009+02:00";
 
@@ -59,21 +63,50 @@ const coordinatorPath = path.resolve(
 );
 const backlogPath = path.resolve(repoRoot, args.backlog ?? path.join(guardRoot, "vfx-visual-audit-backlog.json"));
 const registryPath = path.resolve(repoRoot, args.registry ?? path.join(docsRoot, "vfx-claim-registry.json"));
+const proofProfilesPath = path.resolve(
+  repoRoot,
+  args.proofProfiles ?? path.join(repoRoot, "backend/config/vfx-proof-subject-profiles.json")
+);
+
+if (
+  blockVfxControlGateOnMissingPrerequisites({
+    repoRoot,
+    gateId: "vfx-retail-capture-setup-validation",
+    result: "retail-capture-setup-validation-blocked-missing-prerequisites",
+    outPath,
+    pathOverrides: {
+      "vfx-retail-parity-fixture-manifest": manifestPath,
+      "vfx-domain-coordinator-json": coordinatorPath,
+      "vfx-visual-audit-backlog": backlogPath,
+      "vfx-claim-registry": registryPath,
+      "vfx-retail-capture-setup-contract": setupDocPath,
+      "vfx-retail-capture-handoff-contract": handoffDocPath
+    }
+  })
+) {
+  process.exit(1);
+}
 
 const manifest = readJson(manifestPath);
 const coordinator = readJson(coordinatorPath);
 const backlog = readJson(backlogPath);
 const registry = readJson(registryPath);
+const proofProfiles = parseVfxProofSubjectProfiles(readJson(proofProfilesPath));
+const proofProfilesBySubjectId = indexVfxProofSubjectProfiles(proofProfiles);
 const setupDoc = readText(setupDocPath);
 const handoffDoc = readText(handoffDocPath);
 const fixtures = Array.isArray(manifest.fixtures) ? manifest.fixtures : [];
 const workerBacklog = Array.isArray(backlog.workerBacklog) ? backlog.workerBacklog : [];
 const fixtureValidations = fixtures.map((fixture) => validateManifestFixture(fixture));
-const catalogValidation = validateCatalogCapturePrerequisites();
+const catalogValidations = proofProfiles.subjects
+  .filter((profile) => profile.subjectKind === "catalog-item")
+  .map(validateCatalogCapturePrerequisites);
 const captureSubjects = [
   ...fixtureValidations,
-  catalogValidation
+  ...catalogValidations
 ].sort((left, right) => left.priority - right.priority);
+const chunkResourceSubject = getSubjectByTag("chunk-model-resource-oracle");
+const catalogOracleSubject = getSubjectByTag("catalog-retail-oracle");
 
 const checks = {
   upstreamDirectiveRead: true,
@@ -94,22 +127,22 @@ const checks = {
     fixtures.some((fixture) => fixture.requiredCase === requiredCase)
   ),
   manifestFixtureCountTen: fixtures.length === 10,
-  chunkType9Included: fixtures.some((fixture) => fixture.fixtureId === "vfx-retail-chunk-particles-progfx-type9"),
-  catalogPlcZlcO45IncludedInBacklog: workerBacklog.some((entry) => entry.fixtureId === specialCatalogFixtureId),
-  catalogPlcZlcO45KeptRetailOnly: catalogValidation.status === "blocked_retail_oracle_missing",
+  chunkType9Included: Boolean(chunkResourceSubject),
+  catalogPlcZlcO45IncludedInBacklog: workerBacklog.some(
+    (entry) => entry.fixtureId === catalogOracleSubject?.fixtureId
+  ),
+  catalogPlcZlcO45KeptRetailOnly: catalogOracleSubject?.status === "blocked_retail_oracle_missing",
   noFixtureMarkedCanonical: fixtures.every(
     (fixture) => fixture.behaviorClaim !== "canonical" && fixture.status !== "passed"
   ),
   noRegistryCanonicalPromotion: registry.claims.every((claim) => claim.canonicalParityPromoted !== true),
   everySubjectHasMissingPrerequisite: captureSubjects.every((subject) => subject.missingPrerequisites.length > 0),
-  chunkType9MissingRealResourceAndCapture: getSubject("vfx-retail-chunk-particles-progfx-type9").missingPrerequisites.includes(
-    "real progfx Type 9 source row"
-  ) &&
-    getSubject("vfx-retail-chunk-particles-progfx-type9").missingPrerequisites.includes(
-      "retail chunk capture"
-    ),
-  plcZlcO45MissingRetailOracle: catalogValidation.missingPrerequisites.includes("retail zlc_o45 Magic Mouth placement") &&
-    catalogValidation.missingPrerequisites.includes("retail fxpa_flare texture appearance"),
+  chunkType9MissingRealResourceAndCapture:
+    chunkResourceSubject?.missingPrerequisites.includes("real progfx Type 9 source row") === true &&
+    chunkResourceSubject?.missingPrerequisites.includes("retail chunk capture") === true,
+  plcZlcO45MissingRetailOracle:
+    catalogOracleSubject?.missingPrerequisites.includes("retail zlc_o45 Magic Mouth placement") === true &&
+    catalogOracleSubject?.missingPrerequisites.includes("retail fxpa_flare texture appearance") === true,
   blockedSubjectsRemainBlocked: captureSubjects.every((subject) => subject.canonicalParityPromoted === false),
   canonicalParityPromotedFalse: true,
   localOnlyNotCanonical: true
@@ -229,6 +262,7 @@ if (report.result !== "retail-capture-setup-validation-packet-passed-canonical-b
 }
 
 function validateManifestFixture(fixture) {
+  const proofProfile = proofProfilesBySubjectId.get(fixture.fixtureId);
   const packDir = path.join(packRoot, fixture.fixtureId);
   const packFiles = requiredPackFiles.map((fileName) => inspectPackFile(packDir, fileName));
   const missingPackFiles = packFiles.filter((file) => !file.exists).map((file) => file.fileName);
@@ -241,16 +275,9 @@ function validateManifestFixture(fixture) {
     ...missingPackFiles.map((file) => `pack file ${file}`),
     ...invalidPackFiles.map((file) => `valid JSON for ${file}`),
     ...placeholderPackFiles.map((file) => `non-placeholder ${file}`),
-    ...missingManifestFields
+    ...missingManifestFields,
+    ...(proofProfile?.additionalMissingPrerequisites ?? [])
   ];
-  if (fixture.fixtureId === "vfx-retail-chunk-particles-progfx-type9") {
-    if (!missingPrerequisites.includes("real progfx Type 9 source row")) {
-      missingPrerequisites.push("real progfx Type 9 source row");
-    }
-    if (!missingPrerequisites.includes("retail chunk capture")) {
-      missingPrerequisites.push("retail chunk capture");
-    }
-  }
   return {
     priority: priorityForFixture(fixture.fixtureId),
     fixtureId: fixture.fixtureId,
@@ -266,41 +293,29 @@ function validateManifestFixture(fixture) {
     placeholderPackFiles,
     missingManifestFields,
     missingPrerequisites: unique(missingPrerequisites),
+    proofSubjectProfile: proofProfile ?? null,
     canonicalParityPromoted: false
   };
 }
 
-function validateCatalogCapturePrerequisites() {
-  const backlogEntry = workerBacklog.find((entry) => entry.fixtureId === specialCatalogFixtureId);
+function validateCatalogCapturePrerequisites(proofProfile) {
+  const backlogEntry = workerBacklog.find((entry) => entry.fixtureId === proofProfile.subjectId);
   return {
-    priority: 2,
-    fixtureId: specialCatalogFixtureId,
-    requiredCase: "catalog_placeable_plc_zlc_o45",
-    title: backlogEntry?.title ?? "Collect retail runtime/render/capture/comparison evidence for catalog-placeable-plc_zlc_o45",
+    priority: proofProfile.priority,
+    fixtureId: proofProfile.subjectId,
+    requiredCase: proofProfile.requiredCase,
+    title: backlogEntry?.title ?? proofProfile.title,
     status: "blocked_retail_oracle_missing",
-    manifestStatus: "not_in_manifest_catalog_backlog_item",
-    behaviorClaim: "diagnostic",
+    manifestStatus: proofProfile.manifestStatus,
+    behaviorClaim: proofProfile.behaviorClaim,
     packDir: null,
     packDirExists: false,
     missingPackFiles: requiredPackFiles,
     invalidPackFiles: [],
     placeholderPackFiles: [],
-    missingManifestFields: ["catalog capture pack manifest entry or explicit catalog evidence packet"],
-    missingPrerequisites: [
-      "catalog capture pack manifest entry or explicit catalog evidence packet",
-      "retail zlc_o45 Magic Mouth placement",
-      "retail fxpa_flare texture appearance",
-      "retail Fountain particle timing",
-      "retail Lighten intensity",
-      "retail framebuffer comparison",
-      "retail build/profile",
-      "retail parser snapshot",
-      "retail resolver trace",
-      "retail runtime tick dump",
-      "retail render-contract snapshot",
-      "retail capture reference",
-      "retail comparison evidence"
-    ],
+    missingManifestFields: proofProfile.missingManifestFields ?? [],
+    missingPrerequisites: proofProfile.additionalMissingPrerequisites,
+    proofSubjectProfile: proofProfile,
     canonicalParityPromoted: false
   };
 }
@@ -353,7 +368,9 @@ function summarize(subjects) {
   return {
     subjectCount: subjects.length,
     manifestFixtureCount: fixtures.length,
-    catalogSubjectCount: subjects.filter((subject) => subject.fixtureId === specialCatalogFixtureId).length,
+    catalogSubjectCount: subjects.filter(
+      (subject) => subject.proofSubjectProfile?.subjectKind === "catalog-item"
+    ).length,
     blockedSubjectCount: blocked.length,
     captureSetupReadyCount: subjects.length - blocked.length,
     missingPackSubjectCount: subjects.filter((subject) => subject.packDirExists === false).length,
@@ -409,8 +426,8 @@ function priorityForFixture(fixtureId) {
   return 100 + fixtures.findIndex((fixture) => fixture.fixtureId === fixtureId);
 }
 
-function getSubject(fixtureId) {
-  return captureSubjects.find((subject) => subject.fixtureId === fixtureId) ?? { missingPrerequisites: [] };
+function getSubjectByTag(tag) {
+  return captureSubjects.find((subject) => subject.proofSubjectProfile?.tags?.includes(tag));
 }
 
 function countPlaceholders(value) {

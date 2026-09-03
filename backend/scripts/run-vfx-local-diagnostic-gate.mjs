@@ -203,7 +203,20 @@ const report = {
     catalogPreviewGuardrailsSourceMdlPayloadReady:
       catalogPreviewGuardrailsReport?.visualSemanticChecks?.sourceMdlPayloadReady ?? null,
     catalogPreviewGuardrailsLocalOnlyNotCanonical:
-      catalogPreviewGuardrailsReport?.visualSemanticChecks?.localOnlyNotCanonical ?? null
+      catalogPreviewGuardrailsReport?.visualSemanticChecks?.localOnlyNotCanonical ?? null,
+    catalogPreviewGuardrailsCanonicalObjectPixelsWithoutGrid:
+      catalogPreviewGuardrailsReport?.visualSummary?.canonicalObjectPixelsWithoutGrid ?? null,
+    catalogPreviewGuardrailsCanonicalBackendPayloadReady:
+      catalogPreviewGuardrailsReport?.visualSemanticChecks?.canonicalBackendPayloadReady ?? null,
+    catalogPreviewGuardrailsCanonicalBackendCanonical:
+      catalogPreviewGuardrailsReport?.visualSemanticChecks?.canonicalBackendCanonical ?? null,
+    catalogPreviewGuardrailsCanonicalRendererSelected:
+      catalogPreviewGuardrailsReport?.visualSemanticChecks?.canonicalRendererSelected ?? null,
+    catalogPreviewGuardrailsCanonicalDevReady:
+      catalogPreviewGuardrailsReport?.visualSemanticChecks?.canonicalDevReady ?? null,
+    catalogPreviewGuardrailsCanonicalSourceMdlOverlaySuppressed:
+      catalogPreviewGuardrailsReport?.visualSemanticChecks
+        ?.canonicalSourceMdlOverlaySuppressed ?? null
   },
   commandResults,
   blockers: [

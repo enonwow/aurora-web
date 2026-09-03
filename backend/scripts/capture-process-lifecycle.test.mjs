@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   installCaptureProcessGuard,
+  releaseChildProcessStreams,
+  shouldForceCaptureProcessExit,
   terminateCaptureProcessTree,
   terminateProcessTreeSync
 } from "./capture-process-lifecycle.mjs";
@@ -44,7 +46,7 @@ test("Windows cleanup hides taskkill and terminates the complete child tree", ()
     [
       "taskkill",
       ["/PID", "4321", "/T", "/F"],
-      { stdio: "ignore", windowsHide: true }
+      { stdio: "ignore", windowsHide: true, timeout: 5_000 }
     ]
   ]);
 });
@@ -89,4 +91,24 @@ test("normal async cleanup waits for Windows process-tree termination", async ()
   assert.equal(terminated, true);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0][1], ["/PID", "2468", "/T", "/F"]);
+});
+
+test("releases Chrome stdio after its process tree has been terminated", () => {
+  const calls = [];
+  const child = {
+    stdout: { destroy: () => calls.push("stdout") },
+    stderr: { destroy: () => calls.push("stderr") },
+    stdin: { destroy: () => calls.push("stdin") }
+  };
+
+  assert.equal(releaseChildProcessStreams(child), 3);
+  assert.deepEqual(calls, ["stdin", "stdout", "stderr"]);
+  assert.equal(releaseChildProcessStreams(null), 0);
+});
+
+test("requires an explicit true flag before a completed capture can force process exit", () => {
+  assert.equal(shouldForceCaptureProcessExit("true"), true);
+  assert.equal(shouldForceCaptureProcessExit(true), true);
+  assert.equal(shouldForceCaptureProcessExit("false"), false);
+  assert.equal(shouldForceCaptureProcessExit(undefined), false);
 });

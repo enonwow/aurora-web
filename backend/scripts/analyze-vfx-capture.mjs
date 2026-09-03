@@ -242,13 +242,25 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
   const expectedPltLayerColorSources = drawRecords
     .map((record) => record.pltLayerColorSource ?? record.atlasProvenance?.pltLayerColorSource)
     .filter((pltLayerColorSource) => typeof pltLayerColorSource === "string" && pltLayerColorSource.length > 0);
-  const expectedAtlasFrameStats = readAtlasFrameStats(expectedAtlasFrames);
-  const expectedColorStats = readColorStats(drawRecords);
-  const expectedAlphaStats = readNumberFieldStats(drawRecords, "alpha");
-  const expectedParticleSizeStats = readParticleSizeStats(drawRecords);
-  const expectedAtlasUvStats = readAtlasUvStats(drawRecords);
-  const expectedPositionStats = readPositionStats(drawRecords);
   const domRenderedGeometry = readDomRenderedGeometry(frame);
+  const drawLane = renderContract.drawLane ?? metrics.drawLane;
+  const isChunkLane = drawLane === "chunk_model";
+  const isLinkedSegmentTopology =
+    drawLane === "linked_textured_quad" && domRenderedGeometry.linkedSegmentTopology === "true";
+  const linkedSegmentCount = isLinkedSegmentTopology ? Math.max(0, drawRecords.length - 1) : 0;
+  const geometryAttributeDrawRecords = isLinkedSegmentTopology
+    ? drawRecords.slice(0, linkedSegmentCount)
+    : drawRecords;
+  const expectedGeometryAtlasFrames = geometryAttributeDrawRecords
+    .map((record) => record.atlasUv?.frameIndex)
+    .filter((frameIndex) => typeof frameIndex === "number" && Number.isFinite(frameIndex));
+  const expectedAtlasFrameStats = readAtlasFrameStats(expectedAtlasFrames);
+  const expectedGeometryAtlasFrameStats = readAtlasFrameStats(expectedGeometryAtlasFrames);
+  const expectedColorStats = readColorStats(geometryAttributeDrawRecords);
+  const expectedAlphaStats = readNumberFieldStats(geometryAttributeDrawRecords, "alpha");
+  const expectedParticleSizeStats = readParticleSizeStats(geometryAttributeDrawRecords);
+  const expectedAtlasUvStats = readAtlasUvStats(geometryAttributeDrawRecords);
+  const expectedPositionStats = readPositionStats(drawRecords);
   const expectedVerticesPerParticle = Number(renderContract.verticesPerDrawParticle ?? 6);
   const expectedDrawRoute = readExpectedDrawRoute(drawRecords);
   const domRenderedBoundsWidth = Number(frame.domStatus?.renderedBounds?.width ?? NaN);
@@ -266,8 +278,6 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
   const domRenderedMaterial = readDomRenderedMaterial(frame);
   const expectedTextureReference = readExpectedTextureReference(snapshot);
   const expectedMaterial = readExpectedMaterialState(renderContract);
-  const drawLane = renderContract.drawLane ?? metrics.drawLane;
-  const isChunkLane = drawLane === "chunk_model";
   const checks = {
     fixtureIdMatchesSnapshot:
       !snapshot.fixtureId || !frame.fixtureId || snapshot.fixtureId === frame.fixtureId,
@@ -276,7 +286,11 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
       drawRecords.length === Number(metrics.drawRecordCount ?? drawRecords.length),
     renderContractDrawVertexCountIsConsistent:
       Number.isFinite(drawVertexCount) &&
-      (isChunkLane ? drawVertexCount === 0 : drawVertexCount === drawParticleCount * 6),
+      (isChunkLane
+        ? drawVertexCount === 0
+        : isLinkedSegmentTopology
+        ? drawVertexCount === linkedSegmentCount * 6
+        : drawVertexCount === drawParticleCount * 6),
     renderContractDrawVerticesMatchDom:
       !Number.isFinite(domRenderedVertices) ||
       (isChunkLane ? domRenderedVertices === 0 : drawVertexCount === domRenderedVertices),
@@ -482,12 +496,17 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
         domRenderedGeometry.positionAttributeItemSize === 3),
     renderedGeometryPositionAttributeRangeMatchesContract:
       isChunkLane ||
-      (approxEqual(domRenderedGeometry.positionAttributeXMin, expectedPositionStats.xMin) &&
-        approxEqual(domRenderedGeometry.positionAttributeXMax, expectedPositionStats.xMax) &&
-        approxEqual(domRenderedGeometry.positionAttributeYMin, expectedPositionStats.yMin) &&
-        approxEqual(domRenderedGeometry.positionAttributeYMax, expectedPositionStats.yMax) &&
-        approxEqual(domRenderedGeometry.positionAttributeZMin, expectedPositionStats.zMin) &&
-        approxEqual(domRenderedGeometry.positionAttributeZMax, expectedPositionStats.zMax)),
+      (isLinkedSegmentTopology
+        ? finiteRange(domRenderedGeometry.positionAttributeXMin, domRenderedGeometry.positionAttributeXMax) &&
+          finiteRange(domRenderedGeometry.positionAttributeYMin, domRenderedGeometry.positionAttributeYMax) &&
+          Number.isFinite(domRenderedGeometry.positionAttributeZMin) &&
+          Number.isFinite(domRenderedGeometry.positionAttributeZMax)
+        : approxEqual(domRenderedGeometry.positionAttributeXMin, expectedPositionStats.xMin) &&
+          approxEqual(domRenderedGeometry.positionAttributeXMax, expectedPositionStats.xMax) &&
+          approxEqual(domRenderedGeometry.positionAttributeYMin, expectedPositionStats.yMin) &&
+          approxEqual(domRenderedGeometry.positionAttributeYMax, expectedPositionStats.yMax) &&
+          approxEqual(domRenderedGeometry.positionAttributeZMin, expectedPositionStats.zMin) &&
+          approxEqual(domRenderedGeometry.positionAttributeZMax, expectedPositionStats.zMax)),
     renderedGeometryPositionAttributeUniqueValuesPerRecordMatchContract:
       isChunkLane ||
       (domRenderedGeometry.positionAttributeMinUniqueValuesPerRecord === 4 &&
@@ -545,11 +564,11 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
       domRenderedGeometry.atlasFrameAttributeSource === "auroraAtlasFrameIndex-buffer-attribute",
     renderedGeometryAtlasFrameAttributeUniqueCountMatchesContract:
       isChunkLane ||
-      domRenderedGeometry.atlasFrameAttributeUniqueCount === expectedAtlasFrameStats.uniqueCount,
+      domRenderedGeometry.atlasFrameAttributeUniqueCount === expectedGeometryAtlasFrameStats.uniqueCount,
     renderedGeometryAtlasFrameAttributeRangeMatchesContract:
       isChunkLane ||
-      (domRenderedGeometry.atlasFrameAttributeMin === expectedAtlasFrameStats.min &&
-        domRenderedGeometry.atlasFrameAttributeMax === expectedAtlasFrameStats.max),
+      (domRenderedGeometry.atlasFrameAttributeMin === expectedGeometryAtlasFrameStats.min &&
+        domRenderedGeometry.atlasFrameAttributeMax === expectedGeometryAtlasFrameStats.max),
     renderedGeometryAtlasFrameAttributeUniqueValuesPerRecordMatchContract:
       isChunkLane ||
       (domRenderedGeometry.atlasFrameAttributeMinUniqueValuesPerRecord === 1 &&
@@ -563,11 +582,13 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
       domRenderedGeometry.drawRecordIndexAttributeSource === "auroraDrawRecordIndex-buffer-attribute",
     renderedGeometryDrawRecordIndexAttributeUniqueCountMatchesContract:
       isChunkLane ||
-      domRenderedGeometry.drawRecordIndexAttributeUniqueCount === drawRecords.length,
+      domRenderedGeometry.drawRecordIndexAttributeUniqueCount ===
+        (isLinkedSegmentTopology ? linkedSegmentCount : drawRecords.length),
     renderedGeometryDrawRecordIndexAttributeRangeMatchesContract:
       isChunkLane ||
       (domRenderedGeometry.drawRecordIndexAttributeMin === 0 &&
-        domRenderedGeometry.drawRecordIndexAttributeMax === drawRecords.length - 1),
+        domRenderedGeometry.drawRecordIndexAttributeMax ===
+          (isLinkedSegmentTopology ? linkedSegmentCount - 1 : drawRecords.length - 1)),
     renderedGeometryDrawRecordIndexAttributeVertexBucketSizeMatchesContract:
       isChunkLane ||
       (domRenderedGeometry.drawRecordIndexAttributeMinVerticesPerRecord ===
@@ -602,6 +623,7 @@ function buildContractChecks({ frame, snapshot, components, objectPixels }) {
         Number.isFinite(domRenderedBoundsCenterZ)),
     renderedBoundsMatchContract:
       isChunkLane ||
+      isLinkedSegmentTopology ||
       (approxEqual(domRenderedBoundsWidth, expectedBounds.width) &&
         approxEqual(domRenderedBoundsHeight, expectedBounds.height) &&
         approxEqual(domRenderedBoundsDepth, expectedBounds.depth) &&
@@ -977,6 +999,9 @@ function readDomRenderedGeometry(frame) {
   return {
     nonIndexedDrawArrays: normalizeBooleanString(geometry.nonIndexedDrawArrays),
     indexedDrawArrays: normalizeBooleanString(geometry.indexedDrawArrays),
+    linkedSegmentTopology: normalizeBooleanString(geometry.linkedSegmentTopology),
+    linkedSegmentCount: readFiniteNumber(geometry.linkedSegmentCount),
+    linkedSegmentSource: normalizeString(geometry.linkedSegmentSource),
     drawModeArgument: Number.isFinite(Number(geometry.drawModeArgument))
       ? Number(geometry.drawModeArgument)
       : 0,
@@ -1305,6 +1330,10 @@ function readExpectedMaterialState(renderContract) {
 
 function approxEqual(left, right, epsilon = 0.000001) {
   return Math.abs(left - right) <= epsilon;
+}
+
+function finiteRange(min, max) {
+  return Number.isFinite(min) && Number.isFinite(max) && min < max;
 }
 
 function isVfxObjectPixel(r, g, b, a) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const [command, ...rawArgs] = process.argv.slice(2);
@@ -14,12 +14,22 @@ if (command === "capture") {
     outPath,
     allowUniformScene: booleanOption(options.allowUniformScene),
   });
+  if (options.resultOut) {
+    const resultPath = requiredPath(options.resultOut, "--resultOut");
+    mkdirSync(dirname(resultPath), { recursive: true });
+    writeFileSync(resultPath, `${JSON.stringify({ ...result, status: result.ok ? "verified" : "failed" }, null, 2)}\n`, "utf8");
+  }
   console.log(JSON.stringify(result, null, 2));
 } else if (command === "compare") {
   const result = compareImages({
     beforePath: requiredExistingPath(options.before, "--before"),
     afterPath: requiredExistingPath(options.after, "--after"),
   });
+  if (options.resultOut) {
+    const resultPath = requiredPath(options.resultOut, "--resultOut");
+    mkdirSync(dirname(resultPath), { recursive: true });
+    writeFileSync(resultPath, `${JSON.stringify({ ...result, status: result.ok ? "verified" : "failed" }, null, 2)}\n`, "utf8");
+  }
   console.log(JSON.stringify(result, null, 2));
 } else {
   throw new Error("Use: capture --module <name> --area <resref> --out <png>, or compare --before <png> --after <png>.");

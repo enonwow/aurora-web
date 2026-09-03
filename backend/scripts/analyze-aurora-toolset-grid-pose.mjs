@@ -34,7 +34,11 @@ function Angle-Difference([double]$left, [double]$right) {
 
 function Find-HoughLines($points) {
   $accumulator = @{}
-  foreach ($point in $points) {
+  # Axis-colour pixels can form long lines. Cap Hough input deterministically:
+  # the geometry is preserved while avoiding a multi-minute PowerShell loop.
+  $stride = [Math]::Max(1, [int][Math]::Ceiling($points.Count / 240.0))
+  for ($pointIndex = 0; $pointIndex -lt $points.Count; $pointIndex += $stride) {
+    $point = $points[$pointIndex]
     for ($theta = 0; $theta -lt 180; $theta += 1) {
       $radians = $theta * [Math]::PI / 180.0
       $rho = [int]([Math]::Round((($point.x * [Math]::Cos($radians)) + ($point.y * [Math]::Sin($radians))) / 2.0) * 2)
@@ -97,7 +101,7 @@ try {
   for ($y = 0; $y -lt $bitmap.Height; $y += 1) {
     for ($x = 0; $x -lt $bitmap.Width; $x += 1) {
       $pixel = $bitmap.GetPixel($x, $y); $r=[int]$pixel.R; $g=[int]$pixel.G; $b=[int]$pixel.B
-      if ($g -ge 100 -and $g -ge (1.5 * [Math]::Max($r, $b))) { $green += [pscustomobject]@{x=$x;y=$y} }
+      if (($g -ge 100 -and $g -ge (1.5 * [Math]::Max($r, $b))) -or ($b -ge 100 -and $b -ge (1.5 * [Math]::Max($r, $g)))) { $green += [pscustomobject]@{x=$x;y=$y} }
       if ($r -ge 150 -and $r -ge (1.7 * [Math]::Max($g, $b))) { $red += [pscustomobject]@{x=$x;y=$y} }
     }
   }

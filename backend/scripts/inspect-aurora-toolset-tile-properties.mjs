@@ -88,8 +88,8 @@ $script:dialogs = @()
 if ($processIds.Count -eq 1) {
   $top = [AuroraTilePropertiesReadback+EnumWindowsProc]{
     param($hwnd, $lparam)
-    [uint32]$pid = 0; [void][AuroraTilePropertiesReadback]::GetWindowThreadProcessId($hwnd, [ref]$pid)
-    if (($pid -eq $processIds[0]) -and [AuroraTilePropertiesReadback]::IsWindowVisible($hwnd)) {
+    [uint32]$windowProcessId = 0; [void][AuroraTilePropertiesReadback]::GetWindowThreadProcessId($hwnd, [ref]$windowProcessId)
+    if (($windowProcessId -eq $processIds[0]) -and [AuroraTilePropertiesReadback]::IsWindowVisible($hwnd)) {
       $class = Get-Class $hwnd
       if ($class -eq 'TdlgTileProperties') {
         $dialog = [ordered]@{ className=$class; title=(Get-Text $hwnd); childControls=@() }

@@ -1,6 +1,9 @@
 #!/usr/bin/env node
+// Aurora Eye integration-test driver, not the absolute camera-control core.
+// Its PNG/grid-pose imports are intentionally forbidden from the native core
+// in lib/toolset-absolute-camera-core.mjs.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,22 +25,32 @@ for (const semanticOption of ["degrees", "yawDegrees", "pitchDegrees", "zoomFact
 }
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const viewportProofScript = join(scriptDir, "aurora-toolset-viewport-proof.mjs");
+const nativeCameraProbeScript = join(scriptDir, "probe-toolset-native-camera-readback.mjs");
+const useNativeReadback = String(options.nativeReadback ?? "").trim().toLowerCase() === "true";
 const plan = buildToolsetCameraControlPlan({
   command: String(options.command ?? ""),
   steps: integer(options.steps ?? 1, "--steps"),
   holdMs: integer(options.holdMs ?? 800, "--holdMs"),
 });
 const allowUniformBefore = String(options.allowUniformBefore ?? "").trim().toLowerCase() === "true";
+const allowUnmeasuredBefore = String(options.allowUnmeasuredBefore ?? "").trim().toLowerCase() === "true";
 if (allowUniformBefore && !plan.command.startsWith("move-")) {
   const error = new Error("Uniform-state recovery is limited to an inverse camera movement command.");
   error.code = "toolset_uniform_state_recovery_command_forbidden";
+  throw error;
+}
+if (allowUnmeasuredBefore && !plan.command.startsWith("pitch-")) {
+  const error = new Error("Unmeasured-state recovery is limited to pitch commands.");
+  error.code = "toolset_unmeasured_recovery_command_forbidden";
   throw error;
 }
 const expectedArea = String(options.area ?? "").trim().toLowerCase();
 if (!expectedArea) throw new Error("--area is required.");
 const expectedModule = String(options.module ?? "the_last_city - codex.mod").trim();
 if (!expectedModule) throw new Error("--module is required.");
+const selectedSourceTile = options.selectionProof ? readVerifiedSourceTile(options.selectionProof, expectedArea, expectedModule) : null;
 const proofDir = requiredPath(options.proofDir, "--proofDir");
+const resultPath = options.out ? requiredOutputPath(options.out, "--out") : null;
 mkdirSync(proofDir, { recursive: true });
 const proofPrefix = `${plan.command}-${Date.now()}`;
 const beforeA = captureViewportProof({
@@ -52,6 +65,7 @@ const beforeB = captureViewportProof({
   outPath: join(proofDir, `${proofPrefix}-before-b.png`),
   allowUniformScene: allowUniformBefore,
 });
+const nativeBefore = useNativeReadback ? readNativeCameraState({ module: expectedModule, area: expectedArea }) : null;
 
 const script = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -216,6 +230,7 @@ const actionResult = JSON.parse(runPowerShell(script, {
   AURORA_CAMERA_HOLD_MS: String(plan.holdMs),
   AURORA_CAMERA_APPROVED_SCREEN_DEVICE: "\\\\.\\DISPLAY1",
 }));
+const nativeAfter = useNativeReadback ? readNativeCameraState({ module: expectedModule, area: expectedArea }) : null;
 const after = captureViewportProof({
   module: expectedModule,
   area: expectedArea,
@@ -225,7 +240,12 @@ const baselineNoise = compareViewportProof({ beforePath: beforeA.pngPath, afterP
 const effect = compareViewportProof({ beforePath: beforeB.pngPath, afterPath: after.pngPath });
 const requiredChangedRatio = Math.max(0.01, baselineNoise.changedRatio * 5 + 0.005);
 const isTranslationCommand = plan.command.startsWith("move-");
+const isZoomCommand = plan.command.startsWith("zoom-");
 let selectionAnchorMeasurement = null;
+let cameraMeasurement = null;
+const nativeTransition = useNativeReadback
+  ? buildNativeTransition({ command: plan.command, before: nativeBefore, after: nativeAfter, sourceTile: selectedSourceTile })
+  : null;
 let visualEffectProven = effect.changedRatio >= requiredChangedRatio;
 if (isTranslationCommand) {
   const beforeASelectionAnchor = analyzeAuroraToolsetSelectionAnchor({ imagePath: beforeA.pngPath });
@@ -260,6 +280,25 @@ if (isTranslationCommand) {
     };
   }
 }
+if (isZoomCommand) {
+  const beforeAnchor = analyzeAuroraToolsetSelectionAnchor({ imagePath: beforeB.pngPath });
+  const afterAnchor = analyzeAuroraToolsetSelectionAnchor({ imagePath: after.pngPath });
+  if (beforeAnchor.acceptance.accepted && afterAnchor.acceptance.accepted) {
+    const beforeScale = Math.sqrt(beforeAnchor.selectionAnchor.bounds.width * beforeAnchor.selectionAnchor.bounds.height);
+    const afterScale = Math.sqrt(afterAnchor.selectionAnchor.bounds.width * afterAnchor.selectionAnchor.bounds.height);
+    cameraMeasurement = {
+      beforeAnchor,
+      afterAnchor,
+      commandMeasurement: {
+        status: "measured",
+        metric: "selectedTileProjectedScalePixels",
+        before: beforeScale,
+        after: afterScale,
+        ratio: afterScale / beforeScale,
+      },
+    };
+  }
+}
 if (!visualEffectProven) {
   const error = new Error(
     `Camera command produced no proven visual movement: changedRatio=${effect.changedRatio}, required>=${requiredChangedRatio}.`,
@@ -273,13 +312,25 @@ const requiresPoseMeasurement = [
   "rotate-counterclockwise",
   "pitch-up",
   "pitch-down",
-  "zoom-in",
-  "zoom-out",
 ].includes(plan.command);
-let cameraMeasurement = null;
 if (requiresPoseMeasurement) {
+  if (nativeTransition) {
+    cameraMeasurement = {
+      source: "native_toolset",
+      commandMeasurement: { status: "measured", deltas: nativeTransition.deltas },
+      before: nativeBefore,
+      after: nativeAfter,
+    };
+  } else {
   const beforePose = analyzeAuroraToolsetGridPose({ imagePath: beforeB.pngPath });
   const afterPose = analyzeAuroraToolsetGridPose({ imagePath: after.pngPath });
+  if (allowUnmeasuredBefore && !beforePose.acceptance.accepted && afterPose.acceptance.accepted) {
+    cameraMeasurement = {
+      beforePose,
+      afterPose,
+      commandMeasurement: { status: "recovered", metric: "acceptedPostRecoveryPitchPose", value: afterPose.cameraPose.pitchDegrees },
+    };
+  } else {
   const transition = buildVisualCameraTransition({ before: beforePose, after: afterPose });
   const commandMeasurement = requireMeasuredCameraCommand({ command: plan.command, transition });
   cameraMeasurement = { beforePose, afterPose, transition, commandMeasurement };
@@ -289,9 +340,12 @@ if (requiresPoseMeasurement) {
     error.proof = { beforeA, beforeB, after, baselineNoise, effect, requiredChangedRatio, selectionAnchorMeasurement, cameraMeasurement };
     throw error;
   }
+  }
+  }
 }
-console.log(JSON.stringify({
+const result = {
   ...actionResult,
+  nativeTransition,
   visualProof: {
     passed: true,
     beforeA: beforeA.pngPath,
@@ -303,7 +357,12 @@ console.log(JSON.stringify({
     selectionAnchorMeasurement,
     cameraMeasurement,
   },
-}, null, 2));
+};
+if (resultPath) {
+  mkdirSync(dirname(resultPath), { recursive: true });
+  writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+}
+console.log(JSON.stringify(result, null, 2));
 
 function parseArgs(argv) {
   const result = {};
@@ -330,11 +389,62 @@ function requiredPath(value, name) {
   return resolve(text);
 }
 
+function requiredOutputPath(value, name) {
+  const text = String(value ?? "").trim();
+  if (!text) throw new Error(`${name} is required when provided.`);
+  return resolve(text);
+}
+
 function captureViewportProof({ module, area, outPath, allowUniformScene = false }) {
   const args = ["capture", "--module", module, "--area", area, "--out", outPath];
   if (allowUniformScene) args.push("--allowUniformScene", "true");
   return runViewportProof(args);
 }
+
+function readNativeCameraState({ module, area }) {
+  const output = execFileSync(process.execPath, [
+    nativeCameraProbeScript,
+    "--module", module,
+    "--area", area,
+    "--display", "\\\\.\\DISPLAY1",
+  ], { encoding: "utf8", maxBuffer: 1024 * 1024 * 4, timeout: 30_000, windowsHide: true });
+  const binding = JSON.parse(output.trim());
+  if (binding.status !== "camera_bound_read_only" || binding.readback?.provenance !== "native_toolset") {
+    const error = new Error("Version-pinned native camera readback was not ready.");
+    error.code = "camera_state_adapter_unavailable";
+    throw error;
+  }
+  return binding;
+}
+
+function buildNativeTransition({ command, before, after, sourceTile }) {
+  const left = before.camera.nativeState;
+  const right = after.camera.nativeState;
+  return {
+    status: "verified",
+    command,
+    adapter: { readback: "native", provenance: "native_toolset", binarySha256: after.binary.sha256 },
+    before: { area: before.area, provenance: "native_toolset", sourceTile, camera: left },
+    after: { area: after.area, provenance: "native_toolset", sourceTile, camera: right },
+    deltas: {
+      yawDegrees: roundNative(signedPeriodicNative(right.yawDegrees, left.yawDegrees)),
+      pitchDegrees: roundNative(right.pitchDegrees - left.pitchDegrees),
+      zoomLogRatio: roundNative(Math.log(right.zoom / left.zoom)),
+      centreX: roundNative(right.centreX - left.centreX),
+      centreY: roundNative(right.centreY - left.centreY),
+    },
+  };
+}
+
+function readVerifiedSourceTile(path, expectedArea, expectedModule) {
+  const proof = JSON.parse(readFileSync(resolve(String(path)), "utf8"));
+  if (proof?.status !== "verified" || proof?.evidenceKind !== "source-targeted-visual-selection/v1") throw new Error("--selectionProof must be verified source-targeted evidence.");
+  if (String(proof?.plan?.area ?? "").toLowerCase() !== expectedArea || String(proof?.plan?.module ?? "") !== expectedModule) throw new Error("--selectionProof target does not match this camera command.");
+  return proof.sourceTile;
+}
+
+function signedPeriodicNative(after, before) { let delta = (after - before) % 360; if (delta > 180) delta -= 360; if (delta <= -180) delta += 360; return delta; }
+function roundNative(value) { return Math.round(value * 1e6) / 1e6; }
 
 function compareViewportProof({ beforePath, afterPath }) {
   return runViewportProof(["compare", "--before", beforePath, "--after", afterPath]);

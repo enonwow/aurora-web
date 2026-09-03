@@ -15,6 +15,11 @@ const defaultOutPath = path.join(
 const args = parseArgs(process.argv.slice(2));
 const thresholdPath = path.resolve(repoRoot, args.thresholds ?? defaultThresholdPath);
 const outPath = path.resolve(repoRoot, args.out ?? defaultOutPath);
+if (!fs.existsSync(thresholdPath)) {
+  writeMissingThresholdReport(thresholdPath, outPath);
+  process.exitCode = 1;
+  process.exit();
+}
 const thresholdProfile = readJson(thresholdPath);
 const correlationPaths = args.correlation ?? [];
 const framesByFixture = correlationPaths.length > 0
@@ -235,6 +240,57 @@ function readCorrelationFrame(filePath) {
       renderContractSnapshotExists: existsRelative(correlation.artifacts?.renderContractSnapshot)
     }
   };
+}
+
+function writeMissingThresholdReport(thresholdPath, outPath) {
+  const report = {
+    version: "aurora-vfx-local-oracle-threshold-check-report/v1",
+    generatedAt: new Date().toISOString(),
+    thresholdProfile: relativePath(thresholdPath),
+    checkedMode: "threshold-profile-selected-frames",
+    explicitCorrelations: [],
+    result: "local-oracle-threshold-check-failed",
+    canonicalParityPromoted: false,
+    localOnlyNotRetailEvidence: true,
+    summary: {
+      fixtureCount: 0,
+      thresholdFixtureCount: 0,
+      fixturesChecked: 0,
+      frameCountChecked: 0,
+      failedFixtureCount: 0,
+      failedCheckCount: 1,
+      canonicalPromotionAttemptCount: 0,
+      unknownFixtureCount: 0
+    },
+    unknownFixtureIds: [],
+    fixtures: [],
+    failedChecks: ["thresholdProfileMissing"],
+    blockers: [
+      "local_threshold_profile_missing",
+      "retail_capture_required_for_canonical_parity",
+      "retail_runtime_tick_dump_required_for_canonical_parity",
+      "retail_render_contract_snapshot_required_for_canonical_parity",
+      "retail_comparison_required_for_canonical_parity",
+      "local_threshold_checks_are_regression_oracles_only"
+    ],
+    notes: [
+      "The local threshold profile is missing, so no threshold frame checks were run.",
+      "This failure cannot promote canonical retail parity."
+    ]
+  };
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
+  console.log(
+    JSON.stringify(
+      {
+        result: report.result,
+        report: relativePath(outPath),
+        summary: report.summary
+      },
+      null,
+      2
+    )
+  );
 }
 
 function requireBoolean(actual, expected, name, failedChecks) {

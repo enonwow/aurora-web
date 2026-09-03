@@ -43,52 +43,29 @@ function hasModelRefColumn(row, pattern) {
 }
 
 function classifyCapture(row) {
-  const label = String(row.label ?? "").toUpperCase();
   const hasHeadAttachment = hasModelRefColumn(row, /HEAD|EYE|MOUTH|HANDCON/);
-  const isAreaLabel =
-    label.includes("_FNF_") ||
-    label.includes("_AOE_") ||
-    label.startsWith("VFX_CONJ_") ||
-    label.startsWith("PRCVFX_CONJ_") ||
-    label.includes("_AREA_");
-  const isHeadLabel = /(^|_)EYES?(_|$)|(^|_)HEAD(_|$)|GAZE|BAELNEYES|MIND/.test(label);
   const reasons = [];
   let captureMode = "object_turntable";
   let targetMode = "object";
 
-  if (row.typeFD === "B" || label.includes("_BEAM_")) {
+  if (row.typeFD === "B") {
     captureMode = "beam_two_targets";
     targetMode = "beam";
-    reasons.push("beam row: use EffectBeam with source and target objects");
-  } else if (
-    label.startsWith("SCENE_") ||
-    label.includes("_SCENE_") ||
-    label.includes("_WALL") ||
-    label.includes("_PILLAR")
-  ) {
-    captureMode = "large_scene";
-    targetMode = "object";
-    reasons.push("large scene-like asset: wider crop");
+    reasons.push("source Type_FD=B: use EffectBeam with source and target objects");
   } else if (hasHeadAttachment) {
     captureMode = "object_head_closeup";
     targetMode = "object";
-    reasons.push("head/face attachment node: close crop plus front/back pose");
-  } else if (isAreaLabel) {
-    captureMode = "location_area";
-    targetMode = "location";
-    reasons.push("fire-and-forget or area label: apply at location");
-  } else if (isHeadLabel) {
-    captureMode = "object_head_closeup";
-    targetMode = "object";
-    reasons.push("head/face label: close crop plus front/back pose");
+    reasons.push("source model-ref attachment column: close crop plus front/back pose");
   } else if (row.typeFD === "F" && (row.modelRefs ?? []).length === 0) {
     captureMode = "location_area";
     targetMode = "location";
-    reasons.push("F row without object attachment refs: apply at location");
+    reasons.push("source Type_FD=F without object attachment refs: apply at location");
   } else if (row.typeFD === "F") {
     captureMode = "object_instant";
     targetMode = "object";
-    reasons.push("F row with object attachment refs: apply to object");
+    reasons.push("source Type_FD=F with object attachment refs: apply to object");
+  } else {
+    reasons.push("no specialized source contract: use generic object turntable");
   }
 
   return { captureMode, targetMode, reasons };

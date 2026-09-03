@@ -5,6 +5,7 @@ const SIGNAL_EXIT_CODES = new Map([
   ["SIGTERM", 143],
   ["SIGHUP", 129]
 ]);
+const WINDOWS_TASKKILL_TIMEOUT_MS = 5_000;
 
 function isChildProcessRunning(childProcess) {
   return Boolean(
@@ -14,6 +15,27 @@ function isChildProcessRunning(childProcess) {
       childProcess.exitCode === null &&
       childProcess.signalCode === null
   );
+}
+
+export function releaseChildProcessStreams(childProcess) {
+  let released = 0;
+  for (const streamName of ["stdin", "stdout", "stderr"]) {
+    const stream = childProcess?.[streamName];
+    if (!stream || typeof stream.destroy !== "function") {
+      continue;
+    }
+    try {
+      stream.destroy();
+      released += 1;
+    } catch {
+      // Stdio is diagnostic-only after the process tree has been terminated.
+    }
+  }
+  return released;
+}
+
+export function shouldForceCaptureProcessExit(value) {
+  return value === true || value === "true";
 }
 
 export function isProcessAlive(pid, runtimeProcess = process) {
@@ -42,7 +64,8 @@ export function terminateProcessTreeSync(
   if (platform === "win32") {
     spawnSyncImpl("taskkill", ["/PID", String(childProcess.pid), "/T", "/F"], {
       stdio: "ignore",
-      windowsHide: true
+      windowsHide: true,
+      timeout: WINDOWS_TASKKILL_TIMEOUT_MS
     });
   } else {
     try {

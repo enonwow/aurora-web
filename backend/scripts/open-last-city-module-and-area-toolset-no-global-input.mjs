@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import {
   isApprovedToolsetProofWindowLeft,
   TOOLSET_APPROVED_PROOF_WINDOW_LEFT,
 } from "./lib/toolset-startup-load-plan.mjs";
+import { validateVerifiedTemp0RecoveryAdmission } from "./lib/aurora-toolset-verified-temp0-recovery.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const backendRoot = resolve(scriptDir, "..");
@@ -105,6 +106,13 @@ const allowVerifiedTemp0Cache = booleanOption(
   options.allowVerifiedTemp0Cache,
   process.env.AURORA_TOOLSET_ALLOW_VERIFIED_TEMP0_CACHE === "1"
 );
+const verifiedTemp0RecoveryAdmissionPath = options.verifiedTemp0RecoveryAdmission
+  ? resolve(options.verifiedTemp0RecoveryAdmission)
+  : null;
+const verifiedTemp0RecoveryActionAlreadySubmitted = booleanOption(
+  options.verifiedTemp0RecoveryActionAlreadySubmitted,
+  process.env.AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED === "1"
+);
 const allowForceToolsetRestart = booleanOption(
   options.allowForceToolsetRestart,
   process.env.AURORA_TOOLSET_ALLOW_FORCE_RESTART === "1"
@@ -121,10 +129,16 @@ const unsafeToolsetOverrides = [
   ...(allowVerifiedTemp0Cache ? ["allowVerifiedTemp0Cache"] : []),
   ...(allowForceToolsetRestart ? ["allowForceToolsetRestart"] : []),
   ...(allowSecondToolsetStart ? ["allowSecondToolsetStart"] : []),
-  ...(!requireCleanStart ? ["allowExistingToolset"] : []),
-  ...(allowReuseOpenSession ? ["allowReuseOpenSession"] : [])
+  ...(!requireCleanStart && !(canonicalSessionEntrypoint && allowReuseOpenSession)
+    ? ["allowExistingToolset"]
+    : []),
+  ...(allowReuseOpenSession && !canonicalSessionEntrypoint ? ["allowReuseOpenSession"] : [])
 ];
 const approvedLastCitySha256 = "B774037F160A9BE3FCC0E985DDE880A0AE97E10AF2BF868C38A3F6573CBB021E";
+const approvedToolsetSha256 = "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24";
+const toolsetSha256 = existsSync(toolsetExe)
+  ? createHash("sha256").update(readFileSync(toolsetExe)).digest("hex").toUpperCase()
+  : null;
 const moduleSha256 = existsSync(modulePath)
   ? createHash("sha256").update(readFileSync(modulePath)).digest("hex").toUpperCase()
   : null;
@@ -134,6 +148,27 @@ const canonicalPinnedLastCityProbe = Boolean(
     moduleSha256 === approvedLastCitySha256 &&
     (preflightOnly || canonicalSessionEntrypoint),
 );
+const verifiedTemp0RecoveryAdmission = loadVerifiedTemp0RecoveryAdmission();
+if (toolsetSha256 !== null && toolsetSha256 !== approvedToolsetSha256) {
+  console.log(
+    JSON.stringify(
+      {
+        ok: false,
+        blockerCode: "toolset_binary_semantic_binding_mismatch",
+        toolsetExe,
+        expectedSha256: approvedToolsetSha256,
+        actualSha256: toolsetSha256,
+        safety: {
+          method:
+            "fail closed before launch because the Welcome/MRU transition is authorized only for the exact reverse-audited nwtoolset.exe"
+        }
+      },
+      null,
+      2
+    )
+  );
+  process.exit(2);
+}
 if (!isApprovedToolsetProofWindowLeft(targetWindowLeft)) {
   console.log(
     JSON.stringify(
@@ -213,8 +248,8 @@ if (startupPassiveObservationMs < DEFAULT_TOOLSET_STARTUP_PASSIVE_OBSERVATION_MS
 const isApprovedQuarantinedRetryTarget =
   canonicalPinnedLastCityProbe;
 const isApprovedVerifiedTemp0CacheTarget =
-  basename(modulePath).toLowerCase() === "the_last_city - codex.mod" &&
-  allowVerifiedTemp0Cache &&
+  verifiedTemp0RecoveryAdmission != null &&
+  canonicalSessionEntrypoint &&
   requireCleanStart;
 const conceptTilemapLabMaxBytes = 10 * 1024 * 1024;
 
@@ -438,6 +473,7 @@ if (preflightOnly) {
         requireCleanStart,
         allowRepeatedAccessViolationFamily,
         canUseVerifiedTemp0Cache,
+        verifiedTemp0RecoveryAdmission,
         existingToolsetProcesses,
         temp0: temp0Status,
         modulePath,
@@ -498,19 +534,25 @@ if (moduleOpenSessionGuard.ok !== true) {
 }
 
 const preflightUnsafeModal = detectToolsetAccessViolation();
-const iniStaging = preflightUnsafeModal.detected
+const verifiedRecoveryPromptContinuation =
+  preflightUnsafeModal.detected === true
+  && preflightUnsafeModal.blockerCode === "toolset_recovery_prompt"
+  && verifiedTemp0RecoveryAdmission != null
+  && canonicalSessionEntrypoint
+  && allowReuseOpenSession
+  && existingToolsetProcesses.length === 1;
+const iniStaging = preflightUnsafeModal.detected && !verifiedRecoveryPromptContinuation
   ? { ok: false, skipped: true, reason: "unsafe_modal_preflight" }
-  : stageToolsetWindowPosition(
+  : inspectToolsetIniReadOnly(
       modulePath,
-      { left: targetWindowLeft, top: targetWindowTop },
-      { apply: !preflightOnly }
+      { left: targetWindowLeft, top: targetWindowTop }
     );
 const startupLoadPlan = buildToolsetStartupLoadPlan({
   modulePath,
   currentMru0: iniStaging.currentMru0,
   passiveObservationMs: startupPassiveObservationMs,
 });
-if (preflightUnsafeModal.detected) {
+if (preflightUnsafeModal.detected && !verifiedRecoveryPromptContinuation) {
   console.log(
     JSON.stringify(
       {
@@ -786,11 +828,14 @@ function createModuleOpenSessionGuard({
   const activeGuardStaleAfterMs = timeoutMs + 30_000;
   const activeGuardStillFresh =
     existingGuardAgeMs === null || existingGuardAgeMs <= activeGuardStaleAfterMs;
+  const terminalFailureWithoutVisibleProcess =
+    existingState === "module_open_failed" && liveToolsetProcessCount === 0;
   const existingIsActive =
     existingGuard &&
     existingState !== "released" &&
     existingState !== "stale_replaced" &&
-    existingState !== "ignored_no_live_toolset_process";
+    existingState !== "ignored_no_live_toolset_process" &&
+    !terminalFailureWithoutVisibleProcess;
 
   if (existingIsActive && activeGuardStillFresh && !allowReuseOpenSession) {
     return {
@@ -826,7 +871,9 @@ function createModuleOpenSessionGuard({
     liveToolsetProcessCountAtAcquire: liveToolsetProcessCount,
     allowReuseOpenSession,
     replacedPreviousGuard:
-      existingGuard && !activeGuardStillFresh && liveToolsetProcessCount === 0
+      existingGuard &&
+      liveToolsetProcessCount === 0 &&
+      (!activeGuardStillFresh || terminalFailureWithoutVisibleProcess)
         ? summarizeModuleOpenSessionGuard(existingGuard)
         : null,
     reusedActiveGuard:
@@ -944,10 +991,7 @@ function runAreaOpenChild() {
   }
 }
 
-function stageToolsetWindowPosition(targetModulePath, targetWindowPosition, { apply = true } = {}) {
-  if (process.env.AURORA_TOOLSET_DISABLE_MRU_STAGING === "1") {
-    return { ok: false, skipped: true, reason: "disabled_by_legacy_mru_staging_env" };
-  }
+function inspectToolsetIniReadOnly(targetModulePath, targetWindowPosition) {
   if (!targetModulePath || !existsSync(targetModulePath)) {
     return { ok: false, skipped: true, reason: "target_module_missing", targetModulePath };
   }
@@ -962,12 +1006,11 @@ function stageToolsetWindowPosition(targetModulePath, targetWindowPosition, { ap
 
   const original = readFileSync(iniPath);
   const text = original.toString("latin1");
-  const newline = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
   const currentMru0 = lines.find((line) => /^MRU0=/iu.test(line))?.slice(5).trim() ?? null;
   const applicationIndex = lines.findIndex((line) => line.trim().toLowerCase() === "[application]");
   const previousWindowPosition = {};
-  let windowPositionAction = "skipped_application_section_missing";
+  let windowPositionAction = "unavailable_application_section_missing";
   if (applicationIndex >= 0) {
     let applicationSectionEnd = lines.length;
     for (let index = applicationIndex + 1; index < lines.length; index += 1) {
@@ -976,45 +1019,28 @@ function stageToolsetWindowPosition(targetModulePath, targetWindowPosition, { ap
         break;
       }
     }
-    for (const [key, value] of [
-      ["Left", targetWindowPosition.left],
-      ["Top", targetWindowPosition.top]
-    ]) {
+    for (const key of ["Left", "Top"]) {
       const entryIndex = lines.findIndex(
         (line, index) =>
           index > applicationIndex && index < applicationSectionEnd && new RegExp(`^${key}=`, "i").test(line)
       );
       if (entryIndex >= 0) {
         previousWindowPosition[key.toLowerCase()] = lines[entryIndex].slice(key.length + 1);
-        lines[entryIndex] = `${key}=${value}`;
-      } else {
-        lines.splice(applicationSectionEnd, 0, `${key}=${value}`);
-        applicationSectionEnd += 1;
       }
     }
-    windowPositionAction = "staged_before_toolset_start";
+    windowPositionAction = "observed_read_only";
   }
-
-  const next = lines.join(newline);
-  if (next !== text && apply) {
-    writeFileSync(iniPath, Buffer.from(next, "latin1"));
-  }
-
   return {
     ok: true,
-    action:
-      next === text
-        ? "unchanged"
-        : apply
-          ? "window_position_staged"
-          : "window_position_would_be_staged",
-    applied: next !== text && apply,
+    action: "read_only",
+    applied: false,
     iniPath,
-    recentFilesAction: "preserved",
+    recentFilesAction: "observed_only",
     currentMru0,
     windowPositionAction,
     previousWindowPosition,
-    nextWindowPosition: targetWindowPosition,
+    requestedWindowPosition: targetWindowPosition,
+    iniMutationForbidden: true,
     encoding: "latin1-preserve-existing-bytes"
   };
 }
@@ -1072,6 +1098,57 @@ function getToolsetTemp0Status() {
     path,
     moduleIfoExists: existsSync(join(path, "module.ifo"))
   };
+}
+
+function loadVerifiedTemp0RecoveryAdmission() {
+  if (!verifiedTemp0RecoveryAdmissionPath) return null;
+  try {
+    const stat = lstatSync(verifiedTemp0RecoveryAdmissionPath);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error("verified_temp0_recovery_manifest_not_exact_file");
+    }
+    const owner = JSON.parse(readFileSync(verifiedTemp0RecoveryAdmissionPath, "utf8"));
+    const exactFailedContinuationOwner =
+      owner?.status === "failed"
+      && canonicalSessionEntrypoint
+      && allowReuseOpenSession
+      && owner?.openFailure?.child?.blockerCode === "binary_native_child_process_failed"
+      && owner?.openFailure?.child?.childScript === "open-last-city-module-and-area-toolset-no-global-input.mjs"
+      && Array.isArray(owner?.openFailure?.postChildProcesses)
+      && owner.openFailure.postChildProcesses.length === 1
+      && owner.openFailure.postChildProcesses[0]?.Responding === true
+      && owner?.openFailure?.postChildWindows?.ok === true;
+    if (
+      owner?.version !== "aurora-toolset-binary-native-geometry-manifest/v1"
+      || (owner?.status !== "prepared" && !exactFailedContinuationOwner)
+      || owner?.module?.sha256 !== moduleSha256?.toLowerCase()
+    ) {
+      throw new Error("verified_temp0_recovery_owner_manifest_mismatch");
+    }
+    return validateVerifiedTemp0RecoveryAdmission(
+      owner.verifiedTemp0RecoveryAdmission,
+      {
+        modulePath,
+        temp0Path: join(dirname(modulePath), "temp0"),
+      },
+    );
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      blockerCode: error?.code ?? "verified_temp0_recovery_admission_invalid",
+      message: error instanceof Error ? error.message : String(error),
+      verifiedTemp0RecoveryAdmissionPath,
+      modulePath,
+      safety: {
+        usesGlobalCursor: false,
+        usesGlobalKeyboard: false,
+        usesGlobalMouseWheel: false,
+        usesGlobalDrag: false,
+        method: "read-only exact MOD-to-temp0 admission validation before Toolset launch",
+      },
+    }, null, 2));
+    process.exit(2);
+  }
 }
 
 function findDefaultLastCityModulePath() {
@@ -1440,6 +1517,8 @@ $startupLoadMode = $env:AURORA_TOOLSET_STARTUP_LOAD_MODE
 $plannedLoadOwner = $env:AURORA_TOOLSET_PLANNED_LOAD_OWNER
 $observedExternalLoadOwner = $env:AURORA_TOOLSET_OBSERVED_EXTERNAL_LOAD_OWNER
 $startupPassiveObservationMs = [int]$env:AURORA_TOOLSET_STARTUP_PASSIVE_OBSERVATION_MS
+$allowVerifiedTemp0Recovery = $env:AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY -eq '1'
+$verifiedTemp0RecoveryActionAlreadySubmitted = $env:AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED -eq '1'
 $allowForceToolsetRestart = $false
 $allowSecondToolsetStart = $false
 $moduleOpenTimeoutMs = [int]$env:AURORA_TOOLSET_MODULE_OPEN_TIMEOUT_MS
@@ -1462,6 +1541,9 @@ public static class LastCityToolsetModuleOpen {
   public static extern bool IsWindowVisible(IntPtr hWnd);
 
   [DllImport("user32.dll")]
+  public static extern bool IsWindowEnabled(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
   public static extern bool IsHungAppWindow(IntPtr hWnd);
 
   [DllImport("user32.dll")]
@@ -1474,7 +1556,22 @@ public static class LastCityToolsetModuleOpen {
   public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
   [DllImport("user32.dll")]
+  public static extern IntPtr GetParent(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern int GetDlgCtrlID(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
   public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+
+  [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern IntPtr SendMessageTimeoutText(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+
+  [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern IntPtr SendMessageTimeoutBuilder(IntPtr hWnd, uint Msg, IntPtr wParam, StringBuilder lParam, uint flags, uint timeout, out IntPtr result);
 
   [DllImport("user32.dll", EntryPoint="SendMessageW", CharSet=CharSet.Unicode)]
   public static extern IntPtr SendMessageString(IntPtr hWnd, uint Msg, IntPtr wParam, StringBuilder lParam);
@@ -1484,6 +1581,9 @@ public static class LastCityToolsetModuleOpen {
 
   [DllImport("user32.dll")]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
   public struct RECT {
     public int Left;
@@ -1497,6 +1597,24 @@ public static class LastCityToolsetModuleOpen {
 function Get-WindowTextValue([IntPtr]$hwnd) {
   $builder = New-Object System.Text.StringBuilder 512
   [void][LastCityToolsetModuleOpen]::GetWindowText($hwnd, $builder, 512)
+  return $builder.ToString()
+}
+
+function Get-ControlTextValue([IntPtr]$hwnd) {
+  $WM_GETTEXT = 0x000D
+  $SMTO_ABORTIFHUNG = 2
+  $builder = New-Object System.Text.StringBuilder 512
+  $messageResult = [IntPtr]::Zero
+  $sent = [LastCityToolsetModuleOpen]::SendMessageTimeoutBuilder(
+    $hwnd,
+    $WM_GETTEXT,
+    [IntPtr]$builder.Capacity,
+    $builder,
+    $SMTO_ABORTIFHUNG,
+    2000,
+    [ref]$messageResult
+  )
+  if ($sent -eq [IntPtr]::Zero) { throw 'control_text_read_timeout' }
   return $builder.ToString()
 }
 
@@ -1639,6 +1757,7 @@ function Get-ChildTextMap([IntPtr]$parent) {
       title = Get-WindowTextValue $hwnd
       className = Get-ClassNameValue $hwnd
       visible = [LastCityToolsetModuleOpen]::IsWindowVisible($hwnd)
+      enabled = [LastCityToolsetModuleOpen]::IsWindowEnabled($hwnd)
       bounds = Get-WindowRectValue $hwnd
     }
     return $true
@@ -1648,24 +1767,40 @@ function Get-ChildTextMap([IntPtr]$parent) {
 }
 
 function Find-WelcomeOpenExistingControls {
-  foreach ($window in (Get-ToolsetTopWindows | Where-Object { $_.visible })) {
-    if ($window.title -ne 'BioWare Aurora Neverwinter Nights Toolset') {
-      continue
+  $welcomeDialogs = @(
+    Get-ToolsetTopWindows | Where-Object {
+      $_.visible -and
+      $_.className -eq 'TdlgWelcome' -and
+      $_.title -eq 'BioWare Aurora Neverwinter Nights Toolset'
     }
-    $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
-    $openRadio = @($children | Where-Object { $_.title -eq 'Open an existing Module' -and $_.visible }) | Select-Object -First 1
-    $okButton = @($children | Where-Object { $_.title -eq 'OK' -and $_.visible }) | Select-Object -First 1
-    if ($null -ne $openRadio -and $null -ne $okButton) {
-      return [pscustomobject]@{
-        hwnd = $window.hwnd
-        title = $window.title
-        openRadioHwnd = $openRadio.hwnd
-        okButtonHwnd = $okButton.hwnd
-        childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
-      }
-    }
+  )
+  if (@($welcomeDialogs).Count -eq 0) {
+    return $null
   }
-  return $null
+  if (@($welcomeDialogs).Count -ne 1) {
+    throw "expected_one_welcome_dialog:$(@($welcomeDialogs).Count)"
+  }
+  $window = $welcomeDialogs[0]
+  $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
+  $startNormallyRadios = @($children | Where-Object { $_.className -eq 'TRadioButton' -and $_.title -eq 'Start normally' -and $_.visible -and $_.enabled })
+  $openRadios = @($children | Where-Object { $_.className -eq 'TRadioButton' -and $_.title -eq 'Open an existing Module' -and $_.visible -and $_.enabled })
+  $okButtons = @($children | Where-Object { $_.className -eq 'TButton' -and $_.title -eq 'OK' -and $_.visible -and $_.enabled })
+  $recentModulesLists = @($children | Where-Object { $_.className -eq 'TListBox' -and $_.visible -and $_.enabled })
+  if (@($recentModulesLists).Count -ne 1) {
+    throw "expected_one_welcome_recent_modules_list:$(@($recentModulesLists).Count)"
+  }
+  if (@($startNormallyRadios).Count -ne 1 -or @($openRadios).Count -ne 1 -or @($okButtons).Count -ne 1) {
+    throw "expected_exact_welcome_controls:start=$(@($startNormallyRadios).Count):open=$(@($openRadios).Count):ok=$(@($okButtons).Count)"
+  }
+  return [pscustomobject]@{
+    hwnd = $window.hwnd
+    title = $window.title
+    startNormallyRadioHwnd = $startNormallyRadios[0].hwnd
+    openRadioHwnd = $openRadios[0].hwnd
+    okButtonHwnd = $okButtons[0].hwnd
+    recentModulesListHwnd = $recentModulesLists[0].hwnd
+    childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
+  }
 }
 
 function Find-RecoveryConfirmationControls {
@@ -1673,57 +1808,77 @@ function Find-RecoveryConfirmationControls {
     $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
     $childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
     $combinedText = ($childTexts -join [Environment]::NewLine).ToLowerInvariant()
-    $isRecoverableBackupPrompt =
-      $combinedText.Contains('toolset did not close properly') -and
-      $combinedText.Contains('backup')
+    $expectedRecoveryText =
+      "The toolset did not close properly last time it was used." +
+      [Environment]::NewLine +
+      "A module was found, would you like to try to recover it?" +
+      [Environment]::NewLine +
+      "Pressing 'No' will destroy the backup."
+    $recoveryMessageMatches = @(
+      $children | Where-Object {
+        $_.visible -and
+        $_.className -eq 'Static' -and
+        $_.title.Replace([string][char]13, [string]::Empty) -eq $expectedRecoveryText.Replace([string][char]13, [string]::Empty)
+      }
+    )
+    $isRecoverableBackupPrompt = @($recoveryMessageMatches).Count -eq 1
     $isTemporaryDirectoryCleanupPrompt =
       $combinedText.Contains('temporary working directory') -and
       $combinedText.Contains('no module information file to recover')
     if (-not $isRecoverableBackupPrompt -and -not $isTemporaryDirectoryCleanupPrompt) {
       continue
     }
-    $yesButton = @(
+    $yesButtons = @(
       $children | Where-Object {
         $_.visible -and
         ($_.title.Replace('&', '') -eq 'Tak' -or $_.title.Replace('&', '') -eq 'Yes')
       }
-    ) | Select-Object -First 1
-    $noButton = @(
+    )
+    $noButtons = @(
       $children | Where-Object {
         $_.visible -and
         ($_.title.Replace('&', '') -eq 'Nie' -or $_.title.Replace('&', '') -eq 'No')
       }
-    ) | Select-Object -First 1
-    if ($null -ne $yesButton -or $null -ne $noButton) {
-      return [pscustomobject]@{
-        hwnd = $window.hwnd
-        title = $window.title
-        yesButtonHwnd = if ($null -ne $yesButton) { $yesButton.hwnd } else { $null }
-        noButtonHwnd = if ($null -ne $noButton) { $noButton.hwnd } else { $null }
-        promptKind = if ($isTemporaryDirectoryCleanupPrompt) { 'temporary_working_directory_cleanup' } else { 'recoverable_backup' }
-        childTexts = $childTexts
-      }
+    )
+    return [pscustomobject]@{
+      hwnd = $window.hwnd
+      title = $window.title
+      yesButtonHwnd = if (@($yesButtons).Count -eq 1) { $yesButtons[0].hwnd } else { $null }
+      noButtonHwnd = if (@($noButtons).Count -eq 1) { $noButtons[0].hwnd } else { $null }
+      yesButtonCount = @($yesButtons).Count
+      noButtonCount = @($noButtons).Count
+      recoveryMessageCount = @($recoveryMessageMatches).Count
+      promptKind = if ($isTemporaryDirectoryCleanupPrompt) { 'temporary_working_directory_cleanup' } else { 'recoverable_backup' }
+      childTexts = $childTexts
     }
   }
   return $null
 }
 
 function Find-OpenModuleDialogControls {
-  foreach ($window in (Get-VisibleToolsetTopWindows | Where-Object { $_.title -eq 'Open' -and $_.className -eq 'TdlgModuleSelect' })) {
-    $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
-    $listBox = @($children | Where-Object { $_.className -eq 'TListBox' -and $_.visible }) | Select-Object -First 1
-    $openButton = @($children | Where-Object { $_.className -eq 'TButton' -and $_.title -eq 'Open' -and $_.visible }) | Select-Object -First 1
-    if ($null -ne $listBox -and $null -ne $openButton) {
-      return [pscustomobject]@{
-        hwnd = $window.hwnd
-        title = $window.title
-        listBoxHwnd = $listBox.hwnd
-        openButtonHwnd = $openButton.hwnd
-        childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
-      }
-    }
+  $dialogs = @(Get-VisibleToolsetTopWindows | Where-Object { $_.title -eq 'Open' -and $_.className -eq 'TdlgModuleSelect' })
+  if (@($dialogs).Count -eq 0) {
+    return $null
   }
-  return $null
+  if (@($dialogs).Count -ne 1) {
+    throw "expected_one_open_module_dialog:$(@($dialogs).Count)"
+  }
+  $window = $dialogs[0]
+  $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
+  $listBoxes = @($children | Where-Object { $_.className -eq 'TListBox' -and $_.visible -and $_.enabled })
+  $moduleNameEdits = @($children | Where-Object { $_.className -eq 'TEdit' -and $_.visible -and $_.enabled })
+  $openButtons = @($children | Where-Object { $_.className -eq 'TButton' -and $_.title -eq 'Open' -and $_.visible -and $_.enabled })
+  if (@($listBoxes).Count -ne 1 -or @($moduleNameEdits).Count -ne 1 -or @($openButtons).Count -ne 1) {
+    throw "expected_exact_open_module_controls:list=$(@($listBoxes).Count):edit=$(@($moduleNameEdits).Count):open=$(@($openButtons).Count)"
+  }
+  return [pscustomobject]@{
+    hwnd = $window.hwnd
+    title = $window.title
+    listBoxHwnd = $listBoxes[0].hwnd
+    moduleNameEditHwnd = $moduleNameEdits[0].hwnd
+    openButtonHwnd = $openButtons[0].hwnd
+    childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
+  }
 }
 
 function Close-OpenModuleDialogs {
@@ -1756,18 +1911,35 @@ function Test-ExpectedModuleFrameLoaded {
   return $null -ne (Find-LoadedExpectedModuleWindow)
 }
 
-function Find-StartupModuleLoadSignal {
+function Find-StartupModuleLoadSignal($expectedOpenDialogTransition) {
   foreach ($window in (Get-VisibleToolsetTopWindows)) {
     if ($window.className -ne 'TdlgProgress') {
       continue
     }
     $children = Get-ChildTextMap ([IntPtr][int64]$window.hwnd)
+    $childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
+    $combinedText = (@($window.title) + $childTexts) -join [Environment]::NewLine
+    $expectedOpenTransitionProgress = $expectedOpenDialogTransition
+    if ($combinedText -match 'Loading Custom Palettes' -or $expectedOpenTransitionProgress) {
+      $progress = [pscustomobject]@{
+        kind = 'startup_non_module_progress'
+        reason = if ($expectedOpenTransitionProgress) {
+          if ([string]::IsNullOrWhiteSpace($combinedText)) { 'post_welcome_open_transition_anonymous_progress' } else { 'post_welcome_open_transition_progress' }
+        } else { 'loading_custom_palettes' }
+        hwnd = $window.hwnd
+        title = $window.title
+        className = $window.className
+        childTexts = $childTexts
+      }
+      $script:startupNonModuleProgress += $progress
+      continue
+    }
     return [pscustomobject]@{
       kind = 'progress_dialog'
       hwnd = $window.hwnd
       title = $window.title
       className = $window.className
-      childTexts = @($children | Where-Object { $_.title } | ForEach-Object { $_.title })
+      childTexts = $childTexts
     }
   }
   return $null
@@ -1830,14 +2002,67 @@ function Find-BlockingToolsetModalWindow {
 
 function Invoke-WelcomeOpenExisting($welcome) {
   $BM_CLICK = 0x00F5
+  $BM_GETCHECK = 0x00F0
   $BM_SETCHECK = 0x00F1
+  $LB_GETCURSEL = 0x0188
+  $LB_SETCURSEL = 0x0186
   $BST_CHECKED = 1
+  $startNormallyRadio = ([IntPtr][int64]$welcome.startNormallyRadioHwnd)
   $openRadio = ([IntPtr][int64]$welcome.openRadioHwnd)
   $okButton = ([IntPtr][int64]$welcome.okButtonHwnd)
-  [void][LastCityToolsetModuleOpen]::SendMessage($openRadio, $BM_SETCHECK, [IntPtr]$BST_CHECKED, [IntPtr]::Zero)
-  [void][LastCityToolsetModuleOpen]::SendMessage($openRadio, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
-  Start-Sleep -Milliseconds 250
-  [void][LastCityToolsetModuleOpen]::SendMessage($okButton, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+  $recentModulesList = ([IntPtr][int64]$welcome.recentModulesListHwnd)
+  $startNormallyBefore = [LastCityToolsetModuleOpen]::SendMessage($startNormallyRadio, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $setCheckResult = [IntPtr]::Zero
+  $setCheckSent = [LastCityToolsetModuleOpen]::SendMessageTimeout($openRadio, $BM_SETCHECK, [IntPtr]$BST_CHECKED, [IntPtr]::Zero, 2, 2000, [ref]$setCheckResult)
+  if ($setCheckSent -eq [IntPtr]::Zero) {
+    throw 'welcome_open_existing_radio_setcheck_send_timeout_failed'
+  }
+  $setCheckReadback = [LastCityToolsetModuleOpen]::SendMessage($openRadio, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $startNormallyAfterSetCheck = [LastCityToolsetModuleOpen]::SendMessage($startNormallyRadio, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  if ($setCheckReadback -ne $BST_CHECKED) {
+    throw "welcome_open_existing_radio_setcheck_not_checked:$setCheckReadback"
+  }
+  if ($startNormallyAfterSetCheck -eq $BST_CHECKED) {
+    throw "welcome_radio_group_exclusivity_unverified:open=$setCheckReadback:start=$startNormallyAfterSetCheck"
+  }
+  $nativeResult = [IntPtr]::Zero
+  $sent = [LastCityToolsetModuleOpen]::SendMessageTimeout($openRadio, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero, 2, 2000, [ref]$nativeResult)
+  if ($sent -eq [IntPtr]::Zero) {
+    throw 'welcome_open_existing_radio_send_timeout_failed'
+  }
+  $radioCheckReadback = [LastCityToolsetModuleOpen]::SendMessage($openRadio, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $startNormallyAfterClick = [LastCityToolsetModuleOpen]::SendMessage($startNormallyRadio, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  if ($radioCheckReadback -ne $BST_CHECKED) {
+    throw "welcome_open_existing_radio_not_checked:$radioCheckReadback"
+  }
+  if ($startNormallyAfterClick -eq $BST_CHECKED) {
+    throw "welcome_radio_group_exclusivity_unverified_after_click:open=$radioCheckReadback:start=$startNormallyAfterClick"
+  }
+  $recentSelectionBeforeClear = [LastCityToolsetModuleOpen]::SendMessage($recentModulesList, $LB_GETCURSEL, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $recentSelectionClearResult = [LastCityToolsetModuleOpen]::SendMessage($recentModulesList, $LB_SETCURSEL, [IntPtr](-1), [IntPtr]::Zero).ToInt32()
+  $recentSelectionAfterClear = [LastCityToolsetModuleOpen]::SendMessage($recentModulesList, $LB_GETCURSEL, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  if ($recentSelectionAfterClear -ne -1) {
+    throw "welcome_recent_module_selection_not_cleared:before=$recentSelectionBeforeClear:after=$recentSelectionAfterClear"
+  }
+  $okPosted = [LastCityToolsetModuleOpen]::PostMessage($okButton, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+  if (-not $okPosted) {
+    throw 'welcome_open_existing_ok_post_failed'
+  }
+  return [pscustomobject]@{
+    ok = $true
+    startNormallyBefore = $startNormallyBefore
+    startNormallyAfterSetCheck = $startNormallyAfterSetCheck
+    startNormallyAfterClick = $startNormallyAfterClick
+    setCheckReadback = $setCheckReadback
+    setCheckSendResult = $setCheckResult.ToInt64()
+    radioCheckReadback = $radioCheckReadback
+    radioSendResult = $nativeResult.ToInt64()
+    recentSelectionBeforeClear = $recentSelectionBeforeClear
+    recentSelectionClearResult = $recentSelectionClearResult
+    recentSelectionAfterClear = $recentSelectionAfterClear
+    okPosted = $okPosted
+    transport = 'verified radio BM_SETCHECK plus synchronous BM_CLICK and BM_GETCHECK readbacks; exact recent-module TListBox selection clear to -1 plus LB_GETCURSEL readback; then posted OK without a blind startup delay'
+  }
 }
 
 function Invoke-BlankFrameOpenModuleDialog {
@@ -1854,6 +2079,9 @@ function Invoke-OpenModuleDialogSelection($dialog) {
   $LB_GETTEXT = 0x0189
   $LB_GETTEXTLEN = 0x018A
   $LB_SETCURSEL = 0x0186
+  $LB_GETCURSEL = 0x0188
+  $WM_SETTEXT = 0x000C
+  $SMTO_ABORTIFHUNG = 2
   $BM_CLICK = 0x00F5
 
   function Get-ListBoxItemText([IntPtr]$listHwnd, [int]$index) {
@@ -1912,23 +2140,57 @@ function Invoke-OpenModuleDialogSelection($dialog) {
       dialog = $dialog
     }
   }
-  $selected = [LastCityToolsetModuleOpen]::SendMessage(([IntPtr][int64]$dialog.listBoxHwnd), $LB_SETCURSEL, [IntPtr]$moduleListIndex, [IntPtr]::Zero).ToInt32()
-  Start-Sleep -Milliseconds 200
-  [void][LastCityToolsetModuleOpen]::SendMessage(([IntPtr][int64]$dialog.openButtonHwnd), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+  $selectedItemText = (@($items | Where-Object { $_.index -eq $moduleListIndex }) | Select-Object -First 1).text
+  $listHwnd = ([IntPtr][int64]$dialog.listBoxHwnd)
+  $moduleNameEditHwnd = ([IntPtr][int64]$dialog.moduleNameEditHwnd)
+  $moduleNameEditBefore = Get-ControlTextValue $moduleNameEditHwnd
+  $selectionBefore = [LastCityToolsetModuleOpen]::SendMessage($listHwnd, $LB_GETCURSEL, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  $selectionResult = [LastCityToolsetModuleOpen]::SendMessage($listHwnd, $LB_SETCURSEL, [IntPtr]$moduleListIndex, [IntPtr]::Zero).ToInt32()
+  $selectionReadback = [LastCityToolsetModuleOpen]::SendMessage($listHwnd, $LB_GETCURSEL, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+  if ($selectionReadback -ne $moduleListIndex) {
+    throw "open_module_list_selection_readback_mismatch:expected=$moduleListIndex:actual=$selectionReadback:result=$selectionResult"
+  }
+  $editWriteResult = [IntPtr]::Zero
+  $editWriteSent = [LastCityToolsetModuleOpen]::SendMessageTimeoutText(
+    $moduleNameEditHwnd,
+    $WM_SETTEXT,
+    [IntPtr]::Zero,
+    $selectedItemText,
+    $SMTO_ABORTIFHUNG,
+    2000,
+    [ref]$editWriteResult
+  )
+  if ($editWriteSent -eq [IntPtr]::Zero) { throw 'open_module_name_edit_write_timeout' }
+  if ($editWriteResult -eq [IntPtr]::Zero) { throw 'open_module_name_edit_write_failed' }
+  $moduleNameEditReadback = Get-ControlTextValue $moduleNameEditHwnd
+  if ($moduleNameEditReadback -cne $selectedItemText) {
+    throw "module_name_edit_readback_mismatch:expected=$($selectedItemText):actual=$($moduleNameEditReadback)"
+  }
+  $openPosted = [LastCityToolsetModuleOpen]::PostMessage(([IntPtr][int64]$dialog.openButtonHwnd), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+  if (-not $openPosted) {
+    throw 'open_module_dialog_open_post_failed'
+  }
   return [pscustomobject]@{
     ok = $true
     listCount = $count
     moduleListIndex = $moduleListIndex
-    selectedItemText = (@($items | Where-Object { $_.index -eq $moduleListIndex }) | Select-Object -First 1).text
+    selectedItemText = $selectedItemText
     matchedBy = 'expected_module_exact_text'
-    selected = $selected
+    selectionBefore = $selectionBefore
+    selectionResult = $selectionResult
+    selectionReadback = $selectionReadback
+    selectionTransport = 'exact eModuleName WM_SETTEXT after exact TListBox selection readback; native bOKClick consumes eModuleName'
+    editWriteResult = $editWriteResult.ToInt64()
+    moduleNameEditBefore = $moduleNameEditBefore
+    moduleNameEditReadback = $moduleNameEditReadback
+    openPosted = $openPosted
     dialog = $dialog
   }
 }
 
 $startedToolset = $false
-$recoveryConfirmationHandled = $false
-$recoveryConfirmationHandledCount = 0
+$recoveryConfirmationHandled = $verifiedTemp0RecoveryActionAlreadySubmitted
+$recoveryConfirmationHandledCount = if ($verifiedTemp0RecoveryActionAlreadySubmitted) { 1 } else { 0 }
 $recoveryConfirmationProbe = $null
 $openModuleDialogRequested = $false
 $openModuleDialogHandled = $false
@@ -1939,18 +2201,20 @@ $blankFrameRestarted = $false
 $blankFrameRestartBlocked = $false
 $welcomeHandled = $false
 $welcomeProbe = $null
+$welcomeActionResult = $null
 $staleProcessCleanup = $false
 $closedOpenModuleDialogs = @()
 $closedStaleWelcomeDialogs = @()
 $postLoadBlockingModal = $null
 $postSelectionBlockingModal = $null
-$moduleOpenActionSubmitted = $false
-$moduleOpenActionSubmittedAt = $null
-$moduleOpenActionKind = $null
-$moduleLoadOwner = $null
-$moduleLoadOwnershipClaimedAt = $null
+$moduleOpenActionSubmitted = $verifiedTemp0RecoveryActionAlreadySubmitted
+$moduleOpenActionSubmittedAt = if ($verifiedTemp0RecoveryActionAlreadySubmitted) { Get-Date } else { $null }
+$moduleOpenActionKind = if ($verifiedTemp0RecoveryActionAlreadySubmitted) { 'verified_temp0_recovery_yes_client_click' } else { $null }
+$moduleLoadOwner = if ($verifiedTemp0RecoveryActionAlreadySubmitted) { 'verified_temp0_recovery' } else { $null }
+$moduleLoadOwnershipClaimedAt = if ($verifiedTemp0RecoveryActionAlreadySubmitted) { Get-Date } else { $null }
 $moduleLoadedPreActionGuardCount = 0
 $startupLoadSignals = @()
+$startupNonModuleProgress = @()
 $startupObservationStartedAt = $null
 $startupObservationCompletedAt = $null
 $startupStableSurfaceKind = $null
@@ -1989,7 +2253,6 @@ if ((Get-ToolsetProcessIds).Count -gt 0 -and (Get-UsableToolsetTopWindows).Count
 if ((Get-ToolsetProcessIds).Count -eq 0) {
   Start-Process -FilePath $toolsetExe
   $startedToolset = $true
-  Start-Sleep -Seconds 3
 }
 $startupObservationStartedAt = Get-Date
 
@@ -2090,7 +2353,18 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
       modulePath = $modulePath
       moduleLoadOwner = $moduleLoadOwner
       moduleLoadOwnershipClaimedAt = $moduleLoadOwnershipClaimedAt
+      welcomeHandled = $welcomeHandled
+      welcomeProbe = $welcomeProbe
+      welcomeActionResult = $welcomeActionResult
+      openModuleDialogRequested = $openModuleDialogRequested
+      openModuleDialogHandled = $openModuleDialogHandled
+      openModuleDialogHandledAt = $openModuleDialogHandledAt
+      openModuleDialogProbe = $openModuleDialogProbe
+      openModuleDialogResult = $openModuleDialogResult
+      explicitOpenEligibilityGranted = $explicitOpenEligibilityGranted
+      startupStableSurfaceKind = $startupStableSurfaceKind
       startupLoadSignals = @($startupLoadSignals)
+      startupNonModuleProgress = @($startupNonModuleProgress)
       topLevelToolsetWindows = Get-VisibleToolsetTopWindows
     } | ConvertTo-Json -Depth 8
     exit 0
@@ -2098,14 +2372,63 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
 
   $recoveryConfirmationProbe = Find-RecoveryConfirmationControls
   if ($null -ne $recoveryConfirmationProbe) {
-    if ($null -eq $moduleLoadOwner) {
-      $moduleLoadOwner = 'recovery'
+    $verifiedRecoveryPrompt =
+      $allowVerifiedTemp0Recovery -and
+      $recoveryConfirmationProbe.promptKind -eq 'recoverable_backup' -and
+      $recoveryConfirmationProbe.recoveryMessageCount -eq 1 -and
+      $recoveryConfirmationProbe.yesButtonCount -eq 1 -and
+      $recoveryConfirmationProbe.noButtonCount -eq 1 -and
+      $null -ne $recoveryConfirmationProbe.yesButtonHwnd
+    if ($verifiedRecoveryPrompt -and $recoveryConfirmationHandledCount -eq 0) {
+      $BM_CLICK = 0x00F5
+      $moduleLoadOwner = 'verified_temp0_recovery'
       $moduleLoadOwnershipClaimedAt = Get-Date
+      $moduleOpenActionSubmitted = $true
+      $moduleOpenActionSubmittedAt = $moduleLoadOwnershipClaimedAt
+      $moduleOpenActionKind = 'verified_temp0_recovery_yes'
+      $posted = [LastCityToolsetModuleOpen]::PostMessage(([IntPtr][int64]$recoveryConfirmationProbe.yesButtonHwnd), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+      if (-not $posted) {
+        [pscustomobject]@{
+          ok = $false
+          blockerCode = 'toolset_verified_temp0_recovery_post_failed'
+          method = 'targeted PostMessage(BM_CLICK) to the unique non-destructive Yes button failed'
+          recoveryConfirmationProbe = $recoveryConfirmationProbe
+          expectedModuleParts = $expectedModuleParts
+          modulePath = $modulePath
+          moduleLoadOwner = $moduleLoadOwner
+          topLevelToolsetWindows = Get-VisibleToolsetTopWindows
+        } | ConvertTo-Json -Depth 8
+        exit 0
+      }
+      $recoveryConfirmationHandled = $true
+      $recoveryConfirmationHandledCount += 1
+      $recoverySettleDeadline = (Get-Date).AddSeconds(5)
+      do {
+        Start-Sleep -Milliseconds 100
+        $recoveryAfter = Find-RecoveryConfirmationControls
+      } while ($null -ne $recoveryAfter -and (Get-Date) -lt $recoverySettleDeadline)
+      if ($null -ne $recoveryAfter) {
+        [pscustomobject]@{
+          ok = $false
+          blockerCode = 'toolset_verified_temp0_recovery_prompt_did_not_close'
+          method = 'bounded readback after targeted non-destructive recovery action'
+          recoveryConfirmationHandled = $recoveryConfirmationHandled
+          recoveryConfirmationHandledCount = $recoveryConfirmationHandledCount
+          recoveryConfirmationProbe = $recoveryConfirmationProbe
+          recoveryAfter = $recoveryAfter
+          expectedModuleParts = $expectedModuleParts
+          modulePath = $modulePath
+          moduleLoadOwner = $moduleLoadOwner
+          topLevelToolsetWindows = Get-VisibleToolsetTopWindows
+        } | ConvertTo-Json -Depth 8
+        exit 0
+      }
+      continue
     }
     [pscustomobject]@{
       ok = $false
       blockerCode = 'toolset_recovery_prompt_blocked_critical'
-      method = 'critical stop: recovery prompts are never clicked by automation'
+      method = 'fail closed unless the exact known recovery prompt is bound to a byte-identical MOD-to-temp0 admission'
       startedToolset = $startedToolset
       recoveryConfirmationHandled = $false
       recoveryConfirmationHandledCount = $recoveryConfirmationHandledCount
@@ -2118,7 +2441,8 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
     exit 0
   }
 
-  $startupLoadSignal = Find-StartupModuleLoadSignal
+  $expectedOpenDialogTransition = $welcomeHandled -and $openModuleDialogRequested -and -not $openModuleDialogHandled -and -not $moduleOpenActionSubmitted -and $null -eq $moduleLoadOwner
+  $startupLoadSignal = Find-StartupModuleLoadSignal $expectedOpenDialogTransition
   if ($null -ne $startupLoadSignal) {
     if ($null -eq $moduleLoadOwner) {
       $moduleLoadOwner = if ($observedExternalLoadOwner) { $observedExternalLoadOwner } else { 'external' }
@@ -2245,10 +2569,9 @@ for ($attempt = 0; ((Get-Date) - $startTime).TotalMilliseconds -lt $moduleOpenTi
         Start-Sleep -Milliseconds 250
         continue
       }
-      Invoke-WelcomeOpenExisting $welcomeProbe
+      $welcomeActionResult = Invoke-WelcomeOpenExisting $welcomeProbe
       $welcomeHandled = $true
       $openModuleDialogRequested = $true
-      Start-Sleep -Seconds 4
       continue
     }
   }
@@ -2368,6 +2691,7 @@ if ($null -ne $loaded) {
     allowSecondToolsetStart = $allowSecondToolsetStart
     welcomeHandled = $welcomeHandled
     welcomeProbe = $welcomeProbe
+    welcomeActionResult = $welcomeActionResult
     elapsedMs = $elapsedMs
     moduleWindowTitle = $loaded.title
     moduleWindowHwnd = $loaded.hwnd
@@ -2489,6 +2813,8 @@ if ($moduleOpenActionSubmitted) {
       AURORA_TOOLSET_OBSERVED_EXTERNAL_LOAD_OWNER: startupLoadPlan.observedExternalLoadOwner,
       AURORA_TOOLSET_STARTUP_PASSIVE_OBSERVATION_MS: String(startupLoadPlan.passiveObservationMs),
       AURORA_TOOLSET_MODULE_OPEN_TIMEOUT_MS: String(moduleOpenTimeoutMs),
+      AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY: verifiedTemp0RecoveryAdmission ? "1" : "0",
+      AURORA_TOOLSET_VERIFIED_TEMP0_RECOVERY_ACTION_ALREADY_SUBMITTED: verifiedTemp0RecoveryActionAlreadySubmitted ? "1" : "0",
     },
     maxBuffer: 1024 * 1024 * 8,
     timeout: moduleOpenTimeoutMs + 30_000

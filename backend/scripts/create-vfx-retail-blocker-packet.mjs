@@ -3,13 +3,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  indexVfxProofSubjectProfiles,
+  parseVfxProofSubjectProfiles
+} from "./lib/vfx-proof-subject-profile-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
 const guardRoot = path.join(docsRoot, "guard-reports");
 const defaultOutPath = path.join(
   docsRoot,
-  "artifacts/vfx-iteration-214/vfx-retail-blocker-packet.json"
+  "artifacts/vfx-iteration-215/vfx-retail-blocker-packet.json"
 );
 
 const args = parseArgs(process.argv.slice(2));
@@ -17,7 +21,7 @@ const outPath = path.resolve(repoRoot, args.out ?? defaultOutPath);
 const evidencePackReportPath = path.resolve(
   repoRoot,
   args.evidencePackReport ??
-    path.join(docsRoot, "artifacts/vfx-iteration-214/vfx-retail-evidence-pack-dry-run.json")
+    path.join(docsRoot, "artifacts/vfx-iteration-215/vfx-retail-evidence-pack-dry-run.json")
 );
 const coordinatorJsonPath = path.resolve(
   repoRoot,
@@ -40,6 +44,10 @@ const manifestPath = path.resolve(
   args.manifest ?? path.join(docsRoot, "vfx-retail-parity-fixtures.json")
 );
 const registryPath = path.resolve(repoRoot, args.registry ?? path.join(docsRoot, "vfx-claim-registry.json"));
+const proofProfilesPath = path.resolve(
+  repoRoot,
+  args.proofProfiles ?? path.join(repoRoot, "backend/config/vfx-proof-subject-profiles.json")
+);
 
 const generatedAt = new Date().toISOString();
 const coordinator = readJson(coordinatorJsonPath);
@@ -48,6 +56,8 @@ const auditLatest = readJson(auditLatestPath);
 const manifest = readJson(manifestPath);
 const registry = readJson(registryPath);
 const evidencePackReport = readJsonIfPresent(evidencePackReportPath);
+const proofProfiles = parseVfxProofSubjectProfiles(readJson(proofProfilesPath));
+const proofProfilesBySubjectId = indexVfxProofSubjectProfiles(proofProfiles);
 
 const workerBacklog = Array.isArray(auditBacklog.workerBacklog) ? auditBacklog.workerBacklog : [];
 const fixtures = Array.isArray(manifest.fixtures) ? manifest.fixtures : [];
@@ -59,6 +69,8 @@ const canonicalPromotionAttemptCount =
   claims.filter((claim) => claim.canonicalParityPromoted === true).length;
 
 const prioritizedBlockers = buildPrioritizedBlockers();
+const chunkResourceBlocker = findBlockerByTag("chunk-model-resource-oracle");
+const catalogOracleBlocker = findBlockerByTag("catalog-retail-oracle");
 const missingEvidence = summarizeMissingEvidence(prioritizedBlockers);
 const visualSemanticOracle = {
   version: "aurora-vfx-retail-blocker-packet-oracle/v1",
@@ -104,12 +116,8 @@ const visualSemanticChecks = {
   auditLatestRead: auditLatest.canonicalParityBlocked === true,
   retailEvidenceDryRunRead: Boolean(evidencePackReport),
   prioritizedBlockersPresent: prioritizedBlockers.length > 0,
-  chunkType9BlockerPresent: prioritizedBlockers.some(
-    (entry) => entry.fixtureId === "vfx-retail-chunk-particles-progfx-type9"
-  ),
-  catalogPlcZlcO45BlockerPresent: prioritizedBlockers.some(
-    (entry) => entry.fixtureId === "catalog-placeable-plc_zlc_o45"
-  ),
+  chunkType9BlockerPresent: Boolean(chunkResourceBlocker),
+  catalogPlcZlcO45BlockerPresent: Boolean(catalogOracleBlocker),
   allBlockersHaveMissingEvidence: prioritizedBlockers.every((entry) => entry.missingEvidence.length > 0),
   dryRunCanonicalPromotionBlocked:
     !evidencePackReport || evidencePackReport.canonicalParityPromoted === false,
@@ -177,10 +185,8 @@ const packet = {
     totalMissingEvidenceKinds: missingEvidence.length,
     canonicalPromotionAttemptCount,
     canonicalParityPromoted: false,
-    chunkType9TopBlocker: prioritizedBlockers[0]?.fixtureId === "vfx-retail-chunk-particles-progfx-type9",
-    catalogPlcZlcO45BlockerIncluded: prioritizedBlockers.some(
-      (entry) => entry.fixtureId === "catalog-placeable-plc_zlc_o45"
-    ),
+    chunkType9TopBlocker: prioritizedBlockers[0] === chunkResourceBlocker,
+    catalogPlcZlcO45BlockerIncluded: Boolean(catalogOracleBlocker),
     noRetailHumanReviewItemsMarkedFixed: true,
     localOnlyNotCanonical: true
   },
@@ -229,10 +235,16 @@ if (packet.result !== "retail-blocker-packet-created-canonical-blocked") {
 
 function buildPrioritizedBlockers() {
   return workerBacklog.map((item) => {
+    const proofProfile = proofProfilesBySubjectId.get(item.fixtureId) ?? null;
     const manifestFixture = findManifestFixture(item.fixtureId);
     const dryRunFixture = dryRunFixtures.find((fixture) => fixture.fixtureId === item.fixtureId) ?? null;
     const latestClaim = findLatestClaim(item.fixtureId);
-    const missingEvidenceForItem = deriveMissingEvidence(item, manifestFixture, dryRunFixture);
+    const missingEvidenceForItem = deriveMissingEvidence(
+      item,
+      manifestFixture,
+      dryRunFixture,
+      proofProfile
+    );
     return {
       priority: item.priority,
       fixtureId: item.fixtureId,
@@ -266,6 +278,7 @@ function buildPrioritizedBlockers() {
             blockers: dryRunFixture.blockers ?? []
           }
         : null,
+      proofSubjectProfile: proofProfile,
       missingEvidence: missingEvidenceForItem,
       humanReviewNeeded: {
         required: true,
@@ -277,7 +290,7 @@ function buildPrioritizedBlockers() {
   });
 }
 
-function deriveMissingEvidence(item, manifestFixture, dryRunFixture) {
+function deriveMissingEvidence(item, manifestFixture, dryRunFixture, proofProfile) {
   const base = new Set([
     "retail build/profile",
     "retail parser snapshot",
@@ -288,18 +301,8 @@ function deriveMissingEvidence(item, manifestFixture, dryRunFixture) {
     "retail comparison evidence"
   ]);
 
-  if (item.fixtureId === "vfx-retail-chunk-particles-progfx-type9") {
-    base.add("real progfx Type 9 source row");
-    base.add("real chunk model resource/class");
-    base.add("retail chunk capture showing actual chunk behavior");
-  }
-
-  if (item.fixtureId === "catalog-placeable-plc_zlc_o45") {
-    base.add("retail zlc_o45 Magic Mouth placement");
-    base.add("retail fxpa_flare texture appearance");
-    base.add("retail Fountain particle timing");
-    base.add("retail Lighten intensity");
-    base.add("retail framebuffer comparison");
+  for (const prerequisite of proofProfile?.additionalMissingEvidence ?? []) {
+    base.add(prerequisite);
   }
 
   for (const diagnostic of manifestFixture?.expectedDiagnostics ?? []) {
@@ -321,6 +324,10 @@ function deriveMissingEvidence(item, manifestFixture, dryRunFixture) {
 
 function summarizeMissingEvidence(blockers) {
   return [...new Set(blockers.flatMap((blocker) => blocker.missingEvidence))].sort();
+}
+
+function findBlockerByTag(tag) {
+  return prioritizedBlockers.find((blocker) => blocker.proofSubjectProfile?.tags?.includes(tag));
 }
 
 function findManifestFixture(fixtureId) {

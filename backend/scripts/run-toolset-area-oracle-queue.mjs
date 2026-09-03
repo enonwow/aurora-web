@@ -45,9 +45,13 @@ const manifest = {
   safety: {
     launchesToolset: false,
     opensModule: false,
+    usesGlobalInput: false,
     usesGlobalCursor: false,
     usesGlobalKeyboard: false,
+    usesGlobalMouse: false,
     usesGlobalMouseWheel: false,
+    savesModule: false,
+    changesIniOrMru: false,
     method: "existing validated Toolset session; targeted TreeView, optional targeted viewport wheel, and PrintWindow-only capture",
     captureAreas,
   },
@@ -82,6 +86,7 @@ for (const item of manifest.items) {
     if (item.areaOpen.ok !== true) {
       throw new QueueBlocker(item.areaOpen.blockerCode ?? "area_open_failed", item.areaOpen);
     }
+    requireChildSafety(item.areaOpen, "area-open");
 
     if (settleMs > 0) sleep(settleMs);
     if (wheelSteps !== 0) {
@@ -113,7 +118,6 @@ for (const item of manifest.items) {
     item.completedAt = new Date().toISOString();
     manifest.status = "blocked";
     writeManifest();
-    console.log(JSON.stringify(summary(), null, 2));
     process.exitCode = 2;
     break;
   }
@@ -202,7 +206,14 @@ function summary() {
     counts,
     manifestPath,
     firstBlocker: manifest.items.find((item) => item.status === "blocked")?.blockerCode ?? null,
+    safety: manifest.safety,
   };
+}
+
+function requireChildSafety(value, name) {
+  for (const field of ["usesGlobalInput", "usesGlobalCursor", "usesGlobalKeyboard", "usesGlobalMouse", "usesGlobalMouseWheel", "savesModule", "changesIniOrMru"]) {
+    if (!Object.hasOwn(value?.safety ?? {}, field) || value.safety[field] !== false) throw new Error(`${name}_safety_invalid:${field}`);
+  }
 }
 
 function parseArgs(argv) {

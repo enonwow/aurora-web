@@ -50,7 +50,7 @@ function buildReport(outPathForReport: string) {
     buildP2pTargetPathDiagnosticCase(),
     buildLightningTargetClearCase(),
     buildLightningTargetPathDiagnosticCase(),
-    buildChunkPlaceholderCase(),
+    buildChunkUpdateFamilyGuardCase(),
     buildCollisionContractCase()
   ];
   const failedCases = cases.filter((entry) => entry.failedChecks.length > 0);
@@ -141,14 +141,15 @@ function buildFountainRecycleCase() {
       }
     }
   };
-  const expired = tickAuroraEmitterRuntime(pausedSpawns, 0.5);
+  const reachedLifetime = tickAuroraEmitterRuntime(pausedSpawns, 0.5);
+  const expired = tickAuroraEmitterRuntime(reachedLifetime, 0.1);
   const snapshot = buildAuroraEmitterRuntimeSnapshot(expired);
 
   return caseResult({
     caseId: "fountain-expiry-recycles-active-particle",
     family: "Fountain",
     sourceModelObjectKey: "modules/current/models/fountain.mdl",
-    tickPlan: [0.5, 0.5],
+    tickPlan: [0.5, 0.5, 0.1],
     snapshot,
     extra: {
       freeParticleIds: expired.freeParticleIds,
@@ -183,7 +184,7 @@ function buildSingleLocalShotCase() {
     family: "Single",
     tickPlan: [0.1, 0.1],
     state: second,
-    expectedDiagnosticCodes: ["VFX_SINGLE_LOCAL_SHOT_ALREADY_EMITTED"],
+    expectedDiagnosticCodes: ["VFX_SINGLE_ACTIVE_PARTICLE_RETAINED"],
     additionalChecks: [
       check("Single emits one local diagnostic particle", second.activeParticleIds.length === 1),
       check("Single does not duplicate shot on second tick", second.nextParticleId === 2),
@@ -260,7 +261,7 @@ function buildExplosionDetonateLocalBurstCase() {
 
 function buildP2pTargetRequiredCase() {
   const state = tickAuroraEmitterRuntime(
-    createAuroraEmitterRuntimeState(emitterWithFamily("P2P")),
+    createAuroraEmitterRuntimeState(p2pEmitter()),
     0.25
   );
   return diagnosticCaseResult({
@@ -276,42 +277,39 @@ function buildP2pTargetRequiredCase() {
 }
 
 function buildP2pTargetPathDiagnosticCase() {
-  const state = tickAuroraEmitterRuntime(
-    createAuroraEmitterRuntimeState(emitterWithFamily("P2P"), { particleLimit: 16 }),
+  const first = tickAuroraEmitterRuntime(
+    createAuroraEmitterRuntimeState(p2pEmitter(), { particleLimit: 16 }),
     0.25,
     { targetRef: "retail-p2p-target", targetPosition: { x: 1, y: 0, z: 0 } }
   );
+  const state = tickAuroraEmitterRuntime(first, 0.25, {
+    targetRef: "retail-p2p-target",
+    targetPosition: { x: 1, y: 0, z: 0 }
+  });
   return diagnosticCaseResult({
     caseId: "p2p-target-position-local-path-diagnostic",
     family: "P2P",
-    tickPlan: [0.25],
+    tickPlan: [0.25, 0.25],
     state,
     expectedDiagnosticCodes: [
       "VFX_P2P_TARGET_CONTEXT_CONSUMED",
-      "VFX_P2P_LOCAL_GRAVITY_PATH_DIAGNOSTIC",
+      "VFX_P2P_GRAVITY_TARGET_PATH_CONSUMED",
       "VFX_P2P_RETAIL_RUNTIME_DUMP_REQUIRED"
     ],
     additionalChecks: [
-      check("P2P target path emits seven local diagnostic particles", state.activeParticleIds.length === 7),
+      check("P2P Fountain path keeps two source-emitted particles", state.activeParticleIds.length === 2),
       check(
-        "P2P source anchor starts at emitter origin",
-        JSON.stringify(state.particles.find((particle) => particle.particleId === state.activeParticleIds[0])?.position) ===
+        "existing P2P particle advances toward the target",
+        (state.particles.find((particle) => particle.particleId === 1)?.position.x ?? 0) > 0
+      ),
+      check(
+        "new P2P particle is emitted at the source after existing-particle motion",
+        JSON.stringify(state.particles.find((particle) => particle.particleId === 2)?.position) ===
           JSON.stringify({ x: 0, y: 0, z: 0 })
       ),
       check(
-        "P2P target anchor ends at resolved target position",
-        JSON.stringify(state.particles.find((particle) => particle.particleId === state.activeParticleIds.at(-1))?.position) ===
-          JSON.stringify({ x: 1, y: 0, z: 0 })
-      ),
-      check(
-        "P2P middle path point rises above anchors",
-        (state.particles.find((particle) => particle.particleId === state.activeParticleIds[3])?.position.z ?? 0) > 0
-      ),
-      check(
-        "P2P path particles record local diagnostic reset reason",
-        state.particles
-          .filter((particle) => state.activeParticleIds.includes(particle.particleId))
-          .every((particle) => particle.resetReason === "p2p_target_path")
+        "existing P2P particle records target-path reset reason",
+        state.particles.find((particle) => particle.particleId === 1)?.resetReason === "p2p_target_path"
       ),
       check(
         "placeholder-not-implemented diagnostic is not emitted",
@@ -335,6 +333,7 @@ function buildLightningTargetClearCase() {
         rotationRadians: 0,
         position: { x: 0, y: 0, z: 0 },
         velocity: { x: 0, y: 0, z: 0 },
+        landed: false,
         acceleration: { x: 0, y: 0, z: 0 },
         color: { r: 1, g: 1, b: 1 },
         alpha: 1,
@@ -379,7 +378,10 @@ function buildLightningTargetPathDiagnosticCase() {
       "VFX_LIGHTNING_RETAIL_RUNTIME_DUMP_REQUIRED"
     ],
     additionalChecks: [
-      check("Lightning target path emits two local active points", state.activeParticleIds.length === 2),
+      check(
+        "Lightning target path uses the rounded evaluated source point count",
+        state.activeParticleIds.length === 2
+      ),
       check(
         "Lightning source active point starts at emitter origin",
         JSON.stringify(state.particles.find((particle) => particle.particleId === state.activeParticleIds[0])?.position) ===
@@ -404,38 +406,29 @@ function buildLightningTargetPathDiagnosticCase() {
   });
 }
 
-function buildChunkPlaceholderCase() {
+function buildChunkUpdateFamilyGuardCase() {
   const state = tickAuroraEmitterRuntime(
-    createAuroraEmitterRuntimeState(emitterWithFamily("Chunk", "progfx_type9_chunk_model_pending")),
+    createAuroraEmitterRuntimeState(
+      emitterWithFamily("Chunk", "progfx_type9_chunk_model_pending"),
+      { family: "Chunk" }
+    ),
     0.25
   );
   return diagnosticCaseResult({
-    caseId: "chunk-model-lane-local-placeholder",
+    caseId: "chunk-model-lane-update-family-guard",
     family: "Chunk",
     tickPlan: [0.25],
     state,
     expectedDiagnosticCodes: [
-      "VFX_CHUNK_MODEL_LANE_PRESERVED",
-      "VFX_CHUNK_LOCAL_PLACEHOLDER_DIAGNOSTIC",
-      "VFX_CHUNK_RETAIL_RESOURCE_CAPTURE_REQUIRED"
+      "VFX_CHUNK_NAME_IS_RENDER_LANE_NOT_UPDATE_FAMILY",
+      "VFX_CHUNK_UPDATE_FAMILY_REQUIRED"
     ],
     additionalChecks: [
-      check("chunk runtime tracks two local placeholder records", state.activeParticleIds.length === 2),
+      check("standalone Chunk update synthesizes no particles", state.activeParticleIds.length === 0),
       check("chunk runtime preserves source chunkName", state.source.chunkName === "progfx_type9_chunk_model_pending"),
       check(
-        "chunk placeholder records keep zero velocity",
-        state.particles
-          .filter((particle) => state.activeParticleIds.includes(particle.particleId))
-          .every(
-            (particle) =>
-              particle.velocity.x === 0 && particle.velocity.y === 0 && particle.velocity.z === 0
-          )
-      ),
-      check(
-        "chunk placeholder records use chunk reset reason",
-        state.particles
-          .filter((particle) => state.activeParticleIds.includes(particle.particleId))
-          .every((particle) => particle.resetReason === "chunk_model_placeholder")
+        "standalone Chunk update allocates no placeholder records",
+        state.particles.length === 0
       ),
       check(
         "placeholder-not-implemented diagnostic is not emitted",
@@ -446,7 +439,7 @@ function buildChunkPlaceholderCase() {
 }
 
 function buildCollisionContractCase() {
-  const state = tickAuroraEmitterRuntime(
+  const spawned = tickAuroraEmitterRuntime(
     createAuroraEmitterRuntimeState(
       fountainEmitter({
         birthrate: 2,
@@ -457,10 +450,11 @@ function buildCollisionContractCase() {
     ),
     0.5
   );
+  const state = tickAuroraEmitterRuntime(spawned, 0.1);
   return diagnosticCaseResult({
     caseId: "fountain-collision-context-contract",
     family: "Fountain",
-    tickPlan: [0.5],
+    tickPlan: [0.5, 0.1],
     state,
     expectedDiagnosticCodes: ["VFX_PARTICLE_COLLISION_CONTEXT_REQUIRED"],
     additionalChecks: [
@@ -469,8 +463,8 @@ function buildCollisionContractCase() {
         state.collisionQueries.some((entry) => entry.reason === "bounce" && entry.status === "context_required")
       ),
       check(
-        "splat collision query is recorded",
-        state.collisionQueries.some((entry) => entry.reason === "splat" && entry.status === "context_required")
+        "splat does not create a separate collision query",
+        state.collisionQueries.every((entry) => entry.reason === "bounce")
       )
     ]
   });
@@ -608,6 +602,25 @@ function emitterWithFamily(emitterType: string, chunkName?: string): AuroraMdlEm
     emitterType,
     emitterTypeRaw: emitterType,
     ...(chunkName ? { chunkName } : {})
+  };
+}
+
+function p2pEmitter(): AuroraMdlEmitterNode {
+  const emitter = emitterWithFamily("Fountain");
+  return {
+    ...emitter,
+    nodeName: "emit_p2p",
+    simulation: {
+      ...emitter.simulation,
+      birthrate: 4,
+      lifeExp: 2,
+      velocity: 0,
+      randvel: 0,
+      spread: 0,
+      grav: 4,
+      threshold: 0.1,
+      p2p: true
+    }
   };
 }
 

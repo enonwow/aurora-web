@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { blockVfxControlGateOnMissingPrerequisites } from "./lib/vfx-control-gate-prerequisites.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
@@ -43,6 +44,35 @@ const paths = {
   ),
   retailHandoff: path.join(artifactRoot, "vfx-iteration-218/vfx-retail-evidence-handoff-manifest.json")
 };
+
+if (
+  blockVfxControlGateOnMissingPrerequisites({
+    repoRoot,
+    gateId: "vfx-runtime-health-retail-blocker-crosscheck",
+    result: "runtime-health-retail-blocker-crosscheck-blocked-missing-prerequisites",
+    outPath,
+    pathOverrides: {
+      "ai-factory-director-json": paths.directorJson,
+      "ai-factory-director-markdown": paths.directorMd,
+      "vfx-domain-coordinator-json": paths.coordinatorJson,
+      "vfx-domain-coordinator-markdown": paths.coordinatorMd,
+      "vfx-loop-state": paths.state,
+      "vfx-claim-registry": paths.registry,
+      "vfx-run-log": paths.runLog,
+      "vfx-context-pack": paths.context,
+      "vfx-failed-assumptions": paths.failedAssumptions,
+      "vfx-visual-audit-latest": paths.visualAuditLatest,
+      "vfx-visual-audit-backlog": paths.visualAuditBacklog,
+      "vfx-runtime-health-dependency-classification": paths.runtimeClassification,
+      "vfx-worker-directive-completion-alignment-current": paths.directiveAlignment,
+      "vfx-retail-blocker-packet": paths.retailBlockerPacket,
+      "vfx-retail-capture-setup-validation": paths.retailCaptureSetup,
+      "vfx-retail-evidence-handoff-manifest": paths.retailHandoff
+    }
+  })
+) {
+  process.exit(1);
+}
 
 const director = readJson(paths.directorJson);
 const directorMd = readText(paths.directorMd);

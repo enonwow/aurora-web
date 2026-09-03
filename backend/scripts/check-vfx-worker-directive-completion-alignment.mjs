@@ -3,16 +3,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { blockVfxControlGateOnMissingPrerequisites } from "./lib/vfx-control-gate-prerequisites.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
 const guardRoot = path.join(docsRoot, "guard-reports");
-const defaultArtifactDir = path.join(docsRoot, "artifacts/vfx-iteration-216");
+const defaultArtifactDir = path.join(docsRoot, "artifacts/vfx-iteration-223");
 
 const args = parseArgs(process.argv.slice(2));
 const outPath = path.resolve(
   repoRoot,
-  args.out ?? path.join(defaultArtifactDir, "vfx-worker-directive-completion-alignment.json")
+  args.out ?? path.join(defaultArtifactDir, "vfx-worker-directive-completion-alignment-current.json")
 );
 const coordinatorPath = path.resolve(
   repoRoot,
@@ -23,6 +24,26 @@ const registryPath = path.resolve(repoRoot, args.registry ?? path.join(docsRoot,
 const runLogPath = path.resolve(repoRoot, args.runLog ?? path.join(docsRoot, "vfx-run-log.jsonl"));
 const contextPath = path.resolve(repoRoot, args.context ?? path.join(docsRoot, "vfx-context-pack.md"));
 const failedPath = path.resolve(repoRoot, args.failed ?? path.join(docsRoot, "vfx-failed-assumptions.md"));
+
+if (
+  blockVfxControlGateOnMissingPrerequisites({
+    repoRoot,
+    gateId: "vfx-worker-directive-completion-alignment",
+    result: "worker-directive-completion-alignment-blocked-missing-prerequisites",
+    outPath,
+    pathOverrides: {
+      "vfx-domain-coordinator-json": coordinatorPath,
+      "vfx-loop-state": statePath,
+      "vfx-claim-registry": registryPath,
+      "vfx-run-log": runLogPath,
+      "vfx-context-pack": contextPath,
+      "vfx-failed-assumptions": failedPath
+    }
+  })
+) {
+  process.exit(1);
+}
+
 const coordinator = readJson(coordinatorPath);
 const state = readJson(statePath);
 const registry = readJson(registryPath);

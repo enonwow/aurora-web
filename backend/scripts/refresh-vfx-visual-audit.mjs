@@ -3,6 +3,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  indexVfxProofSubjectProfiles,
+  parseVfxProofSubjectProfiles
+} from "./lib/vfx-proof-subject-profile-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
@@ -25,11 +29,17 @@ const backlogJsonPath = path.resolve(
   repoRoot,
   args.backlogJson ?? path.join(guardRoot, "vfx-visual-audit-backlog.json")
 );
+const proofProfilesPath = path.resolve(
+  repoRoot,
+  args.proofProfiles ?? path.join(repoRoot, "backend/config/vfx-proof-subject-profiles.json")
+);
 
 const state = readJson(statePath);
 const registry = readJson(registryPath);
 const runLogClaims = readRunLogClaims(runLogPath);
 const coordinator = readJson(coordinatorPath);
+const proofProfiles = parseVfxProofSubjectProfiles(readJson(proofProfilesPath));
+const proofProfilesBySubjectId = indexVfxProofSubjectProfiles(proofProfiles);
 const generatedAt = new Date().toISOString();
 const auditId = `vfx-visual-audit-${generatedAt.replace(/[:.]/gu, "-")}`;
 
@@ -144,6 +154,7 @@ console.log(
 );
 
 function buildAuditEntry(claim) {
+  const proofSubjectProfile = proofProfilesBySubjectId.get(claim.fixtureId) ?? null;
   const checks = claim.visualSemanticChecks ?? {};
   const failedSemanticChecks = Object.entries(checks)
     .filter(([, value]) => value !== true)
@@ -156,7 +167,11 @@ function buildAuditEntry(claim) {
     null;
   const canvasNonblank = visualSummary.canvasNonblank === true;
   const renderStatus = visualSummary.renderStatus ?? "unknown";
-  const renderPass = canvasNonblank || claim.fixtureId === "vfx-retail-chunk-particles-progfx-type9";
+  const renderVisibilityPolicy = proofSubjectProfile?.renderVisibilityPolicy;
+  const contractLaneVisible =
+    renderVisibilityPolicy?.kind === "contract-lane-without-canvas" &&
+    visualSummary.drawLane === renderVisibilityPolicy.requiredDrawLane;
+  const renderPass = canvasNonblank || contractLaneVisible;
   const humanReview = readHumanReviewNeeded(claim);
   const semanticStatus =
     failedSemanticChecks.length > 0
@@ -189,6 +204,7 @@ function buildAuditEntry(claim) {
     visualSummary,
     visualSemanticOracle: claim.visualSemanticOracle,
     visualSemanticChecks: checks,
+    proofSubjectProfile,
     semanticStatus,
     failedSemanticChecks,
     warnSemanticChecks: semanticStatus === "WARN" ? ["visualSemanticOracleOrChecksMissing"] : [],
@@ -201,37 +217,36 @@ function buildAuditEntry(claim) {
 
 function buildWorkerBacklog(entries) {
   const workerBacklog = [];
-  const chunk = entries.find((entry) => entry.fixtureId === "vfx-retail-chunk-particles-progfx-type9");
-  if (chunk) {
+  const firstProfiles = proofProfiles.subjects.filter((profile) => profile.backlogProfile?.first);
+  const firstSubjectIds = new Set(firstProfiles.map((profile) => profile.subjectId));
+  for (const profile of firstProfiles) {
+    const entry = entries.find((candidate) => candidate.fixtureId === profile.subjectId);
+    if (!entry) continue;
     workerBacklog.push({
       priority: workerBacklog.length + 1,
-      fixtureId: chunk.fixtureId,
-      type: "missing-retail-resource-oracle",
-      title: "Collect or admit real progfx Type 9 chunk model resource/source row and retail chunk capture",
-      evidence: [
-        "Latest local diagnostic preserves chunk_model lane and does not synthesize fake particles.",
-        "Coordinator says worker-only local implementation cannot honestly resolve the real resource/source/retail oracle."
-      ],
-      recommendedAction:
-        "Do not mark fixed locally; keep diagnostic behavior and collect real resource/source plus retail capture evidence."
+      fixtureId: entry.fixtureId,
+      type: profile.backlogProfile.type,
+      title: profile.backlogProfile.title ?? `Collect retail evidence for ${entry.fixtureId}`,
+      evidence: profile.backlogProfile.evidence ?? entry.humanReviewNeededFor,
+      recommendedAction: profile.backlogProfile.recommendedAction ?? profile.nextOperatorAction,
+      proofSubjectProfile: profile
     });
   }
 
   for (const entry of entries.filter(
-    (candidate) =>
-      candidate.humanReviewNeeded &&
-      candidate.fixtureId !== "vfx-retail-chunk-particles-progfx-type9"
+    (candidate) => candidate.humanReviewNeeded && !firstSubjectIds.has(candidate.fixtureId)
   )) {
+    const proofSubjectProfile = proofProfilesBySubjectId.get(entry.fixtureId) ?? null;
     workerBacklog.push({
       priority: workerBacklog.length + 1,
       fixtureId: entry.fixtureId,
-      type: entry.fixtureId.startsWith("catalog-placeable-")
-        ? "catalog-retail-human-review-needed"
-        : "retail-human-review-needed",
+      type: proofSubjectProfile?.backlogProfile?.type ?? "retail-human-review-needed",
       title: `Collect retail runtime/render/capture/comparison evidence for ${entry.fixtureId}`,
       evidence: entry.humanReviewNeededFor,
       recommendedAction:
-        "Do not repeat local semantic work unless a regression appears; collect retail evidence before canonical parity."
+        proofSubjectProfile?.backlogProfile?.recommendedAction ??
+        "Do not repeat local semantic work unless a regression appears; collect retail evidence before canonical parity.",
+      proofSubjectProfile
     });
   }
   return { workerBacklog };
@@ -260,8 +275,10 @@ function readHumanReviewNeeded(claim) {
 }
 
 function compareAuditEntries(left, right) {
-  const leftCatalog = left.fixtureId.startsWith("catalog-placeable-") ? 0 : 1;
-  const rightCatalog = right.fixtureId.startsWith("catalog-placeable-") ? 0 : 1;
+  const leftCatalog =
+    proofProfilesBySubjectId.get(left.fixtureId)?.subjectKind === "catalog-item" ? 0 : 1;
+  const rightCatalog =
+    proofProfilesBySubjectId.get(right.fixtureId)?.subjectKind === "catalog-item" ? 0 : 1;
   if (leftCatalog !== rightCatalog) {
     return leftCatalog - rightCatalog;
   }
@@ -278,10 +295,7 @@ function normalizeArtifacts(artifacts) {
 }
 
 function titleForClaim(claim) {
-  if (claim.fixtureId === "catalog-placeable-plc_zlc_o45") {
-    return "plc_zlc_o45 / zlc_o45 / VFX: Magic Mouth, Flat Anim P* (dobervich)";
-  }
-  return claim.fixtureId;
+  return proofProfilesBySubjectId.get(claim.fixtureId)?.titleOverride ?? claim.fixtureId;
 }
 
 function renderMarkdownReport(report, backlogReport) {

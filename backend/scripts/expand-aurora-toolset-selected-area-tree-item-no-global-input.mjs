@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+
+const moduleName = required(parseArgs(process.argv.slice(2)).module, "--module");
+const source = String.raw`
+$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Windows.Forms
+Add-Type @'
+using System;using System.Text;using System.Runtime.InteropServices;
+public static class AuroraTreeExpand{public delegate bool E(IntPtr h,IntPtr l);[StructLayout(LayoutKind.Sequential)]public struct R{public int Left,Top,Right,Bottom;}[DllImport("user32.dll")]public static extern bool EnumWindows(E c,IntPtr l);[DllImport("user32.dll")]public static extern bool EnumChildWindows(IntPtr p,E c,IntPtr l);[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out R r);[DllImport("user32.dll")]public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);}
+'@
+function T([IntPtr]$h){$b=[Text.StringBuilder]::new(1024);[void][AuroraTreeExpand]::GetWindowText($h,$b,$b.Capacity);$b.ToString()};function C([IntPtr]$h){$b=[Text.StringBuilder]::new(128);[void][AuroraTreeExpand]::GetClassName($h,$b,$b.Capacity);$b.ToString()};function Get-R([IntPtr]$h){$r=New-Object 'AuroraTreeExpand+R';[void][AuroraTreeExpand]::GetWindowRect($h,[ref]$r);$r}
+$ps=@(Get-Process nwtoolset -ErrorAction SilentlyContinue);if($ps.Count-ne1){throw "expected_one_toolset_process:$($ps.Count)"};[uint32]$pid=$ps[0].Id
+$script:frames=@();[void][AuroraTreeExpand]::EnumWindows([AuroraTreeExpand+E]{param($h,$l);[uint32]$p=0;[void][AuroraTreeExpand]::GetWindowThreadProcessId($h,[ref]$p);if($p-eq$pid-and[AuroraTreeExpand]::IsWindowVisible($h)-and(C $h)-eq'TfrmFrame'-and(T $h).TrimEnd('*').EndsWith(" - $env:MODULE",[StringComparison]::OrdinalIgnoreCase)){$script:frames+=$h};$true},[IntPtr]::Zero);if($script:frames.Count-ne1){throw "expected_exact_module_frame:$($script:frames.Count)"};$frame=$script:frames[0];$screen=[Windows.Forms.Screen]::FromHandle($frame);if($screen.Primary){throw 'module_on_primary_display'}
+$script:trees=@();[void][AuroraTreeExpand]::EnumChildWindows($frame,[AuroraTreeExpand+E]{param($h,$l);if([AuroraTreeExpand]::IsWindowVisible($h)-and(C $h)-eq'TTreeView'){$r=Get-R $h;if(($r.Right-$r.Left)-ge250-and($r.Bottom-$r.Top)-ge700-and$r.Left-lt-1600){$script:trees+=$h}};$true},[IntPtr]::Zero);if($script:trees.Count-ne1){throw "expected_one_area_tree:$($script:trees.Count)"};$tree=$script:trees[0]
+$caret=[AuroraTreeExpand]::SendMessage($tree,0x110A,[IntPtr]9,[IntPtr]::Zero);if($caret-eq[IntPtr]::Zero){throw 'area_tree_has_no_caret'};$before=[AuroraTreeExpand]::SendMessage($tree,0x110A,[IntPtr]4,$caret);[void][AuroraTreeExpand]::SendMessage($tree,0x1102,[IntPtr]2,$caret);Start-Sleep -Milliseconds 200;$after=[AuroraTreeExpand]::SendMessage($tree,0x110A,[IntPtr]4,$caret);if($after-eq[IntPtr]::Zero){throw 'selected_tree_item_has_no_child_after_expand'}
+[pscustomobject]@{ok=$true;processId=$pid;frameHwnd=$frame.ToInt64();treeHwnd=$tree.ToInt64();caretHandle=$caret.ToInt64();childBefore=$before.ToInt64();childAfter=$after.ToInt64();monitor=[pscustomobject]@{deviceName=$screen.DeviceName;primary=$screen.Primary};safety=[pscustomobject]@{usesGlobalCursor=$false;usesGlobalKeyboard=$false;usesGlobalMouse=$false;method='targeted TVM_EXPAND on the validated area-tree caret'}}|ConvertTo-Json -Depth 6
+`;
+const output = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", source], { encoding: "utf8", windowsHide: true, timeout: 20_000, env: { ...process.env, MODULE: moduleName } });
+console.log(JSON.stringify(JSON.parse(output.trim()), null, 2));
+
+function parseArgs(argv) { const result = {}; for (let i = 0; i < argv.length; i += 2) { const key = argv[i], value = argv[i + 1]; if (!key?.startsWith("--") || value === undefined) throw new Error(`Expected --name <value> near ${key ?? "end"}.`); result[key.slice(2)] = value; } return result; }
+function required(value, name) { const text = String(value ?? "").trim(); if (!text) throw new Error(`${name} is required.`); return text; }

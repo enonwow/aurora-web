@@ -23,14 +23,31 @@ const framePath = path.join(
   artifactDir,
   "plc-zlc-o45-time-0.32-seed-211-catalog-preview-fixed-visible.frame.json"
 );
+const canonicalFramePath = path.join(
+  artifactDir,
+  "plc-zlc-o45-time-0.32-seed-211-canonical-backend-runtime-payload-ready.frame.json"
+);
 const backendSnapshotPath = path.join(artifactDir, "plc-zlc-o45-backend-process-snapshot.json");
 
 const threshold = readJsonIfPresent(thresholdPath);
 const frame = readJsonIfPresent(framePath);
+const canonicalFrame = readJsonIfPresent(canonicalFramePath);
 const backendSnapshot = readJsonIfPresent(backendSnapshotPath);
-const frameJson = frame?.domStatus?.frameJson ?? {};
-const screenshotPath = resolveMaybeAbsolute(frame?.screenshot ?? threshold?.screenshot);
+const frameJson = frame?.domStatus?.frameJson ?? frame?.domStatus?.devFrameJson ?? {};
+const canonicalFrameJson =
+  canonicalFrame?.domStatus?.frameJson ?? canonicalFrame?.domStatus?.devFrameJson ?? {};
+const frameRoute = frame?.route ?? frame?.finalRoute ?? frame?.requestedRoute ?? null;
+const canonicalFrameRoute =
+  canonicalFrame?.route ?? canonicalFrame?.finalRoute ?? canonicalFrame?.requestedRoute ?? null;
+const screenshotPath = resolveMaybeAbsolute(frame?.screenshot ?? frame?.screenshotPath ?? threshold?.screenshot);
+const canonicalScreenshotPath = resolveMaybeAbsolute(
+  canonicalFrame?.screenshot ?? canonicalFrame?.screenshotPath
+);
 const screenshotBytes = screenshotPath && fs.existsSync(screenshotPath) ? fs.statSync(screenshotPath).size : null;
+const canonicalScreenshotBytes =
+  canonicalScreenshotPath && fs.existsSync(canonicalScreenshotPath)
+    ? fs.statSync(canonicalScreenshotPath).size
+    : null;
 
 const visualSemanticOracle = {
   version: "aurora-vfx-catalog-preview-guardrail-oracle/v1",
@@ -45,10 +62,12 @@ const visualSemanticOracle = {
   expectedShape: "The catalog preview must have visible grid-excluding object pixels for the Magic Mouth source-mdl Fountain flare cluster.",
   motionPath: "The fixed route time=0.32 seed=211 must represent an active Fountain schedule with positive particle count.",
   colorOpacityAlpha: "The source orange-to-yellow color curve and alphaStart > alphaEnd fade must be preserved.",
-  blendMaterial: "Normal render mode, Lighten blend mode, transparent material, and the local source-color visibility fallback must be preserved.",
+  blendMaterial: "Normal render mode, Lighten blend mode, transparent material, and either applied fxpa_flare texture or the local visibility fallback must be preserved.",
   textureAtlas: "fxpa_flare texture provenance and backend texture URLs must remain present.",
   lane: "The route must remain the real catalog preview flow for templateId=plc_zlc_o45, not a generic fixture-only surrogate.",
   particleCountOrder: "The source-mdl particle count must remain 10 for the deterministic catalog preview evidence.",
+  canonicalThinHost:
+    "The backend-canonical proof packet must show the same catalog route selecting the canonical renderer with backend payload ready and the legacy source-MDL emitter overlay suppressed.",
   lifetimeFraming: "Finite emitter bounds must remain in view and grid-excluding pixels must stay above the catalog guard threshold.",
   humanReviewNeeded: {
     required: true,
@@ -68,8 +87,8 @@ const checks = {
     Number(frame?.screenshotBytes ?? NaN) === screenshotBytes &&
     Number(threshold?.screenshotBytes ?? NaN) === screenshotBytes,
   routeIsCatalogPreview:
-    frame?.route === "http://127.0.0.1:5173/dev/catalog-vfx-preview?templateId=plc_zlc_o45&time=0.32&seed=211" &&
-    threshold?.route === frame?.route,
+    frameRoute === "http://127.0.0.1:5173/dev/catalog-vfx-preview?templateId=plc_zlc_o45&time=0.32&seed=211" &&
+    threshold?.route === frameRoute,
   fixedTemplateTimeSeed:
     frameJson.templateId === "plc_zlc_o45" &&
     frameJson.routeTimeSeconds === 0.32 &&
@@ -114,16 +133,62 @@ const checks = {
     Number(frameJson.alphaStart) > Number(frameJson.alphaEnd) &&
     Number(frameJson.alphaStart) > 0,
   visibilityFloorApplied:
-    frameJson.particleSizeVisibilityFloorPreviewMode === "surface-emitter-catalog-visibility-floor" &&
+    (frameJson.particleSizeVisibilityFloorPreviewMode === "surface-emitter-catalog-visibility-floor" ||
+      frameJson.textureStatus === "applied") &&
     Number(frameJson.sizeStart) > 0 &&
     Number(frameJson.sizeEnd) > 0,
-  materialFallbackApplied: frameJson.materialFallbackApplied === true,
+  materialFallbackApplied:
+    frameJson.materialFallbackApplied === true || frameJson.textureStatus === "applied",
   emitterInViewBounds:
     Array.isArray(frameJson.emitterWorldBoundsSize) &&
     frameJson.emitterWorldBoundsSize.length === 3 &&
     frameJson.emitterWorldBoundsSize.every((value) => Number.isFinite(value) && value > 0),
   localOnlyNotCanonical: true
 };
+
+const canonicalChecks = {
+  canonicalFrameArtifactPresent: Boolean(canonicalFrame),
+  canonicalScreenshotPresent: Boolean(canonicalScreenshotPath && fs.existsSync(canonicalScreenshotPath)),
+  canonicalScreenshotBytesMatchFrame:
+    canonicalScreenshotBytes !== null &&
+    Number(canonicalFrame?.screenshotBytes ?? NaN) === canonicalScreenshotBytes,
+  canonicalRouteIsCatalogPreview:
+    canonicalFrameRoute ===
+    "http://127.0.0.1:5173/dev/catalog-vfx-preview?templateId=plc_zlc_o45&time=0.32&seed=211",
+  canonicalFixedTemplateTimeSeed:
+    canonicalFrameJson.templateId === "plc_zlc_o45" &&
+    canonicalFrameJson.routeTimeSeconds === 0.32 &&
+    canonicalFrameJson.seed === 211,
+  canonicalFrameReady:
+    canonicalFrameJson.status === "ready" &&
+    canonicalFrameJson.renderPackageStatus === "ready",
+  canonicalCanvasNonblank: canonicalFrameJson.canvasNonblank === true,
+  canonicalGridHiddenObjectPixelsAboveThreshold:
+    Number(canonicalFrameJson.objectPixelsWithoutGrid ?? 0) >=
+    Number(threshold?.objectPixelThreshold ?? 80),
+  canonicalBackendPayloadReady: canonicalFrameJson.auroraVfxBackendPayloadReady === true,
+  canonicalBackendCanonical: canonicalFrameJson.auroraVfxBackendCanonical === true,
+  canonicalStatus:
+    canonicalFrameJson.auroraVfxCanonicalStatus === "canonical" &&
+    canonicalFrameJson.auroraVfxPreviewMode === "aurora_emitter_particle_preview",
+  canonicalRendererSelected:
+    canonicalFrameJson.auroraVfxRenderer === "canonical" &&
+    canonicalFrameJson.auroraVfxCanonicalRenderer === true,
+  canonicalDevReady: canonicalFrame?.domStatus?.devCanonicalRendererReady === true,
+  canonicalSourceMdlOverlaySuppressed:
+    canonicalFrameJson.sourceMdlEmitterPreviewStatus === "" &&
+    canonicalFrame?.domStatus?.devSourceMdlEmitterPreviewStatus === "",
+  canonicalRetailProofPendingRecorded:
+    Array.isArray(canonicalFrameJson.auroraVfxDiagnosticCodes) &&
+    canonicalFrameJson.auroraVfxDiagnosticCodes.includes(
+      "VFX_AURORA_MDL_EMITTER_RETAIL_PROOF_PENDING"
+    ),
+  canonicalLocalOnlyNotRetailEvidence:
+    canonicalFrame?.localOnlyNotRetailEvidence === true &&
+    canonicalFrame?.canonicalParityPromoted === false
+};
+
+Object.assign(checks, canonicalChecks);
 
 const failedChecks = Object.entries(checks)
   .filter(([, passed]) => passed !== true)
@@ -134,7 +199,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   artifactDir: toRepoPath(artifactDir),
   fixtureId: "catalog-placeable-plc_zlc_o45",
-  route: frame?.route ?? threshold?.route ?? null,
+  route: frameRoute ?? threshold?.route ?? null,
   result:
     failedChecks.length === 0
       ? "catalog-preview-guardrails-passed"
@@ -144,7 +209,9 @@ const report = {
   artifacts: {
     backendSnapshot: toRepoPath(backendSnapshotPath),
     frame: toRepoPath(framePath),
+    canonicalFrame: toRepoPath(canonicalFramePath),
     screenshot: screenshotPath ? toRepoPath(screenshotPath) : null,
+    canonicalScreenshot: canonicalScreenshotPath ? toRepoPath(canonicalScreenshotPath) : null,
     thresholdSemanticCheck: toRepoPath(thresholdPath)
   },
   visualSummary: {
@@ -163,7 +230,15 @@ const report = {
     particleCount: frameJson.particleCount ?? null,
     materialFallbackApplied: frameJson.materialFallbackApplied ?? null,
     particleSizeVisibilityFloorPreviewMode:
-      frameJson.particleSizeVisibilityFloorPreviewMode ?? null
+      frameJson.particleSizeVisibilityFloorPreviewMode ?? null,
+    canonicalObjectPixelsWithoutGrid: canonicalFrameJson.objectPixelsWithoutGrid ?? null,
+    canonicalBackendPayloadReady: canonicalFrameJson.auroraVfxBackendPayloadReady ?? null,
+    canonicalBackendCanonical: canonicalFrameJson.auroraVfxBackendCanonical ?? null,
+    canonicalStatus: canonicalFrameJson.auroraVfxCanonicalStatus ?? null,
+    canonicalRenderer: canonicalFrameJson.auroraVfxRenderer ?? null,
+    canonicalRendererReady: canonicalFrame?.domStatus?.devCanonicalRendererReady ?? null,
+    canonicalSourceMdlEmitterPreviewStatus:
+      canonicalFrameJson.sourceMdlEmitterPreviewStatus ?? null
   },
   visualSemanticOracle,
   visualSemanticChecks: checks,

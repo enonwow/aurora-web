@@ -58,6 +58,7 @@ function parseArgs(argv) {
     repoRoot: defaultRepoRoot,
     artifactDir: DEFAULT_ARTIFACT_DIR,
     output: DEFAULT_OUTPUT,
+    mode: "retail-diagnostic",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -70,6 +71,28 @@ function parseArgs(argv) {
     } else if (arg === "--out" || arg === "--output") {
       index += 1;
       options.output = requireValue(arg, argv[index]);
+    } else if (arg === "--mode") {
+      index += 1;
+      options.mode = requireValue(arg, argv[index]);
+    } else if (
+      [
+        "--off",
+        "--on",
+        "--offFrame",
+        "--onFrame",
+        "--diff",
+        "--comparison",
+        "--cropComparison",
+        "--caseId",
+      ].includes(arg)
+    ) {
+      index += 1;
+      options[arg.slice(2)] = requireValue(arg, argv[index]);
+    } else if (
+      ["--sampleWidth", "--sampleHeight", "--cropScale", "--cropMargin"].includes(arg)
+    ) {
+      index += 1;
+      options[arg.slice(2)] = Number(requireValue(arg, argv[index]));
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -94,6 +117,18 @@ Options:
   --repoRoot <path>       Repository root. Defaults to aurora-web root.
   --artifactDir <path>    Artifact directory. Defaults to ${DEFAULT_ARTIFACT_DIR}
   --out <name-or-path>    Output report path or artifact-dir-relative filename.
+  --mode <mode>           retail-diagnostic (default) or placeable-lighting-off-on-ablation.
+  --off <png>             Point-light-disabled PNG for placeable ablation mode.
+  --on <png>              Point-light-enabled PNG for placeable ablation mode.
+  --offFrame <json>       Capture frame JSON paired with --off.
+  --onFrame <json>        Capture frame JSON paired with --on.
+  --diff <png>            Diff PNG filename for placeable ablation mode.
+  --comparison <png>      Exact OFF|ON side-by-side PNG for placeable ablation mode.
+  --cropComparison <png>  Enlarged OFF|ON crop around the measured changed-pixel bounds.
+  --cropScale <number>    Integer crop enlargement factor. Defaults to 3.
+  --cropMargin <pixels>   Source-pixel margin around changed bounds. Defaults to 24.
+  --sampleWidth <pixels>  Diff sample width for placeable ablation mode.
+  --sampleHeight <pixels> Diff sample height for placeable ablation mode.
 `);
 }
 
@@ -137,6 +172,106 @@ function describeFile(repoRoot, path) {
     path: toRepoRelative(repoRoot, path),
     bytes: stats.size,
     sha256: sha256(bytes),
+  };
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function normalizePointLightAblationRoute(routeValue) {
+  try {
+    const route = new URL(routeValue);
+    const pointLight = route.searchParams.get("lightingPointLight");
+    route.searchParams.delete("lightingPointLight");
+    route.searchParams.sort();
+    return { pointLight, normalized: route.toString() };
+  } catch {
+    return { pointLight: null, normalized: null };
+  }
+}
+
+function validatePlaceableLightingAblationPair(offFrame, onFrame) {
+  const blockers = [];
+  const offRoute = normalizePointLightAblationRoute(offFrame?.finalRoute);
+  const onRoute = normalizePointLightAblationRoute(onFrame?.finalRoute);
+  const offProof = offFrame?.domStatus?.placeableLightingProof;
+  const onProof = onFrame?.domStatus?.placeableLightingProof;
+  const offAreaFrame = offFrame?.domStatus?.areaFrameJson;
+  const onAreaFrame = onFrame?.domStatus?.areaFrameJson;
+  const sameCamera = sameJson(offAreaFrame?.cameraPosition, onAreaFrame?.cameraPosition);
+  const sameViewport = sameJson(offFrame?.requestedViewport, onFrame?.requestedViewport);
+  const sameSceneIdentity =
+    offFrame?.proofGateReport?.identity?.status === "ready" &&
+    onFrame?.proofGateReport?.identity?.status === "ready" &&
+    sameJson(offFrame.proofGateReport.identity, onFrame.proofGateReport.identity) &&
+    sameJson(offAreaFrame?.injectedCampfirePosition, onAreaFrame?.injectedCampfirePosition);
+  const offProfile = offProof?.profile;
+  const onProfile = onProof?.profile;
+  const offPointLightCount = Number(offProof?.facts?.pointLightCount ?? -1);
+  const onPointLightCount = Number(onProof?.facts?.pointLightCount ?? -1);
+
+  if (
+    offFrame?.captureIntegrityAccepted !== true ||
+    onFrame?.captureIntegrityAccepted !== true
+  ) {
+    blockers.push("capture-integrity-not-accepted");
+  }
+  if (!sameViewport) {
+    blockers.push("viewport-mismatch");
+  }
+  if (!sameCamera) {
+    blockers.push("camera-mismatch");
+  }
+  if (!sameSceneIdentity) {
+    blockers.push("scene-identity-mismatch");
+  }
+  if (
+    offRoute.pointLight !== "false" ||
+    onRoute.pointLight !== "true" ||
+    !offRoute.normalized ||
+    offRoute.normalized !== onRoute.normalized
+  ) {
+    blockers.push("route-diff-not-isolated-to-lightingPointLight");
+  }
+  if (
+    !offProfile ||
+    !onProfile ||
+    offProfile.pointLight !== false ||
+    onProfile.pointLight !== true ||
+    !sameJson({ ...offProfile, pointLight: true }, onProfile)
+  ) {
+    blockers.push("proof-profile-diff-not-isolated-to-pointLight");
+  }
+  if (
+    offProof?.facts?.assetSettlementStatus !== "settled" ||
+    onProof?.facts?.assetSettlementStatus !== "settled"
+  ) {
+    blockers.push("assets-not-settled");
+  }
+  if (
+    offProof?.status !== "blocked" ||
+    !offProof?.blockerCodes?.includes("APL-PROOF-POINT-LIGHT-DISABLED") ||
+    onProof?.status !== "eligible_for_off_on_ablation"
+  ) {
+    blockers.push("proof-status-not-an-off-on-ablation-pair");
+  }
+  if (offPointLightCount !== 0 || onPointLightCount < 1) {
+    blockers.push("point-light-count-transition-missing");
+  }
+
+  return {
+    passed: blockers.length === 0,
+    sameCamera,
+    sameViewport,
+    sameSceneIdentity,
+    offPointLightCount,
+    onPointLightCount,
+    blockers,
   };
 }
 
@@ -609,6 +744,79 @@ function writePngRgba(path, width, height, rgba) {
   writeFileSync(path, output);
 }
 
+function writeSideBySidePng(path, left, right) {
+  if (left.width !== right.width || left.height !== right.height) {
+    return null;
+  }
+  const width = left.width + right.width;
+  const height = left.height;
+  const rgba = Buffer.alloc(width * height * 4);
+  const sourceRowBytes = left.width * 4;
+  const outputRowBytes = width * 4;
+  for (let y = 0; y < height; y += 1) {
+    const sourceOffset = y * sourceRowBytes;
+    const outputOffset = y * outputRowBytes;
+    left.rgba.copy(rgba, outputOffset, sourceOffset, sourceOffset + sourceRowBytes);
+    right.rgba.copy(
+      rgba,
+      outputOffset + sourceRowBytes,
+      sourceOffset,
+      sourceOffset + sourceRowBytes,
+    );
+  }
+  writePngRgba(path, width, height, rgba);
+  return { width, height };
+}
+
+function cropImage(image, bounds) {
+  const x = Math.max(0, Math.min(image.width - 1, Math.trunc(bounds.x)));
+  const y = Math.max(0, Math.min(image.height - 1, Math.trunc(bounds.y)));
+  const width = Math.max(1, Math.min(image.width - x, Math.trunc(bounds.width)));
+  const height = Math.max(1, Math.min(image.height - y, Math.trunc(bounds.height)));
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let row = 0; row < height; row += 1) {
+    const sourceOffset = ((y + row) * image.width + x) * 4;
+    image.rgba.copy(rgba, row * width * 4, sourceOffset, sourceOffset + width * 4);
+  }
+  return { width, height, rgba };
+}
+
+function scaleImageNearest(image, scale) {
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.floor(x / scale);
+      const sourceY = Math.floor(y / scale);
+      const sourceOffset = (sourceY * image.width + sourceX) * 4;
+      const outputOffset = (y * width + x) * 4;
+      image.rgba.copy(rgba, outputOffset, sourceOffset, sourceOffset + 4);
+    }
+  }
+  return { width, height, rgba };
+}
+
+function writeChangedBoundsCropComparison(path, off, on, changedBounds, margin, scale) {
+  if (!changedBounds || off.width !== on.width || off.height !== on.height) {
+    return null;
+  }
+  const cropBounds = {
+    x: Math.max(0, changedBounds.x - margin),
+    y: Math.max(0, changedBounds.y - margin),
+    width:
+      Math.min(off.width, changedBounds.x + changedBounds.width + margin) -
+      Math.max(0, changedBounds.x - margin),
+    height:
+      Math.min(off.height, changedBounds.y + changedBounds.height + margin) -
+      Math.max(0, changedBounds.y - margin),
+  };
+  const offCrop = scaleImageNearest(cropImage(off, cropBounds), scale);
+  const onCrop = scaleImageNearest(cropImage(on, cropBounds), scale);
+  const dimensions = writeSideBySidePng(path, offCrop, onCrop);
+  return dimensions ? { ...dimensions, cropBounds, scale } : null;
+}
+
 function pngChunk(type, data) {
   const typeBuffer = Buffer.from(type, "ascii");
   const length = Buffer.alloc(4);
@@ -698,28 +906,189 @@ function buildCase(repoRoot, artifactDir, config) {
   };
 }
 
+function buildPlaceableLightingAblationCase(repoRoot, artifactDir, options) {
+  const config = {
+    caseId: options.caseId ?? "placeable-lighting-point-light-off-on",
+    title: "Aurora Web placeable point-light OFF/ON functional ablation",
+    left: options.off,
+    right: options.on,
+    output: options.diff ?? "placeable-lighting-point-light-off-on-diff.png",
+    sampleWidth: options.sampleWidth,
+    sampleHeight: options.sampleHeight,
+  };
+  const requiredInputs = [
+    ["off", config.left],
+    ["on", config.right],
+    ["offFrame", options.offFrame],
+    ["onFrame", options.onFrame],
+  ];
+  const missingOptions = requiredInputs.filter(([, value]) => !value).map(([name]) => name);
+  if (missingOptions.length > 0) {
+    throw new Error(
+      `placeable-lighting-off-on-ablation requires: ${missingOptions
+        .map((name) => `--${name}`)
+        .join(", ")}`,
+    );
+  }
+  const offPath = resolveArtifactPath(repoRoot, artifactDir, config.left);
+  const onPath = resolveArtifactPath(repoRoot, artifactDir, config.right);
+  const offFramePath = resolveArtifactPath(repoRoot, artifactDir, options.offFrame);
+  const onFramePath = resolveArtifactPath(repoRoot, artifactDir, options.onFrame);
+  const inputPaths = [offPath, onPath, offFramePath, onFramePath];
+  if (inputPaths.some((inputPath) => !existsSync(inputPath))) {
+    return {
+      caseId: config.caseId,
+      title: config.title,
+      status: "blocked-input-artifact-missing",
+      passed: false,
+      canonicalParityPromoted: false,
+      inputs: {
+        off: { name: config.left, present: existsSync(offPath) },
+        on: { name: config.right, present: existsSync(onPath) },
+        offFrame: { name: options.offFrame, present: existsSync(offFramePath) },
+        onFrame: { name: options.onFrame, present: existsSync(onFramePath) },
+      },
+      blocker: "The OFF/ON PNG pair and both capture frame manifests are required.",
+    };
+  }
+
+  const off = readPngRgba(offPath);
+  const on = readPngRgba(onPath);
+  const sampleWidth = Number.isFinite(config.sampleWidth) && config.sampleWidth > 0
+    ? Math.trunc(config.sampleWidth)
+    : off.width;
+  const sampleHeight = Number.isFinite(config.sampleHeight) && config.sampleHeight > 0
+    ? Math.trunc(config.sampleHeight)
+    : off.height;
+  const pairValidation = validatePlaceableLightingAblationPair(
+    readJson(offFramePath),
+    readJson(onFramePath),
+  );
+  const sameDimensions = off.width === on.width && off.height === on.height;
+  const diff = buildDiff(off, on, sampleWidth, sampleHeight);
+  const outputPath = resolve(artifactDir, config.output);
+  writePngRgba(outputPath, sampleWidth, sampleHeight, diff.rgba);
+  const comparisonName = options.comparison ?? "placeable-lighting-point-light-off-on-comparison.png";
+  const comparisonPath = resolve(artifactDir, comparisonName);
+  const comparisonDimensions = writeSideBySidePng(comparisonPath, off, on);
+  const cropComparisonName =
+    options.cropComparison ?? "placeable-lighting-point-light-off-on-crop-comparison.png";
+  const cropComparisonPath = resolve(artifactDir, cropComparisonName);
+  const cropScale = Number.isFinite(options.cropScale) && options.cropScale > 0
+    ? Math.trunc(options.cropScale)
+    : 3;
+  const cropMargin = Number.isFinite(options.cropMargin) && options.cropMargin >= 0
+    ? Math.trunc(options.cropMargin)
+    : 24;
+  const cropComparisonDimensions = writeChangedBoundsCropComparison(
+    cropComparisonPath,
+    off,
+    on,
+    diff.metric.changedBoundsGt5,
+    cropMargin,
+    cropScale,
+  );
+  const pixelDeltaObserved = diff.metric.changedSampleRatioGt5 > 0;
+  const passed = sameDimensions && pairValidation.passed && pixelDeltaObserved;
+
+  return {
+    caseId: config.caseId,
+    title: config.title,
+    status: passed
+      ? "functional-ablation-delta-observed-retail-parity-unpromoted"
+      : "blocked-functional-ablation-not-proven",
+    passed,
+    canonicalParityPromoted: false,
+    scope: "Aurora Web functional OFF/ON ablation only; this does not compare against NWN retail pixels.",
+    pairValidation,
+    dimensionCompatibilityStatus: sameDimensions
+      ? "same-pixel-dimensions"
+      : "blocked-different-pixel-dimensions",
+    inputs: {
+      off: {
+        name: config.left,
+        ...describeFile(repoRoot, offPath),
+        width: off.width,
+        height: off.height,
+      },
+      on: {
+        name: config.right,
+        ...describeFile(repoRoot, onPath),
+        width: on.width,
+        height: on.height,
+      },
+      offFrame: { name: options.offFrame, ...describeFile(repoRoot, offFramePath) },
+      onFrame: { name: options.onFrame, ...describeFile(repoRoot, onFramePath) },
+    },
+    output: {
+      name: config.output,
+      ...describeFile(repoRoot, outputPath),
+      width: sampleWidth,
+      height: sampleHeight,
+    },
+    comparison: comparisonDimensions
+      ? {
+          name: comparisonName,
+          ...describeFile(repoRoot, comparisonPath),
+          ...comparisonDimensions,
+          order: ["point-light-off", "point-light-on"],
+        }
+      : null,
+    cropComparison: cropComparisonDimensions
+      ? {
+          name: cropComparisonName,
+          ...describeFile(repoRoot, cropComparisonPath),
+          ...cropComparisonDimensions,
+          order: ["point-light-off", "point-light-on"],
+        }
+      : null,
+    metric: diff.metric,
+    blocker: passed
+      ? null
+      : [
+          ...pairValidation.blockers,
+          ...(sameDimensions ? [] : ["pixel-dimensions-mismatch"]),
+          ...(pixelDeltaObserved ? [] : ["no-pixel-delta-above-five"]),
+        ].join(", "),
+  };
+}
+
 const options = parseArgs(process.argv.slice(2));
 const repoRoot = resolve(options.repoRoot);
 const artifactDir = toAbsolute(repoRoot, options.artifactDir);
 mkdirSync(artifactDir, { recursive: true });
-const cases = DIFF_CASES.map((config) => buildCase(repoRoot, artifactDir, config));
+if (!["retail-diagnostic", "placeable-lighting-off-on-ablation"].includes(options.mode)) {
+  throw new Error(`Unsupported --mode: ${options.mode}`);
+}
+const cases =
+  options.mode === "placeable-lighting-off-on-ablation"
+    ? [buildPlaceableLightingAblationCase(repoRoot, artifactDir, options)]
+    : DIFF_CASES.map((config) => buildCase(repoRoot, artifactDir, config));
 const outputPath = resolveOutputPath(repoRoot, artifactDir, options.output);
+const ablationMode = options.mode === "placeable-lighting-off-on-ablation";
+const allAblationCasesPassed = ablationMode && cases.every((entry) => entry.passed === true);
 const report = {
   version: "aurora-area-lighting-pixel-diff-artifacts/v1",
   generatedAt: new Date().toISOString(),
-  status: cases.every((entry) => entry.status === "pixel-diff-generated-parity-still-blocked")
-    ? "pixel-diff-artifacts-written-parity-still-blocked"
-    : "blocked-pixel-diff-inputs-missing",
-  passed: false,
+  status: ablationMode
+    ? allAblationCasesPassed
+      ? "functional-ablation-delta-observed-retail-parity-unpromoted"
+      : "blocked-functional-ablation-not-proven"
+    : cases.every((entry) => entry.status === "pixel-diff-generated-parity-still-blocked")
+      ? "pixel-diff-artifacts-written-parity-still-blocked"
+      : "blocked-pixel-diff-inputs-missing",
+  passed: allAblationCasesPassed,
   canonicalParityPromoted: false,
   summary: {
     caseCount: cases.length,
+    passedCaseCount: cases.filter((entry) => entry.passed === true).length,
     generatedCaseCount: cases.filter((entry) => entry.status === "pixel-diff-generated-parity-still-blocked").length,
     missingInputCaseCount: cases.filter((entry) => entry.status === "blocked-input-png-missing").length,
   },
   cases,
-  nonEvidenceNotice:
-    "These heatmaps are diagnostic pixel-diff artifacts only. They do not define acceptance tolerances and must not promote retail parity by themselves.",
+  nonEvidenceNotice: ablationMode
+    ? "A passing pair proves a visible Aurora Web response to the point-light toggle only. It must not promote NWN retail parity."
+    : "These heatmaps are diagnostic pixel-diff artifacts only. They do not define acceptance tolerances and must not promote retail parity by themselves.",
 };
 writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 console.log(

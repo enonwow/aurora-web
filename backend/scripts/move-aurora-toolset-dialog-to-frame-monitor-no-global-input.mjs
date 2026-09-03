@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+
+const options = parseArgs(process.argv.slice(2));
+const dialogClass = required(options.dialogClass, "--dialogClass");
+const dialogTitle = required(options.dialogTitle, "--dialogTitle");
+const source = String.raw`
+$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Windows.Forms
+Add-Type @'
+using System;using System.Text;using System.Runtime.InteropServices;public static class AMDM{public delegate bool E(IntPtr h,IntPtr l);[StructLayout(LayoutKind.Sequential)]public struct R{public int Left,Top,Right,Bottom;}[DllImport("user32.dll")]public static extern bool EnumWindows(E c,IntPtr l);[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out R r);[DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);}
+'@
+function T($h){$b=[Text.StringBuilder]::new(512);[void][AMDM]::GetWindowText($h,$b,$b.Capacity);$b.ToString()};function C($h){$b=[Text.StringBuilder]::new(128);[void][AMDM]::GetClassName($h,$b,$b.Capacity);$b.ToString()};$ps=@(Get-Process nwtoolset -ErrorAction SilentlyContinue);if($ps.Count-ne1){throw 'expected_one_toolset'};[uint32]$pid=$ps[0].Id;$script:d=@();$script:f=@();[void][AMDM]::EnumWindows([AMDM+E]{param($h,$l);[uint32]$p=0;[void][AMDM]::GetWindowThreadProcessId($h,[ref]$p);if($p-eq$pid-and[AMDM]::IsWindowVisible($h)){if((C $h)-eq$env:DC-and(T $h)-eq$env:DT){$script:d+=$h};if((C $h)-eq'TfrmFrame'){$script:f+=$h}};$true},[IntPtr]::Zero);if($script:d.Count-ne1-or$script:f.Count-ne1){throw "expected_dialog_and_frame:$($script:d.Count):$($script:f.Count)"};$screen=[Windows.Forms.Screen]::FromHandle($script:f[0]);if($screen.Primary){throw 'frame_on_primary'};$r=New-Object 'AMDM+R';[void][AMDM]::GetWindowRect($script:d[0],[ref]$r);$width=$r.Right-$r.Left;$height=$r.Bottom-$r.Top;$x=$screen.WorkingArea.Left+[Math]::Max(40,[int](($screen.WorkingArea.Width-$width)/2));$y=$screen.WorkingArea.Top+[Math]::Max(40,[int](($screen.WorkingArea.Height-$height)/2));if(-not[AMDM]::SetWindowPos($script:d[0],[IntPtr]::Zero,$x,$y,$width,$height,0x0014)){throw 'set_window_pos_failed'};Start-Sleep -Milliseconds 400;$after=[Windows.Forms.Screen]::FromHandle($script:d[0]);if($after.Primary){throw 'dialog_still_on_primary'};[pscustomobject]@{ok=$true;processId=$pid;dialogHwnd=$script:d[0].ToInt64();frameHwnd=$script:f[0].ToInt64();dialogClass=$env:DC;dialogTitle=$env:DT;before=@{left=$r.Left;top=$r.Top;width=$width;height=$height};after=@{left=$x;top=$y;width=$width;height=$height};monitor=@{deviceName=$after.DeviceName;primary=$after.Primary};safety=@{usesGlobalInput=$false;usesGlobalCursor=$false;usesGlobalMouse=$false;usesGlobalKeyboard=$false;usesGlobalMouseWheel=$false;savesModule=$false;changesIniOrMru=$false;method='SetWindowPos of exact dialog inside the current Toolset frame monitor without activation'}}|ConvertTo-Json -Depth 6 -Compress
+`;
+const output = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", source], {
+  encoding: "utf8", windowsHide: true, timeout: 30_000, env: { ...process.env, DC: dialogClass, DT: dialogTitle },
+});
+console.log(JSON.stringify(JSON.parse(output.trim()), null, 2));
+
+function parseArgs(argv) { const out = {}; for (let i = 0; i < argv.length; i += 2) { const key = argv[i], value = argv[i + 1]; if (!key?.startsWith("--") || value == null) throw new Error(`Expected --name <value> near ${key ?? "end"}.`); out[key.slice(2)] = value; } return out; }
+function required(value, name) { const text = String(value ?? "").trim(); if (!text) throw new Error(`${name} is required.`); return text; }

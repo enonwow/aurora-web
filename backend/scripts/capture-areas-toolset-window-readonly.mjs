@@ -32,8 +32,7 @@ const manifestPath = options.manifestPath
   : options.outPath
     ? capturePath.replace(/\.png$/iu, ".capture.json")
     : resolve(ARTIFACT_DIR, "toolset-readonly-window-capture-manifest.json");
-const QUARANTINED_MODULE_BASENAMES = readCriticalFailureModuleBaseNames();
-const EXPECTED_MODULE_QUARANTINE = findExpectedModuleQuarantine();
+const EXPECTED_CANDIDATE_QUARANTINE = findExpectedCandidateQuarantine();
 
 function parseArgs(argv) {
   const parsed = {};
@@ -96,37 +95,18 @@ function buildFailureManifest(code, details) {
   };
 }
 
-function readCriticalFailureModuleBaseNames() {
+function findExpectedCandidateQuarantine() {
   if (!existsSync(CRITICAL_FAILURE_REGISTRY_PATH)) {
-    return [];
+    return null;
   }
   const registry = JSON.parse(readFileSync(CRITICAL_FAILURE_REGISTRY_PATH, "utf8"));
   const records = Array.isArray(registry.records) ? registry.records : [];
-  const names = new Set();
-  for (const record of records) {
-    if (record?.status !== "rejected") {
-      continue;
-    }
-    if (record.moduleBaseName) {
-      names.add(String(record.moduleBaseName).toLowerCase());
-    }
-    if (record.modulePath) {
-      names.add(basename(record.modulePath).toLowerCase());
-    }
-  }
-  return [...names].sort();
-}
-
-function findExpectedModuleQuarantine() {
   const expected = EXPECTED_MODULE_FILE_NAME.toLowerCase();
-  const match = QUARANTINED_MODULE_BASENAMES.find((name) => expected === name || expected.includes(name));
-  if (!match) {
-    return null;
-  }
-  return {
-    moduleBaseName: match,
-    registryPath: CRITICAL_FAILURE_REGISTRY_PATH,
-  };
+  const area = EXPECTED_AREA_RESREF.toLowerCase();
+  const match = records.find((record) => record?.status === "rejected" &&
+    String(record.moduleBaseName ?? basename(String(record.modulePath ?? ""))).toLowerCase() === expected &&
+    String(record.areaResref ?? "").toLowerCase() === area);
+  return match ? { moduleBaseName: expected, areaResref: area, reason: match.reason ?? null, registryPath: CRITICAL_FAILURE_REGISTRY_PATH } : null;
 }
 
 function runReadonlyCapture({ forcePrintWindow = false } = {}) {
@@ -651,7 +631,7 @@ if ($null -ne $targetWindow -and $null -eq $blockerCode) {
       AURORA_TOOLSET_EXPECTED_MODULE: EXPECTED_MODULE_FILE_NAME,
       AURORA_TOOLSET_EXPECTED_MODULE_PARTS: EXPECTED_MODULE_NAME_PARTS.join("|"),
       AURORA_TOOLSET_EXPECTED_AREA: EXPECTED_AREA_RESREF,
-      AURORA_TOOLSET_QUARANTINED_MODULE_BASENAMES: QUARANTINED_MODULE_BASENAMES.join("|"),
+      AURORA_TOOLSET_QUARANTINED_MODULE_BASENAMES: EXPECTED_CANDIDATE_QUARANTINE ? EXPECTED_MODULE_FILE_NAME : "",
       AURORA_TOOLSET_CAPTURE_FORCE_PRINTWINDOW: forcePrintWindow ? "1" : "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -776,11 +756,11 @@ if (options.validateCaptureImage) {
 let manifest;
 try {
   mkdirSync(ARTIFACT_DIR, { recursive: true });
-  if (EXPECTED_MODULE_QUARANTINE) {
+  if (EXPECTED_CANDIDATE_QUARANTINE) {
     manifest = buildFailureManifest("candidate_quarantined_after_toolset_critical_failure", {
       expectedModule: EXPECTED_MODULE_FILE_NAME,
       expectedModuleParts: EXPECTED_MODULE_NAME_PARTS,
-      candidateQuarantine: EXPECTED_MODULE_QUARANTINE,
+      candidateQuarantine: EXPECTED_CANDIDATE_QUARANTINE,
     });
   } else {
     manifest = runReadonlyCapture({ forcePrintWindow: FORCE_PRINT_WINDOW_CAPTURE });

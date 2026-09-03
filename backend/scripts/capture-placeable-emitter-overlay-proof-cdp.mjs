@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import "../../scripts/proof-capture-lock-auto.cjs";
 
 const DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const DEFAULT_BASE_URL = "http://127.0.0.1:5173";
@@ -29,7 +30,8 @@ fs.mkdirSync(outDir, { recursive: true });
 const chrome = spawn(
   chromePath,
   [
-    "--headless=new",
+  "--headless=new",
+  "--renderer-process-limit=2",
     "--no-sandbox",
     "--ignore-gpu-blocklist",
     "--enable-unsafe-swiftshader",

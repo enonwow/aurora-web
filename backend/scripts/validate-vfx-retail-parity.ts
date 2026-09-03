@@ -24,6 +24,8 @@ const summary = {
     requiredCase: fixture.requiredCase,
     status: fixture.status,
     behaviorClaim: fixture.behaviorClaim,
+    diagnosticEvidenceRefCount: fixture.diagnosticEvidenceRefCount,
+    hasImplementationRevision: fixture.hasImplementationRevision,
     canonicalAllowed: fixture.canonicalAllowed,
     missingEvidence: fixture.missingEvidence,
     nextActions: fixture.nextActions,

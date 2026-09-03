@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+
+const options = parseArgs(process.argv.slice(2));
+for (const name of ["dialogClass", "dialogTitle", "buttonText", "expectDialogCloses"]) if (!options[name]) throw new Error(`--${name} required`);
+
+const source = String.raw`
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;using System.Text;using System.Runtime.InteropServices;public static class DialogClientClick{public delegate bool E(IntPtr h,IntPtr l);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int Left,Top,Right,Bottom;}[DllImport("user32.dll")]public static extern bool EnumWindows(E c,IntPtr l);[DllImport("user32.dll")]public static extern bool EnumChildWindows(IntPtr p,E c,IntPtr l);[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);[DllImport("user32.dll")]public static extern bool IsWindowEnabled(IntPtr h);[DllImport("user32.dll")]public static extern bool IsWindow(IntPtr h);[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetClassName(IntPtr h,StringBuilder b,int n);[DllImport("user32.dll")]public static extern bool GetClientRect(IntPtr h,out RECT r);[DllImport("user32.dll")]public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);}
+'@
+function T([IntPtr]$h){$b=[Text.StringBuilder]::new(256);[void][DialogClientClick]::GetWindowText($h,$b,$b.Capacity);$b.ToString()}
+function C([IntPtr]$h){$b=[Text.StringBuilder]::new(128);[void][DialogClientClick]::GetClassName($h,$b,$b.Capacity);$b.ToString()}
+$ps=@(Get-Process nwtoolset -ErrorAction SilentlyContinue);if($ps.Count-ne1){throw 'expected_one_toolset_process'};[uint32]$toolsetPid=$ps[0].Id
+$script:dialogs=@();[void][DialogClientClick]::EnumWindows([DialogClientClick+E]{param($h,$l);[uint32]$p=0;[void][DialogClientClick]::GetWindowThreadProcessId($h,[ref]$p);if($p-eq$toolsetPid-and[DialogClientClick]::IsWindowVisible($h)-and(C $h)-eq$env:DC-and(T $h)-eq$env:DT){$script:dialogs+=$h};$true},[IntPtr]::Zero);if($script:dialogs.Count-ne1){throw "expected_one_dialog:$($script:dialogs.Count)"};$dialog=$script:dialogs[0]
+$script:buttons=@();[void][DialogClientClick]::EnumChildWindows($dialog,[DialogClientClick+E]{param($h,$l);if([DialogClientClick]::IsWindowVisible($h)-and[DialogClientClick]::IsWindowEnabled($h)-and(C $h)-eq'TButton'-and(T $h)-eq$env:BT){$script:buttons+=$h};$true},[IntPtr]::Zero);if($script:buttons.Count-ne1){throw "expected_one_enabled_button:$($script:buttons.Count)"};$button=$script:buttons[0];$rect=New-Object 'DialogClientClick+RECT';if(-not[DialogClientClick]::GetClientRect($button,[ref]$rect)){throw 'button_client_rect_failed'};$x=[int](($rect.Right-$rect.Left)/2);$y=[int](($rect.Bottom-$rect.Top)/2);if($x-lt0-or$y-lt0){throw 'button_client_center_invalid'};$lp=[IntPtr][int64](($y-shl16)-bor($x-band0xffff));[void][DialogClientClick]::SendMessage($button,0x0201,[IntPtr]1,$lp);[void][DialogClientClick]::SendMessage($button,0x0202,[IntPtr]::Zero,$lp);$deadline=[DateTime]::UtcNow.AddMilliseconds(1500);$closed=$false;while([DateTime]::UtcNow-lt$deadline){$closed=-not[DialogClientClick]::IsWindow($dialog);if($closed-eq($env:CLOSE-eq'true')){break};Start-Sleep -Milliseconds 40};if($closed-ne($env:CLOSE-eq'true')){throw "dialog_close_expectation_mismatch:closed=$closed"};[pscustomobject]@{ok=$true;processId=$toolsetPid;dialogHwnd=$dialog.ToInt64();buttonHwnd=$button.ToInt64();dialogClass=$env:DC;dialogTitle=$env:DT;buttonText=$env:BT;clientPoint=[pscustomobject]@{x=$x;y=$y};dialogClosed=$closed;safety=[pscustomobject]@{usesGlobalCursor=$false;usesGlobalKeyboard=$false;usesGlobalMouse=$false;method='targeted WM_LBUTTONDOWN/UP at the exact enabled TButton client center after dialog/class/text identity validation'}}|ConvertTo-Json -Depth 5 -Compress
+`;
+
+const output = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", source], { encoding: "utf8", windowsHide: true, timeout: 10000, env: { ...process.env, DC: options.dialogClass, DT: options.dialogTitle, BT: options.buttonText, CLOSE: options.expectDialogCloses } }).trim();
+console.log(JSON.stringify(JSON.parse(output), null, 2));
+
+function parseArgs(argv) { const result = {}; for (let index = 0; index < argv.length; index += 2) result[argv[index].slice(2)] = argv[index + 1]; return result; }

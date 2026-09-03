@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { blockVfxControlGateOnMissingPrerequisites } from "./lib/vfx-control-gate-prerequisites.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const docsRoot = path.join(repoRoot, "backend/docs/aurora-reverse");
@@ -35,6 +36,25 @@ const latestPath = path.resolve(
   args.latest ?? path.join(guardRoot, "vfx-visual-audit-latest.json")
 );
 const registryPath = path.resolve(repoRoot, args.registry ?? path.join(docsRoot, "vfx-claim-registry.json"));
+
+if (
+  blockVfxControlGateOnMissingPrerequisites({
+    repoRoot,
+    gateId: "vfx-retail-blocker-packet-freshness",
+    result: "retail-blocker-packet-freshness-blocked-missing-prerequisites",
+    outPath,
+    pathOverrides: {
+      "vfx-retail-blocker-packet": packetPath,
+      "vfx-retail-evidence-pack-dry-run": evidencePackReportPath,
+      "vfx-domain-coordinator-json": coordinatorPath,
+      "vfx-visual-audit-backlog": backlogPath,
+      "vfx-visual-audit-latest": latestPath,
+      "vfx-claim-registry": registryPath
+    }
+  })
+) {
+  process.exit(1);
+}
 
 const packet = readJson(packetPath);
 const evidencePackReport = readJson(evidencePackReportPath);

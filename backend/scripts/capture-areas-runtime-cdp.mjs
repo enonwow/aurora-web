@@ -1,10 +1,43 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import "../../scripts/proof-capture-lock-auto.cjs";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
-import { installCaptureProcessGuard } from "./capture-process-lifecycle.mjs";
+import { createCaptureLifecycleTrace } from "./capture-lifecycle-trace.mjs";
+import {
+  installCaptureProcessGuard,
+  releaseChildProcessStreams,
+  shouldForceCaptureProcessExit
+} from "./capture-process-lifecycle.mjs";
+import {
+  buildLocalBlankRuntimeFreshness,
+  evaluateAreaPresentedFrameFence,
+  evaluateAreaTileMutationRenderSettlement,
+  evaluateAreaTileMutationRuntimeSettlement
+} from "./lib/area-tile-mutation-runtime-settlement.mjs";
+import {
+  resolvePostMutationRuntimeWaitDeadline,
+  shouldWaitForNewAreaRealTileModelsBeforeScenario
+} from "./lib/area-runtime-wait-deadline.mjs";
+import { buildGroupChunkBackgroundFixture, validateMatrixChunk } from "./lib/tile-add-connect-matrix.mjs";
+import {
+  MATRIX_RUNTIME_BUILD_PROFILE_MAX_BYTES,
+  buildMatrixRuntimeBuildBinding,
+  validateMatrixRuntimeBuildObservations
+} from "./lib/tile-add-connect-runtime-build-profile.mjs";
+import {
+  computeTileAddConnectRuntimeSourceIdentity,
+  summarizeTileAddConnectRuntimeSourceIdentity,
+  validateTileAddConnectRuntimeSourceIdentity
+} from "./lib/tile-add-connect-runtime-source-identity.mjs";
+import {
+  buildSameBrowserRestartProofStatus,
+  createSameBrowserRestartReadyPacket,
+  validateSameBrowserRestartResumePacket
+} from "./lib/area-same-browser-restart-proof.mjs";
 
 const DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const DEFAULT_BASE_URL = "http://127.0.0.1:5173";
@@ -14,11 +47,16 @@ const DEFAULT_CAPTURE_TARGET = "ikea";
 const DEFAULT_HTTP_TIMEOUT_MS = 10_000;
 const DEFAULT_CHROME_CDP_TIMEOUT_MS = 30_000;
 const DEFAULT_LOGIN_WAIT_MS = 6_000;
+const DEFAULT_AUTHENTICATED_APP_WAIT_MS = 20_000;
 const DEFAULT_CAPTURE_HARD_TIMEOUT_BUFFER_MS = 60_000;
 const DEFAULT_BACKEND_DIRECT_HEALTH_URL = "http://127.0.0.1:3000/api/v1/health";
 const DEFAULT_ACTIONABILITY_SAMPLE_LIMIT = 12;
 const DEFAULT_NETWORK_REQUEST_ITEM_SAMPLE_LIMIT = 128;
-const AREAS_WORKSPACE_LIST_WAIT_ATTEMPTS = 280;
+// A cold ModuleSnapshotAreaRepository rebuild reads the complete local source
+// snapshot before the Areas shell can render. Keep this comfortably above the
+// observed 72 s cold-start path so capture reports a true readiness failure,
+// not a false missing-workspace blocker.
+const AREAS_WORKSPACE_LIST_WAIT_ATTEMPTS = 480;
 const AREAS_WORKSPACE_LIST_WAIT_INTERVAL_MS = 250;
 const AREA_RUNTIME_SNAPSHOT_WAIT_ATTEMPTS = 600;
 const AREA_RUNTIME_SNAPSHOT_WAIT_INTERVAL_MS = 100;
@@ -33,6 +71,11 @@ const AREA_EDITING_MUTATING_SCENARIOS = new Set([
   "multi-copy-paste",
   "multi-copy-paste-local",
   "tile-properties",
+  "tile-transform-local",
+  "tile-replace-local",
+  "tile-add-connect-matrix-local",
+  "group-placement-local",
+  "eraser-local",
   "eraser",
   "source-group-remove",
   "source-group-rotate",
@@ -48,7 +91,7 @@ const DEFAULT_AREA_RUNTIME_SNAPSHOT_WAIT_DEADLINE_MS =
   AREA_RUNTIME_SNAPSHOT_WAIT_ATTEMPTS * AREA_RUNTIME_SNAPSHOT_WAIT_INTERVAL_MS;
 const HELP_TEXT = `
 Usage:
-  node scripts/capture-areas-runtime-cdp.mjs [--area <text>] [--target ikea] [--view top-down] [--areaEditingLocalBlank true|false] [--areaEditingPreview terrain|group|crosser|eraser] [--areaEditingAction hover|commit|commit-undo] [--areaEditingScenario new-area-verify|multi-select|drag-terrain|drag-crosser|drag-height|eraser|source-group-remove|source-group-rotate|source-group-cut|group-base-height|area-rotate] [--areaEditingNewAreaTileset sic11] [--areaEditingNewAreaResRef verify_area] [--areaEditingNewAreaWidth 4] [--areaEditingNewAreaHeight 4] [--cleanCanvas true|false] [--tileOverlay true|false] [--tileLights true|false] [--displayFog true|false] [--useAreaLighting true|false] [--terrainVoidMasksVisible true|false] [--terrainVoidMaskModelResRef <resref>] [--terrainVoidMaskSourceMesh <node>] [--terrainMaterialMode basic] [--focusWorldX <number>] [--focusWorldZ <number>] [--focusDistance <number>] [--visibility terrain-only] [--ceilingMeshes true|false] [--isolateObjectId <objectId>] [--highlightObjectIds <objectId,objectId>] [--runtimeCanvasScreenshot true|false] [--pageScreenshot true|false] [--disableGpu true|false] [--baseUrl <url>] [--outDir <dir>] [--name <stem>] [--runtimeWaitMs <ms>] [--httpTimeoutMs <ms>] [--loginWaitMs <ms>] [--requireScreenshot]
+  node scripts/capture-areas-runtime-cdp.mjs [--area <text>] [--target ikea] [--view top-down] [--areaEditingLocalBlank true|false] [--areaEditingPreview terrain|group|crosser|eraser] [--areaEditingAction hover|commit|commit-undo] [--areaEditingScenario new-area-verify|multi-select|drag-terrain|drag-height|tile-transform-local|tile-replace-local|tile-add-connect-matrix-local|group-placement-local|eraser-local] [--areaEditingMatrixChunk <chunk.json>] [--areaEditingTileId 1200] [--areaEditingGroupId group0] [--areaEditingNewAreaTileset sic11] [--areaEditingNewAreaResRef verify_area] [--areaEditingNewAreaWidth 4] [--areaEditingNewAreaHeight 4] [--cleanCanvas true|false] [--tileOverlay true|false] [--tileLights true|false] [--displayFog true|false] [--terrainVoidMasksVisible true|false] [--terrainVoidMaskModelResRef <resref>] [--terrainVoidMaskSourceMesh <node>] [--terrainMaterialMode basic] [--focusWorldX <number>] [--focusWorldZ <number>] [--focusDistance <number>] [--visibility terrain-only] [--ceilingMeshes true|false] [--isolateObjectId <objectId>] [--highlightObjectIds <objectId,objectId>] [--sameBrowserRestart true] [--sameBrowserRestartPreviousBackendPid <pid>] [--sameBrowserRestartTimeoutMs <ms>] [--runtimeBuildProfile <path>] [--runtimeBuildProfileSha256 <sha256>] [--runtimeCanvasScreenshot true|false] [--pageScreenshot true|false] [--disableGpu true|false] [--baseUrl <url>] [--outDir <dir>] [--name <stem>] [--runtimeWaitMs <ms>] [--chromeCdpTimeoutMs <ms>] [--httpTimeoutMs <ms>] [--loginWaitMs <ms>] [--lifecycleTracePath <file.jsonl>] [--requireScreenshot]
   node scripts/capture-areas-runtime-cdp.mjs --summarizeFrame <frame.json> [--summaryLimit <count>]
 
 Captures the live Areas workspace through Chrome DevTools Protocol, opens an Area,
@@ -92,10 +135,12 @@ if (options.summarizeFrame) {
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..");
+const runtimeBuildBinding = loadOptionalMatrixRuntimeBuildBinding(options);
 const outDir = path.resolve(
   repoRoot,
   options.outDir ?? "backend/docs/aurora-reverse/artifacts/areas-runtime-capture"
 );
+const lifecycleTrace = createCaptureLifecycleTrace(options.lifecycleTracePath);
 const chromePath = options.chromePath ?? process.env.CHROME_PATH ?? DEFAULT_CHROME_PATH;
 const baseUrl = options.baseUrl ?? process.env.AREAS_BASE_URL ?? DEFAULT_BASE_URL;
 const port = Number(options.port ?? 9600 + Math.floor(Math.random() * 400));
@@ -117,12 +162,21 @@ const authBaseUrl = (options.authBaseUrl ?? `${baseUrl}/_aurora/v1`).replace(/\/
 const backendDirectHealthUrl =
   options.backendDirectHealthUrl ??
   process.env.AREAS_BACKEND_DIRECT_HEALTH_URL ??
-  DEFAULT_BACKEND_DIRECT_HEALTH_URL;
+  (runtimeBuildBinding
+    ? `${runtimeBuildBinding.backend.baseUrl}/api/v1/health`
+    : DEFAULT_BACKEND_DIRECT_HEALTH_URL);
 const httpTimeoutMs = Number(
   options.httpTimeoutMs ?? process.env.AREAS_CAPTURE_HTTP_TIMEOUT_MS ?? DEFAULT_HTTP_TIMEOUT_MS
 );
 const chromeCdpTimeoutMs = Number(
   options.chromeCdpTimeoutMs ??
+    // A runtime proof must keep its CDP session alive for the same interval
+    // as its requested terrain-settlement window.  Custom CEP/HAK tiles can
+    // legitimately need more than the historical 30 s default on a cold
+    // GLB conversion; otherwise the capture fails while the real request is
+    // still in flight and reports a stale snapshot.
+    options.runtimeWaitMs ??
+    options.runtimeSnapshotWaitMs ??
     process.env.AREAS_CAPTURE_CHROME_CDP_TIMEOUT_MS ??
     DEFAULT_CHROME_CDP_TIMEOUT_MS
 );
@@ -172,6 +226,32 @@ const areaRuntimeSnapshotWaitDeadlineMs = Math.max(
       DEFAULT_AREA_RUNTIME_SNAPSHOT_WAIT_DEADLINE_MS
   )
 );
+const postMutationRuntimeWaitDeadlineMs = resolvePostMutationRuntimeWaitDeadline({
+  requestedWaitMs: areaRuntimeSnapshotWaitDeadlineMs,
+  chromeCdpTimeoutMs
+});
+const networkSettlementTimeoutMs = Math.min(
+  30_000,
+  Math.max(5_000, areaRuntimeSnapshotWaitDeadlineMs)
+);
+const captureSameBrowserRestart = parseBooleanOption(
+  options.sameBrowserRestart ??
+    process.env.AREAS_CAPTURE_SAME_BROWSER_RESTART ??
+    "false"
+);
+const sameBrowserRestartTimeoutMs = Math.max(
+  10_000,
+  Number(
+    options.sameBrowserRestartTimeoutMs ??
+      process.env.AREAS_CAPTURE_SAME_BROWSER_RESTART_TIMEOUT_MS ??
+      180_000
+  )
+);
+const sameBrowserRestartPreviousBackendProcessId = Number(
+  options.sameBrowserRestartPreviousBackendPid ??
+    process.env.AREAS_CAPTURE_SAME_BROWSER_RESTART_PREVIOUS_BACKEND_PID ??
+    Number.NaN
+);
 const captureHardTimeoutMs = Math.max(
   30_000,
   Number(
@@ -180,6 +260,7 @@ const captureHardTimeoutMs = Math.max(
       chromeCdpTimeoutMs +
         loginWaitMs +
         areaRuntimeSnapshotWaitDeadlineMs +
+        (captureSameBrowserRestart ? sameBrowserRestartTimeoutMs : 0) +
         DEFAULT_CAPTURE_HARD_TIMEOUT_BUFFER_MS
   )
 );
@@ -195,10 +276,21 @@ const captureAreaEditingAction = normalizeAreaEditingActionOption(
 const captureAreaEditingScenario = normalizeAreaEditingScenarioOption(
   options.areaEditingScenario ?? process.env.AREAS_CAPTURE_AREA_EDITING_SCENARIO
 );
+const captureAreaEditingMatrixChunk = loadAreaEditingMatrixChunk(
+  options.areaEditingMatrixChunk ?? process.env.AREAS_CAPTURE_AREA_EDITING_MATRIX_CHUNK,
+  captureAreaEditingScenario
+);
+const captureAreaEditingGroupId = normalizeAreaEditingGroupIdOption(
+  options.areaEditingGroupId ?? process.env.AREAS_CAPTURE_AREA_EDITING_GROUP_ID ?? "group0"
+);
+const captureAreaEditingTileId = normalizeAreaEditingTileIdOption(
+  options.areaEditingTileId ?? process.env.AREAS_CAPTURE_AREA_EDITING_TILE_ID
+);
 const captureAreaEditingNewArea = {
   tilesetResRef: normalizeAreaEditingResRefOption(
     options.areaEditingNewAreaTileset ??
       process.env.AREAS_CAPTURE_AREA_EDITING_NEW_AREA_TILESET ??
+      captureAreaEditingMatrixChunk?.tilesetResRef ??
       "sic11",
     "areaEditingNewAreaTileset"
   ),
@@ -211,19 +303,42 @@ const captureAreaEditingNewArea = {
   width: normalizeAreaEditingDimensionOption(
     options.areaEditingNewAreaWidth ??
       process.env.AREAS_CAPTURE_AREA_EDITING_NEW_AREA_WIDTH ??
+      captureAreaEditingMatrixChunk?.width ??
       4,
     "areaEditingNewAreaWidth"
   ),
   height: normalizeAreaEditingDimensionOption(
     options.areaEditingNewAreaHeight ??
       process.env.AREAS_CAPTURE_AREA_EDITING_NEW_AREA_HEIGHT ??
+      captureAreaEditingMatrixChunk?.height ??
       4,
     "areaEditingNewAreaHeight"
-  )
+  ),
+  ...(captureAreaEditingScenario === "tile-add-connect-matrix-local"
+    ? { proofInitializer: "first-compatible" }
+    : {})
 };
+assertMatrixChunkMatchesNewArea(captureAreaEditingMatrixChunk, captureAreaEditingNewArea);
 const captureAreaEditingLocalBlank = parseBooleanOption(
   options.areaEditingLocalBlank ?? process.env.AREAS_CAPTURE_AREA_EDITING_LOCAL_BLANK ?? "false"
 );
+if (
+  captureSameBrowserRestart &&
+  (!Number.isInteger(sameBrowserRestartPreviousBackendProcessId) ||
+    sameBrowserRestartPreviousBackendProcessId <= 0)
+) {
+  throw new Error(
+    "--sameBrowserRestart requires --sameBrowserRestartPreviousBackendPid with the exact positive backend runtime PID."
+  );
+}
+if (
+  captureSameBrowserRestart &&
+  (captureAreaEditingLocalBlank || Boolean(captureAreaEditingScenario))
+) {
+  throw new Error(
+    "--sameBrowserRestart is limited to an unchanged source-backed Area and cannot be combined with Area editing scenarios."
+  );
+}
 const captureCleanCanvas = parseBooleanOption(
   options.cleanCanvas ?? process.env.AREAS_CAPTURE_CLEAN_CANVAS ?? "true"
 );
@@ -359,10 +474,19 @@ const areaEditingScenarioStatePath = path.join(outDir, `${fileStem}.state.json`)
 const areaEditingScenarioSummaryPath = path.join(outDir, `${fileStem}.summary.json`);
 const failureFramePath = path.join(outDir, `${fileStem}.failure.frame.json`);
 const progressFramePath = path.join(outDir, `${fileStem}.progress.frame.json`);
+const sameBrowserRestartReadyPath = path.join(
+  outDir,
+  `${fileStem}.same-browser-restart.ready.json`
+);
+const sameBrowserRestartResumePath = path.join(
+  outDir,
+  `${fileStem}.same-browser-restart.resume.json`
+);
 const captureStartedAt = Date.now();
 
 fs.mkdirSync(profileDir, { recursive: true });
 fs.mkdirSync(outDir, { recursive: true });
+lifecycleTrace.record("runner-started", { fileStem, outDir, port, pid: process.pid });
 
 let chromeStderr = "";
 let chrome = null;
@@ -373,14 +497,42 @@ let expectedArea = null;
 let expectedAreaDetail = null;
 let authElapsedMs = null;
 let runtimeEnvironmentPreflight = null;
+let runtimeEnvironmentPostCapture = null;
+let runtimeSourceIdentityPreflight = null;
 
 try {
+  lifecycleTrace.record("preflight-started");
   const authStartedAt = Date.now();
+  if (runtimeBuildBinding) {
+    runtimeSourceIdentityPreflight =
+      computeTileAddConnectRuntimeSourceIdentity({ repoRoot });
+    const runtimeSourceErrors = validateTileAddConnectRuntimeSourceIdentity(
+      runtimeBuildBinding,
+      summarizeTileAddConnectRuntimeSourceIdentity(
+        runtimeSourceIdentityPreflight
+      )
+    );
+    if (runtimeSourceErrors.length > 0) {
+      throw createBlockerError(
+        "runtime_source_identity_mismatch",
+        "Current runtime sources do not match the immutable runtime-build profile.",
+        {
+          runtimeBuildBinding,
+          runtimeSourceIdentity:
+            summarizeTileAddConnectRuntimeSourceIdentity(
+              runtimeSourceIdentityPreflight
+            ),
+          errors: runtimeSourceErrors
+        }
+      );
+    }
+  }
   runtimeEnvironmentPreflight = await preflightRuntimeEnvironment({
     route,
     bootstrapRoute,
     authBaseUrl,
-    backendDirectHealthUrl
+    backendDirectHealthUrl,
+    runtimeBuildBinding
   });
   seededAuthState = await createPersistedAuthState({
     authBaseUrl,
@@ -391,6 +543,10 @@ try {
     !captureAreaEditingLocalBlank &&
     captureAreaEditingScenario !== "new-area-verify" &&
     captureAreaEditingScenario !== "multi-copy-paste-local" &&
+    captureAreaEditingScenario !== "tile-transform-local" &&
+    captureAreaEditingScenario !== "tile-replace-local" &&
+    captureAreaEditingScenario !== "group-placement-local" &&
+    captureAreaEditingScenario !== "eraser-local" &&
     captureAreaEditingScenario !== "area-rotate-rectangular-local"
   ) {
     expectedArea = await resolveExpectedAreaFromBackend({
@@ -405,11 +561,14 @@ try {
     });
   }
   authElapsedMs = Date.now() - authStartedAt;
+  lifecycleTrace.record("preflight-finished", { authElapsedMs });
 
+  lifecycleTrace.record("chrome-spawn-requested");
   chrome = spawn(
     chromePath,
     [
-      "--headless=new",
+  "--headless=new",
+  "--renderer-process-limit=2",
       ...(chromeDisableGpu ? ["--disable-gpu"] : []),
       "--no-sandbox",
       "--noerrdialogs",
@@ -429,6 +588,7 @@ try {
     hardTimeoutMs: captureHardTimeoutMs,
     label: `areas-runtime:${fileStem}`
   });
+  lifecycleTrace.record("chrome-spawned", { pid: chrome.pid ?? null });
 
   chrome.stderr.on("data", (chunk) => {
     chromeStderr += chunk.toString();
@@ -438,6 +598,7 @@ try {
     chromeStderr += `\nCHROME_SPAWN_ERROR: ${formatErrorForMessage(error)}`;
   });
 
+  lifecycleTrace.record("capture-started");
   const result = await captureFromChrome({
     port,
     route,
@@ -461,6 +622,8 @@ try {
     captureAreaEditingPreview,
     captureAreaEditingAction,
     captureAreaEditingScenario,
+    captureAreaEditingGroupId,
+    captureAreaEditingTileId,
     captureAreaEditingNewArea,
     captureAreaEditingLocalBlank,
     areaEditingScenarioStatePath,
@@ -469,6 +632,11 @@ try {
     captureViewFocus,
     captureRemoveObjectIds,
     areaRuntimeSnapshotWaitDeadlineMs,
+    captureSameBrowserRestart,
+    sameBrowserRestartTimeoutMs,
+    sameBrowserRestartPreviousBackendProcessId,
+    sameBrowserRestartReadyPath,
+    sameBrowserRestartResumePath,
     actionabilitySampleLimit,
     username,
     password,
@@ -476,10 +644,16 @@ try {
       authElapsedMs,
       captureStartedAt
     },
+    lifecycleTrace,
     getChromeSpawnError: () => chromeSpawnError
   });
+  lifecycleTrace.record("capture-returned", { totalElapsedMs: result?.timings?.totalElapsedMs ?? null });
   console.log(JSON.stringify(buildConsoleSummary(result), null, 2));
 } catch (error) {
+  lifecycleTrace.record("capture-failed", {
+    error: error instanceof Error ? error.name : "Error",
+    message: formatErrorForMessage(error)
+  });
   const previousFrameEvidence = readExistingRuntimeFrameEvidence(framePath);
   const frame = buildFailureFrame(error, {
     areaQuery,
@@ -510,14 +684,29 @@ try {
   console.error(JSON.stringify(buildConsoleSummary(frame), null, 2));
   process.exitCode = 1;
 } finally {
-  if (chromeProcessGuard) {
-    await chromeProcessGuard.terminate();
-  } else if (chrome) {
-    await terminateChromeCaptureProcess(chrome);
+  lifecycleTrace.record("chrome-cleanup-started", { pid: chrome?.pid ?? null });
+  try {
+    if (chromeProcessGuard) {
+      await chromeProcessGuard.terminate();
+    } else if (chrome) {
+      await terminateChromeCaptureProcess(chrome);
+    }
+  } finally {
+    lifecycleTrace.record("chrome-stdio-released", {
+      count: releaseChildProcessStreams(chrome)
+    });
   }
+  lifecycleTrace.record("chrome-cleanup-finished", { pid: chrome?.pid ?? null });
   if (!keepProfile) {
+    lifecycleTrace.record("profile-cleanup-started", { profileDir });
     removeProfileDirBestEffort(profileDir);
+    lifecycleTrace.record("profile-cleanup-finished", { profileDir });
   }
+  lifecycleTrace.record("runner-finished");
+}
+if (shouldForceCaptureProcessExit(options.exitAfterCleanup)) {
+  lifecycleTrace.record("forced-exit-requested", { exitCode: process.exitCode ?? 0 });
+  process.exit(process.exitCode ?? 0);
 }
 
 function readExistingRuntimeFrameEvidence(candidateFramePath) {
@@ -593,6 +782,7 @@ async function captureFromChrome({
   captureAreaEditingPreview,
   captureAreaEditingAction,
   captureAreaEditingScenario,
+  captureAreaEditingGroupId,
   captureAreaEditingNewArea,
   captureAreaEditingLocalBlank,
   areaEditingScenarioStatePath,
@@ -601,11 +791,17 @@ async function captureFromChrome({
   captureViewFocus,
   captureRemoveObjectIds,
   areaRuntimeSnapshotWaitDeadlineMs,
+  captureSameBrowserRestart,
+  sameBrowserRestartTimeoutMs,
+  sameBrowserRestartPreviousBackendProcessId,
+  sameBrowserRestartReadyPath,
+  sameBrowserRestartResumePath,
   actionabilitySampleLimit,
   username,
   password,
-  timings,
-  getChromeSpawnError
+    timings,
+    lifecycleTrace,
+    getChromeSpawnError
 }) {
   const tab = await waitForTab(port, bootstrapRoute, {
     getChromeSpawnError,
@@ -705,12 +901,28 @@ async function captureFromChrome({
   await send("Runtime.enable");
   await send("Network.enable", { maxPostDataSize: 2_000_000 });
   try {
+  const captureAreaEditingScenarioUsesLocalDraft =
+    captureAreaEditingLocalBlank ||
+    [
+      "new-area-verify",
+      "multi-copy-paste-local",
+      "tile-transform-local",
+      "tile-replace-local",
+      "tile-add-connect-matrix-local",
+      "group-placement-local",
+      "eraser-local",
+      "area-rotate-rectangular-local"
+    ].includes(captureAreaEditingScenario ?? "");
+  // A real-Area authoring proof must not silently switch to terrain-only:
+  // tiles alone do not prove Area load, object-layer readiness, or camera parity.
   const effectiveCaptureVisibility =
-    captureAreaEditingScenario && captureAreaEditingScenario !== "new-area-verify"
-      ? "terrain-only"
+    captureAreaEditingScenario && !captureAreaEditingScenarioUsesLocalDraft
+      ? "all"
       : captureVisibility;
   const allowIntentionalHiddenGround =
-    Boolean(captureAreaEditingScenario) && captureAreaEditingScenario !== "new-area-verify";
+    effectiveCaptureVisibility === "terrain-only" &&
+    Boolean(captureAreaEditingScenario) &&
+    captureAreaEditingScenario !== "new-area-verify";
   const loginReady = await authenticateBrowserForCapture(
     send,
     seededAuthState,
@@ -724,8 +936,14 @@ async function captureFromChrome({
   const createsNewAreaThroughUi =
     captureAreaEditingScenario === "new-area-verify" ||
     captureAreaEditingScenario === "multi-copy-paste-local" ||
-    captureAreaEditingScenario === "area-rotate-rectangular-local";
-  const openedArea = createsNewAreaThroughUi
+    captureAreaEditingScenario === "tile-transform-local" ||
+    captureAreaEditingScenario === "tile-replace-local" ||
+    captureAreaEditingScenario === "tile-add-connect-matrix-local" ||
+    captureAreaEditingScenario === "group-placement-local" ||
+    captureAreaEditingScenario === "eraser-local" ||
+    captureAreaEditingScenario === "area-rotate-rectangular-local" ||
+    (captureAreaEditingLocalBlank && captureAreaEditingScenario === "tile-properties");
+  let openedArea = createsNewAreaThroughUi
     ? await createLocalAreaThroughUiForVerify(
         send,
         captureAreaEditingNewArea,
@@ -735,6 +953,12 @@ async function captureFromChrome({
       ? await createLocalBlankAreaForEditingProof(send)
       : await openArea(send, areaQuery, expectedArea);
   const usesLocalAreaDraft = captureAreaEditingLocalBlank || createsNewAreaThroughUi;
+  // The initial catalogue lookup may target a normal Area (for example
+  // `_ikea`), while a local editing scenario immediately creates a different
+  // transient Area.  Once that happens, freshness must be checked against the
+  // newly opened Area expectation, not the catalogue lookup that merely got us
+  // into the Areas workspace.
+  const runtimeExpectedArea = usesLocalAreaDraft ? null : expectedArea;
   let domStatus = usesLocalAreaDraft
     ? await readLocalBlankAreaRuntimeStatus(send, openedArea)
     : await waitForAreaRuntimeSnapshot(send, openedArea, expectedArea, {
@@ -752,6 +976,103 @@ async function captureFromChrome({
       captureVisibility: effectiveCaptureVisibility,
       allowIntentionalHiddenGround
     });
+  } else if (domStatus.runtimeFreshness?.ok !== true) {
+    throw createBlockerError(
+      "areas_local_runtime_scene_identity_mismatch",
+      "Local Area editing proof did not render the exact newly-created scene identity.",
+      {
+        endpoint: route,
+        port: resolveUrlPort(route),
+        openedArea,
+        runtimeFreshness: domStatus.runtimeFreshness
+      }
+    );
+  }
+  let sameBrowserRestartProofContext = null;
+  if (captureSameBrowserRestart) {
+    await waitForRequiredNetworkSettlement(networkCapture, networkSettlementTimeoutMs);
+    await hydrateNetworkResponseBodies(send, networkCapture);
+    const baselineNetworkSummary = buildNetworkCaptureSummary(networkCapture);
+    assertRequiredNetworkSettlement(baselineNetworkSummary);
+
+    const challenge = crypto.randomUUID();
+    const beforeSession = await createSameBrowserRestartSessionIdentity(send, challenge);
+    const readyPacket = createSameBrowserRestartReadyPacket({
+      challenge,
+      readyAt: new Date().toISOString(),
+      session: beforeSession,
+      area: expectedArea,
+      previousBackendProcessId: sameBrowserRestartPreviousBackendProcessId
+    });
+    writeSameBrowserRestartReadyPacket({
+      readyPath: sameBrowserRestartReadyPath,
+      resumePath: sameBrowserRestartResumePath,
+      packet: readyPacket
+    });
+    resetNetworkCapture(networkCapture);
+    lifecycleTrace?.record("same-browser-restart-ready", {
+      readyPath: sameBrowserRestartReadyPath,
+      resumePath: sameBrowserRestartResumePath,
+      challenge,
+      previousBackendProcessId: sameBrowserRestartPreviousBackendProcessId
+    });
+
+    const resumePacket = await waitForSameBrowserRestartResumePacket({
+      resumePath: sameBrowserRestartResumePath,
+      challenge,
+      readyAt: readyPacket.readyAt,
+      previousBackendProcessId: sameBrowserRestartPreviousBackendProcessId,
+      timeoutMs: sameBrowserRestartTimeoutMs
+    });
+    lifecycleTrace?.record("same-browser-restart-resumed", {
+      resumePath: sameBrowserRestartResumePath,
+      currentBackendProcessId: resumePacket.currentBackendProcessId
+    });
+
+    const restartedAuthState = await createPersistedAuthState({
+      authBaseUrl,
+      username,
+      password
+    });
+    const authRefresh = await refreshSameBrowserAuthStateWithoutNavigation(
+      send,
+      restartedAuthState,
+      Math.min(30_000, sameBrowserRestartTimeoutMs)
+    );
+    const reopenedArea = await openArea(send, areaQuery, expectedArea);
+    const reopenedDomStatus = await waitForAreaRuntimeSnapshot(
+      send,
+      reopenedArea,
+      expectedArea,
+      {
+        progressFramePath,
+        route,
+        captureStartedAt: timings.captureStartedAt,
+        captureVisibility: effectiveCaptureVisibility,
+        allowPartialEvidence,
+        runtimeSnapshotWaitDeadlineMs: areaRuntimeSnapshotWaitDeadlineMs
+      }
+    );
+    assertRuntimeStatusIsVisualProofReady(reopenedDomStatus, reopenedArea, expectedArea, {
+      route,
+      requireScreenshot,
+      captureVisibility: effectiveCaptureVisibility,
+      allowIntentionalHiddenGround
+    });
+    const afterSession = await readSameBrowserRestartSessionIdentity(send);
+    sameBrowserRestartProofContext = {
+      readyPath: sameBrowserRestartReadyPath,
+      resumePath: sameBrowserRestartResumePath,
+      readyPacket,
+      resumePacket,
+      beforeSession,
+      afterSession,
+      authRefresh,
+      baselineNetworkSummary,
+      reopenedArea
+    };
+    openedArea = reopenedArea;
+    domStatus = reopenedDomStatus;
   }
   if (progressFramePath) {
     writeAreaRuntimeCaptureProgressFrame(progressFramePath, {
@@ -817,7 +1138,16 @@ async function captureFromChrome({
   }
   const captureCeilingMeshesStatus = await applyCaptureCeilingMeshes(send, captureCeilingMeshes);
   const captureVisibilityStatus = await applyCaptureVisibility(send, effectiveCaptureVisibility);
-  const captureViewStatus = await applyCaptureView(send, captureView, captureViewFocus, {
+  // `--view perspective` is the proof-friendly whole-Area camera.  It must
+  // not silently fall back to the current editor camera just because the
+  // caller omitted a manual focus.  The opened ARE is authoritative for the
+  // default target, in the same tile-space used by the Web renderer.
+  const effectiveCaptureViewFocus = resolveCaptureViewFocusForOpenedArea(
+    captureView,
+    captureViewFocus,
+    openedArea
+  );
+  let captureViewStatus = await applyCaptureView(send, captureView, effectiveCaptureViewFocus, {
     cleanCanvas: captureCleanCanvas,
     tileLightsVisible: captureTileLights,
     displayFog: captureDisplayFog,
@@ -827,35 +1157,122 @@ async function captureFromChrome({
     terrainMaterialMode: captureTerrainMaterialMode,
     renderPriorityObjectIds: captureRenderPriorityObjectIds
   });
+  // A dense proof gallery may legitimately need longer than the historical
+  // 180 s new-Area warm-up.  Honour the caller's explicit runtime deadline,
+  // while retaining that floor for existing local scenarios.
+  const newAreaRealTileModelTimeoutMs = Math.min(
+    chromeCdpTimeoutMs,
+    Math.max(180_000, areaRuntimeSnapshotWaitDeadlineMs)
+  );
   let areaEditingScenarioStatus = captureAreaEditingScenario === "new-area-verify"
-    ? await verifyNewAreaDraftThroughUi(send, openedArea)
+    ? await verifyNewAreaDraftThroughUi(
+      send,
+      openedArea,
+      Math.min(180_000, areaRuntimeSnapshotWaitDeadlineMs)
+    )
     : null;
   if (captureAreaEditingScenario === "new-area-verify") {
     const expectedTileCount = Number(
       areaEditingScenarioStatus?.verification?.stats?.expectedTileCount ??
         openedArea.areaExpectation?.width * openedArea.areaExpectation?.height
     );
-    const realTileModels = await waitForNewAreaRealTileModels(
-      send,
-      openedArea.areaText,
-      expectedTileCount,
-      Math.min(120_000, chromeCdpTimeoutMs)
-    );
+    let realTileModels;
+    try {
+      realTileModels = await waitForNewAreaRealTileModels(
+        send,
+        openedArea.areaText,
+        expectedTileCount,
+        newAreaRealTileModelTimeoutMs
+      );
+    } catch (error) {
+      await attachNewAreaTileModelWaitVisualEvidence(error, {
+        send,
+        pngPath,
+        canvasPngPath,
+        captureIsolateObjectId,
+        captureHighlightObjectIds,
+        addCdpEventHandler,
+        capturePageScreenshot,
+        capturePageScreenshotFromSurface,
+        captureScreencastScreenshot
+      });
+      throw error;
+    }
     areaEditingScenarioStatus = {
       ...areaEditingScenarioStatus,
       realTileModels
     };
     domStatus = await readLocalBlankAreaRuntimeStatus(send, openedArea);
   }
-  if (captureAreaEditingScenario && captureAreaEditingScenario !== "new-area-verify") {
+  if (
+    createsNewAreaThroughUi &&
+    captureAreaEditingScenario &&
+    captureAreaEditingScenario !== "new-area-verify" &&
+    shouldWaitForNewAreaRealTileModelsBeforeScenario(
+      captureAreaEditingScenario
+    )
+  ) {
+    const expectedTileCount = Number(
+      openedArea.areaExpectation?.width * openedArea.areaExpectation?.height
+    );
+    try {
+      await waitForNewAreaRealTileModels(
+        send,
+        openedArea.areaText,
+        expectedTileCount,
+        newAreaRealTileModelTimeoutMs
+      );
+    } catch (error) {
+      await attachNewAreaTileModelWaitVisualEvidence(error, {
+        send,
+        pngPath,
+        canvasPngPath,
+        captureIsolateObjectId,
+        captureHighlightObjectIds,
+        addCdpEventHandler,
+        capturePageScreenshot,
+        capturePageScreenshotFromSurface,
+        captureScreencastScreenshot
+      });
+      throw error;
+    }
+    domStatus = await readLocalBlankAreaRuntimeStatus(send, openedArea);
+  }
+  if (
+    captureAreaEditingScenario &&
+    captureAreaEditingScenario !== "new-area-verify"
+  ) {
+    const visualProofBefore = ["tile-transform-local", "group-placement-local"].includes(captureAreaEditingScenario)
+      ? await captureAreaEditingScenarioVisualStep({
+          send,
+          suffix: "before",
+          pngPath,
+          canvasPngPath,
+          captureIsolateObjectId,
+          captureHighlightObjectIds,
+          addCdpEventHandler,
+          capturePageScreenshot,
+          capturePageScreenshotFromSurface,
+          captureScreencastScreenshot
+        })
+      : null;
     const initialInvisibleGroundSurfaceEvidence =
       classifyIntentionalInvisibleGroundSurface(domStatus);
     areaEditingScenarioStatus = await executeAreaEditingRuntimeScenario({
       send,
       scenario: captureAreaEditingScenario,
+      groupId: captureAreaEditingGroupId,
+      tileId: captureAreaEditingTileId,
+      matrixChunk: captureAreaEditingMatrixChunk,
       openedArea,
       initialSceneKey: domStatus.tileProcessSceneContract?.currentSceneKey ?? null
     });
+    if (visualProofBefore) {
+      areaEditingScenarioStatus = {
+        ...areaEditingScenarioStatus,
+        visualProof: { before: visualProofBefore }
+      };
+    }
     if (areaEditingScenarioStatus.ok !== true) {
       throw createBlockerError(
         `area_editing_scenario_${captureAreaEditingScenario.replace(/-/gu, "_")}_failed`,
@@ -873,15 +1290,42 @@ async function captureFromChrome({
         domStatus.tileProcessSceneContract?.currentSceneKey ?? null,
         Math.min(120_000, chromeCdpTimeoutMs)
       );
-      const settled = await waitForAreaRuntimeSnapshot(send, openedArea, expectedArea, {
-        progressFramePath,
-        route,
-        captureStartedAt: timings.captureStartedAt,
-        captureVisibility: "terrain-only",
-        runtimeSnapshotWaitDeadlineMs: Math.min(120_000, chromeCdpTimeoutMs),
-        requiredTileProcessSceneKey: settledSceneKey.sceneKey,
-        requireStrictTerrainSettlement: true
-      });
+      let settled;
+      try {
+        settled = await waitForAreaRuntimeSnapshot(send, openedArea, runtimeExpectedArea, {
+          progressFramePath,
+          route,
+          captureStartedAt: timings.captureStartedAt,
+          captureVisibility: effectiveCaptureVisibility,
+          runtimeSnapshotWaitDeadlineMs: Math.min(120_000, chromeCdpTimeoutMs),
+          requiredTileProcessSceneKey: settledSceneKey.sceneKey,
+          requireStrictTerrainSettlement: true
+        });
+      } catch (error) {
+        await attachTerminalTileModelBlockerVisualEvidence(error, {
+          send,
+          pngPath,
+          canvasPngPath,
+          captureIsolateObjectId,
+          captureHighlightObjectIds,
+          addCdpEventHandler,
+          capturePageScreenshot,
+          capturePageScreenshotFromSurface,
+          captureScreencastScreenshot
+        });
+        await attachAreaEditingSettlementVisualEvidence(error, {
+          send,
+          pngPath,
+          canvasPngPath,
+          captureIsolateObjectId,
+          captureHighlightObjectIds,
+          addCdpEventHandler,
+          capturePageScreenshot,
+          capturePageScreenshotFromSurface,
+          captureScreencastScreenshot
+        });
+        throw error;
+      }
       const realTileSettlement = assertAreaEditingScenarioRealTileSettlement(
         settled,
         openedArea,
@@ -912,12 +1356,12 @@ async function captureFromChrome({
             areaExpectation: areaEditingScenarioStatus.postMutationAreaExpectation
           }
         : openedArea;
-      const settled = await waitForAreaRuntimeSnapshot(send, settlementOpenedArea, expectedArea, {
+      const settled = await waitForAreaRuntimeSnapshot(send, settlementOpenedArea, runtimeExpectedArea, {
         progressFramePath,
         route,
         captureStartedAt: timings.captureStartedAt,
-        captureVisibility: "terrain-only",
-        runtimeSnapshotWaitDeadlineMs: Math.min(120_000, chromeCdpTimeoutMs),
+        captureVisibility: effectiveCaptureVisibility,
+        runtimeSnapshotWaitDeadlineMs: postMutationRuntimeWaitDeadlineMs,
         requireStrictTerrainSettlement: true
       });
       const realTileSettlement = assertAreaEditingScenarioRealTileSettlement(
@@ -1012,12 +1456,12 @@ async function captureFromChrome({
     const commitSettledStatus = await waitForAreaRuntimeSnapshot(
       send,
       openedArea,
-      expectedArea,
+      runtimeExpectedArea,
       {
         progressFramePath,
         route,
         captureStartedAt: timings.captureStartedAt,
-        captureVisibility: "terrain-only",
+        captureVisibility: effectiveCaptureVisibility,
         runtimeSnapshotWaitDeadlineMs: Math.min(120_000, chromeCdpTimeoutMs),
         requiredTileProcessSceneKey: committedSceneKeyStatus.sceneKey,
         requireStrictTerrainSettlement: true
@@ -1083,11 +1527,11 @@ async function captureFromChrome({
         { commitStepFrame, undoStatus }
       );
     }
-    domStatus = await waitForAreaRuntimeSnapshot(send, openedArea, expectedArea, {
+    domStatus = await waitForAreaRuntimeSnapshot(send, openedArea, runtimeExpectedArea, {
       progressFramePath,
       route,
       captureStartedAt: timings.captureStartedAt,
-      captureVisibility: "terrain-only",
+      captureVisibility: effectiveCaptureVisibility,
       runtimeSnapshotWaitDeadlineMs: Math.min(120_000, chromeCdpTimeoutMs),
       requiredTileProcessSceneKey: preCommitTileProcessSceneKey,
       requireStrictTerrainSettlement: true
@@ -1106,6 +1550,21 @@ async function captureFromChrome({
       ]
     };
   }
+  // A mutation may rebuild the scene and replace the editor's default orbit
+  // camera. Re-apply the requested oracle view after the final mutation state,
+  // not merely before it, so the captured proof has the requested angle.
+  if (!usesLocalAreaDraft && captureView !== "default") {
+    captureViewStatus = await applyCaptureView(send, captureView, effectiveCaptureViewFocus, {
+      cleanCanvas: captureCleanCanvas,
+      tileLightsVisible: captureTileLights,
+      displayFog: captureDisplayFog,
+      useAreaLighting: captureUseAreaLighting,
+      terrainVoidMasksVisible: captureTerrainVoidMasksVisible,
+      terrainVoidMaskFilter: captureTerrainVoidMaskFilter,
+      terrainMaterialMode: captureTerrainMaterialMode,
+      renderPriorityObjectIds: captureRenderPriorityObjectIds
+    });
+  }
   if (
     !usesLocalAreaDraft &&
     (captureViewStatus.applied || captureVisibilityStatus.applied || captureCeilingMeshesStatus.applied)
@@ -1123,6 +1582,11 @@ async function captureFromChrome({
       captureVisibility: effectiveCaptureVisibility,
       allowIntentionalHiddenGround
     });
+    assertRequestedCaptureCamera(domStatus, captureView, {
+      route,
+      openedArea,
+      expectedArea
+    });
     if (progressFramePath) {
       writeAreaRuntimeCaptureProgressFrame(progressFramePath, {
         attempt: "runtime-ready-after-view-application",
@@ -1131,6 +1595,45 @@ async function captureFromChrome({
         expectedArea,
         captureStartedAt: timings.captureStartedAt,
         waitStartedAt: timings.captureStartedAt,
+        status: domStatus,
+        settled: true
+      });
+    }
+  }
+  const requiresAreaTileMutationRuntimeSettlement =
+    AREA_EDITING_MUTATING_SCENARIOS.has(captureAreaEditingScenario) ||
+    (
+      Boolean(legacyAreaEditingPreview) &&
+      (captureAreaEditingAction === "commit" ||
+        captureAreaEditingAction === "commit-undo")
+    );
+  if (requiresAreaTileMutationRuntimeSettlement) {
+    const exactMutationSettlement = await waitForAreaTileMutationRuntimeSettlement(
+      send,
+      openedArea.areaText,
+      {
+        timeoutMs: Math.min(120_000, chromeCdpTimeoutMs),
+        expectedCameraMode: "top_down_oracle"
+      }
+    );
+    domStatus = {
+      ...exactMutationSettlement.status,
+      areaExpectation: openedArea.areaExpectation ?? null,
+      runtimeFreshness:
+        exactMutationSettlement.status.runtimeFreshness ??
+        domStatus.runtimeFreshness ??
+        null,
+      captureWaitElapsedMs: domStatus.captureWaitElapsedMs ?? null,
+      areaTileMutationSettlementWaitElapsedMs: exactMutationSettlement.elapsedMs
+    };
+    if (progressFramePath) {
+      writeAreaRuntimeCaptureProgressFrame(progressFramePath, {
+        attempt: "exact-area-tile-mutation-runtime-ready",
+        route,
+        openedArea,
+        expectedArea,
+        captureStartedAt: timings.captureStartedAt,
+        waitStartedAt: Date.now() - exactMutationSettlement.elapsedMs,
         status: domStatus,
         settled: true
       });
@@ -1161,6 +1664,42 @@ async function captureFromChrome({
   const runtimeCanvasVisualEvidence = runtimeCanvasScreenshot.ok
     ? inspectRuntimeCanvasVisualEvidence(canvasPngPath)
     : null;
+  const capturedMutationEvidence =
+    runtimeCanvasScreenshot.areaMutationRuntimeEvidence ?? {
+      terrainSnapshot: null,
+      cameraFrame: null,
+      presentedFrame: null
+    };
+  const areaTileMutationRuntimeSettlement =
+    evaluateAreaTileMutationRuntimeSettlement({
+      trace: domStatus.areaTileMutationTrace ?? null,
+      contractSettlement:
+        domStatus.areaTileMutationContractSettlement ?? null,
+      terrainSnapshot: capturedMutationEvidence.terrainSnapshot,
+      cameraFrame: capturedMutationEvidence.cameraFrame,
+      presentedFrame: capturedMutationEvidence.presentedFrame,
+      expectedCameraMode: "top_down_oracle"
+    });
+  if (
+    requiresAreaTileMutationRuntimeSettlement &&
+    areaTileMutationRuntimeSettlement.status !== "ready"
+  ) {
+    throw createBlockerError(
+      "area_tile_mutation_runtime_not_settled",
+      "Area tile mutation proof did not bind the exact mutation to a ready terrain build, canonical camera, and presented frame.",
+      {
+        endpoint: route,
+        port: resolveUrlPort(route),
+        captureAreaEditingScenario,
+        captureAreaEditingAction,
+        areaTileMutationRuntimeSettlement,
+        areaTileMutationTrace: domStatus.areaTileMutationTrace ?? null,
+        areaTileMutationContractSettlement:
+          domStatus.areaTileMutationContractSettlement ?? null,
+        capturedMutationEvidence
+      }
+    );
+  }
 
   const pageScreenshot = await capturePageOrCanvasScreenshot({
     send,
@@ -1171,6 +1710,80 @@ async function captureFromChrome({
     pngPath,
     runtimeCanvasScreenshot
   });
+  const postCaptureDomStatus = requiresAreaTileMutationRuntimeSettlement
+    ? await readAreaRuntimeStatus(send, openedArea.areaText)
+    : null;
+  const areaPresentedFrameFence = requiresAreaTileMutationRuntimeSettlement
+    ? evaluateAreaPresentedFrameFence({
+        capturedFrame: capturedMutationEvidence.presentedFrame,
+        observedAfterCapture: postCaptureDomStatus?.presentedFrame ?? null
+      })
+    : null;
+  const postCaptureAreaTileMutationRuntimeSettlement =
+    requiresAreaTileMutationRuntimeSettlement
+      ? evaluateAreaTileMutationRuntimeSettlement({
+          trace: postCaptureDomStatus?.areaTileMutationTrace ?? null,
+          contractSettlement:
+            postCaptureDomStatus?.areaTileMutationContractSettlement ?? null,
+          terrainSnapshot: capturedMutationEvidence.terrainSnapshot,
+          cameraFrame: capturedMutationEvidence.cameraFrame,
+          presentedFrame: capturedMutationEvidence.presentedFrame,
+          expectedCameraMode: "top_down_oracle"
+        })
+      : areaTileMutationRuntimeSettlement;
+  if (
+    requiresAreaTileMutationRuntimeSettlement &&
+    (
+      areaPresentedFrameFence?.status !== "ready" ||
+      postCaptureAreaTileMutationRuntimeSettlement.status !== "ready"
+    )
+  ) {
+    throw createBlockerError(
+      "area_tile_mutation_frame_fence_failed",
+      "Area tile mutation changed or lost its settled mutation/frame binding during screenshot capture.",
+      {
+        endpoint: route,
+        port: resolveUrlPort(route),
+        captureAreaEditingScenario,
+        captureAreaEditingAction,
+        areaPresentedFrameFence,
+        postCaptureAreaTileMutationRuntimeSettlement,
+        capturedMutationEvidence,
+        postCaptureDomStatus
+      }
+    );
+  }
+  const runtimeSourceIdentityPostCapture = runtimeBuildBinding
+    ? computeTileAddConnectRuntimeSourceIdentity({ repoRoot })
+    : null;
+  runtimeEnvironmentPostCapture = runtimeBuildBinding
+    ? await preflightRuntimeEnvironment({
+        route,
+        bootstrapRoute,
+        authBaseUrl,
+        backendDirectHealthUrl,
+        runtimeBuildBinding
+      })
+    : runtimeEnvironmentPreflight;
+  const runtimeBuildProof = buildMatrixRuntimeBuildProof(
+    runtimeBuildBinding,
+    runtimeEnvironmentPreflight,
+    runtimeEnvironmentPostCapture,
+    postCaptureDomStatus ?? domStatus,
+    runtimeSourceIdentityPreflight,
+    runtimeSourceIdentityPostCapture
+  );
+  if (runtimeBuildProof?.status !== undefined && runtimeBuildProof.status !== "verified") {
+    throw createBlockerError(
+      "runtime_build_identity_mismatch",
+      "Areas runtime capture did not read back the exact frontend and backend builds declared by its immutable profile.",
+      {
+        endpoint: route,
+        port: resolveUrlPort(route),
+        runtimeBuildProof
+      }
+    );
+  }
   const areaEditingScenarioArtifacts = areaEditingScenarioStatus
     ? writeAreaEditingScenarioArtifacts({
         scenario: captureAreaEditingScenario,
@@ -1235,8 +1848,45 @@ async function captureFromChrome({
       }
     );
   }
+  await waitForRequiredNetworkSettlement(networkCapture, networkSettlementTimeoutMs);
   await hydrateNetworkResponseBodies(send, networkCapture);
   const networkCaptureSummary = buildNetworkCaptureSummary(networkCapture);
+  assertRequiredNetworkSettlement(networkCaptureSummary);
+  const sameBrowserRestartProof = sameBrowserRestartProofContext
+    ? {
+        ...buildSameBrowserRestartProofStatus({
+          readyPacket: sameBrowserRestartProofContext.readyPacket,
+          resumePacket: sameBrowserRestartProofContext.resumePacket,
+          beforeSession: sameBrowserRestartProofContext.beforeSession,
+          afterSession: sameBrowserRestartProofContext.afterSession,
+          expectedArea,
+          reopenedArea: sameBrowserRestartProofContext.reopenedArea,
+          runtimeFreshness: domStatus.runtimeFreshness,
+          expectedPlaceableCount: expectedArea?.objectCounts?.placeables ?? 0,
+          postRestartNetworkSummary: networkCaptureSummary
+        }),
+        readyPath: sameBrowserRestartProofContext.readyPath,
+        resumePath: sameBrowserRestartProofContext.resumePath,
+        readyPacket: sameBrowserRestartProofContext.readyPacket,
+        resumePacket: sameBrowserRestartProofContext.resumePacket,
+        beforeSession: sameBrowserRestartProofContext.beforeSession,
+        afterSession: sameBrowserRestartProofContext.afterSession,
+        authRefresh: sameBrowserRestartProofContext.authRefresh,
+        baselineNetworkSummary: sameBrowserRestartProofContext.baselineNetworkSummary
+      }
+    : null;
+  if (sameBrowserRestartProof?.status === "blocked") {
+    throw createBlockerError(
+      "same_browser_backend_restart_proof_blocked",
+      "The same-browser backend restart proof failed its document, Area, revalidation, or active network gate.",
+      {
+        endpoint: route,
+        port: resolveUrlPort(route),
+        sameBrowserRestartProof,
+        networkCaptureSummary
+      }
+    );
+  }
   const runtimeActionabilitySummary = buildRuntimeActionabilitySummary({
     domStatus,
     expectedAreaDetail,
@@ -1290,6 +1940,9 @@ async function captureFromChrome({
     screenshotBytes: fs.statSync(pngPath).size,
     pageScreenshot,
     runtimeCanvasScreenshot,
+    areaTileMutationRuntimeSettlement,
+    postCaptureAreaTileMutationRuntimeSettlement,
+    areaPresentedFrameFence,
     runtimeCanvasVisualEvidence,
     canvasVisualEvidence,
     framePath,
@@ -1304,6 +1957,8 @@ async function captureFromChrome({
       screenshotEvidence
     }),
     runtimeEnvironmentPreflight,
+    runtimeEnvironmentPostCapture,
+    runtimeBuildProof,
     loginReady,
     seededAuth: {
       source: authBaseUrl,
@@ -1319,6 +1974,7 @@ async function captureFromChrome({
       domStatus.primitiveFallbackRenderSuppressionSnapshot,
     expectedAreaDetailSummary: summarizeExpectedAreaDetail(expectedAreaDetail),
     areaObjectSupportSurfaceSummary,
+    sameBrowserRestartProof,
     networkCaptureSummary,
     runtimeActionabilitySummary,
     runtimeBlockerSnapshot,
@@ -1329,6 +1985,10 @@ async function captureFromChrome({
     localOnlyNotRetailEvidence: true
   };
   fs.writeFileSync(framePath, `${JSON.stringify(frame, null, 2)}\n`);
+  lifecycleTrace?.record("frame-written", {
+    framePath,
+    totalElapsedMs: frame.timings?.totalElapsedMs ?? null
+  });
   // A fresh canonical capture supersedes any previous failed attempt with the
   // same outDir/name; do not leave a stale failure frame beside green proof.
   fs.rmSync(failureFramePath, { force: true });
@@ -1337,6 +1997,7 @@ async function captureFromChrome({
     await enrichCaptureErrorWithNetwork(error, send, networkCapture);
     throw error;
   } finally {
+    lifecycleTrace?.record("cdp-close-requested");
     ws.close();
   }
 }
@@ -1918,7 +2579,15 @@ async function applyAreaEditingUndo(send, expectedBeforeState, expectedTool) {
  * mutation backdoor: every state transition must be accompanied by its exact
  * history/selection delta or the scenario fails closed with a named reason.
  */
-async function executeAreaEditingRuntimeScenario({ send, scenario, openedArea, initialSceneKey }) {
+async function executeAreaEditingRuntimeScenario({
+  send,
+  scenario,
+  groupId,
+  tileId,
+  matrixChunk,
+  openedArea,
+  initialSceneKey
+}) {
   const mutatesScene = AREA_EDITING_MUTATING_SCENARIOS.has(scenario);
   const prepared = await prepareAreaEditingRuntimeScenario(send, scenario);
   if (!prepared.ok) return { ...prepared, scenario, mutatesScene };
@@ -1942,6 +2611,21 @@ async function executeAreaEditingRuntimeScenario({ send, scenario, openedArea, i
   }
   if (scenario === "tile-properties") {
     return executeTilePropertiesScenario({ send, scenario, before });
+  }
+  if (scenario === "tile-transform-local") {
+    return executeTileTransformLocalScenario({ send, scenario, before });
+  }
+  if (scenario === "tile-replace-local") {
+    return executeTileReplaceLocalScenario({ send, scenario, tileId, before });
+  }
+  if (scenario === "tile-add-connect-matrix-local") {
+    return executeTileAddConnectMatrixLocalScenario({ send, scenario, matrixChunk, before });
+  }
+  if (scenario === "group-placement-local") {
+    return executeGroupPlacementLocalScenario({ send, scenario, groupId, before });
+  }
+  if (scenario === "eraser-local") {
+    return executeEraserLocalScenario({ send, scenario, groupId, before });
   }
 
   if (scenario === "multi-select") {
@@ -2081,6 +2765,860 @@ async function executeAreaEditingRuntimeScenario({ send, scenario, openedArea, i
       scenarioInvariant
     },
     pointerDispatch: { source: "chrome-devtools-protocol-input", trustedBrowserInput: true }
+  };
+}
+
+async function executeTileTransformLocalScenario({ send, scenario, before }) {
+  // This is intentionally a tiny, visible mutation proof for a freshly created
+  // local Area: it selects one rendered cell and uses the same inspector buttons
+  // exposed to an editor, then proves the two history commands can be undone and
+  // redone.  It avoids a placement tool, so the before/after frames stay legible.
+  await armAreaEditingTool(send, "terrain");
+  // A freshly created Aurora Area can legitimately use an unpaintable default
+  // surface (for example TMD19A's `Default=Solid` black floor).  This proof
+  // only needs a raycastable tile to select and transform in Inspect mode;
+  // placement validity belongs to a later paint operation and must not hide
+  // otherwise editable cells from the audit.
+  const cellMap = await collectAreaEditingCellScreenMap(send);
+  // A tileset can choose a grouped tile as its default terrain (for example
+  // sic11). Individual height controls are intentionally disabled for those
+  // cells, so a generic tile-transform proof must select a visible loose cell.
+  const groupedIds = new Set(
+    (before.state.groupInstances ?? []).flatMap((group) => group.tileIds)
+  );
+  const groupedCells = new Set(
+    (before.state.groupInstances ?? []).flatMap((group) =>
+      (group.cells ?? []).map((cell) => `${cell.row}:${cell.col}`)
+    )
+  );
+  const target = cellMap.find((cell) => {
+    const tile = before.state.tiles.find((candidate) =>
+      candidate.row === cell.row && candidate.col === cell.col
+    );
+    return tile && !groupedIds.has(tile.id) && !groupedCells.has(`${cell.row}:${cell.col}`);
+  }) ?? null;
+  if (!target) {
+    return scenarioFailure(scenario, true, "tile_transform_local_loose_cell_not_found", {
+      visibleCellCount: cellMap.length,
+      groupedCellCount: Math.max(groupedIds.size, groupedCells.size)
+    });
+  }
+  await armAreaEditingTool(send, "inspect");
+  await dispatchTrustedClick(send, target);
+  const selected = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    snapshot.selection?.cells?.length === 1 &&
+    snapshot.selection.cells[0].row === target.row &&
+    snapshot.selection.cells[0].col === target.col
+  );
+  if (!selected) return scenarioFailure(scenario, true, "tile_transform_local_target_not_selected", { target });
+  const sourceTile = before.state.tiles.find((tile) =>
+    tile.row === target.row && tile.col === target.col
+  );
+  if (!sourceTile) return scenarioFailure(scenario, true, "tile_transform_local_source_tile_missing", { target });
+
+  const rotateButton = await findAreaEditingButtonCenter(send, ["Rotate tile right"]);
+  if (!rotateButton) return scenarioFailure(scenario, true, "tile_transform_local_rotate_button_missing");
+  await dispatchTrustedClick(send, rotateButton);
+  const rotated = await waitForAreaEditingScenarioSnapshot(send, (snapshot) => {
+    const tile = snapshot.state?.tiles?.find((candidate) => candidate.id === sourceTile.id);
+    return tile?.orientation === (sourceTile.orientation + 1) % 4 &&
+      snapshot.history?.pastCount === before.history.pastCount + 1 &&
+      snapshot.history?.futureCount === 0;
+  });
+  if (!rotated) return scenarioFailure(scenario, true, "tile_transform_local_rotate_not_observed", { target });
+
+  const heightButton = await findAreaEditingButtonCenter(send, ["Tile height +"]);
+  if (!heightButton) return scenarioFailure(scenario, true, "tile_transform_local_height_button_missing");
+  await dispatchTrustedClick(send, heightButton);
+  const commit = await waitForAreaEditingScenarioSnapshot(send, (snapshot) => {
+    const tile = snapshot.state?.tiles?.find((candidate) => candidate.id === sourceTile.id);
+    return tile?.orientation === (sourceTile.orientation + 1) % 4 &&
+      tile?.height === sourceTile.height + 1 &&
+      snapshot.history?.pastCount === before.history.pastCount + 2 &&
+      snapshot.history?.futureCount === 0;
+  });
+  if (!commit) {
+    const lastSnapshot = await readAreaEditingScenarioSnapshot(send);
+    const panelDiagnosticsResult = await send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => {
+        const panel = document.querySelector(".aurora-area-editing-panel");
+        const selectedStatus = panel?.querySelector('[role="status"]');
+        const alerts = Array.from(
+          panel?.querySelectorAll('[role="alert"]') ?? []
+        ).map((entry) => entry.textContent?.replace(/\\s+/gu, " ").trim() ?? "");
+        return {
+          selectedStatus:
+            selectedStatus?.textContent?.replace(/\\s+/gu, " ").trim() ?? null,
+          alerts
+        };
+      })()`
+    });
+    return scenarioFailure(
+      scenario,
+      true,
+      "tile_transform_local_height_not_observed",
+      {
+        target,
+        sourceTile,
+        rotatedState: rotated.state,
+        lastSnapshot,
+        panelDiagnostics: panelDiagnosticsResult.result?.value ?? null
+      }
+    );
+  }
+
+  const undoButton = await findAreaEditingButtonCenter(send, ["Undo tile edit", "Undo"]);
+  if (!undoButton) return scenarioFailure(scenario, true, "tile_transform_local_undo_button_missing");
+  await dispatchTrustedClick(send, undoButton);
+  const undoHeight = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, rotated.state) && snapshot.history?.pastCount === rotated.history.pastCount
+  );
+  await dispatchTrustedClick(send, undoButton);
+  const undo = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, before.state) && snapshot.history?.pastCount === before.history.pastCount
+  );
+  if (!undoHeight || !undo) return scenarioFailure(scenario, true, "tile_transform_local_undo_not_restored");
+
+  const redoButton = await findAreaEditingButtonCenter(send, ["Redo tile edit", "Redo"]);
+  if (!redoButton) return scenarioFailure(scenario, true, "tile_transform_local_redo_button_missing");
+  await dispatchTrustedClick(send, redoButton);
+  const redoRotate = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, rotated.state) && snapshot.history?.pastCount === rotated.history.pastCount
+  );
+  await dispatchTrustedClick(send, redoButton);
+  const redo = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, commit.state) && snapshot.history?.pastCount === commit.history.pastCount
+  );
+  if (!redoRotate || !redo) return scenarioFailure(scenario, true, "tile_transform_local_redo_not_restored");
+
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    requiresTileProcessSceneKeyChange: false,
+    requiresPostMutationSettlement: true,
+    before,
+    selected,
+    rotated,
+    commit,
+    undo: { applicable: true, height: undoHeight, snapshot: undo },
+    redo: { applicable: true, rotate: redoRotate, snapshot: redo },
+    action: {
+      kind: "trusted-inspector-tile-transform",
+      cell: { row: target.row, col: target.col },
+      orientation: { before: sourceTile.orientation, after: (sourceTile.orientation + 1) % 4 },
+      height: { before: sourceTile.height, after: sourceTile.height + 1 }
+    },
+    assertions: {
+      historyCommandCount: 2,
+      rotateApplied: true,
+      heightApplied: true,
+      undoRestoredExactState: true,
+      redoRestoredExactState: true
+    },
+    pointerDispatch: { source: "chrome-devtools-protocol-input", trustedBrowserInput: true }
+  };
+}
+
+async function executeTileReplaceLocalScenario({ send, scenario, tileId, before }) {
+  if (!Number.isInteger(tileId)) {
+    return scenarioFailure(scenario, true, "tile_replace_local_tile_id_missing");
+  }
+  await armAreaEditingTool(send, "terrain");
+  // Replacing a cell that already has the requested Tile_ID is a valid UI
+  // action but a no-op, so it cannot prove the exact undo/redo contract.
+  const target = (await collectAreaEditingCellScreenMap(send)).find((candidate) =>
+    before.state.tiles.some(
+      (tile) => tile.row === candidate.row && tile.col === candidate.col && tile.tileId !== tileId
+    )
+  ) ?? null;
+  if (!target) return scenarioFailure(scenario, true, "tile_replace_local_cell_missing");
+  await armAreaEditingTool(send, "inspect");
+  await dispatchTrustedClick(send, target);
+  const selected = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    snapshot.selection?.cells?.[0]?.row === target.row && snapshot.selection?.cells?.[0]?.col === target.col
+  );
+  if (!selected) return scenarioFailure(scenario, true, "tile_replace_local_target_not_selected", { target });
+  const setResult = await send("Runtime.evaluate", { returnByValue: true, expression: `(() => {
+    const select = document.querySelector('select[aria-label="Replace Tile_ID"]');
+    const option = select ? Array.from(select.options).find((item) => item.value === ${JSON.stringify(String(tileId))}) : null;
+    if (!select || !option || select.disabled) return { ok: false, reason: 'tile_id_not_available_in_rendered_selector' };
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    setter?.call(select, option.value); select.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: true, value: select.value };
+  })()` });
+  if (!setResult.result?.value?.ok) return scenarioFailure(scenario, true, "tile_replace_local_selector_not_available", { tileId, setResult: setResult.result?.value });
+  const apply = await findAreaEditingButtonCenter(send, ["Apply exact Tile_ID fixture", "Apply Tile_ID"]);
+  if (!apply) return scenarioFailure(scenario, true, "tile_replace_local_apply_missing");
+  const pointerDispatch = await dispatchTrustedClick(send, apply);
+  const commit = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    snapshot.state?.tiles?.some((tile) => tile.row === target.row && tile.col === target.col && tile.tileId === tileId) &&
+    snapshot.history?.pastCount === before.history.pastCount + 1
+  );
+  if (!commit) return scenarioFailure(scenario, true, "tile_replace_local_commit_not_observed", { tileId, target });
+  const history = await applyExactScenarioUndoRedo(send, before, commit);
+  if (!history.ok) return scenarioFailure(scenario, true, history.reason, history);
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    // The tile-process scene key intentionally contains only the unique
+    // model-resref set. Replacing a cell with a model already used elsewhere
+    // changes the full tile-state digest and terrain build without necessarily
+    // changing that set. The post-mutation settlement below still requires the
+    // exact mutation revision/digest, converged contract readiness, terrain
+    // build, camera frame, and presented-frame fence.
+    requiresTileProcessSceneKeyChange: false,
+    requiresPostMutationSettlement: true,
+    before,
+    selected,
+    commit,
+    undo: history.undo,
+    redo: history.redo,
+    action: { kind: "inspector-tile-id-replace", tileId, cell: target },
+    assertions: { undoRestoredExactState: true, redoRestoredExactState: true },
+    pointerDispatch
+  };
+}
+
+/**
+ * Places one bounded matrix of explicit Tile_ID fixtures through the same
+ * rendered inspector controls as a human author.  The chunk deliberately
+ * stays inside one transient local Area: no API write, saved module or hidden
+ * state injection is allowed. One visible batch command must prove every
+ * requested cell together with its exact single history delta.
+ */
+async function executeTileAddConnectMatrixLocalScenario({ send, scenario, matrixChunk, before }) {
+  if (!matrixChunk) {
+    return scenarioFailure(scenario, true, "tile_add_connect_matrix_chunk_missing");
+  }
+  const chunkErrors = validateMatrixChunk(matrixChunk);
+  if (chunkErrors.length > 0) {
+    return scenarioFailure(scenario, true, "tile_add_connect_matrix_chunk_invalid", { chunkErrors });
+  }
+  if (matrixChunk.kind === "group") {
+    return executeTileAddConnectGroupMatrixLocalScenario({ send, scenario, matrixChunk, before });
+  }
+  const expectedCellCount = matrixChunk.width * matrixChunk.height;
+  if (before.state?.tiles?.length !== expectedCellCount) {
+    return scenarioFailure(scenario, true, "tile_add_connect_matrix_initial_area_shape_mismatch", {
+      expectedCellCount,
+      observedTileCount: before.state?.tiles?.length ?? null,
+      width: before.state?.width ?? null,
+      height: before.state?.height ?? null
+    });
+  }
+  const availableTileIds = await readAreaEditingReplaceableTileIds(send);
+  const requestedCells = matrixChunk.cases
+    .flatMap((matrixCase) => matrixCase.cells.map((cell) => ({ ...cell, rowId: matrixCase.rowId })))
+    .sort((left, right) => left.row - right.row || left.col - right.col);
+  const unavailable = requestedCells.filter((cell) => !availableTileIds.includes(cell.tileId));
+  if (unavailable.length > 0) {
+    return scenarioFailure(scenario, true, "tile_add_connect_matrix_tile_id_not_available", {
+      unavailable: unavailable.slice(0, 16),
+      unavailableCount: unavailable.length,
+      availableTileIdCount: availableTileIds.length
+    });
+  }
+
+  const applied = await applyMatrixFixtureBatchThroughInspector(send, before, requestedCells);
+  if (!applied.ok) return scenarioFailure(scenario, true, applied.reason, { apply: applied });
+  const current = applied.snapshot;
+  const commands = [applied.command];
+
+  const coverage = verifyTileAddConnectMatrixCoverage(current, matrixChunk);
+  if (!coverage.ok) {
+    return scenarioFailure(scenario, true, "tile_add_connect_matrix_final_coverage_mismatch", {
+      chunkId: matrixChunk.id,
+      coverage,
+      final: current
+    });
+  }
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    requiresTileProcessSceneKeyChange: false,
+    requiresPostMutationSettlement: true,
+    before,
+    commit: current,
+    undo: { applicable: false, reason: "matrix-final-state-proof" },
+    redo: { applicable: false, reason: "matrix-final-state-proof" },
+    action: {
+      kind: "trusted-inspector-tile-add-connect-matrix",
+      chunkId: matrixChunk.id,
+      tilesetResRef: matrixChunk.tilesetResRef,
+      sourcePath: matrixChunk.sourcePath ?? null,
+      requestedCellCount: requestedCells.length,
+      commandCount: commands.length,
+      commands
+    },
+    coverage,
+    assertions: {
+      exactFixtureTileIds: true,
+      sourceAndPartnerAdjacency: true,
+      historyCommandCount: commands.length,
+      historyDelta: current.history.pastCount - before.history.pastCount
+    },
+    pointerDispatch: { source: "chrome-devtools-protocol-input", trustedBrowserInput: true }
+  };
+}
+
+async function executeTileAddConnectGroupMatrixLocalScenario({ send, scenario, matrixChunk, before }) {
+  const expectedCellCount = matrixChunk.width * matrixChunk.height;
+  if (before.state?.tiles?.length !== expectedCellCount) {
+    return scenarioFailure(scenario, true, "tile_add_connect_group_matrix_initial_area_shape_mismatch", {
+      expectedCellCount,
+      observedTileCount: before.state?.tiles?.length ?? null,
+      width: before.state?.width ?? null,
+      height: before.state?.height ?? null
+    });
+  }
+  let requestedBackgroundCells;
+  try {
+    requestedBackgroundCells = buildGroupChunkBackgroundFixture(matrixChunk);
+  } catch (error) {
+    return scenarioFailure(scenario, true, "tile_add_connect_group_matrix_background_fixture_invalid", {
+      chunkId: matrixChunk.id,
+      backgroundTileId: matrixChunk.backgroundTileId ?? null,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+  const availableTileIds = await readAreaEditingReplaceableTileIds(send);
+  const backgroundTileId = requestedBackgroundCells[0].tileId;
+  if (!availableTileIds.includes(backgroundTileId)) {
+    return scenarioFailure(scenario, true, "tile_add_connect_group_matrix_background_tile_id_not_available", {
+      backgroundTileId,
+      availableTileIdCount: availableTileIds.length
+    });
+  }
+  const underlay = await applyMatrixFixtureBatchThroughInspector(send, before, requestedBackgroundCells);
+  if (!underlay.ok) {
+    return scenarioFailure(scenario, true, "tile_add_connect_group_matrix_background_apply_failed", { apply: underlay });
+  }
+  const requestedGroups = matrixChunk.cases.map((matrixCase) => ({
+    groupId: matrixCase.groupId,
+    row: matrixCase.anchor.row,
+    col: matrixCase.anchor.col,
+    orientation: 0
+  }));
+  const applied = await applyMatrixGroupFixtureBatchThroughInspector(send, underlay.snapshot, requestedGroups, matrixChunk);
+  if (!applied.ok) return scenarioFailure(scenario, true, applied.reason, { apply: applied });
+  const current = applied.snapshot;
+  const commands = [underlay.command, applied.command];
+  const coverage = verifyTileAddConnectGroupMatrixCoverage(current, matrixChunk);
+  if (!coverage.ok) {
+    return scenarioFailure(scenario, true, "tile_add_connect_group_matrix_final_coverage_mismatch", {
+      chunkId: matrixChunk.id,
+      coverage,
+      final: current
+    });
+  }
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    requiresTileProcessSceneKeyChange: false,
+    requiresPostMutationSettlement: true,
+    before,
+    commit: current,
+    undo: { applicable: false, reason: "matrix-final-state-proof" },
+    redo: { applicable: false, reason: "matrix-final-state-proof" },
+    action: {
+      kind: "trusted-inspector-tile-add-connect-group-matrix",
+      chunkId: matrixChunk.id,
+      tilesetResRef: matrixChunk.tilesetResRef,
+      sourcePath: matrixChunk.sourcePath ?? null,
+      requestedGroupCount: requestedGroups.length,
+      requestedMemberTileCount: matrixChunk.memberTileCount,
+      backgroundTileId,
+      backgroundCellCount: requestedBackgroundCells.length,
+      commandCount: commands.length,
+      commands
+    },
+    coverage,
+    assertions: {
+      exactFixtureTileIds: true,
+      declaredGroupLayout: true,
+      historyCommandCount: commands.length,
+      historyDelta: current.history.pastCount - before.history.pastCount
+    },
+    pointerDispatch: { source: "chrome-devtools-protocol-input", trustedBrowserInput: true }
+  };
+}
+
+async function applyMatrixFixtureBatchThroughInspector(send, before, requestedCells) {
+  const controls = await setAreaEditingMatrixFixtureBatch(send, requestedCells);
+  if (!controls.ok) return { ok: false, reason: "tile_add_connect_matrix_batch_controls_not_ready", controls };
+  const apply = await findAreaEditingButtonCenter(send, ["Apply matrix fixture batch"]);
+  if (!apply) {
+    return {
+      ok: false,
+      reason: "tile_add_connect_matrix_batch_apply_missing",
+      controls,
+      panelButtons: await readAreaEditingButtonDiagnostics(send)
+    };
+  }
+  const pointerDispatch = await dispatchTrustedClick(send, apply);
+  if (pointerDispatch.hitButtonLabel !== apply.label) {
+    return { ok: false, reason: "tile_add_connect_matrix_batch_apply_target_mismatch", controls, apply, pointerDispatch };
+  }
+  const expectedPastCount = Number(before.history?.pastCount ?? 0) + 1;
+  const snapshot = await waitForAreaEditingScenarioSnapshot(send, (candidate) =>
+    candidate.history?.pastCount === expectedPastCount &&
+    candidate.history?.futureCount === 0 &&
+    requestedCells.every((cell) =>
+      candidate.state?.tiles?.some((tile) =>
+        tile.row === cell.row && tile.col === cell.col && tile.tileId === cell.tileId && tile.orientation === 0
+      )
+    )
+  );
+  if (!snapshot) {
+    return {
+      ok: false,
+      reason: "tile_add_connect_matrix_batch_apply_not_observed",
+      controls,
+      expectedPastCount,
+      current: await readAreaEditingScenarioSnapshot(send)
+    };
+  }
+  return {
+    ok: true,
+    snapshot,
+    command: {
+      kind: "trusted-diagnostic-matrix-fixture-batch",
+      fixtureCount: requestedCells.length,
+      historyPastCount: snapshot.history.pastCount,
+      pointerDispatch
+    }
+  };
+}
+
+async function applyMatrixGroupFixtureBatchThroughInspector(send, before, requestedGroups, matrixChunk) {
+  const controls = await setAreaEditingMatrixGroupFixtureBatch(send, requestedGroups);
+  if (!controls.ok) return { ok: false, reason: "tile_add_connect_group_matrix_batch_controls_not_ready", controls };
+  const apply = await findAreaEditingButtonCenter(send, ["Apply matrix group fixture batch"]);
+  if (!apply) {
+    return {
+      ok: false,
+      reason: "tile_add_connect_group_matrix_batch_apply_missing",
+      controls,
+      panelButtons: await readAreaEditingButtonDiagnostics(send)
+    };
+  }
+  const pointerDispatch = await dispatchTrustedClick(send, apply);
+  if (pointerDispatch.hitButtonLabel !== apply.label) {
+    return { ok: false, reason: "tile_add_connect_group_matrix_batch_apply_target_mismatch", controls, apply, pointerDispatch };
+  }
+  const expectedPastCount = Number(before.history?.pastCount ?? 0) + 1;
+  const expectedMembers = matrixChunk.cases.flatMap((matrixCase) => matrixCase.memberCells);
+  const snapshot = await waitForAreaEditingScenarioSnapshot(send, (candidate) =>
+    candidate.history?.pastCount === expectedPastCount &&
+    candidate.history?.futureCount === 0 &&
+    expectedMembers.every((cell) =>
+      candidate.state?.tiles?.some((tile) =>
+        tile.row === cell.row && tile.col === cell.col && tile.tileId === cell.tileId && tile.orientation === cell.orientation
+      )
+    )
+  );
+  if (!snapshot) {
+    return {
+      ok: false,
+      reason: "tile_add_connect_group_matrix_batch_apply_not_observed",
+      controls,
+      expectedPastCount,
+      current: await readAreaEditingScenarioSnapshot(send)
+    };
+  }
+  return {
+    ok: true,
+    snapshot,
+    command: {
+      kind: "trusted-diagnostic-matrix-group-fixture-batch",
+      fixtureCount: requestedGroups.length,
+      memberTileCount: expectedMembers.length,
+      historyPastCount: snapshot.history.pastCount,
+      pointerDispatch
+    }
+  };
+}
+
+async function setAreaEditingMatrixFixtureBatch(send, requestedCells) {
+  const textarea = await findAreaEditingTextAreaCenter(send, "Matrix fixture batch JSON");
+  if (!textarea) return { ok: false, reason: "matrix_fixture_batch_input_missing" };
+  const value = JSON.stringify(requestedCells.map((cell) => ({
+    row: cell.row,
+    col: cell.col,
+    tileId: cell.tileId
+  })));
+  return dispatchTrustedInputValue(send, textarea, value);
+}
+
+async function setAreaEditingMatrixGroupFixtureBatch(send, requestedGroups) {
+  const textarea = await findAreaEditingTextAreaCenter(send, "Matrix group fixture batch JSON");
+  if (!textarea) return { ok: false, reason: "matrix_group_fixture_batch_input_missing" };
+  return dispatchTrustedInputValue(send, textarea, JSON.stringify(requestedGroups));
+}
+
+async function readAreaEditingReplaceableTileIds(send) {
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const select = document.querySelector('select[aria-label="Replace Tile_ID"]');
+      if (!select || select.disabled) return { ok: false, reason: 'tile_id_selector_not_available' };
+      const tileIds = Array.from(select.options)
+        .map((option) => Number(option.value))
+        .filter((tileId) => Number.isInteger(tileId) && tileId >= 0)
+        .sort((left, right) => left - right);
+      return { ok: tileIds.length > 0, tileIds };
+    })()`
+  });
+  const value = result.result?.value ?? null;
+  return value?.ok === true ? value.tileIds : [];
+}
+
+async function findAreaEditingTextAreaCenter(send, labelText) {
+  const result = await send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(async () => {
+      const panel = document.querySelector('.aurora-area-editing-panel');
+      const label = Array.from(panel?.querySelectorAll('label') ?? []).find((entry) =>
+        entry.childNodes[0]?.textContent?.trim() === ${JSON.stringify(labelText)}
+      ) ?? null;
+      const textarea = label?.querySelector('textarea') ?? null;
+      if (!textarea || textarea.disabled) return null;
+      textarea.scrollIntoView({ block: 'center', inline: 'center' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const rect = textarea.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, label: ${JSON.stringify(labelText)} }
+        : null;
+    })()`
+  });
+  return result.result?.value ?? null;
+}
+
+async function dispatchTrustedInputValue(send, target, value) {
+  const before = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const node = document.elementFromPoint(${JSON.stringify(target.x)}, ${JSON.stringify(target.y)});
+      const input = node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement
+        ? node
+        : node?.closest?.('input, textarea') ?? null;
+      return input ? { value: input.value } : null;
+    })()`
+  });
+  if (before.result?.value?.value === value) {
+    return { ok: true, value, unchanged: true };
+  }
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: target.x,
+    y: target.y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: target.x,
+    y: target.y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+    modifiers: 2
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+    modifiers: 2
+  });
+  await send("Input.insertText", { text: value });
+  const result = await send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const active = document.activeElement;
+      return {
+        ok: (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+          active.value === ${JSON.stringify(value)},
+        value: active?.value ?? null
+      };
+    })()`
+  });
+  return result.result?.value ?? { ok: false, reason: "trusted_input_value_result_missing" };
+}
+
+function verifyTileAddConnectMatrixCoverage(snapshot, matrixChunk) {
+  const byCell = new Map(
+    (snapshot.state?.tiles ?? []).map((tile) => [`${tile.row}:${tile.col}`, tile])
+  );
+  const rows = matrixChunk.cases.map((matrixCase) => {
+    const observedCells = matrixCase.cells.map((cell) => {
+      const tile = byCell.get(`${cell.row}:${cell.col}`) ?? null;
+      return {
+        role: cell.role,
+        requested: { row: cell.row, col: cell.col, tileId: cell.tileId },
+        observed: tile
+          ? { row: tile.row, col: tile.col, tileId: tile.tileId, orientation: tile.orientation, height: tile.height }
+          : null,
+        ok: tile?.tileId === cell.tileId
+      };
+    });
+    const source = observedCells.find((cell) => cell.role === "source") ?? null;
+    const partner = observedCells.find((cell) => cell.role === "partner") ?? null;
+    return {
+      rowId: matrixCase.rowId,
+      cells: observedCells,
+      sourceAndPartnerAdjacent: !partner ||
+        (source?.observed?.row === partner.observed?.row && source.observed.col + 1 === partner.observed.col),
+      ok: observedCells.every((cell) => cell.ok)
+    };
+  });
+  const mismatches = rows.filter((row) => !row.ok || !row.sourceAndPartnerAdjacent);
+  return {
+    ok: mismatches.length === 0,
+    chunkId: matrixChunk.id,
+    expectedCaseCount: matrixChunk.caseCount,
+    observedCaseCount: rows.length,
+    rows,
+    mismatchCount: mismatches.length,
+    mismatchSample: mismatches.slice(0, 12)
+  };
+}
+
+function verifyTileAddConnectGroupMatrixCoverage(snapshot, matrixChunk) {
+  const byCell = new Map(
+    (snapshot.state?.tiles ?? []).map((tile) => [`${tile.row}:${tile.col}`, tile])
+  );
+  const groupInstances = Array.isArray(snapshot.state?.groupInstances) ? snapshot.state.groupInstances : [];
+  const cases = matrixChunk.cases.map((matrixCase) => {
+    const observedMembers = matrixCase.memberCells.map((cell) => {
+      const tile = byCell.get(`${cell.row}:${cell.col}`) ?? null;
+      return {
+        rowId: cell.rowId,
+        requested: {
+          row: cell.row,
+          col: cell.col,
+          tileId: cell.tileId,
+          orientation: cell.orientation,
+          memberIndex: cell.memberIndex
+        },
+        observed: tile
+          ? { row: tile.row, col: tile.col, tileId: tile.tileId, orientation: tile.orientation, groupId: tile.groupId ?? null }
+          : null,
+        ok: tile?.tileId === cell.tileId && tile?.orientation === cell.orientation && tile?.groupId === matrixCase.groupId
+      };
+    });
+    const expectedCells = matrixCase.memberCells
+      .map((cell) => `${cell.row}:${cell.col}`)
+      .sort((left, right) => left.localeCompare(right));
+    const groupInstance = groupInstances.find((instance) =>
+      instance.groupId === matrixCase.groupId &&
+      instance.anchorRow === matrixCase.anchor.row &&
+      instance.anchorCol === matrixCase.anchor.col &&
+      instance.orientation === 0 &&
+      Array.isArray(instance.cells) &&
+      instance.cells.map((cell) => `${cell.row}:${cell.col}`).sort((left, right) => left.localeCompare(right)).join("|") === expectedCells.join("|")
+    ) ?? null;
+    return {
+      id: matrixCase.id,
+      groupId: matrixCase.groupId,
+      anchor: matrixCase.anchor,
+      members: observedMembers,
+      groupInstance: groupInstance
+        ? { groupId: groupInstance.groupId, anchorRow: groupInstance.anchorRow, anchorCol: groupInstance.anchorCol, orientation: groupInstance.orientation }
+        : null,
+      declaredLayoutObserved: groupInstance !== null,
+      ok: observedMembers.every((member) => member.ok) && groupInstance !== null
+    };
+  });
+  const mismatches = cases.filter((matrixCase) => !matrixCase.ok);
+  return {
+    ok: mismatches.length === 0,
+    chunkId: matrixChunk.id,
+    expectedCaseCount: matrixChunk.caseCount,
+    observedCaseCount: cases.length,
+    expectedMemberTileCount: matrixChunk.memberTileCount,
+    observedMemberTileCount: cases.reduce((total, matrixCase) => total + matrixCase.members.length, 0),
+    cases,
+    mismatchCount: mismatches.length,
+    mismatchSample: mismatches.slice(0, 12)
+  };
+}
+
+async function executeEraserLocalScenario({ send, scenario, groupId, before }) {
+  // A blank Area contains only the default terrain, for which Eraser can be a
+  // semantic no-op. Create one named SET group through the visible group tool,
+  // then remove that same group through the visible Eraser tool. This proves a
+  // genuine delete operation without borrowing a retail Area fixture.
+  const prep = await executeGroupPlacementLocalScenario({
+    send,
+    scenario: "eraser-local-prep",
+    groupId,
+    before
+  });
+  if (!prep.ok) return scenarioFailure(scenario, true, "eraser_local_group_prep_failed", { prep });
+  const preDelete = prep.redo.snapshot;
+  const targetCell = prep.action.cell;
+  const eraserTool = await armAreaEditingTool(send, "eraser");
+  if (!eraserTool.ok) return scenarioFailure(scenario, true, "eraser_local_tool_not_armed", { eraserTool });
+  const target = (await collectAreaEditingCellScreenMap(send)).find(
+    (cell) => cell.row === targetCell.row && cell.col === targetCell.col
+  ) ?? null;
+  if (!target) return scenarioFailure(scenario, true, "eraser_local_group_cell_not_projected", { targetCell });
+  const pointerDispatch = await dispatchTrustedClick(send, target);
+  const commit = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    !jsonEqual(snapshot.state, preDelete.state) &&
+    snapshot.history?.pastCount === preDelete.history.pastCount + 1 &&
+    snapshot.history?.futureCount === 0
+  );
+  if (!commit) {
+    // A failed closed Delete proof must retain the post-click witness.  Without
+    // it, a valid hover preview and a no-op click are indistinguishable from a
+    // runtime state rejection, which hides the actual implementation defect.
+    return scenarioFailure(scenario, true, "eraser_local_delete_not_observed", {
+      preDelete,
+      target,
+      current: await readAreaEditingScenarioSnapshot(send)
+    });
+  }
+  const preDeleteGroupCount = preDelete.state.groupInstances?.length ?? 0;
+  const committedGroupCount = commit.state.groupInstances?.length ?? 0;
+  if (committedGroupCount >= preDeleteGroupCount) {
+    return scenarioFailure(scenario, true, "eraser_local_group_not_removed", {
+      preDeleteGroupCount,
+      committedGroupCount,
+      target
+    });
+  }
+  const undoButton = await findAreaEditingButtonCenter(send, ["Undo tile edit", "Undo"]);
+  if (!undoButton) return scenarioFailure(scenario, true, "eraser_local_undo_button_missing");
+  await dispatchTrustedClick(send, undoButton);
+  const undo = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, preDelete.state) &&
+    snapshot.history?.pastCount === preDelete.history.pastCount &&
+    snapshot.history?.futureCount === preDelete.history.futureCount + 1
+  );
+  if (!undo) return scenarioFailure(scenario, true, "eraser_local_undo_not_restored");
+  const redoButton = await findAreaEditingButtonCenter(send, ["Redo tile edit", "Redo"]);
+  if (!redoButton) return scenarioFailure(scenario, true, "eraser_local_redo_button_missing");
+  await dispatchTrustedClick(send, redoButton);
+  const redo = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    jsonEqual(snapshot.state, commit.state) &&
+    snapshot.history?.pastCount === commit.history.pastCount &&
+    snapshot.history?.futureCount === commit.history.futureCount
+  );
+  if (!redo) return scenarioFailure(scenario, true, "eraser_local_redo_not_restored");
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    requiresTileProcessSceneKeyChange: false,
+    requiresPostMutationSettlement: true,
+    before,
+    prep,
+    preDelete,
+    commit,
+    undo: { applicable: true, snapshot: undo },
+    redo: { applicable: true, snapshot: redo },
+    action: {
+      kind: "trusted-eraser-group-delete",
+      groupId,
+      cell: { row: target.row, col: target.col },
+      groupCount: { before: preDeleteGroupCount, after: committedGroupCount }
+    },
+    assertions: {
+      deletedGroup: true,
+      undoRestoredExactState: true,
+      redoRestoredExactState: true
+    },
+    pointerDispatch
+  };
+}
+
+async function executeGroupPlacementLocalScenario({ send, scenario, groupId, before }) {
+  // A newly created DLS10 Area starts with its intentional Black base plane.
+  // Place its first named Aurora SET group rather than claiming that the base
+  // tile itself demonstrates sewer geometry.
+  const groupTool = await armAreaEditingTool(send, "group", { groupId });
+  if (!groupTool.ok) return scenarioFailure(scenario, true, "group_placement_local_group_not_armed", { groupTool });
+  const candidates = await collectAreaEditingCellScreenMap(send, { requireValid: true });
+  const target = candidates[0] ?? null;
+  if (!target) return scenarioFailure(scenario, true, "group_placement_local_valid_cell_not_found");
+  const pointerDispatch = await dispatchTrustedClick(send, target);
+  const commit = await waitForAreaEditingScenarioSnapshot(send, (snapshot) => {
+    const placed = snapshot.state?.groupInstances?.find((group) =>
+      group.groupId === groupId && group.cells?.some((cell) => cell.row === target.row && cell.col === target.col)
+    );
+    return Boolean(placed) &&
+      snapshot.history?.pastCount === before.history.pastCount + 1 &&
+      snapshot.history?.futureCount === 0;
+  });
+  if (!commit) return scenarioFailure(scenario, true, "group_placement_local_commit_not_observed", { target, pointerDispatch });
+  const placed = commit.state.groupInstances.find((group) =>
+    group.groupId === groupId && group.cells?.some((cell) => cell.row === target.row && cell.col === target.col)
+  );
+  const placedTileIds = placed?.tileIds ?? [];
+  if (placedTileIds.length === 0) {
+    return scenarioFailure(scenario, true, "group_placement_local_members_missing", { target, placed });
+  }
+  const changedCells = changedAreaCells(before.state, commit.state);
+  if (changedCells.length === 0) {
+    return scenarioFailure(scenario, true, "group_placement_local_state_delta_missing", { target, placed });
+  }
+  const history = await applyExactScenarioUndoRedo(send, before, commit);
+  if (!history.ok) return scenarioFailure(scenario, true, history.reason, history);
+  // Leave the placed group explicitly selected for the page screenshot. The
+  // inspector then exposes its origin/anchor instead of asking a reviewer to
+  // infer the footprint from perspective alone.
+  const inspectTool = await armAreaEditingTool(send, "inspect");
+  if (!inspectTool.ok) return scenarioFailure(scenario, true, "group_placement_local_inspect_not_armed", { inspectTool });
+  await dispatchTrustedClick(send, target);
+  const selected = await waitForAreaEditingScenarioSnapshot(send, (snapshot) =>
+    snapshot.selection?.cells?.length === 1 &&
+    snapshot.selection.cells[0].row === target.row &&
+    snapshot.selection.cells[0].col === target.col
+  );
+  if (!selected) return scenarioFailure(scenario, true, "group_placement_local_group_not_selected", { target });
+  return {
+    ok: true,
+    scenario,
+    mutatesScene: true,
+    requiresPostMutationSettlement: true,
+    before,
+    commit,
+    undo: { applicable: true, snapshot: history.undoSnapshot },
+    redo: { applicable: true, snapshot: history.redoSnapshot },
+    action: {
+      kind: "trusted-set-group-placement",
+      groupId,
+      cell: { row: target.row, col: target.col },
+      memberTileIds: placedTileIds,
+      changedCells
+    },
+    assertions: {
+      groupPlaced: true,
+      memberCount: placedTileIds.length,
+      changedCellCount: changedCells.length,
+      undoRestoredExactState: true,
+      redoRestoredExactState: true,
+      placedGroupSelectedForVisualReview: true
+    },
+    pointerDispatch,
+    selected
   };
 }
 
@@ -2911,6 +4449,17 @@ async function findAreaEditingButtonCenter(send, labels) {
   return result.result?.value ?? null;
 }
 
+async function readAreaEditingButtonDiagnostics(send) {
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => Array.from(document.querySelectorAll('.aurora-area-editing-panel button')).map((button) => ({
+      label: button.textContent?.trim() ?? null,
+      disabled: Boolean(button.disabled)
+    })))()`
+  });
+  return result.result?.value ?? [];
+}
+
 async function dispatchTrustedClick(send, point, { modifiers = 0 } = {}) {
   const hit = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -3232,9 +4781,10 @@ function assertAreaEditingScenarioRealTileSettlement(
     Number.isInteger(expectedGroupTileId) &&
     new RegExp(`(?:^|\\|)[^|]*tile=${expectedGroupTileId},model=[a-z0-9_]+`, "u")
       .test(String(snapshot?.tileTransformSample ?? "")) &&
-    Number(snapshot?.materialTextureContractTileCount ?? 0) === tileCount &&
-    Number(snapshot?.materialTextureAppliedTileCount ?? 0) === tileCount &&
-    Number(snapshot?.materialTextureFailedTileCount ?? 0) === 0
+    materialContractCount >= 0 &&
+    materialAppliedCount === materialContractCount &&
+    materialFailedCount === 0 &&
+    materialPendingCount === 0
   );
   if (
     snapshot?.status !== "ready" ||
@@ -3243,8 +4793,8 @@ function assertAreaEditingScenarioRealTileSettlement(
     contractTileCount !== tileCount ||
     failedTileCount !== 0 ||
     bridgeTileCount !== 0 ||
-    materialContractCount !== tileCount ||
-    materialAppliedCount !== tileCount ||
+    materialContractCount < 0 ||
+    materialAppliedCount !== materialContractCount ||
     materialFailedCount !== 0 ||
     materialPendingCount !== 0 ||
     tileProcess?.status !== "ready" ||
@@ -3306,14 +4856,23 @@ async function createLocalAreaThroughUiForVerify(send, input, settingsTimeoutMs 
       const setInputValue = (field, value) => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
         if (!setter) throw new Error('HTMLInputElement value setter is unavailable.');
+        // React tracks controlled input values separately from the DOM property.
+        // Preserve the previous tracker value before assigning so the following
+        // native input event is observed exactly like a user edit.
+        const previousValue = field.value;
         setter.call(field, String(value));
+        const tracker = field._valueTracker;
+        tracker?.setValue(previousValue);
         field.dispatchEvent(new Event('input', { bubbles: true }));
         field.dispatchEvent(new Event('change', { bubbles: true }));
       };
       const setSelectValue = (field, value) => {
         const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
         if (!setter) throw new Error('HTMLSelectElement value setter is unavailable.');
+        const previousValue = field.value;
         setter.call(field, String(value));
+        const tracker = field._valueTracker;
+        tracker?.setValue(previousValue);
         field.dispatchEvent(new Event('input', { bubbles: true }));
         field.dispatchEvent(new Event('change', { bubbles: true }));
       };
@@ -3392,8 +4951,16 @@ async function createLocalAreaThroughUiForVerify(send, input, settingsTimeoutMs 
       const areaResRef = fieldByLabel('Area resref', settings);
       const width = fieldByLabel('Width', settings);
       const height = fieldByLabel('Height', settings);
+      const proofInitializer = fieldByLabel('Development proof initializer', settings);
       if (!tileset || !areaResRef || !width || !height) {
         return { ok: false, reason: 'new_area_fields_missing' };
+      }
+      if (input.proofInitializer && !proofInitializer) {
+        return {
+          ok: false,
+          reason: 'new_area_development_proof_initializer_missing',
+          requestedProofInitializer: input.proofInitializer
+        };
       }
       const optionReady = await waitFor(() =>
         Array.from(tileset.options ?? []).some((option) => option.value === input.tilesetResRef)
@@ -3410,19 +4977,37 @@ async function createLocalAreaThroughUiForVerify(send, input, settingsTimeoutMs 
       setInputValue(areaResRef, input.areaResRef);
       setInputValue(width, input.width);
       setInputValue(height, input.height);
+      if (input.proofInitializer) {
+        const proofOptionReady = Array.from(proofInitializer.options ?? []).some(
+          (option) => option.value === input.proofInitializer
+        );
+        if (!proofOptionReady) {
+          return {
+            ok: false,
+            reason: 'new_area_development_proof_initializer_unavailable',
+            requestedProofInitializer: input.proofInitializer,
+            availableProofInitializers: Array.from(proofInitializer.options ?? []).map(
+              (option) => option.value
+            )
+          };
+        }
+        setSelectValue(proofInitializer, input.proofInitializer);
+      }
       await wait(0);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const configuredValues = {
         tilesetResRef: tileset.value,
         areaResRef: areaResRef.value,
         width: Number(width.value),
-        height: Number(height.value)
+        height: Number(height.value),
+        proofInitializer: proofInitializer?.value ?? null
       };
       if (
         configuredValues.tilesetResRef !== input.tilesetResRef ||
         configuredValues.areaResRef !== input.areaResRef ||
         configuredValues.width !== input.width ||
-        configuredValues.height !== input.height
+        configuredValues.height !== input.height ||
+        (input.proofInitializer && configuredValues.proofInitializer !== input.proofInitializer)
       ) {
         return {
           ok: false,
@@ -3468,6 +5053,7 @@ async function createLocalAreaThroughUiForVerify(send, input, settingsTimeoutMs 
         localBlank: true,
         tileset: input.tilesetResRef,
         source: 'new-area-real-ui-workflow',
+        proofInitializer: configuredValues.proofInitializer,
         runtimeDatasetCleared,
         configuredValues,
         sceneId: canvas.dataset.currentSceneId ?? null,
@@ -3487,7 +5073,7 @@ async function createLocalAreaThroughUiForVerify(send, input, settingsTimeoutMs 
   return value;
 }
 
-async function verifyNewAreaDraftThroughUi(send, openedArea) {
+async function verifyNewAreaDraftThroughUi(send, openedArea, verificationReadinessTimeoutMs) {
   const result = await send("Runtime.evaluate", {
     awaitPromise: true,
     returnByValue: true,
@@ -3505,7 +5091,7 @@ async function verifyNewAreaDraftThroughUi(send, openedArea) {
       const parse = (value) => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
       const canvas = document.querySelector('.workspace-render-canvas');
       if (!canvas) return { ok: false, reason: 'workspace_render_canvas_missing' };
-      const verificationReadinessTimeoutMs = 60000;
+      const verificationReadinessTimeoutMs = ${JSON.stringify(verificationReadinessTimeoutMs)};
       let lastVerificationReadiness = null;
       const verificationTarget = await waitFor(() => {
         const currentPanel = document.querySelector('.aurora-area-editing-panel');
@@ -3919,21 +5505,80 @@ async function readLocalBlankAreaRuntimeStatus(send, openedArea) {
     ...status,
     openedAreaText: openedArea.areaText,
     areaExpectation: openedArea.areaExpectation,
-    runtimeFreshness: {
-      ok: true,
-      localBlank: true,
+    runtimeFreshness: buildLocalBlankRuntimeFreshness({
       expectedAreaId: openedArea.areaExpectation.areaId,
-      checks: [
-        {
-          id: "local_blank_scene_id",
-          expected: openedArea.areaExpectation.areaId,
-          actual: status.canvasSceneDataset?.sceneId ?? null,
-          ok: status.canvasSceneDataset?.sceneId === openedArea.areaExpectation.areaId
-        }
-      ],
-      failed: []
-    },
+      actualSceneId: status.canvasSceneDataset?.sceneId ?? null
+    }),
     captureWaitElapsedMs: 0
+  };
+}
+
+function parseRuntimeDatasetJson(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return {
+      parseError: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function buildCapturedAreaMutationRuntimeEvidence(dataset) {
+  if (!dataset || typeof dataset !== "object") {
+    return {
+      terrainSnapshot: null,
+      cameraFrame: null,
+      presentedFrame: null
+    };
+  }
+  return {
+    terrainSnapshot: parseRuntimeDatasetJson(
+      dataset.areaTerrainTileModelRuntimeSnapshot
+    ),
+    cameraFrame: {
+      mode: dataset.areaCameraFrameMode ?? null,
+      terrainBuildId: dataset.areaCameraFrameTerrainBuildId ?? null,
+      tileStateDigest: dataset.areaCameraFrameTileStateDigest ?? null,
+      boundsDigest: dataset.areaCameraFrameBoundsDigest ?? null,
+      boundsPolicy: dataset.areaCameraFrameBoundsPolicy ?? null,
+      observedTerrainBounds:
+        dataset.areaCameraFrameObservedTerrainBounds ?? null,
+      cameraTerrainBounds:
+        dataset.areaCameraFrameCameraTerrainBounds ?? null,
+      excludedMeshCount:
+        dataset.areaCameraFrameExcludedMeshCount ?? null,
+      excludedMeshSample:
+        dataset.areaCameraFrameExcludedMeshSample ?? null,
+      runtimeBoundsExpansionRatio:
+        dataset.areaCameraFrameRuntimeBoundsExpansionRatio ?? null,
+      runtimeBoundsPolicyStatus:
+        dataset.areaCameraFrameRuntimeBoundsPolicyStatus ?? null,
+      requiresIndependentVisualReview:
+        dataset.areaCameraFrameRuntimeBoundsPolicyStatus ===
+        "runtime_bounds_outlier",
+      coverageStatus: dataset.areaCameraFrameCoverageStatus ?? null,
+      clippedCornerCount:
+        dataset.areaCameraFrameClippedCornerCount ?? null,
+      minimumNdcMargin:
+        dataset.areaCameraFrameMinimumNdcMargin ?? null
+    },
+    presentedFrame: {
+      sequence: dataset.areaPresentedFrameSequence ?? null,
+      terrainBuildId: dataset.areaPresentedFrameTerrainBuildId ?? null,
+      tileStateDigest: dataset.areaPresentedFrameTileStateDigest ?? null,
+      cameraTerrainBuildId:
+        dataset.areaPresentedFrameCameraTerrainBuildId ?? null,
+      cameraTileStateDigest:
+        dataset.areaPresentedFrameCameraTileStateDigest ?? null,
+      cameraCoverageStatus:
+        dataset.areaPresentedFrameCameraCoverageStatus ?? null,
+      presentedAt: dataset.areaPresentedFramePresentedAt ?? null,
+      settlementToken:
+        dataset.areaPresentedFrameSettlementToken ?? null
+    }
   };
 }
 
@@ -4014,7 +5659,9 @@ async function captureRuntimeCanvasPng(
         matchedObjectName: value?.matchedObjectName ?? "",
         matchedObjectNames: value?.matchedObjectNames ?? [],
         visibleObjectCount: value?.visibleObjectCount ?? null,
-        highlightedObjectCount: value?.highlightedObjectCount ?? null
+        highlightedObjectCount: value?.highlightedObjectCount ?? null,
+        areaMutationRuntimeEvidence:
+          buildCapturedAreaMutationRuntimeEvidence(value?.dataset)
       };
     }
     fs.writeFileSync(canvasPngPath, Buffer.from(dataUrl.slice(prefix.length), "base64"));
@@ -4033,7 +5680,9 @@ async function captureRuntimeCanvasPng(
       matchedObjectName: value.matchedObjectName ?? "",
       matchedObjectNames: value.matchedObjectNames ?? [],
       visibleObjectCount: value.visibleObjectCount ?? null,
-      highlightedObjectCount: value.highlightedObjectCount ?? null
+      highlightedObjectCount: value.highlightedObjectCount ?? null,
+      areaMutationRuntimeEvidence:
+        buildCapturedAreaMutationRuntimeEvidence(value.dataset)
     };
   } catch (error) {
     return {
@@ -4050,8 +5699,107 @@ async function captureRuntimeCanvasPng(
       matchedObjectNames: [],
       visibleObjectCount: null,
       highlightedObjectCount: null,
+      areaMutationRuntimeEvidence:
+        buildCapturedAreaMutationRuntimeEvidence(null),
       cause: serializeError(error)
     };
+  }
+}
+
+async function captureAreaEditingScenarioVisualStep({
+  send,
+  suffix,
+  pngPath,
+  canvasPngPath,
+  captureIsolateObjectId,
+  captureHighlightObjectIds,
+  addCdpEventHandler,
+  capturePageScreenshot,
+  capturePageScreenshotFromSurface,
+  captureScreencastScreenshot
+}) {
+  const stepPngPath = pngPath.replace(/\.png$/u, `.${suffix}.png`);
+  const stepCanvasPngPath = canvasPngPath.replace(/\.canvas\.png$/u, `.${suffix}.canvas.png`);
+  const runtimeCanvasScreenshot = await captureRuntimeCanvasPng(
+    send,
+    stepCanvasPngPath,
+    captureIsolateObjectId,
+    captureHighlightObjectIds
+  );
+  const pageScreenshot = await capturePageOrCanvasScreenshot({
+    send,
+    addCdpEventHandler,
+    capturePageScreenshot,
+    capturePageScreenshotFromSurface,
+    captureScreencastScreenshot,
+    pngPath: stepPngPath,
+    runtimeCanvasScreenshot
+  });
+  return {
+    step: suffix,
+    screenshotPath: stepPngPath,
+    canvasScreenshotPath: stepCanvasPngPath,
+    pageScreenshot,
+    runtimeCanvasScreenshot
+  };
+}
+
+async function attachTerminalTileModelBlockerVisualEvidence(error, input) {
+  if (error?.captureBlocker?.code !== "tile_model_source_missing") return;
+  try {
+    error.captureBlocker.diagnosticVisualEvidence =
+      await captureAreaEditingScenarioVisualStep({
+        ...input,
+        suffix: "blocked"
+      });
+  } catch (visualCaptureError) {
+    // Keep the source diagnosis authoritative even when the optional evidence
+    // capture itself cannot be produced.
+    error.captureBlocker.diagnosticVisualEvidenceError = serializeError(visualCaptureError);
+  }
+}
+
+/**
+ * A freshly created Area can select any legal SET tile before the browser has
+ * received its model contracts.  When that settlement fails, keep a canvas
+ * frame of the actual blocked Area: without it an audit would only retain a
+ * JSON timeout and could not distinguish missing source data from a camera or
+ * placement regression.
+ */
+async function attachNewAreaTileModelWaitVisualEvidence(error, input) {
+  if (error?.captureBlocker?.code !== "area_editing_new_area_real_tile_models_not_ready") {
+    return;
+  }
+  try {
+    error.captureBlocker.diagnosticVisualEvidence =
+      await captureAreaEditingScenarioVisualStep({
+        ...input,
+        suffix: "blocked-before-mutation"
+      });
+  } catch (visualCaptureError) {
+    error.captureBlocker.diagnosticVisualEvidenceError = serializeError(visualCaptureError);
+  }
+}
+
+/**
+ * A batch may return a per-tile TILE_NOT_FOUND while its remaining tiles load
+ * normally. In that case the terrain snapshot is `partial`, rather than the
+ * terminal `blocked` state used by the narrower source blocker classifier.
+ * Preserve the post-mutation canvas before reporting the settlement timeout:
+ * it is the visual proof that the legal SET group was placed but is incomplete.
+ */
+async function attachAreaEditingSettlementVisualEvidence(error, input) {
+  if (error?.captureBlocker?.code !== "areas_runtime_snapshot_stale_or_missing") {
+    return;
+  }
+  try {
+    error.captureBlocker.diagnosticVisualEvidence =
+      await captureAreaEditingScenarioVisualStep({
+        ...input,
+        suffix: "blocked-after-mutation"
+      });
+  } catch (visualCaptureError) {
+    error.captureBlocker.diagnosticVisualEvidenceError = serializeError(visualCaptureError);
   }
 }
 
@@ -4700,7 +6448,8 @@ async function preflightRuntimeEnvironment({
   route,
   bootstrapRoute,
   authBaseUrl,
-  backendDirectHealthUrl
+  backendDirectHealthUrl,
+  runtimeBuildBinding
 }) {
   const frontendChecks = [];
   for (const endpoint of [route, bootstrapRoute]) {
@@ -4726,11 +6475,42 @@ async function preflightRuntimeEnvironment({
     );
   }
 
+  if (runtimeBuildBinding) {
+    const expectedFrontendOrigin = runtimeBuildBinding.frontend.baseUrl;
+    const wrongFrontendOrigin = frontendChecks.find((check) => {
+      try {
+        return new URL(check.endpoint).origin !== expectedFrontendOrigin;
+      } catch {
+        return true;
+      }
+    });
+    let directOriginMatches = false;
+    try {
+      directOriginMatches =
+        new URL(backendDirectHealthUrl).origin ===
+        runtimeBuildBinding.backend.baseUrl;
+    } catch {
+      directOriginMatches = false;
+    }
+    if (wrongFrontendOrigin || !directOriginMatches) {
+      throw createBlockerError(
+        "runtime_build_origin_mismatch",
+        "Areas runtime capture origins do not match the immutable runtime-build profile.",
+        {
+          expectedFrontendOrigin,
+          expectedBackendOrigin: runtimeBuildBinding.backend.baseUrl,
+          frontend: frontendChecks,
+          backendDirectHealthUrl
+        }
+      );
+    }
+  }
+
   const backendProxyHealth = await probeHttpEndpoint(`${authBaseUrl}/health`, {
     label: "backend_proxy_health",
     expectJson: true
   });
-  if (backendProxyHealth.ok) {
+  if (backendProxyHealth.ok && !runtimeBuildBinding) {
     return {
       status: "ok",
       frontend: frontendChecks,
@@ -4744,11 +6524,39 @@ async function preflightRuntimeEnvironment({
     expectJson: true
   });
   const runtimeEnvironmentPreflight = {
-    status: backendDirectHealth.ok ? "backend_proxy_blocked" : "backend_direct_blocked",
+    status:
+      backendProxyHealth.ok && backendDirectHealth.ok
+        ? "ok"
+        : backendDirectHealth.ok
+          ? "backend_proxy_blocked"
+          : "backend_direct_blocked",
     frontend: frontendChecks,
     backendProxyHealth,
     backendDirectHealth
   };
+
+  if (runtimeBuildBinding && backendProxyHealth.ok && backendDirectHealth.ok) {
+    const backendErrors = validateMatrixRuntimeBuildObservations(
+      runtimeBuildBinding,
+      {
+        frontend: runtimeBuildBinding.frontend,
+        backendProxy: backendProxyHealth.payload?.runtimeBuild ?? null,
+        backendDirect: backendDirectHealth.payload?.runtimeBuild ?? null
+      }
+    ).filter((code) => !code.startsWith("MATRIX_FRONTEND_RUNTIME_BUILD_"));
+    if (backendErrors.length > 0) {
+      throw createBlockerError(
+        "runtime_build_backend_identity_mismatch",
+        "Backend proxy/direct runtime-build readback does not match the immutable profile.",
+        {
+          runtimeEnvironmentPreflight,
+          runtimeBuildBinding,
+          errors: backendErrors
+        }
+      );
+    }
+    return runtimeEnvironmentPreflight;
+  }
 
   if (backendDirectHealth.ok) {
     throw createBlockerError(
@@ -4785,6 +6593,86 @@ async function preflightRuntimeEnvironment({
       ]
     }
   );
+}
+
+function buildMatrixRuntimeBuildProof(
+  binding,
+  runtimeEnvironmentPreflight,
+  runtimeEnvironmentPostCapture,
+  domStatus,
+  runtimeSourceIdentityPreflight,
+  runtimeSourceIdentityPostCapture
+) {
+  if (!binding) return null;
+  const frontendObservation = domStatus?.frontendRuntimeBuildIdentity ?? null;
+  const preflightObservations = {
+    frontend: frontendObservation,
+    backendProxy:
+      runtimeEnvironmentPreflight?.backendProxyHealth?.payload?.runtimeBuild ??
+      null,
+    backendDirect:
+      runtimeEnvironmentPreflight?.backendDirectHealth?.payload?.runtimeBuild ??
+      null
+  };
+  const observations = {
+    frontend: frontendObservation,
+    backendProxy:
+      runtimeEnvironmentPostCapture?.backendProxyHealth?.payload?.runtimeBuild ??
+      null,
+    backendDirect:
+      runtimeEnvironmentPostCapture?.backendDirectHealth?.payload?.runtimeBuild ??
+      null
+  };
+  const sourceIdentity = {
+    preflight: summarizeTileAddConnectRuntimeSourceIdentity(
+      runtimeSourceIdentityPreflight
+    ),
+    postCapture: summarizeTileAddConnectRuntimeSourceIdentity(
+      runtimeSourceIdentityPostCapture
+    )
+  };
+  const errors = new Set(
+    validateMatrixRuntimeBuildObservations(binding, observations)
+  );
+  for (const error of validateMatrixRuntimeBuildObservations(
+    binding,
+    preflightObservations
+  )) {
+    errors.add(`PREFLIGHT_${error}`);
+  }
+  if (
+    preflightObservations.backendDirect?.processStartedAt !==
+      observations.backendDirect?.processStartedAt ||
+    preflightObservations.backendProxy?.processStartedAt !==
+      observations.backendProxy?.processStartedAt
+  ) {
+    errors.add("MATRIX_BACKEND_RUNTIME_BUILD_PROCESS_RESTARTED_DURING_CAPTURE");
+  }
+  for (const error of validateTileAddConnectRuntimeSourceIdentity(
+    binding,
+    sourceIdentity.preflight
+  )) {
+    errors.add(`PREFLIGHT_${error}`);
+  }
+  for (const error of validateTileAddConnectRuntimeSourceIdentity(
+    binding,
+    sourceIdentity.postCapture
+  )) {
+    errors.add(`POST_CAPTURE_${error}`);
+  }
+  if (JSON.stringify(sourceIdentity.preflight) !== JSON.stringify(sourceIdentity.postCapture)) {
+    errors.add("MATRIX_RUNTIME_SOURCE_IDENTITY_CHANGED_DURING_CAPTURE");
+  }
+  const errorList = [...errors].sort((left, right) => left.localeCompare(right));
+  return {
+    schema: "aurora-tile-add-connect-runtime-build-proof/v1",
+    status: errorList.length === 0 ? "verified" : "blocked",
+    binding,
+    preflightObservations,
+    observations,
+    sourceIdentity,
+    errors: errorList
+  };
 }
 
 async function createPersistedAuthState({ authBaseUrl, username, password }) {
@@ -5086,16 +6974,98 @@ async function seedBrowserAuthState(send, seededAuthState, workspaceOptionsOverr
   });
 }
 
+async function refreshSameBrowserAuthStateWithoutNavigation(
+  send,
+  refreshedAuthState,
+  timeoutMs
+) {
+  const beforeSession = await readSameBrowserRestartSessionIdentity(send);
+  const serializedState = JSON.stringify(refreshedAuthState);
+  const response = await send("Runtime.evaluate", {
+    awaitPromise: true,
+    returnByValue: true,
+    expression: `(() => {
+      const key = "aurora_web.auth_session.v1";
+      const oldValue = window.localStorage.getItem(key);
+      const newValue = ${JSON.stringify(serializedState)};
+      window.localStorage.setItem(key, newValue);
+      const dispatched = window.dispatchEvent(
+        new StorageEvent("storage", {
+          key,
+          oldValue,
+          newValue,
+          storageArea: window.localStorage,
+          url: window.location.href
+        })
+      );
+      return {
+        dispatched,
+        storedExactly: window.localStorage.getItem(key) === newValue,
+        href: window.location.href,
+        marker: window.__auroraAreasSameBrowserRestartProofV1 ?? null,
+        performanceTimeOrigin: window.performance.timeOrigin
+      };
+    })()`
+  });
+  const dispatchStatus = response.result.value;
+  if (dispatchStatus?.storedExactly !== true) {
+    throw createBlockerError(
+      "same_browser_restart_auth_refresh_storage_failed",
+      "The refreshed backend session could not be stored in the existing browser document.",
+      { dispatchStatus }
+    );
+  }
+  const deadline = Date.now() + timeoutMs;
+  let afterSession = null;
+  while (Date.now() <= deadline) {
+    afterSession = await readSameBrowserRestartSessionIdentity(send);
+    if (
+      afterSession?.marker === beforeSession?.marker &&
+      afterSession?.performanceTimeOrigin === beforeSession?.performanceTimeOrigin &&
+      afterSession?.href === beforeSession?.href
+    ) {
+      // React consumes the same-tab StorageEvent asynchronously. Give the
+      // state/effect chain a stable turn before the authoritative Area reopen.
+      await sleep(500);
+      break;
+    }
+    await sleep(100);
+  }
+  if (
+    afterSession?.marker !== beforeSession?.marker ||
+    afterSession?.performanceTimeOrigin !== beforeSession?.performanceTimeOrigin ||
+    afterSession?.href !== beforeSession?.href
+  ) {
+    throw createBlockerError(
+      "same_browser_restart_auth_refresh_document_changed",
+      "Refreshing the backend session replaced or navigated the browser document.",
+      { beforeSession, afterSession, dispatchStatus, timeoutMs }
+    );
+  }
+  return {
+    status: "adopted_without_navigation",
+    userId: refreshedAuthState.session.user.id,
+    issuedAt: refreshedAuthState.session.issuedAt,
+    accessTokenSha256: crypto
+      .createHash("sha256")
+      .update(refreshedAuthState.session.accessToken, "utf8")
+      .digest("hex"),
+    beforeSession,
+    afterSession
+  };
+}
+
 async function authenticateBrowserForCapture(
   send,
   seededAuthState,
   credentials,
   workspaceOptionsOverride = {}
 ) {
+  const authenticatedAppWaitMs = Math.max(loginWaitMs, DEFAULT_AUTHENTICATED_APP_WAIT_MS);
   const initialStatus = await waitForLoginOrApp(send);
   await seedBrowserAuthState(send, seededAuthState, workspaceOptionsOverride);
   await send("Page.navigate", { url: route });
-  const seededStatus = await waitForAuthenticatedAppOrLogin(send, 20_000);
+  const seededStatus = await waitForAuthenticatedAppOrLogin(send, authenticatedAppWaitMs);
   if (isAuthenticatedAppStatus(seededStatus)) {
     return {
       ...seededStatus,
@@ -5104,7 +7074,10 @@ async function authenticateBrowserForCapture(
       initialStatus
     };
   }
-  if (!seededStatus?.hasUsername) {
+  const fallbackLoginStatus = seededStatus?.hasUsername
+    ? seededStatus
+    : await prepareLoginFormFallback(send, authenticatedAppWaitMs);
+  if (!fallbackLoginStatus?.hasUsername) {
     throw createBlockerError(
       "frontend_auth_seed_route_guard_blocked",
       "Seeded browser auth did not reach the app route and the login form was not available for fallback.",
@@ -5112,20 +7085,36 @@ async function authenticateBrowserForCapture(
         endpoint: route,
         port: resolveUrlPort(route),
         initialStatus,
-        seededStatus
+        seededStatus,
+        fallbackLoginStatus
       }
     );
   }
-  const submitted = await submitLoginForm(send, credentials);
-  const submittedStatus = await waitForAuthenticatedApp(send, 20_000);
+  const submitted = await submitLoginForm(send, credentials, authenticatedAppWaitMs);
+  const submittedStatus = await waitForAuthenticatedApp(send, authenticatedAppWaitMs, {
+    submitted
+  });
   return {
     ...submittedStatus,
     authMethod: "login_form_fallback",
     workspaceOptionsOverride,
     initialStatus,
     seededStatus,
+    fallbackLoginStatus,
     submitted
   };
+}
+
+async function prepareLoginFormFallback(send, timeoutMs) {
+  await send("Runtime.evaluate", {
+    awaitPromise: true,
+    expression: `(() => {
+      window.localStorage.removeItem("aurora_web.auth_session.v1");
+      return true;
+    })()`
+  });
+  await send("Page.navigate", { url: bootstrapRoute });
+  return waitForAuthenticatedAppOrLogin(send, timeoutMs);
 }
 
 async function waitForAuthenticatedAppOrLogin(send, timeoutMs) {
@@ -5154,7 +7143,7 @@ async function waitForAuthenticatedAppOrLogin(send, timeoutMs) {
   return lastStatus;
 }
 
-async function waitForAuthenticatedApp(send, timeoutMs) {
+async function waitForAuthenticatedApp(send, timeoutMs, diagnostics = {}) {
   const status = await waitForAuthenticatedAppOrLogin(send, timeoutMs);
   if (isAuthenticatedAppStatus(status)) {
     return status;
@@ -5166,7 +7155,8 @@ async function waitForAuthenticatedApp(send, timeoutMs) {
       endpoint: route,
       port: resolveUrlPort(route),
       lastStatus: status,
-      timeoutMs
+      timeoutMs,
+      ...diagnostics
     }
   );
 }
@@ -5219,58 +7209,80 @@ async function waitForAppRoute(send, timeoutMs) {
   );
 }
 
-async function submitLoginForm(send, credentials) {
-  const result = await send("Runtime.evaluate", {
-    awaitPromise: true,
-    returnByValue: true,
-    expression: `(async () => {
-      const username = document.querySelector("#username");
-      const password = document.querySelector("#password");
-      const form = username?.closest("form") ?? password?.closest("form");
-      if (!username || !password || !form) {
-        return {
-          ok: false,
-          reason: "login_form_missing",
-          href: window.location.href,
-          hasUsername: Boolean(username),
-          hasPassword: Boolean(password),
-          hasForm: Boolean(form)
-        };
-      }
-      const setValue = (element, value) => {
-        const setter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          "value"
-        )?.set;
-        if (setter) {
-          setter.call(element, value);
-        } else {
-          element.value = value;
+async function submitLoginForm(send, credentials, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastSubmitted = null;
+  let attemptCount = 0;
+  do {
+    attemptCount += 1;
+    const result = await send("Runtime.evaluate", {
+      awaitPromise: true,
+      returnByValue: true,
+      expression: `(async () => {
+        const username = document.querySelector("#username");
+        const password = document.querySelector("#password");
+        const form = username?.closest("form") ?? password?.closest("form");
+        if (!username || !password || !form) {
+          return {
+            ok: false,
+            reason: "login_form_missing",
+            href: window.location.href,
+            hasUsername: Boolean(username),
+            hasPassword: Boolean(password),
+            hasForm: Boolean(form),
+            submitEventHandled: false
+          };
         }
-        element.dispatchEvent(new Event("input", { bubbles: true }));
-        element.dispatchEvent(new Event("change", { bubbles: true }));
-      };
-      setValue(username, ${JSON.stringify(credentials.username)});
-      setValue(password, ${JSON.stringify(credentials.password)});
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-      return {
-        ok: true,
-        href: window.location.href,
-        usernameLength: username.value.length,
-        passwordLength: password.value.length
-      };
-    })()`
-  });
-  const submitted = result.result.value;
-  if (!submitted?.ok) {
-    throw createBlockerError("frontend_login_form_fallback_failed", "Login form fallback could not submit credentials.", {
+        const setValue = (element, value) => {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value"
+          )?.set;
+          if (setter) {
+            setter.call(element, value);
+          } else {
+            element.value = value;
+          }
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        setValue(username, ${JSON.stringify(credentials.username)});
+        setValue(password, ${JSON.stringify(credentials.password)});
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+        const submitEventHandled = form.dispatchEvent(submitEvent) === false;
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        return {
+          ok: submitEventHandled,
+          reason: submitEventHandled ? "react_submit_handler_confirmed" : "submit_handler_not_ready",
+          submitEventHandled,
+          href: window.location.href,
+          usernameLength: username.value.length,
+          passwordLength: password.value.length
+        };
+      })()`
+    });
+    const submitted = {
+      ...result.result.value,
+      attemptCount
+    };
+    lastSubmitted = submitted;
+    if (submitted?.ok && submitted.submitEventHandled) {
+      return submitted;
+    }
+    await sleep(APP_AUTH_SETTLED_POLL_INTERVAL_MS);
+  } while (Date.now() < deadline);
+
+  throw createBlockerError(
+    "frontend_login_form_handler_not_ready",
+    "Login form rendered but its submit handler did not become ready before the guarded timeout.",
+    {
       endpoint: bootstrapRoute,
       port: resolveUrlPort(bootstrapRoute),
-      submitted
-    });
-  }
-  return submitted;
+      timeoutMs,
+      submitted: lastSubmitted
+    }
+  );
 }
 
 async function waitForLoginOrApp(send) {
@@ -5377,7 +7389,12 @@ async function openArea(send, query, expectedArea) {
       const query = ${JSON.stringify(query.trim().toLowerCase())};
       const expectedArea = ${JSON.stringify(expectedArea)};
       const search = document.querySelector("input[aria-label='Filter areas']");
-      if (search && query) {
+      // Do not filter the incremental client-side list before the requested
+      // Area has arrived from a later page: doing so makes the result set look
+      // empty although loading is still in progress.  The exact identity below
+      // is the authoritative selector for capture requests that resolved an
+      // Area through the API.
+      if (search && query && !expectedArea) {
         const valueSetter = Object.getOwnPropertyDescriptor(
           window.HTMLInputElement.prototype,
           "value"
@@ -5578,12 +7595,16 @@ async function openArea(send, query, expectedArea) {
         };
       }
       async function waitForAreaRowsToSettle() {
-        for (let attempt = 0; attempt < 20; attempt += 1) {
+        // The selector incrementally aggregates paginated Area responses.  A
+        // filtered row can therefore be absent briefly even after the panel
+        // itself has rendered its first page.  Wait for the requested identity
+        // instead of treating that normal intermediate state as a missing Area.
+        for (let attempt = 0; attempt < 300; attempt += 1) {
           const rows = Array.from(document.querySelectorAll(".area-selection-panel .scene-object-row"));
-          if (!query || rows.some((candidate) => candidate.textContent?.toLowerCase().includes(query))) {
+          if (!query || resolveTargetRow(rows, query, expectedArea)) {
             return true;
           }
-          await sleep(50);
+          await sleep(100);
         }
         return false;
       }
@@ -5725,6 +7746,23 @@ async function waitForAreaRuntimeSnapshot(
         status: lastStatus
       });
     }
+    const terminalTileModelBlocker = requireStrictTerrainSettlement
+      ? classifyTerminalTileModelBlocker(lastStatus)
+      : null;
+    if (terminalTileModelBlocker) {
+      throw createBlockerError(
+        terminalTileModelBlocker.code,
+        terminalTileModelBlocker.message,
+        {
+          endpoint: route,
+          port: resolveUrlPort(route),
+          expectedArea,
+          openedArea,
+          lastStatus,
+          ...terminalTileModelBlocker.details
+        }
+      );
+    }
     if (
       isExpectedAreaRuntimeSnapshot(lastStatus, openedArea, expectedArea, {
         captureVisibility
@@ -5787,6 +7825,98 @@ async function waitForTileProcessCurrentSceneKeyChange(
     "area_editing_commit_scene_key_not_changed",
     "Pointer commit did not publish a new current-scene tile process key before timeout.",
     { previousSceneKey, timeoutMs, lastStatus }
+  );
+}
+
+async function waitForAreaTileMutationRuntimeSettlement(
+  send,
+  openedAreaText,
+  {
+    timeoutMs = 120_000,
+    expectedCameraMode = "top_down_oracle"
+  } = {}
+) {
+  const startedAt = Date.now();
+  let lastStatus = null;
+  let lastSettlement = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    lastStatus = await readAreaRuntimeStatus(send, openedAreaText);
+    lastSettlement = evaluateAreaTileMutationRenderSettlement({
+      trace: lastStatus?.areaTileMutationTrace ?? null,
+      contractSettlement:
+        lastStatus?.areaTileMutationContractSettlement ?? null,
+      terrainSnapshot: lastStatus?.terrainTileModelSnapshot ?? null,
+      cameraFrame: lastStatus?.cameraFrame ?? null,
+      expectedCameraMode
+    });
+    if (lastSettlement.status === "ready") {
+      return {
+        status: lastStatus,
+        settlement: lastSettlement,
+        elapsedMs: Date.now() - startedAt
+      };
+    }
+    await sleep(AREA_RUNTIME_SNAPSHOT_WAIT_INTERVAL_MS);
+  }
+  throw createBlockerError(
+    "area_tile_mutation_runtime_settlement_timeout",
+    "The exact tile mutation did not reach a matching terrain build, camera frame, and presented frame before timeout.",
+    {
+      openedAreaText,
+      expectedCameraMode,
+      timeoutMs,
+      areaTileMutationRuntimeSettlement: lastSettlement,
+      areaTileMutationTrace: lastStatus?.areaTileMutationTrace ?? null,
+      areaTileMutationContractSettlement:
+        lastStatus?.areaTileMutationContractSettlement ?? null,
+      terrainSnapshot: lastStatus?.terrainTileModelSnapshot ?? null,
+      cameraFrame: lastStatus?.cameraFrame ?? null,
+      presentedFrame: lastStatus?.presentedFrame ?? null
+    }
+  );
+}
+
+function assertRequestedCaptureCamera(status, captureView, context = {}) {
+  if (captureView !== "top-down") {
+    return;
+  }
+  const cameraFrame = status?.cameraFrame ?? null;
+  const terrainSnapshot = status?.terrainTileModelSnapshot ?? null;
+  const failedReasons = [];
+  if (cameraFrame?.mode !== "top_down_oracle") {
+    failedReasons.push("camera_mode_not_top_down_oracle");
+  }
+  if (cameraFrame?.coverageStatus !== "pass") {
+    failedReasons.push("camera_coverage_not_pass");
+  }
+  if (Number(cameraFrame?.clippedCornerCount) !== 0) {
+    failedReasons.push("camera_clipped_corner_count_nonzero");
+  }
+  if (
+    !terrainSnapshot?.terrainBuildId ||
+    cameraFrame?.terrainBuildId !== terrainSnapshot.terrainBuildId
+  ) {
+    failedReasons.push("camera_terrain_build_id_mismatch");
+  }
+  if (
+    !terrainSnapshot?.tileStateDigest ||
+    cameraFrame?.tileStateDigest !== terrainSnapshot.tileStateDigest
+  ) {
+    failedReasons.push("camera_tile_state_digest_mismatch");
+  }
+  if (failedReasons.length === 0) {
+    return;
+  }
+  throw createBlockerError(
+    "areas_capture_camera_not_canonical",
+    "Areas capture reached final proof state without a canonical top-down camera bound to the settled terrain generation.",
+    {
+      ...context,
+      requestedView: captureView,
+      cameraFrame,
+      terrainSnapshot,
+      failedReasons
+    }
   );
 }
 
@@ -6170,6 +8300,51 @@ function hasStrictTerrainTileModelSettlement(status) {
   );
 }
 
+/**
+ * A strict proof should wait for a conversion that is still in progress, but
+ * it must not turn a final backend refusal into a generic timeout.  In
+ * particular, a custom SET can reference a model supplied by a separate HAK;
+ * Aurora Web already exposes that as TILE_NOT_FOUND.  Preserve that diagnosis
+ * and the exact model list for the audit instead of waiting out the deadline.
+ */
+function classifyTerminalTileModelBlocker(status) {
+  const terrain = status?.terrainTileModelSnapshot ?? {};
+  const tileProcess = status?.tileProcessRuntimeSnapshot ?? {};
+  const tileCount = Number(terrain.tileCount ?? 0);
+  const checkedCount = Number(tileProcess.checkedCandidateCount ?? 0);
+  const blockedCount = Number(tileProcess.blockedCandidateCount ?? 0);
+  const pendingCount = Number(terrain.pendingTileCount ?? 0);
+  const terminal =
+    tileCount > 0 &&
+    tileProcess.status === "blocked" &&
+    checkedCount >= tileCount &&
+    blockedCount > 0 &&
+    pendingCount === 0;
+  if (!terminal) return null;
+
+  const blockerSummary = String(tileProcess.blockerSummary ?? "");
+  const blockedModels = String(terrain.blockedTileSample ?? "none")
+    .split("|")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const tileNotFound = blockerSummary.includes("TILE_NOT_FOUND");
+  return {
+    code: tileNotFound ? "tile_model_source_missing" : "tile_model_processing_blocked",
+    message: tileNotFound
+      ? "Tile model source is missing from the currently configured Aurora module/HAK sources."
+      : "Tile processing reached a terminal blocked state.",
+    details: {
+      tileCount,
+      checkedCount,
+      blockedCount,
+      pendingCount,
+      blockedModels,
+      tileProcessBlockerSummary: blockerSummary,
+      terrainBlockerSummary: terrain.blockerSummary ?? null
+    }
+  };
+}
+
 function hasExpectedPlaceablePayloadSettlement(status, openedArea, expectedArea) {
   const expectedObjectCount =
     Number(expectedArea?.objectCounts?.placeables ?? Number.NaN) ||
@@ -6302,8 +8477,15 @@ function buildRuntimeFreshnessCheck(status, openedArea, expectedArea) {
 function buildRuntimeBlockerSnapshot(status, canvasVisualEvidence = null) {
   const blockers = [];
   const terrainOnlyCapture = isTerrainOnlyRuntimeCaptureStatus(status);
-  addBlocker(blockers, "visual", "first_visible_blocker", status.visualBlockers?.[0]?.text, {
-    element: status.visualBlockers?.[0] ?? null
+  // The Inspector's "No objects" empty state describes placeables/GIT, not
+  // terrain.  A terrain-only capture deliberately hides that object layer, so
+  // treating the empty state as its first visual failure masks a valid tile
+  // rendering proof.
+  const firstRelevantVisualBlocker = status.visualBlockers?.find(
+    (entry) => !(terrainOnlyCapture && entry?.selector === ".scene-objects-empty")
+  );
+  addBlocker(blockers, "visual", "first_visible_blocker", firstRelevantVisualBlocker?.text, {
+    element: firstRelevantVisualBlocker ?? null
   });
   addBlocker(
     blockers,
@@ -6502,10 +8684,19 @@ async function readAreaRuntimeStatus(send, openedAreaText) {
       const sharedRendererSnapshotRaw = dataset.areaObjectSharedRendererSnapshot ?? "";
       const primitiveFallbackRenderSuppressionSnapshotRaw =
         dataset.areaPrimitiveFallbackRenderSuppressionSnapshot ?? "";
+      const areaTileMutationTraceRaw =
+        workspaceLayoutDataset.areaTileMutationTrace ?? "";
+      const areaTileMutationContractSettlementRaw =
+        workspaceLayoutDataset.areaTileMutationContractSettlement ?? "";
+      const frontendRuntimeBuildIdentityRaw =
+        workspaceLayoutDataset.auroraRuntimeBuildIdentity ?? "";
       let terrainTileModelSnapshot = null;
       let tileProcessRuntimeSnapshot = null;
       let areaObjectSharedRendererSnapshot = null;
       let primitiveFallbackRenderSuppressionSnapshot = null;
+      let areaTileMutationTrace = null;
+      let areaTileMutationContractSettlement = null;
+      let frontendRuntimeBuildIdentity = null;
       try {
         terrainTileModelSnapshot = terrainSnapshotRaw ? JSON.parse(terrainSnapshotRaw) : null;
       } catch (error) {
@@ -6529,6 +8720,33 @@ async function readAreaRuntimeStatus(send, openedAreaText) {
           : null;
       } catch (error) {
         primitiveFallbackRenderSuppressionSnapshot = { parseError: error instanceof Error ? error.message : String(error) };
+      }
+      try {
+        areaTileMutationTrace = areaTileMutationTraceRaw
+          ? JSON.parse(areaTileMutationTraceRaw)
+          : null;
+      } catch (error) {
+        areaTileMutationTrace = {
+          parseError: error instanceof Error ? error.message : String(error)
+        };
+      }
+      try {
+        areaTileMutationContractSettlement = areaTileMutationContractSettlementRaw
+          ? JSON.parse(areaTileMutationContractSettlementRaw)
+          : null;
+      } catch (error) {
+        areaTileMutationContractSettlement = {
+          parseError: error instanceof Error ? error.message : String(error)
+        };
+      }
+      try {
+        frontendRuntimeBuildIdentity = frontendRuntimeBuildIdentityRaw
+          ? JSON.parse(frontendRuntimeBuildIdentityRaw)
+          : null;
+      } catch (error) {
+        frontendRuntimeBuildIdentity = {
+          parseError: error instanceof Error ? error.message : String(error)
+        };
       }
       const texturePendingCount = Array.isArray(areaObjectSharedRendererSnapshot?.texturePendingIds)
         ? areaObjectSharedRendererSnapshot.texturePendingIds.length
@@ -6647,6 +8865,9 @@ async function readAreaRuntimeStatus(send, openedAreaText) {
           portReady: workspaceLayoutDataset.areaTileProcessPortReady ?? null,
           tokenReady: workspaceLayoutDataset.areaTileProcessTokenReady ?? null
         },
+        frontendRuntimeBuildIdentity,
+        areaTileMutationTrace,
+        areaTileMutationContractSettlement,
         cameraFrame: {
           status: dataset.areaCameraFrameStatus ?? null,
           source: dataset.areaCameraFrameSource ?? null,
@@ -6660,7 +8881,47 @@ async function readAreaRuntimeStatus(send, openedAreaText) {
           actualTarget: dataset.areaCameraFrameActualTarget ?? null,
           up: dataset.areaCameraFrameUp ?? null,
           direction: dataset.areaCameraFrameDirection ?? null,
-          actualDistance: dataset.areaCameraFrameActualDistance ?? null
+          actualDistance: dataset.areaCameraFrameActualDistance ?? null,
+          terrainBuildId: dataset.areaCameraFrameTerrainBuildId ?? null,
+          tileStateDigest: dataset.areaCameraFrameTileStateDigest ?? null,
+          boundsDigest: dataset.areaCameraFrameBoundsDigest ?? null,
+          boundsPolicy: dataset.areaCameraFrameBoundsPolicy ?? null,
+          observedTerrainBounds:
+            dataset.areaCameraFrameObservedTerrainBounds ?? null,
+          cameraTerrainBounds:
+            dataset.areaCameraFrameCameraTerrainBounds ?? null,
+          excludedMeshCount:
+            dataset.areaCameraFrameExcludedMeshCount ?? null,
+          excludedMeshSample:
+            dataset.areaCameraFrameExcludedMeshSample ?? null,
+          runtimeBoundsExpansionRatio:
+            dataset.areaCameraFrameRuntimeBoundsExpansionRatio ?? null,
+          runtimeBoundsPolicyStatus:
+            dataset.areaCameraFrameRuntimeBoundsPolicyStatus ?? null,
+          requiresIndependentVisualReview:
+            dataset.areaCameraFrameRuntimeBoundsPolicyStatus ===
+            "runtime_bounds_outlier",
+          coverageStatus: dataset.areaCameraFrameCoverageStatus ?? null,
+          clippedCornerCount:
+            dataset.areaCameraFrameClippedCornerCount ?? null,
+          minimumNdcMargin:
+            dataset.areaCameraFrameMinimumNdcMargin ?? null
+        },
+        presentedFrame: {
+          sequence: dataset.areaPresentedFrameSequence ?? null,
+          terrainBuildId:
+            dataset.areaPresentedFrameTerrainBuildId ?? null,
+          tileStateDigest:
+            dataset.areaPresentedFrameTileStateDigest ?? null,
+          cameraTerrainBuildId:
+            dataset.areaPresentedFrameCameraTerrainBuildId ?? null,
+          cameraTileStateDigest:
+            dataset.areaPresentedFrameCameraTileStateDigest ?? null,
+          cameraCoverageStatus:
+            dataset.areaPresentedFrameCameraCoverageStatus ?? null,
+          presentedAt: dataset.areaPresentedFramePresentedAt ?? null,
+          settlementToken:
+            dataset.areaPresentedFrameSettlementToken ?? null
         },
         renderVisibility: {
           mode: dataset.areaOracleRenderVisibility ?? null,
@@ -7066,6 +9327,9 @@ function buildFailureFrame(error, context) {
   const blockers = normalizeCaptureErrors(error, strictVisualMode);
   const networkCaptureSummary = error?.captureBlocker?.networkCaptureSummary ?? null;
   const failureDomStatus = error?.captureBlocker?.lastStatus ?? null;
+  const diagnosticVisualEvidence = error?.captureBlocker?.diagnosticVisualEvidence ?? null;
+  const diagnosticPageScreenshot = diagnosticVisualEvidence?.pageScreenshot ?? null;
+  const diagnosticCanvasScreenshot = diagnosticVisualEvidence?.runtimeCanvasScreenshot ?? null;
   const runtimeActionabilitySummary = buildRuntimeActionabilitySummary({
     domStatus: failureDomStatus,
     expectedAreaDetail: context.expectedAreaDetail,
@@ -7086,14 +9350,16 @@ function buildFailureFrame(error, context) {
     },
     areaQuery: context.areaQuery,
     openedArea: null,
-    screenshotPath: null,
-    screenshotBytes: 0,
+    screenshotPath: diagnosticPageScreenshot?.path ?? null,
+    screenshotBytes: Number(diagnosticPageScreenshot?.bytes ?? 0),
     runtimeCanvasScreenshot: {
-      ok: false,
-      path: context.canvasPngPath ?? null,
-      reason: "capture_blocked_before_runtime_canvas_screenshot"
+      ok: diagnosticCanvasScreenshot?.ok === true,
+      path: diagnosticCanvasScreenshot?.path ?? context.canvasPngPath ?? null,
+      ...(diagnosticCanvasScreenshot?.ok === true
+        ? diagnosticCanvasScreenshot
+        : { reason: "capture_blocked_before_runtime_canvas_screenshot" })
     },
-    runtimeCanvasVisualEvidence: null,
+    runtimeCanvasVisualEvidence: diagnosticVisualEvidence ?? null,
     framePath: context.failureFramePath,
     failureFramePath: context.failureFramePath,
     preservedCanonicalFramePath: context.framePath,
@@ -7130,6 +9396,7 @@ function buildFailureFrame(error, context) {
       firstBlocker: blockers[0] ?? null,
       blockers
     },
+    diagnosticVisualEvidence,
     blocker: blockers[0] ?? normalizeCaptureError(error),
     captureMethod:
       "chrome-devtools-protocol Page.captureScreenshot plus data-area-terrain-tile-model-runtime-snapshot, data-area-tile-process-runtime-snapshot, shared renderer/placeable, loader, and blocker runtime datasets",
@@ -8095,11 +10362,20 @@ function summarizeNetworkCaptureSummaryForConsole(summary) {
       placeableRenderPayloadBatch: summarizeNetworkGroupForConsole(
         summary.groups?.placeableRenderPayloadBatch
       ),
+      placeableRenderPayloadSingle: summarizeNetworkGroupForConsole(
+        summary.groups?.placeableRenderPayloadSingle
+      ),
       placeableProcessBatch: summarizeNetworkGroupForConsole(
         summary.groups?.placeableProcessBatch
       ),
       placeableAssetContractsBatch: summarizeNetworkGroupForConsole(
         summary.groups?.placeableAssetContractsBatch
+      ),
+      placeableAssetContractsSingle: summarizeNetworkGroupForConsole(
+        summary.groups?.placeableAssetContractsSingle
+      ),
+      placeableAssetDelivery: summarizeNetworkGroupForConsole(
+        summary.groups?.placeableAssetDelivery
       ),
       creatureProcess: summarizeNetworkGroupForConsole(
         summary.groups?.creatureProcess
@@ -8119,11 +10395,20 @@ function summarizeNetworkCaptureCountsForConsole(summary) {
       placeableRenderPayloadBatch: summarizeNetworkGroupCountsForConsole(
         summary.groups?.placeableRenderPayloadBatch
       ),
+      placeableRenderPayloadSingle: summarizeNetworkGroupCountsForConsole(
+        summary.groups?.placeableRenderPayloadSingle
+      ),
       placeableProcessBatch: summarizeNetworkGroupCountsForConsole(
         summary.groups?.placeableProcessBatch
       ),
       placeableAssetContractsBatch: summarizeNetworkGroupCountsForConsole(
         summary.groups?.placeableAssetContractsBatch
+      ),
+      placeableAssetContractsSingle: summarizeNetworkGroupCountsForConsole(
+        summary.groups?.placeableAssetContractsSingle
+      ),
+      placeableAssetDelivery: summarizeNetworkGroupCountsForConsole(
+        summary.groups?.placeableAssetDelivery
       ),
       creatureProcess: summarizeNetworkGroupCountsForConsole(
         summary.groups?.creatureProcess
@@ -8810,6 +11095,12 @@ function buildQueueRequestCounts(queue, networkCaptureSummary) {
       groups.placeableRenderPayloadBatch?.inFlightRequestedItemCount ?? 0,
     placeableRenderPayloadBatchOldestInFlightAgeMs:
       groups.placeableRenderPayloadBatch?.oldestInFlightAgeMs ?? null,
+    placeableRenderPayloadSingleRequests:
+      groups.placeableRenderPayloadSingle?.requestCount ?? 0,
+    placeableRenderPayloadSingleInFlightRequests:
+      groups.placeableRenderPayloadSingle?.inFlightRequestCount ?? 0,
+    placeableRenderPayloadSingleOldestInFlightAgeMs:
+      groups.placeableRenderPayloadSingle?.oldestInFlightAgeMs ?? null,
     placeableProcessBatchRequests: groups.placeableProcessBatch?.requestCount ?? 0,
     placeableProcessBatchRequestedItems:
       groups.placeableProcessBatch?.requestedItemCount ?? 0,
@@ -8829,6 +11120,18 @@ function buildQueueRequestCounts(queue, networkCaptureSummary) {
       groups.placeableAssetContractsBatch?.inFlightRequestedItemCount ?? 0,
     placeableAssetContractsBatchOldestInFlightAgeMs:
       groups.placeableAssetContractsBatch?.oldestInFlightAgeMs ?? null,
+    placeableAssetContractsSingleRequests:
+      groups.placeableAssetContractsSingle?.requestCount ?? 0,
+    placeableAssetContractsSingleInFlightRequests:
+      groups.placeableAssetContractsSingle?.inFlightRequestCount ?? 0,
+    placeableAssetContractsSingleOldestInFlightAgeMs:
+      groups.placeableAssetContractsSingle?.oldestInFlightAgeMs ?? null,
+    placeableAssetDeliveryRequests:
+      groups.placeableAssetDelivery?.requestCount ?? 0,
+    placeableAssetDeliveryInFlightRequests:
+      groups.placeableAssetDelivery?.inFlightRequestCount ?? 0,
+    placeableAssetDeliveryOldestInFlightAgeMs:
+      groups.placeableAssetDelivery?.oldestInFlightAgeMs ?? null,
     creatureProcessRequests: groups.creatureProcess?.requestCount ?? 0,
     creatureProcessRequestedItems: groups.creatureProcess?.requestedItemCount ?? 0,
     creatureProcessInFlightRequests: groups.creatureProcess?.inFlightRequestCount ?? 0,
@@ -8855,6 +11158,10 @@ function buildPayloadResponseCounts(networkCaptureSummary) {
       groups.placeableRenderPayloadBatch?.responseItemCount ?? 0,
     placeableRenderPayloadBatchFailedRequests:
       groups.placeableRenderPayloadBatch?.failedRequestCount ?? 0,
+    placeableRenderPayloadSingleResponses:
+      groups.placeableRenderPayloadSingle?.responseCount ?? 0,
+    placeableRenderPayloadSingleFailedRequests:
+      groups.placeableRenderPayloadSingle?.failedRequestCount ?? 0,
     placeableProcessBatchResponses: groups.placeableProcessBatch?.responseCount ?? 0,
     placeableProcessBatchResponseItems:
       groups.placeableProcessBatch?.responseItemCount ?? 0,
@@ -8872,6 +11179,14 @@ function buildPayloadResponseCounts(networkCaptureSummary) {
       groups.placeableAssetContractsBatch?.responseItemCount ?? 0,
     placeableAssetContractsBatchFailedRequests:
       groups.placeableAssetContractsBatch?.failedRequestCount ?? 0,
+    placeableAssetContractsSingleResponses:
+      groups.placeableAssetContractsSingle?.responseCount ?? 0,
+    placeableAssetContractsSingleFailedRequests:
+      groups.placeableAssetContractsSingle?.failedRequestCount ?? 0,
+    placeableAssetDeliveryResponses:
+      groups.placeableAssetDelivery?.responseCount ?? 0,
+    placeableAssetDeliveryFailedRequests:
+      groups.placeableAssetDelivery?.failedRequestCount ?? 0,
     creatureProcessResponses: groups.creatureProcess?.responseCount ?? 0,
     creatureProcessResponseItems: groups.creatureProcess?.responseItemCount ?? 0,
     creatureProcessFailedRequests: groups.creatureProcess?.failedRequestCount ?? 0,
@@ -8922,6 +11237,137 @@ function createNetworkCapture() {
     requests: new Map(),
     order: []
   };
+}
+
+function resetNetworkCapture(networkCapture) {
+  networkCapture.requests.clear();
+  networkCapture.order.length = 0;
+}
+
+async function createSameBrowserRestartSessionIdentity(send, marker) {
+  const response = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const propertyName = "__auroraAreasSameBrowserRestartProofV1";
+      if (Object.prototype.hasOwnProperty.call(window, propertyName)) {
+        return {
+          ok: false,
+          reason: "same_browser_restart_session_marker_collision",
+          marker: window[propertyName] ?? null,
+          performanceTimeOrigin: window.performance.timeOrigin,
+          href: window.location.href
+        };
+      }
+      Object.defineProperty(window, propertyName, {
+        value: ${JSON.stringify(marker)},
+        writable: false,
+        configurable: false,
+        enumerable: false
+      });
+      return {
+        ok: true,
+        marker: window[propertyName],
+        performanceTimeOrigin: window.performance.timeOrigin,
+        href: window.location.href
+      };
+    })()`
+  });
+  const identity = response.result.value;
+  if (identity?.ok !== true) {
+    throw createBlockerError(
+      identity?.reason ?? "same_browser_restart_session_marker_failed",
+      "Could not bind the restart handoff to a fresh browser document marker.",
+      { identity }
+    );
+  }
+  return {
+    marker: identity.marker,
+    performanceTimeOrigin: identity.performanceTimeOrigin,
+    href: identity.href
+  };
+}
+
+async function readSameBrowserRestartSessionIdentity(send) {
+  const response = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const propertyName = "__auroraAreasSameBrowserRestartProofV1";
+      return {
+        marker: Object.prototype.hasOwnProperty.call(window, propertyName)
+          ? window[propertyName]
+          : null,
+        performanceTimeOrigin: window.performance.timeOrigin,
+        href: window.location.href
+      };
+    })()`
+  });
+  return response.result.value;
+}
+
+function writeSameBrowserRestartReadyPacket({ readyPath, resumePath, packet }) {
+  if (fs.existsSync(readyPath) || fs.existsSync(resumePath)) {
+    throw createBlockerError(
+      "same_browser_restart_handoff_path_not_fresh",
+      "The restart handoff requires fresh ready/resume paths; a previous packet already exists.",
+      {
+        readyPath,
+        readyPathExists: fs.existsSync(readyPath),
+        resumePath,
+        resumePathExists: fs.existsSync(resumePath)
+      }
+    );
+  }
+  const temporaryPath = `${readyPath}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(packet, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx"
+    });
+    fs.renameSync(temporaryPath, readyPath);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
+}
+
+async function waitForSameBrowserRestartResumePacket({
+  resumePath,
+  challenge,
+  readyAt,
+  previousBackendProcessId,
+  timeoutMs
+}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (fs.existsSync(resumePath)) {
+      try {
+        const packet = JSON.parse(fs.readFileSync(resumePath, "utf8"));
+        return validateSameBrowserRestartResumePacket(packet, {
+          challenge,
+          readyAt,
+          previousBackendProcessId
+        });
+      } catch (error) {
+        throw createBlockerError(
+          "same_browser_restart_resume_packet_invalid",
+          "The restart resume packet was present but failed exact validation.",
+          {
+            resumePath,
+            cause: formatErrorForMessage(error)
+          }
+        );
+      }
+    }
+    await sleep(100);
+  }
+  throw createBlockerError(
+    "same_browser_restart_resume_timeout",
+    "The browser remained open, but no fresh validated backend-restart resume packet arrived before the deadline.",
+    {
+      resumePath,
+      timeoutMs,
+      challenge
+    }
+  );
 }
 
 function recordNetworkEvent(networkCapture, message) {
@@ -9005,6 +11451,12 @@ async function hydrateNetworkResponseBodies(send, networkCapture) {
       const responseBody = await send("Network.getResponseBody", {
         requestId: entry.requestId
       });
+      if (entry.group === "placeableAssetDelivery") {
+        entry.responseBodyBytes = responseBody.base64Encoded
+          ? Buffer.from(responseBody.body ?? "", "base64").length
+          : Buffer.byteLength(String(responseBody.body ?? ""), "utf8");
+        continue;
+      }
       const text = responseBody.base64Encoded
         ? Buffer.from(responseBody.body ?? "", "base64").toString("utf8")
         : String(responseBody.body ?? "");
@@ -9067,12 +11519,24 @@ function buildNetworkCaptureSummary(networkCapture) {
       networkCapture.order.filter((entry) => entry.group === "placeableRenderPayloadBatch"),
       summaryCreatedAtMs
     ),
+    placeableRenderPayloadSingle: summarizeNetworkGroup(
+      networkCapture.order.filter((entry) => entry.group === "placeableRenderPayloadSingle"),
+      summaryCreatedAtMs
+    ),
     placeableProcessBatch: summarizeNetworkGroup(
       networkCapture.order.filter((entry) => entry.group === "placeableProcessBatch"),
       summaryCreatedAtMs
     ),
     placeableAssetContractsBatch: summarizeNetworkGroup(
       networkCapture.order.filter((entry) => entry.group === "placeableAssetContractsBatch"),
+      summaryCreatedAtMs
+    ),
+    placeableAssetContractsSingle: summarizeNetworkGroup(
+      networkCapture.order.filter((entry) => entry.group === "placeableAssetContractsSingle"),
+      summaryCreatedAtMs
+    ),
+    placeableAssetDelivery: summarizeNetworkGroup(
+      networkCapture.order.filter((entry) => entry.group === "placeableAssetDelivery"),
       summaryCreatedAtMs
     ),
     creatureProcess: summarizeNetworkGroup(
@@ -9090,11 +11554,110 @@ function buildNetworkCaptureSummary(networkCapture) {
       groups.tileProcessBatch.firstErrorReason ??
       groups.tileProcess.firstErrorReason ??
       groups.placeableRenderPayloadBatch.firstErrorReason ??
+      groups.placeableRenderPayloadSingle.firstErrorReason ??
       groups.placeableProcessBatch.firstErrorReason ??
       groups.placeableAssetContractsBatch.firstErrorReason ??
+      groups.placeableAssetContractsSingle.firstErrorReason ??
+      groups.placeableAssetDelivery.firstErrorReason ??
       groups.creatureProcess.firstErrorReason ??
       null
   };
+}
+
+function requiredNetworkSettlementGroups() {
+  return [
+    { key: "areaProcess", failedCode: "area_process_failed", inFlightCode: "area_process_in_flight" },
+    { key: "tileProcessBatch", failedCode: "tile_process_batch_failed", inFlightCode: "tile_process_batch_in_flight" },
+    { key: "tileProcess", failedCode: "tile_process_failed", inFlightCode: "tile_process_in_flight" },
+    { key: "placeableRenderPayloadBatch", failedCode: "placeable_render_payload_batch_failed", inFlightCode: "placeable_render_payload_batch_in_flight" },
+    { key: "placeableRenderPayloadSingle", failedCode: "placeable_render_payload_single_failed", inFlightCode: "placeable_render_payload_single_in_flight" },
+    { key: "placeableProcessBatch", failedCode: "placeable_process_batch_failed", inFlightCode: "placeable_process_batch_in_flight" },
+    { key: "placeableAssetContractsBatch", failedCode: "placeable_asset_contracts_batch_failed", inFlightCode: "placeable_asset_contracts_batch_in_flight" },
+    { key: "placeableAssetContractsSingle", failedCode: "placeable_asset_contracts_single_failed", inFlightCode: "placeable_asset_contracts_single_in_flight" },
+    { key: "placeableAssetDelivery", failedCode: "placeable_asset_delivery_failed", inFlightCode: "placeable_asset_delivery_in_flight" },
+    { key: "creatureProcess", failedCode: "creature_process_failed", inFlightCode: "creature_process_in_flight" }
+  ];
+}
+
+async function waitForRequiredNetworkSettlement(networkCapture, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let quietSinceMs = null;
+  while (Date.now() <= deadline) {
+    const summary = buildNetworkCaptureSummary(networkCapture);
+    const blocker = resolveRequiredNetworkSettlementBlocker(summary);
+    if (!blocker) {
+      quietSinceMs ??= Date.now();
+      if (Date.now() - quietSinceMs >= 500) {
+        return;
+      }
+    } else {
+      quietSinceMs = null;
+      if (blocker.kind === "failed") {
+        throw createNetworkSettlementBlocker(blocker, summary, timeoutMs);
+      }
+    }
+    await sleep(100);
+  }
+
+  const summary = buildNetworkCaptureSummary(networkCapture);
+  const blocker = resolveRequiredNetworkSettlementBlocker(summary) ?? {
+    kind: "in_flight",
+    code: "network_settlement_timeout",
+    label: "required network requests",
+    group: { inFlightRequestCount: 0, oldestInFlightAgeMs: null }
+  };
+  throw createNetworkSettlementBlocker(blocker, summary, timeoutMs);
+}
+
+function assertRequiredNetworkSettlement(networkCaptureSummary) {
+  const blocker = resolveRequiredNetworkSettlementBlocker(networkCaptureSummary);
+  if (blocker) {
+    throw createNetworkSettlementBlocker(blocker, networkCaptureSummary, 0);
+  }
+}
+
+function resolveRequiredNetworkSettlementBlocker(networkCaptureSummary) {
+  const groups = networkCaptureSummary?.groups ?? {};
+  for (const required of requiredNetworkSettlementGroups()) {
+    const group = groups[required.key] ?? {};
+    if (Number(group.failedRequestCount ?? 0) > 0) {
+      return {
+        kind: "failed",
+        code: required.failedCode,
+        label: required.key,
+        group
+      };
+    }
+    if (Number(group.inFlightRequestCount ?? 0) > 0) {
+      return {
+        kind: "in_flight",
+        code: required.inFlightCode,
+        label: required.key,
+        group
+      };
+    }
+  }
+  return null;
+}
+
+function createNetworkSettlementBlocker(blocker, networkCaptureSummary, timeoutMs) {
+  const inFlightCount = Number(blocker.group?.inFlightRequestCount ?? 0);
+  const failedCount = Number(blocker.group?.failedRequestCount ?? 0);
+  return createBlockerError(
+    blocker.code,
+    blocker.kind === "failed"
+      ? `${blocker.label} observed ${failedCount} failed request(s).`
+      : `${blocker.label} still has ${inFlightCount} request(s) in flight.`,
+    {
+      timeoutMs,
+      group: blocker.label,
+      failedRequestCount: failedCount,
+      inFlightRequestCount: inFlightCount,
+      oldestInFlightAgeMs: blocker.group?.oldestInFlightAgeMs ?? null,
+      firstErrorReason: blocker.group?.firstErrorReason ?? null,
+      networkCaptureSummary
+    }
+  );
 }
 
 function summarizeNetworkGroup(entries, summaryCreatedAtMs) {
@@ -9154,6 +11717,7 @@ function summarizeNetworkGroup(entries, summaryCreatedAtMs) {
         postDataPayloadKeys: entry.postDataPayloadKeys,
         postDataParseError: entry.postDataParseError,
         responseItemCount: entry.responseItemCount,
+        responseBodyBytes: entry.responseBodyBytes,
         elapsedMs: resolveNetworkElapsedMs(entry),
         inFlight,
         inFlightAgeMs: inFlight
@@ -9226,8 +11790,6 @@ function isCdpInspectorCacheEviction(message) {
 
 function isNetworkEntryInFlight(entry) {
   return (
-    entry.status === null &&
-    !entry.responseTimestamp &&
     !entry.finishedTimestamp &&
     !entry.failedTimestamp &&
     !entry.loadingFailure
@@ -9284,6 +11846,24 @@ function classifyNetworkRequest(url) {
       label: "placeable asset contracts batch"
     };
   }
+  if (/\/catalog\/placeables\/cache\/[^/]+\/assets\/contracts$/u.test(pathname)) {
+    return {
+      group: "placeableAssetContractsSingle",
+      label: "placeable asset contracts"
+    };
+  }
+  if (/\/catalog\/placeables\/cache\/[^/]+\/assets\/[^/]+$/u.test(pathname)) {
+    return {
+      group: "placeableAssetDelivery",
+      label: "placeable asset delivery"
+    };
+  }
+  if (/\/catalog\/placeables\/cache\/[^/]+$/u.test(pathname)) {
+    return {
+      group: "placeableRenderPayloadSingle",
+      label: "placeable render payload"
+    };
+  }
   if (pathname.endsWith("/catalog/creatures/process")) {
     return {
       group: "creatureProcess",
@@ -9323,6 +11903,7 @@ function summarizeRequestItemForNetworkSample(item, index) {
   const key =
     item.key ??
     item.requestKey ??
+    item.tileId ??
     item.sceneObjectId ??
     item.objectId ??
     item.sourceInstanceIndexKey ??
@@ -9334,6 +11915,7 @@ function summarizeRequestItemForNetworkSample(item, index) {
   return {
     index,
     key: key === null || key === undefined ? null : String(key),
+    tileId: firstStringValue(item.tileId),
     resref: firstStringValue(item.resref, item.resRef, item.templateResRef),
     templateId: firstStringValue(item.templateId, item.templateID),
     tag: firstStringValue(item.tag, item.Tag),
@@ -9651,6 +12233,51 @@ function parseArgs(args) {
   return parsed;
 }
 
+function loadOptionalMatrixRuntimeBuildBinding(parsedOptions) {
+  const profileValue = parsedOptions.runtimeBuildProfile;
+  const shaValue = parsedOptions.runtimeBuildProfileSha256;
+  if (profileValue === undefined && shaValue === undefined) return null;
+  if (
+    typeof profileValue !== "string" ||
+    profileValue.trim().length === 0 ||
+    typeof shaValue !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(shaValue.trim().toLowerCase())
+  ) {
+    throw new Error(
+      "Matrix runtime-build proof requires --runtimeBuildProfile and --runtimeBuildProfileSha256 together."
+    );
+  }
+  const profilePath = path.resolve(process.cwd(), profileValue);
+  if (!fs.existsSync(profilePath) || !fs.statSync(profilePath).isFile()) {
+    throw new Error(`Matrix runtime-build profile is missing: ${profilePath}`);
+  }
+  const bytes = fs.statSync(profilePath).size;
+  if (bytes < 2 || bytes > MATRIX_RUNTIME_BUILD_PROFILE_MAX_BYTES) {
+    throw new Error("MATRIX_RUNTIME_BUILD_PROFILE_BUDGET_EXCEEDED");
+  }
+  const expectedSha256 = shaValue.trim().toLowerCase();
+  const actualSha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(profilePath))
+    .digest("hex");
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(
+      `MATRIX_RUNTIME_BUILD_PROFILE_SHA256_MISMATCH: expected ${expectedSha256}, observed ${actualSha256}.`
+    );
+  }
+  let profile;
+  try {
+    profile = JSON.parse(fs.readFileSync(profilePath, "utf8"));
+  } catch {
+    throw new Error("MATRIX_RUNTIME_BUILD_PROFILE_INVALID_JSON");
+  }
+  return buildMatrixRuntimeBuildBinding({
+    profile,
+    profilePath,
+    profileSha256: expectedSha256
+  });
+}
+
 function resolveCaptureTargetAreaQuery(value) {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
@@ -9711,6 +12338,11 @@ function normalizeAreaEditingScenarioOption(value) {
     ["multi_copy_paste", "multi-copy-paste"],
     ["multi_copy_paste_local", "multi-copy-paste-local"],
     ["tile_properties", "tile-properties"],
+    ["tile_transform_local", "tile-transform-local"],
+    ["tile_replace_local", "tile-replace-local"],
+    ["tile_add_connect_matrix_local", "tile-add-connect-matrix-local"],
+    ["group_placement_local", "group-placement-local"],
+    ["eraser_local", "eraser-local"],
     ["source_group_remove", "source-group-remove"],
     ["source_group_rotate", "source-group-rotate"],
     ["source_group_cut", "source-group-cut"],
@@ -9729,6 +12361,11 @@ function normalizeAreaEditingScenarioOption(value) {
       "multi-copy-paste",
       "multi-copy-paste-local",
       "tile-properties",
+      "tile-transform-local",
+      "tile-replace-local",
+      "tile-add-connect-matrix-local",
+      "group-placement-local",
+      "eraser-local",
       "eraser",
       "source-group-remove",
       "source-group-rotate",
@@ -9742,14 +12379,66 @@ function normalizeAreaEditingScenarioOption(value) {
     return canonical;
   }
   throw new Error(
-    `Unsupported --areaEditingScenario value: ${value}. Expected new-area-verify, multi-select, drag-terrain, drag-crosser, drag-height, eraser, source-group-remove, source-group-rotate, source-group-cut, group-base-height, area-rotate, or none.`
+    `Unsupported --areaEditingScenario value: ${value}. Expected new-area-verify, multi-select, drag-terrain, drag-crosser, drag-height, tile-transform-local, tile-add-connect-matrix-local, group-placement-local, eraser-local, eraser, source-group-remove, source-group-rotate, source-group-cut, group-base-height, area-rotate, or none.`
   );
+}
+
+function loadAreaEditingMatrixChunk(value, scenario) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    if (scenario === "tile-add-connect-matrix-local") {
+      throw new Error("--areaEditingMatrixChunk is required for tile-add-connect-matrix-local.");
+    }
+    return null;
+  }
+  if (scenario !== "tile-add-connect-matrix-local") {
+    throw new Error("--areaEditingMatrixChunk is valid only with --areaEditingScenario tile-add-connect-matrix-local.");
+  }
+  const chunkPath = path.resolve(String(value));
+  if (!fs.existsSync(chunkPath)) {
+    throw new Error(`Matrix chunk does not exist: ${chunkPath}.`);
+  }
+  const chunk = JSON.parse(fs.readFileSync(chunkPath, "utf8"));
+  const validationErrors = validateMatrixChunk(chunk);
+  if (validationErrors.length > 0) {
+    throw new Error(`Matrix chunk is invalid: ${validationErrors.join(", ")}.`);
+  }
+  return { ...chunk, sourcePath: chunkPath };
+}
+
+function assertMatrixChunkMatchesNewArea(chunk, newArea) {
+  if (!chunk) return;
+  if (
+    chunk.tilesetResRef !== newArea.tilesetResRef ||
+    chunk.width !== newArea.width ||
+    chunk.height !== newArea.height
+  ) {
+    throw new Error(
+      "Matrix chunk tileset and dimensions must exactly match the local draft Area: " +
+      `${chunk.tilesetResRef} ${chunk.width}x${chunk.height} versus ` +
+      `${newArea.tilesetResRef} ${newArea.width}x${newArea.height}.`
+    );
+  }
+}
+
+function normalizeAreaEditingTileIdOption(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const tileId = Number(value);
+  if (!Number.isInteger(tileId) || tileId < 0) throw new Error("--areaEditingTileId must be a non-negative integer.");
+  return tileId;
 }
 
 function normalizeAreaEditingResRefOption(value, optionName) {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (!/^[a-z0-9_]{1,16}$/u.test(normalized)) {
     throw new Error(`--${optionName} must be a valid 1..16 character Aurora ResRef.`);
+  }
+  return normalized;
+}
+
+function normalizeAreaEditingGroupIdOption(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!/^group\d+$/u.test(normalized)) {
+    throw new Error("--areaEditingGroupId must be an Aurora SET group id such as group0.");
   }
   return normalized;
 }
@@ -9855,6 +12544,29 @@ function normalizeCaptureViewFocusEvidence(focus = {}) {
   };
 }
 
+function resolveCaptureViewFocusForOpenedArea(captureView, focus, openedArea) {
+  const normalized = normalizeCaptureViewFocusEvidence(focus);
+  if (captureView !== "perspective") {
+    return normalized;
+  }
+  const expectation = openedArea?.areaExpectation ?? {};
+  const width = Number(expectation.width);
+  const height = Number(expectation.height);
+  // A focused perspective event accepts Web tile coordinates (not Aurora's
+  // 10-unit world coordinates).  New Areas always have an expectation; for a
+  // pre-existing Area we preserve the explicit/fallback behavior if it is
+  // unavailable rather than inventing a target.
+  if (!(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)) {
+    return normalized;
+  }
+  return {
+    ...normalized,
+    worldX: normalized.worldX ?? width / 2,
+    worldY: normalized.worldY ?? 0.22,
+    worldZ: normalized.worldZ ?? height / 2
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -9888,7 +12600,8 @@ async function terminateChromeCaptureProcess(childProcess) {
   if (process.platform === "win32" && childProcess.pid) {
     spawnSync("taskkill", ["/PID", String(childProcess.pid), "/T", "/F"], {
       stdio: "ignore",
-      windowsHide: true
+      windowsHide: true,
+      timeout: 5_000
     });
   } else {
     childProcess.kill("SIGTERM");

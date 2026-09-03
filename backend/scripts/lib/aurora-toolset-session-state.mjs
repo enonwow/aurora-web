@@ -45,11 +45,17 @@ export function createToolsetSession({
       startupSignals: [],
     },
     currentArea: null,
+    moduleOpenProofs: [],
     capturedAreas: [],
+    eyeArtifacts: [],
     observations: [],
     tilePropertyReadbacks: [],
+    sourceSelectionProofs: [],
+    cameraCalibrations: [],
+    nativeCameraResponseModels: [],
     viewportTargetEvaluations: [],
     proofPackets: [],
+    laneFailures: [],
     blocker: null,
     events: [{ at, type: "session_prepared" }],
   };
@@ -139,6 +145,18 @@ export function markAreaReady(state, { resref, name, now = new Date() }) {
   return append(next, "area_ready", { resref, name: next.currentArea.name }, now);
 }
 
+export function recordModuleOpenProof(state, { proofPath, monitorEvidence, now = new Date() }) {
+  requireActive(state);
+  if (!state.moduleLoad.readyAt) {
+    throw sessionError("MODULE_OPEN_PROOF_BEFORE_READY", "A module-open proof requires a ready module.");
+  }
+  if (!proofPath) throw sessionError("MODULE_OPEN_PROOF_PATH_REQUIRED", "A module-open proof PNG path is required.");
+  const next = copy(state);
+  next.moduleOpenProofs = Array.isArray(next.moduleOpenProofs) ? next.moduleOpenProofs : [];
+  next.moduleOpenProofs.push({ proofPath, monitorEvidence: monitorEvidence ?? null, capturedAt: now.toISOString() });
+  return append(next, "module_open_proof_captured", { proofPath }, now);
+}
+
 export function recordAreaCapture(state, { resref, pngPath, now = new Date() }) {
   requireActive(state);
   if (!state.currentArea || state.currentArea.resref !== resref) {
@@ -152,6 +170,24 @@ export function recordAreaCapture(state, { resref, pngPath, now = new Date() }) 
   next.phase = "area_ready";
   next.capturedAreas.push({ resref, pngPath, capturedAt: now.toISOString() });
   return append(next, "area_captured", { resref, pngPath }, now);
+}
+
+export function recordAuroraEyeArtifact(state, { resref, stage, pngPath, resultPath, status, now = new Date() }) {
+  requireActive(state);
+  if (!state.currentArea || state.currentArea.resref !== resref) {
+    throw sessionError("EYE_ARTIFACT_AREA_MISMATCH", `Aurora Eye artifact ${resref} does not match the current Area.`);
+  }
+  if (!["before-a", "before-b", "after"].includes(stage)) {
+    throw sessionError("EYE_ARTIFACT_STAGE_INVALID", "Aurora Eye stage must be before-a, before-b, or after.");
+  }
+  if (!pngPath || !resultPath) throw sessionError("EYE_ARTIFACT_PATH_REQUIRED", "PNG and result JSON paths are required.");
+  const next = copy(state);
+  next.eyeArtifacts = Array.isArray(next.eyeArtifacts) ? next.eyeArtifacts : [];
+  if (next.eyeArtifacts.some((entry) => entry.resref === resref && entry.stage === stage)) {
+    throw sessionError("DUPLICATE_EYE_ARTIFACT_FORBIDDEN", `Aurora Eye ${stage} is already recorded for ${resref}.`);
+  }
+  next.eyeArtifacts.push({ resref, stage, pngPath, resultPath, status: status ?? null, capturedAt: now.toISOString() });
+  return append(next, "aurora_eye_artifact_recorded", { resref, stage, status: status ?? null }, now);
 }
 
 export function recordSceneObservation(state, { resref, observationPath, status, now = new Date() }) {
@@ -176,6 +212,43 @@ export function recordTilePropertyReadback(state, { resref, readbackPath, status
   next.tilePropertyReadbacks = Array.isArray(next.tilePropertyReadbacks) ? next.tilePropertyReadbacks : [];
   next.tilePropertyReadbacks.push({ resref, readbackPath, status: status ?? null, blockerCode, readAt: now.toISOString() });
   return append(next, "tile_properties_read", { resref, readbackPath, status: status ?? null, blockerCode }, now);
+}
+
+export function recordSourceSelectionProof(state, { resref, proofPath, status, now = new Date() }) {
+  requireActive(state);
+  if (!state.currentArea || state.currentArea.resref !== resref) {
+    throw sessionError("SOURCE_SELECTION_PROOF_AREA_MISMATCH", `Source selection proof ${resref} does not match the current Area.`);
+  }
+  if (!proofPath) throw sessionError("SOURCE_SELECTION_PROOF_PATH_REQUIRED", "Source selection proof path is required.");
+  const next = copy(state);
+  next.sourceSelectionProofs = Array.isArray(next.sourceSelectionProofs) ? next.sourceSelectionProofs : [];
+  next.sourceSelectionProofs.push({ resref, proofPath, status: status ?? null, recordedAt: now.toISOString() });
+  return append(next, "source_selection_proof_recorded", { resref, proofPath, status: status ?? null }, now);
+}
+
+export function recordCameraCalibration(state, { resref, calibrationPath, status, now = new Date() }) {
+  requireActive(state);
+  if (!state.currentArea || state.currentArea.resref !== resref) throw sessionError("CAMERA_CALIBRATION_AREA_MISMATCH", `Camera calibration ${resref} does not match the current Area.`);
+  if (!calibrationPath) throw sessionError("CAMERA_CALIBRATION_PATH_REQUIRED", "Camera calibration path is required.");
+  const next = copy(state);
+  next.cameraCalibrations = Array.isArray(next.cameraCalibrations) ? next.cameraCalibrations : [];
+  next.cameraCalibrations.push({ resref, calibrationPath, status: status ?? null, recordedAt: now.toISOString() });
+  return append(next, "camera_calibration_recorded", { resref, calibrationPath, status: status ?? null }, now);
+}
+
+export function recordNativeCameraResponseModel(state, { resref, modelPath, command, controlledAxes, sampleCount, now = new Date() }) {
+  requireActive(state);
+  if (!state.currentArea || state.currentArea.resref !== resref) throw sessionError("NATIVE_CAMERA_MODEL_AREA_MISMATCH", `Native camera response model ${resref} does not match the current Area.`);
+  if (!modelPath || !command || !Array.isArray(controlledAxes) || controlledAxes.length === 0 || !Number.isInteger(sampleCount) || sampleCount < 3) {
+    throw sessionError("NATIVE_CAMERA_MODEL_INVALID", "A native camera model needs path, command, one controlled axis, and at least three samples.");
+  }
+  const next = copy(state);
+  next.nativeCameraResponseModels = Array.isArray(next.nativeCameraResponseModels) ? next.nativeCameraResponseModels : [];
+  if (next.nativeCameraResponseModels.some((entry) => entry.resref === resref && entry.command === command)) {
+    throw sessionError("DUPLICATE_NATIVE_CAMERA_MODEL_FORBIDDEN", `Native camera response model ${command} is already recorded.`);
+  }
+  next.nativeCameraResponseModels.push({ resref, modelPath, command, controlledAxes, sampleCount, status: "verified-native-readback", recordedAt: now.toISOString() });
+  return append(next, "native_camera_response_model_recorded", { resref, command, controlledAxes, sampleCount }, now);
 }
 
 export function recordViewportTargetEvaluation(state, { resref, reportPath, status, blockerCodes = [], now = new Date() }) {
@@ -206,6 +279,24 @@ export function recordProofPacket(state, { resref, packetPath, status, blockerCo
   next.proofPackets = Array.isArray(next.proofPackets) ? next.proofPackets : [];
   next.proofPackets.push({ resref, packetPath, status: status ?? null, blockerCodes: Array.isArray(blockerCodes) ? blockerCodes : [], assembledAt: now.toISOString() });
   return append(next, "proof_packet_assembled", { resref, packetPath, status: status ?? null, blockerCodes }, now);
+}
+
+// A failed observation/capture/calibration lane is evidence about the current
+// live session. It is not itself permission to close or abandon that session.
+// Fatal process/modal conditions still use blockToolsetSession.
+export function recordLaneFailure(state, { lane, code, details = null, now = new Date() }) {
+  requireActive(state);
+  if (!lane || !code) throw sessionError("LANE_FAILURE_FIELDS_REQUIRED", "lane and code are required.");
+  const next = copy(state);
+  next.laneFailures = Array.isArray(next.laneFailures) ? next.laneFailures : [];
+  next.laneFailures.push({
+    lane,
+    code,
+    details,
+    currentArea: next.currentArea?.resref ?? null,
+    recordedAt: now.toISOString(),
+  });
+  return append(next, "lane_failed", { lane, code }, now);
 }
 
 export function blockToolsetSession(state, { code, details = null, now = new Date() }) {
@@ -249,6 +340,72 @@ export function inspectToolsetSessionLiveness(state, processes = []) {
     };
   }
   return { status: "live", blockerCode: null };
+}
+
+// Completion is stricter than coverage. Coverage proves every required lane
+// was actually run and documented, so the Toolset may be closed after an
+// honest negative result. Completion additionally requires every lane to pass.
+export function evaluateToolsetSessionCoverage(state) {
+  const hasEntry = (entries) => Array.isArray(entries) && entries.length > 0;
+  const hasLaneFailure = (lane) => Array.isArray(state?.laneFailures) && state.laneFailures.some((entry) => entry?.lane === lane && entry?.details?.evidencePath);
+  const nativeAxes = new Set(
+    (Array.isArray(state?.nativeCameraResponseModels) ? state.nativeCameraResponseModels : [])
+      .filter((entry) => Number(entry?.sampleCount) >= 3)
+      .flatMap((entry) => Array.isArray(entry.controlledAxes) ? entry.controlledAxes : []),
+  );
+  const requirements = [
+    { id: "one_toolset_process", ok: Boolean(state?.process?.pid) },
+    { id: "module_and_area_ready", ok: Boolean(state?.moduleLoad?.readyAt && state?.currentArea?.resref) },
+    { id: "module_open_png", ok: hasEntry(state?.moduleOpenProofs) || hasLaneFailure("module_open") },
+    { id: "aurora_eye_artifacts", ok: ["before-a", "before-b", "after"].every((stage) => state?.eyeArtifacts?.some((entry) => entry?.stage === stage)) || hasLaneFailure("aurora_eye") },
+    {
+      id: "native_readback_and_camera_response",
+      ok: (hasEntry(state?.sourceSelectionProofs) && ["yawDegrees", "pitchDegrees", "zoomLogRatio"].every((axis) => nativeAxes.has(axis))) || hasLaneFailure("native_camera_response"),
+    },
+    { id: "target_45_degree_and_proof_packet", ok: hasEntry(state?.viewportTargetEvaluations) && hasEntry(state?.proofPackets) || hasLaneFailure("viewport_target") },
+  ];
+  const missing = requirements.filter((requirement) => !requirement.ok).map((requirement) => requirement.id);
+  return { ok: missing.length === 0, requirements, missing };
+}
+
+export function evaluateToolsetSessionCompletion(state) {
+  const isVerified = (entries) =>
+    Array.isArray(entries) && entries.some((entry) => entry?.status === "verified");
+  const hasVerifiedObservation = Array.isArray(state?.observations)
+    && state.observations.some((entry) => ["verified", "captured-and-contextualized"].includes(entry?.status));
+  const nativeAxes = new Set(
+    (Array.isArray(state?.nativeCameraResponseModels) ? state.nativeCameraResponseModels : [])
+      .filter((entry) => entry?.status === "verified-native-readback" && Number(entry?.sampleCount) >= 3)
+      .flatMap((entry) => Array.isArray(entry.controlledAxes) ? entry.controlledAxes : []),
+  );
+  const hasNativeCameraReadback = ["yawDegrees", "pitchDegrees", "zoomLogRatio"].every((axis) => nativeAxes.has(axis));
+  const canonicalProcessLifecycle = Boolean(state?.process?.pid)
+    && !state.events?.some((event) => event.type === "second_toolset_process_started")
+    && (ACTIVE_PHASES.has(state?.phase) || (state?.phase === "closed" && state?.closeResult?.close?.ok === true));
+  const requirements = [
+    {
+      id: "one_toolset_process",
+      ok: canonicalProcessLifecycle,
+    },
+    { id: "module_and_area_ready", ok: Boolean(state?.moduleLoad?.readyAt && state?.currentArea?.resref) },
+    { id: "module_open_png", ok: Array.isArray(state?.moduleOpenProofs) && state.moduleOpenProofs.length > 0 },
+    {
+      id: "aurora_eye_artifacts",
+      ok: ["before-a", "before-b", "after"].every((stage) =>
+        Array.isArray(state?.eyeArtifacts) && state.eyeArtifacts.some((entry) => entry?.stage === stage && entry?.status === "verified"),
+      ) && hasVerifiedObservation,
+    },
+    {
+      id: "native_readback_and_camera_response",
+      ok: isVerified(state?.sourceSelectionProofs) && hasNativeCameraReadback,
+    },
+    {
+      id: "target_45_degree_and_proof_packet",
+      ok: isVerified(state?.viewportTargetEvaluations) && isVerified(state?.proofPackets),
+    },
+  ];
+  const missing = requirements.filter((requirement) => !requirement.ok).map((requirement) => requirement.id);
+  return { ok: missing.length === 0, requirements, missing };
 }
 
 function requireActive(state) {

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   renameSync,
@@ -81,7 +80,12 @@ const archivedTemp0 = archiveTemp0Requested
       reason: "preserved_without_explicit_archive",
       path: temp0Path
     };
-const restoredIni = restoreIniSnapshot();
+const restoredIni = {
+  restored: false,
+  reason: "toolset_ini_mutation_forbidden",
+  iniPath,
+  iniSnapshotPath
+};
 const releasedModuleOpenSessionGuard = releaseModuleOpenSessionGuard(beforeProcesses);
 // Cleanup may preserve a stale workspace, but that is not evidence of an access violation.
 const criticalFailureRecord = {
@@ -100,7 +104,7 @@ console.log(
         usesGlobalCursor: false,
         usesGlobalKeyboard: false,
         usesGlobalMouse: false,
-        method: "Stop Aurora processes; preserve temp0 unless --archiveTemp0 is explicit; restore nwtoolset.ini only when a configured snapshot exists"
+        method: "Stop Aurora processes; preserve temp0 unless --archiveTemp0 is explicit; never read or write nwtoolset.ini"
       },
       reason,
       archiveTemp0Requested,
@@ -214,24 +218,6 @@ function archiveTemp0() {
     source: resolvedTemp0,
     destination,
     bytes: safeSize(destination)
-  };
-}
-
-function restoreIniSnapshot() {
-  if (!existsSync(iniSnapshotPath)) {
-    return {
-      restored: false,
-      reason: "snapshot_missing",
-      iniPath,
-      iniSnapshotPath
-    };
-  }
-  copyFileSync(iniSnapshotPath, iniPath);
-  return {
-    restored: true,
-    iniPath,
-    iniSnapshotPath,
-    snapshotName: basename(iniSnapshotPath)
   };
 }
 

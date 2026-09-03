@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
+import "../../scripts/proof-capture-lock-auto.cjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const frontendRoot = path.join(repoRoot, "frontend");
@@ -1644,7 +1645,8 @@ async function runCapture() {
     [
       `--remote-debugging-port=${port}`,
       `--user-data-dir=${profileDir}`,
-      "--headless=new",
+  "--headless=new",
+  "--renderer-process-limit=2",
       "--disable-gpu",
       "--disable-gpu-sandbox",
       "--disable-dev-shm-usage",

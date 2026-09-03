@@ -75,37 +75,17 @@ def has_model_ref_column(row, pattern):
 
 
 def classify_capture(row):
-    label = str(row.get("label", "")).upper()
     has_head_attachment = has_model_ref_column(row, r"HEAD|EYE|MOUTH|HANDCON")
-    is_area_label = (
-        "_FNF_" in label
-        or "_AOE_" in label
-        or label.startswith("VFX_CONJ_")
-        or label.startswith("PRCVFX_CONJ_")
-        or "_AREA_" in label
-    )
-    is_head_label = re.search(r"(^|_)EYES?(_|$)|(^|_)HEAD(_|$)|GAZE|BAELNEYES|MIND", label)
 
-    if row.get("typeFD") == "B" or "_BEAM_" in label:
-        return "beam_two_targets", "beam", "beam row: EffectBeam source-target"
-    if (
-        label.startswith("SCENE_")
-        or "_SCENE_" in label
-        or "_WALL" in label
-        or "_PILLAR" in label
-    ):
-        return "large_scene", "object", "large scene-like asset: wider crop"
+    if row.get("typeFD") == "B":
+        return "beam_two_targets", "beam", "source Type_FD=B: EffectBeam source-target"
     if has_head_attachment:
-        return "object_head_closeup", "object", "head/face attachment node"
-    if is_area_label:
-        return "location_area", "location", "fire-and-forget or area label"
-    if is_head_label:
-        return "object_head_closeup", "object", "head/face label"
+        return "object_head_closeup", "object", "source model-ref attachment column"
     if row.get("typeFD") == "F" and len(row.get("modelRefs", [])) == 0:
-        return "location_area", "location", "F row without object attachment refs"
+        return "location_area", "location", "source Type_FD=F without object attachment refs"
     if row.get("typeFD") == "F":
-        return "object_instant", "object", "F row with object attachment refs"
-    return "object_turntable", "object", "duration/default object row"
+        return "object_instant", "object", "source Type_FD=F with object attachment refs"
+    return "object_turntable", "object", "no specialized source contract"
 
 
 def build_selected_probes(row_ids):
