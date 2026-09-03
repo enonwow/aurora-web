@@ -101,4 +101,45 @@ describe("encounterSceneObjectMapper", () => {
     expect(object.previewImageUrl).toBeUndefined();
     expect(object.encounterProperties?.creatureList).toBeUndefined();
   });
+
+  it("maps exact effective UTE provenance into an Area-constructible Encounter template", () => {
+    const object = mapEncounterApiListItemToSceneObject({
+      templateId: "enc_enc_dynamic",
+      resref: "enc_dynamic",
+      name: "Dynamic Encounter",
+      category: "encounter",
+      tags: ["encounter"],
+      previewImageUrl: "",
+      metadata: {
+        templateResRef: "enc_dynamic",
+        tag: "Dynamic_Encounter",
+        sourceObjectKey: "modules/current/blueprints/encounters/enc_dynamic.ute",
+        sourceSizeBytes: 4096,
+        sourceSha256: "a".repeat(64),
+        sourceExtension: "ute",
+        sourceFileType: "UTE ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+
+    expect(object).toMatchObject({
+      kind: "encounters",
+      resRef: "enc_dynamic",
+      tag: "Dynamic_Encounter",
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "encounter",
+        sourceProfileId: "effective-catalog-ute-encounter-copy-v1",
+        templateId: "enc_enc_dynamic",
+        templateResRef: "enc_dynamic",
+        sourceObjectKey: "modules/current/blueprints/encounters/enc_dynamic.ute",
+        sourceSizeBytes: 4096,
+        sourceEtag: "a".repeat(64),
+        sourceFileType: "UTE ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
 });

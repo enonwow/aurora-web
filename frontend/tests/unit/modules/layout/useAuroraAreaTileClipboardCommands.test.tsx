@@ -1,6 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import type { SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { buildAreaTileCatalogCertificationKey } from "../../../../src/modules/areas/application/areaTileCatalogFilter";
+import type { AreaTileProductionCertificationSource } from "../../../../src/modules/areas/application/areaTileProductionPlacementAdmission";
 import { useAuroraAreaTileClipboardCommands } from "../../../../src/modules/layout/application/useAuroraAreaTileClipboardCommands";
 import type { AreaScene, SceneHistoryState } from "../../../../src/modules/layout/contracts";
 import {
@@ -25,6 +27,35 @@ const definition: AuroraAreaTilesetDefinition = {
   ],
   groups: [{ id: "pair", name: "Pair", rows: 1, columns: 2, tileIds: [1, 2] }]
 };
+
+function readyProductionCertification(
+  tileIds: readonly number[] = definition.tiles.map((tile) => tile.tileId),
+): AreaTileProductionCertificationSource {
+  return {
+    status: "ready",
+    tilesetResRef: definition.tilesetResRef,
+    index: new Map(tileIds.map((tileId) => [
+      buildAreaTileCatalogCertificationKey(definition.tilesetResRef, tileId),
+      {
+        rowId: `tile:${definition.tilesetResRef}:${tileId}`,
+        eligibility: { status: "eligible" as const },
+        proofs: {
+          inventory: "verified" as const,
+          assetClosure: "verified" as const,
+          render: "verified" as const,
+          visualSeam: "missing" as const,
+          setAdjacency: "missing" as const,
+          pathReference: "missing" as const,
+          pathConnect: "missing" as const,
+          wokSeam: "missing" as const,
+          persistence: "missing" as const,
+          toolset: "missing" as const,
+          nwnRuntime: "missing" as const,
+        },
+      },
+    ])),
+  };
+}
 
 function createScene(): AreaScene {
   const initial = createAuroraAreaEditingState({
@@ -66,6 +97,7 @@ describe("useAuroraAreaTileClipboardCommands", () => {
           scene: currentScene,
           selectedTileId,
           sceneViewportPort: { commitHistory },
+          tileProductionCertification: readyProductionCertification(),
           setSceneHistory,
           setSelectedObjectIds: vi.fn(),
           setSelectedTileId,
@@ -109,6 +141,54 @@ describe("useAuroraAreaTileClipboardCommands", () => {
     });
   });
 
+  it("deletes one editor group through its exact underlay when an unrelated source cell is non-canonical", () => {
+    let scene = createScene();
+    const payload = scene.auroraAreaEditing!;
+    payload.state.topology.tokens[payload.state.topology.tokens.length - 1] =
+      "source-only-terrain";
+    let history: SceneHistoryState = { past: [], present: scene, future: [] };
+    const commitHistory = vi.fn((current: SceneHistoryState, next: AreaScene) => ({
+      past: [...current.past, current.present],
+      present: next,
+      future: []
+    }));
+    const setSceneHistory = vi.fn((update: SetStateAction<SceneHistoryState>) => {
+      history = typeof update === "function" ? update(history) : update;
+      scene = history.present;
+    });
+    const setSelectedTileId = vi.fn();
+    const setSelectedTileIds = vi.fn();
+    const selectedGroupMember = scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!;
+    const hook = renderHook(() =>
+      useAuroraAreaTileClipboardCommands({
+        scene,
+        selectedTileId: selectedGroupMember.id,
+        selectedTileIds: [selectedGroupMember.id],
+        sceneViewportPort: { commitHistory },
+        tileProductionCertification: readyProductionCertification(),
+        setSceneHistory,
+        setSelectedObjectIds: vi.fn(),
+        setSelectedTileId,
+        setSelectedTileIds,
+        userId: "builder",
+        trackTelemetry: vi.fn()
+      })
+    );
+
+    act(() => expect(hook.result.current.deleteSelectedTiles("toolbar")).toBe(true));
+
+    expect(commitHistory).toHaveBeenCalledTimes(1);
+    expect(scene.auroraAreaEditing?.state.groupInstances).toHaveLength(0);
+    expect(scene.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.tileId).toBe(0);
+    expect(scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)?.tileId).toBe(0);
+    expect(setSelectedTileId).toHaveBeenLastCalledWith(null);
+    expect(setSelectedTileIds).toHaveBeenLastCalledWith([]);
+    expect(hook.result.current.clipboardFeedback).toEqual({
+      variant: "success",
+      message: "Removed the SET group; 4 Area cell(s) restored."
+    });
+  });
+
   it("returns the exact domain validation error for an invalid group paste", () => {
     let scene = createScene();
     let history: SceneHistoryState = { past: [], present: scene, future: [] };
@@ -128,6 +208,7 @@ describe("useAuroraAreaTileClipboardCommands", () => {
               future: []
             })
           },
+          tileProductionCertification: readyProductionCertification(),
           setSceneHistory,
           setSelectedObjectIds: vi.fn(),
           setSelectedTileId: vi.fn(),
@@ -161,6 +242,7 @@ describe("useAuroraAreaTileClipboardCommands", () => {
         selectedTileId: selectedTileIds[1],
         selectedTileIds,
         sceneViewportPort: { commitHistory: vi.fn() },
+        tileProductionCertification: readyProductionCertification(),
         setSceneHistory: vi.fn(),
         setSelectedObjectIds: vi.fn(),
         setSelectedTileId: vi.fn(),
@@ -174,6 +256,87 @@ describe("useAuroraAreaTileClipboardCommands", () => {
     expect(hook.result.current.clipboardFeedback).toEqual({
       variant: "success",
       message: "Copied 2 tile(s)."
+    });
+  });
+
+  it("fails closed before deleting topology while certification is unavailable", () => {
+    const scene = createScene();
+    let history: SceneHistoryState = { past: [], present: scene, future: [] };
+    const commitHistory = vi.fn();
+    const setSceneHistory = vi.fn((update: SetStateAction<SceneHistoryState>) => {
+      history = typeof update === "function" ? update(history) : update;
+    });
+    const trackTelemetry = vi.fn();
+    const selectedGroupMember = scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!;
+    const hook = renderHook(() =>
+      useAuroraAreaTileClipboardCommands({
+        scene,
+        selectedTileId: selectedGroupMember.id,
+        sceneViewportPort: { commitHistory },
+        tileProductionCertification: {
+          status: "unavailable",
+          tilesetResRef: definition.tilesetResRef,
+          reasonCode: "LOAD_FAILED",
+        },
+        setSceneHistory,
+        setSelectedObjectIds: vi.fn(),
+        setSelectedTileId: vi.fn(),
+        userId: "builder",
+        trackTelemetry,
+      })
+    );
+
+    act(() => expect(hook.result.current.deleteSelectedTiles("toolbar")).toBe(true));
+
+    expect(commitHistory).not.toHaveBeenCalled();
+    expect(history.present).toBe(scene);
+    expect(hook.result.current.clipboardFeedback).toEqual({
+      variant: "error",
+      message: expect.stringContaining("AREA_TILE_CERTIFICATION_UNAVAILABLE"),
+    });
+    expect(trackTelemetry).toHaveBeenCalledWith(
+      "scene.area_tiles.production_admission.blocked",
+      expect.objectContaining({
+        code: "AREA_TILE_CERTIFICATION_UNAVAILABLE",
+        operationKind: "delete",
+      }),
+    );
+  });
+
+  it("rejects a mixed multi-tile paste atomically when one result Tile_ID has no row", () => {
+    const scene = createScene();
+    let history: SceneHistoryState = { past: [], present: scene, future: [] };
+    const commitHistory = vi.fn();
+    const setSceneHistory = vi.fn((update: SetStateAction<SceneHistoryState>) => {
+      history = typeof update === "function" ? update(history) : update;
+    });
+    const sourceGroupMember = scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!;
+    const target = scene.tiles.find((tile) => tile.row === 2 && tile.col === 1)!;
+    const hook = renderHook(
+      ({ selectedTileId }: { selectedTileId: string }) =>
+        useAuroraAreaTileClipboardCommands({
+          scene,
+          selectedTileId,
+          sceneViewportPort: { commitHistory },
+          tileProductionCertification: readyProductionCertification([1]),
+          setSceneHistory,
+          setSelectedObjectIds: vi.fn(),
+          setSelectedTileId: vi.fn(),
+          userId: "builder",
+          trackTelemetry: vi.fn(),
+        }),
+      { initialProps: { selectedTileId: sourceGroupMember.id } },
+    );
+
+    act(() => expect(hook.result.current.copySelectedTilesToClipboard("keyboard")).toBe(true));
+    hook.rerender({ selectedTileId: target.id });
+    act(() => expect(hook.result.current.pasteClipboardTiles("keyboard")).toBe(true));
+
+    expect(commitHistory).not.toHaveBeenCalled();
+    expect(history.present).toBe(scene);
+    expect(hook.result.current.clipboardFeedback).toEqual({
+      variant: "error",
+      message: expect.stringMatching(/AREA_TILE_CERTIFICATION_ROW_MISSING.*Tile_ID 2/),
     });
   });
 });

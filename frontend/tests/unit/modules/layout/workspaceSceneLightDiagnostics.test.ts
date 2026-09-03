@@ -170,7 +170,7 @@ describe("workspaceSceneLightDiagnostics", () => {
     tileLight.userData.auroraTerrainTileLightIntensitySource =
       "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 accumulates active light as color * max(0,1-distance/radius) * multiplier; Aurora Web stores normalized RGB in Three.Color and RGB max in Three.PointLight.intensity";
     tileLight.userData.auroraTerrainTileLightIntensityProofStatus =
-      "source-backed-tile-source-lightcolor-rgb-preserved-multiplier-neutral-fallback";
+      "source-backed-fx_flame01-animation-color-partlight-default-multiplier";
     tileLight.userData.auroraTerrainTileLightFalloffRendererPatchStatus =
       "already-installed";
     tileLight.userData.auroraTerrainTileLightFalloffRendererProofStatus =
@@ -389,7 +389,7 @@ describe("workspaceSceneLightDiagnostics", () => {
     );
     expect(diagnostics.samples.join("|")).toContain("lane=terrain-tile-light");
     expect(diagnostics.samples.join("|")).toContain(
-      "intensityProof=source-backed-tile-source-lightcolor-rgb-preserved-multiplier-neutral-fallback"
+      "intensityProof=source-backed-fx_flame01-animation-color-partlight-default-multiplier"
     );
     expect(diagnostics.samples.join("|")).toContain("sourceModel=fx_flame01.mdl");
     expect(diagnostics.samples.join("|")).toContain(

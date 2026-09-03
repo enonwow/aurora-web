@@ -746,6 +746,47 @@ describe("sceneCanvasFacade", () => {
     );
   });
 
+  it("preserves signed Aurora Z and visual Z translation when saving a local draft", () => {
+    const saveByUserId = vi.fn();
+    const draftPort: SceneDraftPort = {
+      loadByUserId: () => null,
+      saveByUserId
+    };
+    const facade = createSceneCanvasFacade({ draftPort, now: () => 1700000000000 });
+    const scene = createSeedAreaScene();
+    const target = scene.objects[0]!;
+    const signedScene: AreaScene = {
+      ...scene,
+      objects: scene.objects.map((object) =>
+        object.id === target.id
+          ? {
+              ...object,
+              z: -2.5,
+              visualTransform: {
+                ...object.visualTransform,
+                offsetZ: -0.5
+              }
+            }
+          : object
+      )
+    };
+
+    facade.saveLocalDraft("u_builder_001", signedScene);
+
+    expect(saveByUserId).toHaveBeenCalledWith(
+      "u_builder_001",
+      expect.objectContaining({
+        objects: expect.arrayContaining([
+          expect.objectContaining({
+            id: target.id,
+            z: -2.5,
+            visualTransform: expect.objectContaining({ offsetZ: -0.5 })
+          })
+        ])
+      })
+    );
+  });
+
   it("normalizes bearing from loaded draft into 0..2pi", () => {
     const draft = createSeedAreaScene();
     const target = draft.objects.find((object) => object.kind === "placeables");

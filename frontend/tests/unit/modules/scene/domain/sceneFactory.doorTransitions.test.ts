@@ -141,6 +141,52 @@ describe("sceneFactory door transition preserve-only normalization", () => {
     expect(second).toBe(first);
   });
 
+  it("preserves one complete exact Door transition storage trio across normalization", () => {
+    const door = createNewSceneObject("doors", 1.7, 1.9, 17);
+    const storage = { linkedTo: " DESTINATION ", linkedToFlags: 2, loadScreenId: 7 };
+    const first = normalizeSceneObjectMetadata({
+      ...door,
+      doorTransition: {
+        linkedTarget: "legacy",
+        linkedModule: "",
+        linkedTag: "",
+        linkedWaypoint: "",
+        loadScreen: "",
+        flags: {},
+        storage,
+      },
+    });
+
+    expect(first.doorTransition?.storage).toEqual(storage);
+    expect(first.doorTransition?.storage).not.toBe(storage);
+    expect(normalizeSceneObjectMetadata(first)).toBe(first);
+  });
+
+  it("strips malformed Door transition storage without changing neighboring preserve-only fields", () => {
+    const door = createNewSceneObject("doors", 1.7, 1.9, 17);
+    const normalized = normalizeSceneObjectMetadata({
+      ...door,
+      doorTransition: {
+        linkedTarget: "legacy",
+        linkedModule: "module",
+        linkedTag: "tag",
+        linkedWaypoint: "waypoint",
+        loadScreen: "screen",
+        flags: { legacy: true },
+        storage: { linkedTo: "DESTINATION", linkedToFlags: 2 } as never,
+      },
+    });
+
+    expect(normalized.doorTransition).toEqual({
+      linkedTarget: "legacy",
+      linkedModule: "module",
+      linkedTag: "tag",
+      linkedWaypoint: "waypoint",
+      loadScreen: "screen",
+      flags: { legacy: true },
+    });
+  });
+
   it("normalizes door properties payload defensively and preserves nested door tabs", () => {
     const door = createNewSceneObject("doors", 0.4, 0.9, 55);
     const normalized = normalizeSceneObjectMetadata({

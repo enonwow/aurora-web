@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { PlaceablesModeRightPanel } from "../../../../src/modules/layout/components/PlaceablesModeRightPanel";
 import type { PlaceableViewportRenderPayload } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
 
@@ -251,5 +251,54 @@ describe("PlaceablesModeRightPanel", () => {
         name: "lightcolor.2da color swatch Red #27"
       })
     ).toHaveStyle("background-color: rgb(255, 64, 26)");
+  });
+
+  it("keeps a generic rendered placeable out of the VFX inspector when its MDL carries emitter metadata", () => {
+    const payload = buildPlaceableLightPayload({
+      row: 6,
+      raw: "6",
+      label: "PaleYellow",
+      red: 1.9,
+      green: 1.9,
+      blue: 1
+    });
+    payload.placeable.templateId = "plc_plc_watertrough";
+    payload.placeable.resref = "plc_watertrough";
+    payload.placeable.name = "Water Trough";
+    payload.placeable.placeableSubtype = "generic";
+    payload.placeable.render = {
+      backendType: "generic",
+      frontendType: "placeable",
+      rendererPreset: "placeable-model",
+      isDoor: false,
+      isVfx: false
+    };
+    payload.renderPackage = {
+      ...payload.renderPackage!,
+      auroraEmitter: {
+        emitters: [{ nodeName: "AuroraEmitter01", renderMode: "normal" }]
+      },
+      auroraVfxPayload: {
+        version: "backend-vfx-payload/test",
+        canonicalStatus: "unmapped",
+        backendCanonical: false,
+        sourceKind: "source_mdl_graph",
+        previewMode: "none"
+      }
+    } as unknown as PlaceableViewportRenderPayload["renderPackage"];
+
+    render(
+      <PlaceablesModeRightPanel
+        activePayload={payload}
+        activePreviewObject={null}
+        previewErrorMessage={null}
+      />
+    );
+
+    const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
+    expect(within(inspector).getByText("ready")).toBeInTheDocument();
+    expect(within(inspector).getByText("yes")).toBeInTheDocument();
+    expect(within(inspector).queryByText("Preview mode:")).not.toBeInTheDocument();
+    expect(within(inspector).queryByText("not rendered for VFX")).not.toBeInTheDocument();
   });
 });

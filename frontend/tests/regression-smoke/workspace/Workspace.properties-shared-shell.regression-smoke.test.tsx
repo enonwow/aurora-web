@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspace } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -35,6 +36,7 @@ describe("Regression smoke: shared properties shell", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspace();
   });
 
   it("keeps common shell actions for placeable/creature/sound/door properties dialogs", async () => {

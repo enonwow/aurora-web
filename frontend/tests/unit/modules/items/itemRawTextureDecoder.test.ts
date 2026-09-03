@@ -132,7 +132,7 @@ function createPltFixture(): ArrayBuffer {
 }
 
 function createPltPaletteTable(
-  entries: Array<{ row: number; colorIndex: number; rgb: [number, number, number] }>
+  entries: Array<{ row: number; colorIndex: number; rgba: [number, number, number, number] }>
 ): Uint8Array {
   const table = new Uint8Array(
     AURORA_PLT_PALETTE_ROW_COUNT *
@@ -143,9 +143,10 @@ function createPltPaletteTable(
     const offset =
       (entry.row * AURORA_PLT_PALETTE_COLOR_COUNT + entry.colorIndex) *
       AURORA_PLT_PALETTE_CHANNEL_COUNT;
-    table[offset] = entry.rgb[0];
-    table[offset + 1] = entry.rgb[1];
-    table[offset + 2] = entry.rgb[2];
+    table[offset] = entry.rgba[0];
+    table[offset + 1] = entry.rgba[1];
+    table[offset + 2] = entry.rgba[2];
+    table[offset + 3] = entry.rgba[3];
   });
   return table;
 }
@@ -428,7 +429,7 @@ describe("itemRawTextureDecoder", () => {
 
   it("maps Aurora PLT icon layers through palette rows when material colors are available", () => {
     installAuroraPltPaletteDataForTests({
-      2: createPltPaletteTable([{ row: 17, colorIndex: 20, rgb: [4, 5, 6] }])
+      2: createPltPaletteTable([{ row: 17, colorIndex: 20, rgba: [4, 5, 6, 7] }])
     });
 
     const decoded = decodeAuroraPltToRgba(createPltFixture(), {
@@ -441,7 +442,7 @@ describe("itemRawTextureDecoder", () => {
       4,
       5,
       6,
-      255,
+      7,
       10,
       10,
       10,

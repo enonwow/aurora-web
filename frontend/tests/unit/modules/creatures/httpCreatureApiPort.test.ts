@@ -5,6 +5,542 @@ import {
 } from "../../../../src/modules/creatures/adapters/httpCreatureApiPort";
 
 describe("HttpCreatureApiPort", () => {
+  it("loads a strict digest-bound Toolset Creature Appearance row", async () => {
+    const sha256 = "a".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "appearance.2da",
+        sha256,
+        rowCount: 1_000,
+        items: [{
+          rowIndex: 249,
+          displayName: "Dwarf, Male",
+          displaySource: "strref",
+          strRef: 1234,
+          label: "DwarfMale",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureAppearanceRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 249,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 249, displaySource: "strref" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/appearances?tableSha256=${sha256}&rowIndex=249&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects a non-Toolset Creature Appearance display fallback", async () => {
+    const sha256 = "a".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "appearance.2da",
+        sha256,
+        rowCount: 1,
+        items: [{ rowIndex: 0, displayName: "Row 0", displaySource: "row_index" }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureAppearanceRows("token", { tableSha256: sha256 }))
+      .rejects.toMatchObject({ name: "ZodError" });
+  });
+
+  it("loads one strict digest-bound Toolset Creature Gender physical Byte row", async () => {
+    const sha256 = "c".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "gender.2da",
+        sha256,
+        rowCount: 5,
+        items: [{
+          rowIndex: 4,
+          displayName: "None",
+          displaySource: "strref",
+          nameStrRef: 202,
+          genderToken: "N",
+          constant: "GENDER_NONE",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureGenderRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 4,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 4, displaySource: "strref", genderToken: "N" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/genders?tableSha256=${sha256}&rowIndex=4&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects a non-Toolset Creature Gender display fallback", async () => {
+    const sha256 = "c".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "gender.2da",
+        sha256,
+        rowCount: 5,
+        items: [{
+          rowIndex: 4,
+          displayName: "Wrong",
+          displaySource: "strref_id",
+          nameStrRef: 202,
+          genderToken: "N",
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureGenderRows("token", { tableSha256: sha256 }))
+      .rejects.toMatchObject({ name: "ZodError" });
+  });
+
+  it("loads one strict digest-bound Toolset Creature wings physical DWord row", async () => {
+    const sha256 = "9".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "wingmodel.2da",
+        sha256,
+        rowCount: 8,
+        items: [{ rowIndex: 3, displayName: "Angel" }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureAppendageRows("token_123", {
+      kind: "wings",
+      tableSha256: sha256,
+      rowIndex: 3,
+      limit: 1,
+      offset: 0,
+    })).resolves.toEqual({
+      resourceName: "wingmodel.2da",
+      sha256,
+      rowCount: 8,
+      items: [{ rowIndex: 3, displayName: "Angel" }],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/appendages?kind=wings&tableSha256=${sha256}&rowIndex=3&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("fails closed when a Creature appendage response returns the other table kind", async () => {
+    const sha256 = "9".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "tailmodel.2da",
+        sha256,
+        rowCount: 8,
+        items: [{ rowIndex: 3, displayName: "Angel" }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureAppendageRows("token", {
+      kind: "wings",
+      tableSha256: sha256,
+    })).rejects.toMatchObject({ code: "CREATURE_APPENDAGE_TABLE_MISMATCH" });
+  });
+
+  it("loads one exact digest-bound Toolset PerceptionRange row", async () => {
+    const sha256 = "e".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "ranges.2da",
+        sha256,
+        rowCount: 12,
+        items: [{
+          rowIndex: 11,
+          displayName: "Default",
+          displaySource: "strref",
+          nameStrRef: 6671,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreaturePerceptionRangeRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 11,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 11, displayName: "Default" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/perception-ranges?tableSha256=${sha256}&rowIndex=11&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects invented PerceptionRange rows and malformed StringRef fallback", async () => {
+    const sha256 = "e".repeat(64);
+    for (const row of [
+      { rowIndex: 12, displayName: "Infinite", displaySource: "strref", nameStrRef: 7000 },
+      { rowIndex: 11, displayName: "Wrong", displaySource: "strref_id", nameStrRef: 6671 },
+    ]) {
+      const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+        data: {
+          resourceName: "ranges.2da",
+          sha256,
+          rowCount: 13,
+          items: [row],
+          total: 1,
+          limit: 16,
+          offset: 0,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+      await expect(port.listCreaturePerceptionRangeRows("token", {
+        tableSha256: sha256,
+      })).rejects.toMatchObject({ name: "ZodError" });
+    }
+  });
+
+  it("loads one exact digest-bound Toolset WalkRate row", async () => {
+    const sha256 = "d".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "creaturespeed.2da",
+        sha256,
+        rowCount: 9,
+        items: [{
+          rowIndex: 4,
+          displayName: "Normal",
+          displaySource: "strref",
+          nameStrRef: 1004,
+          twoDaName: "NORM",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureWalkRateRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 4,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 4, displayName: "Normal", twoDaName: "NORM" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/walk-rates?tableSha256=${sha256}&rowIndex=4&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects row zero and malformed WalkRate StringRef fallback", async () => {
+    const sha256 = "d".repeat(64);
+    for (const row of [
+      {
+        rowIndex: 0,
+        displayName: "Default",
+        displaySource: "strref",
+        nameStrRef: 1000,
+        twoDaName: "DEFAULT",
+      },
+      {
+        rowIndex: 4,
+        displayName: "Wrong",
+        displaySource: "strref_id",
+        nameStrRef: 1004,
+        twoDaName: "NORM",
+      },
+    ]) {
+      const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+        data: {
+          resourceName: "creaturespeed.2da",
+          sha256,
+          rowCount: 9,
+          items: [row],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+      await expect(port.listCreatureWalkRateRows("token", {
+        tableSha256: sha256,
+      })).rejects.toMatchObject({ name: "ZodError" });
+    }
+  });
+
+  it("loads exact sparse Toolset SoundSetFile rows including physical row zero", async () => {
+    const sha256 = "a".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "soundset.2da",
+        sha256,
+        rowCount: 5_100,
+        items: [{
+          rowIndex: 0,
+          displayName: "Aasimar",
+          displaySource: "strref",
+          nameStrRef: 8291,
+          resRef: "c_aasimar",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureSoundSetRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 0,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 0, displayName: "Aasimar", resRef: "c_aasimar" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/sound-sets?tableSha256=${sha256}&rowIndex=0&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("accepts exact LABEL fallback and rejects malformed SoundSetFile rows", async () => {
+    const sha256 = "a".repeat(64);
+    const validLabelRow = {
+      rowIndex: 27,
+      displayName: "Custom Dragon",
+      displaySource: "label",
+      nameStrRef: null,
+      resRef: "c_dragon",
+    };
+    const validFetch = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "soundset.2da",
+        sha256,
+        rowCount: 5_100,
+        items: [validLabelRow],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(new HttpCreatureApiPort(
+      validFetch,
+      "https://aurora.test/api/v1",
+    ).listCreatureSoundSetRows("token", { tableSha256: sha256 }))
+      .resolves.toMatchObject({ items: [validLabelRow] });
+
+    for (const row of [
+      { ...validLabelRow, rowIndex: 65_536 },
+      { ...validLabelRow, displaySource: "strref", nameStrRef: null },
+      { ...validLabelRow, displaySource: "strref_id", nameStrRef: 8291, displayName: "Wrong" },
+      { ...validLabelRow, resRef: "Bad-ResRef" },
+    ]) {
+      const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+        data: {
+          resourceName: "soundset.2da",
+          sha256,
+          rowCount: 70_000,
+          items: [row],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      await expect(new HttpCreatureApiPort(
+        fetchFn,
+        "https://aurora.test/api/v1",
+      ).listCreatureSoundSetRows("token", { tableSha256: sha256 }))
+        .rejects.toMatchObject({ name: "ZodError" });
+    }
+  });
+
+  it("loads exact ClassList-bound StartingPackage rows including physical row zero", async () => {
+    const sha256 = "c".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "packages.2da",
+        sha256,
+        rowCount: 132,
+        classIds: [4],
+        items: [{
+          rowIndex: 0,
+          classId: 4,
+          displayName: "Fighter package",
+          displaySource: "strref",
+          nameStrRef: 100,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureStartingPackageRows("token_123", {
+      tableSha256: sha256,
+      classIds: [4],
+      rowIndex: 0,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      classIds: [4],
+      items: [{ rowIndex: 0, classId: 4, displayName: "Fighter package" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/starting-packages?tableSha256=${sha256}&classIds=4&rowIndex=0&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("loads one strict digest-bound Toolset Creature Class physical row", async () => {
+    const sha256 = "a".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "classes.2da",
+        sha256,
+        rowCount: 64,
+        items: [{
+          rowIndex: 4,
+          displayName: "Fighter",
+          displaySource: "strref",
+          nameStrRef: 104,
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreatureClassRows("token_123", {
+      tableSha256: sha256,
+      rowIndex: 4,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256,
+      items: [{ rowIndex: 4, displayName: "Fighter" }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/classes?tableSha256=${sha256}&rowIndex=4&limit=1&offset=0`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("loads one strict two-table-bound Toolset Creature Phenotype physical row", async () => {
+    const tableSha256 = "d".repeat(64);
+    const appearanceTableSha256 = "a".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "phenotype.2da",
+        sha256: tableSha256,
+        rowCount: 9,
+        items: [{
+          rowIndex: 5,
+          displayName: "Large_M",
+          displaySource: "strref",
+          nameStrRef: 111016,
+          label: "Large_M",
+        }],
+        total: 1,
+        limit: 1,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreaturePhenotypeRows("token_123", {
+      tableSha256,
+      appearanceTableSha256,
+      appearanceRowCount: 1_000,
+      appearanceType: 18,
+      rowIndex: 5,
+      limit: 1,
+      offset: 0,
+    })).resolves.toMatchObject({
+      sha256: tableSha256,
+      items: [{ rowIndex: 5, displaySource: "strref", nameStrRef: 111016 }],
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/creatures/phenotypes?tableSha256=${tableSha256}` +
+        `&appearanceTableSha256=${appearanceTableSha256}&appearanceRowCount=1000` +
+        "&appearanceType=18&rowIndex=5&limit=1&offset=0",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects non-round-trippable Creature Phenotype row 1 from the backend", async () => {
+    const tableSha256 = "d".repeat(64);
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "phenotype.2da",
+        sha256: tableSha256,
+        rowCount: 9,
+        items: [{
+          rowIndex: 1,
+          displayName: "Skinny",
+          displaySource: "strref_id",
+          nameStrRef: 0,
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpCreatureApiPort(fetchFn, "https://aurora.test/api/v1");
+
+    await expect(port.listCreaturePhenotypeRows("token", {
+      tableSha256,
+      appearanceTableSha256: "a".repeat(64),
+      appearanceRowCount: 1_000,
+      appearanceType: 18,
+    })).rejects.toMatchObject({ name: "ZodError" });
+  });
+
   it("lists creature templates with metadata from the backend catalog", async () => {
     const fetchFn = vi.fn(async () =>
       new Response(

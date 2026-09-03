@@ -4,8 +4,38 @@ import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/lay
 import { getWorkspaceModeById } from "../../../../src/modules/layout/workspaceModes";
 import type { AreaApiLightingEvidenceReport } from "../../../../src/modules/areas/contracts";
 import type { AreaApiPort } from "../../../../src/modules/areas/ports/areaApiPort";
+import type { AreaCapabilityFacade } from "../../../../src/modules/areas/application/areaCapabilityFacade";
+import { capabilityFixture } from "../areas/areaCapabilityFixture";
 
 describe("AreasModePanel lighting evidence", () => {
+  it("renders the authenticated Area capability catalog summary", async () => {
+    const facade: AreaCapabilityFacade = {
+      load: vi.fn().mockResolvedValue({ ok: true, value: capabilityFixture() }),
+    };
+
+    render(
+      <AreasModePanel
+        userId="user_test"
+        objects={[]}
+        activeMode={getWorkspaceModeById("areas_mode")}
+        backendAccessToken="token_abc"
+        areaApiPort={buildAreaApiPort({} as AreaApiLightingEvidenceReport)}
+        areaCapabilityFacade={facade}
+        areaListClientCacheRef={{ current: null }}
+        sceneObjectCatalogQueryFacade={createSceneObjectCatalogQueryFacade()}
+        trackTelemetryEvent={vi.fn()}
+        onAreaCanvasLoadingChange={vi.fn()}
+        onAreaSceneSelected={vi.fn()}
+        onObjectCreate={vi.fn()}
+        onTileProcessReadinessChange={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText("1 available · 0 blocked · 1 hidden"))
+      .toBeInTheDocument();
+    expect(facade.load).toHaveBeenCalledWith("token_abc");
+  });
+
   it("loads and renders the aggregated lighting evidence report", async () => {
     const report: AreaApiLightingEvidenceReport = {
       summary: {
@@ -33,11 +63,11 @@ describe("AreasModePanel lighting evidence", () => {
         shadowMdlLightNodes: 1,
         shadowCatalogShadowSizeTemplates: 0,
         auditCoverageEntries: 5,
-        auditCoverageSourceBacked: 3,
-        auditCoveragePreviewOnly: 1,
+        auditCoverageSourceBacked: 4,
+        auditCoveragePreviewOnly: 0,
         auditCoverageBlocked: 1,
         auditCoverageNotObserved: 0,
-        auditGaps: 2,
+        auditGaps: 1,
         remainingRetailBlockers: 3
       },
       tileLights: [],
@@ -221,13 +251,11 @@ describe("AreasModePanel lighting evidence", () => {
         {
           key: "area-tile-light-position",
           label: "ARE tile light position",
-          status: "preview-only",
+          status: "source-backed",
           evidence:
-            "Runtime anchors source lights at tile center until loaded MDL sourcelight node transforms are available; main lights are static lightcolor.2da tile lanes without point-light positions.",
+            "1 main-light references bind exact source-MDL ml1/ml2 nodes; 1 source-light references bind exact source-MDL sl1/sl2 slots; 0 non-zero source references are intentionally omitted because Aurora reports no corresponding tile source slot; 0 renderable references still lack a source-node contract.",
           proof:
-            "frontend workspaceTerrainMesh TERRAIN_TILE_LIGHT_POSITION_SOURCE plus syncTerrainTileSourceLightNodePositionsFromLoadedModel.",
-          blocker:
-            "Unloaded source-light model fallback remains tile-center preview until sourcelight1/sourcelight2 nodes are available from the loaded tile MDL."
+            "C:/Projects/New Folder/export/decompiled_all.c:453500-453602 source-slot count gate; frontend workspaceTerrainMesh consumes typed source-precedence MDL nativeNode/sourceNode contracts without a tile-center or GLB-node fallback."
         },
         {
           key: "area-tile-light-radius-falloff",
@@ -260,19 +288,6 @@ describe("AreasModePanel lighting evidence", () => {
         }
       ],
       auditGaps: [
-        {
-          key: "area-tile-light-position",
-          label: "ARE tile light position",
-          status: "preview-only",
-          evidence:
-            "Runtime anchors source lights at tile center until loaded MDL sourcelight node transforms are available; main lights are static lightcolor.2da tile lanes without point-light positions.",
-          proof:
-            "frontend workspaceTerrainMesh TERRAIN_TILE_LIGHT_POSITION_SOURCE plus syncTerrainTileSourceLightNodePositionsFromLoadedModel.",
-          blocker:
-            "Unloaded source-light model fallback remains tile-center preview until sourcelight1/sourcelight2 nodes are available from the loaded tile MDL.",
-          nextStep:
-            "Unloaded source-light model fallback remains tile-center preview until sourcelight1/sourcelight2 nodes are available from the loaded tile MDL."
-        },
         {
           key: "item-property-light-runtime-scheduler",
           label: "ItemPropertyLight runtime scheduler",
@@ -396,7 +411,7 @@ describe("AreasModePanel lighting evidence", () => {
     await waitFor(() => expect(panel).toHaveAttribute("data-renderer-dropped-lights", "1"));
     await waitFor(() => expect(panel).toHaveAttribute("data-shadow-diagnostic-entries", "2"));
     await waitFor(() => expect(panel).toHaveAttribute("data-audit-coverage-blocked", "1"));
-    await waitFor(() => expect(panel).toHaveAttribute("data-audit-gaps", "2"));
+    await waitFor(() => expect(panel).toHaveAttribute("data-audit-gaps", "1"));
     await waitFor(() => expect(panel).toHaveAttribute("data-remaining-retail-blockers", "3"));
 
     expect(within(panel).getByText("2 MDL nodes")).toBeInTheDocument();
@@ -413,7 +428,7 @@ describe("AreasModePanel lighting evidence", () => {
       within(panel).getByRole("list", { name: "remaining retail blockers" })
     ).toHaveTextContent("blocked / 1 oracle cases");
     expect(within(panel).getByText("Dropped Lamp")).toBeInTheDocument();
-    expect(within(panel).getByText("ARE tile light position")).toBeInTheDocument();
+    expect(within(panel).queryByText("ARE tile light position")).not.toBeInTheDocument();
     expect(within(panel).getByText("ItemPropertyLight runtime scheduler")).toBeInTheDocument();
     expect(
       within(panel).queryByText("ARE tile light radius/falloff")
@@ -432,7 +447,7 @@ describe("AreasModePanel lighting evidence", () => {
         shadowMdlLightNodes: 1,
         auditCoverageBlocked: 1,
         auditCoverageNotObserved: 0,
-        auditGaps: 2,
+        auditGaps: 1,
         remainingRetailBlockers: 3
       })
     );

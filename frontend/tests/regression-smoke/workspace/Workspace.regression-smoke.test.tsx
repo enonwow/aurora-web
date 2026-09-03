@@ -9,8 +9,12 @@ import {
   WORKSPACE_OPTIONS_STORAGE_KEY
 } from "../../../src/modules/layout/workspaceOptionSettings";
 import { OBJECT_ADD_DRAG_MIME } from "../../../src/modules/layout/application/objectAddDragPayload";
-import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
+import {
+  loadLocalSceneDraft,
+  saveLocalSceneDraft
+} from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspace } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -61,6 +65,7 @@ describe("Regression smoke: workspace interactions", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspace();
   });
 
   it("keeps visibility drawer open while applying actions", async () => {
@@ -250,7 +255,7 @@ describe("Regression smoke: workspace interactions", () => {
     const xInput = within(dialog).getByRole("spinbutton", { name: /^x$/i }) as HTMLInputElement;
     const yInput = within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement;
     const zInput = within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement;
-    const scaleInput = within(dialog).getByRole("spinbutton", { name: /^scale$/i }) as HTMLInputElement;
+    const scaleInput = within(dialog).getByRole("spinbutton", { name: /^uniform scale$/i }) as HTMLInputElement;
     const zTranslationInput = within(dialog).getByRole("spinbutton", {
       name: /^z translation$/i
     }) as HTMLInputElement;
@@ -271,12 +276,12 @@ describe("Regression smoke: workspace interactions", () => {
       const nextY = Number.parseFloat(
         (within(dialog).getByRole("spinbutton", { name: /^y$/i }) as HTMLInputElement).value
       );
-      expect(nextX).toBeLessThan(beforeX);
-      expect(nextY).toBeLessThan(beforeY);
+      expect(nextX).toBeGreaterThan(beforeX);
+      expect(nextY).toBeGreaterThan(beforeY);
     });
 
     const afterScale = Number.parseFloat(
-      (within(dialog).getByRole("spinbutton", { name: /^scale$/i }) as HTMLInputElement).value
+      (within(dialog).getByRole("spinbutton", { name: /^uniform scale$/i }) as HTMLInputElement).value
     );
     const afterZ = Number.parseFloat(
       (within(dialog).getByRole("spinbutton", { name: /^z$/i }) as HTMLInputElement).value
@@ -479,6 +484,18 @@ describe("Regression smoke: workspace interactions", () => {
   });
 
   it("keeps Visual Transforms visible for mixed static/non-static placeables and saves values for all", async () => {
+    const seededScene = loadLocalSceneDraft("u_builder_001", window.localStorage);
+    expect(seededScene).not.toBeNull();
+    saveLocalSceneDraft(
+      "u_builder_001",
+      {
+        ...seededScene!,
+        objects: seededScene!.objects.map((object) =>
+          object.id === "plc_table_02" ? { ...object, isStatic: false } : object
+        )
+      },
+      window.localStorage
+    );
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -524,12 +541,12 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /^adjust location$/i }));
 
     const dialog = await screen.findByRole("dialog", { name: /adjust location/i });
-    expect(within(dialog).getByRole("spinbutton", { name: /^scale$/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole("spinbutton", { name: /^uniform scale$/i })).toBeInTheDocument();
     expect(
       within(dialog).getByText(/mixed static \+ non-static selection/i)
     ).toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^scale$/i }), {
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^uniform scale$/i }), {
       target: { value: "1.33" }
     });
     fireEvent.change(within(dialog).getByRole("spinbutton", { name: /^z translation$/i }), {
@@ -696,7 +713,7 @@ describe("Regression smoke: workspace interactions", () => {
     expect(screen.queryByRole("menuitem", { name: /^adjust location$/i })).not.toBeInTheDocument();
   });
 
-  it("renders placeable lock/trap controls and persists apply/ok while cancel discards transient edits", async () => {
+  it("renders unproven placeable lock/trap controls as preserve-only", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -726,115 +743,16 @@ describe("Regression smoke: workspace interactions", () => {
     expect(openLockDcInput).toBeInTheDocument();
     expect(keyTagInput).toBeInTheDocument();
 
-    fireEvent.click(lockedCheckbox);
-    fireEvent.click(canRelockCheckbox);
-    fireEvent.click(keyRequiredCheckbox);
-    fireEvent.change(openLockDcInput, { target: { value: "31" } });
-    fireEvent.change(keyTagInput, { target: { value: "PLC_KEY_PERSIST_01" } });
-
-    expect(lockedCheckbox).toBeChecked();
-    expect(canRelockCheckbox).toBeChecked();
-    expect(keyRequiredCheckbox).toBeChecked();
-    expect(openLockDcInput).toHaveValue(31);
-    expect(keyTagInput).toHaveValue("PLC_KEY_PERSIST_01");
-
+    expect(lockedCheckbox).toBeDisabled();
+    expect(canRelockCheckbox).toBeDisabled();
+    expect(keyRequiredCheckbox).toBeDisabled();
+    expect(openLockDcInput).toBeDisabled();
+    expect(keyTagInput).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: /^trap$/i }));
-    const isTrappedCheckbox = within(dialog).getByRole("checkbox", { name: /^is trapped$/i });
-    const disarmDcInput = within(dialog).getByRole("spinbutton", { name: /^disarm dc$/i });
-    const onTrapTriggeredInput = within(dialog).getByRole("textbox", {
-      name: /^ontraptriggered$/i
-    });
-
-    expect(isTrappedCheckbox).toBeInTheDocument();
-    expect(disarmDcInput).toBeInTheDocument();
-    expect(onTrapTriggeredInput).toBeInTheDocument();
-
-    fireEvent.click(isTrappedCheckbox);
-    fireEvent.change(disarmDcInput, { target: { value: "27" } });
-    fireEvent.change(onTrapTriggeredInput, {
-      target: { value: "plc_trap_persist_trigger_01" }
-    });
-
-    expect(isTrappedCheckbox).toBeChecked();
-    expect(disarmDcInput).toHaveValue(27);
-    expect(onTrapTriggeredInput).toHaveValue("plc_trap_persist_trigger_01");
-
-    fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
-    expect(screen.getByRole("dialog", { name: /placeable properties/i })).toBeInTheDocument();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: /^ok$/i }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
-    });
-
-    const reopenedAfterPersist = await openPlaceablePropertiesDialog();
-    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
-    expect(within(reopenedAfterPersist).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
-    expect(
-      within(reopenedAfterPersist).getByRole("checkbox", {
-        name: /^key required to unlock or lock$/i
-      })
-    ).toBeChecked();
-    expect(
-      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i })
-    ).toHaveValue(31);
-    expect(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
-      "PLC_KEY_PERSIST_01"
-    );
-
-    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
-    expect(
-      within(reopenedAfterPersist).getByRole("checkbox", { name: /^is trapped$/i })
-    ).toBeChecked();
-    expect(
-      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i })
-    ).toHaveValue(27);
-    expect(
-      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i })
-    ).toHaveValue("plc_trap_persist_trigger_01");
-
-    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
-    fireEvent.change(
-      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i }),
-      { target: { value: "11" } }
-    );
-    fireEvent.change(within(reopenedAfterPersist).getByRole("textbox", { name: /^key tag$/i }), {
-      target: { value: "PLC_KEY_TRANSIENT_01" }
-    });
-    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^trap$/i }));
-    fireEvent.change(
-      within(reopenedAfterPersist).getByRole("spinbutton", { name: /^disarm dc$/i }),
-      { target: { value: "8" } }
-    );
-    fireEvent.change(
-      within(reopenedAfterPersist).getByRole("textbox", { name: /^ontraptriggered$/i }),
-      {
-        target: { value: "plc_trap_transient_trigger_01" }
-      }
-    );
-
-    fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^cancel$/i }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: /placeable properties/i })).not.toBeInTheDocument();
-    });
-
-    const reopenedAfterCancel = await openPlaceablePropertiesDialog();
-    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^lock$/i }));
-    expect(within(reopenedAfterCancel).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
-    expect(
-      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^open lock dc$/i })
-    ).toHaveValue(31);
-    expect(within(reopenedAfterCancel).getByRole("textbox", { name: /^key tag$/i })).toHaveValue(
-      "PLC_KEY_PERSIST_01"
-    );
-
-    fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^trap$/i }));
-    expect(
-      within(reopenedAfterCancel).getByRole("spinbutton", { name: /^disarm dc$/i })
-    ).toHaveValue(27);
-    expect(
-      within(reopenedAfterCancel).getByRole("textbox", { name: /^ontraptriggered$/i })
-    ).toHaveValue("plc_trap_persist_trigger_01");
+    expect(within(dialog).getByRole("checkbox", { name: /^is trapped$/i })).toBeDisabled();
+    expect(within(dialog).getByRole("spinbutton", { name: /^disarm dc$/i })).toBeDisabled();
+    expect(within(dialog).getByRole("textbox", { name: /^ontraptriggered$/i })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
   });
 
   it("keeps object catalog interactive for type switch and filtering", async () => {
@@ -880,7 +798,7 @@ describe("Regression smoke: workspace interactions", () => {
     let parsed = JSON.parse(raw ?? "{}");
     expect(parsed.snapGridStep).toBe(2.5);
     expect(parsed.showPerObjectGizmoHints).toBe(false);
-    expect(parsed.showTileGridOverlay).toBe(true);
+    expect(parsed.showTileGridOverlay).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
     expect(await screen.findByRole("heading", { name: /sign in to aurora web/i })).toBeInTheDocument();
@@ -889,7 +807,7 @@ describe("Regression smoke: workspace interactions", () => {
     await openQuickOptionsDialog();
     expect(await screen.findByLabelText(/grid step/i)).toHaveValue(2.5);
     expect(screen.getByLabelText(/show per-object gizmo hints/i)).not.toBeChecked();
-    expect(screen.getByLabelText(/display tile grid overlay/i)).toBeChecked();
+    expect(screen.getByLabelText(/display tile grid overlay/i)).not.toBeChecked();
   }, 15000);
 
   it("supports collapsing sidebars and restoring them by clicking collapsed strips", async () => {
@@ -907,8 +825,8 @@ describe("Regression smoke: workspace interactions", () => {
     fireEvent.click(leftSidebar);
     fireEvent.click(rightSidebar);
 
-    expect(within(leftSidebar).getByRole("heading", { name: /^add objects$/i })).toBeInTheDocument();
-    expect(within(rightSidebar).getByRole("heading", { name: /^scene objects$/i })).toBeInTheDocument();
+    expect(within(leftSidebar).getByText(/^tools panel$/i)).toBeInTheDocument();
+    expect(within(rightSidebar).getByText(/^inspector panel$/i)).toBeInTheDocument();
 
     const storedRaw = window.localStorage.getItem(LAYOUT_SETTINGS_STORAGE_KEY);
     expect(storedRaw).not.toBeNull();
@@ -1013,7 +931,9 @@ describe("Regression smoke: workspace interactions", () => {
     expect(copiedRow).toBeInTheDocument();
 
     fireEvent.click(copiedRow);
-    fireEvent.click(screen.getByRole("button", { name: /delete sel/i }));
+    fireEvent.click(
+      within(screen.getByLabelText(/canvas commands/i)).getByRole("button", { name: /delete sel/i })
+    );
 
     await waitFor(() => {
       expect(
@@ -1044,7 +964,7 @@ describe("Regression smoke: workspace interactions", () => {
       })
     ).toBeInTheDocument();
 
-    const quickActions = screen.getByLabelText(/quick actions/i);
+    const quickActions = screen.getByLabelText(/^quick actions$/i);
     fireEvent.click(within(quickActions).getByRole("button", { name: /^undo$/i }));
     await waitFor(() => {
       expect(
@@ -1182,6 +1102,7 @@ describe("Regression smoke: workspace interactions", () => {
     await signInAs("builder.user", "builder123");
 
     const leftSidebar = screen.getByLabelText(/left sidebar/i);
+    fireEvent.click(within(leftSidebar).getByRole("tab", { name: /add objects/i }));
     const addObjectsSection = within(leftSidebar).getByRole("article", {
       name: /add objects section/i
     });
@@ -1392,7 +1313,9 @@ describe("Regression smoke: workspace interactions", () => {
 
     await openCanvasCommands();
     fireEvent.click(screen.getByRole("button", { name: /lock plc/i }));
-    fireEvent.click(screen.getByRole("button", { name: /delete sel/i }));
+    fireEvent.click(
+      within(screen.getByLabelText(/canvas commands/i)).getByRole("button", { name: /delete sel/i })
+    );
 
     expect(
       within(rightSidebar).getByRole("button", { name: /plc_barrel_01/i })

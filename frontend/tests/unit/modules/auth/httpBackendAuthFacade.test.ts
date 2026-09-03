@@ -158,5 +158,40 @@ describe("httpBackendAuthFacade", () => {
 
     expect(result.available).toBe(true);
     expect(result.service).toBe("aurora-backend");
+    expect(result.runtimeBuild).toBeNull();
+  });
+
+  it("retains additive runtime-build provenance from health without accepting malformed values", async () => {
+    const fetchStub = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "aurora-backend",
+          runtimeBuild: {
+            commit: "backend-sha",
+            imageDigest: "sha256:backend",
+            builtAt: "2026-07-19T10:00:00.000Z",
+            processStartedAt: "2026-07-19T10:01:00.000Z",
+            contractVersion: "1.0.0",
+            vfxRuntimeRevision: "vfx-runtime-v1"
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await probeBackendHealth(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1"
+    );
+
+    expect(result.runtimeBuild).toEqual({
+      commit: "backend-sha",
+      imageDigest: "sha256:backend",
+      builtAt: "2026-07-19T10:00:00.000Z",
+      processStartedAt: "2026-07-19T10:01:00.000Z",
+      contractVersion: "1.0.0",
+      vfxRuntimeRevision: "vfx-runtime-v1"
+    });
   });
 });

@@ -3,6 +3,7 @@ import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspaceWithExactSoundEditing } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -53,6 +54,7 @@ describe("Regression smoke: sound properties mode parity", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspaceWithExactSoundEditing();
   });
 
   it("preserves mode transitions and zeroes random ranges outside random mode", async () => {
@@ -73,7 +75,7 @@ describe("Regression smoke: sound properties mode parity", () => {
     const cutoffInput = getSoundDialogNumericInput(dialog, /^cutoff distance$/i);
     const westEastInput = getSoundDialogNumericInput(dialog, /^west-east$/i);
     const northSouthInput = getSoundDialogNumericInput(dialog, /^north-south$/i);
-    expect(maxVolumeInput).toBeDisabled();
+    expect(maxVolumeInput).not.toBeDisabled();
 
     fireEvent.click(randomMode);
     fireEvent.change(cutoffInput, { target: { value: "13.25" } });
@@ -84,7 +86,7 @@ describe("Regression smoke: sound properties mode parity", () => {
 
     const randomState = findSoundFromDraft("SOUND_FOREST_01");
     expect(randomState?.soundPositioning?.mode).toBe("random");
-    expect(randomState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
+    expect(randomState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.2, 6);
     expect(randomState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(randomState?.soundPositioning?.randomRangeWestEast).toBeCloseTo(3.5, 6);
     expect(randomState?.soundPositioning?.randomRangeNorthSouth).toBeCloseTo(4.5, 6);
@@ -94,7 +96,7 @@ describe("Regression smoke: sound properties mode parity", () => {
     await saveDraft();
     const specificState = findSoundFromDraft("SOUND_FOREST_01");
     expect(specificState?.soundPositioning?.mode).toBe("specific");
-    expect(specificState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
+    expect(specificState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.2, 6);
     expect(specificState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(specificState?.soundPositioning?.randomRangeWestEast).toBe(0);
     expect(specificState?.soundPositioning?.randomRangeNorthSouth).toBe(0);
@@ -106,7 +108,7 @@ describe("Regression smoke: sound properties mode parity", () => {
 
     const everywhereState = findSoundFromDraft("SOUND_FOREST_01");
     expect(everywhereState?.soundPositioning?.mode).toBe("everywhere");
-    expect(everywhereState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.325, 6);
+    expect(everywhereState?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.2, 6);
     expect(everywhereState?.soundPositioning?.cutoffDistance).toBeCloseTo(13.25, 6);
     expect(everywhereState?.soundPositioning?.randomRangeWestEast).toBe(0);
     expect(everywhereState?.soundPositioning?.randomRangeNorthSouth).toBe(0);

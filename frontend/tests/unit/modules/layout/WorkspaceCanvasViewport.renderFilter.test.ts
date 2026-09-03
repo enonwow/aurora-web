@@ -7,12 +7,14 @@ import {
   filterObjectsByRenderObjectIds,
   formatAreaSharedRendererIssueSummary,
   formatCanvasLoadOverlayProgress,
+  formatTerrainTileModelRuntimeStatus,
   isObjectVisibleWithRenderFilter,
   AREA_OBJECT_RUNTIME_EVIDENCE_DATASET_LIMIT,
   limitAreaRuntimeIdList,
   readPlaceablesVfxPreviewDrawMetrics,
   refreshAreaSharedRendererRuntimeSnapshotFromObjectEvidenceForTests,
   resolveAreaRenderFrameMirrorSnapshotForTests,
+  resolveTerrainTileModelOverlayState,
   normalizeWorkspaceRuntimeMaxLights,
   resolveAreaObjectRuntimeEvidenceDatasetLimit,
   resolveAreaOracleRenderPriorityObjectIdsForTests,
@@ -52,6 +54,7 @@ import {
 } from "../../../../src/modules/layout/application/workspaceSceneInteraction";
 import { createDefaultToolbarState } from "../../../../src/modules/layout/roleTopbarPolicy";
 import type { SceneObject } from "../../../../src/modules/layout/contracts";
+import { createNewSceneObject } from "../../../../src/modules/scene/domain/sceneFactory";
 import {
   createPlaceableFallbackGeometry,
   createPlaceableGeometryFromPayload,
@@ -359,6 +362,114 @@ describe("WorkspaceCanvasViewport loading evidence labels", () => {
       })
     ).toBe("1136/1136 primitive fallback / render capped 256, skipped 880 / payloads pending/in flight 3");
     expect(formatAreaSharedRendererIssueSummary(diagnostics)).toContain("missing payloads 3");
+  });
+
+  it("names blocked SET model resrefs instead of presenting an unexplained terrain hole", () => {
+    const overlay = resolveTerrainTileModelOverlayState({
+      contractTileCount: 12,
+      loadedTileCount: 12,
+      failedTileCount: 0,
+      bridgeTileCount: 4,
+      pendingTileCount: 0,
+      tileCount: 16,
+      blockedTileSample: "twl01_g04_21_01|twl01_g04_21_02"
+    } as Parameters<typeof resolveTerrainTileModelOverlayState>[0]);
+
+    expect(overlay).toMatchObject({
+      visible: true,
+      variant: "blocked",
+      title: "Niepełny runtime kafli Areas"
+    });
+    expect(overlay.currentLabel).toContain("twl01_g04_21_01");
+    expect(overlay.currentLabel).toContain("Brak modelu w aktywnych źródłach");
+  });
+
+  it("keeps the terrain loading overlay active while material textures are pending", () => {
+    const overlay = resolveTerrainTileModelOverlayState({
+      status: "loading",
+      contractTileCount: 4,
+      loadedTileCount: 4,
+      failedTileCount: 0,
+      bridgeTileCount: 0,
+      pendingTileCount: 0,
+      tileCount: 4,
+      materialTextureContractTileCount: 4,
+      materialTextureAppliedTileCount: 3,
+      materialTextureFailedTileCount: 0,
+      materialTexturePendingTileCount: 1
+    } as Parameters<typeof resolveTerrainTileModelOverlayState>[0]);
+
+    expect(overlay).toMatchObject({
+      visible: true,
+      variant: "loading",
+      completed: 7,
+      total: 8,
+      inFlight: 1,
+      title: "Modele i materiały kafli Areas"
+    });
+  });
+
+  it("keeps the terrain loading overlay active while companion surfaces are pending", () => {
+    const snapshot = {
+      status: "loading",
+      contractTileCount: 4,
+      loadedTileCount: 4,
+      failedTileCount: 0,
+      bridgeTileCount: 0,
+      pendingTileCount: 0,
+      tileCount: 4,
+      materialTextureContractTileCount: 3,
+      materialTextureAppliedTileCount: 3,
+      materialTextureFailedTileCount: 0,
+      materialTexturePendingTileCount: 0,
+      supplementalSurfaceContractCount: 2,
+      supplementalSurfaceLoadedCount: 1,
+      supplementalSurfaceFailedCount: 0,
+      supplementalSurfacePendingCount: 1,
+      materialMapCount: 46,
+      blockerSummary: "none"
+    } as Parameters<typeof resolveTerrainTileModelOverlayState>[0];
+
+    expect(resolveTerrainTileModelOverlayState(snapshot)).toMatchObject({
+      visible: true,
+      variant: "loading",
+      completed: 8,
+      total: 9,
+      inFlight: 1
+    });
+    expect(formatTerrainTileModelRuntimeStatus(snapshot)).toContain(
+      "loading / models 4/4 / textures 3/3 / maps 46 / surfaces 1/2"
+    );
+  });
+
+  it("blocks completion when runtime material binding failed despite a ready contract", () => {
+    const snapshot = {
+      status: "partial",
+      contractTileCount: 4,
+      loadedTileCount: 4,
+      failedTileCount: 0,
+      bridgeTileCount: 0,
+      pendingTileCount: 0,
+      tileCount: 4,
+      materialCount: 16,
+      materialMapCount: 0,
+      materialTextureContractTileCount: 4,
+      materialTextureAppliedTileCount: 3,
+      materialTextureFailedTileCount: 1,
+      materialTexturePendingTileCount: 0,
+      materialTextureFailedTileSample: "gin11_s01_02",
+      blockedTileSample: "none",
+      blockerSummary: "tile_material_texture_loader_failed:gin11_s01_02"
+    } as Parameters<typeof resolveTerrainTileModelOverlayState>[0];
+
+    expect(resolveTerrainTileModelOverlayState(snapshot)).toMatchObject({
+      visible: true,
+      variant: "blocked",
+      currentLabel: "Nie udało się przypiąć materiałów: gin11_s01_02"
+    });
+    expect(formatTerrainTileModelRuntimeStatus(snapshot)).toContain(
+      "partial / models 4/4 / textures 3/4 / maps 0"
+    );
   });
 });
 
@@ -806,7 +917,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     });
   });
 
-  it("blocks generic terrain mesh for Aurora tile-list scenes with model metadata", () => {
+  it("keeps a readable bridge mesh while Aurora tile model contracts are restoring", () => {
     const scene = new THREE.Scene();
     const runtime: {
       scene: THREE.Scene;
@@ -879,11 +990,12 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
       }
     );
 
-    expect(runtime.tileMesh).toBeNull();
-    expect(scene.children).not.toContain(runtime.tileMesh);
+    expect(runtime.tileMesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(runtime.tileMesh?.count).toBe(2);
+    expect(scene.children).toContain(runtime.tileMesh);
     expect(scene.userData).toMatchObject({
-      auroraTerrainRenderStatus: "blocked_tile_model_geometry_loader_missing",
-      auroraTerrainRenderLabel: "blocked: tile model geometry loader missing (2/2)",
+      auroraTerrainRenderStatus: "source_backed_tile_model_bridge",
+      auroraTerrainRenderLabel: "Aurora tile models restoring (0/2 unique models ready)",
       auroraTerrainTileCount: 2,
       auroraTerrainModelResolvedCount: 2,
       auroraTerrainModelSourceCounts: {
@@ -925,7 +1037,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
         updatedAtUnixMs: 1770000001234,
         source: "aurora_area"
       }).label
-    ).toBe("blocked: tile model geometry loader missing (2/2)");
+    ).toBe("Aurora tile models restoring (0/2 unique models ready)");
   });
 
   it("uses full object scale for object-only previews instead of inherited area scale", () => {
@@ -1076,7 +1188,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
 
       expect(resolution.ready).toBe(true);
       expect(resolution.modelUrl).toBe(
-        "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache-key/assets/derived-model-1.glb"
+        "http://127.0.0.1:5324/_aurora/v1/catalog/placeables/cache/cache-key/assets/derived-model-1.glb"
       );
       expect(resolution.modelCacheKey).toBe("objectKey:objects/derived-model-1");
     } finally {
@@ -1142,7 +1254,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
 
     const textureUrl = resolvePlaceableTextureDeliveryUrl(payload);
 
-    expect(textureUrl).toBe("http://localhost:3000/assets/contract.dds");
+    expect(textureUrl).toBe("http://127.0.0.1:3000/assets/contract.dds");
   });
 
   it("prefers diffuse texture contracts over normal and roughness maps for fallback material binding", () => {
@@ -1167,7 +1279,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
 
     const textureUrl = resolvePlaceableTextureDeliveryUrl(payload);
 
-    expect(textureUrl).toBe("http://localhost:3000/assets/tex_core_0106_d.dds");
+    expect(textureUrl).toBe("http://127.0.0.1:3000/assets/tex_core_0106_d.dds");
   });
 
   it("falls back to renderPackage.textureUrls when texture role contract is missing", () => {
@@ -1188,7 +1300,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
 
     const textureUrl = resolvePlaceableTextureDeliveryUrl(payload);
 
-    expect(textureUrl).toBe("http://localhost:3000/assets/fallback.dds");
+    expect(textureUrl).toBe("http://127.0.0.1:3000/assets/fallback.dds");
   });
 
   it("maps texture asset contracts to Aurora texture references by manifest file name", () => {
@@ -1212,8 +1324,8 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect([...urlsByReference.entries()]).toEqual([
-      ["tx_wood", "http://localhost:3000/assets/wood.dds"],
-      ["tx_metal", "http://localhost:3000/assets/metal.tga"]
+      ["tx_wood", "http://127.0.0.1:3000/assets/wood.dds"],
+      ["tx_metal", "http://127.0.0.1:3000/assets/metal.tga"]
     ]);
   });
 
@@ -1250,9 +1362,9 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect([...urlsByReference.entries()]).toEqual([
-      ["tex_core_0234_d", "http://localhost:3000/assets/tex_core_0234_d.dds"],
-      ["waterstain", "http://localhost:3000/assets/waterstain.dds"],
-      ["tex_core_0235_d", "http://localhost:3000/assets/tex_core_0235_d.dds"]
+      ["tex_core_0234_d", "http://127.0.0.1:3000/assets/tex_core_0234_d.dds"],
+      ["waterstain", "http://127.0.0.1:3000/assets/waterstain.dds"],
+      ["tex_core_0235_d", "http://127.0.0.1:3000/assets/tex_core_0235_d.dds"]
     ]);
   });
 
@@ -1314,10 +1426,10 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect(urlsByReference.get("wit2_0004_b")).toBe(
-      "http://localhost:3000/assets/backend-contract/wit2_0004_b.dds"
+      "http://127.0.0.1:3000/assets/backend-contract/wit2_0004_b.dds"
     );
     expect(urlsByReference.get("fxpa_smoke01")).toBe(
-      "http://localhost:3000/assets/wrong/fxpa_smoke01.tga"
+      "http://127.0.0.1:3000/assets/wrong/fxpa_smoke01.tga"
     );
   });
 
@@ -1386,7 +1498,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect(urlsByReference.get("fxpa_flame00")).toBe(
-      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+      "http://127.0.0.1:3000/assets/hak/fxpa_flame00.tga"
     );
   });
 
@@ -1490,10 +1602,10 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect(urlsByReference.get("fxpa_flame00")).toBe(
-      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+      "http://127.0.0.1:3000/assets/hak/fxpa_flame00.tga"
     );
     expect(urlsByReference.get("fxpa_smoke01")).toBe(
-      "http://localhost:3000/assets/vanilla/fxpa_smoke01.tga"
+      "http://127.0.0.1:3000/assets/vanilla/fxpa_smoke01.tga"
     );
   });
 
@@ -1561,7 +1673,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect(urlsByReference.get("fxpa_arcane01")).toBe(
-      "http://localhost:3000/assets/vanilla/fxpa_arcane01.tga"
+      "http://127.0.0.1:3000/assets/vanilla/fxpa_arcane01.tga"
     );
   });
 
@@ -1605,7 +1717,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect(urlsByReference.get("fxpa_flame00")).toBe(
-      "http://localhost:3000/assets/hak/fxpa_flame00.tga"
+      "http://127.0.0.1:3000/assets/hak/fxpa_flame00.tga"
     );
   });
 
@@ -1654,7 +1766,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
       const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
       expect(urlsByReference.get("qp_barrel_02")).toBe(
-        "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache_key/assets/barrel-texture.dds"
+        "http://127.0.0.1:5173/_aurora/v1/catalog/placeables/cache/cache_key/assets/barrel-texture.dds"
       );
     } finally {
       Object.defineProperty(globalThis, "location", {
@@ -1677,8 +1789,8 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
     const urlsByReference = resolvePlaceableTextureDeliveryUrlsByReference(payload);
 
     expect([...urlsByReference.entries()]).toEqual([
-      ["u_grim", "http://localhost:3000/assets/u_grim.dds?cache=1"],
-      ["u_metal", "http://localhost:3000/assets/u_metal.tga"]
+      ["u_grim", "http://127.0.0.1:3000/assets/u_grim.dds?cache=1"],
+      ["u_metal", "http://127.0.0.1:3000/assets/u_metal.tga"]
     ]);
   });
 
@@ -1703,7 +1815,7 @@ describe("WorkspaceCanvasViewport render filter helpers", () => {
 
     expect(resolvePlaceableTextureDeliveryUrl(payload)).toBeNull();
     expect(resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fxpa_dot01")).toBe(
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cache_key/assets/shadow-texture.tga"
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache_key/assets/shadow-texture.tga"
     );
   });
 
@@ -1995,7 +2107,8 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     expect(texture?.wrapS).toBe(THREE.RepeatWrapping);
     expect(texture?.wrapT).toBe(THREE.RepeatWrapping);
     expect(textureFetch).toHaveBeenCalledWith("/assets/u_grim.dds", {
-      headers: { Authorization: "Bearer token-123" }
+      headers: { Authorization: "Bearer token-123" },
+      signal: expect.any(AbortSignal)
     });
     expect(ddsLoader).not.toHaveBeenCalled();
   });
@@ -2016,7 +2129,8 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
     expect(texture?.userData.auroraTextureIsBimodal).toBe(false);
     expect(texture?.userData.auroraTextureSoftAlphaPixelRatio).toBeCloseTo(1 / 16);
     expect(textureFetch).toHaveBeenCalledWith("/assets/ad_watpud03.dds", {
-      headers: { Authorization: "Bearer token-456" }
+      headers: { Authorization: "Bearer token-456" },
+      signal: expect.any(AbortSignal)
     });
     expect(ddsLoader).not.toHaveBeenCalled();
   });
@@ -2046,8 +2160,10 @@ describe("WorkspaceCanvasViewport placeable texture loader cache", () => {
       const texture = await ensurePlaceableTexture(runtime, textureUrl);
 
       expect(texture).toBe(loadedTexture);
+      expect(textureFetch).toHaveBeenCalledTimes(3);
       expect(textureFetch).toHaveBeenCalledWith(textureUrl, {
-        headers: { Authorization: "Bearer token-789" }
+        headers: { Authorization: "Bearer token-789" },
+        signal: expect.any(AbortSignal)
       });
       expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
       expect(URL.revokeObjectURL).toHaveBeenCalledWith(objectUrl);
@@ -2342,7 +2458,7 @@ describe("WorkspaceCanvasViewport placeable model loader cache", () => {
       modelUrl: "/assets/fallback.gltf"
     });
     const resolution = resolvePlaceableModelResolution(payload);
-    expect(resolution.modelUrl).toBe("http://localhost:3000/assets/placeable.glb");
+    expect(resolution.modelUrl).toBe("http://127.0.0.1:3000/assets/placeable.glb");
     if (!resolution.modelUrl) {
       throw new Error("Expected model URL for ready payload");
     }
@@ -2354,7 +2470,7 @@ describe("WorkspaceCanvasViewport placeable model loader cache", () => {
 
     expect(load).toHaveBeenCalledTimes(1);
     expect(load).toHaveBeenCalledWith(
-      "http://localhost:3000/assets/placeable.glb",
+      "http://127.0.0.1:3000/assets/placeable.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -2580,7 +2696,7 @@ describe("WorkspaceCanvasViewport placeable model loader cache", () => {
     await expect(
       ensurePlaceableModel(runtime, "http://localhost:3000/assets/missing.glb")
     ).resolves.toBeNull();
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(3);
   });
 
   it("times out stalled GLTF loader requests so the queue can settle", async () => {
@@ -2786,6 +2902,27 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     ).length;
   }
 
+  function findSoundGuideNode(
+    runtime: Parameters<typeof rebuildObjectMeshes>[0],
+    role: string
+  ): THREE.Object3D | null {
+    let match: THREE.Object3D | null = null;
+    runtime.objectLayer.traverse((node) => {
+      if (match === null && node.userData?.soundGuideRole === role) {
+        match = node;
+      }
+    });
+    return match;
+  }
+
+  function readGuideBoundsSize(node: THREE.Object3D | null): THREE.Vector3 {
+    expect(node).toBeInstanceOf(THREE.Line);
+    const geometry = (node as THREE.Line).geometry as THREE.BufferGeometry;
+    geometry.computeBoundingBox();
+    expect(geometry.boundingBox).not.toBeNull();
+    return geometry.boundingBox!.getSize(new THREE.Vector3());
+  }
+
   function createPlaceablePayloadWithModelUrl(modelUrl: string) {
     return createPlaceableViewportPayload({
       status: "ready",
@@ -2887,15 +3024,9 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     const objectInstancedMesh = instancedMeshes.find(
       (mesh) => mesh.userData.role === "instanced-fallback-placeable"
     );
-    const sourceFootprintMeshes = instancedMeshes.filter(
-      (mesh) => mesh.userData.role === "instanced-area-object-source-footprint"
-    );
-
-    expect(instancedMeshes).toHaveLength(3);
+    expect(instancedMeshes).toHaveLength(1);
     expect(objectInstancedMesh?.count).toBe(2);
     expect(objectInstancedMesh?.userData.objectIds).toEqual(["plc_a", "plc_b"]);
-    expect(sourceFootprintMeshes).toHaveLength(2);
-    expect(sourceFootprintMeshes.map((mesh) => mesh.count)).toEqual([2, 2]);
     expect(runtime.objectMeshById.get("plc_a")).not.toBe(objectInstancedMesh);
     expect(runtime.objectMeshById.get("plc_a")?.userData.auroraInstancedFallbackMesh).toBe(
       objectInstancedMesh
@@ -2983,40 +3114,17 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     const firstMatrixAfter = new THREE.Matrix4();
     const beforeScale = new THREE.Vector3();
     const afterScale = new THREE.Vector3();
-    const defaultFootprintMesh = firstProxy?.userData
-      .auroraSourceFootprintDefaultMesh as THREE.InstancedMesh;
-    const selectedFootprintMesh = firstProxy?.userData
-      .auroraSourceFootprintSelectedMesh as THREE.InstancedMesh;
-    const defaultFootprintMatrix = new THREE.Matrix4();
-    const selectedFootprintMatrix = new THREE.Matrix4();
-    const defaultFootprintScale = new THREE.Vector3();
-    const selectedFootprintScale = new THREE.Vector3();
     instancedMesh.getMatrixAt(0, firstMatrixBefore);
     firstMatrixBefore.decompose(new THREE.Vector3(), new THREE.Quaternion(), beforeScale);
 
     updateObjectMeshSelectionState(runtime, objects, ["plc_a"], 1, true);
     instancedMesh.getMatrixAt(0, firstMatrixAfter);
     firstMatrixAfter.decompose(new THREE.Vector3(), new THREE.Quaternion(), afterScale);
-    defaultFootprintMesh.getMatrixAt(0, defaultFootprintMatrix);
-    selectedFootprintMesh.getMatrixAt(0, selectedFootprintMatrix);
-    defaultFootprintMatrix.decompose(
-      new THREE.Vector3(),
-      new THREE.Quaternion(),
-      defaultFootprintScale
-    );
-    selectedFootprintMatrix.decompose(
-      new THREE.Vector3(),
-      new THREE.Quaternion(),
-      selectedFootprintScale
-    );
-
     expect(firstProxy?.scale.x).toBeCloseTo(1.16, 6);
     expect(afterScale.x).toBeGreaterThan(beforeScale.x);
-    expect(defaultFootprintScale.x).toBeLessThan(0.001);
-    expect(selectedFootprintScale.x).toBeGreaterThan(0);
     expect(
       runtime.objectLayer.children.filter((child) => child instanceof THREE.InstancedMesh)
-    ).toHaveLength(3);
+    ).toHaveLength(1);
   });
 
   it("suppresses no-geometry helper placeable fallbacks outside non-render diagnostics", () => {
@@ -3082,6 +3190,7 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
   });
 
   it("keeps primitive fallback visible when model loading fails", async () => {
+    vi.useFakeTimers();
     const { runtime } = createRuntimeForObjectMeshTests((_onLoad, onError) => {
       onError();
     });
@@ -3089,26 +3198,30 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     const object = createPreviewPlaceableObject();
     const payload = createPlaceablePayloadWithModelUrl("/assets/missing.glb");
 
-    rebuildObjectMeshes(
-      runtime,
-      [object as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]],
-      [],
-      createDebugState(),
-      1,
-      false,
-      10,
-      [],
-      false,
-      { [object.id]: payload }
-    );
+    try {
+      rebuildObjectMeshes(
+        runtime,
+        [object as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]],
+        [],
+        createDebugState(),
+        1,
+        false,
+        10,
+        [],
+        false,
+        { [object.id]: payload }
+      );
 
-    await flushAsyncEffects();
+      await vi.runAllTimersAsync();
 
-    const root = runtime.objectMeshById.get(object.id);
-    expect(root).toBeDefined();
-    expect(root?.children.length).toBeGreaterThan(0);
-    expect(root?.children.some((child) => child instanceof THREE.Mesh)).toBe(true);
-    expect(runtime.container.dataset.placeableModelStatus).toBe("missing");
+      const root = runtime.objectMeshById.get(object.id);
+      expect(root).toBeDefined();
+      expect(root?.children.length).toBeGreaterThan(0);
+      expect(root?.children.some((child) => child instanceof THREE.Mesh)).toBe(true);
+      expect(runtime.container.dataset.placeableModelStatus).toBe("missing");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps primitive fallback when loaded model contains no meshes", async () => {
@@ -3301,6 +3414,67 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
     expect(lockedDiagnostics).toEqual({ marker: 1, editorGuides: 0 });
     expect(lockedRuntime.container.dataset.soundMarkerCount).toBe("1");
     expect(lockedRuntime.container.dataset.soundEditorGuideCount).toBe("0");
+  });
+
+  it("renders native attenuation, random-range, and signed-height guide geometry at exact scale", () => {
+    const object = createBackendSoundObject({
+      soundPositioning: {
+        mode: "random",
+        elevation: -4,
+        maxVolumeDistance: 6,
+        cutoffDistance: 12,
+        randomRangeWestEast: 4,
+        randomRangeNorthSouth: 5
+      }
+    });
+    const runtime = createRuntimeForObjectMeshTests((_onLoad, onError) => {
+      onError();
+    }).runtime;
+
+    rebuildObjectMeshes(
+      runtime,
+      [object as unknown as Parameters<typeof rebuildObjectMeshes>[1][number]],
+      [object.id],
+      createDebugState(),
+      1,
+      1,
+      1,
+      true,
+      10,
+      [],
+      false,
+      null
+    );
+
+    const innerRangeSize = readGuideBoundsSize(findSoundGuideNode(runtime, "max-range"));
+    const outerRangeSize = readGuideBoundsSize(findSoundGuideNode(runtime, "cutoff-range"));
+    const randomRangeSize = readGuideBoundsSize(findSoundGuideNode(runtime, "random-range"));
+    const heightNode = findSoundGuideNode(runtime, "height");
+    const heightSize = readGuideBoundsSize(heightNode);
+    const heightPositions = (
+      (heightNode as THREE.Line).geometry as THREE.BufferGeometry
+    ).getAttribute("position");
+
+    expect(innerRangeSize.x).toBeCloseTo(1.2, 6);
+    expect(innerRangeSize.z).toBeCloseTo(1.2, 6);
+    expect(outerRangeSize.x).toBeCloseTo(2.4, 6);
+    expect(outerRangeSize.z).toBeCloseTo(2.4, 6);
+    expect(randomRangeSize.x).toBeCloseTo(0.4, 6);
+    expect(randomRangeSize.z).toBeCloseTo(0.5, 6);
+    expect(heightSize.y).toBeCloseTo(0.4, 6);
+    expect(heightPositions.getY(1)).toBeLessThan(heightPositions.getY(0));
+
+    const markerUserData = runtime.objectMeshById.get(object.id)?.userData;
+    expect(markerUserData).toMatchObject({
+      soundGuideGeometryRevision: "aurora-sound-guide-world-geometry.v1",
+      soundGuideMode: "random",
+      soundGuideElevationMeters: -4,
+      soundGuideElevationOffsetWorld: -0.4,
+      soundGuideRandomRangeHalfWidthWorld: 0.2,
+      soundGuideRandomRangeHalfDepthWorld: 0.25
+    });
+    expect(markerUserData?.soundGuideMaxVolumeRadiusWorld).toBeCloseTo(0.6, 12);
+    expect(markerUserData?.soundGuideCutoffRadiusWorld).toBeCloseTo(1.2, 12);
   });
 
   it("counts multiple backend sound markers while locking all editor guide overlays", () => {
@@ -3667,6 +3841,155 @@ describe("WorkspaceCanvasViewport placeable model fallback safety", () => {
       backendSoundId: "sound_dia_hakon_add_13",
       soundTemplateSource: "backend-catalog"
     });
+  });
+
+  it("keeps retained Store properties reachable when the logical object has no canvas render id", () => {
+    const store = {
+      ...createNewSceneObject("stores", 2, 3, 106),
+      id: "store_scene_store_dye_01",
+      tag: "STORE_DYE_01",
+      resRef: "store_dye_01",
+      storeProperties: {
+        comments: "  source store note  "
+      }
+    };
+    const visibleToolbarState = createDefaultToolbarState();
+    const hiddenToolbarState = {
+      ...visibleToolbarState,
+      visibility: {
+        ...visibleToolbarState.visibility,
+        stores: false
+      }
+    };
+    const emptyRenderObjectIds = new Set<string>();
+
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [store],
+        objectId: store.id,
+        objectKind: "stores",
+        toolbarState: visibleToolbarState,
+        renderObjectIdsSet: emptyRenderObjectIds
+      })
+    ).toMatchObject({
+      id: "store_scene_store_dye_01",
+      kind: "stores",
+      storeProperties: {
+        comments: "  source store note  "
+      }
+    });
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [store],
+        objectId: store.id,
+        objectKind: "stores",
+        toolbarState: hiddenToolbarState,
+        renderObjectIdsSet: emptyRenderObjectIds
+      })
+    ).toMatchObject({ id: store.id, kind: "stores" });
+    expect(
+      resolveVisibleObjectForSidebarSignal({
+        objects: [store],
+        objectId: store.id,
+        toolbarState: hiddenToolbarState,
+        renderObjectIdsSet: emptyRenderObjectIds
+      })
+    ).toMatchObject({ id: store.id, kind: "stores" });
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [store],
+        objectId: store.id,
+        objectKind: "sounds",
+        toolbarState: visibleToolbarState,
+        renderObjectIdsSet: emptyRenderObjectIds
+      })
+    ).toBeNull();
+  });
+
+  it("keeps retained Trigger properties reachable while Trigger canvas visibility is disabled", () => {
+    const trigger: SceneObject = {
+      ...createNewSceneObject("triggers", 2, 3, 107),
+      id: "trigger_scene_generic_01",
+      tag: "GenericTrigger",
+      source: {
+        type: "aurora_git",
+        areaId: "area_scene_01",
+        sourceKind: "trigger",
+        sourceObjectId: "trigger:0:generictrigger:source",
+        sourceIndex: 0,
+        triggerTag: { present: true, value: "GenericTrigger" }
+      }
+    };
+    const toolbarState = createDefaultToolbarState();
+
+    expect(toolbarState.visibility.triggers).toBe(false);
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [trigger],
+        objectId: trigger.id,
+        objectKind: "triggers",
+        toolbarState,
+        renderObjectIdsSet: new Set<string>()
+      })
+    ).toMatchObject({
+      id: trigger.id,
+      kind: "triggers",
+      source: {
+        triggerTag: { present: true, value: "GenericTrigger" }
+      }
+    });
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [trigger],
+        objectId: trigger.id,
+        objectKind: "sounds",
+        toolbarState,
+        renderObjectIdsSet: new Set<string>()
+      })
+    ).toBeNull();
+  });
+
+  it("keeps retained Waypoint properties reachable while Waypoint canvas visibility is disabled", () => {
+    const waypoint: SceneObject = {
+      ...createNewSceneObject("waypoints", 2, 3, 108),
+      id: "waypoint_scene_patrol_01",
+      tag: "NW_WAYPOINT001",
+      source: {
+        type: "aurora_git",
+        areaId: "area_scene_01",
+        sourceKind: "waypoint",
+        sourceObjectId: "waypoint:0:nw_waypoint001:source",
+        sourceIndex: 0,
+        waypointTag: { present: true, value: "NW_WAYPOINT001" },
+      },
+    };
+    const toolbarState = createDefaultToolbarState();
+
+    expect(toolbarState.visibility.waypoints).toBe(false);
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [waypoint],
+        objectId: waypoint.id,
+        objectKind: "waypoints",
+        toolbarState,
+        renderObjectIdsSet: new Set<string>(),
+      })
+    ).toMatchObject({
+      id: waypoint.id,
+      kind: "waypoints",
+      source: {
+        waypointTag: { present: true, value: "NW_WAYPOINT001" },
+      },
+    });
+    expect(
+      resolveVisibleObjectForPropertiesSignal({
+        objects: [waypoint],
+        objectId: waypoint.id,
+        objectKind: "sounds",
+        toolbarState,
+        renderObjectIdsSet: new Set<string>(),
+      })
+    ).toBeNull();
   });
 
   it("keeps additive sidebar sound selection limited to allowed visible render subset objects", () => {

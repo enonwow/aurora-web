@@ -11,6 +11,7 @@ import {
   createSeedAreaScene
 } from "../../../src/modules/scene/domain/sceneFactory";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspaceWithExactSoundEditing } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -73,6 +74,7 @@ function installBackendSoundCatalogFetchFixture() {
               previewWaveformUrl: "/api/v1/catalog/sounds/sound_dia_hakon_add_12/preview",
               spatialMode: "3d",
               playbackMode: "random",
+              source: { layer: "vanilla" },
               auroraUsage: {
                 bindingKey: "GI_sound_pos",
                 sourceField: "PlacedSound"
@@ -123,11 +125,12 @@ async function openSoundPropertiesDialogFromRowAction(label: RegExp) {
 }
 
 async function createSoundObjectFromAddPanel(label: RegExp) {
-  fireEvent.change(screen.getByLabelText(/add object type selector/i), {
+  const leftSidebar = screen.getByLabelText(/left sidebar/i);
+  fireEvent.click(within(leftSidebar).getByRole("tab", { name: /add objects/i }));
+  fireEvent.change(within(leftSidebar).getByLabelText(/add object type selector/i), {
     target: { value: "sounds" }
   });
 
-  const leftSidebar = screen.getByLabelText(/left sidebar/i);
   const templateRowButton = await within(leftSidebar).findByRole("button", {
     name: label
   });
@@ -136,9 +139,10 @@ async function createSoundObjectFromAddPanel(label: RegExp) {
 
   fireEvent.click(
     within(rowItem as HTMLElement).getByRole("button", {
-      name: /create object on canvas/i
+      name: /place object on canvas/i
     })
   );
+  fireEvent.click(await screen.findByRole("button", { name: /^place center$/i }));
 }
 
 function createBackendSoundScene() {
@@ -216,6 +220,7 @@ describe("Regression smoke: sound properties dialog", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspaceWithExactSoundEditing();
   });
 
   it("supports open/edit/apply/ok flow and deterministic mode gating", async () => {
@@ -236,7 +241,7 @@ describe("Regression smoke: sound properties dialog", () => {
     expect(westEastInput).toBeDisabled();
     expect(northSouthInput).toBeDisabled();
     expect(elevationInput).not.toBeDisabled();
-    expect(maxVolumeInput).toBeDisabled();
+    expect(maxVolumeInput).not.toBeDisabled();
 
     fireEvent.click(
       within(dialog).getByRole("radio", { name: /plays everywhere in area/i })
@@ -250,7 +255,7 @@ describe("Regression smoke: sound properties dialog", () => {
       within(dialog).getByRole("radio", { name: /plays from random position each play/i })
     );
     expect(elevationInput).not.toBeDisabled();
-    expect(maxVolumeInput).toBeDisabled();
+    expect(maxVolumeInput).not.toBeDisabled();
     expect(westEastInput).not.toBeDisabled();
     expect(northSouthInput).not.toBeDisabled();
 
@@ -264,7 +269,7 @@ describe("Regression smoke: sound properties dialog", () => {
     const afterApply = getSoundByTag("SOUND_FOREST_01");
     expect(afterApply?.soundPositioning?.mode).toBe("random");
     expect(afterApply?.soundPositioning?.cutoffDistance).toBeCloseTo(13.5, 6);
-    expect(afterApply?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.35, 6);
+    expect(afterApply?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.2, 6);
     expect(afterApply?.soundPositioning?.randomRangeWestEast).toBeCloseTo(3.5, 6);
     expect(afterApply?.soundPositioning?.randomRangeNorthSouth).toBeCloseTo(4.5, 6);
 
@@ -422,7 +427,7 @@ describe("Regression smoke: sound properties dialog", () => {
     const edited = getSoundByTag("SOUND_FOREST_01");
     expect(edited?.soundPositioning?.mode).toBe("random");
     expect(edited?.soundPositioning?.cutoffDistance).toBeCloseTo(20, 6);
-    expect(edited?.soundPositioning?.maxVolumeDistance).toBeCloseTo(2, 6);
+    expect(edited?.soundPositioning?.maxVolumeDistance).toBeCloseTo(1.2, 6);
     expect(edited?.soundPositioning?.randomRangeWestEast).toBeCloseTo(5, 6);
     expect(edited?.soundPositioning?.randomRangeNorthSouth).toBeCloseTo(6, 6);
 
@@ -526,7 +531,7 @@ describe("Regression smoke: sound properties dialog", () => {
     );
     fireEvent.change(
       within(dialog).getByRole("slider", { name: /volume variation/i }),
-      { target: { value: "4.5" } }
+      { target: { value: "57" } }
     );
     fireEvent.change(
       getSoundDialogNumericInput(dialog, /pitch variation \(octaves\)/i),
@@ -545,7 +550,7 @@ describe("Regression smoke: sound properties dialog", () => {
     expect(updated?.soundPositioning?.preserve?.playOrder).toBe("random");
     expect(updated?.soundPositioning?.preserve?.intervalMs).toBe(12500);
     expect(updated?.soundPositioning?.preserve?.intervalVariationMs).toBe(2500);
-    expect(updated?.soundPositioning?.preserve?.volumeVariation).toBeCloseTo(0.45, 6);
+    expect(updated?.soundPositioning?.preserve?.volumeVariation).toBeCloseTo(57 / 127, 6);
     expect(updated?.soundPositioning?.preserve?.pitchVariation).toBeCloseTo(0.2, 6);
   });
 
@@ -585,8 +590,8 @@ describe("Regression smoke: sound properties dialog", () => {
     );
 
     unmount();
-    renderAtPath("/login");
-    await signInAs("builder.user", "builder123");
+    renderAtPath("/app");
+    expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12_EDITED")).toBeDefined();
     });
@@ -650,8 +655,8 @@ describe("Regression smoke: sound properties dialog", () => {
       );
 
       unmount();
-      renderAtPath("/login");
-      await signInAs("builder.user", "builder123");
+      renderAtPath("/app");
+      expect(await screen.findByRole("button", { name: /sign out/i })).toBeInTheDocument();
       await waitFor(() => {
         expect(getSoundByTag("SOUND_DIA_HAKON_ADD_12_CREATED_EDITED")).toBeDefined();
       });

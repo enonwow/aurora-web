@@ -9,6 +9,7 @@ import {
   resolvePlaceableRenderPayloadLookup,
   resolvePlaceableRenderContractState,
   resolvePublishedPlaceableRenderPayloadKeys,
+  resolveSceneObjectRenderAppearanceType,
   SHARED_PLACEABLES_RENDERER_PATH
 } from "../../../../src/modules/layout/application/workspacePlaceableRenderContracts";
 
@@ -101,7 +102,24 @@ describe("workspace placeable render contracts", () => {
           sourceObjectId: "plc_001",
           sourceKind: "placeable",
           templateId: "utp_tomestone",
-          appearanceType: 104
+          appearanceType: 104,
+          placeableBasicIdentity: {
+            tag: { present: true, value: "PLC_AREA_TABLE" },
+            appearance: {
+              present: true,
+              nativeType: "dword",
+              value: 104,
+              table: {
+                resourceName: "placeables.2da",
+                sourceObjectKey: "modules/current/placeables.2da",
+                sourceLayer: "module",
+                sha256: "a".repeat(64),
+                sizeBytes: 8192,
+                rowCount: 400,
+                rowIndex: 104
+              }
+            }
+          }
         }
       })
     );
@@ -121,6 +139,109 @@ describe("workspace placeable render contracts", () => {
       ],
       publishTemplateAliases: false
     });
+  });
+
+  it("rekeys and reprocesses an existing Placeable from its admitted editable Appearance target", () => {
+    const lookup = resolvePlaceableRenderPayloadLookup(
+      buildAreaObject({
+        placeableProperties: {
+          plot: false,
+          useable: false,
+          hasInventory: false,
+          appearanceType: 105
+        },
+        source: {
+          type: "aurora_git",
+          areaId: "area_ikea",
+          sourceObjectId: "plc_001",
+          sourceKind: "placeable",
+          templateId: "utp_tomestone",
+          appearanceType: 104,
+          placeableBasicIdentity: {
+            tag: { present: true, value: "PLC_AREA_TABLE" },
+            appearance: {
+              present: true,
+              nativeType: "dword",
+              value: 104,
+              table: {
+                resourceName: "placeables.2da",
+                sourceObjectKey: "modules/current/placeables.2da",
+                sourceLayer: "module",
+                sha256: "a".repeat(64),
+                sizeBytes: 8192,
+                rowCount: 400,
+                rowIndex: 104
+              }
+            }
+          }
+        }
+      })
+    );
+
+    expect(lookup.cacheKey).toBe(
+      "area-instance-render-row:placeables:appearance:105:generic:none:tag:plc_area_table:label:none"
+    );
+    expect(lookup.processPayload).toMatchObject({ appearanceType: 105 });
+  });
+
+  it("admits render targets only within exact Placeable provenance and preserves Door source semantics", () => {
+    const exactPlaceable = buildAreaObject({
+      placeableProperties: {
+        plot: false,
+        useable: false,
+        hasInventory: false,
+        appearanceType: 0
+      },
+      source: {
+        type: "aurora_git",
+        sourceKind: "placeable",
+        appearanceType: 104,
+        placeableBasicIdentity: {
+          tag: { present: true, value: "PLC_AREA_TABLE" },
+          appearance: {
+            present: true,
+            nativeType: "dword",
+            value: 104,
+            table: {
+              resourceName: "placeables.2da",
+              sourceObjectKey: "modules/current/placeables.2da",
+              sourceLayer: "module",
+              sha256: "a".repeat(64),
+              sizeBytes: 8192,
+              rowCount: 400,
+              rowIndex: 104
+            }
+          }
+        }
+      }
+    });
+    expect(resolveSceneObjectRenderAppearanceType(exactPlaceable)).toBe(0);
+    expect(resolveSceneObjectRenderAppearanceType({
+      ...exactPlaceable,
+      placeableProperties: { ...exactPlaceable.placeableProperties!, appearanceType: 399 }
+    })).toBe(399);
+    for (const invalidTarget of [-1, 1.5, 400, "105"]) {
+      expect(resolveSceneObjectRenderAppearanceType({
+        ...exactPlaceable,
+        placeableProperties: {
+          ...exactPlaceable.placeableProperties!,
+          appearanceType: invalidTarget as number
+        }
+      })).toBe(104);
+    }
+    expect(resolveSceneObjectRenderAppearanceType({
+      ...exactPlaceable,
+      source: { ...exactPlaceable.source, placeableBasicIdentity: undefined }
+    })).toBe(104);
+    expect(resolveSceneObjectRenderAppearanceType({
+      ...exactPlaceable,
+      kind: "doors",
+      source: { type: "aurora_git", sourceKind: "door", appearanceType: 7 }
+    })).toBe(7);
+    expect(resolveSceneObjectRenderAppearanceType({
+      ...exactPlaceable,
+      source: { type: "aurora_git", sourceKind: "placeable", appearanceType: Number.NaN }
+    })).toBeUndefined();
   });
 
   it("builds area instance door lookups from GIT appearance and generic type facts", () => {

@@ -7,8 +7,12 @@ import {
   createAuroraAreaEditorRandomSeed,
   createAuroraAreaEditingState,
   hydrateAuroraAreaEditingState,
+  placeAuroraAreaDiagnosticFixtureTileId,
+  placeAuroraAreaDiagnosticFixtureTiles,
+  placeAuroraAreaDiagnosticFixtureGroups,
   placeAuroraAreaGroup,
   pruneStaleAuroraAreaGroupMembers,
+  replaceAuroraAreaTileId,
   removeAuroraAreaGroupAtCell,
   rerollAuroraAreaTileVariant,
   resizeAuroraArea,
@@ -18,6 +22,7 @@ import {
   rotateAuroraAreaTile,
   type AuroraAreaTilesetDefinition
 } from "../../../../../src/modules/scene/domain/auroraAreaEditing";
+import { drawAuroraNativeRandom } from "../../../../../src/modules/scene/domain/auroraAreaRandom";
 
 const allCorners = (terrain: string) => ({
   topLeft: terrain,
@@ -117,6 +122,29 @@ const rectangularGroupDefinition: AuroraAreaTilesetDefinition = {
       rows: 2,
       columns: 3,
       tileIds: [40, 41, 42, 43, 44, 45]
+    }
+  ]
+};
+
+const groupWithHoleDefinition: AuroraAreaTilesetDefinition = {
+  ...definition,
+  tiles: [
+    definition.tiles[0],
+    ...[50, 51, 52, 53, 54].map((tileId) => ({
+      tileId,
+      terrain: allCorners("grass"),
+      crossers: {},
+      cornerHeights: allHeights,
+      groupId: "bridge_park"
+    }))
+  ],
+  groups: [
+    {
+      id: "bridge_park",
+      name: "Bridge park with Aurora hole",
+      rows: 2,
+      columns: 3,
+      tileIds: [50, 51, 52, 53, 54, null]
     }
   ]
 };
@@ -247,6 +275,41 @@ describe("auroraAreaEditing", () => {
     expect(second.state.randomSeed).toBe(first.state.randomSeed);
   });
 
+  it("uses the Aurora LCG, rather than browser randomness, for new-area and reroll variants", () => {
+    const variants: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        { tileId: 0, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights },
+        { tileId: 4, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights }
+      ],
+      groups: []
+    };
+    const first = createAuroraAreaEditingState({
+      areaResRef: "rng_area",
+      width: 2,
+      height: 2,
+      definition: variants
+    });
+    const second = createAuroraAreaEditingState({
+      areaResRef: "rng_area",
+      width: 2,
+      height: 2,
+      definition: variants
+    });
+
+    if (!first.ok || !second.ok) throw new Error("Could not create RNG fixture.");
+    expect(first.state.tiles).toEqual(second.state.tiles);
+    let expectedSeed = createAuroraAreaEditorRandomSeed("rng_area", variants.fingerprint);
+    for (let index = 0; index < 4; index += 1) {
+      expectedSeed = drawAuroraNativeRandom(expectedSeed).seed;
+    }
+    expect(first.state.randomSeed).toBe(expectedSeed);
+
+    const rerolled = rerollAuroraAreaTileVariant(first.state, variants, { row: 0, col: 0 });
+    if (!rerolled.ok) throw new Error(rerolled.message);
+    expect(rerolled.state.randomSeed).toBe(drawAuroraNativeRandom(expectedSeed).seed);
+  });
+
   it("applies a SET crosser to both cells sharing a half-grid edge atomically", () => {
     const initial = createAuroraAreaEditingState({
       areaResRef: "crosser_test",
@@ -314,6 +377,190 @@ describe("auroraAreaEditing", () => {
     expect(initial.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.tileId).toBe(0);
   });
 
+  it("replaces a loose Tile_ID explicitly while preserving the ARE cell fields", () => {
+    const explicitDefinition: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        definition.tiles[0],
+        { tileId: 4, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights }
+      ],
+      groups: []
+    };
+    const created = createAuroraAreaEditingState({
+      areaResRef: "explicit_tile",
+      width: 2,
+      height: 2,
+      definition: explicitDefinition,
+      selector: () => 0
+    });
+    if (!created.ok) throw new Error(created.message);
+    created.state.tiles[0].mainLight1 = 23;
+    created.state.tiles[0].animLoop2 = 7;
+
+    const replaced = replaceAuroraAreaTileId(
+      created.state,
+      explicitDefinition,
+      { row: 0, col: 0 },
+      4,
+      () => 0
+    );
+
+    expect(replaced.ok).toBe(true);
+    if (!replaced.ok) return;
+    expect(replaced.state.tiles.find((tile) => tile.row === 0 && tile.col === 0)).toMatchObject({
+      tileId: 4,
+      mainLight1: 23,
+      animLoop2: 7
+    });
+    expect(created.state.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.tileId).toBe(0);
+  });
+
+    it("replaces a topology-compatible Tile_ID locally when another source cell is non-canonical", () => {
+    const explicitDefinition: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        definition.tiles[0],
+        { tileId: 4, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights }
+      ],
+      groups: []
+    };
+    const created = createAuroraAreaEditingState({
+      areaResRef: "source_non_canonical",
+      width: 2,
+      height: 2,
+      definition: explicitDefinition,
+      selector: () => 0
+    });
+    if (!created.ok) throw new Error(created.message);
+    const unrelatedTileBefore = structuredClone(
+      created.state.tiles.find((tile) => tile.row === 1 && tile.col === 1)
+    );
+    created.state.topology.tokens[created.state.topology.tokens.length - 1] = "source-only-terrain";
+
+    const replaced = replaceAuroraAreaTileId(
+      created.state,
+      explicitDefinition,
+      { row: 0, col: 0 },
+      4,
+      () => 0
+    );
+
+    expect(replaced.ok).toBe(true);
+    if (!replaced.ok) return;
+    expect(replaced.state.tiles.find((tile) => tile.row === 0 && tile.col === 0)).toMatchObject({
+      tileId: 4,
+      orientation: 0
+    });
+    expect(replaced.state.tiles.find((tile) => tile.row === 1 && tile.col === 1)).toEqual(
+      unrelatedTileBefore
+    );
+      expect(replaced.state.topology.tokens.at(-1)).toBe("source-only-terrain");
+    });
+
+    it("places an explicit unrotated diagnostic fixture without auto-retile", () => {
+      const initial = createState();
+      initial.tiles[0].orientation = 3;
+      const result = placeAuroraAreaDiagnosticFixtureTileId(
+        initial,
+        definition,
+        { row: 0, col: 0 },
+        1
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.state.tiles.find((tile) => tile.row === 0 && tile.col === 0)).toMatchObject({
+        tileId: 1,
+        orientation: 0
+      });
+      expect(result.state.tiles.find((tile) => tile.row === 0 && tile.col === 1)?.tileId).toBe(0);
+    });
+
+    it("places a diagnostic fixture batch atomically and rejects repeated cells", () => {
+      const initial = createState();
+      const result = placeAuroraAreaDiagnosticFixtureTiles(initial, definition, [
+        { row: 0, col: 0, tileId: 1 },
+        { row: 0, col: 1, tileId: 1 }
+      ]);
+      expect(result).toMatchObject({
+        ok: true,
+        state: { tiles: expect.arrayContaining([
+          expect.objectContaining({ row: 0, col: 0, tileId: 1, orientation: 0 }),
+          expect.objectContaining({ row: 0, col: 1, tileId: 1, orientation: 0 })
+        ]) }
+      });
+      expect(placeAuroraAreaDiagnosticFixtureTiles(initial, definition, [
+        { row: 0, col: 0, tileId: 1 },
+        { row: 0, col: 0, tileId: 1 }
+      ])).toMatchObject({ ok: false, code: "TILE_UNKNOWN" });
+    });
+
+    it("places complete diagnostic SET groups atomically without bypassing member ownership", () => {
+      const initial = createState();
+      const result = placeAuroraAreaDiagnosticFixtureGroups(initial, definition, [
+        { groupId: "group0", row: 0, col: 0, orientation: 0 }
+      ]);
+
+      expect(result).toMatchObject({
+        ok: true,
+        state: {
+          groupInstances: [
+            expect.objectContaining({
+              groupId: "group0",
+              anchorRow: 0,
+              anchorCol: 0,
+              orientation: 0,
+              cells: [{ row: 0, col: 0 }, { row: 0, col: 1 }]
+            })
+          ],
+          tiles: expect.arrayContaining([
+            expect.objectContaining({ row: 0, col: 0, tileId: 2, orientation: 0, groupId: "group0" }),
+            expect.objectContaining({ row: 0, col: 1, tileId: 3, orientation: 0, groupId: "group0" })
+          ])
+        }
+      });
+      expect(placeAuroraAreaDiagnosticFixtureGroups(initial, definition, [
+        { groupId: "group0", row: 0, col: 0, orientation: 0 },
+        { groupId: "group0", row: 0, col: 0, orientation: 0 }
+      ])).toMatchObject({ ok: false, code: "GROUP_OVERLAP" });
+    });
+
+    it("allows one-cell SET groups but refuses multi-cell or unknown Tile_ID replacement", () => {
+    const initial = createState();
+    expect(replaceAuroraAreaTileId(initial, definition, { row: 0, col: 0 }, 2)).toMatchObject({
+      ok: false,
+      code: "GROUP_LOCKED"
+    });
+    expect(replaceAuroraAreaTileId(initial, definition, { row: 0, col: 0 }, 999)).toMatchObject({
+      ok: false,
+      code: "TILE_UNKNOWN"
+    });
+
+    const crystalDefinition: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        definition.tiles[0],
+        { tileId: 118, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights, groupId: "crystal" }
+      ],
+      groups: [{ id: "crystal", name: "Crystal", rows: 1, columns: 1, tileIds: [118] }]
+    };
+    const crystalState = createAuroraAreaEditingState({
+      areaResRef: "crystal",
+      width: 2,
+      height: 2,
+      definition: crystalDefinition,
+      selector: () => 0
+    });
+    if (!crystalState.ok) throw new Error(crystalState.message);
+
+    expect(
+      replaceAuroraAreaTileId(crystalState.state, crystalDefinition, { row: 0, col: 0 }, 118, () => 0)
+    ).toMatchObject({
+      ok: true,
+      state: { tiles: expect.arrayContaining([expect.objectContaining({ row: 0, col: 0, tileId: 118 })]) }
+    });
+  });
+
   it("rejects a stroke atomically when the SET has no compatible tile", () => {
     const initial = createState();
     const result = applyTerrainStroke(initial, definition, [{ row: 0, col: 0 }], "lava", () => 0);
@@ -333,6 +580,69 @@ describe("auroraAreaEditing", () => {
 
     const locked = applyTerrainStroke(result.state, definition, [{ row: 0, col: 0 }], "water", () => 0);
     expect(locked).toMatchObject({ ok: false, code: "GROUP_LOCKED" });
+  });
+
+  it("places a group without retiling an unrelated non-canonical source cell", () => {
+    const created = createAuroraAreaEditingState({
+      areaResRef: "source_non_canonical_group",
+      width: 4,
+      height: 4,
+      definition,
+      selector: () => 0
+    });
+    if (!created.ok) throw new Error(created.message);
+    created.state.topology.tokens[created.state.topology.tokens.length - 1] = "source-only-terrain";
+    const unrelatedTileBefore = structuredClone(
+      created.state.tiles.find((tile) => tile.row === 3 && tile.col === 3)
+    );
+
+    const placed = placeAuroraAreaGroup(
+      created.state,
+      definition,
+      "group0",
+      { row: 0, col: 0 },
+      0,
+      () => 0
+    );
+
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) return;
+    expect(placed.state.groupInstances).toHaveLength(1);
+    expect(placed.state.tiles.find((tile) => tile.row === 0 && tile.col === 0)?.tileId).toBe(2);
+    expect(placed.state.tiles.find((tile) => tile.row === 0 && tile.col === 1)?.tileId).toBe(3);
+    expect(placed.state.tiles.find((tile) => tile.row === 3 && tile.col === 3)).toEqual(
+      unrelatedTileBefore
+    );
+    expect(placed.state.topology.tokens.at(-1)).toBe("source-only-terrain");
+  });
+
+  it("keeps Aurora -1 group holes as untouched loose cells while placing the real members", () => {
+    const initial = createAuroraAreaEditingState({
+      areaResRef: "area_group_hole",
+      width: 3,
+      height: 2,
+      definition: groupWithHoleDefinition,
+      selector: () => 0
+    });
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+
+    const placed = placeAuroraAreaGroup(
+      initial.state,
+      groupWithHoleDefinition,
+      "bridge_park",
+      { row: 0, col: 0 },
+      0,
+      () => 0
+    );
+
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) return;
+    expect(placed.state.groupInstances[0]?.tileIds).toHaveLength(5);
+    expect(placed.state.groupInstances[0]?.cells).toHaveLength(5);
+    const hole = placed.state.tiles.find((tile) => tile.row === 1 && tile.col === 2);
+    expect(hole?.tileId).toBe(0);
+    expect(hole?.groupId).toBeUndefined();
   });
 
   it("places every group member at the footprint's common non-zero base height", () => {
@@ -871,6 +1181,28 @@ describe("auroraAreaEditing", () => {
       1
     );
     expect(rotateWithoutUnderlay).toMatchObject({ ok: false, code: "GROUP_LOCKED" });
+  });
+
+  it("keeps unmatched SET group-member Tile_ID occurrences as editable loose tiles", () => {
+    const hydrated = hydrateAuroraAreaEditingState({
+      areaResRef: "area_loose_group_member",
+      width: 2,
+      height: 2,
+      definition,
+      sourceAreaFingerprint: "c".repeat(64),
+      tiles: [
+        { id: "0", row: 0, col: 0, tileId: 2, orientation: 0, height: 0 },
+        { id: "1", row: 0, col: 1, tileId: 0, orientation: 0, height: 0 },
+        { id: "2", row: 1, col: 0, tileId: 0, orientation: 0, height: 0 },
+        { id: "3", row: 1, col: 1, tileId: 0, orientation: 0, height: 0 }
+      ]
+    });
+
+    expect(hydrated.ok).toBe(true);
+    if (!hydrated.ok) return;
+    expect(hydrated.state.groupInstances).toEqual([]);
+    expect(hydrated.state.tiles.find((tile) => tile.id === "0")).not.toHaveProperty("groupId");
+    expect(hydrated.state.tiles).toHaveLength(4);
   });
 
   it("keeps source Tile_List provenance through left-edge resize and Area rotation", () => {

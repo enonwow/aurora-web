@@ -64,6 +64,54 @@ describe("objectAddDragPayload", () => {
     });
   });
 
+  it("retains dynamic Encounter provenance in the active drag template snapshot", () => {
+    const encounter = createNewSceneObject("encounters", 0.5, 0.5, 3);
+    encounter.source = {
+      type: "aurora_blueprint",
+      sourceKind: "encounter",
+      sourceProfileId: "effective-catalog-ute-encounter-copy-v1",
+      templateId: "enc_enc_dynamic",
+      templateResRef: "enc_dynamic",
+      sourceObjectKey: "modules/current/blueprints/encounters/enc_dynamic.ute",
+      sourceSizeBytes: 2048,
+      sourceEtag: "b".repeat(64),
+      sourceFileType: "UTE ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+    };
+
+    setCurrentObjectAddDragSourceTemplate(encounter);
+    const snapshot = getCurrentObjectAddDragSourceTemplate();
+
+    expect(snapshot?.source).toEqual(encounter.source);
+    expect(snapshot?.source).not.toBe(encounter.source);
+    setCurrentObjectAddDragPayload(null);
+  });
+
+  it("retains dynamic Waypoint provenance in the active drag template snapshot", () => {
+    const waypoint = createNewSceneObject("waypoints", 0.5, 0.5, 4);
+    waypoint.source = {
+      type: "aurora_blueprint",
+      sourceKind: "waypoint",
+      sourceProfileId: "effective-catalog-utw-waypoint-copy-v1",
+      templateId: "wpt_wp_dynamic",
+      templateResRef: "wp_dynamic",
+      sourceObjectKey: "modules/current/blueprints/waypoints/wp_dynamic.utw",
+      sourceSizeBytes: 1024,
+      sourceEtag: "c".repeat(64),
+      sourceFileType: "UTW ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+    };
+
+    setCurrentObjectAddDragSourceTemplate(waypoint);
+    const snapshot = getCurrentObjectAddDragSourceTemplate();
+
+    expect(snapshot?.source).toEqual(waypoint.source);
+    expect(snapshot?.source).not.toBe(waypoint.source);
+    setCurrentObjectAddDragPayload(null);
+  });
+
   it("accepts store templates as object add payloads", () => {
     const serialized = JSON.stringify({
       id: "sto_template_store_nw_storemagic001",

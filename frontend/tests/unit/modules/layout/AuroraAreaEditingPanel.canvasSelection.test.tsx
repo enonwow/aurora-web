@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AuroraAreaEditingPanel } from "../../../../src/modules/layout/components/AuroraAreaEditingPanel";
+import {
+  AuroraAreaEditingPanel,
+  resolveAuroraAreaReplaceableTiles
+} from "../../../../src/modules/layout/components/AuroraAreaEditingPanel";
 import {
   useWorkspaceAreaEditorMutationSignal,
   type WorkspaceAreaEditorMutationSignal
@@ -22,6 +25,18 @@ import {
 } from "../../../../src/modules/scene/domain/sceneHistory";
 import type { AreaScene } from "../../../../src/modules/scene/contracts";
 import type { AreaTileProcessContractReadiness } from "../../../../src/modules/tiles/application/areaTileProcessContractReadiness";
+import type { AreaCreateFacade } from "../../../../src/modules/areas/application/areaCreateFacade";
+import type { AreaEditingFacade } from "../../../../src/modules/areas/application/areaEditingFacade";
+import type { AreaCreateProfile } from "../../../../src/modules/areas/areaCreateContracts";
+import type { AreaUpdateFacade } from "../../../../src/modules/areas/application/areaUpdateFacade";
+import { createBrowserAreaEditingFacade } from "../../../../src/modules/areas/composition/createBrowserAreaEditingFacade";
+import type { AreaDraftSessionRegistry } from "../../../../src/modules/areas/ports/areaLifecyclePort";
+import {
+  buildAreaTileCatalogCertificationKey,
+  type AreaTileCatalogCertificationIndex,
+} from "../../../../src/modules/areas/application/areaTileCatalogFilter";
+import type { AreaTileProductionCertificationSource } from "../../../../src/modules/areas/application/areaTileProductionPlacementAdmission";
+import type { TileCertificationRow } from "../../../../src/modules/areas/domain/tileCertificationPolicy";
 
 function allCorners(terrain: string) {
   return {
@@ -80,6 +95,75 @@ const groupDefinition: AuroraAreaTilesetDefinition = {
     { tileId: 3, terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights, groupId: "group0", mainLight1: 9, animLoop1: 0 }
   ],
   groups: [{ id: "group0", name: "Two tile building", rows: 1, columns: 2, tileIds: [2, 3] }]
+};
+
+const catalogDefinition: AuroraAreaTilesetDefinition = {
+  ...definition,
+  tilesetResRef: "catalogset",
+  tiles: [
+    {
+      tileId: 0,
+      modelResRef: "cat01_floor_00",
+      terrain: allCorners("grass"),
+      crossers: {},
+      cornerHeights: allHeights,
+    },
+    {
+      tileId: 1,
+      modelResRef: "cat01_road_01",
+      terrain: allCorners("grass"),
+      crossers: { top: "road" },
+      cornerHeights: allHeights,
+    },
+    {
+      tileId: 2,
+      modelResRef: "cat01_house_02",
+      terrain: allCorners("stone"),
+      crossers: {},
+      cornerHeights: allHeights,
+      groupIds: ["house"],
+    },
+    {
+      tileId: 3,
+      terrain: allCorners("stone"),
+      crossers: {},
+      cornerHeights: allHeights,
+      groupId: "house",
+    },
+  ],
+  groups: [
+    { id: "house", name: "Stone House", rows: 1, columns: 2, tileIds: [2, 3] },
+  ],
+};
+
+const otherCatalogDefinition: AuroraAreaTilesetDefinition = {
+  ...catalogDefinition,
+  tilesetResRef: "otherset",
+  fingerprint: "d".repeat(64),
+  tiles: [
+    {
+      tileId: 77,
+      modelResRef: "oth01_cliff_77",
+      terrain: allCorners("cliff"),
+      crossers: {},
+      cornerHeights: allHeights,
+    },
+  ],
+  groups: [],
+};
+
+const verifiedTileCertificationProofs: TileCertificationRow["proofs"] = {
+  inventory: "verified",
+  assetClosure: "verified",
+  render: "verified",
+  visualSeam: "verified",
+  setAdjacency: "verified",
+  pathReference: "verified",
+  pathConnect: "verified",
+  wokSeam: "verified",
+  persistence: "verified",
+  toolset: "verified",
+  nwnRuntime: "verified",
 };
 
 function createTileProcessReadiness(
@@ -144,6 +228,133 @@ function createEditableScene() {
     result.state,
     definition,
     "grass"
+  );
+}
+
+function createCatalogEditableScene() {
+  const result = hydrateAuroraAreaEditingState({
+    areaResRef: "area_catalog",
+    width: 2,
+    height: 2,
+    definition: catalogDefinition,
+    tiles: [
+      { id: "tile_0_0", row: 0, col: 0, tileId: 0, orientation: 0, height: 0 },
+      { id: "tile_0_1", row: 0, col: 1, tileId: 0, orientation: 0, height: 0 },
+      { id: "tile_1_0", row: 1, col: 0, tileId: 0, orientation: 0, height: 0 },
+      { id: "tile_1_1", row: 1, col: 1, tileId: 0, orientation: 0, height: 0 },
+    ],
+  });
+  if (!result.ok) throw new Error(result.message);
+  return applyAuroraAreaEditingStateToScene(
+    {
+      ...createSeedAreaScene(2, 2),
+      sceneId: "area_catalog",
+      areaName: "Catalog Area",
+      objects: [],
+    },
+    result.state,
+    catalogDefinition,
+    "grass",
+  );
+}
+
+function createCatalogCertificationIndex(): AreaTileCatalogCertificationIndex {
+  const verified = (rowId: string): TileCertificationRow => ({
+    rowId,
+    eligibility: { status: "eligible" },
+    proofs: verifiedTileCertificationProofs,
+  });
+  return new Map([
+    [
+      buildAreaTileCatalogCertificationKey(catalogDefinition.tilesetResRef, 0),
+      verified("catalog-tile-0"),
+    ],
+    [
+      buildAreaTileCatalogCertificationKey(catalogDefinition.tilesetResRef, 1),
+      {
+        ...verified("catalog-tile-1"),
+        proofs: { ...verifiedTileCertificationProofs, visualSeam: "failed" as const },
+      },
+    ],
+  ]);
+}
+
+function catalogProductionCertification(
+  index: AreaTileCatalogCertificationIndex = createCatalogCertificationIndex(),
+): AreaTileProductionCertificationSource {
+  return {
+    status: "ready",
+    tilesetResRef: catalogDefinition.tilesetResRef,
+    index,
+  };
+}
+
+const atomicCreateProfile: AreaCreateProfile = {
+  id: "aur-s05-05-microset-tiny-2x2.v1",
+  evidenceScope: "aur-s05-05-structural-candidate",
+  tilesetResRef: "tms01",
+  width: 2,
+  height: 2,
+  initializerAlgorithmVersion: "aur-s05-05-observed-grid.v1",
+  initializerSeed: 0,
+  tiles: [2, 1, 3, 0].map((orientation, index) => ({
+    row: Math.floor(index / 2),
+    col: index % 2,
+    tileId: 12,
+    orientation: orientation as 0 | 1 | 2 | 3,
+    height: 0,
+    mainLight1: 0,
+    mainLight2: 0,
+    sourceLight1: 0,
+    sourceLight2: 0,
+    animLoop1: 1,
+    animLoop2: 1,
+    animLoop3: 1,
+  })),
+  groupInstances: [],
+  fingerprintSha256: "b".repeat(64),
+  setFingerprintSha256: "c".repeat(64),
+  persistenceStatus: "native-certified",
+  materializationAllowed: true,
+  certificationId: "aur-s05-05-native-proof-test",
+  blockingProofs: [],
+};
+
+function createAtomicProfileScene() {
+  const atomicDefinition: AuroraAreaTilesetDefinition = {
+    ...definition,
+    tilesetResRef: "tms01",
+    fingerprint: atomicCreateProfile.setFingerprintSha256,
+    tiles: [
+      {
+        tileId: 12,
+        terrain: allCorners("grass"),
+        crossers: {},
+        cornerHeights: allHeights,
+      },
+    ],
+  };
+  const result = hydrateAuroraAreaEditingState({
+    areaResRef: "area_test",
+    width: 2,
+    height: 2,
+    definition: atomicDefinition,
+    tiles: atomicCreateProfile.tiles.map((tile) => ({
+      id: `tile_${tile.row}_${tile.col}`,
+      ...tile,
+    })),
+  });
+  if (!result.ok) throw new Error(result.message);
+  return applyAuroraAreaEditingStateToScene(
+    {
+      ...createSeedAreaScene(2, 2),
+      sceneId: "area_test",
+      areaName: "Created Area",
+      objects: [],
+    },
+    result.state,
+    atomicDefinition,
+    "grass",
   );
 }
 
@@ -248,12 +459,370 @@ function createGroupedEditableScene(anchor: { row: number; col: number }) {
 }
 
 describe("AuroraAreaEditingPanel canvas selection", () => {
+  it("fails closed with explicit diagnostics when the Area editing facade is absent", () => {
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createEditableScene()}
+        tileProcessReadiness={createTileProcessReadiness()}
+        onSceneSelected={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Verify Area" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Verify Area" })).toHaveAttribute(
+      "title",
+      "Area editing facade is unavailable.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Export edited ARE" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Export edited ARE" }),
+    ).toHaveAttribute("title", "Area editing facade is unavailable.");
+  });
+
+  it("keeps only multi-cell SET members out of individual Tile_ID replacement", () => {
+    const singletonGroupDefinition: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        ...definition.tiles,
+        { tileId: 118, modelResRef: "atj01_o07_01", terrain: allCorners("grass"), crossers: {}, cornerHeights: allHeights, groupId: "crystal" }
+      ],
+      groups: [{ id: "crystal", name: "Crystal", rows: 1, columns: 1, tileIds: [118] }]
+    };
+
+    expect(resolveAuroraAreaReplaceableTiles(groupDefinition).map((tile) => tile.tileId)).not.toEqual(
+      expect.arrayContaining([2, 3])
+    );
+    expect(resolveAuroraAreaReplaceableTiles(singletonGroupDefinition).map((tile) => tile.tileId)).toContain(118);
+  });
+
+  it("combines tile definition search with category, capability, and certification filters", () => {
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        tileCatalogCertificationIndex={createCatalogCertificationIndex()}
+        tileProductionCertification={catalogProductionCertification()}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tile definitions" }), {
+      target: { value: "catalogset road" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tile category" }), {
+      target: { value: "feature-crosser" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tile capability" }), {
+      target: { value: "model-referenced" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Tile certification" }), {
+      target: { value: "failed" },
+    });
+
+    expect(screen.getByRole("button", { name: /Tile_ID 1.*cat01_road_01/i })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Tile_ID 0.*cat01_floor_00/i })).toBeNull();
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-matched",
+      "1",
+    );
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveTextContent(
+      "1 of 4 tile definitions",
+    );
+  });
+
+  it("disables a catalog candidate whose render closure is failed", () => {
+    const index = new Map(createCatalogCertificationIndex());
+    index.set(
+      buildAreaTileCatalogCertificationKey(catalogDefinition.tilesetResRef, 1),
+      {
+        rowId: "catalog-tile-1-render-failed",
+        eligibility: { status: "eligible" },
+        proofs: { ...verifiedTileCertificationProofs, render: "failed" },
+      },
+    );
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        tileCatalogCertificationIndex={index}
+        tileProductionCertification={catalogProductionCertification(index)}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tile definitions" }), {
+      target: { value: "cat01_road_01" },
+    });
+    const candidate = screen.getByRole("button", { name: /Tile_ID 1.*cat01_road_01/i });
+    expect(candidate).toBeDisabled();
+    expect(candidate).toHaveAttribute(
+      "title",
+      expect.stringContaining("AREA_TILE_CERTIFICATION_PROOF_FAILED"),
+    );
+  });
+
+  it("blocks direct Tile_ID replacement before scene mutation when certification is missing", () => {
+    const onSceneMutation = vi.fn();
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        tileProductionCertification={catalogProductionCertification(new Map())}
+        onSceneSelected={vi.fn()}
+        onSceneMutation={onSceneMutation}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Replace Tile_ID" }), {
+      target: { value: "1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Tile_ID" }));
+
+    expect(onSceneMutation).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "AREA_TILE_CERTIFICATION_ROW_MISSING",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Tile_ID 1");
+  });
+
+  it("admits direct Tile_ID replacement when the exact row has render closure", () => {
+    const onSceneMutation = vi.fn();
+    const index = new Map(createCatalogCertificationIndex());
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        tileProductionCertification={catalogProductionCertification(index)}
+        onSceneSelected={vi.fn()}
+        onSceneMutation={onSceneMutation}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Replace Tile_ID" }), {
+      target: { value: "1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply Tile_ID" }));
+
+    expect(onSceneMutation).toHaveBeenCalledOnce();
+    expect(onSceneMutation.mock.calls[0]?.[0].auroraAreaEditing.state.tiles[0].tileId)
+      .toBe(1);
+  });
+
+  it("fails closed to missing certification when no immutable ledger row is supplied", () => {
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Tile certification" }), {
+      target: { value: "verified" },
+    });
+    expect(screen.getByText("No tile definitions match the active catalog filters.")).toBeVisible();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Tile certification" }), {
+      target: { value: "missing" },
+    });
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveTextContent(
+      "4 of 4 tile definitions",
+    );
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-certification-missing",
+      "4",
+    );
+  });
+
+  it("uses replaceable catalog results without enabling individual replacement for group-managed tiles", () => {
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tile definitions" }), {
+      target: { value: "cat01_floor_00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Tile_ID 0.*cat01_floor_00/i }));
+    expect(screen.getByRole("combobox", { name: "Replace Tile_ID" })).toHaveValue("0");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tile definitions" }), {
+      target: { value: "Stone House" },
+    });
+    const groupManaged = screen.getAllByRole("button", { name: /Tile_ID [23]/i });
+    expect(groupManaged).toHaveLength(2);
+    expect(groupManaged.every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(groupManaged[0]).toHaveAttribute(
+      "title",
+      "This Tile_ID belongs to a multi-cell SET group and cannot be replaced individually.",
+    );
+  });
+
+  it("browses and filters another tileset catalog without making it replaceable in the active Area", async () => {
+    const listTilesets = vi.fn().mockResolvedValue([
+      { tilesetResRef: "catalogset", displayName: "Catalog Set" },
+      { tilesetResRef: "otherset", displayName: "Other Set" },
+    ]);
+    const getTilesetDefinition = vi.fn().mockResolvedValue(otherCatalogDefinition);
+    const getTileCertificationIndex = vi.fn().mockResolvedValue(new Map([
+      [
+        buildAreaTileCatalogCertificationKey("otherset", 77),
+        {
+          rowId: "tile:otherset:77",
+          eligibility: { status: "eligible" },
+          proofs: verifiedTileCertificationProofs,
+        },
+      ],
+    ]));
+    const areaEditingFacade = {
+      queries: {
+        listTilesets,
+        getTilesetDefinition,
+        getTileCertificationIndex,
+        getDefinitionForArea: vi.fn(),
+        verify: vi.fn(),
+      },
+      commands: { exportAndDownloadAre: vi.fn() },
+    } as unknown as AreaEditingFacade;
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        areaEditingFacade={areaEditingFacade}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse catalog tilesets" }));
+    expect(await screen.findByRole("option", { name: "Other Set (otherset)" })).toBeVisible();
+    fireEvent.change(screen.getByRole("combobox", { name: "Catalog tileset" }), {
+      target: { value: "otherset" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load selected tile catalog" }));
+    await waitFor(() => expect(getTilesetDefinition).toHaveBeenCalledWith("token", "otherset"));
+    await waitFor(() => expect(getTileCertificationIndex).toHaveBeenCalledWith(
+      "token",
+      "otherset",
+    ));
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tile definitions" }), {
+      target: { value: "oth01_cliff_77" },
+    });
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-tileset",
+      "otherset",
+    );
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-certification-verified",
+      "1",
+    );
+    const result = screen.getByRole("button", { name: /Tile_ID 77.*oth01_cliff_77/i });
+    expect(result).toBeDisabled();
+    expect(result).toHaveAttribute(
+      "title",
+      "This definition belongs to another tileset and cannot replace a tile in the active Area.",
+    );
+  });
+
+  it("keeps a loaded catalog visible and fails closed to missing when certification delivery fails", async () => {
+    const areaEditingFacade = {
+      queries: {
+        listTilesets: vi.fn().mockResolvedValue([
+          { tilesetResRef: "catalogset", displayName: "Catalog Set" },
+          { tilesetResRef: "otherset", displayName: "Other Set" },
+        ]),
+        getTilesetDefinition: vi.fn().mockResolvedValue(otherCatalogDefinition),
+        getTileCertificationIndex: vi.fn().mockRejectedValue(
+          new Error("sensitive transport detail"),
+        ),
+        getDefinitionForArea: vi.fn(),
+        verify: vi.fn(),
+      },
+      commands: { exportAndDownloadAre: vi.fn() },
+    } as unknown as AreaEditingFacade;
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        areaEditingFacade={areaEditingFacade}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse catalog tilesets" }));
+    await screen.findByRole("option", { name: "Other Set (otherset)" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Catalog tileset" }), {
+      target: { value: "otherset" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load selected tile catalog" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Tile certification ledger is unavailable; certification remains missing.",
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent("sensitive transport detail");
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-tileset",
+      "otherset",
+    );
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-certification-missing",
+      "1",
+    );
+  });
+
+  it("rejects a mismatched tileset definition response and keeps the prior catalog visible", async () => {
+    const areaEditingFacade = {
+      queries: {
+        listTilesets: vi.fn().mockResolvedValue([
+          { tilesetResRef: "catalogset", displayName: "Catalog Set" },
+          { tilesetResRef: "otherset", displayName: "Other Set" },
+        ]),
+        getTilesetDefinition: vi.fn().mockResolvedValue(catalogDefinition),
+        getDefinitionForArea: vi.fn(),
+        verify: vi.fn(),
+      },
+      commands: { exportAndDownloadAre: vi.fn() },
+    } as unknown as AreaEditingFacade;
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createCatalogEditableScene()}
+        areaEditingFacade={areaEditingFacade}
+        onSceneSelected={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse catalog tilesets" }));
+    await screen.findByRole("option", { name: "Other Set (otherset)" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Catalog tileset" }), {
+      target: { value: "otherset" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load selected tile catalog" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Tile catalog response returned catalogset for requested otherset.",
+    );
+    expect(screen.getByLabelText("Tile catalog diagnostics")).toHaveAttribute(
+      "data-tile-catalog-tileset",
+      "catalogset",
+    );
+  });
+
   it("creates a blank local Area when there is no active scene", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => ({ data: [{ tilesetResRef: "testset" }] })
+        json: async () => ({ data: [{ tilesetResRef: "testset", displayName: "Test Set" }] })
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -276,12 +845,14 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
       <AuroraAreaEditingPanel
         accessToken="token"
         scene={null}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
         onSceneSelected={onSceneSelected}
       />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "New blank local Area" }));
     await screen.findByRole("group", { name: "New Area settings" });
+    expect(screen.getByRole("option", { name: "Test Set (testset)" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Area resref"), { target: { value: "fresh_area" } });
     fireEvent.change(screen.getByLabelText("Width"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Height"), { target: { value: "2" } });
@@ -312,6 +883,81 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
       expect.stringContaining("/areas/editing/tilesets/testset"),
       expect.objectContaining({ headers: { Authorization: "Bearer token" } })
     );
+  });
+
+  it("offers a visible development proof initializer that seeds every new Area cell from the first compatible SET candidate", async () => {
+    const variantDefinition: AuroraAreaTilesetDefinition = {
+      ...definition,
+      tiles: [
+        definition.tiles[0],
+        {
+          tileId: 9,
+          terrain: allCorners("grass"),
+          crossers: {},
+          cornerHeights: allHeights
+        }
+      ]
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ tilesetResRef: "testset", displayName: "Test Set" }] })
+      })
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            tilesetResRef: variantDefinition.tilesetResRef,
+            fingerprint: variantDefinition.fingerprint,
+            defaults: { defaultTerrain: variantDefinition.defaultTerrain },
+            transitionRules: variantDefinition.transitionRules,
+            tiles: variantDefinition.tiles,
+            groups: variantDefinition.groups
+          }
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSceneSelected = vi.fn();
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={null}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
+        tileProductionCertification={{
+          status: "unavailable",
+          tilesetResRef: "testset",
+          reasonCode: "LOAD_FAILED",
+        }}
+        onSceneSelected={onSceneSelected}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New blank local Area" }));
+    await screen.findByRole("group", { name: "New Area settings" });
+    fireEvent.change(screen.getByLabelText("Development proof initializer"), {
+      target: { value: "first-compatible" }
+    });
+    fireEvent.change(screen.getByLabelText("Area resref"), { target: { value: "matrix_seed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create local Area" }));
+
+    await waitFor(() => expect(onSceneSelected).toHaveBeenCalledTimes(1));
+    const createdScene = onSceneSelected.mock.calls[0]?.[0] as AreaScene;
+    expect(createdScene.tiles).toHaveLength(16);
+    expect(createdScene.tiles.map((tile) => tile.tileId)).toEqual(Array(16).fill(0));
+
+    onSceneSelected.mockClear();
+    fireEvent.change(screen.getByLabelText("Area resref"), {
+      target: { value: "regular_seed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create local Area" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AREA_TILE_CERTIFICATION_UNAVAILABLE",
+    );
+    expect(onSceneSelected).not.toHaveBeenCalled();
   });
 
   it("uses the selected canvas tile as the rotate and height property target", () => {
@@ -376,6 +1022,24 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Choose an integer tile cell inside rows 0..1 and columns 0..1."
     );
+  });
+
+  it("shows WOK geometry and native PathConnect as independent connectivity verdicts", () => {
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createEditableScene()}
+        onSceneSelected={vi.fn()}
+      />
+    );
+
+    const report = screen.getByRole("region", { name: "Area tile connectivity diagnostics" });
+    expect(report).toHaveAttribute("data-area-path-connect-status", "missing");
+    expect(report).toHaveAttribute("data-area-wok-geometric-contact-seams", "0");
+    expect(report).toHaveAttribute("data-area-wok-unresolved-seams", "4");
+    expect(report).toHaveTextContent("Native PathConnect missing");
+    expect(report).toHaveTextContent("WOK geometric contacts 0/4");
+    expect(report).toHaveTextContent("This is not a traversability claim");
   });
 
   it("exposes resize and full Area rotation as one mutation per command", () => {
@@ -858,11 +1522,10 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
     );
   });
 
-  it("requires a current successful Verify before persisting a new ARE/GIT/GIC triplet", async () => {
-    const scene = createEditableScene();
-    const fingerprint = "c".repeat(64);
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({
+  it("requires Verify and candidate validation before atomically creating ARE/GIT/GIC/IFO", async () => {
+    const scene = createAtomicProfileScene();
+    const areSha = "e".repeat(64);
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({
         data: {
           valid: true,
           issues: [],
@@ -878,36 +1541,105 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
             minHeight: 0,
             maxHeight: 0
           },
-          tilesetFingerprint: definition.fingerprint
-        }
-      }))
-      .mockResolvedValueOnce(Response.json({
-        data: {
-          areaResRef: "area_test",
-          areaFingerprint: fingerprint,
-          created: true,
-          resources: [
-            { extension: "are", key: "snapshot/area_test.are", size: 100 },
-            { extension: "git", key: "snapshot/area_test.git", size: 40 },
-            { extension: "gic", key: "snapshot/area_test.gic", size: 20 }
-          ]
+          tilesetFingerprint: atomicCreateProfile.setFingerprintSha256
         }
       }));
     vi.stubGlobal("fetch", fetchMock);
+    const getProfiles = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        moduleId: "workspace-module",
+        moduleRevision: "a".repeat(64),
+        profiles: [atomicCreateProfile],
+      },
+      metadata: { contractVersion: "1.0.0", requestId: "profiles-1" },
+    }));
+    const validate = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        validationId: "validation-1",
+        commandHash: "f".repeat(64),
+        moduleId: "workspace-module",
+        moduleRevision: "a".repeat(64),
+        profileFingerprintSha256: atomicCreateProfile.fingerprintSha256,
+        setFingerprintSha256: atomicCreateProfile.setFingerprintSha256,
+        validatorVersion: "validator.v1",
+        resources: ["are", "git", "gic"].map((extension) => ({
+          extension: extension as "are" | "git" | "gic",
+          fileName: `area_test.${extension}`,
+          resourceType: 1,
+          size: 10,
+          sha256: extension === "are" ? areSha : "1".repeat(64),
+        })),
+        moduleIfo: { fileName: "module.ifo", size: 20, sha256: "2".repeat(64) },
+        createdAt: "2026-08-07T12:00:00.000Z",
+        expiresAt: "2026-08-07T12:05:00.000Z",
+      },
+      metadata: { contractVersion: "1.0.0", requestId: "validation-1" },
+    }));
+    const create = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        idempotency: "created" as const,
+        receipt: {
+          schemaVersion: "area-create-receipt.v1" as const,
+          transactionId: "transaction-1",
+          areaId: "area_test",
+          resRef: "area_test",
+          name: "Created Area",
+          tag: "area_test",
+          moduleId: "workspace-module",
+          previousModuleRevision: "a".repeat(64),
+          newModuleRevision: "9".repeat(64),
+          profileId: atomicCreateProfile.id,
+          profileFingerprintSha256: atomicCreateProfile.fingerprintSha256,
+          setFingerprintSha256: atomicCreateProfile.setFingerprintSha256,
+          draftNormalizedSha256: "d".repeat(64),
+          commandHash: "f".repeat(64),
+          validatorVersion: "validator.v1",
+          resources: ["are", "git", "gic"].map((extension) => ({
+            extension: extension as "are" | "git" | "gic",
+            key: `area_test.${extension}`,
+            fileName: `area_test.${extension}`,
+            resourceType: 1,
+            size: 10,
+            sha256: extension === "are" ? areSha : "1".repeat(64),
+          })),
+          moduleIfo: { key: "module.ifo", size: 20, sha256: "2".repeat(64) },
+          readbackStatus: "verified" as const,
+          warnings: [],
+          createdAt: "2026-08-07T12:01:00.000Z",
+        },
+      },
+      metadata: {
+        contractVersion: "1.0.0",
+        requestId: "create-1",
+        moduleRevision: "9".repeat(64),
+        etag: `"${"9".repeat(64)}"`,
+      },
+    }));
+    const areaCreateFacade = {
+      queries: { getProfiles },
+      commands: { validate, create },
+    } as AreaCreateFacade;
     const onSceneSelected = vi.fn();
+    const onAreaWorkspaceStatusChange = vi.fn();
     render(
       <AuroraAreaEditingPanel
         accessToken="token"
         scene={scene}
         tileProcessReadiness={createTileProcessReadiness()}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
+        areaCreateFacade={areaCreateFacade}
         onSceneSelected={onSceneSelected}
+        onAreaWorkspaceStatusChange={onAreaWorkspaceStatusChange}
       />
     );
 
-    const persistButton = screen.getByRole("button", { name: "Persist new Area to module" });
-    expect(persistButton).toBeDisabled();
+    const validateButton = screen.getByRole("button", { name: "Validate atomic Area Create" });
+    expect(validateButton).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Verify Area" }));
-    await waitFor(() => expect(persistButton).toBeEnabled());
+    await waitFor(() => expect(validateButton).toBeEnabled());
     const verificationReport = screen.getByLabelText("Area verification report");
     expect(verificationReport).toHaveTextContent("Tiles 4/4");
     expect(verificationReport).toHaveAttribute("data-area-verification-status", "valid");
@@ -930,15 +1662,311 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
       String(scene.updatedAtUnixMs)
     );
 
-    fireEvent.click(persistButton);
+    fireEvent.change(screen.getByLabelText("Area module tag"), {
+      target: { value: "area_test" },
+    });
+    fireEvent.click(validateButton);
+    await screen.findByLabelText("Atomic Area Create validation");
+    const createButton = screen.getByRole("button", { name: "Create Area atomically" });
+    expect(createButton).toBeEnabled();
+    expect(getProfiles).toHaveBeenCalledWith("token");
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "token",
+      moduleId: "workspace-module",
+      command: expect.objectContaining({
+        expectedModuleRevision: "a".repeat(64),
+        area: { name: "Created Area", resRef: "area_test", tag: "area_test" },
+      }),
+    }));
+
+    fireEvent.click(createButton);
     await waitFor(() => expect(onSceneSelected).toHaveBeenCalledOnce());
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "/_aurora/v1/areas/editing/verify",
-      "/_aurora/v1/areas/editing/persist/new-area"
-    ]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/_aurora/v1/areas/editing/verify"]);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "token",
+      moduleId: "workspace-module",
+      idempotencyKey: expect.stringMatching(/^area-create-/u),
+    }));
     expect(onSceneSelected.mock.calls[0]?.[0].auroraAreaEditing.state.sourceAreaFingerprint).toBe(
-      fingerprint
+      areSha
     );
+    expect(
+      onAreaWorkspaceStatusChange.mock.calls.map(([event]) => [event.lane, event.state])
+    ).toEqual([
+      ["verification", "checking"],
+      ["verification", "verified"],
+      ["materialization", "validating"],
+      ["materialization", "ready"],
+      ["materialization", "materializing"],
+      ["materialization", "verified"],
+    ]);
+  });
+
+  it("keeps module materialization disabled after validation when the profile lacks native certification", async () => {
+    const blockedProfile: AreaCreateProfile = {
+      ...atomicCreateProfile,
+      persistenceStatus: "structural-candidate-awaiting-native-certification",
+      materializationAllowed: false,
+      certificationId: null,
+      blockingProofs: ["runtime-canvas", "toolset-save-build", "nwn-runtime-load"],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({
+      data: {
+        valid: true,
+        issues: [],
+        stats: {
+          width: 2,
+          height: 2,
+          expectedTileCount: 4,
+          tileCount: 4,
+          uniqueTileIds: 1,
+          groupTileCount: 0,
+          sourceProvenanceTileCount: 0,
+          modelResolvedTileCount: 4,
+          minHeight: 0,
+          maxHeight: 0,
+        },
+        tilesetFingerprint: blockedProfile.setFingerprintSha256,
+      },
+    })));
+    const create = vi.fn();
+    const areaCreateFacade = {
+      queries: {
+        getProfiles: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            moduleId: "workspace-module",
+            moduleRevision: "a".repeat(64),
+            profiles: [blockedProfile],
+          },
+          metadata: { contractVersion: "1.0.0", requestId: "profiles-blocked" },
+        })),
+      },
+      commands: {
+        validate: vi.fn(async () => ({
+          ok: true as const,
+          value: {
+            validationId: "validation-blocked",
+            commandHash: "f".repeat(64),
+            moduleId: "workspace-module",
+            moduleRevision: "a".repeat(64),
+            profileFingerprintSha256: blockedProfile.fingerprintSha256,
+            setFingerprintSha256: blockedProfile.setFingerprintSha256,
+            validatorVersion: "validator.v1",
+            resources: ["are", "git", "gic"].map((extension) => ({
+              extension: extension as "are" | "git" | "gic",
+              fileName: `area_test.${extension}`,
+              resourceType: 1,
+              size: 10,
+              sha256: "1".repeat(64),
+            })),
+            moduleIfo: {
+              fileName: "module.ifo",
+              size: 20,
+              sha256: "2".repeat(64),
+            },
+            createdAt: "2026-08-07T12:00:00.000Z",
+            expiresAt: "2026-08-07T12:05:00.000Z",
+          },
+          metadata: {
+            contractVersion: "1.0.0",
+            requestId: "validation-blocked",
+          },
+        })),
+        create,
+      },
+    } as AreaCreateFacade;
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={createAtomicProfileScene()}
+        tileProcessReadiness={createTileProcessReadiness()}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
+        areaCreateFacade={areaCreateFacade}
+        onSceneSelected={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Verify Area" }));
+    const validateButton = screen.getByRole("button", {
+      name: "Validate atomic Area Create",
+    });
+    await waitFor(() => expect(validateButton).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Area module tag"), {
+      target: { value: "area_test" },
+    });
+    fireEvent.click(validateButton);
+
+    const createButton = await screen.findByRole("button", {
+      name: "Create Area atomically",
+    });
+    expect(createButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "runtime-canvas, toolset-save-build, nwn-runtime-load",
+    );
+    fireEvent.click(createButton);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("validates and atomically updates only the exact persisted production draft revision", async () => {
+    const baseScene = createAtomicProfileScene();
+    const scene: AreaScene = {
+      ...baseScene,
+      source: "aurora_area",
+      updatedAtUnixMs: 1234,
+      auroraAreaEditing: {
+        ...baseScene.auroraAreaEditing!,
+        state: {
+          ...baseScene.auroraAreaEditing!.state,
+          sourceAreaFingerprint: "a".repeat(64)
+        }
+      }
+    };
+    const sessions: AreaDraftSessionRegistry = {
+      current: {
+        area_test: {
+          draftId: "draft-production-01",
+          revision: 7,
+          normalizedSha256: "c".repeat(64),
+          persistedSceneUpdatedAtUnixMs: scene.updatedAtUnixMs,
+          productionSource: {
+            schemaVersion: "production-area-draft-payload.v1",
+            sourceArea: {} as never,
+            provenance: {
+              areaId: "area_test",
+              sourceUpdatedAt: "2026-08-18T20:00:00.000Z",
+              processingCacheKey: "cache-01",
+              sourceAreSha256: "a".repeat(64)
+            }
+          }
+        }
+      }
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({
+      data: {
+        valid: true,
+        issues: [],
+        stats: {
+          width: 2,
+          height: 2,
+          expectedTileCount: 4,
+          tileCount: 4,
+          uniqueTileIds: 1,
+          groupTileCount: 0,
+          sourceProvenanceTileCount: 0,
+          modelResolvedTileCount: 4,
+          minHeight: 0,
+          maxHeight: 0
+        },
+        tilesetFingerprint: atomicCreateProfile.setFingerprintSha256
+      }
+    })));
+    const getProfiles = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        moduleId: "workspace-module",
+        moduleRevision: "b".repeat(64),
+        profiles: [atomicCreateProfile]
+      },
+      metadata: { contractVersion: "1.1.0", requestId: "profiles-update" }
+    }));
+    const validate = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        validationId: "update-validation-01",
+        moduleRevision: "b".repeat(64),
+        areaResRef: "area_test",
+        draft: {
+          id: "draft-production-01",
+          revision: 7,
+          normalizedSha256: "c".repeat(64)
+        },
+        expiresAt: "2026-08-18T20:05:00.000Z"
+      },
+      metadata: {
+        contractVersion: "1.1.0",
+        requestId: "update-validation-01",
+        moduleRevision: "b".repeat(64),
+        etag: `"${"b".repeat(64)}"`
+      }
+    })) as AreaUpdateFacade["commands"]["validate"];
+    const update = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        transactionId: "update-transaction-01",
+        areaResRef: "area_test",
+        newModuleRevision: "d".repeat(64),
+        candidateAreaSha256: "e".repeat(64),
+        readbackStatus: "verified" as const
+      },
+      metadata: {
+        contractVersion: "1.1.0",
+        requestId: "update-transaction-01",
+        moduleRevision: "d".repeat(64),
+        etag: `"${"d".repeat(64)}"`,
+        idempotencyStatus: "created" as const
+      }
+    })) as AreaUpdateFacade["commands"]["update"];
+    const areaUpdateFacade = { commands: { validate, update } } as AreaUpdateFacade;
+    const areaCreateFacade = {
+      queries: { getProfiles },
+      commands: { validate: vi.fn(), create: vi.fn() }
+    } as AreaCreateFacade;
+    const onSceneSelected = vi.fn();
+    const onAreaMaterialized = vi.fn();
+
+    render(
+      <AuroraAreaEditingPanel
+        accessToken="token"
+        scene={scene}
+        tileProcessReadiness={createTileProcessReadiness()}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
+        areaCreateFacade={areaCreateFacade}
+        areaUpdateFacade={areaUpdateFacade}
+        areaDraftSessionRegistry={sessions}
+        canMaterializeAreas
+        onAreaMaterialized={onAreaMaterialized}
+        onSceneSelected={onSceneSelected}
+      />
+    );
+
+    const validateButton = screen.getByRole("button", {
+      name: "Validate atomic Area Update"
+    });
+    expect(validateButton).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Verify Area" }));
+    await waitFor(() => expect(validateButton).toBeEnabled());
+    fireEvent.click(validateButton);
+
+    await screen.findByLabelText("Atomic Area Update validation");
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "token",
+      moduleId: "workspace-module",
+      areaResRef: "area_test",
+      command: {
+        schemaVersion: "area-update-validation.v1",
+        moduleId: "workspace-module",
+        areaResRef: "area_test",
+        expectedModuleRevision: "b".repeat(64),
+        draft: {
+          id: "draft-production-01",
+          revision: 7,
+          normalizedSha256: "c".repeat(64)
+        },
+        clientCommandId: expect.stringMatching(/^command-/u)
+      }
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Update Area atomically" }));
+    await waitFor(() => expect(update).toHaveBeenCalledOnce());
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(/^area-update-/u),
+      command: expect.objectContaining({ schemaVersion: "area-update-command.v1" })
+    }));
+    expect(onSceneSelected.mock.calls[0]?.[0].auroraAreaEditing.state.sourceAreaFingerprint)
+      .toBe("e".repeat(64));
+    expect(onAreaMaterialized).toHaveBeenCalledOnce();
   });
 
   it("waits for current-scene tile asset readiness before enabling Verify", () => {
@@ -993,6 +2021,7 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
           blockerSummary: "tile_bad: source asset blocked",
           renderAssetContractBlockerSummary: "tile_bad: GLB loader handoff missing"
         })}
+        areaEditingFacade={createBrowserAreaEditingFacade()}
         onSceneSelected={vi.fn()}
       />
     );
@@ -1001,7 +2030,7 @@ describe("AuroraAreaEditingPanel canvas selection", () => {
     const report = await screen.findByLabelText("Area verification report");
     expect(report).toHaveAttribute("data-area-verification-status", "invalid");
     expect(report).toHaveTextContent("Tile assets 3/4 ready; 1 blocked; status partial");
-    expect(screen.getByRole("button", { name: "Persist new Area to module" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Validate atomic Area Create" })).toBeDisabled();
     expect(JSON.parse(report.getAttribute("data-area-verification-issues") ?? "null"))
       .toEqual(expect.arrayContaining([
         expect.objectContaining({

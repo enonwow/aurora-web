@@ -44,4 +44,50 @@ describe("storeSceneObjectMapper", () => {
       }
     });
   });
+
+  it("maps exact effective UTM provenance into an Area-constructible Store template", () => {
+    const object = mapStoreApiListItemToSceneObject({
+      templateId: "str_nw_storemagic001",
+      resref: "nw_storemagic001",
+      name: "Magic Store",
+      category: "Stores",
+      tags: ["store"],
+      previewImageUrl: "",
+      metadata: {
+        templateResRef: "nw_storemagic001",
+        localizedName: "Retail Magic Store",
+        tag: "Magic_Store_Tag",
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/nw_storemagic001.utm",
+        sourceSizeBytes: 4096,
+        sourceSha256: "b".repeat(64),
+        sourceExtension: "utm",
+        sourceFileType: "UTM ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+
+    expect(object).toMatchObject({
+      id: "sto_template_str_nw_storemagic001",
+      kind: "stores",
+      name: "Retail Magic Store",
+      resRef: "nw_storemagic001",
+      tag: "Magic_Store_Tag",
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "store",
+        sourceProfileId: "effective-catalog-utm-store-copy-v1",
+        templateId: "str_nw_storemagic001",
+        templateResRef: "nw_storemagic001",
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/nw_storemagic001.utm",
+        sourceSizeBytes: 4096,
+        sourceEtag: "b".repeat(64),
+        sourceFileType: "UTM ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
 });

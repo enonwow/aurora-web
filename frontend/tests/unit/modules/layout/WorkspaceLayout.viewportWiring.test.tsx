@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useMemo } from "react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AREAS_MODE_SELECTED_SCENE_STORAGE_KEY,
   PLACEABLES_MODE_STATE_STORAGE_KEY,
-  WorkspaceLayout
+  WorkspaceLayout as ProductionWorkspaceLayout
 } from "../../../../src/modules/layout/components/WorkspaceLayout";
 import { createSceneObjectCatalogQueryFacade } from "../../../../src/modules/layout/application/sceneObjectCatalogQueryFacade";
 import { createWorkspaceChromeFacade } from "../../../../src/modules/layout/application/workspaceChromeFacade";
@@ -12,6 +14,13 @@ import { createBrowserSceneViewportPort } from "../../../../src/modules/scene/co
 import { createNewSceneObject } from "../../../../src/modules/scene/domain/sceneFactory";
 import { AreaApiRequestError } from "../../../../src/modules/areas/adapters/httpAreaApiPort";
 import type { AreaApiPort } from "../../../../src/modules/areas/ports/areaApiPort";
+import type { AreaLifecycleFacade } from "../../../../src/modules/areas/application/areaLifecycleFacade";
+import type { AreaEditingFacade } from "../../../../src/modules/areas/application/areaEditingFacade";
+import { buildAreaTileCatalogCertificationKey } from "../../../../src/modules/areas/application/areaTileCatalogFilter";
+import type {
+  AreaDraftDocument,
+  ProductionAreaDraftPayload
+} from "../../../../src/modules/areas/ports/areaLifecyclePort";
 import type {
   AreaApiDetail,
   AreaApiListItem,
@@ -21,6 +30,11 @@ import type { PlaceableApiPort } from "../../../../src/modules/placeables/ports/
 import type { CreatureApiPort } from "../../../../src/modules/creatures/ports/creatureApiPort";
 import type { SoundApiPort } from "../../../../src/modules/sounds/ports/soundApiPort";
 import type { SoundApiListItem } from "../../../../src/modules/sounds/contracts";
+import {
+  hydrateAuroraAreaEditingState,
+  type AuroraAreaTilesetDefinition,
+} from "../../../../src/modules/scene/domain/auroraAreaEditing";
+import { applyAuroraAreaEditingStateToScene } from "../../../../src/modules/scene/domain/auroraAreaEditingSceneMapper";
 
 type AreasRuntimeCaptureWindow = typeof window & {
   __AURORA_AREAS_RUNTIME_CAPTURE_TERRAIN_ONLY__?: boolean;
@@ -128,6 +142,7 @@ function buildAreaDetailFixture(
       sounds: 0,
       total: 0
     },
+    tiles: overrides.tiles ?? [],
     updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00.000Z",
     objects: overrides.objects ?? []
   };
@@ -156,6 +171,83 @@ function attachProcessAreaFromDetail(areaApiPort: AreaApiPort): AreaApiPort {
     buildAreaProcessResult(await areaApiPort.getAreaById(accessToken, areaId))
   );
   return areaApiPort;
+}
+
+type WorkspaceAreaDraft = AreaDraftDocument<ProductionAreaDraftPayload<AreaApiDetail>>;
+
+function buildCopyOnOpenFacade(
+  areaApiPort: AreaApiPort,
+  backendAccessToken: string | null
+): AreaLifecycleFacade<WorkspaceAreaDraft> {
+  return {
+    queries: {
+      listLocalDrafts: vi.fn(async () => ({
+        ok: true as const,
+        value: { items: [], nextCursor: null },
+        metadata: { contractVersion: "1.1.0", requestId: "request_draft_list" }
+      })),
+      openLocalDraft: vi.fn()
+    },
+    commands: {
+      openProductionAreaAsDraft: vi.fn(async (command) => {
+        const processed = await areaApiPort.processArea(
+          backendAccessToken ?? "",
+          command.areaId,
+          { bypassCache: false }
+        );
+        const sourceArea = processed.area;
+        return {
+          ok: true as const,
+          value: {
+            draftId: `draft_${command.areaId}`,
+            title: command.draftTitle,
+            revision: 1,
+            updatedAt: sourceArea.updatedAt,
+            draft: {
+              schemaVersion: "area-draft.v1" as const,
+              title: command.draftTitle,
+              source: { type: "production_area" as const, areaId: command.areaId },
+              payload: {
+                schemaVersion: "production-area-draft-payload.v1" as const,
+                sourceArea,
+                provenance: {
+                  areaId: command.areaId,
+                  sourceUpdatedAt: sourceArea.updatedAt,
+                  processingCacheKey: processed.cache.key,
+                  sourceAreSha256: sourceArea.sourceResources?.areSha256,
+                  sourceGitSha256: sourceArea.sourceResources?.gitSha256,
+                  sourceGicSha256: sourceArea.sourceResources?.gicSha256
+                }
+              }
+            }
+          },
+          metadata: {
+            contractVersion: "1.1.0",
+            requestId: `request_${command.areaId}`,
+            revision: 1,
+            idempotencyStatus: "created" as const,
+            artifactIds: []
+          }
+        };
+      }),
+      saveLocalDraft: vi.fn(),
+      deleteLocalDraft: vi.fn(),
+      materializeArea: vi.fn()
+    }
+  } as unknown as AreaLifecycleFacade<WorkspaceAreaDraft>;
+}
+
+function WorkspaceLayout(props: ComponentProps<typeof ProductionWorkspaceLayout>) {
+  const defaultAreaLifecycleFacade = useMemo(
+    () => buildCopyOnOpenFacade(props.areaApiPort, props.backendAccessToken),
+    [props.areaApiPort, props.backendAccessToken]
+  );
+  return (
+    <ProductionWorkspaceLayout
+      {...props}
+      areaLifecycleFacade={props.areaLifecycleFacade ?? defaultAreaLifecycleFacade}
+    />
+  );
 }
 
 describe("WorkspaceLayout viewport wiring", () => {
@@ -578,6 +670,144 @@ describe("WorkspaceLayout viewport wiring", () => {
     window.localStorage.removeItem(PLACEABLES_MODE_STATE_STORAGE_KEY);
   });
 
+  it("loads one exact active-tileset certification source and wires it to panel and viewport", async () => {
+    const definition: AuroraAreaTilesetDefinition = {
+      tilesetResRef: "testset",
+      fingerprint: "a".repeat(64),
+      defaultTerrain: "grass",
+      transitionRules: [],
+      tiles: [{
+        tileId: 0,
+        terrain: {
+          topLeft: "grass",
+          topRight: "grass",
+          bottomRight: "grass",
+          bottomLeft: "grass",
+        },
+        crossers: {},
+        cornerHeights: {
+          topLeft: 0,
+          topRight: 0,
+          bottomRight: 0,
+          bottomLeft: 0,
+        },
+      }],
+      groups: [],
+    };
+    const state = hydrateAuroraAreaEditingState({
+      areaResRef: "area_certification_wiring",
+      width: 2,
+      height: 2,
+      definition,
+      tiles: [
+        { id: "tile_0_0", row: 0, col: 0, tileId: 0, orientation: 0, height: 0 },
+        { id: "tile_0_1", row: 0, col: 1, tileId: 0, orientation: 0, height: 0 },
+        { id: "tile_1_0", row: 1, col: 0, tileId: 0, orientation: 0, height: 0 },
+        { id: "tile_1_1", row: 1, col: 1, tileId: 0, orientation: 0, height: 0 },
+      ],
+    });
+    if (!state.ok) throw new Error(state.message);
+    const scene = applyAuroraAreaEditingStateToScene(
+      {
+        sceneId: "area_certification_wiring",
+        areaName: "Certification Wiring",
+        biome: "test",
+        width: 2,
+        height: 2,
+        tiles: [],
+        objects: [],
+        updatedAtUnixMs: 1,
+        source: "aurora_area",
+      },
+      state.state,
+      definition,
+      "grass",
+    );
+    window.sessionStorage.setItem(
+      AREAS_MODE_SELECTED_SCENE_STORAGE_KEY,
+      JSON.stringify(scene),
+    );
+    const index = new Map([[
+      buildAreaTileCatalogCertificationKey("testset", 0),
+      {
+        rowId: "tile:testset:0",
+        eligibility: { status: "eligible" as const },
+        proofs: {
+          inventory: "verified" as const,
+          assetClosure: "verified" as const,
+          render: "verified" as const,
+          visualSeam: "missing" as const,
+          setAdjacency: "missing" as const,
+          pathReference: "missing" as const,
+          pathConnect: "missing" as const,
+          wokSeam: "missing" as const,
+          persistence: "missing" as const,
+          toolset: "missing" as const,
+          nwnRuntime: "missing" as const,
+        },
+      },
+    ]]);
+    const getTileCertificationIndex = vi.fn().mockResolvedValue(index);
+    const areaEditingFacade = {
+      queries: {
+        listTilesets: vi.fn(),
+        getTilesetDefinition: vi.fn(),
+        getDefinitionForArea: vi.fn(),
+        getTileCertificationIndex,
+        verify: vi.fn(),
+      },
+      commands: { exportAndDownloadAre: vi.fn() },
+    } as unknown as AreaEditingFacade;
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const trackTelemetryEvent = vi.fn();
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={createBrowserSceneViewportPort()}
+        areaApiPort={areaApiPortStub}
+        areaEditingFacade={areaEditingFacade}
+        backendAccessToken="token"
+        sceneObjectCatalogQueryFacade={createSceneObjectCatalogQueryFacade()}
+        trackTelemetryEvent={trackTelemetryEvent}
+        toolbarState={workspaceChromeFacade.createDefaultToolbarState()}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />,
+    );
+
+    await waitFor(() => expect(getTileCertificationIndex).toHaveBeenCalledWith(
+      "token",
+      "testset",
+    ));
+    await waitFor(() => {
+      const props = viewportWiringHarness.viewportPropsSpy.mock.lastCall?.[0] as {
+        tileProductionCertification?: {
+          status: string;
+          tilesetResRef: string;
+          index?: ReadonlyMap<string, unknown>;
+        };
+      };
+      expect(props.tileProductionCertification).toEqual({
+        status: "ready",
+        tilesetResRef: "testset",
+        index,
+      });
+    });
+    expect(screen.getByRole("status", { name: "Area tile production admission" }))
+      .toHaveAttribute("data-area-tile-production-admission-status", "ready");
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "scene.area_tiles.certification_index.load_ready",
+      expect.objectContaining({ tilesetResRef: "testset", rowCount: 1 }),
+    );
+  });
+
   it("adds backend creature templates to the Areas add-object palette", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
@@ -658,14 +888,15 @@ describe("WorkspaceLayout viewport wiring", () => {
       />
     );
 
+    expect(creatureApiPort.listCreatures).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: /add objects/i }));
     await waitFor(() => {
       expect(creatureApiPort.listCreatures).toHaveBeenCalledWith("token", {
         limit: 1000,
         offset: 0
       });
     });
-
-    fireEvent.click(screen.getByRole("tab", { name: /add objects/i }));
     const addObjectsSection = await screen.findByRole("article", {
       name: /add objects section/i
     });
@@ -678,18 +909,35 @@ describe("WorkspaceLayout viewport wiring", () => {
     expect(within(addObjectsSection).getByText("cre_guard")).toBeInTheDocument();
   });
 
-  it("passes injected scene viewport port down to WorkspaceCanvasViewport", () => {
+  it("passes Area scene persistence ports down and refreshes the draft list after save", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
     const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const listLocalDrafts = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { items: [], nextCursor: null },
+      metadata: { contractVersion: "1.1.0", requestId: "request-drafts" }
+    });
+    const areaLifecycleFacade = {
+      queries: {
+        listLocalDrafts,
+        openLocalDraft: vi.fn()
+      },
+      commands: {
+        saveLocalDraft: vi.fn(),
+        deleteLocalDraft: vi.fn(),
+        materializeArea: vi.fn()
+      }
+    } as unknown as AreaLifecycleFacade;
 
     render(
       <WorkspaceLayout
-        role="viewer"
+        role="builder"
         userId="u_builder_001"
         workspaceChromeFacade={workspaceChromeFacade}
         sceneViewportPort={sceneViewportPort}
+        areaLifecycleFacade={areaLifecycleFacade}
         areaApiPort={areaApiPortStub}
         placeableApiPort={placeableApiPortStub}
         backendAccessToken={"token"}
@@ -710,8 +958,26 @@ describe("WorkspaceLayout viewport wiring", () => {
 
     const firstViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls[0]?.[0] as {
       sceneViewportPort: unknown;
+      areaLifecycleFacade: unknown;
+      placeableApiPort: unknown;
+      placeableAssetAccessToken: unknown;
+      onAreaDraftPersisted?: () => void;
     };
     expect(firstViewportProps.sceneViewportPort).toBe(sceneViewportPort);
+    expect(firstViewportProps.areaLifecycleFacade).toBe(areaLifecycleFacade);
+    expect(firstViewportProps.placeableApiPort).toBe(placeableApiPortStub);
+    expect(firstViewportProps.placeableAssetAccessToken).toBe("token");
+    expect(firstViewportProps.onAreaDraftPersisted).toEqual(expect.any(Function));
+
+    await waitFor(() => {
+      expect(listLocalDrafts).toHaveBeenCalledTimes(1);
+    });
+    act(() => {
+      firstViewportProps.onAreaDraftPersisted?.();
+    });
+    await waitFor(() => {
+      expect(listLocalDrafts).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("keeps the Area tile selection callback stable and idempotent", async () => {
@@ -905,7 +1171,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     expect(screen.queryByRole("heading", { name: "Asset Browser" })).not.toBeInTheDocument();
   });
 
-  it("loads backend sound templates into the Areas Mode add-object panel", async () => {
+  it("defers the Areas Mode sound catalog until the Sounds family is selected", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
@@ -947,6 +1213,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     expect(
       within(addObjectsSection).getByRole("button", { name: /plc_barrel_01/i })
     ).toBeInTheDocument();
+    expect(soundApiPortStub.listSounds).not.toHaveBeenCalled();
 
     const selector = within(addObjectsSection).getByRole("combobox", {
       name: /add object type selector/i
@@ -1919,7 +2186,7 @@ describe("WorkspaceLayout viewport wiring", () => {
 
     fireEvent.click(proxyAction);
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Checking texture readiness...");
+    expect(await screen.findByText("Checking texture readiness...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check Texture Readiness" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Check Direct Texture Delivery" })).toBeDisabled();
     expect(screen.getByText("Texture...")).toBeInTheDocument();
@@ -2940,11 +3207,14 @@ describe("WorkspaceLayout viewport wiring", () => {
     expect(await screen.findByText("BIMBROWNIK2")).toBeInTheDocument();
     expect(screen.queryByText("AUCTIONEER")).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(creatureApiPort.processCreature).toHaveBeenLastCalledWith("token", {
-        templateId: "cre_npc_bimber2",
-        resref: "npc_bimber2",
-        includeBenchmarkMetadata: false
-      });
+      expect(creatureApiPort.processCreature).toHaveBeenLastCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "cre_npc_bimber2",
+          resref: "npc_bimber2",
+          includeBenchmarkMetadata: false
+        })
+      );
     });
     await waitFor(() => {
       const calls = viewportWiringHarness.viewportPropsSpy.mock.calls;
@@ -5436,6 +5706,65 @@ describe("WorkspaceLayout viewport wiring", () => {
     expect(screen.getByText("2 placeables, 1 door, 1 sound")).toBeInTheDocument();
   });
 
+  it("bounds progressively loaded area rows and thumbnails until Show more is requested", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    const manyAreaItems = Array.from({ length: 101 }, (_, index) =>
+      buildAreaListItemFixture({
+        areaId: `area_catalog_${String(index + 1).padStart(3, "0")}`,
+        name: `Area Catalog ${String(index + 1).padStart(3, "0")}`,
+        previewImageUrl: `/assets/previews/areas/area_catalog_${index + 1}.webp`
+      })
+    );
+    const manyAreaPort: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: manyAreaItems,
+        total: manyAreaItems.length,
+        limit: 100,
+        offset: 0
+      }))
+    };
+
+    render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={manyAreaPort}
+        placeableApiPort={placeableApiPortStub}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    const areaList = await screen.findByRole("list", { name: /area list/i });
+    await waitFor(() => {
+      expect(within(areaList).getAllByRole("listitem")).toHaveLength(100);
+    });
+    expect(
+      within(areaList).queryByRole("button", { name: /area catalog 101/i })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /show more areas/i }));
+
+    expect(within(areaList).getAllByRole("listitem")).toHaveLength(101);
+    expect(
+      within(areaList).getByRole("button", { name: /area catalog 101/i })
+    ).toBeInTheDocument();
+  });
+
   it("renders placeables progressively while later catalog batches are still loading", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
@@ -5705,11 +6034,15 @@ describe("WorkspaceLayout viewport wiring", () => {
 
     await screen.findByRole("button", { name: /plc_page_a/i });
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", {
-        templateId: "plc_page_a",
-        resref: "plc_page_a",
-        includeBenchmarkMetadata: false
-      });
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        {
+          templateId: "plc_page_a",
+          resref: "plc_page_a",
+          includeBenchmarkMetadata: false
+        },
+        { signal: expect.any(AbortSignal) }
+      );
     });
     await waitFor(() => {
       const lastViewportCall =
@@ -6190,7 +6523,9 @@ describe("WorkspaceLayout viewport wiring", () => {
         query: "vfx"
       });
     });
-    await within(inspector).findByText("preview_only (asset ready)");
+    await within(inspector).findByText(
+      "preview_only / retail blocked (asset ready)"
+    );
     expect(within(inspector).getByText("not rendered for VFX")).toBeInTheDocument();
     expect(within(inspector).getByText("static_model_preview")).toBeInTheDocument();
     expect(
@@ -6356,7 +6691,9 @@ describe("WorkspaceLayout viewport wiring", () => {
     );
 
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("preview_only (asset ready)");
+    await within(inspector).findByText(
+      "preview_only / retail blocked (asset ready)"
+    );
     expect(within(inspector).getByText("aurora_light_node_preview")).toBeInTheDocument();
     expect(within(inspector).queryByText(/none \(source only\)/i)).not.toBeInTheDocument();
     expect(
@@ -6443,7 +6780,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     await waitFor(() => expect(processPlaceable).toHaveBeenCalled());
     expect(vfxPort.getPlaceablePreview).not.toHaveBeenCalled();
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("preview_only (asset loading)");
+    await within(inspector).findByText("preview_only / retail blocked (asset loading)");
     expect(within(inspector).getByText("not rendered for VFX")).toBeInTheDocument();
     expect(within(inspector).getByText("loading")).toBeInTheDocument();
     expect(within(inspector).getByText("sprite_scaffold")).toBeInTheDocument();
@@ -6583,7 +6920,9 @@ describe("WorkspaceLayout viewport wiring", () => {
 
     await screen.findByRole("button", { name: /phod_fx_pntgrm2/i });
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("preview_only (asset ready)");
+    await within(inspector).findByText(
+      "preview_only / retail blocked (asset ready)"
+    );
 
     fireEvent.change(screen.getByRole("searchbox", { name: /filter placeables/i }), {
       target: { value: "fresh" }
@@ -6602,7 +6941,9 @@ describe("WorkspaceLayout viewport wiring", () => {
         name: /placeables mode inspector/i
       });
       expect(
-        within(updatedInspector).queryByText("preview_only (asset ready)")
+        within(updatedInspector).queryByText(
+          "preview_only / retail blocked (asset ready)"
+        )
       ).not.toBeInTheDocument();
       expect(within(updatedInspector).getByText(/loading render payload/i)).toBeInTheDocument();
     });
@@ -6757,13 +7098,16 @@ describe("WorkspaceLayout viewport wiring", () => {
     );
 
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("preview_only (asset ready)");
+    await within(inspector).findByText(
+      "preview_only / retail blocked (asset ready)"
+    );
     expect(within(inspector).getByText("aurora_emitter_particle_preview")).toBeInTheDocument();
     expect(vfxPort.getPlaceablePreview).not.toHaveBeenCalled();
     expect(getPlaceableAssetContracts).toHaveBeenCalledWith(
       "token",
       "cache_key_vfx_chunked",
-      ["mdl_chunk", "tex_vfx"]
+      ["mdl_chunk", "tex_vfx"],
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     await waitFor(() => {
       const lastViewportCall =
@@ -6901,7 +7245,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     await screen.findByRole("button", { name: /canonical bridge/i });
     await waitFor(() => expect(processPlaceable).toHaveBeenCalled());
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("canonical (asset ready)");
+    await within(inspector).findByText("source_backed / retail unproven (asset ready)");
     expect(within(inspector).getByText("none")).toBeInTheDocument();
     expect(
       within(inspector).getByText("source 1, effect 1, schedule 1, dependency 1, runtime 1, render 1")
@@ -7119,13 +7463,16 @@ describe("WorkspaceLayout viewport wiring", () => {
 
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
     expect(screen.getByRole("searchbox", { name: /filter placeables/i })).toHaveValue("pntgrm");
-    await within(inspector).findByText("preview_only (asset ready)");
+    await within(inspector).findByText(
+      "preview_only / retail blocked (asset ready)"
+    );
     expect(within(inspector).getByText("aurora_emitter_particle_preview")).toBeInTheDocument();
     expect(pentagramPort.getPlaceablePreview).not.toHaveBeenCalled();
     expect(getPlaceableAssetContracts).toHaveBeenCalledWith(
       "token",
       "bc720ee737101aec2be3d1f3ab1f65bc57b93517c12ca02e378001e511988b01",
-      ["5a3ffcf1c7b1828e9f11b0e7"]
+      ["5a3ffcf1c7b1828e9f11b0e7"],
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     await waitFor(() => {
       const lastViewportCall =
@@ -7249,7 +7596,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     await screen.findByRole("button", { name: /phod_fx_pntgrm2/i });
     await waitFor(() => expect(processPlaceable).toHaveBeenCalled());
     const inspector = screen.getByRole("article", { name: /placeables mode inspector/i });
-    await within(inspector).findByText("preview_only (asset loading)");
+    await within(inspector).findByText("preview_only / retail blocked (asset loading)");
     expect(within(inspector).getByText("sprite_scaffold")).toBeInTheDocument();
     expect(vfxPort.getPlaceablePreview).not.toHaveBeenCalled();
     await waitFor(() => {
@@ -7785,12 +8132,16 @@ describe("WorkspaceLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
-        templateId: "plc_area_table_01",
-        resref: "plc_area_table_01",
-        subtypeHint: "generic",
-        includeBenchmarkMetadata: false
-      }));
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "plc_area_table_01",
+          resref: "plc_area_table_01",
+          subtypeHint: "generic",
+          includeBenchmarkMetadata: false
+        }),
+        { signal: expect.any(AbortSignal) }
+      );
     });
 
     const lastViewportCall =
@@ -7816,7 +8167,8 @@ describe("WorkspaceLayout viewport wiring", () => {
       expect.arrayContaining([
         "asset_model_plc_area_table_01",
         "asset_texture_plc_area_table_01"
-      ])
+      ]),
+      { signal: expect.any(AbortSignal) }
     );
   });
 
@@ -7953,12 +8305,16 @@ describe("WorkspaceLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
-        templateId: "zep_tomest_001",
-        resref: "zep_tomest_001",
-        subtypeHint: "generic",
-        includeBenchmarkMetadata: false
-      }));
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "zep_tomest_001",
+          resref: "zep_tomest_001",
+          subtypeHint: "generic",
+          includeBenchmarkMetadata: false
+        }),
+        { signal: expect.any(AbortSignal) }
+      );
     });
 
     const lastViewportCall =
@@ -8162,6 +8518,262 @@ describe("WorkspaceLayout viewport wiring", () => {
     });
   });
 
+  it("revalidates before publishing on Area reopen and recovers once from a later renderer cache miss", async () => {
+    const workspaceChromeFacade = createWorkspaceChromeFacade();
+    const sceneViewportPort = createBrowserSceneViewportPort();
+    const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
+    const toolbarState = workspaceChromeFacade.createDefaultToolbarState();
+    type ProcessBatchResult = Awaited<
+      ReturnType<NonNullable<PlaceableApiPort["processPlaceables"]>>
+    >;
+    let resolveReopenedBatch: ((result: ProcessBatchResult) => void) | null = null;
+    let resolveCacheMissBatch: ((result: ProcessBatchResult) => void) | null = null;
+    const buildProcessBatchResult = (cacheKey: string): ProcessBatchResult => ({
+      items: [
+        {
+          cacheKey,
+          cacheHit: false,
+          storedAt: "2026-01-01T00:00:00.000Z",
+          hits: 0,
+          placeable: {
+            templateId: "plc_revalidated",
+            resref: "plc_revalidated",
+            name: "PLC_REVALIDATED",
+            category: "placeables",
+            placeableSubtype: "generic" as const,
+            render: {
+              backendType: "generic" as const,
+              frontendType: "placeable" as const,
+              rendererPreset: "default",
+              isDoor: false,
+              isVfx: false
+            },
+            assetManifest: {
+              version: "placeable-asset-manifest/v1" as const,
+              source: "module-blob-snapshot" as const,
+              generatedAt: "2026-01-01T00:00:00.000Z",
+              assetCount: 0,
+              candidatesScanned: 0,
+              assets: []
+            }
+          }
+        }
+      ]
+    });
+    const processPlaceables = vi.fn(
+      async (): Promise<ProcessBatchResult> => {
+        if (processPlaceables.mock.calls.length === 1) {
+          return buildProcessBatchResult("cache_before_backend_restart");
+        }
+        return new Promise<ProcessBatchResult>((resolve) => {
+          if (processPlaceables.mock.calls.length === 2) {
+            resolveReopenedBatch = resolve;
+            return;
+          }
+          resolveCacheMissBatch = resolve;
+        });
+      }
+    );
+    const areaPort: AreaApiPort = {
+      ...areaApiPortStub,
+      listAreas: vi.fn(async () => ({
+        items: [
+          buildAreaListItemFixture({
+            areaId: "area_revalidate",
+            name: "Area Revalidate"
+          })
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0
+      })),
+      getAreaById: vi.fn(async () =>
+        buildAreaDetailFixture({
+          areaId: "area_revalidate",
+          name: "Area Revalidate",
+          objects: [
+            {
+              objectId: "plc_revalidated",
+              kind: "placeable",
+              templateId: "plc_revalidated",
+              x: 1,
+              y: 1,
+              z: 0,
+              bearing: 0,
+              appearanceType: 104
+            }
+          ]
+        })
+      )
+    };
+    attachProcessAreaFromDetail(areaPort);
+    const openProductionAreaAsDraft = vi.fn(async () => {
+      const sourceArea = {
+        ...(await areaPort.getAreaById("token", "area_revalidate")),
+        tiles: []
+      };
+      return {
+        ok: true as const,
+        value: {
+          draftId: "draft_revalidate_abcdef0123456789abcdef",
+          title: "Area Revalidate - Working Copy",
+          revision: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          draft: {
+            schemaVersion: "area-draft.v1" as const,
+            title: "Area Revalidate - Working Copy",
+            source: { type: "production_area" as const, areaId: "area_revalidate" },
+            payload: {
+              schemaVersion: "production-area-draft-payload.v1" as const,
+              sourceArea,
+              provenance: {
+                areaId: "area_revalidate",
+                sourceUpdatedAt: sourceArea.updatedAt,
+                processingCacheKey: "area_revalidate_source_cache"
+              }
+            }
+          }
+        },
+        metadata: {
+          contractVersion: "1.1.0",
+          requestId: "request-revalidate",
+          revision: 1,
+          etag: '"1"',
+          idempotencyStatus: "created" as const,
+          artifactIds: []
+        }
+      };
+    });
+    const areaLifecycleFacade = {
+      queries: {
+        listLocalDrafts: vi.fn(async () => ({
+          ok: true as const,
+          value: { items: [], nextCursor: null },
+          metadata: { contractVersion: "1.1.0", requestId: "request-draft-list" }
+        })),
+        openLocalDraft: vi.fn()
+      },
+      commands: {
+        openProductionAreaAsDraft,
+        saveLocalDraft: vi.fn(),
+        deleteLocalDraft: vi.fn(),
+        materializeArea: vi.fn()
+      }
+    } as unknown as AreaLifecycleFacade;
+    const flowPort: PlaceableApiPort = {
+      ...placeableApiPortStub,
+      processPlaceables
+    };
+
+    const { container } = render(
+      <WorkspaceLayout
+        role="builder"
+        userId="u_builder_001"
+        workspaceChromeFacade={workspaceChromeFacade}
+        sceneViewportPort={sceneViewportPort}
+        areaApiPort={areaPort}
+        areaLifecycleFacade={areaLifecycleFacade}
+        placeableApiPort={flowPort}
+        backendAccessToken={"token"}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={vi.fn()}
+        toolbarState={toolbarState}
+        commandSignal={null}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        leftCollapsed={false}
+        rightCollapsed={false}
+        onToggleLeftCollapsed={() => undefined}
+        onToggleRightCollapsed={() => undefined}
+      />
+    );
+
+    expect((await screen.findAllByText("Area Revalidate")).length).toBeGreaterThan(0);
+    const areaRow = container.querySelector<HTMLButtonElement>('[data-area-id="area_revalidate"]');
+    expect(areaRow).not.toBeNull();
+    fireEvent.click(areaRow!);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /open selected area/i })).not.toBeDisabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: /workspace canvas/i }))
+        .toHaveAttribute("data-external-scene-id", "area_revalidate")
+    );
+    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      const lastCall = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+        placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string }> | null;
+      };
+      expect(lastCall.placeableRenderPayloadByObjectId?.["area_revalidate:plc_revalidated"])
+        .toMatchObject({ cacheKey: "cache_before_backend_restart" });
+    });
+
+    fireEvent.click(areaRow!);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /open selected area/i })).not.toBeDisabled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
+    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("region", { name: /workspace layout/i })).toHaveAttribute(
+      "data-area-placeable-render-payload-validation-generation",
+      "2"
+    );
+    const reopenPendingCall = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+      placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string }> | null;
+    };
+    expect(reopenPendingCall.placeableRenderPayloadByObjectId).toBeNull();
+
+    await act(async () => {
+      resolveReopenedBatch?.(buildProcessBatchResult("cache_after_backend_restart"));
+    });
+    await waitFor(() => {
+      const lastCall = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+        placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string }> | null;
+      };
+      expect(lastCall.placeableRenderPayloadByObjectId?.["area_revalidate:plc_revalidated"])
+        .toMatchObject({ cacheKey: "cache_after_backend_restart" });
+    });
+
+    const loadedViewportProps = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+      onPlaceableAssetCacheMiss?: (detail: {
+        cacheKey: string;
+        url: string;
+        status: number;
+        assetKind: "model" | "texture";
+        code: "PLACEABLE_CACHE_NOT_FOUND";
+      }) => void;
+    };
+    await act(async () => {
+      loadedViewportProps.onPlaceableAssetCacheMiss?.({
+        cacheKey: "cache_after_backend_restart",
+        url: "/api/v1/catalog/placeables/cache/cache_after_backend_restart/assets/model.glb",
+        status: 404,
+        assetKind: "model",
+        code: "PLACEABLE_CACHE_NOT_FOUND"
+      });
+    });
+    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole("region", { name: /workspace layout/i })).toHaveAttribute(
+      "data-area-placeable-render-payload-validation-generation",
+      "3"
+    );
+    const pendingCall = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+      placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string }> | null;
+    };
+    expect(pendingCall.placeableRenderPayloadByObjectId).toBeNull();
+
+    await act(async () => {
+      resolveCacheMissBatch?.(buildProcessBatchResult("cache_after_cache_miss_recovery"));
+    });
+    await waitFor(() => {
+      const lastCall = viewportWiringHarness.viewportPropsSpy.mock.calls.at(-1)?.[0] as {
+        placeableRenderPayloadByObjectId?: Record<string, { cacheKey: string }> | null;
+      };
+      expect(lastCall.placeableRenderPayloadByObjectId?.["area_revalidate:plc_revalidated"])
+        .toMatchObject({ cacheKey: "cache_after_cache_miss_recovery" });
+    });
+  });
+
   it("skips Area GIT placeable render payload batches during terrain-only runtime capture", async () => {
     (window as AreasRuntimeCaptureWindow)
       .__AURORA_AREAS_RUNTIME_CAPTURE_TERRAIN_ONLY__ = true;
@@ -8290,7 +8902,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     );
   });
 
-  it("loads Area GIT placeable render payloads in progressive 8 item batches with two bounded batch workers", async () => {
+  it("loads Area GIT placeable render payloads in progressive 128 item batches with one bounded batch worker", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
@@ -8359,7 +8971,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     const getPlaceableViewportRenderPayloadBatch = vi.fn(async () => {
       throw new Error("Area GIT payload queue must not use backend viewport render-payload batch");
     });
-    const areaObjects = Array.from({ length: 15 }, (_unused, index) => ({
+    const areaObjects = Array.from({ length: 129 }, (_unused, index) => ({
       objectId: `plc_progress_${String(index).padStart(2, "0")}`,
       kind: "placeable" as const,
       templateId: `plc_progress_${String(index).padStart(2, "0")}`,
@@ -8445,10 +9057,9 @@ describe("WorkspaceLayout viewport wiring", () => {
       };
       return latestViewportProps.areaCanvasLoading;
     };
-    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(2));
-    expect(getPlaceableViewportRenderPayloadBatch).not.toHaveBeenCalled();
-    expect(processPlaceables.mock.calls[0]?.[1]).toHaveLength(8);
-    expect(processPlaceables.mock.calls[1]?.[1]).toHaveLength(7);
+    await waitFor(() => expect(processPlaceables).toHaveBeenCalledTimes(1));
+    expect(getPlaceableViewportRenderPayloadBatch).toHaveBeenCalled();
+    expect(processPlaceables.mock.calls[0]?.[1]).toHaveLength(128);
 
     await waitFor(() => {
       expect(
@@ -8459,22 +9070,22 @@ describe("WorkspaceLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "loading",
         queueMode: "batch",
-        batchSize: 8,
+        batchSize: 128,
         batchCount: 2,
         completedBatchCount: 0,
-        lookupCount: 15,
+        lookupCount: 129,
         payloadReadyLookupCount: 0,
-        stillLoadingLookupCount: 15,
+        stillLoadingLookupCount: 129,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toMatchObject({
         source: "areas",
         label: "Loading Area PLC/DOR render payloads",
         completed: 0,
-        total: 15,
-        inFlight: 15,
-        queued: 0,
-        currentLabel: "Area PLC/DOR payload batches 1-2/2"
+        total: 129,
+        inFlight: 128,
+        queued: 1,
+        currentLabel: "Area PLC/DOR payload batch 1/2"
       });
     });
 
@@ -8483,6 +9094,9 @@ describe("WorkspaceLayout viewport wiring", () => {
     });
 
     await waitFor(() => {
+      expect(processPlaceables).toHaveBeenCalledTimes(2);
+      expect(getPlaceableViewportRenderPayloadBatch).toHaveBeenCalled();
+      expect(processPlaceables.mock.calls[1]?.[1]).toHaveLength(1);
       expect(
         JSON.parse(
           workspaceLayout.getAttribute("data-area-placeable-render-payload-queue-snapshot") ?? "{}"
@@ -8491,20 +9105,20 @@ describe("WorkspaceLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "loading",
         queueMode: "batch",
-        batchSize: 8,
+        batchSize: 128,
         batchCount: 2,
         completedBatchCount: 1,
-        lookupCount: 15,
-        payloadReadyLookupCount: 8,
-        stillLoadingLookupCount: 7,
+        lookupCount: 129,
+        payloadReadyLookupCount: 128,
+        stillLoadingLookupCount: 1,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toMatchObject({
         source: "areas",
         label: "Loading Area PLC/DOR render payloads",
-        completed: 8,
-        total: 15,
-        inFlight: 7,
+        completed: 128,
+        total: 129,
+        inFlight: 1,
         queued: 0,
         currentLabel: "Area PLC/DOR payload batch 2/2"
       });
@@ -8522,17 +9136,17 @@ describe("WorkspaceLayout viewport wiring", () => {
         rendererPath: "shared-placeables-renderer",
         status: "ready",
         queueMode: "batch",
-        batchSize: 8,
+        batchSize: 128,
         batchCount: 2,
         completedBatchCount: 2,
-        lookupCount: 15,
-        payloadReadyLookupCount: 15,
+        lookupCount: 129,
+        payloadReadyLookupCount: 129,
         stillLoadingLookupCount: 0,
         missingPayloadCount: 0
       });
       expect(readLatestAreaCanvasLoading()).toBeNull();
     });
-    expect(getPlaceableViewportRenderPayloadBatch).not.toHaveBeenCalled();
+    expect(getPlaceableViewportRenderPayloadBatch).toHaveBeenCalled();
   });
 
   it("recovers Area GIT placeable render payloads that are missing from a completed batch response", async () => {
@@ -9138,7 +9752,7 @@ describe("WorkspaceLayout viewport wiring", () => {
     });
   });
 
-  it("keeps Area GIT single process payloads bound when asset contracts are blocked", async () => {
+  it("keeps Area GIT single process payloads out of the renderer when asset contracts are blocked", async () => {
     const workspaceChromeFacade = createWorkspaceChromeFacade();
     const sceneViewportPort = createBrowserSceneViewportPort();
     const sceneObjectCatalogQueryFacade = createSceneObjectCatalogQueryFacade();
@@ -9258,13 +9872,17 @@ describe("WorkspaceLayout viewport wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: /open selected area/i }));
 
     await waitFor(() => {
-      expect(processPlaceable).toHaveBeenCalledWith("token", expect.objectContaining({
-        templateId: "nwic095",
-        resref: "nwic095",
-        subtypeHint: "generic",
-        appearanceType: 7460,
-        includeBenchmarkMetadata: false
-      }));
+      expect(processPlaceable).toHaveBeenCalledWith(
+        "token",
+        expect.objectContaining({
+          templateId: "nwic095",
+          resref: "nwic095",
+          subtypeHint: "generic",
+          appearanceType: 7460,
+          includeBenchmarkMetadata: false
+        }),
+        { signal: expect.any(AbortSignal) }
+      );
     });
 
     const workspaceLayout = screen.getByRole("region", { name: /workspace layout/i });
@@ -9275,14 +9893,7 @@ describe("WorkspaceLayout viewport wiring", () => {
         {}) as {
         placeableRenderPayloadByObjectId?: Record<string, { templateId: string; cacheKey: string }>;
       };
-      expect(latestViewportProps.placeableRenderPayloadByObjectId).toEqual(
-        expect.objectContaining({
-          ["area__ikea:obj_plc_nwic_desertplant_7"]: expect.objectContaining({
-            templateId: "nwic095",
-            cacheKey: "backend_cache_nwic095"
-          })
-        })
-      );
+      expect(latestViewportProps.placeableRenderPayloadByObjectId).toBeNull();
       expect(workspaceLayout).toHaveAttribute(
         "data-area-placeable-render-payload-queue-status",
         "ready"

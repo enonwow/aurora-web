@@ -485,6 +485,7 @@ describe("HttpPlaceableApiPort", () => {
                       sourceModelAssetId: "asset_light_model",
                       sourceModelFileName: "plc_light.mdl",
                       sourceModelObjectKey: "modules/current/models/plc_light.mdl",
+                      sourceModelHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                       nodeName: "inverted_light",
                       radius: -1.5,
                       shadowRadius: 1.25,
@@ -533,6 +534,19 @@ describe("HttpPlaceableApiPort", () => {
                         renderHint: "NormalAndSpecMapped",
                         roughness: 0.62,
                         specularity: 0.45,
+                        bumpmaptexture: "fx_punch_bump",
+                        bumpyshinytexture: "fx_punch_shiny",
+                        envmaptexture: "fx_punch_env",
+                        bumpreplacementtexture: "fx_punch_replacement",
+                        parameters: [
+                          {
+                            name: "CustomTint",
+                            kind: "float",
+                            values: [1, 0.5, 0.25, 1],
+                            arity: 4
+                          },
+                          { name: "CustomMode", kind: "int", values: [2], arity: 1 }
+                        ],
                         textureSlots: [
                           {
                             slot: 0,
@@ -548,6 +562,28 @@ describe("HttpPlaceableApiPort", () => {
                       }
                     }
                   ]
+                },
+                auroraVfxPayload: {
+                  version: "aurora-vfx-payload/v1",
+                  canonicalStatus: "canonical",
+                  backendCanonical: true,
+                  sourceKind: "source_mdl_graph",
+                  previewMode: "none",
+                  contracts: {
+                    renderContract: {
+                      version: "aurora-vfx-runtime-render-contract/v1",
+                      drawRecords: []
+                    }
+                  },
+                  diagnostics: {
+                    payload: [
+                      {
+                        code: "VFX_AURORA_MDL_EMITTER_RETAIL_PROOF_PENDING",
+                        severity: "warn",
+                        message: "Retail comparison proof is still required."
+                      }
+                    ]
+                  }
                 }
               },
               assetManifest: {
@@ -631,6 +667,7 @@ describe("HttpPlaceableApiPort", () => {
         lights: [
           expect.objectContaining({
             nodeName: "inverted_light",
+            sourceModelHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             radius: -1.5,
             shadowRadius: 1.25,
             verticalDisplacement: 0.35,
@@ -682,6 +719,19 @@ describe("HttpPlaceableApiPort", () => {
               renderHint: "NormalAndSpecMapped",
               roughness: 0.62,
               specularity: 0.45,
+              bumpmaptexture: "fx_punch_bump",
+              bumpyshinytexture: "fx_punch_shiny",
+              envmaptexture: "fx_punch_env",
+              bumpreplacementtexture: "fx_punch_replacement",
+              parameters: [
+                {
+                  name: "CustomTint",
+                  kind: "float",
+                  values: [1, 0.5, 0.25, 1],
+                  arity: 4
+                },
+                { name: "CustomMode", kind: "int", values: [2], arity: 1 }
+              ],
               textureSlots: [
                 {
                   slot: 0,
@@ -697,6 +747,28 @@ describe("HttpPlaceableApiPort", () => {
             }
           }
         ]
+      },
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        canonicalStatus: "canonical",
+        backendCanonical: true,
+        sourceKind: "source_mdl_graph",
+        previewMode: "none",
+        contracts: {
+          renderContract: {
+            version: "aurora-vfx-runtime-render-contract/v1",
+            drawRecords: []
+          }
+        },
+        diagnostics: {
+          payload: [
+            {
+              code: "VFX_AURORA_MDL_EMITTER_RETAIL_PROOF_PENDING",
+              severity: "warn",
+              message: "Retail comparison proof is still required."
+            }
+          ]
+        }
       }
     });
     expect(fetchStub).toHaveBeenCalledWith(
@@ -709,6 +781,408 @@ describe("HttpPlaceableApiPort", () => {
         })
       })
     );
+  });
+
+  it("lists a digest-bound page of physical placeables.2da Appearance rows", async () => {
+    const sha256 = "a".repeat(64);
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 16500,
+        items: [{
+          rowIndex: 104,
+          displayName: "Water Trough",
+          displaySource: "strref",
+          strRef: 5747,
+          label: "WaterTrough"
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1"
+    );
+
+    await expect(port.listPlaceableAppearanceRows("token_123", {
+      tableSha256: sha256,
+      query: "water trough",
+      limit: 100,
+      offset: 0
+    })).resolves.toEqual({
+      resourceName: "placeables.2da",
+      sha256,
+      rowCount: 16500,
+      items: [{
+        rowIndex: 104,
+        displayName: "Water Trough",
+        displaySource: "strref",
+        strRef: 5747,
+        label: "WaterTrough"
+      }],
+      total: 1,
+      limit: 100,
+      offset: 0
+    });
+    expect(fetchStub).toHaveBeenCalledWith(
+      `http://localhost:3000/api/v1/catalog/placeables/appearances?tableSha256=${sha256}&query=water+trough&limit=100&offset=0`,
+      expect.objectContaining({
+        method: "GET",
+        headers: { Authorization: "Bearer token_123" }
+      })
+    );
+  });
+
+  it("accepts exact Label and row-index fallbacks while omitting optional query parameters", async () => {
+    const sha256 = "c".repeat(64);
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 2,
+        items: [
+          {
+            rowIndex: 0,
+            displayName: "NativeLabel",
+            displaySource: "label",
+            label: "NativeLabel",
+            strRef: 5747
+          },
+          { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+        ],
+        total: 2,
+        limit: 100,
+        offset: 0
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "https://aurora.test/api/v1"
+    );
+
+    await expect(port.listPlaceableAppearanceRows("token", {
+      tableSha256: sha256
+    })).resolves.toMatchObject({ total: 2, limit: 100, offset: 0 });
+    expect(fetchStub).toHaveBeenCalledWith(
+      `https://aurora.test/api/v1/catalog/placeables/appearances?tableSha256=${sha256}`,
+      expect.anything()
+    );
+  });
+
+  it("accepts a strictly ascending page exactly at the requested limit", async () => {
+    const sha256 = "d".repeat(64);
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 2,
+        items: [
+          { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" },
+          { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+        ],
+        total: 2,
+        limit: 2,
+        offset: 0
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpPlaceableApiPort(fetchStub as unknown as typeof fetch, "https://aurora.test/api/v1");
+
+    await expect(port.listPlaceableAppearanceRows("token", {
+      tableSha256: sha256,
+      limit: 2,
+      offset: 0
+    })).resolves.toHaveProperty("items", [
+      { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" },
+      { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+    ]);
+  });
+
+  it("rejects an otherwise valid Appearance row page whose digest does not match the request", async () => {
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "placeables.2da",
+        sha256: "b".repeat(64),
+        rowCount: 1,
+        items: [{ rowIndex: 0, displayName: "Row 0", displaySource: "row_index" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpPlaceableApiPort(fetchStub as unknown as typeof fetch, "https://aurora.test/api/v1");
+
+    await expect(port.listPlaceableAppearanceRows("token", {
+      tableSha256: "a".repeat(64),
+      limit: 100,
+      offset: 0
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "PLACEABLE_APPEARANCE_TABLE_STALE"
+    });
+  });
+
+  it("rejects Appearance row pages with inconsistent ordinals, display provenance, or paging echoes", async () => {
+    const sha256 = "a".repeat(64);
+    const invalidPages = [
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [{ rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 3,
+        items: [
+          { rowIndex: 2, displayName: "Row 2", displaySource: "row_index" },
+          { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+        ],
+        total: 2,
+        limit: 100,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [{
+          rowIndex: 0,
+          displayName: "Invented display",
+          displaySource: "label",
+          label: "NativeLabel"
+        }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [{ rowIndex: 0, displayName: "Row zero", displaySource: "row_index" }],
+        total: 1,
+        limit: 100,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [],
+        total: 2,
+        limit: 100,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 2,
+        items: [
+          { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" },
+          { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+        ],
+        total: 2,
+        limit: 1,
+        offset: 0
+      },
+      {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [],
+        total: 1,
+        limit: 100,
+        offset: 1
+      }
+    ];
+
+    for (const data of invalidPages) {
+      const fetchStub = vi.fn(async () => new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }));
+      const port = new HttpPlaceableApiPort(
+        fetchStub as unknown as typeof fetch,
+        "https://aurora.test/api/v1"
+      );
+
+      await expect(port.listPlaceableAppearanceRows("token", {
+        tableSha256: sha256,
+        limit: 100,
+        offset: 0
+      })).rejects.toThrow();
+    }
+  });
+
+  it("rejects each isolated Appearance page cardinality, duplicate, and echo violation", async () => {
+    const sha256 = "e".repeat(64);
+    const cases = [
+      {
+        query: { tableSha256: sha256, limit: 1, offset: 0 },
+        data: {
+          resourceName: "placeables.2da",
+          sha256,
+          rowCount: 2,
+          items: [
+            { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" },
+            { rowIndex: 1, displayName: "Row 1", displaySource: "row_index" }
+          ],
+          total: 2,
+          limit: 1,
+          offset: 0
+        }
+      },
+      {
+        query: { tableSha256: sha256, limit: 100, offset: 0 },
+        data: {
+          resourceName: "placeables.2da",
+          sha256,
+          rowCount: 2,
+          items: [
+            { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" },
+            { rowIndex: 0, displayName: "Row 0", displaySource: "row_index" }
+          ],
+          total: 2,
+          limit: 100,
+          offset: 0
+        }
+      },
+      {
+        query: { tableSha256: sha256, limit: 100, offset: 0 },
+        data: {
+          resourceName: "placeables.2da",
+          sha256,
+          rowCount: 1,
+          items: [],
+          total: 1,
+          limit: 99,
+          offset: 0
+        }
+      }
+    ];
+
+    for (const candidate of cases) {
+      const fetchStub = vi.fn(async () => new Response(JSON.stringify({ data: candidate.data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }));
+      const port = new HttpPlaceableApiPort(fetchStub as unknown as typeof fetch, "https://aurora.test/api/v1");
+      await expect(port.listPlaceableAppearanceRows("token", candidate.query)).rejects.toThrow();
+    }
+  });
+
+  it.each([
+    `${"f".repeat(64)}0`,
+    `0${"f".repeat(64)}`
+  ])("rejects a non-exact response digest as schema data (%s)", async (sha256) => {
+    const fetchStub = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        resourceName: "placeables.2da",
+        sha256,
+        rowCount: 1,
+        items: [],
+        total: 0,
+        limit: 100,
+        offset: 0
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const port = new HttpPlaceableApiPort(fetchStub as unknown as typeof fetch, "https://aurora.test/api/v1");
+
+    await expect(port.listPlaceableAppearanceRows("token", {
+      tableSha256: "f".repeat(64)
+    })).rejects.toMatchObject({ name: "ZodError" });
+  });
+
+  it("hydrates a processed placeable from cache without dropping canonical runtime emitters", async () => {
+    const controller = new AbortController();
+    const fetchStub = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            cache: {
+              key: "cache_vfx_full",
+              hit: true,
+              storedAt: "2026-07-20T12:00:00.000Z",
+              hits: 2
+            },
+            placeable: {
+              templateId: "plc_t04",
+              resref: "plc_t04",
+              name: "Placeable VFX",
+              category: "effects",
+              placeableSubtype: "vfx",
+              render: {
+                backendType: "vfx",
+                frontendType: "vfx",
+                rendererPreset: "vfx-emitter",
+                isDoor: false,
+                isVfx: true
+              },
+              renderPackage: {
+                status: "ready",
+                diagnostics: [],
+                assetRefs: {},
+                auroraVfxPayload: {
+                  version: "aurora-vfx-payload/v1",
+                  canonicalStatus: "canonical",
+                  backendCanonical: true,
+                  contracts: {
+                    runtimeEmitters: [
+                      { emitterNodeName: "fire" },
+                      { emitterNodeName: "smoke" }
+                    ],
+                    renderContract: { emitterNodeName: "fire" }
+                  }
+                }
+              },
+              assetManifest: {
+                version: "placeable-asset-manifest/v1",
+                source: "module-blob-snapshot",
+                generatedAt: "2026-07-20T12:00:00.000Z",
+                assetCount: 0,
+                candidatesScanned: 0,
+                assets: []
+              }
+            }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const port = new HttpPlaceableApiPort(
+      fetchStub as unknown as typeof fetch,
+      "http://localhost:3000/api/v1"
+    );
+
+    const result = await port.getProcessedPlaceable(
+      "token_123",
+      "cache_vfx_full",
+      { signal: controller.signal }
+    );
+
+    expect(fetchStub).toHaveBeenCalledWith(
+      "http://localhost:3000/api/v1/catalog/placeables/cache/cache_vfx_full",
+      {
+        method: "GET",
+        headers: { Authorization: "Bearer token_123" },
+        signal: controller.signal
+      }
+    );
+    expect(result.cacheKey).toBe("cache_vfx_full");
+    expect(
+      (
+        result.placeable.renderPackage?.auroraVfxPayload as {
+          contracts?: { runtimeEmitters?: unknown[] };
+        }
+      ).contracts?.runtimeEmitters
+    ).toHaveLength(2);
   });
 
   it("maps Aurora emitter simulation fields from processed placeable renderPackage", async () => {

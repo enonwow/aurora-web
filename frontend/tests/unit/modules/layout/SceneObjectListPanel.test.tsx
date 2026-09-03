@@ -335,6 +335,141 @@ describe("SceneObjectListPanel", () => {
     );
   });
 
+  it("opens properties from a retained store row through the stable row action", () => {
+    const onObjectPropertiesOpen = vi.fn();
+    const storeObject = {
+      ...createNewSceneObject("stores", 2, 3, 105),
+      id: "store_scene_store_dye_01",
+      tag: "STORE_DYE_01",
+      resRef: "store_dye_01",
+      storeProperties: {
+        comments: "  source store note  "
+      }
+    };
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[storeObject]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="stores"
+        allowedCatalogTypes={["stores"]}
+        hideUnsupportedCatalogTypes
+        onObjectPropertiesOpen={onObjectPropertiesOpen}
+      />
+    );
+
+    const list = screen.getByRole("list", { name: /stores list/i });
+    const row = within(list).getByRole("button", { name: /store_dye_01/i });
+    const item = row.closest("li");
+    expect(item).not.toBeNull();
+    fireEvent.click(
+      within(item as HTMLElement).getByRole("button", { name: /open object properties/i })
+    );
+
+    expect(onObjectPropertiesOpen).toHaveBeenCalledTimes(1);
+    expect(onObjectPropertiesOpen.mock.calls[0][0]).toMatchObject({
+      id: "store_scene_store_dye_01",
+      kind: "stores",
+      storeProperties: {
+        comments: "  source store note  "
+      }
+    });
+    expect(trackTelemetryEvent).toHaveBeenCalledWith(
+      "ui.workspace.scene_objects.properties_opened",
+      expect.objectContaining({
+        userId: "u_builder_001",
+        objectId: "store_scene_store_dye_01",
+        objectKind: "stores",
+        source: "scene_object_list"
+      })
+    );
+  });
+
+  it("opens retained Trigger properties through the stable row action", () => {
+    const onObjectPropertiesOpen = vi.fn();
+    const triggerObject = {
+      ...createNewSceneObject("triggers", 2, 3, 106),
+      id: "trigger_scene_exit_01",
+      tag: "GenericTrigger",
+      resRef: "newgeneric",
+      source: {
+        type: "aurora_git" as const,
+        sourceKind: "trigger" as const,
+        sourceObjectId: "trigger:0:newgeneric:source",
+        sourceIndex: 0,
+        triggerTag: { present: true as const, value: "GenericTrigger" },
+        polygonGeometry: {
+          coordinateSpace: "native_local" as const,
+          points: [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }, { x: 0, y: 2, z: 0 }],
+        },
+      },
+    };
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[triggerObject]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="triggers"
+        allowedCatalogTypes={["triggers"]}
+        hideUnsupportedCatalogTypes
+        onObjectPropertiesOpen={onObjectPropertiesOpen}
+      />
+    );
+
+    const row = screen.getByRole("button", { name: /generictrigger/i });
+    const item = row.closest("li");
+    expect(item).not.toBeNull();
+    fireEvent.click(
+      within(item as HTMLElement).getByRole("button", { name: /open object properties/i })
+    );
+
+    expect(onObjectPropertiesOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "trigger_scene_exit_01", kind: "triggers" }),
+    );
+  });
+
+  it("opens retained Waypoint properties through the stable row action", () => {
+    const onObjectPropertiesOpen = vi.fn();
+    const waypointObject = {
+      ...createNewSceneObject("waypoints", 2, 3, 107),
+      id: "waypoint_scene_patrol_01",
+      tag: "NW_WAYPOINT001",
+      resRef: "nw_waypoint001",
+      source: {
+        type: "aurora_git" as const,
+        sourceKind: "waypoint" as const,
+        sourceObjectId: "waypoint:0:nw_waypoint001:source",
+        sourceIndex: 0,
+        waypointTag: { present: true as const, value: "NW_WAYPOINT001" },
+      },
+    };
+    render(
+      <SceneObjectListPanel
+        userId="u_builder_001"
+        objects={[waypointObject]}
+        sceneObjectCatalogQueryFacade={sceneObjectCatalogQueryFacade}
+        trackTelemetryEvent={trackTelemetryEvent}
+        defaultActiveType="waypoints"
+        allowedCatalogTypes={["waypoints"]}
+        hideUnsupportedCatalogTypes
+        onObjectPropertiesOpen={onObjectPropertiesOpen}
+      />
+    );
+
+    const row = screen.getByRole("button", { name: /nw_waypoint001/i });
+    const item = row.closest("li");
+    expect(item).not.toBeNull();
+    fireEvent.click(
+      within(item as HTMLElement).getByRole("button", { name: /open object properties/i })
+    );
+
+    expect(onObjectPropertiesOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "waypoint_scene_patrol_01", kind: "waypoints" }),
+    );
+  });
+
   it("does not mark backend sound rows selected when selected ids are outside current rows", () => {
     const visibleBackendSound = {
       ...createNewSceneObject("sounds", 4, 5, 77),

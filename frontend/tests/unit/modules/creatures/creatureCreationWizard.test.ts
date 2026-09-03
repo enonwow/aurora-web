@@ -111,6 +111,12 @@ function buildBaseCreature(): SceneObject {
           hair: "5",
           tattoo1: "6",
           tattoo2: "7"
+        },
+        sourceOnlyParts: {
+          belt: "19",
+          robe: "26",
+          rightShoulder: "20",
+          leftShoulder: "21"
         }
       },
       advancedSettings: {
@@ -252,6 +258,28 @@ describe("creatureCreationWizard", () => {
         ]
       }
     });
+    expect(payload?.blueprint).not.toHaveProperty("bodyPartRobe");
+    expect(payload?.blueprint).toMatchObject({
+      bodyPartBelt: 19,
+      bodyPartRShoul: 20,
+      bodyPartLShoul: 21
+    });
+  });
+
+  it("does not copy loose legacy bodyPartRobe metadata into Creature authoring", () => {
+    const creature = buildBaseCreature();
+    if (creature.source?.type !== "aurora_git") {
+      throw new Error("Expected an Aurora GIT creature source.");
+    }
+    creature.source.creatureMetadata = {
+      ...(creature.source.creatureMetadata ?? {}),
+      bodyPartRobe: 99
+    };
+
+    const payload = buildCreatureBlueprintCreatePayloadFromSceneObject(creature);
+
+    expect(payload?.blueprint).not.toHaveProperty("bodyPartRobe");
+    expect(creature.creatureProperties?.appearanceSettings?.sourceOnlyParts?.robe).toBe("26");
   });
 
   it("serializes canonical class, feat, spell, and special ability IDs", () => {

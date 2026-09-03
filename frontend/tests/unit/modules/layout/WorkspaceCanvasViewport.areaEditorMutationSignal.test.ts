@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyWorkspaceAreaEditorMutationSignal,
   resolveWorkspaceAreaEditorMutationSelectedTileId,
+  resolveWorkspaceCommandRevisionAfterSceneReset,
   shouldApplyWorkspaceExternalSceneSeed,
   shouldPublishWorkspaceAreaSceneDraft,
   type WorkspaceAreaEditorMutationSignal
@@ -24,6 +25,12 @@ function createHistory(sceneId: string): SceneHistoryState {
 }
 
 describe("applyWorkspaceAreaEditorMutationSignal", () => {
+  it("never lowers the handled command revision when an Area scene is replaced", () => {
+    expect(resolveWorkspaceCommandRevisionAfterSceneReset(7, 3)).toBe(7);
+    expect(resolveWorkspaceCommandRevisionAfterSceneReset(0, 3)).toBe(3);
+    expect(resolveWorkspaceCommandRevisionAfterSceneReset(7, null)).toBe(7);
+  });
+
   it("does not reset local history for a dependency rerender or a parent echo of the current draft", () => {
     const originalSeed = createHistory("area_alpha").present;
     const localDraft = { ...originalSeed, width: 3 };
@@ -38,6 +45,14 @@ describe("applyWorkspaceAreaEditorMutationSignal", () => {
     expect(
       shouldApplyWorkspaceExternalSceneSeed(originalSeed, replacementSeed, localDraft)
     ).toBe(true);
+    expect(
+      shouldApplyWorkspaceExternalSceneSeed(
+        originalSeed,
+        replacementSeed,
+        localDraft,
+        replacementSeed
+      )
+    ).toBe(false);
   });
 
   it("does not echo a stale internal scene while a same-area editing seed is being applied", () => {

@@ -342,7 +342,7 @@ describe("App workspace side panels", () => {
     await signInAs("builder.user", "builder123");
 
     const leftSidebar = screen.getByLabelText(/left sidebar/i);
-    fireEvent.click(within(leftSidebar).getByRole("tab", { name: /add placeables/i }));
+    fireEvent.click(within(leftSidebar).getByRole("tab", { name: /add objects/i }));
 
     const addObjectsSection = within(leftSidebar).getByRole("article", {
       name: /add objects section/i
@@ -444,7 +444,7 @@ describe("App workspace side panels", () => {
     expect(within(creatureDialog).getByRole("button", { name: /^appearance$/i })).toBeInTheDocument();
     fireEvent.click(within(creatureDialog).getByRole("button", { name: /^scripts$/i }));
     expect(
-      within(creatureDialog).getByRole("textbox", { name: /onblocked/i })
+      within(creatureDialog).getByRole("combobox", { name: /onblocked/i })
     ).toBeInTheDocument();
     fireEvent.click(within(creatureDialog).getByRole("button", { name: /^cancel$/i }));
     await waitFor(() => {

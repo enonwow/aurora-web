@@ -20,6 +20,8 @@ describe("dev VFX fixture payloads", () => {
     expect(fixture.textureReference).toBe(DEV_VFX_TEXTURE_REFERENCE);
     expect(fixture.payload.canonicalStatus).toBe("canonical");
     expect(fixture.payload.backendCanonical).toBe(true);
+    expect(fixture.payload.rendererEligibility).toBe("source_backed");
+    expect(fixture.payload.retailParityStatus).toBe("blocked");
     expect(fixture.payload.provenance.sourceRowId).toBe(68);
     expect(fixture.payload.provenance.sourceLabel).toBe("VFX_IMP_HEALING_M");
     expect(fixture.payload.diagnostics.payload.map((diagnostic) => diagnostic.code)).toEqual(
@@ -44,6 +46,31 @@ describe("dev VFX fixture payloads", () => {
     expect(createDevAuroraVfxPayload({ fixtureId: "unknown" }).fixtureId).toBe(
       DEV_VFX_DEFAULT_FIXTURE_ID
     );
+  });
+
+  it("publishes reusable semantic analysis features instead of asset-identity selectors", () => {
+    const expectedFeatures = new Map<string, string>([
+      [DEV_VFX_DEFAULT_FIXTURE_ID, "warm-turquoise-particle-pair"],
+      ["vfx-retail-scripted-effectvisualeffect-row-50", "purple-pale-particle-pair"],
+      ["vfx-retail-scripted-effectbeam-row-210-body-chest", "source-target-beam-segments"],
+      ["vfx-retail-explosion-detonate-fireball", "explosion-detonate-particle-pair"],
+      ["vfx-retail-fountain-atlas-cot-fx01", "fountain-atlas-particles"],
+      ["vfx-retail-p2p-gravity-reference-node", "gravity-reference-arc"],
+      ["vfx-retail-plt-known-layer-colors", "plt-layer-color-order"]
+    ]);
+
+    for (const [fixtureId, feature] of expectedFeatures) {
+      const fixture = createDevAuroraVfxPayload({ fixtureId });
+      expect(fixture.payload.contracts.renderContract).toEqual(
+        expect.objectContaining({
+          analysisProfile: {
+            version: "aurora-vfx-analysis-profile/v1",
+            features: [feature]
+          }
+        })
+      );
+      expect(feature).not.toMatch(/vfx|fixture|row[-_]?\d+|resref/i);
+    }
   });
 
   it("builds the cot_fx01 fountain atlas diagnostic fixture as local-only evidence", () => {
@@ -195,7 +222,14 @@ describe("dev VFX fixture payloads", () => {
         edgeType: "chunk_model",
         requestedResourceClass: "chunk_model",
         requestedRef: "progfx_type9_chunk_model_pending",
-        selectedCandidate: null
+        selectedCandidate: expect.objectContaining({
+          candidateId: "dev-fixture:progfx-type9-local-template",
+          resourceKey: "progfx_type9_chunk_model_pending.local.glb",
+          sourceLayer: "dev-fixture-local-template",
+          sourcePath:
+            "frontend/src/modules/vfx/dev/VfxFixtureRunner.tsx#createFixtureChunkModelTemplates",
+          resourceHash: "local-template-no-retail-resource-hash"
+        })
       })
     ]);
     expect(fixture.payload.contracts.runtimeState.activeParticleCount).toBe(2);
@@ -213,12 +247,26 @@ describe("dev VFX fixture payloads", () => {
       expect.objectContaining({
         lane: "chunk_model",
         chunkName: "progfx_type9_chunk_model_pending",
-        canonicalResourceResolved: false
+        activeParticleCount: 2,
+        texturedQuadCanonical: false,
+        collapseAttempted: true,
+        canonicalResourceResolved: true,
+        resourceResolveStatus: "resolved",
+        resolvedResource: expect.objectContaining({
+          requestedRef: "progfx_type9_chunk_model_pending",
+          resourceKey: "progfx_type9_chunk_model_pending.local.glb",
+          sourceLayer: "dev-fixture-local-template",
+          sourcePath:
+            "frontend/src/modules/vfx/dev/VfxFixtureRunner.tsx#createFixtureChunkModelTemplates",
+          resourceHash: "local-template-no-retail-resource-hash",
+          candidateId: "dev-fixture:progfx-type9-local-template",
+          resolutionSource: "dev-fixture-local-template"
+        })
       })
     );
     expect(
       fixture.payload.diagnostics.dependencyGraph.map((diagnostic) => diagnostic.code)
-    ).toContain("VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED");
+    ).toContain("VFX_CHUNK_MODEL_RETAIL_RESOURCE_REQUIRED");
     expect(fixture.payload.diagnostics.payload.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_DEV_VISUAL_RUNNER_NOT_PARITY_PROOF",
@@ -607,6 +655,10 @@ describe("dev VFX fixture payloads", () => {
 
     expect(fixture.fixtureId).toBe("vfx-retail-cross-lane-all-light-lanes-policy");
     expect(fixture.canonicalParityPromoted).toBe(false);
+    expect(fixture.diagnosticScene).toEqual({
+      version: "aurora-vfx-diagnostic-scene/v1",
+      recipe: "cross-lane-light-probes"
+    });
     expect(fixture.payload.contracts.sourceRows).toEqual(
       expect.objectContaining({
         tableName: "progfx.2da",
@@ -658,9 +710,9 @@ describe("dev VFX fixture payloads", () => {
       expect.objectContaining({
         drawLane: "linked_textured_quad",
         activeParticleCount: 5,
-        drawParticleCount: 5,
+        drawParticleCount: 4,
         verticesPerDrawParticle: 6,
-        drawVertexCount: 30
+        drawVertexCount: 24
       })
     );
     expect(
@@ -669,9 +721,22 @@ describe("dev VFX fixture payloads", () => {
       "linked_textured_quad",
       "linked_textured_quad",
       "linked_textured_quad",
-      "linked_textured_quad",
       "linked_textured_quad"
     ]);
+    expect(fixture.payload.contracts.renderContract.drawRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          particleIndex: 0,
+          linkedNextParticleId: 90101,
+          linkedNextPosition: expect.any(Object)
+        }),
+        expect.objectContaining({
+          particleIndex: 3,
+          linkedNextParticleId: 90104,
+          linkedNextPosition: expect.any(Object)
+        })
+      ])
+    );
     expect(fixture.payload.contracts.renderContract.renderMode).toEqual(
       expect.objectContaining({
         enum: "linked_billboard",
@@ -725,6 +790,52 @@ describe("dev VFX fixture payloads", () => {
     expect(fixture.payload.diagnostics.payload.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining([
         "VFX_P2P_GRAVITY_REFERENCE_NODE_REQUIRED",
+        "VFX_DEV_VISUAL_RUNNER_NOT_PARITY_PROOF",
+        "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED"
+      ])
+    );
+  });
+
+  it("builds the Motion_Blur diagnostic with velocity-basis records and no retail promotion", () => {
+    const fixture = createDevAuroraVfxPayload({
+      fixtureId: "vfx-retail-motion-blur-velocity-basis",
+      timeSeconds: 0.55,
+      seed: 67
+    });
+
+    expect(fixture.fixtureId).toBe("vfx-retail-motion-blur-velocity-basis");
+    expect(fixture.canonicalParityPromoted).toBe(false);
+    expect(fixture.payload.contracts.sourceRows.sourceAuthority).toBe(
+      "source-token-backed-local-diagnostic"
+    );
+    expect(fixture.payload.contracts.effectInstance.rawInvocation).toContain("Motion_Blur");
+    expect(fixture.payload.contracts.renderContract).toEqual(
+      expect.objectContaining({
+        drawLane: "textured_quad",
+        activeParticleCount: 4,
+        drawParticleCount: 4,
+        drawVertexCount: 24,
+        renderMode: {
+          enum: "motion_blur",
+          rawToken: "Motion_Blur"
+        }
+      })
+    );
+    const drawRecords = fixture.payload.contracts.renderContract.drawRecords;
+    expect(drawRecords).toHaveLength(4);
+    expect(drawRecords.every((record) => record.renderMode.enum === "motion_blur")).toBe(true);
+    expect(drawRecords.every((record) => record.renderMode.rawToken === "Motion_Blur")).toBe(true);
+    expect(drawRecords.every((record) => record.velocity.x > 0.85)).toBe(true);
+    expect(drawRecords[0]?.position.x).toBeLessThan(drawRecords[3]!.position.x);
+    expect(fixture.payload.diagnostics.sourceRows.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_MOTION_BLUR_RENDER_MODE_TOKEN_SOURCE_BACKED"
+    );
+    expect(fixture.payload.diagnostics.renderContract.map((diagnostic) => diagnostic.code)).toContain(
+      "VFX_DEV_MOTION_BLUR_VELOCITY_BASIS_DIAGNOSTIC_ONLY"
+    );
+    expect(fixture.payload.diagnostics.payload.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        "VFX_MOTION_BLUR_RETAIL_ENDPOINT_TIMING_REQUIRED",
         "VFX_DEV_VISUAL_RUNNER_NOT_PARITY_PROOF",
         "VFX_RETAIL_CAPTURE_REFERENCE_REQUIRED"
       ])

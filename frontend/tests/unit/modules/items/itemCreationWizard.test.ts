@@ -346,7 +346,17 @@ describe("itemCreationWizard", () => {
           onused: "itm_on_use",
           OnHeartbeat: "itm_heartbeat",
           oninventorydisturbed: "itm_inv_dist"
-        }
+        },
+        variables: [
+          { name: " duplicate ", type: "int" as const, value: -7 },
+          { name: "duplicate", type: "float" as const, value: Math.fround(1.25) },
+          { name: "duplicate", type: "string" as const, value: " exact value " }
+        ],
+        blueprintInventoryItems: [
+          { resRef: "itm_potion", x: 3, y: 4 },
+          { resRef: "itm_scroll", x: 5, y: 6 }
+        ],
+        blueprintEquippedItems: [{ resRef: "itm_ring", slotMask: 4 }]
       }
     };
     expect(buildItemBlueprintCreatePayloadFromWizardSceneObject(createdWithScripts)).toMatchObject({
@@ -390,21 +400,42 @@ describe("itemCreationWizard", () => {
           chanceAppear: 100
         }
       ],
-      scripts: {
-        onused: "itm_on_use",
-        onheartbeat: "itm_heartbeat",
-        oninvdisturbed: "itm_inv_dist"
-      }
+      variableListEntries: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: 1.25 },
+        { name: "duplicate", type: "string", value: " exact value " }
+      ],
+      inventoryItemListEntries: [
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 }
+      ],
+      equipItemListEntries: [{ resRef: "itm_ring", slotMask: 4 }]
     });
-    expect(buildItemBlueprintCreatePayloadFromWizardSceneObject(createdWithScripts)?.scripts).not.toHaveProperty(
-      "oninventorydisturbed"
-    );
+    const strictPayload = buildItemBlueprintCreatePayloadFromWizardSceneObject(createdWithScripts);
+    expect(strictPayload).not.toHaveProperty("costTable");
+    expect(strictPayload).not.toHaveProperty("costValue");
+    expect(strictPayload).not.toHaveProperty("scripts");
     expect(
       buildItemBlueprintCreatePayloadFromWizardSceneObject(created, { overwrite: true })
     ).toMatchObject({
       templateResRef: "custom_hide_armo",
       overwrite: true
     });
+
+    expect(buildItemBlueprintCreatePayloadFromWizardSceneObject({
+      ...created,
+      itemProperties: {
+        ...created.itemProperties,
+        variables: [{ name: "Float", type: "float", value: 0.1 }],
+      },
+    })).toBeNull();
+    expect(buildItemBlueprintCreatePayloadFromWizardSceneObject({
+      ...created,
+      itemProperties: {
+        ...created.itemProperties,
+        blueprintInventoryItems: [{ resRef: "ITM_UPPER", x: 0, y: 0 }],
+      },
+    })).toBeNull();
   });
 
   it("serializes OnHit with Aurora-forced cost table 24", () => {

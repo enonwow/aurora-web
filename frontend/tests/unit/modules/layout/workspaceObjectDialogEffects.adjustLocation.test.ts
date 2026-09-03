@@ -73,6 +73,46 @@ describe("workspace object dialog effects Adjust Location", () => {
 });
 
 describe("workspace object dialog effects item properties", () => {
+  it("rebases the cancel snapshot when the live Item reaches the applied draft", () => {
+    const originalItem: SceneObject = {
+      ...createNewSceneObject("items", 2, 3, 202),
+      id: "itm_area_applied_comment_202",
+      itemProperties: {
+        comments: ""
+      }
+    };
+    const appliedItem: SceneObject = {
+      ...originalItem,
+      itemProperties: {
+        ...originalItem.itemProperties,
+        comments: "  applied\ncomment  "
+      }
+    };
+    const current = {
+      objectId: originalItem.id,
+      snapshotObject: originalItem,
+      draft: buildItemPropertiesDraft(appliedItem),
+      activeTab: "comments" as const,
+      windowX: 80,
+      windowY: 90,
+      anchorOffsetX: 0,
+      anchorOffsetY: 0,
+      collapsed: false
+    };
+
+    const reconciled = reconcileItemPropertiesDialogWithScene({
+      current,
+      sceneObjects: [appliedItem],
+      visibleObjectIdsSet: new Set([appliedItem.id])
+    });
+
+    expect(reconciled?.draft.comments).toBe("  applied\ncomment  ");
+    expect(reconciled?.snapshotObject.itemProperties?.comments).toBe(
+      "  applied\ncomment  "
+    );
+    expect(reconciled?.snapshotObject).not.toBe(appliedItem);
+  });
+
   it("refreshes visible item dialogs and closes them when the item leaves the visible subset", () => {
     const originalItem: SceneObject = {
       ...createNewSceneObject("items", 2, 3, 202),

@@ -3,6 +3,7 @@ import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspace } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -68,6 +69,7 @@ describe("Regression smoke: placeable world-move parity", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspace();
   });
 
   it("allows keyboard arrow movement for static placeable", async () => {

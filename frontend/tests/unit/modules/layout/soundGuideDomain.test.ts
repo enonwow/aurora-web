@@ -4,6 +4,7 @@ import {
   hasSoundGuideNonSerializableState,
   isSoundGuideNonSerializableKey,
   normalizeSoundGuidePositioning,
+  resolveSoundGuideWorldGeometry,
   resolveEditorSoundGuideOverlayFlags,
   resolveSoundGuideOverlayFlags,
   resolveSoundGuideOverlayFlagsFromPositioning,
@@ -24,7 +25,7 @@ describe("soundGuideDomain normalizeSoundGuidePositioning", () => {
     });
   });
 
-  it("keeps random mode ranges and clamps non-finite/negative values", () => {
+  it("keeps signed elevation and random ranges while clamping invalid distances", () => {
     expect(
       normalizeSoundGuidePositioning({
         mode: "random",
@@ -36,7 +37,7 @@ describe("soundGuideDomain normalizeSoundGuidePositioning", () => {
       })
     ).toEqual({
       mode: "random",
-      elevation: 0,
+      elevation: -3,
       maxVolumeDistance: 10,
       cutoffDistance: 10,
       randomRangeWestEast: 0,
@@ -161,6 +162,50 @@ describe("soundGuideDomain overlay mode gating", () => {
       "rand-box",
       "height"
     ]);
+  });
+
+  it("projects exact native distances to world geometry without losing signed elevation", () => {
+    const geometry = resolveSoundGuideWorldGeometry(
+      {
+        mode: "random",
+        elevation: -4,
+        maxVolumeDistance: 6,
+        cutoffDistance: 12,
+        randomRangeWestEast: 4,
+        randomRangeNorthSouth: 5
+      },
+      10
+    );
+
+    expect(geometry.metersToWorldScale).toBeCloseTo(0.1, 12);
+    expect(geometry.elevationOffsetWorld).toBeCloseTo(-0.4, 12);
+    expect(geometry.maxVolumeRadiusWorld).toBeCloseTo(0.6, 12);
+    expect(geometry.cutoffRadiusWorld).toBeCloseTo(1.2, 12);
+    expect(geometry.randomRangeHalfWidthWorld).toBeCloseTo(0.2, 12);
+    expect(geometry.randomRangeHalfDepthWorld).toBeCloseTo(0.25, 12);
+  });
+
+  it("uses a deterministic safe world scale for invalid units-per-tile input", () => {
+    expect(
+      resolveSoundGuideWorldGeometry(
+        {
+          mode: "specific",
+          elevation: -2,
+          maxVolumeDistance: 1,
+          cutoffDistance: 10,
+          randomRangeWestEast: 0,
+          randomRangeNorthSouth: 0
+        },
+        Number.NaN
+      )
+    ).toEqual({
+      metersToWorldScale: 1,
+      elevationOffsetWorld: -2,
+      maxVolumeRadiusWorld: 1,
+      cutoffRadiusWorld: 10,
+      randomRangeHalfWidthWorld: 0,
+      randomRangeHalfDepthWorld: 0
+    });
   });
 
   it("keeps backend-created sound guides editor-only and gates locked or hidden layers", () => {

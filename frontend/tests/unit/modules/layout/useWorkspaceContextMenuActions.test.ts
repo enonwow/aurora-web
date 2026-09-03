@@ -221,6 +221,30 @@ describe("resolveAnchoredDialogTargetObject", () => {
       resRef: "dia_hakon_add_12"
     });
   });
+
+  it("accepts either exact kind for a shared Trigger/Encounter polygon dialog", () => {
+    const trigger = {
+      ...createBackendSoundObject({ id: "trigger_001" }),
+      kind: "triggers" as const,
+    };
+    const encounter = {
+      ...createBackendSoundObject({ id: "encounter_001" }),
+      kind: "encounters" as const,
+    };
+
+    expect(resolveAnchoredDialogTargetObject({
+      objectId: trigger.id,
+      objectKind: ["triggers", "encounters"],
+      sceneObjects: [trigger, encounter],
+      visibleObjectIdsSet: new Set([trigger.id, encounter.id]),
+    })).toBe(trigger);
+    expect(resolveAnchoredDialogTargetObject({
+      objectId: encounter.id,
+      objectKind: ["triggers", "encounters"],
+      sceneObjects: [trigger, encounter],
+      visibleObjectIdsSet: new Set([trigger.id, encounter.id]),
+    })).toBe(encounter);
+  });
 });
 
 describe("resolveAnchoredDialogDragTargetObject", () => {

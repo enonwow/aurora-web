@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { resolveWorkspaceBackendApiBaseUrl } from "../../../../src/modules/shared/workspaceBackendApiBaseUrl";
 
 describe("resolveWorkspaceBackendApiBaseUrl", () => {
-  it("uses the direct backend for the main dev workspace control plane", () => {
+  it("uses the same-origin proxy for the main dev workspace control plane", () => {
     expect(
       resolveWorkspaceBackendApiBaseUrl({
         DEV: true
       })
-    ).toBe("http://127.0.0.1:3000/api/v1");
+    ).toBe("/_aurora/v1");
   });
 
   it("preserves an explicit environment override and strips trailing slashes", () => {

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import App from "../../../src/App";
 import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspace } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -37,6 +38,7 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspace();
   });
 
   it("shows expanded door tabs/controls and keeps Adjust Location hidden for doors", async () => {
@@ -89,9 +91,15 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     expect(
       within(dialog).getByRole("combobox", { name: /^loading screen$/i })
     ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("LinkedTo")).toBeDisabled();
+    expect(within(dialog).getByLabelText("LinkedToFlags")).toBeDisabled();
+    expect(within(dialog).getByLabelText("LoadScreenID")).toBeDisabled();
     expect(
-      within(dialog).getByRole("button", { name: /^setup area transition$/i })
+      within(dialog).getByText(/exact storage authoring is unavailable/i)
     ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: /^setup area transition$/i })
+    ).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^lock$/i }));
     const lockedCheckbox = within(dialog).getByRole("checkbox", { name: /^locked$/i });
@@ -126,14 +134,13 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     expect(onTrapTriggeredInput).toHaveValue("door_trap_interact_01");
   });
 
-  it("persists Basic/Lock/Trap/Area edits on Apply/OK and reverts transient lock/trap edits on Cancel", async () => {
+  it("persists Basic/Lock/Trap edits while preserving unavailable transition aliases on Apply/OK and Cancel", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
     const dialog = await openDoorPropertiesDialog();
 
     const persistedDoorName = "Door_Aurora_Persist_01";
-    const persistedDestinationTag = "WP_AURORA_PERSIST_01";
     const persistedKeyTag = "DOR_KEY_PERSIST_01";
     const persistedOnTrapTriggered = "door_trap_persist_01";
 
@@ -167,7 +174,9 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     const destinationTagInput = within(dialog).getByRole("textbox", {
       name: /^destination tag$/i
     });
-    fireEvent.change(destinationTagInput, { target: { value: persistedDestinationTag } });
+    expect(destinationTagInput).toHaveAttribute("readonly");
+    expect(destinationTagInput).toHaveValue("");
+    expect(within(dialog).getByLabelText("LinkedTo")).toBeDisabled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^apply$/i }));
     expect(screen.getByRole("dialog", { name: /door properties/i })).toBeInTheDocument();
@@ -185,7 +194,7 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^area transition$/i }));
     expect(
       within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i })
-    ).toHaveValue(persistedDestinationTag);
+    ).toHaveValue("");
     fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
     expect(within(reopenedAfterPersist).getByRole("checkbox", { name: /^locked$/i })).toBeChecked();
     expect(
@@ -215,12 +224,9 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
       target: { value: "Door_Aurora_Transient_01" }
     });
     fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^area transition$/i }));
-    fireEvent.change(
-      within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i }),
-      {
-        target: { value: "WP_AURORA_TRANSIENT_01" }
-      }
-    );
+    expect(
+      within(reopenedAfterPersist).getByRole("textbox", { name: /^destination tag$/i })
+    ).toHaveAttribute("readonly");
     fireEvent.click(within(reopenedAfterPersist).getByRole("button", { name: /^lock$/i }));
     fireEvent.change(
       within(reopenedAfterPersist).getByRole("spinbutton", { name: /^open lock dc$/i }),
@@ -258,7 +264,7 @@ describe("Regression smoke: door properties dialog (Aurora-first expanded)", () 
     fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^area transition$/i }));
     expect(
       within(reopenedAfterCancel).getByRole("textbox", { name: /^destination tag$/i })
-    ).toHaveValue(persistedDestinationTag);
+    ).toHaveValue("");
     fireEvent.click(within(reopenedAfterCancel).getByRole("button", { name: /^lock$/i }));
     expect(
       within(reopenedAfterCancel).getByRole("spinbutton", { name: /^open lock dc$/i })

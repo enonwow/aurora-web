@@ -209,7 +209,11 @@ describe("App auth test flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
     expect(
-      await screen.findByRole("dialog", { name: /keyboard shortcuts/i })
+      await screen.findByRole(
+        "dialog",
+        { name: /keyboard shortcuts/i },
+        { timeout: 5000 }
+      )
     ).toBeInTheDocument();
     expect(screen.getByText(/ctrl\/cmd \+ z/i)).toBeInTheDocument();
     expect(screen.getByText(/ctrl\/cmd \+ x/i)).toBeInTheDocument();
@@ -217,9 +221,11 @@ describe("App auth test flow", () => {
     expect(screen.getByText(/rmb on object/i)).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(
-      screen.queryByRole("dialog", { name: /keyboard shortcuts/i })
-    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: /keyboard shortcuts/i })
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("opens quick options popup from top-right options button", async () => {
@@ -309,7 +315,11 @@ describe("App auth test flow", () => {
       target: { value: "intersect" }
     });
     fireEvent.click(screen.getByLabelText(/show per-object gizmo hints/i));
-    fireEvent.click(screen.getByLabelText(/display tile grid overlay/i));
+    const tileGridOverlayCheckbox = screen.getByLabelText(
+      /display tile grid overlay/i
+    ) as HTMLInputElement;
+    const expectedTileGridOverlay = !tileGridOverlayCheckbox.checked;
+    fireEvent.click(tileGridOverlayCheckbox);
     fireEvent.click(screen.getByLabelText(/enable runtime sound preview/i));
     fireEvent.click(screen.getByLabelText(/show now-playing marker for active sounds/i));
     fireEvent.change(screen.getByLabelText(/camera rotate speed/i), {
@@ -334,7 +344,7 @@ describe("App auth test flow", () => {
     expect(parsed.snapHeightStep).toBe(1);
     expect(parsed.selectionBoxMode).toBe("intersect");
     expect(parsed.showPerObjectGizmoHints).toBe(false);
-    expect(parsed.showTileGridOverlay).toBe(true);
+    expect(parsed.showTileGridOverlay).toBe(expectedTileGridOverlay);
     expect(parsed.enableRuntimeSoundPreview).toBe(true);
     expect(parsed.showRuntimeSoundNowPlaying).toBe(false);
     expect(parsed.cameraRotateSpeed).toBe(1.5);
@@ -540,6 +550,135 @@ describe("App auth test flow", () => {
     expect(window.location.pathname).toBe("/login");
     expect(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)).toBeNull();
     expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
+  });
+
+  it("adopts a refreshed auth session from storage without replacing the open workspace document", async () => {
+    const previousState = {
+      session: {
+        accessToken: "token_before_backend_restart",
+        issuedAt: "2026-05-27T10:00:00.000Z",
+        expiresAt: "2099-05-27T20:00:00.000Z",
+        user: {
+          id: "u_builder_001",
+          username: "builder.user",
+          displayName: "Builder User",
+          role: "builder" as const
+        }
+      },
+      authorization: {
+        role: "builder" as const,
+        permissions: ["scene.read", "scene.edit"]
+      }
+    };
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(previousState));
+    const authorize = vi.fn(async () => previousState.authorization);
+    const authFacade: IAuthFacade = {
+      authenticate: vi.fn(),
+      authorize,
+      signOut: vi.fn()
+    };
+
+    window.history.replaceState({}, "", "/app?mode=areas_mode");
+    render(<App authFacade={authFacade} />);
+
+    const originalCanvas = await screen.findByLabelText(/workspace render canvas/i);
+    await waitFor(() => {
+      expect(authorize).toHaveBeenCalledWith(
+        expect.objectContaining({ accessToken: "token_before_backend_restart" })
+      );
+    });
+
+    const refreshedState = {
+      ...previousState,
+      session: {
+        ...previousState.session,
+        accessToken: "token_after_backend_restart",
+        issuedAt: "2026-05-27T10:05:00.000Z"
+      }
+    };
+    const oldValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+    const newValue = JSON.stringify(refreshedState);
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, newValue);
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "unrelated.storage.key",
+          oldValue,
+          newValue,
+          storageArea: window.localStorage,
+          url: window.location.href
+        })
+      );
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: AUTH_SESSION_STORAGE_KEY,
+          oldValue,
+          newValue,
+          storageArea: window.sessionStorage,
+          url: window.location.href
+        })
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(authorize).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: AUTH_SESSION_STORAGE_KEY,
+          oldValue,
+          newValue,
+          storageArea: window.localStorage,
+          url: window.location.href
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(authorize).toHaveBeenCalledWith(
+        expect.objectContaining({ accessToken: "token_after_backend_restart" })
+      );
+    });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText(/workspace render canvas/i)).toBe(originalCanvas);
+    expect(window.location.pathname).toBe("/app");
+    expect(screen.queryByRole("heading", { name: /sign in to aurora web/i })).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: AUTH_SESSION_STORAGE_KEY,
+          oldValue: newValue,
+          newValue,
+          storageArea: window.localStorage,
+          url: window.location.href
+        })
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(authorize).toHaveBeenCalledTimes(2);
+
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, "{malformed");
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: AUTH_SESSION_STORAGE_KEY,
+          oldValue: newValue,
+          newValue: "{malformed",
+          storageArea: window.localStorage,
+          url: window.location.href
+        })
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText(/workspace render canvas/i)).toBe(originalCanvas);
   });
 
   it("clears an open workspace session when its expiry time passes", async () => {

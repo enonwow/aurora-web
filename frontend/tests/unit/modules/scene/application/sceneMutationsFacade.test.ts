@@ -545,6 +545,106 @@ describe("sceneMutationsFacade", () => {
     expect(transformedPlaceable?.visualTransform.scale).toBeCloseTo(1.1);
   });
 
+  it("synchronizes retained ground-Item scene presentation with one exact native target", () => {
+    const facade = createSceneMutationsFacade();
+    const seed = createSeedAreaScene();
+    const item = seed.objects.find((object) => object.kind === "items")!;
+    const scene = {
+      ...seed,
+      objects: seed.objects.map((object) => object.id === item.id
+        ? {
+            ...object,
+            source: {
+              type: "aurora_git" as const,
+              sourceKind: "item" as const,
+              sourceIndex: 0,
+              sourceObjectId: "item:0:visual_transform",
+              itemVisualTransform: { present: false as const },
+            },
+            itemProperties: {
+              ...(object.itemProperties ?? {}),
+              visualTransform: { present: false as const },
+            },
+          }
+        : object),
+    };
+
+    const transformed = facade.setObjectsVisualTransformByIds(scene, [item.id], {
+      scale: 3,
+      scaleX: 2,
+      scaleY: 3,
+      scaleZ: 4,
+      offsetX: 0.2,
+      offsetY: -0.3,
+      offsetZ: 0.4,
+      pitch: Math.PI / 4,
+      roll: -Math.PI / 2,
+      yaw: Math.PI,
+    });
+    const changed = transformed.objects.find((object) => object.id === item.id)!;
+
+    expect(changed.itemProperties?.visualTransform).toStrictEqual({
+      present: true,
+      value: {
+        scaleX: 2,
+        scaleY: 3,
+        scaleZ: 4,
+        rotateX: 45,
+        rotateY: -90,
+        rotateZ: 180,
+        translateX: 2,
+        translateY: -3,
+        translateZ: 4,
+      },
+    });
+    expect(changed.source?.itemVisualTransform).toStrictEqual({ present: false });
+
+    const reset = facade.setObjectsVisualTransformByIds(transformed, [item.id], {
+      scale: 1,
+      scaleX: 1,
+      scaleY: 1,
+      scaleZ: 1,
+      offsetX: 0,
+      offsetY: 0,
+      offsetZ: 0,
+      pitch: 0,
+      roll: 0,
+      yaw: 0,
+    });
+    expect(reset.objects.find((object) => object.id === item.id)
+      ?.itemProperties?.visualTransform).toStrictEqual({ present: false });
+  });
+
+  it("keeps a retained ground Item without exact visual-transform provenance preserve-only", () => {
+    const facade = createSceneMutationsFacade();
+    const seed = createSeedAreaScene();
+    const item = seed.objects.find((object) => object.kind === "items")!;
+    const scene = {
+      ...seed,
+      objects: seed.objects.map((object) => object.id === item.id
+        ? {
+            ...object,
+            source: {
+              type: "aurora_git" as const,
+              sourceKind: "item" as const,
+              sourceIndex: 0,
+              sourceObjectId: "item:0:visual_transform_unsupported",
+            },
+          }
+        : object),
+    };
+
+    expect(facade.setObjectsVisualTransformByIds(scene, [item.id], {
+      scale: 2,
+      offsetX: 1,
+      offsetY: 2,
+      offsetZ: 3,
+      pitch: 0.1,
+      roll: 0.2,
+      yaw: 0.3,
+    })).toBe(scene);
+  });
+
   it("removes a placed Aurora SET group through any member tile and preserves the editing payload", () => {
     const facade = createSceneMutationsFacade();
     const editable = createAuroraEditableScene();
@@ -938,7 +1038,24 @@ describe("sceneMutationsFacade", () => {
     ];
     const scene = {
       ...baseScene,
-      objects: [...baseScene.objects, ...extraObjects]
+      objects: [...baseScene.objects, ...extraObjects].map((object) =>
+        object.kind === "items"
+          ? {
+              ...object,
+              source: {
+                type: "aurora_git" as const,
+                sourceKind: "item" as const,
+                sourceIndex: 0,
+                sourceObjectId: "item:0:all_kinds_visual_transform",
+                itemVisualTransform: { present: false as const },
+              },
+              itemProperties: {
+                ...(object.itemProperties ?? {}),
+                visualTransform: { present: false as const },
+              },
+            }
+          : object
+      )
     };
     const objectIds = [
       ...new Set(scene.objects.map((object) => object.kind))

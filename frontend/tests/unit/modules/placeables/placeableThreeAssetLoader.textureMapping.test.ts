@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyPlaceableTexturesToModel,
   clearPlaceableTextureLoadQueue,
+  createAuroraTextureCycleRuntime,
   ensurePlaceableTexture,
   ensurePlaceableTexturesByReference,
+  getCachedPlaceableTexture,
   getPlaceableMissingTextureFallbackTexture,
   PLACEABLE_TEXTURE_ANISOTROPY_CAP,
   PLACEABLE_TEXTURE_LOAD_CONCURRENCY_LIMIT,
@@ -17,6 +19,21 @@ afterEach(() => {
 
 function createMeshWithMaterial(material: THREE.MeshStandardMaterial): THREE.Mesh {
   return new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
+}
+
+function createTxiCycleRoot(texture: THREE.Texture): THREE.Group {
+  const material = new THREE.MeshBasicMaterial({ map: texture });
+  material.userData = {
+    auroraTextureTxiProcedureType: "cycle",
+    auroraTextureTxiCycleActive: true,
+    auroraTextureTxiReference: "fx_cycle",
+    auroraTextureTxiNumX: 2,
+    auroraTextureTxiNumY: 2,
+    auroraTextureTxiFps: 4
+  };
+  const root = new THREE.Group();
+  root.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material));
+  return root;
 }
 
 function createTextureRuntime(
@@ -215,6 +232,84 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.map).toBe(stoneTexture);
   });
 
+  it("installs shared source-MDL ambient and diffuse lighting on lit model materials", () => {
+    const material = new THREE.MeshStandardMaterial();
+    material.userData = {
+      aurora: {
+        textureReference: "stone",
+        material: {
+          format: "aurora-mdl-material",
+          ambient: [0.2, 0.4, 0.6],
+          diffuse: [0.8, 0.5, 0.75]
+        }
+      }
+    };
+    const mesh = createMeshWithMaterial(material);
+    const stoneTexture = new THREE.Texture();
+
+    applyPlaceableTexturesToModel(
+      mesh,
+      new Map<string, THREE.Texture>([["stone", stoneTexture]])
+    );
+
+    expect(material.userData.auroraMdlMaterialLightingStatus).toBe(
+      "source-mdl-ambient-diffuse-separated"
+    );
+    expect(material.userData.auroraMdlMaterialAmbientToDiffuse).toEqual([
+      0.047366,
+      0.612066,
+      0.612066
+    ]);
+    expect(material.color.r).toBeCloseTo(Math.pow(0.8, 2.2), 12);
+    expect(material.color.g).toBeCloseTo(Math.pow(0.5, 2.2), 12);
+    expect(material.color.b).toBeCloseTo(Math.pow(0.75, 2.2), 12);
+  });
+
+  it("keeps unlit source-MDL materials outside the lit material adapter", () => {
+    const material = new THREE.MeshBasicMaterial();
+    material.userData = {
+      aurora: {
+        textureReference: "stone",
+        material: {
+          format: "aurora-mdl-material",
+          ambient: [0.2, 0.2, 0.2],
+          diffuse: [0.8, 0.8, 0.8]
+        }
+      }
+    };
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
+
+    applyPlaceableTexturesToModel(
+      mesh,
+      new Map<string, THREE.Texture>([["stone", new THREE.Texture()]])
+    );
+
+    expect(material.userData.auroraMdlMaterialLightingInstalled).toBeUndefined();
+  });
+
+  it("installs source-MDL lighting even when a material has no bound texture", () => {
+    const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    material.userData = {
+      aurora: {
+        material: {
+          format: "aurora-mdl-material",
+          ambient: [0.2, 0.2, 0.2],
+          diffuse: [0.8, 0.7, 0.6]
+        }
+      }
+    };
+    const mesh = createMeshWithMaterial(material);
+
+    applyPlaceableTexturesToModel(mesh, new Map());
+
+    expect(material.userData.auroraMdlMaterialLightingStatus).toBe(
+      "source-mdl-ambient-diffuse-separated"
+    );
+    expect(material.color.r).toBeCloseTo(Math.pow(0.8, 2.2), 12);
+    expect(material.color.g).toBeCloseTo(Math.pow(0.7, 2.2), 12);
+    expect(material.color.b).toBeCloseTo(Math.pow(0.6, 2.2), 12);
+  });
+
   it("maps imported primary material texture references from MDL user data", () => {
     const material = new THREE.MeshStandardMaterial();
     material.userData = {
@@ -315,7 +410,7 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.userData.auroraSelfIllumColor).toEqual([0.1, 0.25, 0.9]);
   });
 
-  it("uses backend MTR material contract to map the source texture list for material references", () => {
+  it("preserves the MTR custom-shader graph without guessing iceclear render state", () => {
     const material = new THREE.MeshStandardMaterial();
     material.userData = {
       aurora: {
@@ -325,7 +420,15 @@ describe("applyPlaceableTexturesToModel", () => {
     };
     const mesh = createMeshWithMaterial(material);
     const smokeTexture = new THREE.Texture();
-    const textures = new Map<string, THREE.Texture>([["fxpa_smoke01", smokeTexture]]);
+    const bumpTexture = new THREE.Texture();
+    const environmentTexture = new THREE.Texture();
+    const flowTexture = new THREE.Texture();
+    const textures = new Map<string, THREE.Texture>([
+      ["fxpa_smoke01", smokeTexture],
+      ["tti01_ice_bump", bumpTexture],
+      ["tti01_ice_env", environmentTexture],
+      ["tti01_ice_flow", flowTexture]
+    ]);
 
     applyPlaceableTexturesToModel(mesh, textures, undefined, {
       auroraMaterial: {
@@ -338,7 +441,46 @@ describe("applyPlaceableTexturesToModel", () => {
             materialObjectKey: "modules/current/materials/tti01_iceclear.mtr",
             state: {
               customShaderVS: "vslit_sm",
-              customShaderFS: "fslit_sm"
+              customShaderFS: "fslit_sm",
+              customShaderProgram: {
+                version: "aurora-shader-program-source/v1",
+                status: "complete",
+                stageRoots: {
+                  vertex: "vslit_sm",
+                  fragment: "fslit_sm"
+                },
+                sources: [
+                  {
+                    resref: "vslit_sm",
+                    source: "#define ENVIRONMENT_MAP 1\nvoid main() {}",
+                    includeRefs: []
+                  },
+                  {
+                    resref: "fslit_sm",
+                    source: "void main() {}",
+                    includeRefs: []
+                  }
+                ],
+                unresolvedRefs: []
+              },
+              bumpmaptexture: "tti01_ice_bump",
+              bumpyshinytexture: "tti01_ice_shiny",
+              envmaptexture: "tti01_ice_env",
+              bumpreplacementtexture: "tti01_ice_replacement",
+              textureSlots: [
+                { slot: 0, role: "diffuse", reference: "fxpa_smoke01" },
+                { slot: 6, role: "unknown", reference: "tti01_ice_flow" }
+              ],
+              parameters: [
+                { name: "Metallicness", kind: "float", values: [0.001], arity: 1 },
+                {
+                  name: "CustomTint",
+                  kind: "float",
+                  values: [1, 0.5, 0.25, 1],
+                  arity: 4
+                },
+                { name: "CustomMode", kind: "int", values: [2], arity: 1 }
+              ]
             }
           }
         ],
@@ -350,9 +492,44 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.userData.auroraMaterialContractSource).toBe("tti01_iceclear.mtr");
     expect(material.userData.auroraMaterialCustomShaderVS).toBe("vslit_sm");
     expect(material.userData.auroraMaterialCustomShaderFS).toBe("fslit_sm");
-    expect(material.userData.auroraMaterialClearCustomShader).toBe(true);
-    expect(material.opacity).toBe(0);
-    expect(material.depthWrite).toBe(false);
+    expect(material.userData.auroraMaterialCustomShaderProgramStatus).toBe("complete");
+    expect(material.userData.auroraMaterialCustomShaderReachableSourceCount).toBe(2);
+    expect(material.userData.auroraMaterialCustomShaderUnresolvedRefs).toEqual([]);
+    expect(material.userData.auroraMaterialCustomShaderExecutionStatus).toBe(
+      "installed-retail-source-graph-bindings-parity-proof-pending"
+    );
+    expect(material.userData.auroraMaterialCustomShaderInstallStatus).toBe("installed");
+    expect(material.userData.auroraMaterialCustomShaderInstallReason).toBe(
+      "retail-source-graph-and-named-bindings-installed"
+    );
+    expect(material.userData.auroraMaterialCustomShaderProfile).toBe(
+      "aurora-mtr-custom-shader-profile/v1"
+    );
+    expect(material.userData.auroraMaterialCustomShaderNoDiscard).toBe(1);
+    expect(material.userData.auroraMaterialShaderParameters).toEqual([
+      { name: "Metallicness", kind: "float", values: [0.001], arity: 1 },
+      { name: "CustomTint", kind: "float", values: [1, 0.5, 0.25, 1], arity: 4 },
+      { name: "CustomMode", kind: "int", values: [2], arity: 1 }
+    ]);
+    expect(material.bumpMap).toBe(bumpTexture);
+    expect(material.envMap).toBe(environmentTexture);
+    expect(material.userData.auroraMaterialNamedTextureReferences).toEqual({
+      bumpmaptexture: "tti01_ice_bump",
+      bumpyshinytexture: "tti01_ice_shiny",
+      envmaptexture: "tti01_ice_env",
+      bumpreplacementtexture: "tti01_ice_replacement"
+    });
+    expect(material.userData.auroraMaterialBumpyShinyTextureBindingStatus).toBe(
+      "source-reference-preserved-binding-unverified"
+    );
+    const executionMaterial = mesh.material as THREE.RawShaderMaterial;
+    expect(executionMaterial.uniforms.texUnitEnv.value).toBe(environmentTexture);
+    expect(executionMaterial.uniforms.texUnitEnvCube.value).toBeNull();
+    expect(executionMaterial.uniforms.texUnit6.value).toBe(flowTexture);
+    expect(executionMaterial.uniforms.texture6Bound.value).toBe(1);
+    expect(material.opacity).toBe(1);
+    expect(material.transparent).toBe(false);
+    expect(material.depthWrite).toBe(true);
   });
 
   it("uses backend MTR texture0 slot as the diffuse texture", () => {
@@ -554,6 +731,8 @@ describe("applyPlaceableTexturesToModel", () => {
             state: {
               transparency: true,
               twoSided: true,
+              sampleFramebuffer: 2,
+              volumetric: true,
               renderHint: "NormalAndSpecMapped",
               roughness: 0.62,
               specularity: 0.45
@@ -570,6 +749,20 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.metalness).toBeCloseTo(0.09);
     expect(material.userData.auroraMaterialTransparency).toBe(true);
     expect(material.userData.auroraMaterialTwoSided).toBe(true);
+    expect(material.userData.auroraMaterialSampleFramebuffer).toBe(2);
+    expect(material.userData.auroraMaterialVolumetric).toBe(true);
+    expect(material.userData.auroraMaterialFramebufferRuntimeLane).toBe(6);
+    expect(material.userData.auroraMaterialFramebufferStateStatus).toBe(
+      "source-pass-confirmed-custom-program-execution-pending"
+    );
+    expect(material.userData.auroraMaterialFramebufferStateDiagnostic).toBe(
+      "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
+    );
+    expect(material.userData.auroraMaterialFramebufferCaptureScope).toBe("mainscene");
+    expect(material.userData.auroraMaterialFramebufferCaptureDestinationSlot).toBe(6);
+    expect(material.userData.auroraMaterialFramebufferAttachmentBindingMask).toBe(3);
+    expect(material.userData.auroraMaterialFramebufferColorTextureUnit).toBe(11);
+    expect(material.userData.auroraMaterialFramebufferDepthTextureUnit).toBe(12);
     expect(material.userData.auroraMaterialRenderHint).toBe("NormalAndSpecMapped");
     expect(material.userData.auroraMaterialRoughness).toBe(0.62);
     expect(material.userData.auroraMaterialSpecularity).toBe(0.45);
@@ -606,16 +799,26 @@ describe("applyPlaceableTexturesToModel", () => {
     });
 
     expect(material.transparent).toBe(false);
-    expect(material.alphaTest).toBe(0.5);
+    expect(material.alphaTest).toBe(0.2);
     expect(material.depthWrite).toBe(true);
     expect(material.userData.auroraMaterialBlending).toBe("punchthrough");
+    expect(material.userData.auroraMaterialPunchThroughAlphaDiscardValue).toBe(0.2);
+    expect(material.userData.auroraMaterialPunchThroughAlphaDiscardSource).toBe(
+      "nwtoolset-1.5.0.5-fAlphaDiscardValue-state1-disassembly"
+    );
   });
 
   it("applies backend TXI texture state from texture bindings", () => {
     const material = new THREE.MeshStandardMaterial();
+    material.side = THREE.FrontSide;
     material.userData = {
       aurora: {
-        textureReference: "phod_fx_pntgrm"
+        textureReference: "phod_fx_pntgrm",
+        material: {
+          format: "aurora-mdl-material",
+          ambient: [0.2, 0.2, 0.2],
+          diffuse: [0.8, 0.8, 0.8]
+        }
       }
     };
     const mesh = createMeshWithMaterial(material);
@@ -665,6 +868,7 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.transparent).toBe(true);
     expect(material.depthWrite).toBe(false);
     expect(material.alphaTest).toBe(0);
+    expect(material.side).toBe(THREE.FrontSide);
     expect(material.blending).toBe(THREE.AdditiveBlending);
     expect(material.bumpMap).toBe(bumpTexture);
     expect(material.bumpScale).toBeCloseTo(0.05);
@@ -679,6 +883,187 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.userData.auroraTextureTxiProcedureType).toBe("cycle");
     expect(material.userData.auroraTextureTxiCycleActive).toBe(true);
     expect(material.userData.auroraTextureTxiCycleFrameCount).toBe(8);
+    expect(material.userData.auroraTxiDecalLightingStatus).toBe(
+      "source-txi-decal-unlit-white"
+    );
+    expect(material.userData.auroraTxiAdditiveDecalRawGammaInstalled).toBe(true);
+    expect(material.userData.auroraCanonicalColorAccumulationLane).toBe(
+      "aurora_raw_gamma_additive_before_retail_bloom"
+    );
+    expect(mesh.userData.auroraCanonicalColorAccumulationLane).toBe(
+      "aurora_raw_gamma_additive_before_retail_bloom"
+    );
+    expect(material.userData.auroraMdlMaterialLightingInstalled).toBeUndefined();
+  });
+
+  it("binds TXI only to the texture selected by each material", () => {
+    const stoneMaterial = new THREE.MeshStandardMaterial();
+    stoneMaterial.userData = {
+      aurora: {
+        textureReference: "surface_a",
+        textureReferences: ["effect_b", "surface_a", "unrelated_c"]
+      }
+    };
+    const effectMaterial = new THREE.MeshStandardMaterial();
+    effectMaterial.userData = {
+      aurora: {
+        textureReference: "effect_b",
+        textureReferences: ["surface_a", "unrelated_c", "effect_b"]
+      }
+    };
+    const root = new THREE.Group();
+    root.add(createMeshWithMaterial(stoneMaterial));
+    root.add(createMeshWithMaterial(effectMaterial));
+    const surfaceTexture = new THREE.Texture();
+    const effectTexture = new THREE.Texture();
+    const unrelatedTexture = new THREE.Texture();
+
+    applyPlaceableTexturesToModel(
+      root,
+      new Map<string, THREE.Texture>([
+        ["surface_a", surfaceTexture],
+        ["effect_b", effectTexture],
+        ["unrelated_c", unrelatedTexture]
+      ]),
+      undefined,
+      {
+        textureBindings: [
+          {
+            reference: "effect_b",
+            assetId: "effect_b_asset",
+            fileName: "effect_b.tga",
+            objectKey: "textures/effect_b.tga",
+            deliveryUrl: "/cache/effect_b.tga",
+            txi: {
+              decal: true,
+              blending: "additive"
+            }
+          },
+          {
+            reference: "unrelated_c",
+            assetId: "unrelated_c_asset",
+            fileName: "unrelated_c.tga",
+            objectKey: "textures/unrelated_c.tga",
+            deliveryUrl: "/cache/unrelated_c.tga",
+            txi: {
+              decal: true,
+              blending: "additive"
+            }
+          }
+        ]
+      }
+    );
+
+    expect(stoneMaterial.map).toBe(surfaceTexture);
+    expect(stoneMaterial.transparent).toBe(false);
+    expect(stoneMaterial.depthWrite).toBe(true);
+    expect(stoneMaterial.blending).toBe(THREE.NormalBlending);
+    expect(stoneMaterial.userData.auroraTextureTxiReference).toBeUndefined();
+    expect(stoneMaterial.userData.auroraTextureTxiSelectedTextureReference).toBe(
+      "surface_a"
+    );
+    expect(stoneMaterial.userData.auroraTextureTxiAppliedReference).toBe("");
+    expect(stoneMaterial.userData.auroraTextureTxiBindingStatus).toBe(
+      "not-applied-no-selected-texture-txi"
+    );
+
+    expect(effectMaterial.map).toBe(effectTexture);
+    expect(effectMaterial.transparent).toBe(true);
+    expect(effectMaterial.depthWrite).toBe(false);
+    expect(effectMaterial.blending).toBe(THREE.AdditiveBlending);
+    expect(effectMaterial.userData.auroraTextureTxiSelectedTextureReference).toBe(
+      "effect_b"
+    );
+    expect(effectMaterial.userData.auroraTextureTxiAppliedReference).toBe("effect_b");
+    expect(effectMaterial.userData.auroraTextureTxiBindingStatus).toBe(
+      "applied-selected-texture-txi"
+    );
+  });
+
+  it("does not use a lone unrelated TXI binding as a material fallback", () => {
+    const material = new THREE.MeshStandardMaterial();
+    material.userData = {
+      aurora: {
+        textureReference: "surface_a"
+      }
+    };
+    const mesh = createMeshWithMaterial(material);
+    const surfaceTexture = new THREE.Texture();
+    const effectTexture = new THREE.Texture();
+
+    applyPlaceableTexturesToModel(
+      mesh,
+      new Map<string, THREE.Texture>([
+        ["surface_a", surfaceTexture],
+        ["effect_b", effectTexture]
+      ]),
+      undefined,
+      {
+        textureBindings: [
+          {
+            reference: "effect_b",
+            assetId: "effect_b_asset",
+            fileName: "effect_b.tga",
+            objectKey: "textures/effect_b.tga",
+            deliveryUrl: "/cache/effect_b.tga",
+            txi: {
+              decal: true,
+              blending: "additive"
+            }
+          }
+        ]
+      }
+    );
+
+    expect(material.map).toBe(surfaceTexture);
+    expect(material.transparent).toBe(false);
+    expect(material.depthWrite).toBe(true);
+    expect(material.blending).toBe(THREE.NormalBlending);
+    expect(material.userData.auroraTextureTxiAppliedReference).toBe("");
+    expect(material.userData.auroraTextureTxiBindingStatus).toBe(
+      "not-applied-no-selected-texture-txi"
+    );
+  });
+
+  it("uses Aurora's strict cycle threshold and drops residual time after one frame step", () => {
+    const texture = new THREE.Texture();
+    const runtime = createAuroraTextureCycleRuntime(createTxiCycleRoot(texture));
+
+    expect(runtime).not.toBeNull();
+    runtime?.apply(0, 0, 0);
+    runtime?.apply(0.25, undefined, 1);
+    expect(texture.offset.x).toBeCloseTo(0);
+    expect(texture.offset.y).toBeCloseTo(0.5);
+
+    runtime?.apply(0.01, undefined, 2);
+    expect(texture.offset.x).toBeCloseTo(0.5);
+    expect(texture.offset.y).toBeCloseTo(0.5);
+
+    runtime?.apply(0.24, undefined, 3);
+    runtime?.apply(0.01, undefined, 4);
+    expect(texture.offset.x).toBeCloseTo(0.5);
+    expect(texture.offset.y).toBeCloseTo(0.5);
+
+    runtime?.apply(0.001, undefined, 5);
+    expect(texture.offset.x).toBeCloseTo(0);
+    expect(texture.offset.y).toBeCloseTo(0);
+    expect(texture.userData.auroraTextureTxiCycleFrameIndex).toBe(2);
+    expect(texture.userData.auroraTextureTxiCycleUpdateCount).toBe(2);
+  });
+
+  it("updates a texture shared by two model roots at most once per renderer frame", () => {
+    const texture = new THREE.Texture();
+    const firstRuntime = createAuroraTextureCycleRuntime(createTxiCycleRoot(texture));
+    const secondRuntime = createAuroraTextureCycleRuntime(createTxiCycleRoot(texture));
+
+    firstRuntime?.apply(0.26, undefined, 17);
+    secondRuntime?.apply(0.1, undefined, 17);
+
+    expect(texture.offset.x).toBeCloseTo(0.5);
+    expect(texture.offset.y).toBeCloseTo(0.5);
+    expect(texture.userData.auroraTextureTxiCycleFrameIndex).toBe(1);
+    expect(texture.userData.auroraTextureTxiCycleLastRendererFrameSerial).toBe(17);
+    expect(texture.userData.auroraTextureTxiCycleUpdateCount).toBe(1);
   });
 
   it("does not apply fallback texture to unresolved explicit Aurora material references", () => {
@@ -974,6 +1359,9 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(material.userData.auroraTransparencyHint).toBe(1);
     expect(material.userData.auroraTransparencyHintColorKeyMaterial).toBe(true);
     expect(material.userData.auroraTransparencyHintColorKeyShaderApplied).toBe(true);
+    expect(material.userData.auroraTextureNearBlackPixelRatio).toBe(0.5);
+    expect(material.userData.auroraTextureNearBlackSampledPixelCount).toBe(2);
+    expect(material.userData.auroraTextureNearBlackCoverageStatus).toBe("sampled_rgba");
 
     const shader = {
       fragmentShader: "#include <alphatest_fragment>",
@@ -981,8 +1369,48 @@ describe("applyPlaceableTexturesToModel", () => {
     };
     material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
 
-    expect(shader.fragmentShader).toContain("auroraTransparencyHintLuminance");
+    expect(shader.fragmentShader).toContain("auroraTransparencyHintMaxChannel");
+    expect(shader.fragmentShader).toContain("0.047059");
     expect(shader.fragmentShader).toContain("discard");
+  });
+
+  it("keeps a dark opaque transparencyhint texture opaque without source near-black pixels", () => {
+    const material = new THREE.MeshStandardMaterial();
+    material.userData = {
+      aurora: {
+        textureReference: "dark_source_surface",
+        material: {
+          transparencyHint: 1
+        }
+      }
+    };
+    const mesh = createMeshWithMaterial(material);
+    const darkOpaqueTexture = new THREE.DataTexture(
+      new Uint8Array([
+        55, 61, 58, 255,
+        99, 97, 99, 255
+      ]),
+      2,
+      1,
+      THREE.RGBAFormat
+    );
+    const textures = new Map<string, THREE.Texture>([
+      ["dark_source_surface", darkOpaqueTexture]
+    ]);
+
+    applyPlaceableTexturesToModel(mesh, textures);
+
+    expect(material.transparent).toBe(false);
+    expect(material.alphaTest).toBe(0);
+    expect(material.depthWrite).toBe(true);
+    expect(material.userData.auroraTextureUsesAlpha).toBe(false);
+    expect(material.userData.auroraTextureAlphaMode).toBe("opaque");
+    expect(material.userData.auroraTransparencyHint).toBe(1);
+    expect(material.userData.auroraTransparencyHintColorKeyMaterial).toBe(false);
+    expect(material.userData.auroraTransparencyHintColorKeyShaderApplied).not.toBe(true);
+    expect(material.userData.auroraTextureNearBlackPixelRatio).toBe(0);
+    expect(material.userData.auroraTextureNearBlackSampledPixelCount).toBe(2);
+    expect(material.userData.auroraTextureNearBlackCoverageStatus).toBe("sampled_rgba");
   });
 
   it("applies black-key cutout for single-piece item shield texture atlases", () => {
@@ -1172,6 +1600,20 @@ describe("applyPlaceableTexturesToModel", () => {
     expect(texture?.userData.pltWidth).toBe(2);
     expect(texture?.userData.pltHeight).toBe(2);
     expect(texture?.userData.numLayers).toBe(10);
+    expect(texture?.colorSpace).toBe(THREE.NoColorSpace);
+    expect(texture?.wrapS).toBe(THREE.RepeatWrapping);
+    expect(texture?.wrapT).toBe(THREE.RepeatWrapping);
+    expect(texture?.magFilter).toBe(THREE.LinearFilter);
+    expect(texture?.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+    expect(texture?.generateMipmaps).toBe(true);
+    expect(texture?.userData.auroraPltGeneratedTargetFormat).toBe("rgba8-linear");
+    expect(texture?.userData.auroraPltSamplerState).toEqual({
+      wrapS: "repeat",
+      wrapT: "repeat",
+      magFilter: "linear",
+      minFilter: "linear-mipmap-linear",
+      generateMipmaps: true
+    });
     expect(texture?.userData.auroraPltUsedLayerIndices).toEqual([0, 1, 8, 9]);
     expect(texture?.userData.usedLayers).toEqual([
       true,
@@ -1185,6 +1627,26 @@ describe("applyPlaceableTexturesToModel", () => {
       true,
       true
     ]);
+  });
+
+  it("keeps PLT cache reads isolated by target palette rows", async () => {
+    const runtime = createTextureRuntime(new THREE.Texture(), 16);
+    runtime.placeableTextureFetch = async () => ({
+      ok: true,
+      arrayBuffer: async () => buildPltTextureFixture()
+    });
+    const textureUrl = "/assets/robe_fx.plt";
+    const matchingOptions = { paletteRowsByLayer: { 0: 12, 3: 77 } };
+
+    const texture = await ensurePlaceableTexture(runtime, textureUrl, matchingOptions);
+
+    expect(getCachedPlaceableTexture(runtime, textureUrl, matchingOptions)).toBe(texture);
+    expect(
+      getCachedPlaceableTexture(runtime, textureUrl, {
+        paletteRowsByLayer: { 0: 13, 3: 77 }
+      })
+    ).toBeUndefined();
+    expect(getCachedPlaceableTexture(runtime, textureUrl)).toBeUndefined();
   });
 
   it("stores decoded Aurora TPC rows bottom-first for flipY=false placeable UVs", async () => {

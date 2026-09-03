@@ -14,6 +14,112 @@ import { createNewSceneObject, createSeedAreaScene } from "../../../../src/modul
 import type { WorkspaceObjectAddRuntimePort } from "../../../../src/modules/layout/ports/workspaceRenderRuntimePort";
 
 describe("useWorkspaceObjectAddDragDrop", () => {
+  it("routes door drops through the hook-safe facade and reports a rejected hook", () => {
+    const scene: AreaScene = { ...createSeedAreaScene(), objects: [] };
+    const payload: ObjectAddDragPayload = {
+      id: "door_catalog_template",
+      kind: "doors",
+      tag: "UNTRUSTED_DOOR_TAG",
+      resRef: "untrusted_door_resref",
+      name: "Door catalog entry",
+    };
+    const runtimeRef = { current: {} };
+    const objectAddRuntimePort: WorkspaceObjectAddRuntimePort<object, object> = {
+      clearObjectAddGhost: vi.fn(),
+      syncObjectAddGhost: vi.fn(),
+      resolveCanvasObjectAddPlacement: vi.fn(() => ({
+        x: 0.25,
+        y: 0.25,
+        tileId: scene.tiles[0]?.id ?? null,
+      })),
+    };
+    const createObject = vi.fn();
+    const createDoorAtHook = vi.fn(() => undefined);
+    const sceneViewportPort = {
+      createObject,
+      createDoorAtHook,
+      appendObjects: vi.fn(),
+      commitHistory: vi.fn(),
+      getSceneScale: vi.fn(() => 1),
+    } as unknown as SceneViewportPort;
+    const setSceneHistory = vi.fn();
+    const setSelectedObjectIds = vi.fn();
+    const setSelectedTileId = vi.fn();
+    const trackTelemetry = vi.fn();
+    const nextObjectSequenceRef = { current: 9 };
+    let handlers: ReturnType<typeof useWorkspaceObjectAddDragDrop<object, object>> | null = null;
+
+    function Harness() {
+      handlers = useWorkspaceObjectAddDragDrop({
+        runtimeRef,
+        objectAddRuntimePort,
+        scene,
+        sceneViewportPort,
+        renderObjectIds: null,
+        toolbarState: createWorkspaceChromeFacade().createDefaultToolbarState(),
+        workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
+        nextObjectSequenceRef,
+        setSceneHistory,
+        setSelectedObjectIds,
+        setSelectedTileId,
+        trackTelemetry,
+        userId: "u_builder_001",
+      });
+      return null;
+    }
+
+    render(<Harness />);
+    act(() => {
+      handlers?.handleCanvasDrop({
+        clientX: 20,
+        clientY: 20,
+        preventDefault: vi.fn(),
+        dataTransfer: { getData: vi.fn(() => serializeObjectAddPayload(payload)) },
+      } as unknown as DragEvent<HTMLDivElement>);
+    });
+
+    expect(createDoorAtHook).toHaveBeenCalledWith(scene, 0.25, 0.25, 9);
+    expect(createObject).not.toHaveBeenCalled();
+    expect(setSceneHistory).not.toHaveBeenCalled();
+    expect(setSelectedObjectIds).not.toHaveBeenCalled();
+    expect(handlers?.objectAddDropFeedback).toEqual({
+      variant: "warning",
+      message: "This tile has no supported free door hook.",
+    });
+    expect(trackTelemetry).toHaveBeenCalledWith(
+      "scene.objects.add_blocked_door_hook",
+      expect.objectContaining({ kind: "doors", source: "drop" }),
+    );
+
+    const safeDoor = createNewSceneObject("doors", 0.5, 0.576, 10);
+    safeDoor.resRef = "nw_door_ttr_04";
+    safeDoor.tag = "Barn1Door";
+    safeDoor.name = "Barn 1 Door";
+    safeDoor.bearing = 1.234;
+    safeDoor.z = 0.456;
+    createDoorAtHook.mockReturnValue(safeDoor);
+    act(() => {
+      handlers?.handleCanvasDrop({
+        clientX: 20,
+        clientY: 20,
+        preventDefault: vi.fn(),
+        dataTransfer: { getData: vi.fn(() => serializeObjectAddPayload(payload)) },
+      } as unknown as DragEvent<HTMLDivElement>);
+    });
+
+    expect(createDoorAtHook).toHaveBeenLastCalledWith(scene, 0.25, 0.25, expect.any(Number));
+    expect(safeDoor).toMatchObject({
+      resRef: "nw_door_ttr_04",
+      tag: "Barn1Door",
+      name: "Barn 1 Door",
+      bearing: 1.234,
+      z: 0.456,
+    });
+    expect(setSceneHistory).toHaveBeenCalledOnce();
+    expect(setSelectedObjectIds).toHaveBeenCalledWith([safeDoor.id]);
+    expect(nextObjectSequenceRef.current).toBe(11);
+  });
+
   it("preserves backend sound template positioning when dropped into an area scene", () => {
     const baseScene = createSeedAreaScene();
     const scene: AreaScene = {
@@ -71,7 +177,12 @@ describe("useWorkspaceObjectAddDragDrop", () => {
       }))
     };
     const sceneViewportPort = {
-      createObject: vi.fn((kind, x, y, sequence) => createNewSceneObject(kind, x, y, sequence)),
+      createObject: vi.fn((kind, x, y, sequence) => {
+        const created = createNewSceneObject(kind, x, y, sequence);
+        created.bearing = 0.23;
+        created.z = 0.27;
+        return created;
+      }),
       appendObjects: vi.fn((currentScene, objects) => ({
         ...currentScene,
         objects: [...currentScene.objects, ...objects]
@@ -140,7 +251,9 @@ describe("useWorkspaceObjectAddDragDrop", () => {
             soundTemplateSource: "backend-catalog"
           }
         }
-      }
+      },
+      bearing: Math.PI / 12,
+      z: 0.5
     });
     expect(setSelectedObjectIds).toHaveBeenCalledWith([droppedSound?.id]);
     expect(setSelectedTileId).toHaveBeenCalledWith(scene.tiles[0]?.id);
@@ -411,6 +524,18 @@ describe("useWorkspaceObjectAddDragDrop", () => {
       tag: "PLC_TEMPLATE_CHAIR",
       resRef: "plc_chair",
       name: "Template Chair",
+      source: {
+        type: "aurora_blueprint" as const,
+        sourceKind: "placeable" as const,
+        sourceProfileId: "effective-catalog-utp-placeable-copy-v1",
+        templateId: "plc_plc_chair",
+        templateResRef: "plc_chair",
+        sourceObjectKey: "modules/current/__aurora/sources/vanilla/templates/plc_chair.utp",
+        sourceEtag: "a".repeat(64),
+        sourceFileType: "UTP ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff
+      },
       placeableProperties: {
         plot: true,
         useable: true,
@@ -516,6 +641,15 @@ describe("useWorkspaceObjectAddDragDrop", () => {
         plot: true,
         useable: true,
         hasInventory: false
+      },
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "placeable",
+        sourceProfileId: "effective-catalog-utp-placeable-copy-v1",
+        templateId: "plc_plc_chair",
+        templateResRef: "plc_chair",
+        sourceObjectKey: "modules/current/__aurora/sources/vanilla/templates/plc_chair.utp",
+        sourceEtag: "a".repeat(64)
       }
     });
     expect(setSelectedObjectIds).toHaveBeenCalledWith([placedObject?.id]);
@@ -666,6 +800,20 @@ describe("useWorkspaceObjectAddDragDrop", () => {
       resRef: "aarcl009",
       name: "Hide Armor",
       previewImageUrl: "/api/v1/catalog/items/aarcl009/thumbnail",
+      source: {
+        type: "aurora_blueprint" as const,
+        sourceKind: "item" as const,
+        sourceProfileId: "effective-catalog-uti-item-copy-v1",
+        templateId: "itm_aarcl009",
+        templateResRef: "aarcl009",
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/aarcl009.uti",
+        sourceSizeBytes: 4096,
+        sourceEtag: "a".repeat(64),
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
       itemProperties: {
         localizedName: "Hide Armor",
         baseItem: 16,
@@ -764,6 +912,20 @@ describe("useWorkspaceObjectAddDragDrop", () => {
       resRef: "aarcl009",
       name: "Hide Armor",
       previewImageUrl: "/api/v1/catalog/items/aarcl009/thumbnail",
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "item",
+        sourceProfileId: "effective-catalog-uti-item-copy-v1",
+        templateId: "itm_aarcl009",
+        templateResRef: "aarcl009",
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/aarcl009.uti",
+        sourceSizeBytes: 4096,
+        sourceEtag: "a".repeat(64),
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
       itemProperties: {
         localizedName: "Hide Armor",
         baseItem: 16,

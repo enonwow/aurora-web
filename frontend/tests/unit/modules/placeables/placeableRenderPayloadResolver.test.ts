@@ -3,12 +3,14 @@ import {
   fetchPlaceableViewportRenderPayloadBatch,
   fetchPlaceableViewportRenderPayload
 } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
+import { isPlaceableCacheNotFoundError } from "../../../../src/modules/placeables/application/placeableCacheRecovery";
 import type {
   PlaceableApiAssetContractsResult,
   PlaceableApiAssetDeliveryContract,
   PlaceableApiAssetEntry,
   PlaceableRenderPackage,
-  PlaceableApiProcessResult
+  PlaceableApiProcessResult,
+  PlaceableApiViewportRenderPayload
 } from "../../../../src/modules/placeables/contracts";
 import type { PlaceableApiPort } from "../../../../src/modules/placeables/ports/placeableApiPort";
 
@@ -123,6 +125,144 @@ function createPortStub(
 }
 
 describe("fetchPlaceableViewportRenderPayload", () => {
+  it("recognizes only the exact backend cache-miss error code", () => {
+    const exact = Object.assign(new Error("missing"), {
+      code: "PLACEABLE_CACHE_NOT_FOUND",
+      status: 404
+    });
+    const inherited = Object.create({ code: "PLACEABLE_CACHE_NOT_FOUND" }) as object;
+
+    expect(isPlaceableCacheNotFoundError(exact)).toBe(true);
+    expect(isPlaceableCacheNotFoundError({ code: "PLACEABLE_ASSET_NOT_FOUND" })).toBe(false);
+    expect(isPlaceableCacheNotFoundError({ code: "placeable_cache_not_found" })).toBe(false);
+    expect(isPlaceableCacheNotFoundError(inherited)).toBe(false);
+    expect(isPlaceableCacheNotFoundError(null)).toBe(false);
+    expect(isPlaceableCacheNotFoundError("PLACEABLE_CACHE_NOT_FOUND")).toBe(false);
+  });
+
+  it("reprocesses exactly once and rebuilds contracts after a cache miss", async () => {
+    const staleResult = createProcessResult([createManifestAsset("mdl_1", "model")]);
+    staleResult.cacheKey = "cache_stale";
+    const recoveredResult = createProcessResult([createManifestAsset("mdl_1", "model")]);
+    recoveredResult.cacheKey = "cache_recovered";
+    const cacheMiss = Object.assign(new Error("cache was reset"), {
+      code: "PLACEABLE_CACHE_NOT_FOUND",
+      status: 404
+    });
+    const processPlaceable = vi
+      .fn()
+      .mockResolvedValueOnce(staleResult)
+      .mockResolvedValueOnce(recoveredResult);
+    const getPlaceableAssetContracts = vi
+      .fn()
+      .mockRejectedValueOnce(cacheMiss)
+      .mockResolvedValueOnce({
+        cacheKey: "cache_recovered",
+        assets: [
+          {
+            ...createDeliveryAsset("mdl_1", "/cache/cache_recovered/assets/mdl_1"),
+            deliveryPath: "/api/v1/catalog/placeables/cache/cache_recovered/assets/mdl_1"
+          }
+        ]
+      });
+    const onCacheMissRecovery = vi.fn();
+    const port: PlaceableApiPort = {
+      ...createPortStub(staleResult, getPlaceableAssetContracts),
+      processPlaceable,
+      getPlaceableAssetContracts
+    };
+
+    const payload = await fetchPlaceableViewportRenderPayload(port, "token", "plc_001", {
+      onCacheMissRecovery
+    });
+
+    expect(processPlaceable).toHaveBeenCalledTimes(2);
+    expect(getPlaceableAssetContracts).toHaveBeenNthCalledWith(
+      1,
+      "token",
+      "cache_stale",
+      ["mdl_1"]
+    );
+    expect(getPlaceableAssetContracts).toHaveBeenNthCalledWith(
+      2,
+      "token",
+      "cache_recovered",
+      ["mdl_1"]
+    );
+    expect(onCacheMissRecovery).toHaveBeenCalledTimes(1);
+    expect(onCacheMissRecovery).toHaveBeenCalledWith({
+      staleCacheKey: "cache_stale",
+      lookup: { templateId: "plc_001" }
+    });
+    expect(payload.cacheKey).toBe("cache_recovered");
+    expect(payload.assetContracts.assets[0]?.deliveryUrl).toBe(
+      "/cache/cache_recovered/assets/mdl_1"
+    );
+  });
+
+  it("does not loop when the one recovery attempt also loses its cache", async () => {
+    const firstResult = createProcessResult([createManifestAsset("mdl_1", "model")]);
+    firstResult.cacheKey = "cache_first";
+    const secondResult = createProcessResult([createManifestAsset("mdl_1", "model")]);
+    secondResult.cacheKey = "cache_second";
+    const firstMiss = Object.assign(new Error("first miss"), {
+      code: "PLACEABLE_CACHE_NOT_FOUND"
+    });
+    const secondMiss = Object.assign(new Error("second miss"), {
+      code: "PLACEABLE_CACHE_NOT_FOUND"
+    });
+    const processPlaceable = vi
+      .fn()
+      .mockResolvedValueOnce(firstResult)
+      .mockResolvedValueOnce(secondResult);
+    const getPlaceableAssetContracts = vi
+      .fn()
+      .mockRejectedValueOnce(firstMiss)
+      .mockRejectedValueOnce(secondMiss);
+    const onCacheMissRecovery = vi.fn();
+    const port: PlaceableApiPort = {
+      ...createPortStub(firstResult, getPlaceableAssetContracts),
+      processPlaceable,
+      getPlaceableAssetContracts
+    };
+
+    await expect(
+      fetchPlaceableViewportRenderPayload(port, "token", "plc_001", {
+        onCacheMissRecovery
+      })
+    ).rejects.toBe(secondMiss);
+    expect(processPlaceable).toHaveBeenCalledTimes(2);
+    expect(getPlaceableAssetContracts).toHaveBeenCalledTimes(2);
+    expect(onCacheMissRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reprocess or recover for a different contract error", async () => {
+    const processResult = createProcessResult([createManifestAsset("mdl_1", "model")]);
+    const assetMiss = Object.assign(new Error("asset missing"), {
+      code: "PLACEABLE_ASSET_NOT_FOUND",
+      status: 404
+    });
+    const processPlaceable = vi.fn(async () => processResult);
+    const getPlaceableAssetContracts = vi.fn(async () => {
+      throw assetMiss;
+    });
+    const onCacheMissRecovery = vi.fn();
+    const port: PlaceableApiPort = {
+      ...createPortStub(processResult, getPlaceableAssetContracts),
+      processPlaceable,
+      getPlaceableAssetContracts
+    };
+
+    await expect(
+      fetchPlaceableViewportRenderPayload(port, "token", "plc_001", {
+        onCacheMissRecovery
+      })
+    ).rejects.toBe(assetMiss);
+    expect(processPlaceable).toHaveBeenCalledTimes(1);
+    expect(getPlaceableAssetContracts).toHaveBeenCalledTimes(1);
+    expect(onCacheMissRecovery).not.toHaveBeenCalled();
+  });
+
   it("publishes process payloads before asset contract batches settle", async () => {
     const processResult = createProcessResultForTemplate("plc_contract_wait");
     const processPlaceables = vi.fn(async () => ({
@@ -284,6 +424,104 @@ describe("fetchPlaceableViewportRenderPayload", () => {
     expect(processPlaceables).toHaveBeenCalledTimes(1);
     expect(processPlaceable).toHaveBeenCalledTimes(2);
     expect(payloads.map((payload) => payload.key)).toEqual(["plc_ready_a", "plc_ready_b"]);
+  });
+
+  it("hydrates deferred VFX runtime emitters once per cache key before publishing Area payloads", async () => {
+    const deferredRenderPackage: PlaceableRenderPackage = {
+      status: "ready",
+      diagnostics: [],
+      assetRefs: {},
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        canonicalStatus: "canonical",
+        backendCanonical: true,
+        contracts: {
+          runtimeEmitters: [],
+          runtimeEmittersDeferred: true,
+          runtimeEmittersHydration: {
+            version: "aurora-vfx-runtime-emitter-hydration/v1",
+            source: "placeable-processing-cache",
+            cacheKey: "cache_shared"
+          },
+          renderContract: { emitterNodeName: "fire" }
+        }
+      }
+    };
+    const hydratedRenderPackage: PlaceableRenderPackage = {
+      ...deferredRenderPackage,
+      auroraVfxPayload: {
+        version: "aurora-vfx-payload/v1",
+        canonicalStatus: "canonical",
+        backendCanonical: true,
+        contracts: {
+          runtimeEmitters: [
+            { emitterNodeName: "fire", runtimeFrames: [{ timeSeconds: 0 }] },
+            { emitterNodeName: "smoke", runtimeFrames: [{ timeSeconds: 0 }] }
+          ],
+          renderContract: { emitterNodeName: "fire" }
+        }
+      }
+    };
+    const compactProcessResult = createProcessResultWithRenderPackage([], deferredRenderPackage);
+    compactProcessResult.cacheKey = "cache_shared";
+    const hydratedProcessResult = createProcessResultWithRenderPackage([], hydratedRenderPackage);
+    hydratedProcessResult.cacheKey = "cache_shared";
+    const createViewportItem = (templateId: string): PlaceableApiViewportRenderPayload => ({
+      templateId,
+      cacheKey: "cache_shared",
+      cacheHit: true,
+      storedAt: "2026-01-01T00:00:00.000Z",
+      hits: 1,
+      placeable: {
+        ...compactProcessResult.placeable,
+        templateId,
+        renderPackage: deferredRenderPackage
+      },
+      renderPackage: deferredRenderPackage,
+      assetContracts: { cacheKey: "cache_shared", assets: [] }
+    });
+    const getPlaceableViewportRenderPayloadBatch = vi.fn(async () => ({
+      items: [createViewportItem("plc_t04_a"), createViewportItem("plc_t04_b")]
+    }));
+    const getProcessedPlaceable = vi.fn(async () => hydratedProcessResult);
+    const processPlaceables = vi.fn(async () => {
+      throw new Error("full process fallback should not be needed");
+    });
+    const port: PlaceableApiPort = {
+      ...createPortStub(compactProcessResult, async (cacheKey) => ({
+        cacheKey,
+        assets: []
+      })),
+      getPlaceableViewportRenderPayloadBatch,
+      getProcessedPlaceable,
+      processPlaceables
+    };
+    const onProcessPayload = vi.fn();
+
+    const payloads = await fetchPlaceableViewportRenderPayloadBatch(
+      port,
+      "token",
+      [
+        { key: "area:plc_t04_a", lookup: { templateId: "plc_t04_a" } },
+        { key: "area:plc_t04_b", lookup: { templateId: "plc_t04_b" } }
+      ],
+      { onProcessPayload }
+    );
+
+    expect(getProcessedPlaceable).toHaveBeenCalledTimes(1);
+    expect(getProcessedPlaceable).toHaveBeenCalledWith("token", "cache_shared", undefined);
+    expect(processPlaceables).not.toHaveBeenCalled();
+    expect(onProcessPayload).toHaveBeenCalledTimes(2);
+    payloads.forEach(({ payload }) => {
+      const contracts = (
+        payload.renderPackage?.auroraVfxPayload as {
+          contracts?: { runtimeEmitters?: unknown[]; runtimeEmittersDeferred?: boolean };
+        }
+      ).contracts;
+      expect(contracts?.runtimeEmitters).toHaveLength(2);
+      expect(contracts?.runtimeEmittersDeferred).toBeUndefined();
+      expect(payload.placeable.renderPackage).toBe(payload.renderPackage);
+    });
   });
 
   it("uses deterministic preferred ids and returns deterministic asset order prioritizing model/texture", async () => {

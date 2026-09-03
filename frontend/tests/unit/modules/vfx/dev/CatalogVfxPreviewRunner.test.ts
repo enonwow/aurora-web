@@ -7,17 +7,29 @@ import {
   applyCatalogVfxPreviewMaxLightsOverride,
   applyCatalogVfxPreviewShadowSizeOverride,
   applyCatalogVfxPreviewTextureSourceOverride,
+  buildCatalogVfxExpectedRuntimeAssets,
   createCatalogVfxPreviewDebugState,
+  findPlaceableSourceStaticGraphCenter,
+  findPlaceableStaticGeometryCenter,
   frameCameraForEmitter,
   findSourceMdlPreviewGroup,
   loginForDevPreview,
   readCatalogVfxPreviewRouteRequest,
   readCatalogVfxPreviewStoredAccessToken,
   readEmitterDrawMetrics,
+  readNumericUserData,
   rewriteCatalogVfxPreviewPayloadDeliveryUrls
 } from "../../../../../src/modules/vfx/dev/CatalogVfxPreviewRunner";
 
 describe("CatalogVfxPreviewRunner", () => {
+  it("reads finite numeric values from runtime dataset strings", () => {
+    expect(readNumericUserData("12")).toBe(12);
+    expect(readNumericUserData(" 3.5 ")).toBe(3.5);
+    expect(readNumericUserData("")).toBeNull();
+    expect(readNumericUserData("loading")).toBeNull();
+    expect(readNumericUserData(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
   it("maps area-instance identity from the proof route into the placeable process request", () => {
     const request = readCatalogVfxPreviewRouteRequest(
       "?resref=tm_pl_lightred&subtype=vfx&appearanceType=332&genericType=0" +
@@ -34,6 +46,89 @@ describe("CatalogVfxPreviewRunner", () => {
       localizedName: "Large Flame",
       emitterCameraDistanceScale: 0.35
     });
+  });
+
+  it("supports whole-placeable framing without changing the source-MDL emitter default", () => {
+    expect(
+      readCatalogVfxPreviewRouteRequest("?resref=tm_pl_lightred&emitterCameraTarget=placeable")
+        .emitterCameraTarget
+    ).toBe("placeable");
+    expect(readCatalogVfxPreviewRouteRequest("?resref=tm_pl_lightred").emitterCameraTarget).toBe(
+      "source-mdl"
+    );
+  });
+
+  it("targets static placeable geometry without letting a tall canonical VFX draw shift the center", () => {
+    const root = new THREE.Group();
+    const placeable = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 0.4, 1),
+      new THREE.MeshBasicMaterial()
+    );
+    placeable.name = "Plane25";
+    placeable.position.set(1, 0.2, 1);
+    const unrelatedProxy = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 12, 4),
+      new THREE.MeshBasicMaterial()
+    );
+    unrelatedProxy.name = "proof-helper";
+    unrelatedProxy.position.set(1, 6, 1);
+    const playback = new THREE.Group();
+    playback.userData.auroraVfxCanonicalRuntimePlayback = true;
+    const particles = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 12, 2),
+      new THREE.MeshBasicMaterial()
+    );
+    particles.position.set(1, 6, 1);
+    playback.add(particles);
+    placeable.add(playback);
+    root.add(placeable, unrelatedProxy);
+
+    expect(findPlaceableStaticGeometryCenter(root, ["Rectangle121", "Plane25"])?.toArray()).toEqual([
+      expect.closeTo(1, 6),
+      expect.closeTo(0.2, 6),
+      expect.closeTo(1, 6)
+    ]);
+  });
+
+  it("maps source static-node centers from Aurora z-up into the placeable scene root", () => {
+    const root = new THREE.Group();
+    root.position.set(1, 0, 1);
+
+    expect(
+      findPlaceableSourceStaticGraphCenter(root, [
+        { transform: { position: [-0.03, -0.006, 0] } },
+        { transform: { position: [-0.006, -0.002, 0.02] } }
+      ])?.toArray()
+    ).toEqual([
+      expect.closeTo(0.982, 6),
+      expect.closeTo(0.01, 6),
+      expect.closeTo(0.996, 6)
+    ]);
+  });
+
+  it("uses the neutral backdrop only when the proof route asks for it", () => {
+    expect(
+      readCatalogVfxPreviewRouteRequest("?resref=tm_pl_lightred&proofBackdrop=neutral")
+        .previewBackdrop
+    ).toBe("neutral");
+    expect(readCatalogVfxPreviewRouteRequest("?resref=tm_pl_lightred").previewBackdrop).toBe(
+      "default"
+    );
+  });
+
+  it("gates the structured VFX debug overlay to the explicit development profile", () => {
+    expect(
+      readCatalogVfxPreviewRouteRequest(
+        "?resref=tm_pl_lightred&vfxDebugOverlay=true&debugProfile=development"
+      )
+    ).toEqual(
+      expect.objectContaining({ vfxDebugOverlay: true, debugProfile: "development" })
+    );
+    expect(
+      readCatalogVfxPreviewRouteRequest(
+        "?resref=tm_pl_lightred&vfxDebugOverlay=true&debugProfile=final"
+      )
+    ).toEqual(expect.objectContaining({ vfxDebugOverlay: true, debugProfile: "final" }));
   });
 
   it("rejects invalid area-instance numeric identity instead of coercing it", () => {
@@ -521,6 +616,211 @@ describe("CatalogVfxPreviewRunner", () => {
       "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache/assets/asset-glb.glb"
     );
     expect(payload.renderPackage?.glbUrl).toContain("/_aurora/v1/");
+  });
+
+  it("routes absolute backend asset URLs through the same-origin dev proxy", () => {
+    const payload = {
+      renderPackage: {
+        modelUrl:
+          "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache/assets/model.glb",
+        textureUrls: [
+          "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache/assets/texture.dds"
+        ]
+      }
+    } as Parameters<typeof rewriteCatalogVfxPreviewPayloadDeliveryUrls>[0];
+
+    const rewritten = rewriteCatalogVfxPreviewPayloadDeliveryUrls(payload, "/_aurora/v1");
+
+    expect(rewritten.renderPackage?.modelUrl).toBe(
+      "/_aurora/v1/catalog/placeables/cache/cache/assets/model.glb"
+    );
+    expect(rewritten.renderPackage?.textureUrls).toEqual([
+      "/_aurora/v1/catalog/placeables/cache/cache/assets/texture.dds"
+    ]);
+  });
+
+  it("registers only renderer delivery assets in the VFX settlement ledger", () => {
+    const payload = {
+      cacheKey: "cache-vfx",
+      placeable: {
+        assetManifest: {
+          assets: [
+            {
+              assetId: "model-id",
+              role: "model",
+              fileName: "campfire.glb",
+              objectKey: "derived/campfire.glb"
+            },
+            {
+              assetId: "texture-id",
+              role: "texture",
+              fileName: "fxpa_flame00.tga",
+              objectKey: "textures/fxpa_flame00.tga"
+            },
+            {
+              assetId: "source-id",
+              role: "source",
+              fileName: "placeables.2da",
+              objectKey: "sources/placeables.2da"
+            }
+          ]
+        }
+      },
+      renderPackage: {
+        status: "ready",
+        glbUrl: "/_aurora/v1/catalog/placeables/cache/cache-vfx/assets/model-id.glb",
+        textureUrls: [
+          "/_aurora/v1/catalog/placeables/cache/cache-vfx/assets/texture-id.tga"
+        ],
+        textureBindings: [],
+        assetRefs: {
+          derivedModelAssetIds: [],
+          modelAssetIds: [],
+          textureAssetIds: ["texture-id"],
+          chunkModelAssetIds: []
+        }
+      },
+      assetContracts: {
+        cacheKey: "cache-vfx",
+        moduleHash: "module-hash",
+        assets: [
+          {
+            assetId: "source-id",
+            contentType: "application/octet-stream",
+            deliveryPath: "",
+            deliveryUrl:
+              "http://127.0.0.1:8888/buckets/aurora-module-assets/modules/current/sources/placeables.2da"
+          }
+        ]
+      }
+    } as Parameters<typeof buildCatalogVfxExpectedRuntimeAssets>[0];
+
+    const assets = buildCatalogVfxExpectedRuntimeAssets(payload);
+
+    expect(assets).toHaveLength(2);
+    expect(assets.map((asset) => asset.kind).sort()).toEqual(["model", "texture"]);
+    expect(assets.map((asset) => asset.key)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("/assets/model-id.glb"),
+        expect.stringContaining("/assets/texture-id.tga")
+      ])
+    );
+    expect(assets.some((asset) => asset.key.includes("placeables.2da"))).toBe(false);
+  });
+
+  it("does not expect a resolved chunk model while its canonical lane has no active particles", () => {
+    const payload = {
+      placeable: {
+        assetManifest: {
+          assets: [
+            {
+              assetId: "inactive-chunk-model",
+              role: "model",
+              fileName: "plc_chunk_w01.glb",
+              objectKey: "derived/plc_chunk_w01.glb"
+            }
+          ]
+        }
+      },
+      renderPackage: {
+        assetRefs: {
+          modelAssetIds: [],
+          derivedModelAssetIds: [],
+          textureAssetIds: [],
+          chunkModelAssetIds: ["inactive-chunk-model"]
+        },
+        auroraVfxPayload: {
+          contracts: {
+            renderContract: {
+              version: "aurora-vfx-runtime-render-contract/v1",
+              drawLane: "chunk_model",
+              activeParticleCount: 0,
+              chunkLane: {
+                lane: "chunk_model",
+                activeParticleCount: 0,
+                resourceResolveStatus: "resolved",
+                resolvedResource: { resourceKey: "plc_chunk_w01.glb" }
+              }
+            }
+          }
+        }
+      },
+      assetContracts: {
+        assets: [
+          {
+            assetId: "inactive-chunk-model",
+            deliveryUrl: "/assets/inactive-chunk-model.glb"
+          }
+        ]
+      }
+    } as unknown as Parameters<typeof buildCatalogVfxExpectedRuntimeAssets>[0];
+
+    expect(buildCatalogVfxExpectedRuntimeAssets(payload)).toEqual([]);
+  });
+
+  it("expects the exact resolved chunk model while its canonical lane is active", () => {
+    const payload = {
+      placeable: {
+        assetManifest: {
+          assets: [
+            {
+              assetId: "active-chunk-model",
+              role: "model",
+              fileName: "plc_chunk_w01.glb",
+              objectKey: "derived/plc_chunk_w01.glb"
+            },
+            {
+              assetId: "inactive-chunk-model",
+              role: "model",
+              fileName: "plc_chunk_w02.glb",
+              objectKey: "derived/plc_chunk_w02.glb"
+            }
+          ]
+        }
+      },
+      renderPackage: {
+        assetRefs: {
+          modelAssetIds: [],
+          derivedModelAssetIds: [],
+          textureAssetIds: [],
+          chunkModelAssetIds: ["active-chunk-model", "inactive-chunk-model"]
+        },
+        auroraVfxPayload: {
+          contracts: {
+            renderContract: {
+              version: "aurora-vfx-runtime-render-contract/v1",
+              drawLane: "chunk_model",
+              activeParticleCount: 1,
+              chunkLane: {
+                lane: "chunk_model",
+                activeParticleCount: 1,
+                resourceResolveStatus: "resolved",
+                resolvedResource: { resourceKey: "plc_chunk_w01.glb" }
+              }
+            }
+          }
+        }
+      },
+      assetContracts: {
+        assets: [
+          {
+            assetId: "active-chunk-model",
+            deliveryUrl: "/assets/active-chunk-model.glb"
+          },
+          {
+            assetId: "inactive-chunk-model",
+            deliveryUrl: "/assets/inactive-chunk-model.glb"
+          }
+        ]
+      }
+    } as unknown as Parameters<typeof buildCatalogVfxExpectedRuntimeAssets>[0];
+
+    expect(buildCatalogVfxExpectedRuntimeAssets(payload)).toEqual([
+      expect.objectContaining({
+        kind: "chunk-model",
+        reference: "active-chunk-model"
+      })
+    ]);
   });
 
   it("reorders duplicate texture bindings by requested dev proof source without changing reference order", () => {

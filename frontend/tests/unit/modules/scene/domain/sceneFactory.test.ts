@@ -88,6 +88,78 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     expect(normalized.placeableProperties?.disabledFlags).toBeUndefined();
   });
 
+  it("preserves only a present unsigned DWord Placeable Appearance target", () => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 77);
+    const exact = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        plot: false,
+        useable: false,
+        hasInventory: false,
+        appearanceType: 104
+      } as NonNullable<typeof placeable.placeableProperties>
+    });
+    expect(exact.placeableProperties).toHaveProperty("appearanceType", 104);
+    expect(normalizeSceneObjectMetadata(exact)).toBe(exact);
+
+    for (const boundary of [0, 0xffff_ffff]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...placeable,
+        placeableProperties: {
+          plot: false,
+          useable: false,
+          hasInventory: false,
+          appearanceType: boundary
+        }
+      });
+      expect(normalized.placeableProperties).toHaveProperty("appearanceType", boundary);
+    }
+
+    for (const appearanceType of [undefined, -1, 1.5, 0x1_0000_0000, "104"]) {
+      const invalid = normalizeSceneObjectMetadata({
+        ...placeable,
+        placeableProperties: {
+          plot: false,
+          useable: false,
+          hasInventory: false,
+          appearanceType
+        } as unknown as NonNullable<typeof placeable.placeableProperties>
+      });
+      expect(invalid.placeableProperties).not.toHaveProperty("appearanceType");
+      expect(invalid).not.toBe(placeable);
+    }
+  });
+
+  it("preserves only a present integer Toolset-range Placeable HP target", () => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 78);
+    for (const hitPoints of [1, 15, 10_000]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...placeable,
+        placeableProperties: {
+          plot: false,
+          useable: false,
+          hasInventory: false,
+          hitPoints
+        }
+      });
+      expect(normalized.placeableProperties).toHaveProperty("hitPoints", hitPoints);
+      expect(normalizeSceneObjectMetadata(normalized)).toBe(normalized);
+    }
+
+    for (const hitPoints of [undefined, 0, 10_001, 1.5, "15"]) {
+      const invalid = normalizeSceneObjectMetadata({
+        ...placeable,
+        placeableProperties: {
+          plot: false,
+          useable: false,
+          hasInventory: false,
+          hitPoints
+        } as unknown as NonNullable<typeof placeable.placeableProperties>
+      });
+      expect(invalid.placeableProperties).not.toHaveProperty("hitPoints");
+    }
+  });
+
   it("preserves preserve-only fields across scene rescale roundtrip", () => {
     const scene = createSeedAreaScene(18, 18);
     const customized = scene.objects.map((object) => {
@@ -251,6 +323,7 @@ describe("sceneFactory placeable preserve-only normalization", () => {
         lastName: 11,
         race: "Aberration",
         appearance: "nw_battdevour",
+        appearanceType: 249,
         challengeRating: -4,
         statistics: {
           abilityScores: {
@@ -319,6 +392,7 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     expect(normalized.doorTransition).toBeUndefined();
     expect(normalized.creatureProperties?.firstName).toBe("Battle Devourer");
     expect(normalized.creatureProperties?.lastName).toBe("");
+    expect(normalized.creatureProperties?.appearanceType).toBe(249);
     expect(normalized.creatureProperties?.challengeRating).toBe(0);
     expect(normalized.creatureProperties?.statistics?.abilityScores.strength).toBe(15);
     expect(normalized.creatureProperties?.statistics?.abilityScores.dexterity).toBe(10);
@@ -376,6 +450,64 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     expect(normalized.creatureProperties?.advancedSettings?.walkRateSpeed2daSourceKey).toBe(
       "modules/current/__aurora/sources/hak/lc_2da/creaturespeed.2da"
     );
+  });
+
+  it("preserves only a present unsigned Byte Creature Gender target across normalization", () => {
+    const creature = createNewSceneObject("creatures", 2.2, 1.1, 188);
+
+    for (const genderId of [0, 0xff]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...creature,
+        creatureProperties: {
+          ...creature.creatureProperties!,
+          genderId,
+        },
+      });
+
+      expect(normalized.creatureProperties).toHaveProperty("genderId", genderId);
+      expect(normalizeSceneObjectMetadata(normalized)).toBe(normalized);
+    }
+
+    for (const genderId of [undefined, -1, 0.5, 0x100, "0"]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...creature,
+        creatureProperties: {
+          ...creature.creatureProperties!,
+          genderId,
+        },
+      } as unknown as typeof creature);
+
+      expect(normalized.creatureProperties).not.toHaveProperty("genderId");
+    }
+  });
+
+  it("preserves only a round-trippable unsigned Byte Creature Phenotype target", () => {
+    const creature = createNewSceneObject("creatures", 2.2, 1.1, 189);
+
+    for (const phenotypeId of [0, 2, 0xff]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...creature,
+        creatureProperties: {
+          ...creature.creatureProperties!,
+          phenotypeId,
+        },
+      });
+
+      expect(normalized.creatureProperties).toHaveProperty("phenotypeId", phenotypeId);
+      expect(normalizeSceneObjectMetadata(normalized)).toBe(normalized);
+    }
+
+    for (const phenotypeId of [undefined, -1, 0.5, 1, 0x100, "0"]) {
+      const normalized = normalizeSceneObjectMetadata({
+        ...creature,
+        creatureProperties: {
+          ...creature.creatureProperties!,
+          phenotypeId,
+        },
+      } as unknown as typeof creature);
+
+      expect(normalized.creatureProperties).not.toHaveProperty("phenotypeId");
+    }
   });
 
   it("normalizes inventory list count when it is the only changed creature list count", () => {
@@ -568,7 +700,7 @@ describe("sceneFactory placeable preserve-only normalization", () => {
     expect(normalized.placeableProperties).toBeDefined();
   });
 
-  it("normalizes placeable lock/trap/advanced/description/comments payload defensively", () => {
+  it("normalizes placeable lock/trap/advanced/localized-string/comments payload defensively", () => {
     const placeable = createNewSceneObject("placeables", 1, 1, 77);
     const normalized = normalizeSceneObjectMetadata({
       ...placeable,
@@ -627,6 +759,7 @@ describe("sceneFactory placeable preserve-only normalization", () => {
             x: "bad"
           }
         ],
+        localizedName: 123,
         description: 123,
         comments: "hello"
       } as unknown as NonNullable<typeof placeable.placeableProperties>
@@ -662,7 +795,6 @@ describe("sceneFactory placeable preserve-only normalization", () => {
       advancedSettings: {
         blueprintResRef: "plc_test_a",
         belongsToFaction: "Hostile",
-        conversation: "",
         noInterrupt: true,
         portraitResRef: "po_test_a",
         initialState: "Default",
@@ -684,8 +816,150 @@ describe("sceneFactory placeable preserve-only normalization", () => {
           infinite: false
         }
       ],
-      description: "",
       comments: "hello"
     });
+    expect(normalized.placeableProperties).not.toHaveProperty("localizedName");
+    expect(normalized.placeableProperties).not.toHaveProperty("description");
+
+    const exactStringSource = {
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        useable: "invalid" as unknown as boolean,
+        localizedName: " Chest ",
+        description: ""
+      }
+    };
+    const exactStrings = normalizeSceneObjectMetadata(exactStringSource);
+    expect(exactStrings).not.toBe(exactStringSource);
+    expect(exactStrings.placeableProperties).toHaveProperty("localizedName", " Chest ");
+    expect(exactStrings.placeableProperties).toHaveProperty("description", "");
+
+    const unchangedStrings = {
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        localizedName: "Chest",
+        description: "Storage"
+      }
+    };
+    expect(normalizeSceneObjectMetadata(unchangedStrings)).toBe(unchangedStrings);
+
+    const invalidNameOnly = {
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        localizedName: 7 as unknown as string
+      }
+    };
+    const droppedInvalidName = normalizeSceneObjectMetadata(invalidNameOnly);
+    expect(droppedInvalidName).not.toBe(invalidNameOnly);
+    expect(droppedInvalidName.placeableProperties).not.toHaveProperty("localizedName");
+  });
+
+  it.each([
+    [0, 0],
+    [255, 255],
+    [-1, undefined],
+    [256, undefined],
+    [1.5, undefined],
+    ["1", undefined],
+  ])("normalizes optional Placeable TrapType row %p to %p", (input, expected) => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 77);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        trapSettings: {
+          ...placeable.placeableProperties!.trapSettings!,
+          trapTypeRow: input,
+        },
+      },
+    } as never);
+
+    if (expected === undefined) {
+      expect(normalized.placeableProperties?.trapSettings).not.toHaveProperty("trapTypeRow");
+    } else {
+      expect(normalized.placeableProperties?.trapSettings).toHaveProperty("trapTypeRow", expected);
+    }
+  });
+
+  it.each([
+    [0, 0],
+    [255, 255],
+    [-1, undefined],
+    [256, undefined],
+    [1.5, undefined],
+    ["1", undefined],
+  ])("normalizes optional Placeable Treasure Model row %p to %p", (input, expected) => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 78);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        advancedSettings: {
+          treasureModelRow: input,
+        },
+      },
+    } as never);
+
+    if (expected === undefined) {
+      expect(normalized.placeableProperties?.advancedSettings).not.toHaveProperty(
+        "treasureModelRow",
+      );
+    } else {
+      expect(normalized.placeableProperties?.advancedSettings).toHaveProperty(
+        "treasureModelRow",
+        expected,
+      );
+    }
+  });
+
+  it.each([
+    [0, 0],
+    [65535, 65535],
+    [-1, undefined],
+    [65536, undefined],
+    [462.5, undefined],
+    ["462", undefined],
+  ])("normalizes optional Placeable PortraitId Word %p to %p", (input, expected) => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 79);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        advancedSettings: { portraitId: input },
+      },
+    } as never);
+
+    if (expected === undefined) {
+      expect(normalized.placeableProperties?.advancedSettings).not.toHaveProperty("portraitId");
+    } else {
+      expect(normalized.placeableProperties?.advancedSettings).toHaveProperty("portraitId", expected);
+    }
+  });
+
+  it.each([
+    [0, 0],
+    [0xffffffff, 0xffffffff],
+    [-1, undefined],
+    [0x100000000, undefined],
+    [1.5, undefined],
+    ["1", undefined],
+  ])("normalizes optional Placeable Faction DWord %p to %p", (input, expected) => {
+    const placeable = createNewSceneObject("placeables", 1, 1, 80);
+    const normalized = normalizeSceneObjectMetadata({
+      ...placeable,
+      placeableProperties: {
+        ...placeable.placeableProperties!,
+        advancedSettings: { factionId: input },
+      },
+    } as never);
+
+    if (expected === undefined) {
+      expect(normalized.placeableProperties?.advancedSettings).not.toHaveProperty("factionId");
+    } else {
+      expect(normalized.placeableProperties?.advancedSettings).toHaveProperty("factionId", expected);
+    }
   });
 });

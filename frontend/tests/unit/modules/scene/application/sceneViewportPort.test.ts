@@ -30,6 +30,11 @@ describe("sceneViewportPort", () => {
         appendObjects: vi.fn(() => nextScene),
         deleteObjectsByIds: vi.fn(() => nextScene),
         deleteObjectById: vi.fn(() => nextScene),
+        setExistingWaypointTagById: vi.fn(() => nextScene),
+        setExistingTriggerEditorCommentById: vi.fn(() => nextScene),
+        setExistingTriggerScriptResRefsById: vi.fn(() => nextScene),
+        setExistingTriggerTransitionStorageById: vi.fn(() => nextScene),
+        setAreaObjectPolygonGeometryById: vi.fn(() => nextScene),
         setPlaceablePropertiesByIds: vi.fn(() => nextScene),
         setObjectsAbsoluteLocationByIds: vi.fn(() => nextScene),
         setObjectsVisualTransformByIds: vi.fn(() => nextScene),
@@ -64,6 +69,72 @@ describe("sceneViewportPort", () => {
     const appended = port.appendObjects(seed, []);
     const deletedMany = port.deleteObjectsByIds(seed, [seed.objects[0].id]);
     const deletedOne = port.deleteObjectById(seed, seed.objects[0].id);
+    const updatedWaypointTag = port.setExistingWaypointTagById(
+      seed,
+      "waypoint-0",
+      "  PATROL_POINT_01  ",
+    );
+    const updatedTriggerEditorComment = port.setExistingTriggerEditorCommentById(
+      seed,
+      "trigger-0",
+      "  gate note  ",
+    );
+    const triggerScripts = {
+      onDisarm: "trg_disarm",
+      onTrapTriggered: "trg_trap",
+      onClick: "trg_click",
+      onHeartbeat: "trg_heartbeat",
+      onEnter: "trg_enter",
+      onExit: "trg_exit",
+      onUserDefined: "trg_user",
+    };
+    const updatedTriggerScripts = port.setExistingTriggerScriptResRefsById(
+      seed,
+      "trigger-0",
+      triggerScripts,
+    );
+    const triggerTransitionStorage = {
+      linkedTo: "crypt_exit",
+      linkedToFlags: 4,
+      loadScreenId: 321,
+    };
+    const updatedTriggerTransitionStorage =
+      port.setExistingTriggerTransitionStorageById(
+        seed,
+        "trigger-0",
+        triggerTransitionStorage,
+      );
+    const polygonGeometry = {
+      coordinateSpace: "native_local" as const,
+      points: [{ x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }, { x: 0, y: 2, z: 0 }],
+    };
+    const updatedPolygon = port.setAreaObjectPolygonGeometryById(
+      seed,
+      "trigger-0",
+      polygonGeometry,
+    );
+    const updatedEncounterResetTime = port.setAreaObjectPolygonGeometryById(
+      seed,
+      "encounter-0",
+      polygonGeometry,
+      "ENCOUNTER",
+      { activeByte: 1 },
+      { playerOnlyByte: 0 },
+      { resetByte: 0 },
+      { resetTime: 90 },
+      { spawnOption: 1 },
+      { respawns: -1 },
+      { maxCreatures: 6, recCreatures: 5 },
+      {
+        onEntered: "enc_enter",
+        onExit: "enc_exit",
+        onExhausted: "",
+        onHeartbeat: "enc_heartbeat",
+        onUserDefined: "enc_user",
+      },
+      4,
+      { difficulty: 3, difficultyIndex: 4 },
+    );
     const updatedPlaceableProperties = port.setPlaceablePropertiesByIds(
       seed,
       [seed.objects[0].id],
@@ -124,6 +195,12 @@ describe("sceneViewportPort", () => {
     expect(appended).toBe(nextScene);
     expect(deletedMany).toBe(nextScene);
     expect(deletedOne).toBe(nextScene);
+    expect(updatedWaypointTag).toBe(nextScene);
+    expect(updatedTriggerEditorComment).toBe(nextScene);
+    expect(updatedTriggerScripts).toBe(nextScene);
+    expect(updatedTriggerTransitionStorage).toBe(nextScene);
+    expect(updatedPolygon).toBe(nextScene);
+    expect(updatedEncounterResetTime).toBe(nextScene);
     expect(updatedPlaceableProperties).toBe(nextScene);
     expect(updatedAbsoluteLocation).toBe(nextScene);
     expect(updatedVisualTransform).toBe(nextScene);
@@ -151,6 +228,53 @@ describe("sceneViewportPort", () => {
     expect(bundle.mutations.appendObjects).toHaveBeenCalledWith(seed, []);
     expect(bundle.mutations.deleteObjectsByIds).toHaveBeenCalledWith(seed, [seed.objects[0].id]);
     expect(bundle.mutations.deleteObjectById).toHaveBeenCalledWith(seed, seed.objects[0].id);
+    expect(bundle.mutations.setExistingWaypointTagById).toHaveBeenCalledWith(
+      seed,
+      "waypoint-0",
+      "  PATROL_POINT_01  ",
+    );
+    expect(bundle.mutations.setExistingTriggerEditorCommentById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      "  gate note  ",
+    );
+    expect(bundle.mutations.setExistingTriggerScriptResRefsById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      triggerScripts,
+    );
+    expect(bundle.mutations.setExistingTriggerTransitionStorageById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      triggerTransitionStorage,
+    );
+    expect(bundle.mutations.setAreaObjectPolygonGeometryById).toHaveBeenCalledWith(
+      seed,
+      "trigger-0",
+      polygonGeometry,
+    );
+    expect(bundle.mutations.setAreaObjectPolygonGeometryById).toHaveBeenCalledWith(
+      seed,
+      "encounter-0",
+      polygonGeometry,
+      "ENCOUNTER",
+      { activeByte: 1 },
+      { playerOnlyByte: 0 },
+      { resetByte: 0 },
+      { resetTime: 90 },
+      { spawnOption: 1 },
+      { respawns: -1 },
+      { maxCreatures: 6, recCreatures: 5 },
+      {
+        onEntered: "enc_enter",
+        onExit: "enc_exit",
+        onExhausted: "",
+        onHeartbeat: "enc_heartbeat",
+        onUserDefined: "enc_user",
+      },
+      4,
+      { difficulty: 3, difficultyIndex: 4 },
+    );
     expect(bundle.mutations.setPlaceablePropertiesByIds).toHaveBeenCalledWith(
       seed,
       [seed.objects[0].id],
@@ -249,6 +373,7 @@ describe("sceneViewportPort", () => {
         appendObjects: vi.fn(() => seed),
         deleteObjectsByIds: vi.fn(() => seed),
         deleteObjectById: vi.fn(() => seed),
+        setAreaObjectPolygonGeometryById: vi.fn(() => seed),
         setPlaceablePropertiesByIds: vi.fn(() => seed),
         setObjectsAbsoluteLocationByIds: vi.fn(() => seed),
         setObjectsVisualTransformByIds: vi.fn(() => seed),

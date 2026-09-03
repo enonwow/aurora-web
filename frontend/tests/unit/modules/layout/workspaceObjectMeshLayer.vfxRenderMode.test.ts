@@ -10,6 +10,7 @@ import {
 } from "../../../../src/modules/layout/adapters/three/workspaceObjectMeshLayer";
 import { createPlaceableTwoDaLightPreviewGroup } from "../../../../src/modules/layout/adapters/three/workspacePlaceableModelPresentation";
 import { resolveAuroraAreaRenderYaw } from "../../../../src/modules/layout/adapters/three/workspaceAreaRenderCoordinates";
+import { updateRuntimeObjectAnimationPlaybacks } from "../../../../src/modules/layout/adapters/three/workspaceThreeRuntime";
 import { resolvePlaceableTextureDeliveryUrlsByReference } from "../../../../src/modules/layout/application/workspacePlaceableRenderContracts";
 import type { PlaceableViewportRenderPayload } from "../../../../src/modules/placeables/application/placeableRenderPayloadResolver";
 import plcT04ParserPayload from "../../../fixtures/placeable-vfx/plc_t04.parser-payload.json";
@@ -32,6 +33,9 @@ function createVfxPayloadWithReadyModel(
     >;
     auroraLight?: NonNullable<
       NonNullable<PlaceableViewportRenderPayload["renderPackage"]>["auroraLight"]
+    >;
+    auroraModelGraph?: NonNullable<
+      NonNullable<PlaceableViewportRenderPayload["renderPackage"]>["auroraModelGraph"]
     >;
   } = {}
 ): PlaceableViewportRenderPayload {
@@ -122,7 +126,8 @@ function createVfxPayloadWithReadyModel(
       },
       glbUrl: "/assets/cot_fx01.glb",
       auroraEmitter: options.auroraEmitter,
-      auroraLight: options.auroraLight
+      auroraLight: options.auroraLight,
+      auroraModelGraph: options.auroraModelGraph
     } as unknown as PlaceableViewportRenderPayload["renderPackage"],
     assetContracts: {
       assets: contractAssets
@@ -444,8 +449,10 @@ function expectAuroraParticleDrawRecordUserData(
       indexedBuffer: false,
       drawApiCandidate: "glDrawArrays",
       drawModeArg: 3,
-      drawModeEnumCaptured: false,
-      drawModePreview: "triangle-list-shaped-six-vertex-quad",
+      drawModeEnumCaptured: true,
+      drawModeEnum: "GL_TRIANGLES",
+      drawModeGlEnum: 0x0004,
+      drawModeProof: "confirmed_draw_wrapper_table_index_3_gl_triangles",
       previewMode:
         options.previewMode ??
         (options.linked
@@ -461,12 +468,14 @@ function expectAuroraParticleDrawRecordUserData(
   expect(userData?.auroraParticleDrawIndexedBuffer).toBe(false);
   expect(userData?.auroraParticleDrawApiCandidate).toBe("glDrawArrays");
   expect(userData?.auroraParticleDrawModeArg).toBe(3);
-  expect(userData?.auroraParticleDrawModeEnumCaptured).toBe(false);
+  expect(userData?.auroraParticleDrawModeEnumCaptured).toBe(true);
+  expect(userData?.auroraParticleDrawModeEnum).toBe("GL_TRIANGLES");
+  expect(userData?.auroraParticleDrawModeGlEnum).toBe(0x0004);
   expect(userData?.auroraParticleDrawDiagnostics).toEqual(
     expect.arrayContaining([
       "VFX_PARTICLE_DRAW_RECORD_REQUIRED",
       "VFX_PARTICLE_DRAW_NON_INDEXED_ARRAYS_REQUIRED",
-      "VFX_PARTICLE_DRAW_MODE_ARG3_ENUM_TABLE_CAPTURE_REQUIRED"
+      "VFX_PARTICLE_DRAW_GL_TRIANGLES_CONFIRMED"
     ])
   );
   if (options.linked) {
@@ -1220,7 +1229,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
 
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -1385,13 +1394,13 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
 
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/fxpa_flame00.tga",
+      "http://localhost:3000/assets/fxpa_flame00.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
     );
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -1751,7 +1760,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(flareSprites[0]?.userData.auroraLightFlarePreviewScale).toBeGreaterThan(0);
   });
 
-  it("overlays source MDL light nodes on non-VFX light-source placeable models", () => {
+  it("keeps ambient-only source MDL lights localized on non-VFX placeables", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const object = {
@@ -1791,7 +1800,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
             radius: 2,
             multiplier: 1,
             color: [1, 0.803922, 0],
-            ambientOnly: false,
+            ambientOnly: true,
             dynamicType: 1,
             affectDynamic: true,
             shadow: true,
@@ -1845,10 +1854,14 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(load).toHaveBeenCalled();
     const root = runtime.objectMeshById.get(object.id);
     const pointLights: THREE.PointLight[] = [];
+    const ambientLights: THREE.AmbientLight[] = [];
     const lightNodes: THREE.Object3D[] = [];
     root?.traverse((node) => {
       if (node instanceof THREE.PointLight) {
         pointLights.push(node);
+      }
+      if (node instanceof THREE.AmbientLight) {
+        ambientLights.push(node);
       }
       if (node.userData?.vfxPreviewRole === "aurora-light-node") {
         lightNodes.push(node);
@@ -1856,24 +1869,35 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     });
 
     expect(pointLights).toHaveLength(1);
+    expect(ambientLights).toHaveLength(0);
     expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
     expect(pointLights[0]?.color.g).toBeCloseTo(0.803922, 5);
     expect(pointLights[0]?.color.b).toBeCloseTo(0, 5);
     expect(pointLights[0]?.distance).toBeCloseTo(1, 5);
-    expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.decay).toBe(-1);
     expect(pointLights[0]?.userData.auroraLightQuadraticAtten).toBeCloseTo(1.125, 5);
     expect(pointLights[0]?.userData.auroraLightQuadraticAttenProofStatus).toBe(
       "source-backed-mdl-radius-quadratic-attenuation"
     );
     expect(pointLights[0]?.userData.auroraLightFalloffFormula).toBe(
-      "max(0,1-distance/radius)"
+      "1/(1+4.5*(distance/radius)^2)"
     );
     expect(pointLights[0]?.userData.auroraLightFalloffProofStatus).toBe(
-      "source-backed-active-light-linear-radius-falloff"
+      "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending"
+    );
+    expect(pointLights[0]?.userData.auroraLightAmbientOnly).toBe(true);
+    expect(pointLights[0]?.userData.auroraLightChannelMappingStatus).toBe(
+      "source-backed-localized-ambient-irradiance-shaderchunk-adapter"
+    );
+    expect(pointLights[0]?.userData.auroraLightChannelMappingSource).toContain(
+      "FUN_00a4cd58"
     );
     expect(lightNodes[0]?.userData.auroraLightNodeName).toBe("auralight01");
     expect(lightNodes[0]?.userData.auroraLightQuadraticAtten).toBeCloseTo(1.125, 5);
-    expect(lightNodes[0]?.userData.auroraLightPointLightDecay).toBe(1);
+    expect(lightNodes[0]?.userData.auroraLightPointLightDecay).toBe(-1);
+    expect(lightNodes[0]?.userData.auroraLightShaderChannelMarkerRole).toBe(
+      "negative-decay-localized-ambient-marker"
+    );
     expect(lightNodes[0]?.userData.auroraLightShadow).toBe(true);
     expect(lightNodes[0]?.userData.auroraLightPreviewMode).toBe(
       "source-mdl-light-node-preview"
@@ -1981,7 +2005,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
     expect(pointLights[0]?.userData.auroraLightFalloffProofStatus).toBe(
-      "source-backed-active-light-linear-radius-falloff"
+      "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending"
     );
     expect(lightNodes[0]?.userData).toMatchObject({
       auroraLightRadius: -4,
@@ -1993,7 +2017,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       auroraLightShadowProjectionSourceRadius: -4,
       auroraLightShadowProjectionRadiusWorldDistance: 0,
       auroraLightPointLightDecay: 1,
-      auroraLightFalloffFormula: "max(0,1-distance/radius)",
+      auroraLightFalloffFormula: "1/(1+4.5*(distance/radius)^2)",
       auroraLightQuadraticAttenProofStatus:
         "source-backed-mdl-radius-quadratic-attenuation"
     });
@@ -2145,23 +2169,23 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       5
     );
     expect(root?.userData.itemPropertyLightFalloffProofStatus).toBe(
-      "source-family-backed-fx_light_clr-mdl-radius-linear-falloff-itemproperty-scheduler-unverified"
+      "source-family-backed-fx_light_clr-mdl-radius-gamma0-quadratic-surface-profile-parity-pending"
     );
     expect(root?.userData.itemPropertyLightFalloffFormula).toBe(
-      "source-family max(0,1-distance/13.3)"
+      "source-family 1/(1+4.5*(distance/13.3)^2)"
     );
     expect(["installed", "already-installed"]).toContain(
       root?.userData.itemPropertyLightFalloffRendererPatchStatus
     );
     expect(root?.userData.itemPropertyLightFalloffRendererProofStatus).toBe(
-      "source-backed-linear-radius-falloff-preview-shaderchunk-adapter"
+      "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending"
     );
     expect(root?.userData.itemPropertyLightFalloffRendererSource).toContain(
-      "max(0,1-distance/radius)*color*fade"
+      "lightQuadraticAtten=9/(max(radius,0.1)^2*2)"
     );
     expect(root?.userData.itemPropertyLightPointLightDecay).toBe(1);
     expect(root?.userData.itemPropertyLightPointLightDecaySource).toBe(
-      "fx_light_clr.mdl AuroraLight01 radius controller plus active-light linear falloff; retail ApplyLight bridge, object-level looping VFX owner add/remove, CNWSMessage last-update copy/diff, CNWSMessage game-object update serialization, client receive/render/Gob instantiation, and generic MdlNodeLight PartLight creation/Gob-list attach are recovered"
+      "fx_light_clr.mdl AuroraLight01 radius controller plus active inc_lighting.shd GAMMA_CORRECTION==0 quadratic surface branch; selected retail gamma profile, cross-lane ordering, and parity remain pending"
     );
     expect(root?.userData.itemPropertyLightRuntimeSchedulerProofSource).toContain(
       "backend/scripts/audit-retail-light-function-disasm.py disassembles nwmain.exe ApplyLight"
@@ -2683,19 +2707,21 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       0.87,
       0.03
     ]);
-    expect(pointLights[0]?.userData.placeableTwoDaLightIntensity).toBeCloseTo(1.9, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightIntensity).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightSourceMaxColor).toBeCloseTo(1.9, 5);
     expect(pointLights[0]?.userData.placeableTwoDaLightIntensityProofStatus).toBe(
-      "preview-adapter-rgb-max-intensity-no-source-intensity-field"
+      "retail-binary-backed-adjusted-color-unit-intensity"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightIntensitySource).toContain(
-      "Preview adapter only"
+      "GetLightAdjustedColor"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightIntensitySource).toContain(
-      "color*intensity reconstructs lightcolor.2da RGB"
+      "GetLightAdjustedRadius"
     );
-    expect(pointLights[0]?.userData.placeableTwoDaLightDistance).toBeCloseTo(5, 5);
-    expect(pointLights[0]?.userData.placeableTwoDaLightDistanceSource).toBe(
-      "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units"
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistance).toBeCloseTo(19, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightEffectiveRange).toBeCloseTo(19, 5);
+    expect(pointLights[0]?.userData.placeableTwoDaLightDistanceSource).toContain(
+      "GetLightAdjustedRadius"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightDistanceUsesShadowSize).toBe(false);
     expect(pointLights[0]?.userData.placeableTwoDaLightSourceModelFileName).toBe(
@@ -2749,18 +2775,18 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       "source-backed-fx-placeable01-auroralight01-radius-controller"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightFalloffFormula).toBe(
-      "max(0,1-distance/radius)"
+      "x=(distance/effectiveRange)^2; x>=1 => 0; (1-x)/(maxIntensity^-2.2 + cutoff^2*(intensityAtRange^-2.2-maxIntensity^-2.2)*x)"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightFalloffProofStatus).toBe(
-      "source-backed-active-light-linear-radius-falloff"
+      "retail-binary-and-shader-backed-enhanced-performance-point-light-falloff"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightFalloffRendererProofStatus).toBe(
-      "source-backed-linear-radius-falloff-preview-shaderchunk-adapter"
+      "retail-binary-and-shader-backed-enhanced-performance-point-light-falloff"
     );
     expect(pointLights[0]?.userData.placeableTwoDaLightFalloffRendererSource).toContain(
-      "max(0,1-distance/radius)*color*fade"
+      "SetLightGL"
     );
-    expect(pointLights[0]?.userData.placeableTwoDaLightPointLightDecay).toBe(1);
+    expect(pointLights[0]?.userData.placeableTwoDaLightPointLightDecay).toBe(1.25);
     expect(pointLights[0]?.userData.placeableTwoDaLightOffset).toEqual([0.25, -0.5, 1.75]);
     expect(pointLights[0]?.userData.placeableTwoDaLightMappedOffset).toEqual([
       0.125,
@@ -2771,9 +2797,9 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
       "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
     );
-    expect(pointLights[0]?.intensity).toBeCloseTo(1.9, 5);
-    expect(pointLights[0]?.distance).toBeCloseTo(5, 5);
-    expect(pointLights[0]?.decay).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.intensity).toBeCloseTo(1, 5);
+    expect(pointLights[0]?.distance).toBeCloseTo(19, 5);
+    expect(pointLights[0]?.decay).toBeCloseTo(1.25, 5);
     expect(pointLights[0]?.color.r).toBeCloseTo(1, 5);
     expect(pointLights[0]?.color.g).toBeCloseTo(1.7 / 1.9, 5);
     expect(pointLights[0]?.color.b).toBeCloseTo(0.06 / 1.9, 5);
@@ -2786,11 +2812,11 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
           sample.includes("role=placeables-2da-point-light") &&
             sample.includes("color=1.9,1.7,0.06") &&
           sample.includes("rgbVectorProof=source-backed-lightcolor-rgb-vector") &&
-          sample.includes("intensity=1.9") &&
+          sample.includes("intensity=1") &&
           sample.includes(
-            "intensityProof=preview-adapter-rgb-max-intensity-no-source-intensity-field"
+            "intensityProof=retail-binary-backed-adjusted-color-unit-intensity"
           ) &&
-          sample.includes("distance=5") &&
+          sample.includes("distance=19") &&
           sample.includes("distanceUsesShadowSize=false") &&
           sample.includes("sourceRadius=10") &&
           sample.includes("sourceRadiusUnits=aurora-model-units") &&
@@ -2975,16 +3001,16 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       "lightcolor.2da TOOLSETRED/GREEN/BLUE used for visible Toolset emitter tint"
     );
     expect(root?.userData.placeableTwoDaLightIntensitySource).toContain(
-      "Preview adapter only"
+      "GetLightAdjustedColor"
     );
     expect(root?.userData.placeableTwoDaLightIntensitySource).toContain(
-      "color*intensity reconstructs lightcolor.2da RGB"
+      "GetLightAdjustedRadius"
     );
     expect(root?.userData.placeableTwoDaLightIntensityProofStatus).toBe(
-      "preview-adapter-rgb-max-intensity-no-source-intensity-field"
+      "retail-binary-backed-adjusted-color-unit-intensity"
     );
-    expect(root?.userData.placeableTwoDaLightDistanceSource).toBe(
-      "retail-nwmain-CNWCArea-AddPlaceableObjectLight-fx_placeable01-AuroraLight01-radius-controller-0x58 scaled into current Three scene units"
+    expect(root?.userData.placeableTwoDaLightDistanceSource).toContain(
+      "GetLightAdjustedRadius"
     );
     expect(root?.userData.placeableTwoDaLightRadiusProofStatus).toBe(
       "source-backed-fx-placeable01-auroralight01-radius-controller"
@@ -2997,9 +3023,9 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(root?.userData.placeableTwoDaLightSourceRadiusWorldDistance).toBeCloseTo(5, 5);
     expect(root?.userData.placeableTwoDaLightSourceShadowRadius).toBe(15);
     expect(root?.userData.placeableTwoDaLightFalloffFormula).toBe(
-      "max(0,1-distance/radius)"
+      "x=(distance/effectiveRange)^2; x>=1 => 0; (1-x)/(maxIntensity^-2.2 + cutoff^2*(intensityAtRange^-2.2-maxIntensity^-2.2)*x)"
     );
-    expect(root?.userData.placeableTwoDaLightPointLightDecay).toBe(1);
+    expect(root?.userData.placeableTwoDaLightPointLightDecay).toBe(1.25);
     expect(root?.userData.placeableTwoDaLightOffsetSource).toBe("placeables.2da.LightOffset");
     expect(root?.userData.placeableTwoDaLightOffsetProofStatus).toBe(
       "source-backed-placeables-2da"
@@ -3008,7 +3034,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(root?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
       "source-backed-retail-shadowsize-selects-fx-shadow-mdl"
     );
-    expect(root?.userData.placeableTwoDaLightReceiverRadius).toBeCloseTo(1.2, 5);
+    expect(root?.userData.placeableTwoDaLightReceiverRadius).toBeCloseTo(4.56, 5);
     expect(receivers[0]?.userData.placeableTwoDaLightReceiverSource).toBe(
       "debug-preview-surface-not-aurora-light-radius"
     );
@@ -3058,6 +3084,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const root = runtime.objectMeshById.get(object.id);
     const pointLights: THREE.PointLight[] = [];
     const twoDaLightNodes: THREE.Object3D[] = [];
+    const presentationHalos: THREE.Object3D[] = [];
     root?.traverse((node) => {
       if (node instanceof THREE.PointLight) {
         pointLights.push(node);
@@ -3065,11 +3092,15 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       if (node.name === "placeable_2da_light_source") {
         twoDaLightNodes.push(node);
       }
+      if (node.userData.placeableTwoDaLightPreviewRole === "placeables-2da-light-halo") {
+        presentationHalos.push(node);
+      }
     });
 
     expect(pointLights).toHaveLength(1);
     expect(twoDaLightNodes).toHaveLength(1);
-    expect(pointLights[0]?.distance).toBeCloseTo(1, 5);
+    expect(presentationHalos).toHaveLength(0);
+    expect(pointLights[0]?.distance).toBeCloseTo(3.8, 5);
     expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadius).toBe(10);
     expect(pointLights[0]?.userData.placeableTwoDaLightSourceUnitScale).toBeCloseTo(0.1, 5);
     expect(pointLights[0]?.userData.placeableTwoDaLightSourceRadiusWorldDistance).toBeCloseTo(
@@ -4167,7 +4198,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(pointLights[0]?.userData.placeableTwoDaShadowSizeProofStatus).toBe(
       "missing-no-placeables-2da-shadowsize"
     );
-    expect(pointLights[0]?.distance).toBeCloseTo(5, 5);
+    expect(pointLights[0]?.distance).toBeCloseTo(19, 5);
     expect(pointLights[0]?.userData.placeableTwoDaLightDistanceUsesShadowSize).toBe(false);
   });
 
@@ -4814,12 +4845,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
 
     const loadingRoot = runtime.objectMeshById.get(object.id);
     expect(loadingRoot?.userData.renderPackageModelUrl).toBe(
-      "http://127.0.0.1:3000/assets/cot_fx01.glb"
+      "http://localhost:3000/assets/cot_fx01.glb"
     );
     expect(loadingRoot?.userData.auroraVfxPreviewMode).toBe("static_model_preview");
     expect(loadingRoot?.userData.vfxPreviewRole).not.toBe("aurora-emitter-missing");
     expect(load).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/cot_fx01.glb",
+      "http://localhost:3000/assets/cot_fx01.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -4849,13 +4880,144 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(texturedMeshCount).toBeGreaterThan(0);
   });
 
+  it("composes a VFX placeable static model with its source-MDL emitter and light nodes", async () => {
+    const staticModel = new THREE.Group();
+    const staticMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.2, 0.3),
+      new THREE.MeshBasicMaterial({ color: "#ffffff" })
+    );
+    staticMesh.userData.auroraStaticPlaceableGeometry = true;
+    staticModel.add(staticMesh);
+    const load = vi.fn(
+      (_url: string, onLoad: (gltf: { scene: THREE.Object3D }) => void) => {
+        onLoad({ scene: staticModel });
+      }
+    );
+    const runtime = createRuntime(load);
+    const object = {
+      id: "preview:plc_emitter_light_static",
+      kind: "placeables",
+      name: "VFX: Static Flame",
+      resRef: "plc_emitter_light_static",
+      tag: "PLC_EMITTER_LIGHT_STATIC",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_emitter_light_static",
+      resref: "plc_emitter_light_static",
+      placeableName: "VFX: Static Flame",
+      textureFileName: "fx_smoke_red.dds",
+      textureDeliveryUrl: "/assets/fx_smoke_red.dds",
+      auroraEmitter: createSingleTextureAuroraEmitter({
+        texture: "fx_smoke_red",
+        sourceModelFileName: "plc_emitter_light_static.mdl",
+        nodeName: "static_flame"
+      }),
+      auroraLight: {
+        source: "source-mdl",
+        diagnostics: [],
+        lights: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_emitter_light_static.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_emitter_light_static.mdl",
+            nodeName: "static_flame_light",
+            transform: { position: [0, 0, 1] },
+            radius: 2,
+            multiplier: 1,
+            color: [1, 0.5, 0.1],
+            ambientOnly: false,
+            dynamicType: 1,
+            affectDynamic: true,
+            shadow: false
+          }
+        ]
+      },
+      auroraModelGraph: {
+        source: "source-mdl",
+        diagnostics: [],
+        staticGeometryNodes: [
+          {
+            source: "aurora-mdl-ascii",
+            sourceModelAssetId: "source-model-1",
+            sourceModelFileName: "plc_emitter_light_static.mdl",
+            sourceModelObjectKey: "modules/current/models/plc_emitter_light_static.mdl",
+            nodeName: "static_base",
+            sourceNodeKind: "trimesh"
+          }
+        ]
+      }
+    });
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      { [object.id]: payload }
+    );
+
+    expect(load).toHaveBeenCalledWith(
+      "http://localhost:3000/assets/cot_fx01.glb",
+      expect.any(Function),
+      undefined,
+      expect.any(Function)
+    );
+
+    await flushRendererAsyncWork();
+
+    const root = runtime.objectMeshById.get(object.id);
+    expect(root?.userData.sourceMdlEmitterPreviewMode).toBe(
+      "placeable-source-mdl-emitter-overlay"
+    );
+    let staticGeometryCount = 0;
+    const emitterNodes: THREE.Object3D[] = [];
+    const pointLights: THREE.PointLight[] = [];
+    root?.traverse((node) => {
+      if (node.userData?.auroraStaticPlaceableGeometry === true) {
+        staticGeometryCount += 1;
+      }
+      if (node.userData?.auroraEmitterNode === "static_flame") {
+        emitterNodes.push(node);
+      }
+      if (node instanceof THREE.PointLight) {
+        pointLights.push(node);
+      }
+    });
+
+    expect(staticGeometryCount).toBe(1);
+    expect(emitterNodes.length).toBeGreaterThan(0);
+    expect(pointLights).toHaveLength(1);
+    expect(pointLights[0]?.userData.auroraLightNodeName).toBe("static_flame_light");
+  });
+
   it("loads backend-protected VFX textures through authorized blob URLs while rendering particles", async () => {
     const originalCreateObjectUrl = URL.createObjectURL;
     const originalRevokeObjectUrl = URL.revokeObjectURL;
     const load = vi.fn();
     const runtime = createRuntime(load);
     const textureUrl =
-      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cache-vfx/assets/texture-1.tga";
+      "http://localhost:3000/api/v1/catalog/placeables/cache/cache-vfx/assets/texture-1.tga";
     const objectUrl = "blob:http://localhost/authorized-vfx-texture";
     let resolveTexture: ((texture: THREE.Texture) => void) | null = null;
     const textureFetch = vi.fn(async () => ({
@@ -5045,7 +5207,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
 
     expect(load).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/cot_fx01.glb",
+      "http://localhost:3000/assets/cot_fx01.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -5092,7 +5254,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(alphaOnlyPixels, 2, 2, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_smoke_red.dds",
+      "http://localhost:3000/assets/fx_smoke_red.dds",
       particleTexture
     );
 
@@ -5251,6 +5413,114 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       expect(material.depthTest).toBe(true);
       expect(material.userData.auroraVfxParticleOpacityFloor).toBeUndefined();
     });
+  });
+
+  it("registers TXI cycle on an asynchronously loaded ordinary placeable model", async () => {
+    const sourceTexture = new THREE.Texture();
+    const sourceMaterial = new THREE.MeshBasicMaterial();
+    sourceMaterial.userData = {
+      aurora: { textureReference: "fx_cycle" }
+    };
+    const sourceModel = new THREE.Group();
+    const sourceMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sourceMaterial);
+    sourceMesh.name = "ordinary_placeable_cycle_panel";
+    sourceModel.add(sourceMesh);
+    const load = vi.fn(
+      (
+        _url: string,
+        onLoad: (gltf: { scene: THREE.Object3D; animations: THREE.AnimationClip[] }) => void
+      ) => {
+        onLoad({ scene: sourceModel, animations: [] });
+      }
+    );
+    const runtime = createRuntime(load);
+    const payload = createVfxPayloadWithReadyModel({
+      includeTextureContract: true,
+      templateId: "plc_cycle",
+      resref: "plc_cycle",
+      placeableName: "Cycle Placeable",
+      textureFileName: "fx_cycle.tga",
+      textureDeliveryUrl: "/assets/fx_cycle.tga"
+    });
+    payload.placeable.category = "props";
+    payload.placeable.placeableSubtype = "generic";
+    payload.placeable.render = {
+      backendType: "model",
+      frontendType: "model",
+      rendererPreset: "placeable-model",
+      isDoor: false,
+      isVfx: false
+    } as unknown as PlaceableViewportRenderPayload["placeable"]["render"];
+    payload.renderPackage = {
+      ...payload.renderPackage,
+      textureBindings: [
+        {
+          reference: "fx_cycle",
+          assetId: "texture-1",
+          fileName: "fx_cycle.tga",
+          objectKey: "module/textures/fx_cycle.tga",
+          deliveryUrl: "/assets/fx_cycle.tga",
+          txi: {
+            proceduretype: "cycle",
+            numx: 2,
+            numy: 2,
+            fps: 4
+          }
+        }
+      ]
+    } as PlaceableViewportRenderPayload["renderPackage"];
+    const textureUrl = resolvePlaceableTextureDeliveryUrlsByReference(payload).get("fx_cycle");
+    expect(textureUrl).toBeTruthy();
+    runtime.placeableTextureCacheByUrl.set(textureUrl!, sourceTexture);
+
+    const object = {
+      id: "area:plc_cycle",
+      kind: "placeables",
+      name: "Cycle Placeable",
+      resRef: "plc_cycle",
+      tag: "PLC_CYCLE",
+      x: 0.5,
+      y: 0.5,
+      z: 0,
+      bearing: 0,
+      isStatic: true,
+      visualTransform: {
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        pitch: 0,
+        yaw: 0,
+        roll: 0
+      }
+    } as unknown as Parameters<typeof rebuildObjectMeshes>[1][number];
+
+    rebuildObjectMeshes(
+      runtime,
+      [object],
+      [],
+      createDebugState(),
+      1,
+      false,
+      10,
+      [],
+      false,
+      { [object.id]: payload }
+    );
+    await flushRendererAsyncWork(3);
+
+    const root = runtime.objectMeshById.get(object.id);
+    const cycleMesh = root?.getObjectByName("ordinary_placeable_cycle_panel") as THREE.Mesh;
+    const cycleTexture = (cycleMesh.material as THREE.MeshBasicMaterial).map!;
+    expect(root?.userData.auroraTextureCycleRuntimeStatus).toBe("active");
+    expect(root?.userData.auroraTextureCycleRuntimeReferences).toEqual(["fx_cycle"]);
+    expect(runtime.auroraTextureCycleRuntimesByObjectId.has(object.id)).toBe(true);
+
+    updateRuntimeObjectAnimationPlaybacks(runtime, 0.26);
+
+    expect(cycleTexture.offset.x).toBeCloseTo(0.5);
+    expect(cycleTexture.offset.y).toBeCloseTo(0.5);
+    expect(root?.userData.auroraTextureCycleRuntimeFrameIndices).toEqual([1]);
   });
 
   it("renders source-MDL emitter overlays on Aurora Area source objects", () => {
@@ -6134,7 +6404,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_arcane01.tga",
+      "http://localhost:3000/assets/fxpa_arcane01.tga",
       particleTexture
     );
 
@@ -6259,7 +6529,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_svetred.tga",
+      "http://localhost:3000/assets/phod_fx_svetred.tga",
       particleTexture
     );
 
@@ -6336,7 +6606,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(root?.userData.auroraVfxCanonicalStatus).toBe("preview_only");
     expect(root?.userData.auroraVfxPreviewMode).toBe("aurora_emitter_particle_preview");
     expect(root?.userData.vfxTextureDeliveryUrl).toBe(
-      "http://127.0.0.1:3000/assets/phod_fx_svetred.tga"
+      "http://localhost:3000/assets/phod_fx_svetred.tga"
     );
     expect(root?.userData.vfxTextureStatus).toBe("applied");
     expect(root?.userData.auroraEmitterTexture).toBeUndefined();
@@ -6447,7 +6717,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(alphaOnlyPixels, 2, 2, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/gxpa_flava.tga",
+      "http://localhost:3000/assets/gxpa_flava.tga",
       particleTexture
     );
 
@@ -6537,7 +6807,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/gxpa_flava.tga",
+      "http://localhost:3000/assets/gxpa_flava.tga",
       particleTexture
     );
 
@@ -6686,7 +6956,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_cutout.tga",
+      "http://localhost:3000/assets/fx_cutout.tga",
       particleTexture
     );
 
@@ -6803,7 +7073,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_surface_key.tga",
+      "http://localhost:3000/assets/fx_surface_key.tga",
       particleTexture
     );
 
@@ -6930,7 +7200,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7049,7 +7319,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -7204,7 +7474,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -7336,7 +7606,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_unknown_render.tga",
+      "http://localhost:3000/assets/fx_unknown_render.tga",
       particleTexture
     );
 
@@ -7426,7 +7696,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_mov.tga",
+      "http://localhost:3000/assets/fxpa_mov.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -7629,7 +7899,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_surface.tga",
+      "http://localhost:3000/assets/fx_surface.tga",
       particleTexture
     );
 
@@ -7836,7 +8106,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_cutout.tga",
+      "http://localhost:3000/assets/fx_cutout.tga",
       particleTexture
     );
 
@@ -7925,7 +8195,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(punchMaterial).not.toBeNull();
     expect(punchMaterial?.userData.auroraEmitterBlendMode).toBe("Punch-Through");
     expect(punchMaterial?.userData.auroraEmitterBlendStatePreviewMode).toBe(
-      "aurora-blend-punch-through-alpha-test"
+      "aurora-blend-punch-through-alpha-discard-0.2"
     );
     expect(punchMaterial?.userData.auroraEmitterBlendBucket).toBe("punch_through");
     expect(punchMaterial?.userData.auroraEmitterBlendRuntimeMode).toBe(1);
@@ -7951,7 +8221,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(punchMaterial?.userData.auroraParticleRequestedDepthWrite).toBe(true);
     expect(punchMaterial?.blending).toBe(THREE.NormalBlending);
     expect(punchMaterial?.depthWrite).toBe(true);
-    expect(punchMaterial?.alphaTest).toBeGreaterThanOrEqual(0.5);
+    expect(punchMaterial?.transparent).toBe(false);
+    expect(punchMaterial?.alphaTest).toBe(0.2);
+    expect(punchMaterial?.userData.auroraParticleAlphaDiscardValue).toBe(0.2);
+    expect(punchMaterial?.userData.auroraParticleAlphaDiscardSource).toBe(
+      "nwtoolset-1.5.0.5-fAlphaDiscardValue-state1-disassembly"
+    );
   });
 
   it("uses Aurora source transparency false as an opaque VFX material lane", () => {
@@ -7959,7 +8234,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_opaque.tga",
+      "http://localhost:3000/assets/fx_opaque.tga",
       particleTexture
     );
 
@@ -8081,7 +8356,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_unknown.tga",
+      "http://localhost:3000/assets/fx_unknown.tga",
       particleTexture
     );
 
@@ -8193,7 +8468,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p.tga",
+      "http://localhost:3000/assets/fx_p2p.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8319,7 +8594,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_bezier.tga",
+      "http://localhost:3000/assets/fx_p2p_bezier.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8454,7 +8729,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_bezier_arc.tga",
+      "http://localhost:3000/assets/fx_p2p_bezier_arc.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8599,7 +8874,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_bezier_key_arc.tga",
+      "http://localhost:3000/assets/fx_p2p_bezier_key_arc.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8741,7 +9016,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_gravity.tga",
+      "http://localhost:3000/assets/fx_p2p_gravity.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -8889,7 +9164,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_combinetime.tga",
+      "http://localhost:3000/assets/fx_p2p_combinetime.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9036,7 +9311,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_gravkey.tga",
+      "http://localhost:3000/assets/fx_p2p_gravkey.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9169,7 +9444,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p_thresholdkey.tga",
+      "http://localhost:3000/assets/fx_p2p_thresholdkey.tga",
       particleTexture
     );
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9320,7 +9595,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_localz.tga",
+      "http://localhost:3000/assets/fx_localz.tga",
       particleTexture
     );
 
@@ -9467,7 +9742,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_linked.tga",
+      "http://localhost:3000/assets/fx_linked.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9704,7 +9979,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_elect.tga",
+      "http://localhost:3000/assets/fxpa_elect.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -9850,7 +10125,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_linked_single.tga",
+      "http://localhost:3000/assets/fx_linked_single.tga",
       particleTexture
     );
 
@@ -9945,7 +10220,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const chunkModelTemplate = new THREE.Group();
@@ -9956,7 +10231,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       )
     );
     runtime.placeableModelCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/red_m_giblet.glb",
+      "http://localhost:3000/assets/red_m_giblet.glb",
       chunkModelTemplate
     );
 
@@ -10056,7 +10331,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       "modules/current/__aurora/derived/models/red_m_giblet.glb"
     );
     expect(root?.userData.auroraEmitterChunkModelDeliveryUrl).toBe(
-      "http://127.0.0.1:3000/assets/red_m_giblet.glb"
+      "http://localhost:3000/assets/red_m_giblet.glb"
     );
     expect(root?.userData.auroraEmitterChunkModelAssetStatus).toBe("applied");
     expect(root?.userData.auroraEmitterChunkResolverDiagnostic).toBe(
@@ -10192,7 +10467,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
 
     expect(load).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/red_m_giblet.glb",
+      "http://localhost:3000/assets/red_m_giblet.glb",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -10246,7 +10521,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -10524,7 +10799,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.Texture();
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_keyed_birth.tga",
+      "http://localhost:3000/assets/fxpa_keyed_birth.tga",
       particleTexture
     );
 
@@ -10667,7 +10942,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -10801,7 +11076,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -10913,7 +11188,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11067,7 +11342,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -11199,7 +11474,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_zero_fountain.tga",
+      "http://localhost:3000/assets/fxpa_zero_fountain.tga",
       particleTexture
     );
 
@@ -11354,7 +11629,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11626,7 +11901,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_bar2blu.tga",
+      "http://localhost:3000/assets/phod_fx_bar2blu.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -11769,7 +12044,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -11865,15 +12140,15 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(backEmitterRoot?.userData.auroraEmitterBlendMode).toBe("Lighten");
     expect(frontEmitterRoot?.userData.auroraEmitterRenderOrder).toBe(-4);
     expect(backEmitterRoot?.userData.auroraEmitterRenderOrder).toBe(5);
-    expect(frontEmitterRoot?.userData.auroraEmitterThreeRenderOrder).toBe(16);
-    expect(backEmitterRoot?.userData.auroraEmitterThreeRenderOrder).toBe(7);
-    expect(frontEmitterRoot?.renderOrder).toBe(16);
-    expect(backEmitterRoot?.renderOrder).toBe(7);
+    expect(frontEmitterRoot?.userData.auroraEmitterThreeRenderOrder).toBe(8);
+    expect(backEmitterRoot?.userData.auroraEmitterThreeRenderOrder).toBe(17);
+    expect(frontEmitterRoot?.renderOrder).toBe(8);
+    expect(backEmitterRoot?.renderOrder).toBe(17);
     expect(frontEmitterRoot?.userData.auroraEmitterRenderOrderAdapterPreviewMode).toBe(
       "aurora-source-renderorder-short-adapter"
     );
     expect(frontEmitterRoot?.userData.auroraEmitterRenderOrderAdapterDiagnostic).toBe(
-      "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED"
+      "VFX_RENDERORDER_CONTEXTUAL_TIE_BREAK_CONFIRMED"
     );
 
     const frontMeshOrders: number[] = [];
@@ -11890,8 +12165,8 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
         expect(node.userData.auroraEmitterRenderOrder).toBe(5);
       }
     });
-    expect(frontMeshOrders).toEqual([16]);
-    expect(backMeshOrders).toEqual([7]);
+    expect(frontMeshOrders).toEqual([8]);
+    expect(backMeshOrders).toEqual([17]);
   });
 
   it("uses Aurora twosidedtex source state for textured particle material sidedness", () => {
@@ -11899,7 +12174,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -12051,6 +12326,18 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(
       culledEmitterRoot?.userData.auroraEmitterTwoSidedMaterialRuntimeLaneDiagnostics
     ).toEqual(["VFX_TWOSIDED_MATERIAL_RUNTIME_ARG1_REQUIRED"]);
+    expect(culledEmitterRoot?.userData.auroraEmitterTwoSidedMaterialCullState3).toBe(
+      "disabled"
+    );
+    expect(culledEmitterRoot?.userData.auroraEmitterTwoSidedMaterialCullFaceMode).toBe(
+      "GL_BACK"
+    );
+    expect(
+      culledEmitterRoot?.userData.auroraEmitterTwoSidedMaterialFrontFaceWinding
+    ).toBe("not_modified_by_render_wrapper");
+    expect(culledEmitterRoot?.userData.auroraEmitterTwoSidedMaterialParticleOverride).toBe(
+      "twosidedtex_live_read_after_render_wrapper"
+    );
     expect(culledEmitterRoot?.userData.auroraEmitterTextureSide).toBe(THREE.FrontSide);
     expect(culledEmitterRoot?.userData.auroraEmitterCullState3).toBe("enabled");
     expect(culledMaterial?.side).toBe(THREE.FrontSide);
@@ -12072,7 +12359,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -12176,8 +12463,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       sampleFramebufferRoot?.userData.auroraEmitterFramebufferRenderLaneDiagnostics
     ).toEqual([
       "VFX_SAMPLE_FRAMEBUFFER_MODE1_RUNTIME_LANE_5_REQUIRED",
-      "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED"
+      "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+      "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
     ]);
+    expect(sampleFramebufferRoot?.userData.auroraEmitterFramebufferCaptureDestinationSlot).toBe(1);
+    expect(sampleFramebufferRoot?.userData.auroraEmitterFramebufferColorTextureUnit).toBe(11);
+    expect(sampleFramebufferRoot?.userData.auroraEmitterFramebufferDepthTextureUnit).toBe(12);
 
     expect(volumetricRoot?.userData.auroraEmitterSampleFramebuffer).toBe(0);
     expect(volumetricRoot?.userData.auroraEmitterVolumetric).toBe(true);
@@ -12200,8 +12491,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     expect(volumetricRoot?.userData.auroraEmitterFramebufferRenderLaneDiagnostics).toEqual([
       "VFX_VOLUMETRIC_RUNTIME_LANE_5_REQUIRED",
-      "VFX_SAMPLE_FRAMEBUFFER_VOLUME_BRANCH_CAPTURE_REQUIRED"
+      "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+      "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
     ]);
+    expect(volumetricRoot?.userData.auroraEmitterFramebufferCaptureDestinationSlot).toBe(1);
+    expect(volumetricRoot?.userData.auroraEmitterFramebufferColorTextureUnit).toBe(11);
+    expect(volumetricRoot?.userData.auroraEmitterFramebufferDepthTextureUnit).toBe(12);
   });
 
   it("uses Aurora source-state tint, splat, rotate texture, and wind flags for VFX particles", () => {
@@ -12215,7 +12510,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -12439,7 +12734,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_splat.tga",
+      "http://localhost:3000/assets/fxpa_splat.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -12684,7 +12979,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
 
     const root = runtime.objectMeshById.get(object.id);
     expect(textureLoader).toHaveBeenCalledWith(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -12772,7 +13067,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -12881,7 +13176,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -13000,7 +13295,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -13100,7 +13395,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_flare.tga",
+      "http://localhost:3000/assets/fxpa_flare.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13263,7 +13558,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_rot_gate.tga",
+      "http://localhost:3000/assets/fxpa_rot_gate.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13394,7 +13689,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_rot_key_gate.tga",
+      "http://localhost:3000/assets/fxpa_rot_key_gate.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -13566,11 +13861,11 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     baseTexture.needsUpdate = true;
     companionTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       baseTexture
     );
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01a.tga",
+      "http://localhost:3000/assets/fxpa_smoke01a.tga",
       companionTexture
     );
 
@@ -13733,7 +14028,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/phod_fx_pntgrm.tga",
+      "http://localhost:3000/assets/phod_fx_pntgrm.tga",
       particleTexture
     );
 
@@ -13865,7 +14160,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_blackkey_atlas.tga",
+      "http://localhost:3000/assets/fxpa_blackkey_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -14049,7 +14344,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_random_atlas.tga",
+      "http://localhost:3000/assets/fxpa_random_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -14184,7 +14479,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_fps_key_atlas.tga",
+      "http://localhost:3000/assets/fxpa_fps_key_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -14318,7 +14613,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_frame_range_key_atlas.tga",
+      "http://localhost:3000/assets/fxpa_frame_range_key_atlas.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -14460,7 +14755,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.DataTexture(atlasPixels, 4, 4, THREE.RGBAFormat);
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -14606,7 +14901,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     particleTexture.needsUpdate = true;
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -14894,7 +15189,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       emitterRoot?.userData.auroraEmitterTransformOrientationTimelineSampleSeconds
     ).toBeCloseTo(0.5, 5);
     const expectedOrientation = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-1, 0, 0),
       -1.06683
     );
     expect(emitterRoot?.quaternion.x).toBeCloseTo(expectedOrientation.x, 5);
@@ -14938,8 +15233,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     );
     expect(emitterRoot?.userData.auroraEmitterFramebufferRenderLaneDiagnostics).toEqual([
       "VFX_SAMPLE_FRAMEBUFFER_MODE2_RUNTIME_LANE_6_REQUIRED",
-      "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED"
+      "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+      "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED"
     ]);
+    expect(emitterRoot?.userData.auroraEmitterFramebufferCaptureDestinationSlot).toBe(6);
+    expect(emitterRoot?.userData.auroraEmitterFramebufferColorTextureUnit).toBe(11);
+    expect(emitterRoot?.userData.auroraEmitterFramebufferDepthTextureUnit).toBe(12);
     expect(emitterRoot?.userData.auroraEmitterLoop).toBe(false);
     expect(emitterRoot?.userData.auroraEmitterParticleRotationRateSource).toBeCloseTo(0.2, 5);
     expect(emitterRoot?.userData.auroraEmitterParticleRotationRateRadians).toBeCloseTo(
@@ -15021,10 +15320,10 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       "particle-color-alpha-size-linear-start-end"
     );
     expect(emitterRoot?.userData.auroraEmitterMidCurveSourcePreviewMode).toBe(
-      "particle-mid-runtime-curve-preview"
+      "particle-mid-source-preserved-renderer-ignored"
     );
     expect(emitterRoot?.userData.auroraEmitterPercentCurvePreviewMode).toBe(
-      "particle-percent-runtime-curve-preview"
+      "particle-percent-source-preserved-renderer-ignored"
     );
     expect(emitterRoot?.position.x).toBeCloseTo(0.0966596 * unitScale, 5);
     expect(emitterRoot?.position.y).toBeCloseTo(0.0624961 * unitScale, 5);
@@ -15053,9 +15352,9 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       )
     ).toBe(true);
     expect(billboardMaterials[0]?.vertexColors).toBe(true);
-    expectAuroraVertexColorHex(billboardMeshes[0]!, "640000");
-    expect(billboardMaterials[0]?.opacity).toBeCloseTo(0.5, 4);
-    expect(readFirstAuroraVertexAlpha(billboardMeshes[0]!)).toBeCloseTo(0.5, 4);
+    expectAuroraVertexColorHex(billboardMeshes[0]!, "5f0000");
+    expect(billboardMaterials[0]?.opacity).toBeCloseTo(0.45, 4);
+    expect(readFirstAuroraVertexAlpha(billboardMeshes[0]!)).toBeCloseTo(0.45, 4);
     expect(billboardMaterials[0]?.userData.auroraAtlasPreviewMode).toBe(
       "particle-age-vertex-uv-preview"
     );
@@ -15075,9 +15374,9 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       null
     );
 
-    expect(billboardMaterials[0]?.opacity).toBeCloseTo(0.78, 4);
-    expect(readFirstAuroraVertexAlpha(billboardMeshes[0]!)).toBeCloseTo(0.78, 4);
-    expectAuroraVertexColorHex(billboardMeshes[0]!, "7a3300");
+    expect(billboardMaterials[0]?.opacity).toBeCloseTo(0.25, 4);
+    expect(readFirstAuroraVertexAlpha(billboardMeshes[0]!)).toBeCloseTo(0.25, 4);
+    expectAuroraVertexColorHex(billboardMeshes[0]!, "4a0000");
     expect(billboardMeshes[0]?.scale.x).toBeGreaterThan(initialScale);
     expect(billboardMeshes[0]?.rotation.z).toBeCloseTo(Math.PI, 4);
     expect(billboardMaterials[0]?.userData.auroraAtlasPreviewMode).toBe(
@@ -15099,7 +15398,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_bounce_symbol.tga",
+      "http://localhost:3000/assets/fx_bounce_symbol.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -15224,7 +15523,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_bounce_key_symbol.tga",
+      "http://localhost:3000/assets/fx_bounce_key_symbol.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -15348,7 +15647,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fx_p2p.tga",
+      "http://localhost:3000/assets/fx_p2p.tga",
       particleTexture
     );
 
@@ -15444,7 +15743,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -15562,7 +15861,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -15692,7 +15991,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -15816,7 +16115,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
 
@@ -15945,7 +16244,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_trail.tga",
+      "http://localhost:3000/assets/fxpa_trail.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -16076,7 +16375,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_phod01w.tga",
+      "http://localhost:3000/assets/fxpa_phod01w.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -16355,7 +16654,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_motion_blur_key.tga",
+      "http://localhost:3000/assets/fxpa_motion_blur_key.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -16503,7 +16802,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_motion_zero.tga",
+      "http://localhost:3000/assets/fxpa_motion_zero.tga",
       particleTexture
     );
 
@@ -16601,7 +16900,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_deadspace.tga",
+      "http://localhost:3000/assets/fxpa_deadspace.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -16740,7 +17039,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_inheritpart.tga",
+      "http://localhost:3000/assets/fxpa_inheritpart.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(500);
@@ -16923,12 +17222,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     performanceNow.mockRestore();
   });
 
-  it("uses source emitter node orientation for fountain velocity", () => {
+  it("uses the reflected Aurora emitter orientation for fountain velocity", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_inheritlocal.tga",
+      "http://localhost:3000/assets/fxpa_inheritlocal.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -17020,6 +17319,22 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
 
     const worldRoot = runtime.objectMeshById.get(worldObject.id);
     const localRoot = runtime.objectMeshById.get(localObject.id);
+    const worldEmitterRoot = worldRoot?.children.find(
+      (child) => child.userData?.auroraEmitterNode === "plc_worldspace_vfx_particles"
+    );
+    const localEmitterRoot = localRoot?.children.find(
+      (child) => child.userData?.auroraEmitterNode === "plc_inheritlocal_vfx_particles"
+    );
+    expect(worldEmitterRoot?.userData.auroraEmitterTransformMappedAxis).toEqual([
+      -1,
+      -0,
+      -0
+    ]);
+    expect(localEmitterRoot?.userData.auroraEmitterTransformMappedAxis).toEqual([
+      -1,
+      -0,
+      -0
+    ]);
     expect(worldRoot?.userData.auroraEmitterParticleKinematicCoordinateSpace).toBe(
       "emitter-local"
     );
@@ -17069,9 +17384,9 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const worldDelta = worldPosition.sub(initialWorldPosition);
     const localDelta = localPosition.sub(initialLocalPosition);
 
-    expect(worldDelta.z).toBeGreaterThan(0.8);
+    expect(worldDelta.z).toBeLessThan(-0.8);
     expect(Math.abs(worldDelta.y)).toBeLessThan(0.05);
-    expect(localDelta.z).toBeGreaterThan(0.8);
+    expect(localDelta.z).toBeLessThan(-0.8);
     expect(Math.abs(localDelta.y)).toBeLessThan(0.05);
     performanceNow.mockRestore();
   });
@@ -17081,7 +17396,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_smoke01.tga",
+      "http://localhost:3000/assets/fxpa_smoke01.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -17388,7 +17703,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const particleTexture = new THREE.Texture();
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_keyed_birth.tga",
+      "http://localhost:3000/assets/fxpa_keyed_birth.tga",
       particleTexture
     );
 
@@ -17557,10 +17872,10 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       "particle-color-alpha-size-linear-start-end"
     );
     expect(root?.userData.auroraEmitterMidCurveSourcePreviewMode).toBe(
-      "particle-mid-runtime-curve-preview"
+      "particle-mid-source-preserved-renderer-ignored"
     );
     expect(root?.userData.auroraEmitterPercentCurvePreviewMode).toBe(
-      "particle-percent-runtime-curve-preview"
+      "particle-percent-source-preserved-renderer-ignored"
     );
     expect(root?.userData.auroraEmitterParticleSizeStart).toBeGreaterThan(
       root?.userData.auroraEmitterParticleSizeEnd ?? 0
@@ -17607,14 +17922,10 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     performanceNow.mockRestore();
   });
 
-  it("samples Aurora particle mid and percent curves at runtime", () => {
+  it("preserves particle mid and percent fields but renders the Aurora start-end age lane", () => {
     const load = vi.fn();
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
-    runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_mid_curve.tga",
-      particleTexture
-    );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
 
     const object = {
@@ -17673,7 +17984,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
                 simulation: {
                   birthrate: 1,
                   lifeExp: 4,
-                  velocity: 0,
+                  velocity: 1,
                   randvel: 0,
                   spread: 0,
                   sizeStart: 1,
@@ -17698,16 +18009,21 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
 
     const root = runtime.objectMeshById.get(object.id);
     expect(root?.userData.auroraEmitterMidCurveSourcePreviewMode).toBe(
-      "particle-mid-runtime-curve-preview"
+      "particle-mid-source-preserved-renderer-ignored"
     );
     expect(root?.userData.auroraEmitterPercentCurvePreviewMode).toBe(
-      "particle-percent-runtime-curve-preview"
+      "particle-percent-source-preserved-renderer-ignored"
     );
+    expect(root?.userData.auroraEmitterParticleAlphaMid).toBe(1);
+    expect(root?.userData.auroraEmitterParticleColorMid).toEqual([0, 1, 0]);
+    expect(root?.userData.auroraEmitterParticlePercentMid).toBe(0.5);
 
     const particles = collectCameraBillboardParticles(root);
     expect(particles.length).toBeGreaterThan(0);
     const particle = particles[0]!;
     expectAuroraCameraBillboardQuad(particle.mesh);
+    particle.material.map = particleTexture;
+    expect(particle.material.map).toBe(particleTexture);
     expect(particle.material.opacity).toBeCloseTo(0, 4);
     expect(readFirstAuroraVertexAlpha(particle.mesh)).toBeCloseTo(0, 4);
     expect(readAuroraVertexColorSource(particle.mesh)?.[0]).toBeGreaterThan(0.9);
@@ -17726,13 +18042,20 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
       null
     );
 
-    expect(particle.material.opacity).toBeCloseTo(1, 4);
-    expect(readFirstAuroraVertexAlpha(particle.mesh)).toBeCloseTo(1, 4);
-    expect(readFirstAuroraVertexColor(particle.mesh).g).toBeGreaterThan(0.9);
-    expect(readFirstAuroraVertexColor(particle.mesh).r).toBeLessThan(0.1);
-    expect(readFirstAuroraVertexColor(particle.mesh).b).toBeLessThan(0.1);
-    expect(particle.mesh.scale.x).toBeCloseTo(4 * 0.24, 4);
-    expect(particle.mesh.scale.y).toBeCloseTo(4 * 0.24, 4);
+    expect(particle.material.opacity).toBeCloseTo(0, 4);
+    expect(readFirstAuroraVertexAlpha(particle.mesh)).toBeCloseTo(0, 4);
+    const sourceColor = readAuroraVertexColorSource(particle.mesh);
+    expect(sourceColor?.[1]).toBeCloseTo(0, 4);
+    expect(sourceColor?.[0]).toBeCloseTo(sourceColor?.[2] ?? -1, 4);
+    expect(sourceColor?.[0]).toBeGreaterThan(0.2);
+    expect(sourceColor?.[0]).toBeLessThan(0.6);
+    expect(readFirstAuroraVertexColor(particle.mesh).g).toBeLessThan(0.1);
+    expect(readFirstAuroraVertexColor(particle.mesh).r).toBeCloseTo(
+      readFirstAuroraVertexColor(particle.mesh).b,
+      4
+    );
+    expect(particle.mesh.scale.x).toBeCloseTo(1 * 0.24, 4);
+    expect(particle.mesh.scale.y).toBeCloseTo(1 * 0.24, 4);
 
     performanceNow.mockRestore();
   });
@@ -17742,7 +18065,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_ring02.tga",
+      "http://localhost:3000/assets/fxpa_ring02.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -17895,7 +18218,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_update_modes.tga",
+      "http://localhost:3000/assets/fxpa_update_modes.tga",
       particleTexture
     );
     const object = {
@@ -18013,7 +18336,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_zero_burst.tga",
+      "http://localhost:3000/assets/fxpa_zero_burst.tga",
       particleTexture
     );
     const object = {
@@ -18121,7 +18444,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_detonate_key.tga",
+      "http://localhost:3000/assets/fxpa_detonate_key.tga",
       particleTexture
     );
     const detonateTimeline = [
@@ -18182,8 +18505,8 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
                 renderMode: "Normal",
                 blendMode: "Lighten",
                 simulation: {
-                  birthrate: 2,
-                  lifeExp: 1,
+                  birthrate: 2.75,
+                  lifeExp: 0.1,
                   velocity: 0.8,
                   randvel: 0.2,
                   alphaStart: 1,
@@ -18228,8 +18551,12 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     expect(root?.userData.auroraEmitterSchedulePreviewMode).toBe(
       "source-detonate-event-local-clock"
     );
-    expect(root?.userData.auroraEmitterParticleCount).toBeGreaterThan(0);
-    expect(collectCameraBillboardParticles(root).length).toBeGreaterThan(0);
+    expect(root?.userData.auroraEmitterExplosionRequestedSpawnCount).toBe(2);
+    expect(root?.userData.auroraEmitterParticleCountPreviewMode).toBe(
+      "explosion-truncated-birthrate-source-count"
+    );
+    expect(root?.userData.auroraEmitterParticleCount).toBe(2);
+    expect(collectCameraBillboardParticles(root)).toHaveLength(2);
   });
 
   it("uses Aurora direct detonate scalar as a start-time explosion latch", () => {
@@ -18237,7 +18564,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_detonate_direct.tga",
+      "http://localhost:3000/assets/fxpa_detonate_direct.tga",
       particleTexture
     );
     const object = {
@@ -18345,7 +18672,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_update_modes.tga",
+      "http://localhost:3000/assets/fxpa_update_modes.tga",
       particleTexture
     );
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
@@ -18627,7 +18954,7 @@ function createRuntime(load: ReturnType<typeof vi.fn>) {
     const runtime = createRuntime(load);
     const particleTexture = new THREE.Texture();
     runtime.placeableTextureCacheByUrl.set(
-      "http://127.0.0.1:3000/assets/fxpa_lightning_key.tga",
+      "http://localhost:3000/assets/fxpa_lightning_key.tga",
       particleTexture
     );
     const object = {

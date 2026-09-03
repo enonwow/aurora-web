@@ -152,4 +152,108 @@ describe("sceneMutationsFacade placeable preserve-only roundtrip", () => {
       comments: "comment"
     });
   });
+
+  it("updates the bounded OnUsed field through the scene facade without mutating the input", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables")!;
+    const originalProperties = {
+      plot: false,
+      useable: true,
+      hasInventory: false,
+      scriptSlots: {
+        onClick: "",
+        onClosed: "",
+        onDamaged: "",
+        onDeath: "",
+        onHeartbeat: "",
+        onInvDisturbed: "",
+        onLock: "",
+        onMeleeAttacked: "",
+        onOpen: "",
+        onSpellCastAt: "",
+        onUnlock: "",
+        onUsed: "",
+        onUserDefined: ""
+      }
+    };
+    const sourceScene = {
+      ...scene,
+      objects: scene.objects.map((object) => object.id === target.id
+        ? { ...object, placeableProperties: originalProperties }
+        : object)
+    };
+    const nextProperties = {
+      ...originalProperties,
+      scriptSlots: { ...originalProperties.scriptSlots, onUsed: "s04_plcprobe" }
+    };
+
+    const nextScene = facade.setPlaceablePropertiesByIds(sourceScene, [target.id], {
+      name: target.name ?? target.tag,
+      tag: target.tag,
+      resRef: target.resRef,
+      isStatic: target.isStatic ?? true,
+      placeableProperties: nextProperties
+    });
+
+    expect(nextScene.objects.find((object) => object.id === target.id)?.placeableProperties?.scriptSlots?.onUsed)
+      .toBe("s04_plcprobe");
+    expect(originalProperties.scriptSlots.onUsed).toBe("");
+    expect(nextScene).not.toBe(sourceScene);
+    nextProperties.scriptSlots.onUsed = "mutated_after_call";
+    expect(nextScene.objects.find((object) => object.id === target.id)?.placeableProperties?.scriptSlots?.onUsed)
+      .toBe("s04_plcprobe");
+  });
+
+  it("returns the same scene for absent targets and for an unchanged full property payload", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables")!;
+    const unchangedInput = {
+      name: target.name ?? target.tag,
+      tag: target.tag,
+      resRef: target.resRef,
+      isStatic: target.isStatic ?? true,
+      placeableProperties: target.placeableProperties
+    };
+
+    expect(facade.setPlaceablePropertiesByIds(scene, [], unchangedInput)).toBe(scene);
+    expect(facade.setPlaceablePropertiesByIds(scene, ["missing"], unchangedInput)).toBe(scene);
+    expect(facade.setPlaceablePropertiesByIds(scene, [target.id], unchangedInput)).toBe(scene);
+  });
+
+  it("preserves non-target objects and honors missing name/static defaults on an unchanged target", () => {
+    const facade = createSceneMutationsFacade();
+    const scene = createSeedAreaScene();
+    const target = scene.objects.find((object) => object.kind === "placeables")!;
+    const sourceScene = {
+      ...scene,
+      objects: scene.objects.map((object) => object.id === target.id
+        ? { ...object, name: undefined, isStatic: undefined }
+        : object)
+    };
+    const normalizedTarget = sourceScene.objects.find((object) => object.id === target.id)!;
+    const anotherObject = sourceScene.objects.find((object) => object.kind !== "placeables")!;
+    const unchangedInput = {
+      name: normalizedTarget.tag,
+      tag: normalizedTarget.tag,
+      resRef: normalizedTarget.resRef,
+      isStatic: true
+    };
+    expect(facade.setPlaceablePropertiesByIds(sourceScene, [target.id], unchangedInput)).toBe(sourceScene);
+
+    const changed = facade.setPlaceablePropertiesByIds(sourceScene, [target.id, anotherObject.id], {
+      ...unchangedInput,
+      placeableProperties: {
+        ...normalizedTarget.placeableProperties!,
+        scriptSlots: {
+          ...normalizedTarget.placeableProperties!.scriptSlots!,
+          onUsed: "s04_plcprobe"
+        }
+      }
+    });
+    for (const object of sourceScene.objects.filter((object) => object.id !== target.id)) {
+      expect(changed.objects.find((candidate) => candidate.id === object.id)).toBe(object);
+    }
+  });
 });

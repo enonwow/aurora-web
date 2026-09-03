@@ -72,6 +72,18 @@ describe("itemSceneObjectMapper", () => {
               gameStrRef: 4321,
               descriptionStrRef: 4322
             }
+          ]),
+          variableListEntries: JSON.stringify([
+            { name: " duplicate ", type: "int", value: -7 },
+            { name: "duplicate", type: "float", value: 1.25 },
+            { name: "duplicate", type: "string", value: " exact value " }
+          ]),
+          inventoryItemListEntries: JSON.stringify([
+            { resRef: "itm_potion", x: 3, y: 4 },
+            { resRef: "itm_scroll", x: 5, y: 6 }
+          ]),
+          equipItemListEntries: JSON.stringify([
+            { resRef: "itm_ring", slotMask: 4 }
           ])
         }
       },
@@ -139,7 +151,63 @@ describe("itemSceneObjectMapper", () => {
           gameStrRef: 4321,
           descriptionStrRef: 4322
         }
-      ]
+      ],
+      variables: [
+        { name: " duplicate ", type: "int", value: -7 },
+        { name: "duplicate", type: "float", value: 1.25 },
+        { name: "duplicate", type: "string", value: " exact value " }
+      ],
+      blueprintInventoryItems: [
+        { resRef: "itm_potion", x: 3, y: 4 },
+        { resRef: "itm_scroll", x: 5, y: 6 }
+      ],
+      blueprintEquippedItems: [{ resRef: "itm_ring", slotMask: 4 }]
+    });
+  });
+
+  it("maps exact effective UTI provenance into an Area-constructible Item template", () => {
+    const object = mapItemApiListItemToSceneObject({
+      templateId: "itm_nw_wswm001",
+      resref: "nw_wswm001",
+      name: "Longsword",
+      category: "Weapons",
+      tags: ["weapon"],
+      previewImageUrl: "",
+      metadata: {
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/nw_wswm001.uti",
+        sourceSizeBytes: 2048,
+        sourceSha256: "a".repeat(64),
+        sourceExtension: "uti",
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+        templateResRef: "nw_wswm001",
+        tag: "Longsword_Tag",
+        localizedName: "Retail Longsword",
+        baseItem: 6,
+      },
+    });
+
+    expect(object).toMatchObject({
+      id: "itm_template_itm_nw_wswm001",
+      kind: "items",
+      resRef: "nw_wswm001",
+      tag: "Longsword_Tag",
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "item",
+        sourceProfileId: "effective-catalog-uti-item-copy-v1",
+        templateId: "itm_nw_wswm001",
+        templateResRef: "nw_wswm001",
+        sourceObjectKey:
+          "modules/current/__aurora/sources/vanilla/templates/nw_wswm001.uti",
+        sourceSizeBytes: 2048,
+        sourceEtag: "a".repeat(64),
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
     });
   });
 

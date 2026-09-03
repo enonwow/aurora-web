@@ -90,6 +90,28 @@ describe("sceneFactory", () => {
     });
   });
 
+  it("preserves the exact sparse placeable Advanced payload without inventing preserve-only fields", () => {
+    const scene = createSeedAreaScene();
+    const customized = scene.objects.map((object) =>
+      object.id === "plc_barrel_01"
+        ? {
+            ...object,
+            placeableProperties: {
+              ...object.placeableProperties,
+              advancedSettings: { initialState: "Closed" }
+            }
+          }
+        : object
+    );
+
+    const scaled = rescaleSceneObjectsToSize(customized, 2, 2, 2, 2);
+    const placeable = scaled.find((object) => object.id === "plc_barrel_01");
+
+    expect(placeable?.placeableProperties?.advancedSettings).toEqual({
+      initialState: "Closed"
+    });
+  });
+
   it("normalizes invalid metadata payloads to safe clamped values while rescaling", () => {
     const scene = createSeedAreaScene();
     const corrupted = scene.objects.map((object) => {
@@ -171,6 +193,41 @@ describe("sceneFactory", () => {
       cutoffDistance: 14,
       randomRangeWestEast: 0,
       randomRangeNorthSouth: 0
+    });
+  });
+
+  it("retains canonical Creature FactionID when another advanced field needs normalization", () => {
+    const creature = createNewSceneObject("creatures", 1, 1, 7);
+    creature.creatureProperties = {
+      advancedSettings: {
+        blueprintResRef: "creature",
+        paletteId: Number.NaN,
+        disarmable: false,
+        plot: false,
+        playerCharacter: false,
+        leavesLootableCorpse: false,
+        noPermanentDeath: false,
+        immortal: false,
+        bodyBag: false,
+        startingPackage: false,
+        treasureModel: "Default",
+        corpseDecayTimeSeconds: 5,
+        factionId: 7,
+        faction: "Faction 7",
+        subrace: "",
+        deity: "",
+        challengeRatingAdjustment: 0,
+        soundSet: "",
+        perceptionRange: "Default",
+      },
+    };
+
+    const [normalized] = rescaleSceneObjectsToSize([creature!], 2, 2, 4, 4);
+
+    expect(normalized?.creatureProperties?.advancedSettings?.paletteId).toBeUndefined();
+    expect(normalized?.creatureProperties?.advancedSettings).toMatchObject({
+      factionId: 7,
+      faction: "Faction 7",
     });
   });
 
@@ -261,6 +318,7 @@ describe("sceneFactory", () => {
           startingPackage: true,
           treasureModel: "Default",
           corpseDecayTimeSeconds: 33,
+          factionId: 7,
           faction: "Faction 7",
           subrace: "veteran",
           deity: "Helm",
@@ -337,7 +395,9 @@ describe("sceneFactory", () => {
         paletteId: 9,
         playerCharacter: true,
         bodyBag: true,
-        startingPackage: true
+        startingPackage: true,
+        factionId: 7,
+        faction: "Faction 7"
       },
       templateEntries: [{ templateId: 77 }],
       spells: [
@@ -384,7 +444,18 @@ describe("sceneFactory", () => {
     const object = createNewSceneObject("placeables", 4.5, 7.5, 21);
 
     expect(object.id).toBe("pla_021");
-    expect(object.resRef).toBe("plc_a01");
+    expect(object.resRef).toBe("plc_watertrough");
+    expect(object.tag).toBe("WaterTrough");
+    expect(object.source).toEqual({
+      type: "aurora_blueprint",
+      sourceKind: "placeable",
+      sourceProfileId: "nwn-base-key-utp-plc-watertrough-v1",
+      templateId: "plc_watertrough",
+      sourceEtag: "a1b00834837b3c516d823f63e00054b2331044bdbccca1d49f1bc121f854c531",
+      sourceFileType: "UTP ",
+      sourceFileVersion: "V3.2",
+      sourceStructTypeId: 0xffffffff,
+    });
     expect(object.visualTransform.offsetX).toBe(0);
     expect(object.placeableProperties).toEqual({
       plot: false,
@@ -409,6 +480,153 @@ describe("sceneFactory", () => {
       randomRangeNorthSouth: 0
     });
     expect(sound.placeableProperties).toBeUndefined();
+    expect(sound).toMatchObject({
+      resRef: "animalcriesday",
+      tag: "AnimalCriesDay",
+      bearing: 0,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "sound",
+        sourceProfileId: "nwn-base-key-uts-animalcriesday-v1",
+        templateId: "animalcriesday",
+        sourceEtag: "a0d185c2813db9cd2649e104715e94c01511f83b97f3319a0ee3c31b8c3357b4",
+        sourceFileType: "UTS ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new waypoints from the exact admitted Aurora UTW blueprint profile", () => {
+    const waypoint = createNewSceneObject("waypoints", 3.5, 4.75, 9);
+
+    expect(waypoint).toMatchObject({
+      id: "way_009",
+      kind: "waypoints",
+      resRef: "nw_waypoint001",
+      tag: "NW_WAYPOINT001",
+      x: 3.5,
+      y: 4.75,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "waypoint",
+        sourceProfileId: "nwn-base-key-utw-v1",
+        templateId: "nw_waypoint001",
+        sourceEtag: "13122a96b64f277c1c6aecb8984f1b5b9c133fb9fb514ce24a1bef564a53055a",
+        sourceFileType: "UTW ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new ground items from the exact admitted Aurora UTI blueprint profile", () => {
+    expect(createNewSceneObject("items", 1.5, 2.25, 12)).toMatchObject({
+      id: "ite_012",
+      kind: "items",
+      resRef: "nw_cloth022",
+      tag: "NW_CLOTH022",
+      x: 1.5,
+      y: 2.25,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "item",
+        sourceProfileId: "nwn-base-key-uti-nw-cloth022-v1",
+        templateId: "nw_cloth022",
+        sourceEtag: "606788a4d7e44de76e4c3f38ce4b2b7bae06d64721140995efa011066b5279a6",
+        sourceFileType: "UTI ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new creatures from the exact admitted Aurora UTC blueprint profile", () => {
+    expect(createNewSceneObject("creatures", 1.5, 2.25, 13)).toMatchObject({
+      id: "cre_013",
+      kind: "creatures",
+      resRef: "nw_chicken",
+      tag: "NW_CHICKEN",
+      x: 1.5,
+      y: 2.25,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "creature",
+        sourceProfileId: "nwn-base-key-utc-nw-chicken-v1",
+        templateId: "nw_chicken",
+        sourceEtag: "c1b0e194bb08b3e3d2946025c1e2f950b91e4cb844a32ba3b744c51a1d822a4a",
+        sourceFileType: "UTC ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new stores from the exact admitted Aurora UTM blueprint profile", () => {
+    expect(createNewSceneObject("stores", 1.5, 2.25, 14)).toMatchObject({
+      id: "sto_014",
+      kind: "stores",
+      resRef: "x2_merc_dye",
+      tag: "x2_merc_dye",
+      x: 1.5,
+      y: 2.25,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "store",
+        sourceProfileId: "nwn-base-key-utm-x2-merc-dye-v1",
+        templateId: "x2_merc_dye",
+        sourceEtag: "99b3050edf8697dfd053dbb335c12273de79ae1a16eebb242c354e727ae166e2",
+        sourceFileType: "UTM ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new triggers from the exact admitted Aurora UTT blueprint profile", () => {
+    expect(createNewSceneObject("triggers", 3.547599411010742, 4.491108703613281, 15)).toMatchObject({
+      id: "tri_015",
+      kind: "triggers",
+      resRef: "newgeneric",
+      tag: "GenericTrigger",
+      x: 3.547599411010742,
+      y: 4.491108703613281,
+      z: 0,
+      bearing: 0,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "trigger",
+        sourceProfileId: "nwn-base-key-utt-newgeneric-v1",
+        templateId: "newgeneric",
+        sourceEtag: "e855ae85a9b8511aca84ada06b9779126ff615f9bd816df4dbf39e1a1544001c",
+        sourceFileType: "UTT ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
+  });
+
+  it("creates new encounters from the exact admitted Aurora UTE blueprint profile", () => {
+    expect(createNewSceneObject("encounters", 2.241201591491699, 4.51970329284668, 15)).toMatchObject({
+      id: "enc_015",
+      kind: "encounters",
+      resRef: "x2_gnoll001",
+      tag: "X2_GNOLL001",
+      x: 2.241201591491699,
+      y: 4.51970329284668,
+      z: 0,
+      bearing: 0,
+      source: {
+        type: "aurora_blueprint",
+        sourceKind: "encounter",
+        sourceProfileId: "nwn-base-key-ute-x2-gnoll001-v1",
+        templateId: "x2_gnoll001",
+        sourceEtag: "f3941f1eb580b55247f3ac226e8e0aa72841c3c81ba205c61319b8958a5daeed",
+        sourceFileType: "UTE ",
+        sourceFileVersion: "V3.2",
+        sourceStructTypeId: 0xffffffff,
+      },
+    });
   });
 
   it("keeps placeable and sound baselines in seed snapshot", () => {

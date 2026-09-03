@@ -50,7 +50,7 @@ describe("sceneMutationsFacade coordinate parity", () => {
     const fixtures = [
       {
         input: { x: -5, y: 99, z: -2, bearing: -Math.PI / 2 },
-        expected: { x: 0, y: maxCoordinate, z: 0, bearing: fullTurn - (Math.PI / 2) }
+        expected: { x: 0, y: maxCoordinate, z: -2, bearing: fullTurn - (Math.PI / 2) }
       },
       {
         input: { x: maxCoordinate, y: 0, z: 1.25, bearing: fullTurn },
@@ -74,7 +74,7 @@ describe("sceneMutationsFacade coordinate parity", () => {
     });
   });
 
-  it("keeps coordinate parity when absolute-location request clamps to lower XY/Z edges", () => {
+  it("clamps lower XY edges while preserving Aurora's signed Z delta", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const firstId = "crt_devo_01";
@@ -111,7 +111,7 @@ describe("sceneMutationsFacade coordinate parity", () => {
     expect(deltaZFirst).toBeCloseTo(deltaZSecond, 6);
     expect(firstAfter.x).toBeCloseTo(0, 6);
     expect(firstAfter.y).toBeCloseTo(0, 6);
-    expect(firstAfter.z).toBeCloseTo(0, 6);
+    expect(firstAfter.z).toBeCloseTo(-2, 6);
     expect(firstAfter.bearing).toBeCloseTo(0, 6);
     expect(secondAfter.bearing).toBeGreaterThanOrEqual(0);
     expect(secondAfter.bearing).toBeLessThan(Math.PI * 2);
@@ -136,7 +136,7 @@ describe("sceneMutationsFacade coordinate parity", () => {
     expect(targetAfter.bearing).toBeLessThan(Math.PI * 2);
   });
 
-  it("applies fixture-driven axis-bound clamps for XY translation and Z deltas", () => {
+  it("applies fixture-driven XY bounds and preserves signed Z deltas", () => {
     const facade = createSceneMutationsFacade();
     const scene = createSeedAreaScene();
     const firstId = "crt_devo_01";
@@ -175,7 +175,7 @@ describe("sceneMutationsFacade coordinate parity", () => {
     expect(movedFirst.y).toBeLessThanOrEqual(maxCoordinate);
 
     const zFixtures = [
-      { deltaZ: -0.7, expectedFirstZ: 0, expectedSecondZ: 0.8 },
+      { deltaZ: -0.7, expectedFirstZ: -0.5, expectedSecondZ: 0.3 },
       { deltaZ: 0.3, expectedFirstZ: 0.5, expectedSecondZ: 1.3 }
     ];
 

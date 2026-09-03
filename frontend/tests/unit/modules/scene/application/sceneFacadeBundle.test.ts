@@ -31,6 +31,9 @@ describe("sceneFacadeBundle", () => {
     expect(committedHistory.present.areaName).toBe("Edited Area");
     expect(mutatedScene.objects).toHaveLength(seed.objects.length - 1);
     expect(authored.id).toBe("ite_011");
-    expect(saveByUserId).toHaveBeenCalledWith("u_builder_001", initialHistory.present);
+    expect(saveByUserId).toHaveBeenCalledWith("u_builder_001", {
+      ...initialHistory.present,
+      source: "local_draft"
+    });
   });
 });

@@ -30,6 +30,8 @@ describe("Aurora VFX payload bridge", () => {
         version: "aurora-vfx-payload/v1",
         canonicalStatus: "canonical",
         backendCanonical: true,
+        rendererEligibility: "source_backed",
+        retailParityStatus: "blocked",
         diagnostics: {
           sourceRows: [expect.objectContaining({ code: "VFX_SOURCE_ROW_FACT" })],
           effectInstance: [expect.objectContaining({ code: "VFX_EFFECT_INSTANCE_READY" })],
@@ -71,6 +73,24 @@ describe("Aurora VFX payload bridge", () => {
     );
   });
 
+  it("keeps renderer eligibility independent from retail parity and maps legacy payloads", () => {
+    const explicit = buildSceneObjectVfxPayloadFromAuroraPayload(canonicalBackendPayload());
+    expect(explicit?.auroraPayload).toMatchObject({
+      rendererEligibility: "source_backed",
+      retailParityStatus: "blocked"
+    });
+
+    const legacyInput = canonicalBackendPayload();
+    delete legacyInput.rendererEligibility;
+    delete legacyInput.retailParityStatus;
+    const legacy = buildSceneObjectVfxPayloadFromAuroraPayload(legacyInput);
+
+    expect(legacy?.auroraPayload).toMatchObject({
+      rendererEligibility: "source_backed",
+      retailParityStatus: "unproven"
+    });
+  });
+
   it("preserves already-versioned nested contracts for canonical renderer payloads", () => {
     const payload = buildSceneObjectVfxPayloadFromAuroraPayload({
       version: "aurora-vfx-payload/v1",
@@ -88,6 +108,12 @@ describe("Aurora VFX payload bridge", () => {
         payload: []
       },
       contracts: {
+        runtimeReplayCommand: {
+          packageKind: "model_graph_runtime",
+          sourceEmitters: [{ nodeName: "fx_emit_a", simulation: { bounce: true } }],
+          runtime: { dtSeconds: 0.25, tickCount: 40 },
+          bypassCache: true
+        },
         dependencyGraph: {
           version: "aurora-vfx-dependency-graph/v1",
           edges: [{ edgeType: "texture", requestedResourceClass: "texture", requestedRef: "fx" }]
@@ -97,7 +123,53 @@ describe("Aurora VFX payload bridge", () => {
           drawParticleCount: 1,
           drawVertexCount: 6,
           drawRecords: []
-        }
+        },
+        sourceModelGraph: {
+          modelName: "arbitrary_model",
+          nodes: [
+            {
+              nodeKind: "static_geometry",
+              nodeName: "unrelated_geometry_q7",
+              meshMaterialAnimationTracks: [
+                {
+                  animationName: "arbitrary_animation",
+                  state: { alphaTimeline: [{ timeSeconds: 0, value: 0.75 }] }
+                }
+              ]
+            }
+          ]
+        },
+        sourceMdlLightFeatureManifest: {
+          version: "aurora-source-mdl-light-feature-manifest/v1",
+          lightCount: 1,
+          nodes: [{ nodeName: "glow_light", presentFeatures: ["radius", "shadow"] }],
+          truncated: false,
+          diagnosticCodes: []
+        },
+        runtimeEmitters: [
+          {
+            emitterIndex: 0,
+            emitterNodeName: "fx_emit_a",
+            renderContract: {
+              version: "aurora-vfx-runtime-render-contract/v1",
+              emitterNodeName: "fx_emit_a",
+              drawParticleCount: 1,
+              drawVertexCount: 6,
+              drawRecords: []
+            }
+          },
+          {
+            emitterIndex: 1,
+            emitterNodeName: "fx_emit_b",
+            renderContract: {
+              version: "aurora-vfx-runtime-render-contract/v1",
+              emitterNodeName: "fx_emit_b",
+              drawParticleCount: 2,
+              drawVertexCount: 12,
+              drawRecords: []
+            }
+          }
+        ]
       },
       provenance: {
         renderContractVersion: "aurora-vfx-runtime-render-contract/v1"
@@ -111,6 +183,68 @@ describe("Aurora VFX payload bridge", () => {
     });
     expect(payload?.auroraPayload?.contracts.dependencyGraph).toMatchObject({
       version: "aurora-vfx-dependency-graph/v1"
+    });
+    expect(payload?.auroraPayload?.contracts.runtimeEmitters).toEqual([
+      expect.objectContaining({ emitterIndex: 0, emitterNodeName: "fx_emit_a" }),
+      expect.objectContaining({ emitterIndex: 1, emitterNodeName: "fx_emit_b" })
+    ]);
+    expect(payload?.auroraPayload?.contracts.runtimeReplayCommand).toMatchObject({
+      packageKind: "model_graph_runtime",
+      sourceEmitters: [expect.objectContaining({ nodeName: "fx_emit_a" })]
+    });
+    expect(payload?.auroraPayload?.contracts.sourceModelGraph).toEqual({
+      modelName: "arbitrary_model",
+      nodes: [
+        {
+          nodeKind: "static_geometry",
+          nodeName: "unrelated_geometry_q7",
+          meshMaterialAnimationTracks: [
+            {
+              animationName: "arbitrary_animation",
+              state: { alphaTimeline: [{ timeSeconds: 0, value: 0.75 }] }
+            }
+          ]
+        }
+      ]
+    });
+    expect(payload?.auroraPayload?.contracts.sourceMdlLightFeatureManifest).toEqual({
+      version: "aurora-source-mdl-light-feature-manifest/v1",
+      lightCount: 1,
+      nodes: [{ nodeName: "glow_light", presentFeatures: ["radius", "shadow"] }],
+      truncated: false,
+      diagnosticCodes: []
+    });
+  });
+
+  it("preserves deferred runtime hydration metadata instead of dropping the blocker", () => {
+    const payload = buildSceneObjectVfxPayloadFromAuroraPayload({
+      version: "aurora-vfx-payload/v1",
+      canonicalStatus: "canonical",
+      backendCanonical: true,
+      sourceKind: "source_model",
+      previewMode: "none",
+      contracts: {
+        runtimeEmitters: [],
+        runtimeEmittersDeferred: true,
+        runtimeEmittersHydration: {
+          version: "aurora-vfx-runtime-emitter-hydration/v1",
+          status: "deferred",
+          source: "placeable-processing-cache",
+          cacheKey: "cache_shared",
+          expectedEmitterCount: 2
+        },
+        renderContract: {
+          version: "aurora-vfx-runtime-render-contract/v1",
+          emitterNodeName: "fire"
+        }
+      }
+    });
+
+    expect(payload?.auroraPayload?.contracts.runtimeEmittersDeferred).toBe(true);
+    expect(payload?.auroraPayload?.contracts.runtimeEmittersHydration).toMatchObject({
+      version: "aurora-vfx-runtime-emitter-hydration/v1",
+      cacheKey: "cache_shared",
+      expectedEmitterCount: 2
     });
   });
 
@@ -245,6 +379,8 @@ function canonicalBackendPayload() {
     version: "backend-vfx-payload/test",
     canonicalStatus: "canonical",
     backendCanonical: true,
+    rendererEligibility: "source_backed" as const,
+    retailParityStatus: "blocked" as const,
     sourceKind: "effect_instance",
     previewMode: "none",
     sourceProfile: "nwn-ee",

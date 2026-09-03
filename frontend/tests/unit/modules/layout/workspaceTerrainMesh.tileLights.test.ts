@@ -5,10 +5,13 @@ import * as THREE from "three";
 import {
   clearTerrainMesh,
   rebuildTerrainMesh,
-  syncTerrainTileSourceLightNodePositionsFromLoadedModelForTests
+  resolveTerrainRenderStatus,
+  resolveTerrainScenePackageReadiness,
+  resolveTerrainTileModelAssetRequestIdentity
 } from "../../../../src/modules/layout/adapters/three/workspaceTerrainMesh";
 import type { AreaScene } from "../../../../src/modules/scene/contracts";
 import type { AreaTileProcessContractReadiness } from "../../../../src/modules/tiles/application/areaTileProcessContractReadiness";
+import { resolvePlaceableAssetDeliveryUrl } from "../../../../src/modules/placeables/application/placeableRenderAssetResolver";
 
 function createRuntime() {
   return {
@@ -27,7 +30,9 @@ function createRuntime() {
   } as unknown as Parameters<typeof rebuildTerrainMesh>[0];
 }
 
-function createDebugState(): Parameters<typeof rebuildTerrainMesh>[3] {
+function createDebugState(
+  overrides: Partial<Parameters<typeof rebuildTerrainMesh>[3]> = {}
+): Parameters<typeof rebuildTerrainMesh>[3] {
   return {
     textureCompression: "uastc",
     hiddenMeshes: false,
@@ -36,7 +41,8 @@ function createDebugState(): Parameters<typeof rebuildTerrainMesh>[3] {
     textures: true,
     displayFog: true,
     useAreaLighting: true,
-    walkmeshOverlay: false
+    walkmeshOverlay: false,
+    ...overrides
   };
 }
 
@@ -79,17 +85,84 @@ function createScene(): AreaScene {
           blue: 1,
           sourceKey: "lightcolor.2da"
         },
-        sourceLight1: 6,
+        sourceLight1: 3,
         sourceLight1Color: {
-          rowId: 6,
-          red: 1.9,
-          green: 1.9,
-          blue: 1,
-          sourceKey: "tilecolor.2da"
+          rowId: 3,
+          red: 0.49,
+          green: 0.29,
+          blue: 0.07,
+          sourceKey: "tilecolor.2da",
+          sourceNode: {
+            status: "source-node-resolved",
+            slotIndex: 1,
+            sourceNodeCount: 1,
+            name: "tst01_a01_01sl1",
+            position: [-1.25, 1.5, 1],
+            coordinateSpace: "model-local-aurora-z-up",
+            sourceModelFileName: "tst01_a01_01.mdl",
+            sourceModelObjectKey: "modules/current/tiles/tst01_a01_01.mdl",
+            sourceModelHash: "tile-model-sha256",
+            proofStatus: "source-backed-tile-mdl-source-light-slot-count"
+          }
         }
       }
     ],
     objects: []
+  };
+}
+
+function createWalkmeshCollision(): NonNullable<AreaScene["auroraVfxCollision"]> {
+  return {
+    version: "aurora-area-vfx-collision/v1",
+    coordinateSpace: "aurora-area-z-up",
+    unitsPerTile: 10,
+    status: "ready",
+    fingerprint: "f".repeat(64),
+    resources: [
+      {
+        resourceId: "walkmesh-square",
+        modelResRef: "tst01_square",
+        sourceObjectKey: "base/tst01_square.wok",
+        sourceLayer: "vanilla",
+        sourceHash: "a".repeat(64),
+        walkmesh: {
+          version: "aurora-wok-walkmesh/v1",
+          sourceFormat: "aurora-wok-ascii",
+          nodes: [
+            {
+              nodeName: "walkmesh",
+              vertices: [
+                { x: -5, y: -5, z: 0 },
+                { x: 5, y: -5, z: 0 },
+                { x: 5, y: 5, z: 0 },
+                { x: -5, y: 5, z: 0 }
+              ],
+              faces: [
+                { vertexIndices: [0, 1, 2], rawTokens: [0, 1, 2], sourceLineNumber: 1 },
+                { vertexIndices: [0, 2, 3], rawTokens: [0, 2, 3], sourceLineNumber: 2 }
+              ],
+              aabbRecords: []
+            }
+          ],
+          diagnostics: []
+        }
+      }
+    ],
+    instances: [
+      {
+        instanceId: "tile-dark",
+        resourceId: "walkmesh-square",
+        translation: { x: 5, y: 5, z: 0 },
+        orientationQuarterTurns: 0
+      },
+      {
+        instanceId: "tile-lit",
+        resourceId: "walkmesh-square",
+        translation: { x: 15, y: 5, z: 0 },
+        orientationQuarterTurns: 0
+      }
+    ],
+    diagnostics: []
   };
 }
 
@@ -120,7 +193,19 @@ function createTileLightBudgetScene(tileCount: number): AreaScene {
         red: 1,
         green: 0.8,
         blue: 0.6,
-        sourceKey: "tilecolor.2da"
+        sourceKey: "tilecolor.2da",
+        sourceNode: {
+          status: "source-node-resolved" as const,
+          slotIndex: 1 as const,
+          sourceNodeCount: 1,
+          name: `tst01_a01_${String(index).padStart(2, "0")}sl1`,
+          position: [0, 0, 1] as [number, number, number],
+          coordinateSpace: "model-local-aurora-z-up" as const,
+          sourceModelFileName: `tst01_a01_${String(index).padStart(2, "0")}.mdl`,
+          sourceModelObjectKey: `modules/current/tiles/tst01_a01_${String(index).padStart(2, "0")}.mdl`,
+          sourceModelHash: `tile-model-sha256-${index}`,
+          proofStatus: "source-backed-tile-mdl-source-light-slot-count" as const
+        }
       }
     })),
     objects: []
@@ -178,6 +263,13 @@ function createReadyTileProcessReadiness(
   };
 }
 
+function terrainModelCacheKey(modelResRef: string, deliveryUrl: string): string {
+  return `${resolveTerrainTileModelAssetRequestIdentity(
+    { modelResRef },
+    { modelResRef, deliveryUrl: resolvePlaceableAssetDeliveryUrl(deliveryUrl) }
+  ).runtimeCacheKey}|sourceHierarchy:preserve-loaded`;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -203,6 +295,37 @@ function mockCanvasContext(): void {
 }
 
 describe("workspaceTerrainMesh tile lights", () => {
+  it("reports ready GLB geometry only after the matching tile contract is proven", () => {
+    const modelResRef = "tst01_a01_02";
+    const deliveryUrl = "http://localhost:3000/api/v1/render-assets/tile-status.glb";
+    const scene: AreaScene = {
+      ...createScene(),
+      width: 1,
+      height: 1,
+      tiles: [{
+        id: "tile-status",
+        row: 0,
+        col: 0,
+        terrain: "corridor",
+        orientation: 0,
+        rotateTexture: false,
+        plot: false,
+        modelResRef,
+        modelSource: "set"
+      }]
+    };
+    const readiness = createReadyTileProcessReadiness(modelResRef, deliveryUrl);
+    const status = resolveTerrainRenderStatus(scene, readiness);
+    const packageReadiness = resolveTerrainScenePackageReadiness(scene, status, readiness);
+
+    expect(status.renderGenericMesh).toBe(false);
+    expect(status.label).toContain("Aurora tile models loaded");
+    expect(packageReadiness.status).toBe("ready");
+    expect(packageReadiness.glbAvailabilityStatus).toBe("ready_glb_contracts_proven");
+    expect(packageReadiness.tileRenderGeometryMode).toBe("glb_models");
+    expect(packageReadiness.blockers).not.toContain("tile_glb_contract_missing");
+  });
+
   it("renders tile main/source light colors as runtime PointLights", () => {
     mockCanvasContext();
     const runtime = createRuntime();
@@ -217,23 +340,24 @@ describe("workspaceTerrainMesh tile lights", () => {
       "tile-lit:mainLight1:3"
     );
     expect(runtime.scene.userData.auroraTerrainTileLightChannels).toContain(
-      "tile-lit:sourceLight1:6"
+      "tile-lit:sourceLight1:3"
     );
     expect(runtime.scene.userData.auroraTerrainTileLightColorSample).toContain(
       "tile-lit:mainLight1:3:0.6:0.7:1"
     );
     expect(runtime.scene.userData.auroraTerrainTileLightColorSample).toContain(
-      "tile-lit:sourceLight1:6:1.9:1.9:1"
+      "tile-lit:sourceLight1:3:1.9:1.9:1"
     );
     expect(runtime.scene.userData.auroraTerrainTileLightSourceKeySample).toContain(
       "tile-lit:mainLight1:lightcolor.2da"
     );
     expect(runtime.scene.userData.auroraTerrainTileLightSourceKeySample).toContain(
-      "tile-lit:sourceLight1:tilecolor.2da"
+      "tile-lit:sourceLight1:fx_flame01.mdl"
     );
 
     const pointLights: THREE.PointLight[] = [];
     const sourceGroups: THREE.Object3D[] = [];
+    const diagnosticMarkers: THREE.Object3D[] = [];
     layer?.traverse((node) => {
       if (node instanceof THREE.PointLight) {
         pointLights.push(node);
@@ -241,9 +365,13 @@ describe("workspaceTerrainMesh tile lights", () => {
       if (node.userData?.auroraTerrainTileLightChannel === "sourceLight1") {
         sourceGroups.push(node);
       }
+      if (node.userData?.auroraTerrainTileLightMarker === true) {
+        diagnosticMarkers.push(node);
+      }
     });
 
     expect(pointLights).toHaveLength(1);
+    expect(diagnosticMarkers).toHaveLength(0);
     const mainGroup = layer?.getObjectByName("terrain-tile-light-tile-lit-mainLight1");
     expect(mainGroup?.userData.auroraTerrainTileLightRendererMode).toBe(
       "static-tile-lightcolor-table-diagnostic"
@@ -265,26 +393,37 @@ describe("workspaceTerrainMesh tile lights", () => {
       (light) => light.userData.auroraTerrainTileLightChannel === "sourceLight1"
     );
     expect(sourceLight).toBeDefined();
-    expect(sourceLight?.userData.auroraTerrainTileLightColor).toEqual([1.9, 1.9, 1]);
+    expect(sourceLight?.userData.auroraTerrainTileLightColor).toEqual([
+      Math.fround(1.9),
+      Math.fround(1.9),
+      1
+    ]);
     expect(sourceLight?.userData.auroraTerrainTileLightPreviewColor).toEqual([
       1,
       1,
-      1 / 1.9
+      1 / Math.fround(1.9)
     ]);
     expect(sourceLight?.userData.auroraTerrainTileLightIntensity).toBeCloseTo(
-      1.9,
+      Math.fround(1.9),
       5
     );
-    expect(sourceLight?.intensity).toBeCloseTo(1.9, 5);
+    expect(sourceLight?.intensity).toBeCloseTo(Math.fround(1.9), 5);
     expect(sourceLight?.userData.auroraTerrainTileLightIntensitySource).toContain(
       "color * max(0,1-distance/radius) * multiplier"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightIntensityProofStatus).toBe(
-      "source-backed-tile-source-lightcolor-rgb-preserved-multiplier-neutral-fallback"
+      "source-backed-fx_flame01-animation-color-partlight-default-multiplier"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightSourceMultiplier).toBe(1);
     expect(sourceLight?.userData.auroraTerrainTileLightSourceMultiplierSource).toContain(
-      "multiplier is not recovered"
+      "PartLight::PartLight"
+    );
+    expect(sourceLight?.userData.auroraTerrainTileLightSourceAnimationName).toBe("3");
+    expect(sourceLight?.userData.auroraTerrainTileLightColorSource).toContain(
+      "fx_flame01.mdl"
+    );
+    expect(sourceLight?.userData.auroraTerrainTileLightStaleColorCorrectionStatus).toBe(
+      "corrected-stale-tilecolor-source"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightDistance).toBeCloseTo(0.7, 5);
     expect(sourceLight?.distance).toBeCloseTo(0.7, 5);
@@ -296,16 +435,16 @@ describe("workspaceTerrainMesh tile lights", () => {
       "source-backed-fx_flame01-auroralight01-radius-controller"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightFalloffFormula).toBe(
-      "max(0,1-distance/radius)"
+      "1/(1+4.5*(distance/radius)^2)"
     );
     expect(["installed", "already-installed"]).toContain(
       sourceLight?.userData.auroraTerrainTileLightFalloffRendererPatchStatus
     );
     expect(sourceLight?.userData.auroraTerrainTileLightFalloffRendererProofStatus).toBe(
-      "source-backed-linear-radius-falloff-preview-shaderchunk-adapter"
+      "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightFalloffRendererSource).toContain(
-      "max(0,1-distance/radius)*color*fade"
+      "lightQuadraticAtten=9/(max(radius,0.1)^2*2)"
     );
     expect(sourceLight?.userData.auroraTerrainTileLightSourceModelFileName).toBe(
       "fx_flame01.mdl"
@@ -350,29 +489,113 @@ describe("workspaceTerrainMesh tile lights", () => {
     );
     expect(sourceLight?.color.r).toBeCloseTo(1, 5);
     expect(sourceLight?.color.g).toBeCloseTo(1, 5);
-    expect(sourceLight?.color.b).toBeCloseTo(1 / 1.9, 5);
+    expect(sourceLight?.color.b).toBeCloseTo(1 / Math.fround(1.9), 5);
     expect(runtime.scene.userData.auroraTerrainTileLightPreviewColorSample).toContain(
-      "tile-lit:sourceLight1:6:1:1:0.526"
+      "tile-lit:sourceLight1:3:1:1:0.526"
     );
 
     const sourceGroup = sourceGroups.find(
       (node) => node.userData?.auroraTerrainTileLightPreviewStatus === "active"
     );
-    expect(sourceGroup?.position.x).toBeCloseTo(1.5, 5);
-    expect(sourceGroup?.position.y).toBeCloseTo(0.28, 5);
-    expect(sourceGroup?.position.z).toBeCloseTo(0.5, 5);
+    expect(sourceGroup?.position.x).toBeCloseTo(1.375, 5);
+    expect(sourceGroup?.position.y).toBeCloseTo(0.1, 5);
+    expect(sourceGroup?.position.z).toBeCloseTo(0.65, 5);
     expect(sourceGroup?.userData.auroraTerrainTileLightRendererMode).toBe(
       "point-light-preview"
     );
     expect(sourceGroup?.userData.auroraTerrainTileLightPositionSource).toBe(
-      "tile-center-preview-not-sourcelight-node-transform"
+      "nwtoolset.exe FUN_007125ec 0x007131d9..0x00713351 creates fx_flame01 sourcelight1/2 carriers only when tile model vcall +0x74 reports slot count >0/>1"
     );
     expect(sourceGroup?.userData.auroraTerrainTileLightRadiusProofStatus).toBe(
       "source-backed-fx_flame01-auroralight01-radius-controller"
     );
   });
 
-  it("moves tile source lights to loaded MDL sourcelight node transforms", () => {
+  it("renders a main light from its source MDL native node contract", () => {
+    mockCanvasContext();
+    const runtime = createRuntime();
+    const scene = createScene();
+    scene.tiles[1] = {
+      ...scene.tiles[1],
+      mainLight1Color: {
+        ...scene.tiles[1].mainLight1Color!,
+        nativeNode: {
+          status: "main-native-node-resolved",
+          name: "tst01_a01_01ml1",
+          position: [0, 0, 5],
+          coordinateSpace: "model-local-aurora-z-up",
+          radius: 14,
+          multiplier: 1,
+          lightPriority: 5,
+          ambientOnly: false,
+          affectDynamic: true,
+          shadow: false,
+          sourceModelFileName: "tst01_a01_01.mdl",
+          sourceModelObjectKey: "modules/current/tiles/tst01_a01_01.mdl",
+          sourceModelHash: "tile-model-sha256",
+          proofStatus: "source-backed-tile-mdl-native-main-light"
+        }
+      }
+    };
+
+    rebuildTerrainMesh(runtime, scene, null, createDebugState());
+
+    const layer = runtime.scene.getObjectByName("terrain-tile-light-sources");
+    const mainLight = layer?.getObjectByName(
+      "terrain-tile-light-tile-lit-mainLight1-point"
+    ) as THREE.PointLight | undefined;
+    expect(mainLight).toBeInstanceOf(THREE.PointLight);
+    expect(mainLight?.position.toArray()).toEqual([
+      expect.closeTo(0, 8),
+      expect.closeTo(0, 8),
+      expect.closeTo(0, 8)
+    ]);
+    const mainGroup = layer?.getObjectByName(
+      "terrain-tile-light-tile-lit-mainLight1"
+    );
+    expect(mainGroup?.position.toArray()).toEqual([
+      expect.closeTo(1.5, 8),
+      expect.closeTo(0.5, 8),
+      expect.closeTo(0.5, 8)
+    ]);
+    expect(mainLight?.distance).toBeCloseTo(1.4, 8);
+    expect(mainLight?.decay).toBe(1);
+    expect(mainLight?.intensity).toBeCloseTo(1, 8);
+    expect(mainLight?.userData.auroraTerrainTileLightRendererMode).toBe(
+      "native-tile-mdl-point-light"
+    );
+    expect(mainLight?.userData.auroraTerrainTileLightSourceNodeName).toBe(
+      "tst01_a01_01ml1"
+    );
+    expect(mainLight?.userData.auroraTerrainTileLightSourceModelHash).toBe(
+      "tile-model-sha256"
+    );
+    expect(runtime.scene.userData.auroraTerrainTileLightResolvedMainCount).toBe(1);
+    expect(runtime.scene.userData.auroraTerrainTileLightUnresolvedMainCount).toBe(0);
+  });
+
+  it("keeps procedural tile-light markers behind the non-render debug toggle", () => {
+    mockCanvasContext();
+    const runtime = createRuntime();
+
+    rebuildTerrainMesh(
+      runtime,
+      createScene(),
+      null,
+      createDebugState({ showNonRenderMeshes: true })
+    );
+
+    const markers: THREE.Object3D[] = [];
+    runtime.scene.traverse((node) => {
+      if (node.userData?.auroraTerrainTileLightMarker === true) {
+        markers.push(node);
+      }
+    });
+
+    expect(markers).toHaveLength(2);
+  });
+
+  it("uses the source-precedence MDL sourcelight slot contract without a GLB fallback", () => {
     mockCanvasContext();
     const runtime = createRuntime();
     const scene = createScene();
@@ -383,39 +606,56 @@ describe("workspaceTerrainMesh tile lights", () => {
     const sourceGroup = layer?.getObjectByName("terrain-tile-light-tile-lit-sourceLight1");
     expect(sourceGroup).toBeDefined();
     expect(sourceGroup?.userData.auroraTerrainTileLightPositionSource).toBe(
-      "tile-center-preview-not-sourcelight-node-transform"
+      "nwtoolset.exe FUN_007125ec 0x007131d9..0x00713351 creates fx_flame01 sourcelight1/2 carriers only when tile model vcall +0x74 reports slot count >0/>1"
     );
-
-    const loadedModel = new THREE.Group();
-    loadedModel.name = "terrain-backend-tile-model-tile-lit";
-    loadedModel.position.set(-0.5, 1.25, 2.5);
-    const sourceNode = new THREE.Object3D();
-    sourceNode.name = "sourcelight1";
-    sourceNode.position.set(0.33, 0.44, 0.55);
-    loadedModel.add(sourceNode);
-    runtime.scene.add(loadedModel);
-    runtime.scene.updateMatrixWorld(true);
-
-    const syncedCount = syncTerrainTileSourceLightNodePositionsFromLoadedModelForTests(
-      runtime.scene,
-      scene.tiles[1],
-      loadedModel
-    );
-
-    expect(syncedCount).toBe(1);
-    expect(sourceGroup?.position.x).toBeCloseTo(-0.17, 5);
-    expect(sourceGroup?.position.y).toBeCloseTo(1.69, 5);
-    expect(sourceGroup?.position.z).toBeCloseTo(3.05, 5);
+    expect(sourceGroup?.position.x).toBeCloseTo(1.375, 5);
+    expect(sourceGroup?.position.y).toBeCloseTo(0.1, 5);
+    expect(sourceGroup?.position.z).toBeCloseTo(0.65, 5);
     expect(sourceGroup?.userData.auroraTerrainTileLightPositionSource).toBe(
-      "C:/Projects/New Folder/export/decompiled_all.c:453567-453602 creates fx_flame01 at sourcelight1/sourcelight2 tile source-light nodes"
+      "nwtoolset.exe FUN_007125ec 0x007131d9..0x00713351 creates fx_flame01 sourcelight1/2 carriers only when tile model vcall +0x74 reports slot count >0/>1"
     );
     expect(sourceGroup?.userData.auroraTerrainTileLightPositionProofStatus).toBe(
-      "source-backed-tile-mdl-sourcelight-node-transform"
+      "source-backed-tile-mdl-source-light-slot-count"
     );
     expect(sourceGroup?.userData.auroraTerrainTileLightSourceNodeKind).toBe(
-      "sourcelight1"
+      "tst01_a01_01sl1"
     );
-    expect(runtime.scene.userData.auroraTerrainTileLightSourceNodePositionCount).toBe(1);
+    expect(sourceGroup?.userData.auroraTerrainTileLightHostNodeStatus).toBe(
+      "source-node-resolved"
+    );
+  });
+
+  it("does not synthesize a source light when Aurora reports no tile source slot", () => {
+    mockCanvasContext();
+    const runtime = createRuntime();
+    const scene = createScene();
+    scene.tiles[1] = {
+      ...scene.tiles[1],
+      sourceLight1Color: {
+        ...scene.tiles[1].sourceLight1Color!,
+        sourceNode: {
+          status: "source-node-absent-by-aurora-slot-count",
+          slotIndex: 1,
+          sourceNodeCount: 0,
+          sourceModelFileName: "tst01_a01_01.mdl",
+          sourceModelObjectKey: "modules/current/tiles/tst01_a01_01.mdl",
+          sourceModelHash: "tile-model-sha256",
+          proofStatus: "source-backed-tile-mdl-source-light-slot-count"
+        }
+      }
+    };
+
+    rebuildTerrainMesh(runtime, scene, null, createDebugState());
+
+    const pointLights: THREE.PointLight[] = [];
+    runtime.scene.traverse((node) => {
+      if (node instanceof THREE.PointLight) pointLights.push(node);
+    });
+    expect(pointLights).toHaveLength(0);
+    expect(runtime.scene.userData.auroraTerrainTileLightResolvedSourceCount).toBe(0);
+    expect(runtime.scene.userData.auroraTerrainTileLightSourceNodeAbsentCount).toBe(1);
+    expect(runtime.scene.userData.auroraTerrainTileLightUnresolvedSourceCount).toBe(0);
+    expect(runtime.scene.userData.auroraTerrainTileLightSourceReferenceCount).toBe(1);
   });
 
   it("marks loaded terrain tile meshes as Three shadow receivers for ARE global shadows", async () => {
@@ -431,7 +671,7 @@ describe("workspaceTerrainMesh tile lights", () => {
     terrainMesh.name = "tile-shadow-ground";
     cachedModel.add(terrainMesh);
     runtime.placeableModelCacheByUrl.set(
-      `${deliveryUrl}|sourceHierarchy:preserve-loaded`,
+      terrainModelCacheKey(modelResRef, deliveryUrl),
       cachedModel
     );
 
@@ -500,7 +740,7 @@ describe("workspaceTerrainMesh tile lights", () => {
     const cachedModel = new THREE.Group();
     cachedModel.rotation.y = Math.PI / 4;
     runtime.placeableModelCacheByUrl.set(
-      `${deliveryUrl}|sourceHierarchy:preserve-loaded`,
+      terrainModelCacheKey(modelResRef, deliveryUrl),
       cachedModel
     );
     const scene: AreaScene = {
@@ -585,16 +825,36 @@ describe("workspaceTerrainMesh tile lights", () => {
     expect(directional).toBeInstanceOf(THREE.DirectionalLight);
     const ambientLight = ambient as THREE.AmbientLight;
     const directionalLight = directional as THREE.DirectionalLight;
-    expect(ambientLight.color.r).toBeCloseTo(0x33 / 255, 5);
-    expect(ambientLight.color.g).toBeCloseTo(0x22 / 255, 5);
-    expect(ambientLight.color.b).toBeCloseTo(0x11 / 255, 5);
+    expect(ambientLight.color.r).toBeCloseTo(Math.pow(0x33 / 255, 2.2), 8);
+    expect(ambientLight.color.g).toBeCloseTo(Math.pow(0x22 / 255, 2.2), 8);
+    expect(ambientLight.color.b).toBeCloseTo(Math.pow(0x11 / 255, 2.2), 8);
+    expect(ambientLight.userData.auroraTerrainAreaGlobalLightColor).toEqual([
+      0x33 / 255,
+      0x22 / 255,
+      0x11 / 255
+    ]);
+    expect(ambientLight.userData.auroraTerrainAreaGlobalRenderedLightColorLinear).toEqual([
+      Math.pow(0x33 / 255, 2.2),
+      Math.pow(0x22 / 255, 2.2),
+      Math.pow(0x11 / 255, 2.2)
+    ]);
     expect(ambientLight.intensity).toBeCloseTo(1, 5);
     expect(ambientLight.userData.auroraTerrainAreaGlobalLightIntensitySource).toBe(
       "C:/Projects/New Folder/export/decompiled_all.c:256239-256303 selects Sun/Moon ambient+diffuse fields by IsNight, unpacks packed channels as byte0/byte1/byte2 divided by 255.0, then sends controlpart gidy_sun_amb/gidy_sun_diff color commands; Aurora Web uses Three intensity 1.0 so the source color carries the scalar"
     );
-    expect(directionalLight.color.r).toBeCloseTo(0x66 / 255, 5);
-    expect(directionalLight.color.g).toBeCloseTo(0x55 / 255, 5);
-    expect(directionalLight.color.b).toBeCloseTo(0x44 / 255, 5);
+    expect(directionalLight.color.r).toBeCloseTo(Math.pow(0x66 / 255, 2.2), 8);
+    expect(directionalLight.color.g).toBeCloseTo(Math.pow(0x55 / 255, 2.2), 8);
+    expect(directionalLight.color.b).toBeCloseTo(Math.pow(0x44 / 255, 2.2), 8);
+    expect(directionalLight.userData.auroraTerrainAreaGlobalLightColor).toEqual([
+      0x66 / 255,
+      0x55 / 255,
+      0x44 / 255
+    ]);
+    expect(directionalLight.userData.auroraTerrainAreaGlobalRenderedLightColorLinear).toEqual([
+      Math.pow(0x66 / 255, 2.2),
+      Math.pow(0x55 / 255, 2.2),
+      Math.pow(0x44 / 255, 2.2)
+    ]);
     expect(directionalLight.intensity).toBeCloseTo(1, 5);
     expect(directionalLight.castShadow).toBe(true);
     expect(directionalLight.userData.auroraTerrainAreaGlobalLightIntensitySource).toBe(
@@ -621,7 +881,15 @@ describe("workspaceTerrainMesh tile lights", () => {
       "decompiled ARE SunShadows/MoonShadows/IsNight fields at decompiled_all.c:255208-255218 and decompiled_all.c:255894-255901"
     );
     expect(directionalLight.userData.auroraTerrainAreaGlobalShadowImplementationStatus).toBe(
-      "three-directional-castShadow-flag-only-shadow-volume-not-ported"
+      "three-directional-shadow-map-calibrated-shadow-volume-not-ported"
+    );
+    expect(directionalLight.shadow.bias).toBe(-0.0005);
+    expect(directionalLight.shadow.normalBias).toBe(0.02);
+    expect(directionalLight.shadow.mapSize.x).toBe(2048);
+    expect(directionalLight.shadow.mapSize.y).toBe(2048);
+    expect(directionalLight.shadow.radius).toBe(2);
+    expect(directionalLight.userData.auroraTerrainAreaGlobalShadowMapPreviewSource).toBe(
+      "Three directional-shadow preview calibrated against bci01 Plane07 runtime proof; retail Aurora shadow-volume projection is not ported"
     );
     expect(runtime.scene.userData.auroraTerrainAreaGlobalShadowStatus).toBe(
       "enabled"
@@ -642,6 +910,48 @@ describe("workspaceTerrainMesh tile lights", () => {
     expect(layer?.userData.auroraTerrainAreaGlobalFogAmount).toBe(12);
     expect(layer?.userData.auroraTerrainAreaGlobalFogRangeSource).toBe(
       "C:/Projects/New Folder/export/decompiled_all.c:368987-369024 enables scene fog, selects Sun/Moon FogAmount/FogColor by IsNight, unpacks color as byte0/byte1/byte2 divided by 255.0, computes fog start as 25 - FogAmount*25/15, and reads FogClipDist from area offset +0x100 for fog end; Aurora Web scales those Aurora metre values to tile space for Three.Fog"
+    );
+  });
+
+  it("suppresses workspace preview lights while source-backed ARE lighting is active", () => {
+    mockCanvasContext();
+    const runtime = createRuntime();
+    const previewAmbient = new THREE.AmbientLight(0xffffff, 0.68);
+    previewAmbient.name = "workspace-default-preview-ambient-light";
+    previewAmbient.userData.auroraWorkspaceDefaultPreviewLight = true;
+    const previewDirectional = new THREE.DirectionalLight(0xffffff, 0.78);
+    previewDirectional.name = "workspace-default-preview-directional-light";
+    previewDirectional.userData.auroraWorkspaceDefaultPreviewLight = true;
+    runtime.scene.add(previewAmbient, previewDirectional);
+    const scene: AreaScene = {
+      ...createScene(),
+      lighting: {
+        source: "are-root-fields",
+        fields: [
+          { field: "IsNight", value: 1 },
+          { field: "MoonAmbientColor", value: 0x3c3c3c },
+          { field: "MoonDiffuseColor", value: 0xaaaaaa }
+        ]
+      }
+    };
+
+    rebuildTerrainMesh(runtime, scene, null, createDebugState());
+
+    expect(previewAmbient.visible).toBe(false);
+    expect(previewDirectional.visible).toBe(false);
+    expect(runtime.scene.userData.auroraWorkspaceDefaultPreviewLightingStatus).toBe(
+      "suppressed-source-backed-are-lighting-active"
+    );
+    expect(runtime.scene.userData.auroraWorkspaceDefaultPreviewLightingSource).toContain(
+      "not an Aurora runtime light"
+    );
+
+    clearTerrainMesh(runtime);
+
+    expect(previewAmbient.visible).toBe(true);
+    expect(previewDirectional.visible).toBe(true);
+    expect(runtime.scene.userData.auroraWorkspaceDefaultPreviewLightingStatus).toBe(
+      "active-no-source-backed-are-lighting"
     );
   });
 
@@ -676,6 +986,36 @@ describe("workspaceTerrainMesh tile lights", () => {
     expect(
       runtime.scene.userData.auroraTerrainAreaGlobalShadowOpacityFactorSource
     ).toBeUndefined();
+  });
+
+  it("renders and disposes a real source-WOK debug line layer instead of recoloring tile bridges", () => {
+    mockCanvasContext();
+    const runtime = createRuntime();
+    const scene: AreaScene = {
+      ...createScene(),
+      auroraVfxCollision: createWalkmeshCollision()
+    };
+
+    rebuildTerrainMesh(runtime, scene, null, createDebugState({ walkmeshOverlay: true }));
+
+    const layer = runtime.scene.getObjectByName("terrain-source-wok-overlay");
+    const lines = layer?.getObjectByName("terrain-source-wok-lines");
+    expect(layer).toBeInstanceOf(THREE.Group);
+    expect(lines).toBeInstanceOf(THREE.LineSegments);
+    expect((lines as THREE.LineSegments).geometry.getAttribute("position").count).toBe(24);
+    expect(layer?.userData).toMatchObject({
+      auroraTerrainWokOverlayStatus: "ready",
+      auroraTerrainWokOverlayInstanceCount: 2,
+      auroraTerrainWokOverlaySegmentCount: 12,
+      auroraTerrainWokOverlayEvidenceBoundary:
+        "source-wok-geometry-only-no-path-connect-or-traversability-claim"
+    });
+    expect(runtime.scene.userData.auroraTerrainWokOverlayStatus).toBe("ready");
+
+    clearTerrainMesh(runtime);
+
+    expect(runtime.scene.getObjectByName("terrain-source-wok-overlay")).toBeUndefined();
+    expect(runtime.scene.userData.auroraTerrainWokOverlayStatus).toBeUndefined();
   });
 
   it("keeps lighting evidence but suppresses tile/global lights when Use Area Lighting is off", () => {

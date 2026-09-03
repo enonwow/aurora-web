@@ -15,6 +15,7 @@ import {
   DEFAULT_LAYOUT_THEME,
   DEFAULT_WORKSPACE_OPTION_SETTINGS
 } from "../../../../src/modules/layout/application/layoutPreferencesFacade";
+import type { ClientAssetCachePort } from "../../../../src/modules/shared/application/clientAssetCachePort";
 
 function createChromeFacadeMock(options?: {
   groups?: ToolbarGroup[];
@@ -261,6 +262,42 @@ describe("WorkspaceTopbar facades injection", () => {
     fireEvent.change(maxLightsInput, { target: { value: "16" } });
 
     expect(onWorkspaceOptionsChange).toHaveBeenCalledWith({ runtimeMaxLights: 16 });
+  });
+
+  it("surfaces measured immutable asset cache controls in Options", async () => {
+    const clientAssetCachePort = {
+      inspect: vi.fn(async () => ({
+        status: "ready" as const,
+        budgetBytes: 2 * 1024 * 1024 * 1024,
+        usedBytes: 0,
+        entryCount: 0,
+        overBudget: false,
+      })),
+      clear: vi.fn(),
+    } as unknown as ClientAssetCachePort;
+
+    render(
+      <WorkspaceTopbar
+        isAuthenticated
+        role="builder"
+        workspaceChromeFacade={createChromeFacadeMock()}
+        workspaceTopbarActionStateFacade={createTopbarActionStateFacadeMock()}
+        workspaceModeId="areas_mode"
+        toolbarState={createToolbarState()}
+        layoutTheme={DEFAULT_LAYOUT_THEME}
+        onLayoutThemeChange={() => undefined}
+        workspaceOptions={DEFAULT_WORKSPACE_OPTION_SETTINGS}
+        onWorkspaceOptionsChange={() => undefined}
+        clientAssetCachePort={clientAssetCachePort}
+        onAction={() => undefined}
+        showDebugPanel={false}
+        onToggleDebug={() => undefined}
+        onSignOut={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open quick options/i }));
+    expect(await screen.findByRole("region", { name: "Client asset cache" })).toBeInTheDocument();
   });
 
   it("surfaces Fit Area only for areas mode and keeps reorient for other modes", () => {

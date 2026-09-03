@@ -3,9 +3,13 @@ import { useCallback, useState } from "react";
 import type { MouseEvent, SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createViewportFacade } from "../../../../src/modules/layout/application/viewportFacade";
+import { buildAreaTileCatalogCertificationKey } from "../../../../src/modules/areas/application/areaTileCatalogFilter";
+import type { AreaTileProductionCertificationSource } from "../../../../src/modules/areas/application/areaTileProductionPlacementAdmission";
+import type { TileCertificationProofs } from "../../../../src/modules/areas/domain/tileCertificationPolicy";
 import {
   createAuroraAreaPlacementSelector,
   resolveAuroraAreaBoxSelection,
+  resolveAuroraAreaConnectedTerrainSelection,
   resolveAuroraAreaInspectSelection,
   useWorkspacePointerSelection
 } from "../../../../src/modules/layout/application/useWorkspacePointerSelection";
@@ -31,7 +35,7 @@ import {
   applyAuroraAreaEditingStateToScene,
   placeAuroraAreaGroupAtSceneTile
 } from "../../../../src/modules/scene/domain/auroraAreaEditingSceneMapper";
-import { createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
+import { createNewSceneObject, createSeedAreaScene } from "../../../../src/modules/scene/domain/sceneFactory";
 
 const allCorners = (terrain: string) => ({
   topLeft: terrain,
@@ -83,6 +87,37 @@ const definition: AuroraAreaTilesetDefinition = {
   crosserTypes: [{ id: "road", name: "Road" }],
   groups: [{ id: "group0", name: "Two tile building", rows: 1, columns: 2, tileIds: [2, 3] }]
 };
+
+const renderReadyProofs: TileCertificationProofs = {
+  inventory: "verified",
+  assetClosure: "verified",
+  render: "verified",
+  visualSeam: "missing",
+  setAdjacency: "missing",
+  pathReference: "missing",
+  pathConnect: "missing",
+  wokSeam: "missing",
+  persistence: "missing",
+  toolset: "missing",
+  nwnRuntime: "missing"
+};
+
+function readyProductionCertification(
+  includedTileIds = definition.tiles.map((tile) => tile.tileId)
+): AreaTileProductionCertificationSource {
+  return {
+    status: "ready",
+    tilesetResRef: definition.tilesetResRef,
+    index: new Map(includedTileIds.map((tileId) => [
+      buildAreaTileCatalogCertificationKey(definition.tilesetResRef, tileId),
+      {
+        rowId: `tile:${definition.tilesetResRef}:${tileId}`,
+        eligibility: { status: "eligible" as const },
+        proofs: renderReadyProofs
+      }
+    ]))
+  };
+}
 
 type PointerRay = { x: number; y: number };
 
@@ -137,7 +172,10 @@ function createPointerRuntimePort(): WorkspacePointerRuntimePort<object, Pointer
 function renderPointerSelection(
   scene: AreaScene,
   areaEditingTool: AuroraAreaEditingTool = { kind: "terrain", terrain: "water" },
-  selectionMode: "terrain" | "object" = "terrain"
+  selectionMode: "terrain" | "object" = "terrain",
+  objectBrush: "placeables" | "creatures" | "doors" = "placeables",
+  tileProductionCertification: AreaTileProductionCertificationSource =
+    readyProductionCertification()
 ) {
   const syncAuroraAreaPlacementPreview = vi.fn();
   const clearAuroraAreaPlacementPreview = vi.fn();
@@ -147,17 +185,24 @@ function renderPointerSelection(
   const applyAuroraAreaCrosserBrushSpy = vi.fn(applyAuroraAreaCrosserBrush);
   const applyAuroraAreaHeightBrushSpy = vi.fn(applyAuroraAreaHeightBrush);
   const placeAuroraAreaGroupSpy = vi.fn(placeAuroraAreaGroupAtSceneTile);
+  const trackTelemetry = vi.fn();
   const commitHistory = vi.fn((history: SceneHistoryState, nextScene: AreaScene) => ({
     past: [...history.past, history.present],
     present: nextScene,
     future: []
   }));
+  const createObject = vi.fn();
+  const createDoorAtHook = vi.fn(() => undefined);
+  const appendObjects = vi.fn();
   const sceneViewportPort = {
     applyAuroraAreaTerrainBrush: applyAuroraAreaTerrainBrushSpy,
     applyAuroraAreaCrosserBrush: applyAuroraAreaCrosserBrushSpy,
     applyAuroraAreaHeightBrush: applyAuroraAreaHeightBrushSpy,
     placeAuroraAreaGroup: placeAuroraAreaGroupSpy,
-    commitHistory
+    commitHistory,
+    createObject,
+    createDoorAtHook,
+    appendObjects
   } as unknown as SceneViewportPort;
   let history: SceneHistoryState = { past: [], present: scene, future: [] };
   const setSceneHistory = vi.fn((updater: SetStateAction<SceneHistoryState>) => {
@@ -187,9 +232,10 @@ function renderPointerSelection(
       setContextMenu: vi.fn(),
       toolbarState,
       workspaceOptions: DEFAULT_WORKSPACE_OPTION_SETTINGS,
-      objectBrush: "placeables",
+      objectBrush,
       terrainBrush: "water",
       areaEditingTool,
+      tileProductionCertification,
       syncAuroraAreaPlacementPreview,
       clearAuroraAreaPlacementPreview,
       onAuroraAreaEditingFeedback,
@@ -197,7 +243,7 @@ function renderPointerSelection(
       nextObjectSequenceRef: { current: 1 },
       isSelectableByActiveFilters: () => true,
       moveSelectedObjectsByDelta: () => 0,
-      trackTelemetry: vi.fn(),
+      trackTelemetry,
       userId: "u_builder_001"
     }), { initialProps: { currentScene: scene } }
   );
@@ -213,6 +259,10 @@ function renderPointerSelection(
     applyAuroraAreaHeightBrushSpy,
     placeAuroraAreaGroupSpy,
     commitHistory,
+    createObject,
+    createDoorAtHook,
+    appendObjects,
+    trackTelemetry,
     setSceneHistory,
     setSelectedTileId,
     get history() {
@@ -221,8 +271,10 @@ function renderPointerSelection(
   };
 }
 
-function renderAreaMarquee(initialTileIds: string[] = []) {
-  const scene = createEditableScene();
+function renderAreaMarquee(
+  initialTileIds: string[] = [],
+  scene: AreaScene = createEditableScene()
+) {
   const pointerRuntimePort = createPointerRuntimePort();
   vi.mocked(pointerRuntimePort.worldToScreen).mockImplementation((_, x, y) => ({
     x: x * 100,
@@ -285,6 +337,7 @@ function renderAreaMarquee(initialTileIds: string[] = []) {
       objectBrush: "placeables",
       terrainBrush: "water",
       areaEditingTool: { kind: "inspect" },
+      tileProductionCertification: readyProductionCertification(),
       lastPointerWorldRef: { current: null },
       nextObjectSequenceRef: { current: 1 },
       isSelectableByActiveFilters: () => true,
@@ -315,6 +368,66 @@ describe("useWorkspacePointerSelection Aurora Area placement preview", () => {
       .toEqual(["tile-a", "tile-b"]);
     expect(resolveAuroraAreaBoxSelection(["old"], ["tile-a", "tile-b"], "add"))
       .toEqual(["old", "tile-a", "tile-b"]);
+  });
+  it("resolves only the deterministic four-neighbour terrain component and retains the anchor", () => {
+    const scene = createEditableScene();
+    const anchor = scene.tiles.find((tile) => tile.row === 0 && tile.col === 0)!;
+    const tiles = [
+      ...scene.tiles.map((tile) => ({
+        ...tile,
+        terrain: tile.row === 1 && tile.col === 0 ? "water" as const : "grass" as const
+      })),
+      {
+        ...anchor,
+        id: "diagonal-only",
+        row: 2,
+        col: 0,
+        terrain: "grass" as const
+      }
+    ];
+
+    expect(resolveAuroraAreaConnectedTerrainSelection(tiles, anchor.id)).toEqual([
+      scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!.id,
+      scene.tiles.find((tile) => tile.row === 1 && tile.col === 1)!.id,
+      anchor.id
+    ]);
+    expect(resolveAuroraAreaConnectedTerrainSelection(tiles, "missing")).toEqual([]);
+    expect(resolveAuroraAreaConnectedTerrainSelection(
+      [...tiles, { ...anchor, id: "duplicate-cell" }],
+      anchor.id
+    )).toEqual([]);
+  });
+  it("selects the connected terrain region on inspect double click without scene history", () => {
+    const source = createEditableScene();
+    const scene = {
+      ...source,
+      tiles: source.tiles.map((tile) => ({
+        ...tile,
+        terrain: tile.row === 1 && tile.col === 0 ? "water" as const : "grass" as const
+      }))
+    };
+    const anchor = scene.tiles.find((tile) => tile.row === 0 && tile.col === 0)!;
+    const mounted = renderAreaMarquee([], scene);
+
+    act(() => mounted.result.current.handlers.handleDoubleClick(
+      pointerEvent(anchor.col + 0.25, anchor.row + 0.25)
+    ));
+
+    expect(mounted.result.current.tileSelection.anchorId).toBe(anchor.id);
+    expect(new Set(mounted.result.current.tileSelection.ids)).toEqual(new Set([
+      anchor.id,
+      scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!.id,
+      scene.tiles.find((tile) => tile.row === 1 && tile.col === 1)!.id
+    ]));
+    expect(mounted.result.current.selectedObjectIds).toEqual([]);
+    expect(mounted.setSceneHistory).not.toHaveBeenCalled();
+    expect(mounted.trackTelemetry).toHaveBeenCalledWith(
+      "scene.area_tiles.selection.connected_terrain",
+      expect.objectContaining({
+        anchorTileId: anchor.id,
+        selectedCount: 3
+      })
+    );
   });
   it("selects intersecting Area cells with Shift marquee without mutating scene history", () => {
     const mounted = renderAreaMarquee();
@@ -496,13 +609,75 @@ describe("useWorkspacePointerSelection Aurora Area placement preview", () => {
     expect(mounted.history.present).not.toBe(createEditableScene());
   });
 
-  it("commits a multi-cell paint drag as one history command", () => {
+  it("fails closed before history mutation while certification is unavailable", () => {
     const scene = createEditableScene();
     const mounted = renderPointerSelection(
       scene,
       { kind: "terrain", terrain: "water" },
-      "object"
+      "object",
+      "placeables",
+      {
+        status: "unavailable",
+        tilesetResRef: definition.tilesetResRef,
+        reasonCode: "LOAD_FAILED"
+      }
     );
+
+    act(() => mounted.result.current.handleMouseMove(pointerEvent(0.25, 0.25)));
+    expect(mounted.syncAuroraAreaPlacementPreview).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        cells: expect.arrayContaining([
+          expect.objectContaining({ valid: false })
+        ])
+      })
+    );
+    act(() => mounted.result.current.handleMouseDown(pointerEvent(0.25, 0.25)));
+    act(() => mounted.result.current.handleMouseMove(pointerEvent(1.25, 0.25, 0, 1)));
+    act(() => mounted.result.current.handleMouseUp(pointerEvent(1.25, 0.25)));
+
+    expect(mounted.applyAuroraAreaTerrainBrushSpy).not.toHaveBeenCalled();
+    expect(mounted.commitHistory).not.toHaveBeenCalled();
+    expect(mounted.history).toEqual({ past: [], present: scene, future: [] });
+    expect(mounted.history.present).toBe(scene);
+    expect(mounted.onAuroraAreaEditingFeedback).toHaveBeenLastCalledWith({
+      variant: "error",
+      message: expect.stringContaining("AREA_TILE_CERTIFICATION_UNAVAILABLE")
+    });
+    expect(mounted.trackTelemetry).toHaveBeenCalledWith(
+      "scene.area_tiles.production_admission.blocked",
+      expect.objectContaining({
+        code: "AREA_TILE_CERTIFICATION_UNAVAILABLE",
+        operationKind: "terrain",
+        tilesetResRef: "testset"
+      })
+    );
+  });
+
+  it("rejects a mixed SET group candidate atomically when one result Tile_ID has no row", () => {
+    const scene = createEditableScene("group0");
+    const mounted = renderPointerSelection(
+      scene,
+      { kind: "group", groupId: "group0", orientation: 0 },
+      "object",
+      "placeables",
+      readyProductionCertification([0, 2])
+    );
+
+    act(() => mounted.result.current.handleMouseDown(pointerEvent(0.25, 0.25)));
+
+    expect(mounted.placeAuroraAreaGroupSpy).not.toHaveBeenCalled();
+    expect(mounted.commitHistory).not.toHaveBeenCalled();
+    expect(mounted.history.present).toBe(scene);
+    expect(mounted.onAuroraAreaEditingFeedback).toHaveBeenLastCalledWith({
+      variant: "error",
+      message: expect.stringMatching(/AREA_TILE_CERTIFICATION_ROW_MISSING.*Tile_ID 3/)
+    });
+  });
+
+  it("commits a multi-cell paint drag as one history command", () => {
+    const scene = createEditableScene();
+    const mounted = renderPointerSelection(scene);
     mounted.applyAuroraAreaTerrainBrushSpy.mockImplementation((currentScene, tileId) => ({
       ...currentScene,
       areaName: `${currentScene.areaName}:${tileId}`
@@ -520,6 +695,69 @@ describe("useWorkspacePointerSelection Aurora Area placement preview", () => {
     );
     expect(mounted.history.present.areaName).toContain(
       scene.tiles.find((tile) => tile.row === 0 && tile.col === 1)!.id
+    );
+  });
+
+  it("keeps the admitted prefix and rejects a later uncertified drag candidate atomically", () => {
+    const scene = createEditableScene();
+    const mounted = renderPointerSelection(
+      scene,
+      { kind: "terrain", terrain: "water" },
+      "object",
+      "placeables",
+      readyProductionCertification([0, 1, 4]),
+    );
+    let mutationCount = 0;
+    mounted.applyAuroraAreaTerrainBrushSpy.mockImplementation(
+      (currentScene, tileId, terrain, selector) => {
+        mutationCount += 1;
+        const nextScene = applyAuroraAreaTerrainBrush(
+          currentScene,
+          tileId,
+          terrain,
+          selector,
+        );
+        if (mutationCount === 1 || !nextScene.auroraAreaEditing) {
+          return nextScene;
+        }
+        return {
+          ...nextScene,
+          auroraAreaEditing: {
+            ...nextScene.auroraAreaEditing,
+            state: {
+              ...nextScene.auroraAreaEditing.state,
+              tiles: nextScene.auroraAreaEditing.state.tiles.map((tile) =>
+                tile.row === 0 && tile.col === 1
+                  ? { ...tile, tileId: 999 }
+                  : tile
+              ),
+            },
+          },
+        };
+      },
+    );
+
+    act(() => mounted.result.current.handleMouseDown(pointerEvent(0.25, 0.25)));
+    const admittedScene = mounted.history.present;
+    act(() => mounted.result.current.handleMouseMove(pointerEvent(1.25, 0.25, 0, 1)));
+    act(() => mounted.result.current.handleMouseUp(pointerEvent(1.25, 0.25)));
+
+    expect(mounted.applyAuroraAreaTerrainBrushSpy).toHaveBeenCalledTimes(2);
+    expect(mounted.commitHistory).toHaveBeenCalledOnce();
+    expect(mounted.history.present).toBe(admittedScene);
+    expect(mounted.history.present.auroraAreaEditing!.state.tiles).not.toEqual(
+      scene.auroraAreaEditing!.state.tiles,
+    );
+    expect(mounted.history.present.auroraAreaEditing!.state.tiles).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ tileId: 999 })]),
+    );
+    expect(mounted.trackTelemetry).toHaveBeenCalledWith(
+      "scene.area_tiles.production_admission.blocked",
+      expect.objectContaining({
+        code: "AREA_TILE_CERTIFICATION_ROW_MISSING",
+        firstBlockedTileId: 999,
+        operationKind: "terrain",
+      }),
     );
   });
 
@@ -658,5 +896,74 @@ describe("useWorkspacePointerSelection Aurora Area placement preview", () => {
     });
     expect(mounted.setSelectedTileId).toHaveBeenLastCalledWith(replacement.id);
     randomSpy.mockRestore();
+  });
+
+  it("routes Alt-click door authoring through the hook-safe facade and fails closed", () => {
+    const scene = createEditableScene();
+    const mounted = renderPointerSelection(
+      scene,
+      { kind: "inspect" },
+      "object",
+      "doors",
+    );
+
+    act(() => {
+      mounted.result.current.handleMouseDown({
+        ...pointerEvent(0.25, 0.25),
+        altKey: true,
+      } as MouseEvent<HTMLDivElement>);
+    });
+
+    expect(mounted.createDoorAtHook).toHaveBeenCalledWith(scene, 0, 0, 1);
+    expect(mounted.createObject).not.toHaveBeenCalled();
+    expect(mounted.setSceneHistory).not.toHaveBeenCalled();
+    expect(mounted.trackTelemetry).toHaveBeenCalledWith(
+      "scene.objects.add_blocked_door_hook",
+      expect.objectContaining({ kind: "doors", source: "alt_click" }),
+    );
+
+    const safeDoor = createNewSceneObject("doors", 0.5, 0.576, 2);
+    safeDoor.bearing = 1.234;
+    safeDoor.z = 0.456;
+    mounted.createDoorAtHook.mockReturnValue(safeDoor);
+    mounted.appendObjects.mockImplementation((currentScene, objects) => ({
+      ...currentScene,
+      objects: [...currentScene.objects, ...objects],
+    }));
+    act(() => {
+      mounted.result.current.handleMouseDown({
+        ...pointerEvent(0.25, 0.25),
+        altKey: true,
+      } as MouseEvent<HTMLDivElement>);
+    });
+    expect(mounted.createDoorAtHook).toHaveBeenLastCalledWith(scene, 0, 0, 2);
+    expect(safeDoor.bearing).toBe(1.234);
+    expect(safeDoor.z).toBe(0.456);
+    expect(mounted.appendObjects).toHaveBeenCalledWith(scene, [safeDoor]);
+  });
+
+  it("keeps non-door Alt-click on the generic constructor and applies enabled snapping", () => {
+    const scene = createEditableScene();
+    const mounted = renderPointerSelection(scene, { kind: "inspect" }, "object", "placeables");
+    const placeable = createNewSceneObject("placeables", 0, 0, 1);
+    placeable.bearing = 0.23;
+    placeable.z = 0.27;
+    mounted.createObject.mockReturnValue(placeable);
+    mounted.appendObjects.mockImplementation((currentScene, objects) => ({
+      ...currentScene,
+      objects: [...currentScene.objects, ...objects],
+    }));
+
+    act(() => {
+      mounted.result.current.handleMouseDown({
+        ...pointerEvent(0.25, 0.25),
+        altKey: true,
+      } as MouseEvent<HTMLDivElement>);
+    });
+
+    expect(mounted.createObject).toHaveBeenCalledWith("placeables", 0, 0, 1);
+    expect(mounted.createDoorAtHook).not.toHaveBeenCalled();
+    expect(placeable.bearing).toBeCloseTo(Math.PI / 12, 12);
+    expect(placeable.z).toBe(0.5);
   });
 });

@@ -4,6 +4,7 @@ import { clearAuthBenchmarks } from "../../../src/modules/auth/authBenchmarks";
 import { MASTER_CELLS_PER_TILE } from "../../../src/modules/layout/canvasGrid";
 import { loadLocalSceneDraft } from "../../../src/modules/scene/adapters/localDraftStore";
 import { clearTelemetry } from "../../../src/modules/telemetry/telemetryStore";
+import { seedBuilderWorkspace } from "./seedRegressionWorkspace";
 
 function renderAtPath(pathname: string) {
   window.history.replaceState({}, "", pathname);
@@ -50,6 +51,7 @@ describe("Regression smoke: workspace coordinate parity", () => {
     clearTelemetry();
     clearAuthBenchmarks();
     window.localStorage.clear();
+    seedBuilderWorkspace();
   });
 
   it("reopens Adjust Location with persisted XY/Z/bearing and Z Translation values", async () => {
@@ -166,7 +168,7 @@ describe("Regression smoke: workspace coordinate parity", () => {
     expect(changed?.y ?? 0).toBeLessThan(2);
   }, 20000);
 
-  it("normalizes edge Adjust Location inputs to bounded XY/Z and 0..360 bearing", async () => {
+  it("normalizes edge Adjust Location inputs to bounded XY, signed Z, and 0..360 bearing", async () => {
     renderAtPath("/login");
     await signInAs("builder.user", "builder123");
 
@@ -207,8 +209,8 @@ describe("Regression smoke: workspace coordinate parity", () => {
 
     expect(reopenedX).toBeGreaterThanOrEqual(0);
     expect(reopenedY).toBeGreaterThanOrEqual(0);
-    expect(reopenedZ).toBeGreaterThanOrEqual(0);
-    expect(reopenedZTranslation).toBeGreaterThanOrEqual(0);
+    expect(reopenedZ).toBeCloseTo(-25, 6);
+    expect(reopenedZTranslation).toBeCloseTo(-5, 6);
     expect(reopenedBearing).toBeGreaterThanOrEqual(0);
     expect(reopenedBearing).toBeLessThan(360);
     expect(reopenedBearing).toBeCloseTo(0, 6);
@@ -218,6 +220,7 @@ describe("Regression smoke: workspace coordinate parity", () => {
     if (Number.isFinite(maxY)) {
       expect(reopenedY).toBeLessThanOrEqual(maxY);
     }
+    fireEvent.click(within(reopenedDialog).getByRole("button", { name: /^cancel$/i }));
 
     const savedDraft = await saveDraft();
     const changed = savedDraft?.objects.find((object) => object.tag === "PLC_BARREL_01");
@@ -226,8 +229,8 @@ describe("Regression smoke: workspace coordinate parity", () => {
     expect(changed?.y ?? 0).toBeGreaterThanOrEqual(0);
     expect(changed?.x ?? 0).toBeLessThan(2);
     expect(changed?.y ?? 0).toBeLessThan(2);
-    expect(changed?.z ?? 0).toBeGreaterThanOrEqual(0);
-    expect(changed?.visualTransform.offsetZ ?? 0).toBeGreaterThanOrEqual(0);
+    expect(changed?.z ?? 0).toBeCloseTo(-2.5, 6);
+    expect(changed?.visualTransform.offsetZ ?? 0).toBeCloseTo(-0.5, 6);
     expect(changed?.bearing ?? 0).toBeGreaterThanOrEqual(0);
     expect(changed?.bearing ?? 0).toBeLessThan(Math.PI * 2);
     expect(changed?.bearing ?? 0).toBeCloseTo(0, 6);

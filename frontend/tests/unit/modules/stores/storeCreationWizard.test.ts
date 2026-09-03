@@ -5,7 +5,8 @@ import {
   createStoreWizardDraftFromStore,
   createStoreWizardDraft,
   sanitizeStoreCreationNumberInput,
-  sanitizeStoreCreationResRef
+  sanitizeStoreCreationResRef,
+  sanitizeStoreCreationSignedIntInput
 } from "../../../../src/modules/stores/application/storeCreationWizard";
 
 describe("storeCreationWizard", () => {
@@ -18,7 +19,11 @@ describe("storeCreationWizard", () => {
     draft.markDown = "45";
     draft.blackMarket = true;
     draft.bmMarkDown = "25";
+    draft.identifyPrice = "150";
+    draft.maxBuyPrice = "-1";
+    draft.storeGold = "2000000";
     draft.onOpenStore = "open_potion";
+    draft.onStoreClosed = "close_potion";
     draft.buckets[0] = {
       bucketTypeId: "0",
       itemListEntries: [
@@ -70,7 +75,11 @@ describe("storeCreationWizard", () => {
       markDown: 45,
       blackMarket: true,
       bmMarkDown: 25,
+      identifyPrice: 150,
+      maxBuyPrice: -1,
+      storeGold: 2_000_000,
       onOpenStore: "open_potion",
+      onStoreClosed: "close_potion",
       storeListEntries: [
         {
           bucketTypeId: 0,
@@ -102,10 +111,10 @@ describe("storeCreationWizard", () => {
             }
           ]
         },
-        { bucketTypeId: 1, itemListEntries: [] },
+        { bucketTypeId: 4, itemListEntries: [] },
         { bucketTypeId: 2, itemListEntries: [] },
         { bucketTypeId: 3, itemListEntries: [] },
-        { bucketTypeId: 4, itemListEntries: [] }
+        { bucketTypeId: 1, itemListEntries: [] }
       ],
       willNotBuyBaseItems: [16, 22],
       willOnlyBuyBaseItems: [5]
@@ -115,6 +124,13 @@ describe("storeCreationWizard", () => {
   it("sanitizes numeric inputs without allowing negatives", () => {
     expect(sanitizeStoreCreationNumberInput("-42abc", 10)).toBe("10");
     expect(sanitizeStoreCreationNumberInput("", 10)).toBe("");
+  });
+
+  it("preserves and bounds native signed Int store values", () => {
+    expect(sanitizeStoreCreationSignedIntInput("-42abc")).toBe("-42");
+    expect(sanitizeStoreCreationSignedIntInput("-")).toBe("-");
+    expect(sanitizeStoreCreationSignedIntInput("9999999999")).toBe("2147483647");
+    expect(sanitizeStoreCreationSignedIntInput("-9999999999")).toBe("-2147483648");
   });
 
   it("hydrates store wizard drafts from parsed UTM metadata", () => {
@@ -134,7 +150,11 @@ describe("storeCreationWizard", () => {
         markDown: 35,
         blackMarket: true,
         bmMarkDown: 20,
+        identifyPrice: 130,
+        maxBuyPrice: -1,
+        storeGold: 9000,
         onOpenStore: "open_store",
+        onStoreClosed: "close_store",
         storeId: 9,
         storeListEntries: JSON.stringify([
           {
@@ -187,7 +207,11 @@ describe("storeCreationWizard", () => {
       markDown: "35",
       blackMarket: true,
       bmMarkDown: "20",
+      identifyPrice: "130",
+      maxBuyPrice: "-1",
+      storeGold: "9000",
       onOpenStore: "open_store",
+      onStoreClosed: "close_store",
       storeId: "9",
       willNotBuyBaseItems: "16, 22",
       willOnlyBuyBaseItems: "5"

@@ -57,6 +57,7 @@ describe("auroraAreaPlacementPreview", () => {
       source: "terrain-fallback",
       kind: "terrain",
       targetCells: [{ row: 3, col: 5 }],
+      resultTileIds: [],
       valid: true,
       status: "terrain-fallback",
       code: "TERRAIN_FALLBACK"
@@ -82,6 +83,7 @@ describe("auroraAreaPlacementPreview", () => {
         { row: 1, col: 0 },
         { row: 1, col: 1 }
       ],
+      resultTileIds: [1],
       valid: true,
       status: "valid",
       code: "OK"
@@ -135,10 +137,11 @@ describe("auroraAreaPlacementPreview", () => {
     expect(valid).toMatchObject({
       valid: true,
       orientation: 1,
-      targetCells: [{ row: 0, col: 0 }, { row: 1, col: 0 }]
+      targetCells: [{ row: 0, col: 0 }, { row: 1, col: 0 }],
+      resultTileIds: [2, 3]
     });
-    expect(outOfBounds).toMatchObject({ valid: false, status: "out-of-bounds", code: "GROUP_OUT_OF_BOUNDS" });
-    expect(overlap).toMatchObject({ valid: false, status: "overlap", code: "GROUP_OVERLAP" });
+    expect(outOfBounds).toMatchObject({ valid: false, status: "out-of-bounds", code: "GROUP_OUT_OF_BOUNDS", resultTileIds: [] });
+    expect(overlap).toMatchObject({ valid: false, status: "overlap", code: "GROUP_OVERLAP", resultTileIds: [] });
   });
 
   it("reports a terrain paint on a placed group as locked", () => {

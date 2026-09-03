@@ -27,6 +27,7 @@ describe("AreasModePanel Area tile readiness transport", () => {
     const areaApiPort = {
       listAreas: vi.fn(async () => ({ items: [], total: 0, limit: 100, offset: 0 }))
     } as unknown as AreaApiPort;
+    const onAreaWorkspaceStatusChange = vi.fn();
 
     render(
       <AreasModePanel
@@ -45,11 +46,15 @@ describe("AreasModePanel Area tile readiness transport", () => {
         onAreaSceneMutation={vi.fn()}
         onAreaEditingToolChange={vi.fn()}
         onObjectCreate={vi.fn()}
+        onAreaWorkspaceStatusChange={onAreaWorkspaceStatusChange}
       />
     );
 
     expect(panelHarness.editingPanelProps).toHaveBeenCalledWith(
-      expect.objectContaining({ tileProcessReadiness: readiness })
+      expect.objectContaining({
+        tileProcessReadiness: readiness,
+        onAreaWorkspaceStatusChange,
+      })
     );
   });
 });

@@ -70,14 +70,14 @@ describe("Regression smoke: auth shell behavior", () => {
     await signInAs("dm.user", "dm123");
 
     fireEvent.click(screen.getByRole("button", { name: /show debug panel/i }));
-    expect(screen.getByLabelText(/debug panel/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /debug panel/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
     expect(
       await screen.findByRole("heading", { name: /sign in to aurora web/i })
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText(/debug panel/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /debug panel/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /spawn creature/i })).not.toBeInTheDocument();
   });
@@ -163,7 +163,9 @@ describe("Regression smoke: auth shell behavior", () => {
     renderAtPath("/login");
     await signInAs("viewer.user", "viewer123");
 
-    expect(screen.queryByLabelText(/quick actions/i)).not.toBeInTheDocument();
+    const quickActions = screen.getByLabelText(/quick actions/i);
+    expect(within(quickActions).getByRole("button", { name: /fit area/i })).toBeInTheDocument();
+    expect(within(quickActions).queryByRole("button", { name: /delete selected/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /dm commands/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^module$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^camera$/i })).toBeInTheDocument();

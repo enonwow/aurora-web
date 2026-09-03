@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
 import * as THREE from "three";
 import { rebuildObjectMeshes } from "../../../../src/modules/layout/adapters/three/workspaceObjectMeshLayer";
 import {
+  registerRuntimeAuroraTextureCyclePlayback,
   registerRuntimeObjectAnimationPlayback,
   sampleRuntimeObjectAnimationAtTime,
   updateRuntimeObjectAnimationPlaybacks
 } from "../../../../src/modules/layout/adapters/three/workspaceThreeRuntime";
 import {
+  AURORA_PLT_PALETTE_CHANNEL_COUNT,
   AURORA_PLT_PALETTE_COLOR_COUNT,
   AURORA_PLT_PALETTE_ROW_COUNT,
   installAuroraPltPaletteDataForTests,
@@ -2241,14 +2244,21 @@ function createCachedTgaTexture(reference = "pmd0_head001"): THREE.Texture {
 }
 
 function createRetailPaletteTable(
-  entries: Array<{ row: number; colorIndex: number; rgb: [number, number, number] }>
+  entries: Array<{ row: number; colorIndex: number; rgba: [number, number, number, number] }>
 ): Uint8Array {
-  const table = new Uint8Array(AURORA_PLT_PALETTE_ROW_COUNT * AURORA_PLT_PALETTE_COLOR_COUNT * 3);
+  const table = new Uint8Array(
+    AURORA_PLT_PALETTE_ROW_COUNT *
+      AURORA_PLT_PALETTE_COLOR_COUNT *
+      AURORA_PLT_PALETTE_CHANNEL_COUNT
+  );
   entries.forEach((entry) => {
-    const offset = (entry.row * AURORA_PLT_PALETTE_COLOR_COUNT + entry.colorIndex) * 3;
-    table[offset] = entry.rgb[0];
-    table[offset + 1] = entry.rgb[1];
-    table[offset + 2] = entry.rgb[2];
+    const offset =
+      (entry.row * AURORA_PLT_PALETTE_COLOR_COUNT + entry.colorIndex) *
+      AURORA_PLT_PALETTE_CHANNEL_COUNT;
+    table[offset] = entry.rgba[0];
+    table[offset + 1] = entry.rgba[1];
+    table[offset + 2] = entry.rgba[2];
+    table[offset + 3] = entry.rgba[3];
   });
   return table;
 }
@@ -2637,7 +2647,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     const skeletonModelCacheKey = "creature:cre_guard_captain:v1:skeleton:asset-pfh2-glb";
     const texturePath =
       "/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/wswb_002_d.dds";
-    const textureUrl = `http://localhost:3000${texturePath}`;
+    const textureUrl = `http://127.0.0.1:3000${texturePath}`;
     payload.renderPackage = {
       ...payload.renderPackage!,
       textureUrls: [texturePath]
@@ -4707,7 +4717,12 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     );
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await waitFor(
+      () => {
+        expect(runtime.container.dataset.placeableModelLoadPhase).toBe("complete");
+      },
+      { timeout: 3000 }
+    );
 
     const root = runtime.objectMeshById.get(creature.id);
     const loadedEquipmentParts: THREE.Object3D[] = [];
@@ -8460,7 +8475,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       "creature_aurora_light_glow_ambient"
     ) as THREE.Group | undefined;
     let pointLight: THREE.PointLight | null = null;
-    let ambientLight: THREE.AmbientLight | null = null;
+    let localizedAmbientLight: THREE.PointLight | null = null;
     let lightCore: THREE.Mesh | null = null;
     lightNode?.traverse((node) => {
       if (!pointLight && node instanceof THREE.PointLight) {
@@ -8475,8 +8490,8 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       }
     });
     ambientNode?.traverse((node) => {
-      if (!ambientLight && node instanceof THREE.AmbientLight) {
-        ambientLight = node;
+      if (!localizedAmbientLight && node instanceof THREE.PointLight) {
+        localizedAmbientLight = node;
       }
     });
 
@@ -8534,13 +8549,13 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
         "C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 uploads lightQuadraticAtten = 9/(max(radius,0.1)^2*2)",
       creatureAuroraLightQuadraticAttenProofStatus:
         "source-backed-mdl-radius-quadratic-attenuation",
-      creatureAuroraLightFalloffFormula: "max(0,1-distance/radius)",
+      creatureAuroraLightFalloffFormula: "1/(1+4.5*(distance/radius)^2)",
       creatureAuroraLightFalloffSource:
-        "C:/Projects/New Folder/export/decompiled_all.c:866543-866563 FUN_00a423d8 adds active light color as max(0,1-distance/radius)*color*fade",
+        "Active retail inc_lighting.shd GAMMA_CORRECTION==0 surface branch plus C:/Projects/New Folder/export/decompiled_all.c:865404-865409 FUN_00a40b60 lightQuadraticAtten=9/(max(radius,0.1)^2*2); selected retail gamma profile remains parity-pending",
       creatureAuroraLightFalloffProofStatus:
-        "source-backed-active-light-linear-radius-falloff",
+        "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending",
       creatureAuroraLightFalloffRendererProofStatus:
-        "source-backed-linear-radius-falloff-preview-shaderchunk-adapter",
+        "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending",
       creatureAuroraLightPointLightDecay: 1,
       creatureAuroraLightAnimatedMultiplier: 1.5,
       creatureAuroraLightAnimationPlaybackStatus: "playing",
@@ -8562,13 +8577,13 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       "source-backed-creature-mdl-light-radius-controller"
     );
     expect(pointLight?.userData.creatureAuroraLightFalloffProofStatus).toBe(
-      "source-backed-active-light-linear-radius-falloff"
+      "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending"
     );
     expect(["installed", "already-installed"]).toContain(
       pointLight?.userData.creatureAuroraLightFalloffRendererPatchStatus
     );
     expect(pointLight?.userData.creatureAuroraLightFalloffRendererSource).toContain(
-      "max(0,1-distance/radius)*color*fade"
+      "lightQuadraticAtten=9/(max(radius,0.1)^2*2)"
     );
     expect(pointLight?.color.r).toBeCloseTo(1);
     expect(pointLight?.color.g).toBeCloseTo(0.5);
@@ -8576,12 +8591,25 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     expect(ambientNode?.userData).toMatchObject({
       creatureAuroraLightPreviewRole: "source-mdl-light-node",
       creatureAuroraLightNodeName: "glow_ambient",
-      creatureAuroraLightAmbientOnly: true
+      creatureAuroraLightAmbientOnly: true,
+      creatureAuroraLightChannelMappingStatus:
+        "source-backed-localized-ambient-irradiance-shaderchunk-adapter",
+      creatureAuroraLightShaderChannelMarkerRole:
+        "negative-decay-localized-ambient-marker"
     });
-    expect(ambientLight?.intensity).toBeCloseTo(0.5);
-    expect(ambientLight?.color.r).toBeCloseTo(0.2);
-    expect(ambientLight?.color.g).toBeCloseTo(0.4);
-    expect(ambientLight?.color.b).toBeCloseTo(1);
+    expect(localizedAmbientLight).toBeInstanceOf(THREE.PointLight);
+    expect(localizedAmbientLight?.intensity).toBeCloseTo(2);
+    expect(localizedAmbientLight?.distance).toBeCloseTo(4);
+    expect(localizedAmbientLight?.decay).toBe(-1);
+    expect(localizedAmbientLight?.color.r).toBeCloseTo(0.2);
+    expect(localizedAmbientLight?.color.g).toBeCloseTo(0.4);
+    expect(localizedAmbientLight?.color.b).toBeCloseTo(1);
+    expect(
+      localizedAmbientLight?.userData.creatureAuroraLightFalloffRendererPatchStatus
+    ).toEqual(expect.stringMatching(/^(installed|already-installed)$/));
+    expect(
+      localizedAmbientLight?.userData.creatureAuroraLightChannelMappingSource
+    ).toContain("FUN_00a4cd58");
     expect(lightCore).toBeNull();
     expect(runtime.objectAnimationMixersById.get(creature.id)?.afterUpdate).toEqual(
       expect.any(Function)
@@ -8611,7 +8639,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       creatureAuroraLightQuadraticAttenProofStatus:
         "source-backed-mdl-radius-quadratic-attenuation",
       creatureAuroraLightFalloffProofStatus:
-        "source-backed-active-light-linear-radius-falloff",
+        "source-backed-gamma0-quadratic-surface-falloff-profile-parity-pending",
       creatureAuroraLightPointLightDecay: 1,
       creatureAuroraLightPreviewColor: [0.5, 0.75, 0.25],
       creatureAuroraLightAnimatedMultiplier: 2.5,
@@ -8808,7 +8836,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     const payload = createReadyCreatureRenderPayload();
     const modelCacheKey = "creature:cre_guard_captain:v1:derived:asset-bear-glb";
     const emitterTextureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-fire.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-fire.tga";
     payload.renderPackage = {
       ...payload.renderPackage!,
       textureBindings: [
@@ -9366,7 +9394,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     const creature = createCreatureObject();
     const payload = createReadyCreatureRenderPayload();
     const emitterTextureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-portal.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-portal.tga";
     payload.renderPackage = {
       ...payload.renderPackage!,
       glbUrl: undefined,
@@ -9504,9 +9532,9 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     const payload = createReadyCreatureRenderPayload();
     const modelCacheKey = "creature:cre_guard_captain:v1:derived:asset-bear-glb";
     const emitterTextureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-spark.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-spark.tga";
     const alphaTextureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-spark-alpha.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain%3Av1/assets/asset-fx-spark-alpha.tga";
     const loadedTexture = new THREE.DataTexture(
       new Uint8Array([
         200, 180, 160, 255,
@@ -9618,8 +9646,17 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       }
     });
 
-    expect(runtime.placeableTgaTextureLoader.load).toHaveBeenCalledWith(
+    expect(runtime.placeableTgaTextureLoader.load).toHaveBeenCalledTimes(2);
+    expect(runtime.placeableTgaTextureLoader.load).toHaveBeenNthCalledWith(
+      1,
       emitterTextureUrl,
+      expect.any(Function),
+      undefined,
+      expect.any(Function)
+    );
+    expect(runtime.placeableTgaTextureLoader.load).toHaveBeenNthCalledWith(
+      2,
+      alphaTextureUrl,
       expect.any(Function),
       undefined,
       expect.any(Function)
@@ -10315,6 +10352,39 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
 
     expect(texture.offset.x).toBeCloseTo(0.5);
     expect(texture.offset.y).toBeCloseTo(0.5);
+  });
+
+  it("advances an ordinary model TXI cycle from the shared renderer frame clock", () => {
+    const runtime = createRuntime();
+    const placeableRoot = createTxiCycleCachedModel();
+    placeableRoot.name = "ordinary_placeable_cycle_root";
+    const texture = (
+      (placeableRoot.getObjectByName("txi_cycle_panel") as THREE.Mesh)
+        .material as THREE.MeshBasicMaterial
+    ).map!;
+
+    const cycleRuntime = registerRuntimeAuroraTextureCyclePlayback(
+      runtime,
+      "ordinary-placeable-cycle",
+      placeableRoot
+    );
+    updateRuntimeObjectAnimationPlaybacks(runtime, 0.26);
+
+    expect(cycleRuntime).not.toBeNull();
+    expect(runtime.auroraTextureCycleRuntimesByObjectId.size).toBe(1);
+    expect(texture.offset.x).toBeCloseTo(0.5);
+    expect(texture.offset.y).toBeCloseTo(0.5);
+    expect(texture.userData.auroraTextureTxiCycleFrameIndex).toBe(1);
+    expect(texture.userData.auroraTextureTxiCycleLastRendererFrameSerial).toBe(1);
+    expect(texture.userData.auroraTextureTxiCycleUpdateCount).toBe(1);
+    expect(placeableRoot.userData.auroraTextureCycleRuntimeFrameIndices).toEqual([1]);
+    expect(
+      placeableRoot.userData.auroraTextureCycleRuntimeLastRendererFrameSerials
+    ).toEqual([1]);
+    expect(runtime.container.dataset.auroraTextureCycleRuntimeObjectCount).toBe("1");
+    expect(runtime.container.dataset.auroraTextureCycleRuntimeObjectIds).toBe(
+      "ordinary-placeable-cycle"
+    );
   });
 
   it("loads available CAPart creature part models into a viewport group", async () => {
@@ -12196,7 +12266,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:rFoot:asset-rfoot-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
     const sharedPltTexture = createCachedPltTexture();
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
     runtime.placeableTextureCacheByUrl.set(textureUrl, sharedPltTexture);
@@ -12307,9 +12377,9 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:head:asset-head-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pmh0_head001.plt";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pmh0_head001.plt";
     const chestTextureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pmh0_chest001.plt";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pmh0_chest001.plt";
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
     runtime.placeableTextureCacheByUrl.set(textureUrl, createCachedPltTexture());
     runtime.placeableTextureCacheByUrl.set(chestTextureUrl, createCachedPltTexture());
@@ -12415,7 +12485,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:head:asset-dwarf-head-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_grimgnaw:v1/assets/pmd0_head001.tga";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_grimgnaw:v1/assets/pmd0_head001.tga";
     const tgaTexture = createCachedTgaTexture();
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
     runtime.placeableTextureCacheByUrl.set(textureUrl, tgaTexture);
@@ -12474,10 +12544,10 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     expect(runtime.placeableModelLoader.load).not.toHaveBeenCalled();
   });
 
-  it("uses nwn_mdl_webviewer retail PLT palette tables when they are available", async () => {
+  it("uses active Aurora retail PLT palette tables when they are available", async () => {
     installAuroraPltPaletteDataForTests({
       4: createRetailPaletteTable([
-        { row: 64, colorIndex: 150, rgb: [12, 34, 56] }
+        { row: 64, colorIndex: 150, rgba: [12, 34, 56, 78] }
       ])
     });
     const runtime = createRuntime();
@@ -12499,7 +12569,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:rFoot:asset-rfoot-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
     runtime.placeableTextureCacheByUrl.set(textureUrl, createCachedPltTexture());
 
@@ -12547,13 +12617,13 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       creaturePltTextureBridgeApplied: true,
       creaturePltTextureBridgeMode: "retail-palette",
       creaturePltPaletteReady: true,
-      creaturePltPaletteSource: "nwn_mdl_webviewer",
+      creaturePltPaletteSource: "aurora-retail-key-bif",
       creaturePltLayerRows: {
         cloth1: 64
       }
     });
     const bridgedImage = material?.map?.image as { data: Uint8Array } | undefined;
-    expect(Array.from(bridgedImage?.data.slice(0, 3) ?? [])).toEqual([12, 34, 56]);
+    expect(Array.from(bridgedImage?.data.slice(0, 4) ?? [])).toEqual([12, 34, 56, 78]);
     expect(runtime.placeableTextureLoader.load).not.toHaveBeenCalled();
     expect(runtime.placeableModelLoader.load).not.toHaveBeenCalled();
   });
@@ -12561,7 +12631,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
   it("defaults unspecified creature PLT layers to retail palette row zero", async () => {
     installAuroraPltPaletteDataForTests({
       4: createRetailPaletteTable([
-        { row: 0, colorIndex: 150, rgb: [21, 22, 23] }
+        { row: 0, colorIndex: 150, rgba: [21, 22, 23, 24] }
       ])
     });
     const runtime = createRuntime();
@@ -12583,7 +12653,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:rFoot:asset-rfoot-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004.plt";
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
     runtime.placeableTextureCacheByUrl.set(textureUrl, createCachedPltTexture());
 
@@ -12632,14 +12702,14 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
       creaturePltTextureBridgeApplied: true,
       creaturePltTextureBridgeMode: "retail-palette",
       creaturePltPaletteReady: true,
-      creaturePltPaletteSource: "nwn_mdl_webviewer",
+      creaturePltPaletteSource: "aurora-retail-key-bif",
       creaturePltLayerRows: {
         skin: 42,
         cloth1: 0
       }
     });
     const bridgedImage = material?.map?.image as { data: Uint8Array } | undefined;
-    expect(Array.from(bridgedImage?.data.slice(0, 3) ?? [])).toEqual([21, 22, 23]);
+    expect(Array.from(bridgedImage?.data.slice(0, 4) ?? [])).toEqual([21, 22, 23, 24]);
     expect(runtime.placeableTextureLoader.load).not.toHaveBeenCalled();
     expect(runtime.placeableModelLoader.load).not.toHaveBeenCalled();
   });
@@ -12669,7 +12739,7 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     };
     const modelCacheKey = "creature:cre_guard_captain:v1:part:rFoot:asset-rfoot-glb";
     const textureUrl =
-      "http://localhost:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004_d.dds";
+      "http://127.0.0.1:3000/api/v1/catalog/placeables/cache/cre_guard_captain:v1/assets/pfh2_rfoot004_d.dds";
     const texture = new THREE.Texture();
     texture.userData = { auroraSourceFormat: "dds" };
     runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel());
@@ -12740,5 +12810,54 @@ describe("workspaceObjectMeshLayer creature render payload", () => {
     });
     expect(runtime.placeableTextureLoader.load).not.toHaveBeenCalled();
     expect(runtime.placeableModelLoader.load).not.toHaveBeenCalled();
+  });
+
+  it("preserves source model units for a proof-scene modular creature", async () => {
+    const runtime = createRuntime();
+    const creature = createCreatureObject();
+    const payload = createPartModelReadyCreatureRenderPayload();
+    payload.renderPackage = {
+      ...payload.renderPackage!,
+      textureUrls: [],
+      textureBindings: []
+    };
+    payload.creature.creatureRenderPackage = payload.renderPackage;
+    const modelCacheKey =
+      "creature:cre_guard_captain:v1:part:rFoot:asset-rfoot-glb";
+    runtime.placeableModelCacheByUrl.set(modelCacheKey, createCachedModel(2));
+
+    rebuildObjectMeshes(
+      runtime,
+      [creature],
+      [],
+      createDebugState(),
+      4,
+      4,
+      1,
+      false,
+      10,
+      [],
+      false,
+      null,
+      { [creature.id]: payload },
+      null,
+      { creatureModelPresentationMode: "source-model-units" }
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const root = runtime.objectMeshById.get(creature.id);
+    const partGroup = root?.children.find(
+      (child) => child.userData?.creaturePartModelGroupStatus === "loaded"
+    );
+    const size = new THREE.Box3()
+      .setFromObject(partGroup ?? new THREE.Group())
+      .getSize(new THREE.Vector3());
+
+    expect(size.y).toBeCloseTo(2, 6);
+    expect(root?.userData.creatureModelPresentationMode).toBe(
+      "source-model-units"
+    );
   });
 });

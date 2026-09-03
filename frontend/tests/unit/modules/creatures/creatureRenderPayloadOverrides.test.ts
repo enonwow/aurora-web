@@ -114,4 +114,29 @@ describe("creatureRenderPayloadOverrides", () => {
 
     expect(buildCreatureAppearanceProcessOverride(object)).toBeUndefined();
   });
+
+  it("uses exact numeric Appearance_Type for rendering even when part-based overrides are off", () => {
+    const object = createCreatureObject();
+    object.creatureProperties!.appearance = "18";
+    object.creatureProperties!.appearanceType = 249;
+    object.creatureProperties!.appearanceSettings!.partBasedAppearance = false;
+
+    expect(buildCreatureAppearanceProcessOverride(object)).toEqual({ appearanceType: 249 });
+  });
+
+  it("forwards an admitted exact Phenotype row to rendering", () => {
+    const object = createCreatureObject();
+    object.creatureProperties!.phenotypeId = 5;
+    object.creatureProperties!.appearanceSettings!.partBasedAppearance = false;
+
+    expect(buildCreatureAppearanceProcessOverride(object)).toEqual({ phenotype: 5 });
+  });
+
+  it("does not forward the native non-round-trippable Phenotype row 1", () => {
+    const object = createCreatureObject();
+    object.creatureProperties!.phenotypeId = 1;
+    object.creatureProperties!.appearanceSettings!.partBasedAppearance = false;
+
+    expect(buildCreatureAppearanceProcessOverride(object)).toBeUndefined();
+  });
 });

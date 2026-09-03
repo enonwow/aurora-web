@@ -38,6 +38,19 @@ function createCanvasDebugState() {
   return createWorkspaceChromeFacade().createDefaultToolbarState().canvasDebug;
 }
 
+function createEditableRetainedItem(): SceneObject {
+  return createObject("items", {
+    source: {
+      type: "aurora_git",
+      sourceKind: "item",
+      sourceIndex: 0,
+      sourceObjectId: "item:0:visual_transform",
+      itemVisualTransform: { present: false },
+    },
+    itemProperties: { visualTransform: { present: false } },
+  });
+}
+
 const ALL_SCENE_OBJECT_KINDS: SceneObjectKind[] = [
   "creatures",
   "doors",
@@ -113,7 +126,9 @@ describe("visualTransformGizmoRules", () => {
   it("allows VT gizmo for every Area object kind", () => {
     const debugState = createCanvasDebugState();
     for (const kind of ALL_SCENE_OBJECT_KINDS) {
-      const object = createObject(kind, kind === "placeables" ? { isStatic: false } : undefined);
+      const object = kind === "items"
+        ? createEditableRetainedItem()
+        : createObject(kind, kind === "placeables" ? { isStatic: false } : undefined);
 
       expect(resolveVisualTransformSelectionBlockedReason([object], debugState)).toBeNull();
       expect(canUseVisualTransformGizmoForObject(object)).toBe(true);
@@ -132,10 +147,27 @@ describe("visualTransformGizmoRules", () => {
         items: true
       }
     };
-    const item = createObject("items");
+    const item = createEditableRetainedItem();
     expect(resolveVisualTransformSelectionBlockedReason([item], lockedDebug)).toContain(
       "blocked by locked layer(s): items"
     );
+  });
+
+  it("keeps ground Items without exact static visual-transform provenance preserve-only", () => {
+    const debugState = createCanvasDebugState();
+    const unsupported = createObject("items", {
+      source: {
+        type: "aurora_git",
+        sourceKind: "item",
+        sourceIndex: 0,
+        sourceObjectId: "item:0:unsupported_visual_transform",
+      },
+    });
+
+    expect(canUseVisualTransformGizmoForObject(unsupported)).toBe(false);
+    expect(resolveVisualTransformSelectionBlockedReason([unsupported], debugState))
+      .toContain("unavailable for selected kind(s): items");
+    expect(canUseVisualTransformGizmoForObject(createEditableRetainedItem())).toBe(true);
   });
 
   it("keeps VT palette mapping stable (X=yellow, Y=orange)", () => {

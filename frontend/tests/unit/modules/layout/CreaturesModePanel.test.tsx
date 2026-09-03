@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { CreatureAppearancePaletteFacade } from "../../../../src/modules/creatures/application/creatureAppearancePaletteFacade";
 import { CreaturesModePanel } from "../../../../src/modules/layout/components/CreaturesModePanel";
 import type { SceneObject } from "../../../../src/modules/layout/contracts";
 
@@ -212,6 +213,99 @@ describe("CreaturesModePanel", () => {
     expect(created.creatureProperties?.appearanceSettings?.colors?.skin).toBe("30");
     expect(created.creatureProperties?.statistics?.maxHitPoints).toBe(36);
     expect(created.creatureProperties?.advancedSettings?.plot).toBe(true);
+  });
+
+  it("loads and resolves PLT swatches through the injected appearance palette facade", async () => {
+    const template = buildCreatureTemplate();
+    const ensureLoaded = vi.fn(async () => true);
+    const resolveRgba = vi.fn(() => [12, 34, 56, 255] as const);
+    const creatureAppearancePaletteFacade: CreatureAppearancePaletteFacade = {
+      rowMax: 175,
+      queries: {
+        ensureLoaded,
+        resolveRgba,
+      },
+    };
+
+    render(
+      <CreaturesModePanel
+        objects={[template]}
+        creationBaseObjects={[template]}
+        total={1}
+        activeObjectId={template.id}
+        searchQuery=""
+        onSearchQueryChange={vi.fn()}
+        onResetFilters={vi.fn()}
+        onObjectClick={vi.fn()}
+        onCreateCreature={vi.fn()}
+        isLoading={false}
+        loadErrorMessage={null}
+        previewErrorMessage={null}
+        creatureAppearancePaletteFacade={creatureAppearancePaletteFacade}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /new creature/i }));
+    const wizard = screen.getByRole("form", {
+      name: /creature creation wizard/i,
+    });
+    fireEvent.click(within(wizard).getByRole("tab", { name: /appearance/i }));
+
+    await waitFor(() => expect(ensureLoaded).toHaveBeenCalled());
+    expect(resolveRgba).toHaveBeenCalledWith(0, 30, 192);
+    expect(
+      within(wizard).getByRole("button", { name: "Skin row 30" }),
+    ).toHaveStyle({ backgroundColor: "rgb(12, 34, 56)" });
+  });
+
+  it("diagnoses fallback colors when palette data fails to load", async () => {
+    const template = buildCreatureTemplate();
+    const creatureAppearancePaletteFacade: CreatureAppearancePaletteFacade = {
+      rowMax: 175,
+      queries: {
+        ensureLoaded: vi.fn(async () => false),
+        resolveRgba: vi.fn(() => null),
+      },
+    };
+
+    render(
+      <CreaturesModePanel
+        objects={[template]}
+        creationBaseObjects={[template]}
+        total={1}
+        activeObjectId={template.id}
+        searchQuery=""
+        onSearchQueryChange={vi.fn()}
+        onResetFilters={vi.fn()}
+        onObjectClick={vi.fn()}
+        onCreateCreature={vi.fn()}
+        isLoading={false}
+        loadErrorMessage={null}
+        previewErrorMessage={null}
+        creatureAppearancePaletteFacade={creatureAppearancePaletteFacade}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /new creature/i }));
+    const wizard = screen.getByRole("form", {
+      name: /creature creation wizard/i,
+    });
+    fireEvent.click(within(wizard).getByRole("tab", { name: /appearance/i }));
+
+    await waitFor(() => {
+      expect(
+        within(wizard).getAllByTitle(
+          "Creature appearance palette data is unavailable; fallback colors are active.",
+        ),
+      ).toHaveLength(4);
+    });
+    expect(
+      within(wizard)
+        .getAllByTitle(
+          "Creature appearance palette data is unavailable; fallback colors are active.",
+        )
+        .every((picker) => picker.dataset.paletteState === "fallback"),
+    ).toBe(true);
   });
 
   it("allows deleting wizard-created custom creatures without exposing delete on backend templates", () => {
