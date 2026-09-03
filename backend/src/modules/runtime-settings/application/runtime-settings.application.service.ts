@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, extname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
 import {
   BLANK_CELL,
   parseAuroraTwoDaTable,
@@ -17,6 +17,7 @@ import {
 } from "./ports/derived-asset-generator.port";
 import type {
   RuntimeAssetKind,
+  RuntimeHostPathSettings,
   RuntimeSourceSettings,
   RuntimeSettingsPayload,
   RuntimeSettingsRecord
@@ -47,6 +48,15 @@ import {
   readNwnErfResourceIndex
 } from "../adapters/outbound/nwn/nwn-erf-packed-module-extractor.service";
 import { inspectAuroraMdlSource } from "../adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../domain/derived-asset-versions";
+import {
+  getRuntimePathEnvironment,
+  runtimeMountVariableForPath,
+  translateHostPathToRuntime,
+  translateRuntimePathToHost,
+  type RuntimePathEnvironment,
+  type RuntimePathMountVariable
+} from "./runtime-path-environment";
 
 const RUNTIME_ASSET_KINDS = [
   "placeable",
@@ -74,6 +84,17 @@ const DEFAULT_ITEM_SOURCE_SETTINGS: RuntimeSourceSettings = {
   hakPriorityList: []
 };
 const TEXTURE_EXTENSIONS = new Set(["dds", "tga", "plt", "txi", "mtr", "bmp"]);
+const MODULE_OBJECT_READ_AFTER_WRITE_DELAYS_MS = [
+  50,
+  100,
+  250,
+  500,
+  1_000,
+  1_500,
+  2_000,
+  2_500,
+  3_000
+] as const;
 const MODULE_AREA_SOURCE_EXTENSIONS = new Set(["are", "git", "gic"]);
 const SOUND_ASSET_EXTENSIONS = new Set(["wav", "ogg", "bmu", "mp3"]);
 const PLACEABLE_HAK_ASSET_EXTENSIONS = new Set([
@@ -386,6 +407,7 @@ export interface TextureDeliveryContract {
   extension: string;
   contentType: string;
   sizeBytes: number;
+  contentSha256: string;
   source: "module" | "hak" | "vanilla";
   sourcePath: string;
   deliveryPath: string;
@@ -485,6 +507,56 @@ function buildSkippedDerivedAssetSummary(skippedReason: string): DerivedAssetSyn
   };
 }
 
+export type RuntimePathReadinessCode =
+  | "MOUNT_NOT_AVAILABLE"
+  | "HOST_PATH_REQUIRED"
+  | "RESTART_REQUIRED"
+  | "RUNTIME_PATH_UPDATE_REQUIRED"
+  | "PATH_NOT_FOUND"
+  | "PATH_NOT_DIRECTORY"
+  | "PATH_NOT_FILE"
+  | "MODULE_SOURCE_REQUIRED";
+
+export interface RuntimePathReadinessIssue {
+  field: string;
+  code: RuntimePathReadinessCode;
+  message: string;
+  envVariable?: RuntimePathMountVariable;
+  hostPath?: string;
+  runtimePath?: string;
+}
+
+export type RuntimePathOnboardingInput = RuntimeHostPathSettings;
+
+export interface RuntimePathReadiness {
+  ready: boolean;
+  issues: RuntimePathReadinessIssue[];
+  values: RuntimePathOnboardingInput;
+  environment: RuntimePathEnvironment;
+}
+
+export interface RuntimeInputFingerprintResult {
+  fingerprint: string;
+  sourceType: "decompiled" | "packed";
+  sourcePath: string;
+  sourceFiles: number;
+  sourceBytes: number;
+}
+
+export interface RuntimeCacheIntegrityResult {
+  valid: boolean;
+  reason:
+    | "ok"
+    | "missing_generation"
+    | "empty_snapshot"
+    | "missing_manifest_hash"
+    | "truncated_snapshot"
+    | "module_hash_mismatch"
+    | "file_count_mismatch";
+  moduleHash?: string;
+  totalFiles: number;
+}
+
 @Injectable()
 export class RuntimeSettingsApplicationService {
   private readonly logger = new Logger(RuntimeSettingsApplicationService.name);
@@ -504,6 +576,297 @@ export class RuntimeSettingsApplicationService {
 
   async getRuntimeSettings(): Promise<RuntimeSettingsRecord> {
     return this.repository.get();
+  }
+
+  async getRuntimePathReadiness(): Promise<RuntimePathReadiness> {
+    const settings = await this.repository.get();
+    const readiness = await this.validateRuntimePathOnboarding(
+      this.toOnboardingInput(settings)
+    );
+    if (
+      readiness.ready &&
+      readiness.environment.mode === "docker" &&
+      runtimePathSettingsNeedUpdate(settings, readiness.values)
+    ) {
+      return {
+        ...readiness,
+        ready: false,
+        issues: [
+          {
+            field: "runtimePaths",
+            code: "RUNTIME_PATH_UPDATE_REQUIRED",
+            message:
+              "The Docker host paths are available, but the stored runtime mapping is outdated. Use Save and validate to activate it."
+          }
+        ]
+      };
+    }
+    return readiness;
+  }
+
+  async validateRuntimePathOnboarding(
+    input: RuntimePathOnboardingInput
+  ): Promise<RuntimePathReadiness> {
+    const values = normalizeRuntimePathOnboardingInput(input);
+    const resolution = resolveRuntimePathOnboardingInput(values);
+    const runtimeValues = resolution.values;
+    const issues: RuntimePathReadinessIssue[] = [...resolution.issues];
+
+    if (!resolution.unresolvedFields.has("nwnUserDir")) {
+      await appendPathIssue(
+        issues,
+        "nwnUserDir",
+        runtimeValues.nwnUserDir,
+        "directory",
+        values.nwnUserDir
+      );
+    }
+    if (!resolution.unresolvedFields.has("nwnInstallDir")) {
+      await appendPathIssue(
+        issues,
+        "nwnInstallDir",
+        runtimeValues.nwnInstallDir,
+        "directory",
+        values.nwnInstallDir
+      );
+    }
+    if (!resolution.unresolvedFields.has("nwnInstallDir")) {
+      await appendPathIssue(
+        issues,
+        "nwnInstallDir.data",
+        resolveFilePath(resolve(runtimeValues.nwnInstallDir, "data")),
+        "directory",
+        resolve(values.nwnInstallDir, "data")
+      );
+      await appendPathIssue(
+        issues,
+        "nwnInstallDir.dialogTlk",
+        resolveFilePath(
+          resolve(runtimeValues.nwnInstallDir, "lang", "en", "data", "dialog.tlk")
+        ),
+        "file",
+        resolve(values.nwnInstallDir, "lang", "en", "data", "dialog.tlk")
+      );
+    }
+
+    for (const [index, hakDirectory] of runtimeValues.hakDirectories.entries()) {
+      const field = `hakDirectories.${index}`;
+      if (!resolution.unresolvedFields.has(field)) {
+        await appendPathIssue(
+          issues,
+          field,
+          hakDirectory,
+          "directory",
+          values.hakDirectories[index]
+        );
+      }
+    }
+    if (
+      runtimeValues.auroraReferenceDir &&
+      !resolution.unresolvedFields.has("auroraReferenceDir")
+    ) {
+      await appendPathIssue(
+        issues,
+        "auroraReferenceDir",
+        runtimeValues.auroraReferenceDir,
+        "directory",
+        values.auroraReferenceDir
+      );
+    }
+    for (const [index, sourceDirectory] of runtimeValues.itemGeneratorSourceDirectories.entries()) {
+      const field = `itemGeneratorSourceDirectories.${index}`;
+      if (!resolution.unresolvedFields.has(field)) {
+        await appendPathIssue(
+          issues,
+          field,
+          sourceDirectory,
+          "directory",
+          values.itemGeneratorSourceDirectories[index]
+        );
+      }
+    }
+
+    if (!values.moduleDecompiledPath && !values.modulePackedPath) {
+      issues.push({
+        field: "moduleDecompiledPath",
+        code: "MODULE_SOURCE_REQUIRED",
+        message: "Configure either a decompiled module directory or a packed module file."
+      });
+    } else {
+      if (
+        runtimeValues.moduleDecompiledPath &&
+        !resolution.unresolvedFields.has("moduleDecompiledPath")
+      ) {
+        await appendPathIssue(
+          issues,
+          "moduleDecompiledPath",
+          runtimeValues.moduleDecompiledPath,
+          "directory",
+          values.moduleDecompiledPath
+        );
+      }
+      if (
+        runtimeValues.modulePackedPath &&
+        !resolution.unresolvedFields.has("modulePackedPath")
+      ) {
+        await appendPathIssue(
+          issues,
+          "modulePackedPath",
+          runtimeValues.modulePackedPath,
+          "file",
+          values.modulePackedPath
+        );
+      }
+    }
+
+    return {
+      ready: issues.length === 0,
+      issues,
+      values,
+      environment: getRuntimePathEnvironment()
+    };
+  }
+
+  async saveRuntimePathOnboarding(
+    input: RuntimePathOnboardingInput,
+    updatedBy: string
+  ): Promise<RuntimePathReadiness> {
+    const readiness = await this.validateRuntimePathOnboarding(input);
+    if (!readiness.ready) {
+      throw new AppException({
+        status: 422,
+        code: "VALIDATION_FAILED",
+        message: "Runtime path validation failed.",
+        details: readiness.issues.map((issue) => ({
+          path: issue.field,
+          reason: issue.message,
+          reasonCode: issue.code
+        }))
+      });
+    }
+
+    const candidate = await this.buildRuntimePathOnboardingCandidate(
+      readiness.values,
+      updatedBy
+    );
+    await this.persistRuntimeSettingsRecord(candidate);
+    return readiness;
+  }
+
+  async buildRuntimePathOnboardingCandidate(
+    input: RuntimePathOnboardingInput,
+    updatedBy: string
+  ): Promise<RuntimeSettingsRecord> {
+    const readiness = await this.validateRuntimePathOnboarding(input);
+    if (!readiness.ready) {
+      throw new AppException({
+        status: 422,
+        code: "VALIDATION_FAILED",
+        message: "Runtime path validation failed.",
+        details: readiness.issues.map((issue) => ({
+          path: issue.field,
+          reason: issue.message,
+          reasonCode: issue.code
+        }))
+      });
+    }
+    const current = await this.repository.get();
+    const values = readiness.values;
+    const runtimeValues = resolveRuntimePathOnboardingInput(values).values;
+    return {
+      ...current,
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+      paths: {
+        ...current.paths,
+        hostPaths: values,
+        nwnUserDir: runtimeValues.nwnUserDir,
+        nwnInstallDir: runtimeValues.nwnInstallDir,
+        auroraReferenceDir: runtimeValues.auroraReferenceDir,
+        hakDirectories: runtimeValues.hakDirectories,
+        itemGeneratorSourceDirectories:
+          runtimeValues.itemGeneratorSourceDirectories,
+        vanillaDataPath: resolve(runtimeValues.nwnInstallDir, "data"),
+        hakDirectoryPath:
+          runtimeValues.hakDirectories[0] ??
+          resolve(runtimeValues.nwnUserDir, "hak"),
+        moduleDecompiledPath: runtimeValues.moduleDecompiledPath,
+        modulePackedPath: runtimeValues.modulePackedPath,
+        tlkBasePath: resolve(
+          runtimeValues.nwnInstallDir,
+          "lang",
+          "en",
+          "data",
+          "dialog.tlk"
+        ),
+        tlkCustomPath:
+          runtimeValues.tlkCustomPath ?? current.paths.tlkCustomPath
+      },
+      blobStorage: {
+        ...current.blobStorage,
+        modulePrefix: resolveBaseModulePrefix(current.blobStorage.modulePrefix)
+      }
+    };
+  }
+
+  private toOnboardingInput(settings: RuntimeSettingsRecord): RuntimePathOnboardingInput {
+    const legacyNwnUserDir = dirname(resolveFilePath(settings.paths.hakDirectoryPath));
+    const legacyNwnInstallDir = dirname(resolveFilePath(settings.paths.vanillaDataPath));
+    const storedHostPaths = settings.paths.hostPaths;
+    const displayPath = (runtimePath: string, storedPath?: string) => {
+      const translated = translateRuntimePathToHost(runtimePath);
+      if (translated !== runtimePath) {
+        return translated;
+      }
+      return storedPath && !storedPath.replace(/\\/gu, "/").startsWith("/host/")
+        ? storedPath
+        : translated;
+    };
+    return normalizeRuntimePathOnboardingInput({
+      nwnUserDir: displayPath(
+        settings.paths.nwnUserDir || legacyNwnUserDir,
+        storedHostPaths?.nwnUserDir
+      ),
+      nwnInstallDir: displayPath(
+        settings.paths.nwnInstallDir || legacyNwnInstallDir,
+        storedHostPaths?.nwnInstallDir
+      ),
+      auroraReferenceDir: displayPath(
+        settings.paths.auroraReferenceDir ?? "",
+        storedHostPaths?.auroraReferenceDir
+      ),
+      hakDirectories:
+        (settings.paths.hakDirectories?.length ?? 0) > 0
+          ? (settings.paths.hakDirectories ?? []).map((path, index) =>
+              displayPath(path, storedHostPaths?.hakDirectories[index])
+            )
+          : [
+              displayPath(
+                settings.paths.hakDirectoryPath,
+                storedHostPaths?.hakDirectories[0]
+              )
+            ],
+      itemGeneratorSourceDirectories:
+        settings.paths.itemGeneratorSourceDirectories?.map((path, index) =>
+          displayPath(
+            path,
+            storedHostPaths?.itemGeneratorSourceDirectories[index]
+          )
+        ) ?? storedHostPaths?.itemGeneratorSourceDirectories ?? [],
+      moduleDecompiledPath: displayPath(
+        settings.paths.moduleDecompiledPath,
+        storedHostPaths?.moduleDecompiledPath
+      ),
+      modulePackedPath: displayPath(
+        settings.paths.modulePackedPath,
+        storedHostPaths?.modulePackedPath
+      ),
+      tlkCustomPath: displayPath(
+        settings.paths.tlkCustomPath,
+        storedHostPaths?.tlkCustomPath
+      )
+    });
   }
 
   async getResolvedHakSettings(): Promise<ResolvedHakSettingsByAsset> {
@@ -526,6 +889,232 @@ export class RuntimeSettingsApplicationService {
     await this.repository.save(next);
     this.clearTextureIndexLookupCache();
     return next;
+  }
+
+  async buildRuntimeSettingsCandidate(
+    payload: RuntimeSettingsPayload,
+    updatedBy: string
+  ): Promise<RuntimeSettingsRecord> {
+    const current = await this.repository.get();
+    const candidate: RuntimeSettingsRecord = {
+      ...payload,
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+      blobStorage: {
+        ...payload.blobStorage,
+        modulePrefix: resolveBaseModulePrefix(payload.blobStorage.modulePrefix)
+      }
+    };
+    const readiness = await this.validateRuntimePathOnboarding(
+      this.toOnboardingInput(candidate)
+    );
+    if (!readiness.ready) {
+      throw new AppException({
+        status: 422,
+        code: "VALIDATION_FAILED",
+        message: "Runtime path validation failed.",
+        details: readiness.issues.map((issue) => ({
+          path: issue.field,
+          reason: issue.message,
+          reasonCode: issue.code
+        }))
+      });
+    }
+    const runtimeValues = resolveRuntimePathOnboardingInput(
+      readiness.values
+    ).values;
+    return {
+      ...candidate,
+      paths: {
+        ...candidate.paths,
+        hostPaths: readiness.values,
+        nwnUserDir: runtimeValues.nwnUserDir,
+        nwnInstallDir: runtimeValues.nwnInstallDir,
+        auroraReferenceDir: runtimeValues.auroraReferenceDir,
+        hakDirectories: runtimeValues.hakDirectories,
+        itemGeneratorSourceDirectories:
+          runtimeValues.itemGeneratorSourceDirectories,
+        vanillaDataPath: resolve(runtimeValues.nwnInstallDir, "data"),
+        hakDirectoryPath:
+          runtimeValues.hakDirectories[0] ??
+          resolve(runtimeValues.nwnUserDir, "hak"),
+        moduleDecompiledPath: runtimeValues.moduleDecompiledPath,
+        modulePackedPath: runtimeValues.modulePackedPath,
+        tlkBasePath: resolve(
+          runtimeValues.nwnInstallDir,
+          "lang",
+          "en",
+          "data",
+          "dialog.tlk"
+        ),
+        tlkCustomPath: runtimeValues.tlkCustomPath ?? ""
+      }
+    };
+  }
+
+  async persistRuntimeSettingsRecord(
+    settings: RuntimeSettingsRecord
+  ): Promise<RuntimeSettingsRecord> {
+    await this.repository.save(settings);
+    this.clearTextureIndexLookupCache();
+    return settings;
+  }
+
+  async buildRuntimeInputFingerprint(
+    settings: RuntimeSettingsRecord
+  ): Promise<RuntimeInputFingerprintResult> {
+    const baseSettings = withBaseModulePrefix(settings);
+    const source = await this.loadModuleSourceFiles(baseSettings);
+    const supplement = await this.loadSourceSupplementFiles(baseSettings);
+    const files: PackedModuleFile[] = [
+      ...source.files,
+      ...toPackedModuleFileList(supplement.textureFiles),
+      ...supplement.placeableAssetFiles,
+      ...supplement.creatureTemplateFiles,
+      ...supplement.soundAssetFiles
+    ];
+    const hash = createHash("sha256");
+    hash.update("aurora-runtime-input/v1\n");
+    hash.update(
+      stableStringify({
+        paths: {
+          nwnUserDir: baseSettings.paths.nwnUserDir ?? "",
+          nwnInstallDir: baseSettings.paths.nwnInstallDir ?? "",
+          auroraReferenceDir: baseSettings.paths.auroraReferenceDir ?? "",
+          hakDirectories: baseSettings.paths.hakDirectories ?? [],
+          itemGeneratorSourceDirectories:
+            baseSettings.paths.itemGeneratorSourceDirectories ?? [],
+          vanillaDataPath: baseSettings.paths.vanillaDataPath,
+          hakDirectoryPath: baseSettings.paths.hakDirectoryPath,
+          moduleDecompiledPath: baseSettings.paths.moduleDecompiledPath,
+          modulePackedPath: baseSettings.paths.modulePackedPath,
+          tlkBasePath: baseSettings.paths.tlkBasePath,
+          tlkCustomPath: baseSettings.paths.tlkCustomPath
+        },
+        hakProfiles: baseSettings.hakProfiles,
+        sources: baseSettings.sources,
+        moduleBasePrefix: baseSettings.blobStorage.modulePrefix,
+        versions: {
+          runtimeInput: "v1",
+          textureIndex: "texture-index/v1",
+          derivedAssets: AURORA_MDL_TO_GLB_CONVERTER_VERSION
+        }
+      })
+    );
+    hash.update("\n");
+    let sourceBytes = 0;
+    files.forEach((file, index) => {
+      const bytes = Buffer.from(file.bytes);
+      sourceBytes += bytes.length;
+      hash.update(String(index));
+      hash.update("\n");
+      hash.update(normalizeRelativePath(file.fileName));
+      hash.update("\n");
+      hash.update(String(file.resourceType));
+      hash.update("\n");
+      hash.update(String(bytes.length));
+      hash.update("\n");
+      hash.update(createHash("sha256").update(bytes).digest("hex"));
+      hash.update("\n");
+    });
+    return {
+      fingerprint: hash.digest("hex"),
+      sourceType: source.type,
+      sourcePath: source.path,
+      sourceFiles: files.length,
+      sourceBytes
+    };
+  }
+
+  async validateRuntimeCacheIntegrity(
+    settings: RuntimeSettingsRecord,
+    expected?: { moduleHash?: string; totalFiles?: number }
+  ): Promise<RuntimeCacheIntegrityResult> {
+    if (!extractGenerationFromPrefix(settings.blobStorage.modulePrefix)) {
+      return {
+        valid: false,
+        reason: "missing_generation",
+        totalFiles: 0
+      };
+    }
+    const snapshot = await this.moduleBlobStorage.listModuleSnapshot(
+      settings.blobStorage,
+      { limit: 50_000 }
+    );
+    if (snapshot.truncated) {
+      return {
+        valid: false,
+        reason: "truncated_snapshot",
+        moduleHash: snapshot.moduleHash,
+        totalFiles: snapshot.totalFiles
+      };
+    }
+    if (snapshot.totalFiles === 0) {
+      return {
+        valid: false,
+        reason: "empty_snapshot",
+        moduleHash: snapshot.moduleHash,
+        totalFiles: 0
+      };
+    }
+    if (!snapshot.moduleHash) {
+      return {
+        valid: false,
+        reason: "missing_manifest_hash",
+        totalFiles: snapshot.totalFiles
+      };
+    }
+    if (
+      snapshot.manifestFileCount !== undefined &&
+      snapshot.totalFiles !== snapshot.manifestFileCount
+    ) {
+      return {
+        valid: false,
+        reason: "file_count_mismatch",
+        moduleHash: snapshot.moduleHash,
+        totalFiles: snapshot.totalFiles
+      };
+    }
+    if (expected?.moduleHash && snapshot.moduleHash !== expected.moduleHash) {
+      return {
+        valid: false,
+        reason: "module_hash_mismatch",
+        moduleHash: snapshot.moduleHash,
+        totalFiles: snapshot.totalFiles
+      };
+    }
+    if (
+      expected?.totalFiles !== undefined &&
+      snapshot.totalFiles !== expected.totalFiles
+    ) {
+      return {
+        valid: false,
+        reason: "file_count_mismatch",
+        moduleHash: snapshot.moduleHash,
+        totalFiles: snapshot.totalFiles
+      };
+    }
+    return {
+      valid: true,
+      reason: "ok",
+      moduleHash: snapshot.moduleHash,
+      totalFiles: snapshot.totalFiles
+    };
+  }
+
+  buildGenerationSettings(
+    settings: RuntimeSettingsRecord,
+    generation: string
+  ): RuntimeSettingsRecord {
+    const basePrefix = resolveBaseModulePrefix(settings.blobStorage.modulePrefix);
+    return {
+      ...structuredClone(settings),
+      blobStorage: {
+        ...settings.blobStorage,
+        modulePrefix: `${basePrefix}/__generations/${generation}`
+      }
+    };
   }
 
   async getModuleBlobCacheSummary(limit?: number): Promise<ModuleBlobSnapshotSummary> {
@@ -655,6 +1244,7 @@ export class RuntimeSettingsApplicationService {
         extension: entry.extension,
         contentType: inferTextureContentType(entry.extension),
         sizeBytes: entry.sizeBytes,
+        contentSha256: entry.sha256,
         source: entry.source,
         sourcePath: entry.sourcePath,
         deliveryPath: buildTextureDeliveryPath(entry.textureId),
@@ -721,6 +1311,17 @@ export class RuntimeSettingsApplicationService {
     }
   ): Promise<ModuleBlobSyncEnvelope> {
     const settings = await this.repository.get();
+    return this.syncModuleBlobCacheForSettings(settings, triggeredBy, options);
+  }
+
+  async syncModuleBlobCacheForSettings(
+    settings: RuntimeSettingsRecord,
+    triggeredBy: string,
+    options?: {
+      forceFull?: boolean;
+      baselineSettings?: RuntimeSettingsRecord;
+    }
+  ): Promise<ModuleBlobSyncEnvelope> {
     const source = await this.loadModuleSourceFiles(settings);
     const moduleTextureFiles = collectTextureFilesFromPackedFiles(source.files, "module");
     const supplement = await this.loadSourceSupplementFiles(settings);
@@ -728,7 +1329,8 @@ export class RuntimeSettingsApplicationService {
     const textureIndex = buildTextureIndexRecord(
       settings.revision,
       settings.blobStorage.modulePrefix,
-      textureFiles
+      textureFiles,
+      settings.updatedAt
     );
     const textureIndexObjectKey = `${normalizeBlobPrefix(settings.blobStorage.modulePrefix)}${TEXTURE_INDEX_FILE_NAME}`;
     const textureIndexFile: PackedModuleFile = {
@@ -750,7 +1352,8 @@ export class RuntimeSettingsApplicationService {
       settings.blobStorage,
       allFiles,
       {
-        forceFull: options?.forceFull === true
+        forceFull: options?.forceFull === true,
+        baselineSettings: options?.baselineSettings?.blobStorage
       }
     );
     this.primeTextureIndexLookupCache(settings, textureIndexObjectKey, textureIndex);
@@ -956,7 +1559,6 @@ export class RuntimeSettingsApplicationService {
       const tileHakPaths = resolveHakSettingsByAsset(settings, moduleIfoHakList).tile.hakPaths;
       const hakTilesetSetFiles = await readHakTilesetSetAssets(
         tileHakPaths,
-        this.packedModuleExtractor,
         this.logger
       );
       for (const file of hakTilesetSetFiles) {
@@ -1004,7 +1606,8 @@ export class RuntimeSettingsApplicationService {
 
   async syncVanillaTileModelSources(
     triggeredBy: string,
-    modelResRefs: string[]
+    modelResRefs: string[],
+    directTextureResRefs: string[] = []
   ): Promise<VanillaTileModelSourceSyncEnvelope> {
     const settings = await this.repository.get();
     const vanillaDataPath = resolveFilePath(settings.paths.vanillaDataPath.trim());
@@ -1104,23 +1707,32 @@ export class RuntimeSettingsApplicationService {
       missingModelResRefs = vanillaResult.missingModelResRefs;
     }
     const sourceFiles = [...sourceFilesByName.values()];
-    const requestedTextureResRefs = collectTileModelTextureReferences(
-      requestedModelResRefs,
-      sourceFiles
-    );
+    const requestedTextureResRefs = normalizeRequestedTextureResrefs([
+      ...collectTileModelTextureReferences(requestedModelResRefs, sourceFiles),
+      ...directTextureResRefs
+    ]);
     const textureFilesByName = new Map<string, TextureSourceFile>();
-    if (requestedTextureResRefs.length > 0 && settings.sources.tile.includeHaks) {
-      const hakTextureFiles = await readHakTextureAssets(
-        tileHakPaths,
-        requestedTextureResRefs,
-        this.logger
-      );
-      for (const file of hakTextureFiles) {
-        textureFilesByName.set(file.fileName, file);
+    const resolvedTextureResRefs = new Set<string>();
+    const loadTextureSources = async (textureResRefs: string[]): Promise<void> => {
+      const normalizedTextureResRefs = normalizeRequestedTextureResrefs(textureResRefs);
+      if (normalizedTextureResRefs.length === 0) {
+        return;
       }
-    }
-    if (requestedTextureResRefs.length > 0 && settings.sources.tile.includeVanilla) {
-      const missingTextureResRefs = requestedTextureResRefs.filter(
+      normalizedTextureResRefs.forEach((resref) => resolvedTextureResRefs.add(resref));
+      if (settings.sources.tile.includeHaks) {
+        const hakTextureFiles = await readHakTextureAssets(
+          tileHakPaths,
+          normalizedTextureResRefs,
+          this.logger
+        );
+        for (const file of hakTextureFiles) {
+          textureFilesByName.set(file.fileName, file);
+        }
+      }
+      if (!settings.sources.tile.includeVanilla) {
+        return;
+      }
+      const missingTextureResRefs = normalizedTextureResRefs.filter(
         (resref) => !hasTextureSourceForResref(textureFilesByName.values(), resref)
       );
       if (missingTextureResRefs.length > 0) {
@@ -1135,13 +1747,38 @@ export class RuntimeSettingsApplicationService {
           }
         }
       }
+    };
+    await loadTextureSources(requestedTextureResRefs);
+    // Aurora MTR files are material manifests, not browser-decodable images.
+    // Resolve their authored texture slots and sync those raster resources as
+    // part of the same targeted tile operation. A small bounded loop supports
+    // nested material manifests without allowing malformed content to recurse.
+    for (let depth = 0; depth < 4; depth += 1) {
+      const materialDependencies = collectAuroraMtrTextureReferencesFromFiles(
+        textureFilesByName.values()
+      ).filter((resref) => !resolvedTextureResRefs.has(resref));
+      if (materialDependencies.length === 0) {
+        break;
+      }
+      await loadTextureSources(materialDependencies);
     }
     const textureFiles = [...textureFilesByName.values()];
     const derivedAssets = await this.generateDerivedAssetFiles(settings, sourceFiles);
+    const derivedAssetFileNames = new Set(
+      derivedAssets.files.map((file) => file.fileName)
+    );
     const storedFiles: VanillaTileModelSourceSyncEnvelope["files"] = [];
     let uploadedBytes = 0;
     for (const file of [...textureFiles, ...sourceFiles, ...derivedAssets.files]) {
       const stored = await this.moduleBlobStorage.putModuleObject(settings.blobStorage, file);
+      if (derivedAssetFileNames.has(file.fileName)) {
+        await waitForStoredModuleObjectBytes(
+          this.moduleBlobStorage,
+          settings.blobStorage,
+          stored.key,
+          file.bytes
+        );
+      }
       uploadedBytes += stored.size;
       storedFiles.push({
         fileName: file.fileName,
@@ -1264,6 +1901,13 @@ export class RuntimeSettingsApplicationService {
           appearanceModelByRowId.set(rowId, modelResRef);
         }
       }
+      const hakTemplates = await readHakPlaceableTemplateAssets(
+        placeableHakPaths,
+        this.logger
+      );
+      for (const file of hakTemplates) {
+        sourceFilesByName.set(file.fileName, file);
+      }
     }
 
     if (settings.sources.placeable.includeVanilla) {
@@ -1277,6 +1921,13 @@ export class RuntimeSettingsApplicationService {
             appearanceModelByRowId.set(rowId, modelResRef);
           }
         }
+      }
+      const vanillaTemplates = await readVanillaPlaceableTemplateAssetsFromKeyBif(
+        vanillaDataPath,
+        this.logger
+      );
+      for (const file of vanillaTemplates) {
+        sourceFilesByName.set(file.fileName, file);
       }
     }
 
@@ -1893,7 +2544,7 @@ export class RuntimeSettingsApplicationService {
           vanillaTextures += vanillaTextureFilesByName.size;
         }
         if (settings.sources.placeable.includeVanilla) {
-          const vanillaPlaceableAssets = await readVanillaPlaceableAssetsFromKeyBif(
+          const vanillaPlaceableAssets = await readVanillaPlaceableCatalogAssetsFromKeyBif(
             vanillaRoot,
             this.logger
           );
@@ -2075,7 +2726,8 @@ export class RuntimeSettingsApplicationService {
     const incomingRecord = buildTextureIndexRecord(
       settings.revision,
       settings.blobStorage.modulePrefix,
-      textureFiles
+      textureFiles,
+      settings.updatedAt
     );
     for (const entry of incomingRecord.entries) {
       nextEntriesByObjectKey.set(entry.objectKey, entry);
@@ -2084,7 +2736,8 @@ export class RuntimeSettingsApplicationService {
     const nextRecord = buildTextureIndexRecordFromEntries(
       settings.revision,
       settings.blobStorage.modulePrefix,
-      [...nextEntriesByObjectKey.values()]
+      [...nextEntriesByObjectKey.values()],
+      settings.updatedAt
     );
     const indexFile: PackedModuleFile = {
       fileName: TEXTURE_INDEX_FILE_NAME,
@@ -2145,7 +2798,7 @@ export function resolveHakSettingsByAsset(
           ? DEFAULT_ITEM_SOURCE_SETTINGS
           : settings.sources.placeable);
     resolved[assetKind] = resolveSingleSourceHakSettings(
-      settings.paths.hakDirectoryPath,
+      resolveHakDirectories(settings.paths),
       settings.hakProfiles,
       source,
       assetKind === "placeable" || assetKind === "creature" || assetKind === "tile"
@@ -2158,7 +2811,7 @@ export function resolveHakSettingsByAsset(
 }
 
 function resolveSingleSourceHakSettings(
-  hakDirectoryPath: string,
+  hakDirectoryPaths: string[],
   hakProfiles: Record<string, string[]>,
   source: RuntimeSourceSettings,
   fallbackHakList: string[] = []
@@ -2180,7 +2833,7 @@ function resolveSingleSourceHakSettings(
       includeHaks: true,
       hakProfileId: source.hakProfileId.trim() || null,
       hakPriorityList: list,
-      hakPaths: list.map((hakEntry) => resolveHakPath(hakDirectoryPath, hakEntry))
+      hakPaths: resolveHakPaths(hakDirectoryPaths, list)
     };
   }
 
@@ -2191,7 +2844,7 @@ function resolveSingleSourceHakSettings(
       includeHaks: true,
       hakProfileId: source.hakProfileId.trim() || null,
       hakPriorityList: list,
-      hakPaths: list.map((hakEntry) => resolveHakPath(hakDirectoryPath, hakEntry))
+      hakPaths: resolveHakPaths(hakDirectoryPaths, list)
     };
   }
 
@@ -2204,7 +2857,7 @@ function resolveSingleSourceHakSettings(
         includeHaks: true,
         hakProfileId,
         hakPriorityList: list,
-        hakPaths: list.map((hakEntry) => resolveHakPath(hakDirectoryPath, hakEntry))
+        hakPaths: resolveHakPaths(hakDirectoryPaths, list)
       };
     }
   }
@@ -2241,7 +2894,7 @@ async function readFileIfExists(pathValue: string): Promise<Buffer | null> {
   }
 }
 
-function extractModuleIfoHakList(bytes: Buffer): string[] {
+export function extractModuleIfoHakList(bytes: Buffer): string[] {
   try {
     const header = parseGffHeader(bytes);
     const labels = parseGffLabels(bytes, header);
@@ -2286,6 +2939,9 @@ function extractModuleIfoHakList(bytes: Buffer): string[] {
       }
     }
 
+    // Preserve the serialized IFO order. Exact retail conflict precedence is
+    // still an Aurora-first research gap (R79 H4/G6), so the parser must not
+    // synthesize a reversed canonical order from a secondary implementation.
     return deduplicateOrdered(raw);
   } catch {
     return [];
@@ -2523,12 +3179,28 @@ function deduplicateOrdered(values: string[]): string[] {
   return ordered;
 }
 
-function resolveHakPath(hakDirectoryPath: string, entry: string): string {
-  const normalizedEntry = normalizeHakPathEntry(entry);
-  const resolvedHakDirectoryPath = resolveFilePath(hakDirectoryPath);
-  return isAbsolute(normalizedEntry)
-    ? resolveFilePath(normalizedEntry)
-    : resolve(resolvedHakDirectoryPath, normalizedEntry);
+function resolveHakDirectories(
+  paths: Pick<RuntimeSettingsRecord["paths"], "hakDirectoryPath" | "hakDirectories">
+): string[] {
+  return deduplicateOrdered(
+    [...(paths.hakDirectories ?? []), paths.hakDirectoryPath]
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+  );
+}
+
+function resolveHakPaths(hakDirectoryPaths: string[], entries: string[]): string[] {
+  return deduplicateOrdered(
+    entries.flatMap((entry) => {
+      const normalizedEntry = normalizeHakPathEntry(entry);
+      if (isAbsolute(normalizedEntry)) {
+        return [resolveFilePath(normalizedEntry)];
+      }
+      return hakDirectoryPaths.map((directory) =>
+        resolve(resolveFilePath(directory), normalizedEntry)
+      );
+    })
+  );
 }
 
 function normalizeHakPathEntry(entry: string): string {
@@ -2547,6 +3219,261 @@ function resolveModulePath(pathValue: string): string {
 function resolveFilePath(pathValue: string): string {
   const hostLocalPath = resolveHostLocalMountedPath(pathValue);
   return hostLocalPath ?? (isAbsolute(pathValue) ? pathValue : resolve(process.cwd(), pathValue));
+}
+
+interface RuntimePathOnboardingResolution {
+  values: RuntimePathOnboardingInput;
+  issues: RuntimePathReadinessIssue[];
+  unresolvedFields: Set<string>;
+}
+
+function runtimePathSettingsNeedUpdate(
+  settings: RuntimeSettingsRecord,
+  hostValues: RuntimePathOnboardingInput
+): boolean {
+  const resolved = resolveRuntimePathOnboardingInput(hostValues);
+  if (resolved.issues.length > 0) {
+    return false;
+  }
+  const expected = resolved.values;
+  const current = settings.paths;
+  return (
+    !sameRuntimePath(current.nwnUserDir ?? "", expected.nwnUserDir) ||
+    !sameRuntimePath(current.nwnInstallDir ?? "", expected.nwnInstallDir) ||
+    !sameRuntimePath(
+      current.auroraReferenceDir ?? "",
+      expected.auroraReferenceDir
+    ) ||
+    !sameRuntimePathList(
+      current.hakDirectories ?? [],
+      expected.hakDirectories
+    ) ||
+    !sameRuntimePathList(
+      current.itemGeneratorSourceDirectories ?? [],
+      expected.itemGeneratorSourceDirectories
+    ) ||
+    !sameRuntimePath(
+      current.moduleDecompiledPath,
+      expected.moduleDecompiledPath
+    ) ||
+    !sameRuntimePath(current.modulePackedPath, expected.modulePackedPath) ||
+    !sameRuntimePath(
+      current.tlkCustomPath,
+      expected.tlkCustomPath ?? ""
+    )
+  );
+}
+
+function sameRuntimePath(left: string, right: string): boolean {
+  return (
+    left.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") ===
+    right.trim().replace(/\\/gu, "/").replace(/\/+$/u, "")
+  );
+}
+
+function sameRuntimePathList(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => sameRuntimePath(value, right[index] ?? ""))
+  );
+}
+
+function resolveRuntimePathOnboardingInput(
+  values: RuntimePathOnboardingInput
+): RuntimePathOnboardingResolution {
+  const issues: RuntimePathReadinessIssue[] = [];
+  const unresolvedFields = new Set<string>();
+  const translate = (
+    field: string,
+    hostPath: string,
+    preferredVariable: RuntimePathMountVariable,
+    restrictToPreferredMount = false
+  ): string => {
+    const result = translateHostPathToRuntime(hostPath, preferredVariable, {
+      restrictToPreferredMount
+    });
+    if (result.ok) {
+      return result.runtimePath;
+    }
+    unresolvedFields.add(field);
+    issues.push({
+      field,
+      code: result.issue.code,
+      message: result.issue.message,
+      envVariable: result.issue.envVariable,
+      hostPath: result.issue.hostPath,
+      runtimePath: result.issue.runtimePath
+    });
+    return "";
+  };
+
+  return {
+    values: {
+      nwnUserDir: translate(
+        "nwnUserDir",
+        values.nwnUserDir,
+        "NWN_USER_DIR_HOST",
+        true
+      ),
+      nwnInstallDir: translate(
+        "nwnInstallDir",
+        values.nwnInstallDir,
+        "NWN_INSTALL_DIR_HOST",
+        true
+      ),
+      auroraReferenceDir: translate(
+        "auroraReferenceDir",
+        values.auroraReferenceDir,
+        "AURORA_REFERENCE_DIR_HOST",
+        true
+      ),
+      hakDirectories: values.hakDirectories.map((path, index) =>
+        translate(
+          `hakDirectories.${index}`,
+          path,
+          "NWN_USER_DIR_HOST"
+        )
+      ),
+      itemGeneratorSourceDirectories:
+        values.itemGeneratorSourceDirectories.map((path, index) =>
+          translate(
+            `itemGeneratorSourceDirectories.${index}`,
+            path,
+            "AURORA_REFERENCE_DIR_HOST"
+          )
+        ),
+      moduleDecompiledPath: translate(
+        "moduleDecompiledPath",
+        values.moduleDecompiledPath,
+        "NWN_USER_DIR_HOST"
+      ),
+      modulePackedPath: translate(
+        "modulePackedPath",
+        values.modulePackedPath,
+        "NWN_USER_DIR_HOST"
+      ),
+      tlkCustomPath: translate(
+        "tlkCustomPath",
+        values.tlkCustomPath ?? "",
+        "NWN_USER_DIR_HOST"
+      )
+    },
+    issues,
+    unresolvedFields
+  };
+}
+
+function normalizeRuntimePathOnboardingInput(
+  input: RuntimePathOnboardingInput
+): RuntimePathOnboardingInput {
+  return {
+    nwnUserDir: input.nwnUserDir.trim(),
+    nwnInstallDir: input.nwnInstallDir.trim(),
+    auroraReferenceDir: input.auroraReferenceDir.trim(),
+    hakDirectories: normalizePathList(input.hakDirectories),
+    itemGeneratorSourceDirectories: normalizePathList(input.itemGeneratorSourceDirectories),
+    moduleDecompiledPath: input.moduleDecompiledPath.trim(),
+    modulePackedPath: input.modulePackedPath.trim(),
+    tlkCustomPath: input.tlkCustomPath?.trim() ?? ""
+  };
+}
+
+export async function waitForStoredModuleObjectBytes(
+  storage: ModuleBlobStoragePort,
+  settings: RuntimeSettingsRecord["blobStorage"],
+  objectKey: string,
+  expectedBytes: Buffer
+): Promise<void> {
+  let observed = await storage.getModuleObject(settings, objectKey);
+  if (observed?.bytes.equals(expectedBytes)) {
+    return;
+  }
+
+  for (const delayMs of MODULE_OBJECT_READ_AFTER_WRITE_DELAYS_MS) {
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, delayMs));
+    observed = await storage.getModuleObject(settings, objectKey);
+    if (observed?.bytes.equals(expectedBytes)) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `Module object read-after-write verification failed for ${objectKey}.`
+  );
+}
+
+function normalizePathList(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))
+  );
+}
+
+async function appendPathIssue(
+  issues: RuntimePathReadinessIssue[],
+  field: string,
+  configuredPath: string,
+  expectedType: "file" | "directory",
+  displayPath = configuredPath
+): Promise<void> {
+  const resolvedPath = resolveFilePath(configuredPath);
+  try {
+    const metadata = await stat(resolvedPath);
+    if (expectedType === "directory" && !metadata.isDirectory()) {
+      issues.push({
+        field,
+        code: "PATH_NOT_DIRECTORY",
+        message: `Expected a directory: ${displayPath}`
+      });
+    }
+    if (expectedType === "file" && !metadata.isFile()) {
+      issues.push({
+        field,
+        code: "PATH_NOT_FILE",
+        message: `Expected a file: ${displayPath}`
+      });
+    }
+  } catch {
+    const mountRoot = findMissingMountRoot(configuredPath);
+    const envVariable = mountRoot
+      ? runtimeMountVariableForPath(mountRoot)
+      : undefined;
+    const environmentMount = envVariable
+      ? getRuntimePathEnvironment().mounts.find(
+          (mount) => mount.envVariable === envVariable
+        )
+      : undefined;
+    issues.push({
+      field,
+      code: mountRoot && !(await existsAsDirectory(mountRoot))
+        ? "MOUNT_NOT_AVAILABLE"
+        : "PATH_NOT_FOUND",
+      message: mountRoot
+        ? `The real host path ${displayPath} is configured, but its Docker mount is not available to the backend.`
+        : `Path does not exist: ${displayPath}`,
+      ...(envVariable
+        ? {
+            envVariable,
+            hostPath: environmentMount?.hostPath ?? displayPath,
+            runtimePath: mountRoot ?? configuredPath
+          }
+        : {})
+    });
+  }
+}
+
+function findMissingMountRoot(pathValue: string): string | null {
+  const normalized = pathValue.trim().replace(/\\/gu, "/");
+  for (const mountRoot of [
+    "/host/nwn-user",
+    "/host/nwn-game",
+    "/host/aurora-reference",
+    "/host/nwn-docs"
+  ]) {
+    if (normalized === mountRoot || normalized.startsWith(`${mountRoot}/`)) {
+      return mountRoot;
+    }
+  }
+  return null;
 }
 
 async function readDecompiledModuleFiles(rootPath: string): Promise<PackedModuleFile[]> {
@@ -2909,7 +3836,7 @@ async function readSoundFilesFromDirectory(
   return files;
 }
 
-async function readVanillaPlaceableAssetsFromKeyBif(
+async function readVanillaPlaceableCatalogAssetsFromKeyBif(
   vanillaRoot: string,
   logger: Logger
 ): Promise<PackedModuleFile[]> {
@@ -2929,40 +3856,27 @@ async function readVanillaPlaceableAssetsFromKeyBif(
   }
 
   const twoDaFiles = await readVanillaPlaceableTwoDaSourceFiles(reader);
-  const placeables2daBytes = twoDaFiles.find(
-    (file) => basename(file.fileName).trim().toLowerCase() === "placeables.2da"
-  )?.bytes;
-  if (!placeables2daBytes) {
-    return [];
-  }
-
   const filesByName = new Map<string, PackedModuleFile>();
   for (const file of twoDaFiles) {
     filesByName.set(file.fileName, file);
   }
 
-  const modelResrefs = parsePlaceableModelResrefsFromTwoDa(placeables2daBytes);
-  for (const resref of modelResrefs) {
-    for (const assetType of VANILLA_PLACEABLE_RELATED_RESOURCE_TYPES) {
-      if (!reader.has(resref, assetType.resourceType)) {
-        continue;
-      }
+  for (const resource of reader.list(NWN_KEY_BIF_RESOURCE_TYPES.UTP)) {
+    const bytes = await reader.read(resource.resref, NWN_KEY_BIF_RESOURCE_TYPES.UTP);
+    if (!bytes) {
+      continue;
+    }
 
-      const bytes = await reader.read(resref, assetType.resourceType);
-      if (!bytes) {
-        continue;
-      }
-
-      const fileName = normalizeRelativePath(
-        `__aurora/sources/vanilla/${assetType.directory}/${resref}.${assetType.extension}`
-      );
-      if (!filesByName.has(fileName)) {
-        filesByName.set(fileName, {
-          fileName,
-          resourceType: assetType.resourceType,
-          bytes
-        });
-      }
+    const normalizedResref = sanitizeSegment(resource.resref);
+    const fileName = normalizeRelativePath(
+      `__aurora/sources/vanilla/templates/${normalizedResref}.utp`
+    );
+    if (!filesByName.has(fileName)) {
+      filesByName.set(fileName, {
+        fileName,
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP,
+        bytes
+      });
     }
   }
 
@@ -3120,7 +4034,6 @@ async function readVanillaTilesetSetAssetsFromKeyBif(
 
 async function readHakTilesetSetAssets(
   hakPaths: string[],
-  packedModuleExtractor: PackedModuleExtractorPort,
   logger: Logger
 ): Promise<PackedModuleFile[]> {
   const filesByName = new Map<string, PackedModuleFile>();
@@ -3131,21 +4044,35 @@ async function readHakTilesetSetAssets(
       continue;
     }
     try {
-      const extracted = await packedModuleExtractor.extractFromPackedModule(resolved);
+      // A tiles HAK can contain hundreds of megabytes of MDL/texture data.
+      // The Area tileset index only needs SET entries, so read the ERF key
+      // table and fetch just those resources instead of extracting every byte.
+      const resourceIndex = await readNwnErfResourceIndex(resolved);
+      if (!resourceIndex) {
+        continue;
+      }
       const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
-      for (const asset of extracted) {
-        const extension = extname(asset.fileName).replace(/^\./u, "").toLowerCase();
-        if (extension !== "set") {
+      for (const entry of resourceIndex.values()) {
+        if (entry.resourceType !== NWN_KEY_BIF_RESOURCE_TYPES.SET) {
+          continue;
+        }
+        const bytes = await readNwnErfResourceFromIndex(
+          resolved,
+          resourceIndex,
+          entry.resref,
+          entry.resourceType
+        );
+        if (!bytes) {
           continue;
         }
         const fileName = normalizeRelativePath(
-          `__aurora/sources/hak/${hakName}/${asset.fileName}`
+          `__aurora/sources/hak/${hakName}/${sanitizeSegment(entry.resref)}.set`
         );
         if (!filesByName.has(fileName)) {
           filesByName.set(fileName, {
             fileName,
-            resourceType: asset.resourceType,
-            bytes: Buffer.from(asset.bytes)
+            resourceType: entry.resourceType,
+            bytes: Buffer.from(bytes)
           });
         }
       }
@@ -3174,6 +4101,18 @@ async function readHakTileModelAssets(
       continue;
     }
     const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+    let resourceIndex: Awaited<ReturnType<typeof readNwnErfResourceIndex>>;
+    try {
+      resourceIndex = await readNwnErfResourceIndex(resolved);
+    } catch (error) {
+      logger.warn(
+        `Skipping HAK tile model source because index read failed (${resolved}): ${stringifyError(error)}`
+      );
+      continue;
+    }
+    if (!resourceIndex) {
+      continue;
+    }
     for (const resref of requested) {
       if (foundByResRef.has(resref)) {
         continue;
@@ -3181,13 +4120,22 @@ async function readHakTileModelAssets(
       try {
         let foundAnyForResref = false;
         for (const assetType of VANILLA_TILE_MODEL_RESOURCE_TYPES) {
-          const bytes = await readNwnErfResource(resolved, resref, assetType.resourceType);
+          const bytes = await readNwnErfResourceFromIndex(
+            resolved,
+            resourceIndex,
+            resref,
+            assetType.resourceType
+          );
           if (!bytes) {
             continue;
           }
           foundAnyForResref = true;
           const fileName = normalizeRelativePath(
-            `__aurora/sources/hak/${hakName}/${resref}.${assetType.extension}`
+            // Keep tile-sync payloads in an explicit namespace. The module
+            // snapshot also contains placeable models from HAKs, and a
+            // resref heuristic cannot safely distinguish all legacy tile
+            // naming variants (for example gi_a01_01 and ctx1_w2p_01).
+            `__aurora/sources/tiles/hak/${hakName}/${resref}.${assetType.extension}`
           );
           if (!filesByName.has(fileName)) {
             filesByName.set(fileName, {
@@ -3238,13 +4186,30 @@ async function readHakTextureAssets(
       continue;
     }
     const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+    let resourceIndex: Awaited<ReturnType<typeof readNwnErfResourceIndex>>;
+    try {
+      resourceIndex = await readNwnErfResourceIndex(resolved);
+    } catch (error) {
+      logger.warn(
+        `Skipping HAK texture source because index read failed (${resolved}): ${stringifyError(error)}`
+      );
+      continue;
+    }
+    if (!resourceIndex) {
+      continue;
+    }
     for (const resref of requested) {
       if (foundByResRef.has(resref)) {
         continue;
       }
       try {
         for (const assetType of VANILLA_TEXTURE_RESOURCE_TYPES) {
-          const bytes = await readNwnErfResource(resolved, resref, assetType.resourceType);
+          const bytes = await readNwnErfResourceFromIndex(
+            resolved,
+            resourceIndex,
+            resref,
+            assetType.resourceType
+          );
           if (!bytes) {
             continue;
           }
@@ -3346,6 +4311,60 @@ async function readHakPlaceablesTwoDaAssets(
   };
 }
 
+async function readHakPlaceableTemplateAssets(
+  hakPaths: string[],
+  logger: Logger
+): Promise<PackedModuleFile[]> {
+  const filesByName = new Map<string, PackedModuleFile>();
+
+  for (const hakPath of deduplicateOrdered(hakPaths)) {
+    const resolved = resolveFilePath(hakPath);
+    if (!(await existsAsFile(resolved))) {
+      logger.warn(`Skipping HAK Placeable UTP source because file does not exist: ${resolved}`);
+      continue;
+    }
+
+    try {
+      const resourceIndex = await readNwnErfResourceIndex(resolved);
+      if (!resourceIndex) {
+        continue;
+      }
+      const hakName = sanitizeSegment(basename(resolved, extname(resolved)));
+      for (const entry of resourceIndex.values()) {
+        if (entry.resourceType !== NWN_KEY_BIF_RESOURCE_TYPES.UTP) {
+          continue;
+        }
+        const bytes = await readNwnErfResourceFromIndex(
+          resolved,
+          resourceIndex,
+          entry.resref,
+          entry.resourceType
+        );
+        if (!bytes) {
+          continue;
+        }
+        const normalizedResref = sanitizeSegment(entry.resref);
+        const fileName = normalizeRelativePath(
+          `__aurora/sources/hak/${hakName}/templates/${normalizedResref}.utp`
+        );
+        if (!filesByName.has(fileName)) {
+          filesByName.set(fileName, {
+            fileName,
+            resourceType: entry.resourceType,
+            bytes
+          });
+        }
+      }
+    } catch (error) {
+      logger.warn(
+        `Skipping HAK Placeable UTP source because indexed reading failed (${resolved}): ${stringifyError(error)}`
+      );
+    }
+  }
+
+  return [...filesByName.values()];
+}
+
 async function readVanillaPlaceablesTwoDaAsset(
   vanillaRoot: string,
   logger: Logger
@@ -3380,6 +4399,47 @@ async function readVanillaPlaceablesTwoDaAsset(
     files,
     appearanceModelByRowId: parsePlaceablesAppearanceModelLookup(placeables2da.bytes)
   };
+}
+
+async function readVanillaPlaceableTemplateAssetsFromKeyBif(
+  vanillaRoot: string,
+  logger: Logger
+): Promise<PackedModuleFile[]> {
+  const keyPath = await resolveFirstExistingVanillaKeyFile(vanillaRoot);
+  if (!keyPath) {
+    return [];
+  }
+
+  let reader: NwnKeyBifResourceReader;
+  try {
+    reader = await NwnKeyBifResourceReader.open(keyPath, vanillaRoot);
+  } catch (error) {
+    logger.warn(
+      `Skipping vanilla KEY/BIF Placeable UTP source because KEY parsing failed (${keyPath}): ${stringifyError(error)}`
+    );
+    return [];
+  }
+
+  const filesByName = new Map<string, PackedModuleFile>();
+  for (const resource of reader.list(NWN_KEY_BIF_RESOURCE_TYPES.UTP)) {
+    const bytes = await reader.read(resource.resref, NWN_KEY_BIF_RESOURCE_TYPES.UTP);
+    if (!bytes) {
+      continue;
+    }
+    const normalizedResref = sanitizeSegment(resource.resref);
+    const fileName = normalizeRelativePath(
+      `__aurora/sources/vanilla/templates/${normalizedResref}.utp`
+    );
+    if (!filesByName.has(fileName)) {
+      filesByName.set(fileName, {
+        fileName,
+        resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTP,
+        bytes
+      });
+    }
+  }
+
+  return [...filesByName.values()];
 }
 
 async function shouldScanHakForPlaceableTwoDaSources(hakPath: string): Promise<boolean> {
@@ -3768,6 +4828,42 @@ function collectAuroraMdlTextureReferencesFromFiles(files: PackedModuleFile[]): 
   return [...references].sort((left, right) => left.localeCompare(right));
 }
 
+export function collectAuroraMtrTextureReferencesFromFiles(
+  files: Iterable<PackedModuleFile>
+): string[] {
+  const references = new Set<string>();
+  for (const file of files) {
+    const extension = extname(file.fileName).replace(/^\./u, "").toLowerCase();
+    if (extension !== "mtr") {
+      continue;
+    }
+    const source = Buffer.from(file.bytes).toString("utf-8");
+    for (const line of source.split(/\r?\n/u)) {
+      const withoutComments = line
+        .replace(/\/\/.*$/u, "")
+        .replace(/;.*$/u, "")
+        .trim();
+      if (!withoutComments) {
+        continue;
+      }
+      const tokens = withoutComments.split(/\s+/u);
+      const key = tokens[0]?.toLowerCase() ?? "";
+      if (
+        !/^(?:texture\d+|bitmap|bumpmap|bumpmaptexture|bumpyshinytexture|envmap|envmaptexture|bumpreplacementtexture)$/u.test(
+          key
+        )
+      ) {
+        continue;
+      }
+      const resref = normalizeTextureResref(tokens.slice(1).join(" "));
+      if (resref) {
+        references.add(resref);
+      }
+    }
+  }
+  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
 function collectAuroraMdlTextureReferencesFromFile(
   file: PackedModuleFile,
   references: Set<string>
@@ -3954,14 +5050,20 @@ function toPackedModuleFileList(files: TextureSourceFile[]): PackedModuleFile[] 
 function buildTextureIndexRecord(
   settingsRevision: number,
   modulePrefix: string,
-  files: TextureSourceFile[]
+  files: TextureSourceFile[],
+  generatedAt: string
 ): TextureIndexRecord {
   const normalizedPrefix = normalizeBlobPrefix(modulePrefix);
   const entries = files
     .map((file) => buildTextureIndexEntry(normalizedPrefix, file))
     .sort((left, right) => left.objectKey.localeCompare(right.objectKey));
 
-  return buildTextureIndexRecordFromEntries(settingsRevision, normalizedPrefix, entries);
+  return buildTextureIndexRecordFromEntries(
+    settingsRevision,
+    normalizedPrefix,
+    entries,
+    generatedAt
+  );
 }
 
 function buildTextureIndexEntry(
@@ -3990,7 +5092,8 @@ function buildTextureIndexEntry(
 function buildTextureIndexRecordFromEntries(
   settingsRevision: number,
   modulePrefix: string,
-  entries: TextureIndexEntry[]
+  entries: TextureIndexEntry[],
+  generatedAt = new Date().toISOString()
 ): TextureIndexRecord {
   const normalizedPrefix = normalizeBlobPrefix(modulePrefix);
   const sortedEntries = [...entries].sort((left, right) =>
@@ -4012,7 +5115,7 @@ function buildTextureIndexRecordFromEntries(
 
   return {
     version: "texture-index/v1",
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     settingsRevision,
     modulePrefix: normalizedPrefix,
     totalTextures: sortedEntries.length,
@@ -4028,6 +5131,51 @@ function normalizeBlobPrefix(value: string): string {
     return "";
   }
   return `${trimmed}/`;
+}
+
+export function resolveBaseModulePrefix(value: string): string {
+  const normalized = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
+  const markerIndex = normalized.indexOf("/__generations/");
+  if (markerIndex >= 0) {
+    return normalized.slice(0, markerIndex);
+  }
+  return normalized || "modules/current";
+}
+
+export function extractGenerationFromPrefix(value: string): string | null {
+  const normalized = value.trim().replace(/^\/+/u, "").replace(/\/+$/u, "");
+  const match = normalized.match(/\/__generations\/([^/]+)$/u);
+  return match?.[1] ?? null;
+}
+
+function withBaseModulePrefix(settings: RuntimeSettingsRecord): RuntimeSettingsRecord {
+  return {
+    ...structuredClone(settings),
+    blobStorage: {
+      ...settings.blobStorage,
+      modulePrefix: resolveBaseModulePrefix(settings.blobStorage.modulePrefix)
+    }
+  };
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sortJsonValue(entry));
+  }
+  if (value && typeof value === "object") {
+    const output: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort((left, right) =>
+      left.localeCompare(right)
+    )) {
+      output[key] = sortJsonValue((value as Record<string, unknown>)[key]);
+    }
+    return output;
+  }
+  return value;
 }
 
 function buildTextureIndexLookupCacheKey(

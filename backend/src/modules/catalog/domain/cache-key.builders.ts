@@ -18,7 +18,7 @@ export function buildPlaceableProcessCacheKey(
   return createHash("sha256")
     .update(
       [
-        "placeable-process/v7",
+        "placeable-process/v8",
         AURORA_MDL_TO_GLB_CONVERTER_VERSION,
         templateId,
         resref,

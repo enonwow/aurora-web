@@ -33,7 +33,7 @@ import { Public } from "../../../../auth/adapters/inbound/http/public.decorator"
 import { Permissions } from "../../../../auth/adapters/inbound/http/permissions.decorator";
 import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
-import { parseCatalogListQuery } from "./catalog.schemas";
+import { parseCatalogListQuery, parsePlaceableAppearanceRowsQuery } from "./catalog.schemas";
 import {
   parsePlaceableAssetId,
   parsePlaceableAssetDeliveryBatchPayload,
@@ -88,6 +88,25 @@ export class PlaceablesController extends ProcessingHttpBaseController {
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
     return this.handleParsedQuery(request, query, parseCatalogListQuery, (parsed) =>
       this.service.listPlaceables(parsed)
+    );
+  }
+
+  @Get("appearances")
+  @ApiOperation({ summary: "List a digest-bound page of physical placeables.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Physical Appearance row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listAppearanceRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.handleParsedQuery(request, query, parsePlaceableAppearanceRowsQuery, (parsed) =>
+      this.service.listPlaceableAppearanceRows(parsed)
     );
   }
 

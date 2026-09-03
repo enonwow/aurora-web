@@ -3,6 +3,7 @@ import {
   type SupportedGffField
 } from "../../../../catalog/adapters/outbound/blob/aurora-gff-uti-writer";
 import type { ParsedAreaObjectMetadataPrimitive } from "./aurora-gff-area-parser";
+import { AREA_ITEM_INSTANCE_STATE_FIELDS } from "../../../domain/area-item-instance-state";
 
 export interface SerializableAreaItemPropertyListEntry {
   propertyName?: number;
@@ -37,56 +38,34 @@ const AREA_ITEM_STRUCT_TYPE_ID = 0;
 const ITEM_PROPERTY_STRUCT_TYPE_ID = 0;
 
 const ITEM_NUMBER_FIELD_LABELS = [
-  ["baseItem", "BaseItem", "dword"],
-  ["modelPart1", "ModelPart1", "byte"],
-  ["modelPart2", "ModelPart2", "byte"],
-  ["modelPart3", "ModelPart3", "byte"],
-  ["cost", "Cost", "dword"],
-  ["addCost", "AddCost", "dword"],
-  ["costTable", "CostTable", "dword"],
-  ["costValue", "CostValue", "dword"],
-  ["charges", "Charges", "dword"],
-  ["stackSize", "StackSize", "word"],
-  ["paletteId", "PaletteID", "byte"],
-  ["bodyPartRFoot", "ArmorPart_RFoot", "byte"],
-  ["bodyPartLFoot", "ArmorPart_LFoot", "byte"],
-  ["bodyPartRShin", "ArmorPart_RShin", "byte"],
-  ["bodyPartLShin", "ArmorPart_LShin", "byte"],
-  ["bodyPartLThigh", "ArmorPart_LThigh", "byte"],
-  ["bodyPartRThigh", "ArmorPart_RThigh", "byte"],
-  ["bodyPartPelvis", "ArmorPart_Pelvis", "byte"],
-  ["bodyPartTorso", "ArmorPart_Torso", "byte"],
-  ["bodyPartBelt", "ArmorPart_Belt", "byte"],
-  ["bodyPartNeck", "ArmorPart_Neck", "byte"],
-  ["bodyPartRFArm", "ArmorPart_RFArm", "byte"],
-  ["bodyPartLFArm", "ArmorPart_LFArm", "byte"],
-  ["bodyPartRBicep", "ArmorPart_RBicep", "byte"],
-  ["bodyPartLBicep", "ArmorPart_LBicep", "byte"],
-  ["bodyPartRShoul", "ArmorPart_RShoul", "byte"],
-  ["bodyPartLShoul", "ArmorPart_LShoul", "byte"],
-  ["bodyPartRHand", "ArmorPart_RHand", "byte"],
-  ["bodyPartLHand", "ArmorPart_LHand", "byte"],
-  ["bodyPartRobe", "ArmorPart_Robe", "byte"],
+  ["modelPart1", "ModelPart1", "word"],
+  ["modelPart2", "ModelPart2", "word"],
+  ["modelPart3", "ModelPart3", "word"],
+  ["bodyPartRFoot", "ArmorPart_RFoot", "word"],
+  ["bodyPartLFoot", "ArmorPart_LFoot", "word"],
+  ["bodyPartRShin", "ArmorPart_RShin", "word"],
+  ["bodyPartLShin", "ArmorPart_LShin", "word"],
+  ["bodyPartLThigh", "ArmorPart_LThigh", "word"],
+  ["bodyPartRThigh", "ArmorPart_RThigh", "word"],
+  ["bodyPartPelvis", "ArmorPart_Pelvis", "word"],
+  ["bodyPartTorso", "ArmorPart_Torso", "word"],
+  ["bodyPartBelt", "ArmorPart_Belt", "word"],
+  ["bodyPartNeck", "ArmorPart_Neck", "word"],
+  ["bodyPartRFArm", "ArmorPart_RFArm", "word"],
+  ["bodyPartLFArm", "ArmorPart_LFArm", "word"],
+  ["bodyPartRBicep", "ArmorPart_RBicep", "word"],
+  ["bodyPartLBicep", "ArmorPart_LBicep", "word"],
+  ["bodyPartRShoul", "ArmorPart_RShoul", "word"],
+  ["bodyPartLShoul", "ArmorPart_LShoul", "word"],
+  ["bodyPartRHand", "ArmorPart_RHand", "word"],
+  ["bodyPartLHand", "ArmorPart_LHand", "word"],
+  ["bodyPartRobe", "ArmorPart_Robe", "word"],
   ["leather1Color", "Leather1Color", "byte"],
   ["leather2Color", "Leather2Color", "byte"],
   ["cloth1Color", "Cloth1Color", "byte"],
   ["cloth2Color", "Cloth2Color", "byte"],
   ["metal1Color", "Metal1Color", "byte"],
   ["metal2Color", "Metal2Color", "byte"]
-] as const;
-
-const ITEM_BOOLEAN_FIELD_LABELS = [
-  ["identified", "Identified"],
-  ["stolen", "Stolen"],
-  ["plot", "Plot"],
-  ["cursed", "Cursed"]
-] as const;
-
-const ITEM_SCRIPT_FIELD_LABELS = [
-  ["script.onused", "onused"],
-  ["script.onheartbeat", "onheartbeat"],
-  ["script.onuserdefined", "onuserdefined"],
-  ["script.oninventorydisturbed", "oninvdisturbed"]
 ] as const;
 
 export function serializeAreaItemPlacementsToGitGff(
@@ -134,26 +113,23 @@ export function buildAreaItemPlacementFields(
     readString(metadata, "identifiedDescription") ?? item.identifiedDescription,
     readNumber(metadata, "identifiedDescriptionStrRef") ?? item.identifiedDescriptionStrRef
   );
-  pushCExoString(fields, "Comment", readString(metadata, "comments") ?? item.comments);
-
   pushFloat(fields, "XPosition", item.x);
   pushFloat(fields, "YPosition", item.y);
   pushFloat(fields, "ZPosition", item.z ?? 0);
   pushFloat(fields, "Bearing", degreesToRadians(item.bearing ?? 0));
 
+  pushNumber(fields, "BaseItem", "int", readNumber(metadata, "baseItem"));
+  for (const profile of AREA_ITEM_INSTANCE_STATE_FIELDS) {
+    if (profile.valueKind === "boolean") {
+      const value = readBoolean(metadata, profile.key);
+      if (value !== undefined) pushByte(fields, profile.label, value ? 1 : 0);
+    } else {
+      pushNumber(fields, profile.label, profile.nativeType, readNumber(metadata, profile.key));
+    }
+  }
   for (const [metadataKey, label, type] of ITEM_NUMBER_FIELD_LABELS) {
     pushNumber(fields, label, type, readNumber(metadata, metadataKey));
   }
-  for (const [metadataKey, label] of ITEM_BOOLEAN_FIELD_LABELS) {
-    const value = readBoolean(metadata, metadataKey);
-    if (value !== undefined) {
-      pushByte(fields, label, value ? 1 : 0);
-    }
-  }
-  for (const [metadataKey, label] of ITEM_SCRIPT_FIELD_LABELS) {
-    pushResRef(fields, label, readString(metadata, metadataKey));
-  }
-
   const propertyEntries = readItemPropertyListEntries(metadata.itemPropertyListEntries);
   if (propertyEntries.length > 0) {
     fields.push({
@@ -214,7 +190,7 @@ function readItemPropertyListEntries(
 function pushNumber(
   fields: SupportedGffField[],
   label: string,
-  type: "byte" | "word" | "dword",
+  type: "byte" | "word" | "dword" | "int",
   value: number | undefined
 ): void {
   if (value === undefined) {

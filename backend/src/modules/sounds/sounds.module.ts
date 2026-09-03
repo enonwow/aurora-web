@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
+import { ModuleSnapshotsModule } from "../module-snapshots/module-snapshots.module";
 import { SoundsController } from "./adapters/inbound/http/sounds.controller";
 import { ModuleSnapshotSoundRepository } from "./adapters/outbound/blob/module-snapshot-sound.repository";
 import { S3SoundProcessingCacheRepository } from "./adapters/outbound/blob/s3-sound-processing-cache.repository";
@@ -12,7 +13,7 @@ import { SOUND_PROCESSING_CACHE } from "./application/ports/sound-processing-cac
 import { SOUND_REPOSITORY } from "./application/ports/sound-repository.port";
 
 @Module({
-  imports: [RuntimeSettingsModule],
+  imports: [RuntimeSettingsModule, ModuleSnapshotsModule],
   controllers: [SoundsController],
   providers: [
     SoundsApplicationService,

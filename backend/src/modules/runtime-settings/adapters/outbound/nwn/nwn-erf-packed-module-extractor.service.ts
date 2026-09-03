@@ -5,6 +5,7 @@ import type {
   PackedModuleExtractorPort,
   PackedModuleFile
 } from "../../../application/ports/packed-module-extractor.port";
+import { nwnErfResourceExtension } from "../../../domain/nwn-erf-resource-types";
 
 const ERF_HEADER_SIZE_BYTES = 160;
 const ERF_KEY_ENTRY_SIZE_V10 = 24;
@@ -13,51 +14,6 @@ const ERF_RESREF_LENGTH_V10 = 16;
 const ERF_RESREF_LENGTH_V11 = 32;
 
 const VALID_ERF_SIGNATURES = new Set(["ERF ", "HAK ", "MOD ", "NWM "]);
-const RESOURCE_EXTENSIONS: Record<number, string> = {
-  1: "bmp",
-  3: "tga",
-  4: "wav",
-  6: "plt",
-  7: "ini",
-  8: "bmu",
-  10: "txt",
-  11: "mp3",
-  2002: "mdl",
-  2009: "nss",
-  2010: "ncs",
-  2012: "are",
-  2013: "set",
-  2014: "ifo",
-  2015: "bic",
-  2016: "wok",
-  2017: "2da",
-  2022: "txi",
-  2023: "git",
-  2025: "uti",
-  2027: "utc",
-  2029: "dlg",
-  2030: "itp",
-  2032: "utt",
-  2033: "dds",
-  2035: "uts",
-  2036: "ltr",
-  2037: "gff",
-  2038: "fac",
-  2040: "ute",
-  2042: "utd",
-  2044: "utp",
-  2045: "dft",
-  2046: "gic",
-  2047: "gui",
-  2051: "utm",
-  2052: "dwk",
-  2053: "pwk",
-  2056: "jrl",
-  2058: "utw",
-  2060: "ssf",
-  2072: "mtr"
-};
-
 export interface NwnErfResourceIndexEntry {
   resref: string;
   resourceType: number;
@@ -379,7 +335,7 @@ function buildResourceFileName(
   index: number
 ): string {
   const safeResref = sanitizeResref(resref || `resource_${index}`);
-  const extension = RESOURCE_EXTENSIONS[resourceType] ?? `r${resourceType}`;
+  const extension = nwnErfResourceExtension(resourceType);
   return `${safeResref}.${extension}`;
 }
 

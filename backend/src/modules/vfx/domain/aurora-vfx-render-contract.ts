@@ -1,6 +1,19 @@
-import type { AuroraMdlEmitterNode } from "./aurora-mdl-vfx-source.parser";
-import type { AuroraVfxDependencyGraph } from "./aurora-vfx-dependency-graph";
-import type { AuroraEmitterRuntimeState, AuroraParticleRuntimeRecord } from "./aurora-vfx-runtime-state";
+import type {
+  AuroraMdlEmitterNode,
+  AuroraMdlOrientation
+} from "./aurora-mdl-vfx-source.parser";
+import type {
+  AuroraVfxDependencyCandidate,
+  AuroraVfxDependencyGraph
+} from "./aurora-vfx-dependency-graph";
+import type {
+  AuroraEmitterRuntimeState,
+  AuroraParticleRuntimeRecord
+} from "./aurora-vfx-runtime-state";
+import type {
+  AuroraMaterialShaderParameter,
+  AuroraShaderProgramSourceBundle
+} from "./aurora-shader-source-graph";
 import type {
   AuroraProgFxSourceRow,
   AuroraVfxDiagnostic,
@@ -14,6 +27,7 @@ export type AuroraParticleDrawLane =
   | "chunk_model";
 
 export type AuroraParticleRenderModeEnum =
+  | "normal"
   | "billboard_to_world_z"
   | "billboard_to_local_z"
   | "aligned_to_world_z"
@@ -29,8 +43,12 @@ export interface AuroraParticleDrawRoute {
   indexed: false;
   drawModeArgument: 3;
   drawModeArgumentSource: "aurora-draw-wrapper-mode-arg3";
-  enumTableCaptured: false;
-  triangleListInferenceProof: "diagnostic_pending";
+  enumTableCaptured: true;
+  glPrimitiveMode: "GL_TRIANGLES";
+  glPrimitiveModeEnum: 0x0004;
+  triangleListInferenceProof: "confirmed_draw_wrapper_table_index_3_gl_triangles";
+  primitiveModeSource: "nwtoolset-1.5.0.5-disassembly";
+  binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24";
 }
 
 export interface AuroraParticleRenderModeRecord {
@@ -43,7 +61,21 @@ export interface AuroraParticleBlendModeRecord {
   enum: AuroraParticleBlendModeEnum;
   rawToken?: string;
   modeNumber: 0 | 1 | 2;
-  exactGlBlendFactors: "diagnostic_pending";
+  exactGlBlendFactors:
+    | {
+        status: "confirmed";
+        sourceFactor: "GL_SRC_ALPHA";
+        sourceFactorGlEnum: 0x0302;
+        destinationFactor: "GL_ONE_MINUS_SRC_ALPHA" | "GL_ONE";
+        destinationFactorGlEnum: 0x0303 | 0x0001;
+        blendTableIndices: [0, 1] | [0, 2];
+        source: "nwtoolset-1.5.0.5-disassembly";
+        binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24";
+      }
+    | {
+        status: "not_invoked_punch_through_lane";
+        source: "aurora-particle-render-branch";
+      };
   source: "mdl-emitter-blend-token" | "missing-token";
 }
 
@@ -60,6 +92,13 @@ export interface AuroraParticleRenderStateLane {
   shaderVariantLane:
     | "punch_through_particle_shader_variant"
     | "non_punch_particle_shader_variant";
+  alphaDiscardLane:
+    | "punch_through_runtime_uniform_0_2"
+    | "non_punch_discard_compiled_out_variant";
+  alphaDiscardValue: 0.2 | null;
+  alphaDiscardValueSource:
+    | "nwtoolset-1.5.0.5-disassembly"
+    | "not_applicable_compiled_out_variant";
   twoSidedTextureLane:
     | "two_sided_texture_cull_disabled"
     | "default_cull_lane";
@@ -78,8 +117,16 @@ export interface AuroraParticleTwoSidedMaterialLane {
     | "two_sided_material_non_volumetric_runtime_arg1"
     | "two_sided_material_volumetric_runtime_arg0"
     | "default_material_sidedness_runtime_arg0";
-  source: "mdl-material-twosided-runtime-branch";
-  exactGlState: "diagnostic_pending";
+  source: "mtr-material-twosided-runtime-branch";
+  exactGlState: {
+    state3CullFace: "enabled" | "disabled";
+    retainedCullFaceMode: "GL_BACK";
+    frontFaceWinding: "not_modified_by_render_wrapper";
+    particleEmitterOverride: "twosidedtex_live_read_after_render_wrapper";
+    queueExitRestore: "state3_enabled_gl_back";
+    source: "nwtoolset-1.5.0.5-scene-queue-cull-disassembly";
+    binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24";
+  };
 }
 
 export interface AuroraParticleFramebufferRenderLane {
@@ -91,8 +138,19 @@ export interface AuroraParticleFramebufferRenderLane {
     | "sample_framebuffer_mode_1_runtime_lane_5"
     | "volumetric_runtime_lane_5"
     | "default_framebuffer_runtime_lane";
-  source: "mdl-emitter-sample_framebuffer-volumetric";
-  exactGlState: "diagnostic_pending";
+  source: "nwtoolset-1.5.0.5-mtr-framebuffer-pass-disassembly";
+  exactGlState:
+    | "confirmed_active_framebuffer_copy_and_texture_units_11_12"
+    | "not_applicable_default_lane";
+  captureScope: "mainscene_only" | "not_applicable";
+  captureSource: "active_framebuffer_slot" | "not_applicable";
+  captureDestinationSlot: 1 | 6 | null;
+  attachmentBindingMask: 3 | null;
+  colorTextureUnit: 11 | null;
+  depthTextureUnit: 12 | null;
+  binarySha256:
+    | "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
+    | null;
 }
 
 export interface AuroraParticleAtlasUv {
@@ -130,7 +188,10 @@ export interface AuroraParticleDrawRecord {
   lane: "textured_quad" | "linked_textured_quad";
   particleId: number;
   particleIndex: number;
+  ageSeconds: number;
+  lifetimeSeconds: number;
   linkedNextParticleId?: number;
+  linkedNextPosition?: AuroraParticleRuntimeRecord["position"];
   verticesPerParticle: 6;
   vertexCount: 6;
   drawRoute: AuroraParticleDrawRoute;
@@ -138,8 +199,18 @@ export interface AuroraParticleDrawRecord {
   blendMode: AuroraParticleBlendModeRecord;
   renderState: AuroraParticleRenderStateLane;
   renderOrder: AuroraParticleRenderOrderRecord;
+  emitterOrientation?: AuroraMdlOrientation;
+  particleOrientation?: AuroraParticleRuntimeRecord["particleOrientation"];
   position: AuroraParticleRuntimeRecord["position"];
+  previousPosition?: AuroraParticleRuntimeRecord["previousPosition"];
   velocity: AuroraParticleRuntimeRecord["velocity"];
+  direction?: AuroraParticleRuntimeRecord["direction"];
+  landed: boolean;
+  contactNormal?: AuroraParticleRuntimeRecord["contactNormal"];
+  splat: boolean;
+  inheritedVelocityMagnitude?: AuroraParticleRuntimeRecord["inheritedVelocityMagnitude"];
+  inheritedVelocityDirection?: AuroraParticleRuntimeRecord["inheritedVelocityDirection"];
+  inheritPart: boolean;
   rotationRadians: number;
   color: AuroraParticleRuntimeRecord["color"];
   alpha: number;
@@ -153,7 +224,7 @@ export interface AuroraParticleRenderOrderRecord {
   value: number;
   rawValue?: number;
   source: "mdl-emitter-renderorder" | "default";
-  directionStatus: "value_preserved_direction_profile_pending";
+  directionStatus: "lower_value_first_contextual_tie_break_confirmed";
 }
 
 export interface AuroraTexturedQuadTopologyRecord {
@@ -165,9 +236,127 @@ export interface AuroraTexturedQuadTopologyRecord {
 export interface AuroraChunkParticleRenderLane {
   lane: "chunk_model";
   chunkName?: string;
+  modelAnimation: {
+    animationName: "impact";
+    playbackRate: 1;
+    startPolicy: "once_on_particle_activation";
+    rawArguments: {
+      argumentAfterRate: 1;
+      finalArgument: 0;
+    };
+    source: "nwtoolset-1.5.0.5-chunk-particle-init-disassembly";
+    binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24";
+  };
   activeParticleCount: number;
+  particleInstances: Array<{
+    particleId: number;
+    position: { x: number; y: number; z: number };
+    rotationRadians: number;
+    rotationAxis?: AuroraParticleRuntimeRecord["rotationAxis"];
+    particleOrientation?: AuroraParticleRuntimeRecord["particleOrientation"];
+    landed: boolean;
+    contactNormal?: AuroraParticleRuntimeRecord["contactNormal"];
+    scale: { x: number; y: number };
+    ageSeconds: number;
+    lifetimeSeconds: number;
+    modelInstanceRef?: string;
+    modelRuntimeStatus?: "active" | "released";
+    modelRuntimeFrame?: AuroraVfxChildModelRuntimeFrame;
+  }>;
   texturedQuadCanonical: false;
   collapseAttempted: boolean;
+  resourceResolveStatus: "resolved" | "unresolved";
+  resolvedResource?: AuroraChunkModelResolvedResource;
+}
+
+export type AuroraVfxChildParticleDrawFrame = Omit<
+  AuroraParticleDrawRecord,
+  | "recordKind"
+  | "emitterNodeName"
+  | "verticesPerParticle"
+  | "vertexCount"
+  | "drawRoute"
+  | "renderMode"
+  | "blendMode"
+  | "renderState"
+  | "renderOrder"
+  | "atlasProvenance"
+>;
+
+export interface AuroraVfxChildModelRuntimeFrame {
+  version: "aurora-vfx-child-model-runtime-frame/v1";
+  modelInstanceRef: string;
+  sourceModelObjectKey?: string;
+  localClockSeconds: number;
+  rngLineage: {
+    algorithm: "nwn-ee-msvc-rand15";
+    initialSeed: number;
+    finalSeed: number;
+  };
+  runtimeEmitters: Array<{
+    emitterIndex: number;
+    emitterNodeName: string;
+    selectedAnimation?: {
+      animationName: string;
+      previousTimeSeconds: number;
+      currentTimeSeconds: number;
+      blendWeight: number;
+      playbackTickCount?: number;
+      loop?: boolean;
+    };
+    runtimeState: {
+      sourceClockSeconds: number;
+      source: {
+        nodeName: string;
+        simulation?: Pick<
+          NonNullable<AuroraMdlEmitterNode["simulation"]>,
+          "inherit" | "inheritLocal" | "inheritPart"
+        >;
+      };
+    };
+    runtimeSnapshot: { activeParticleCount: number };
+    renderContractFrame: {
+      version: "aurora-vfx-child-render-contract-frame/v1";
+      activeParticleCount: number;
+      drawParticleCount: number;
+      verticesPerDrawParticle: 0 | 6;
+      drawVertexCount: number;
+      drawLane: AuroraParticleDrawLane;
+      compactDrawRecords: AuroraVfxChildParticleDrawFrame[];
+      chunkLane?: AuroraChunkParticleRenderLane;
+      progFxType4Light?: AuroraVfxProgFxType4LightRecord;
+    };
+  }>;
+}
+
+export interface AuroraChunkModelResolvedResource {
+  requestedRef: string;
+  resourceKey: string;
+  sourceLayer: string;
+  sourcePath?: string;
+  hakName?: string;
+  sourceHash?: string;
+  resourceHash?: string;
+  candidateId?: string;
+  precedenceRank?: number;
+  resolutionSource: "dependency-graph-selected-candidate";
+}
+
+export interface AuroraVfxPltRenderContext {
+  status: "ready" | "missing_target_context";
+  requestedTextureRef: string;
+  selectedResourceKey?: string;
+  targetRef?: string;
+  paletteRowsByLayer?: Record<string, number>;
+  profile?: string;
+  provenance?: string;
+  shaderLane: {
+    vertexShader: "vs_pltgen";
+    fragmentShader: "fs_pltgen";
+    schemeUniformPattern: "PLTscheme[%d]";
+    schemeUniformCount: 15;
+  };
+  proofStatus: "source-backed-contract-retail-visual-unverified";
 }
 
 export interface AuroraVfxRuntimeRenderContract {
@@ -185,9 +374,11 @@ export interface AuroraVfxRuntimeRenderContract {
   chunkLane?: AuroraChunkParticleRenderLane;
   renderMode: AuroraParticleRenderModeRecord;
   blendMode: AuroraParticleBlendModeRecord;
+  materialState?: AuroraVfxMaterialSourceState;
   renderState: AuroraParticleRenderStateLane;
   renderOrder: AuroraParticleRenderOrderRecord;
   progFxType4Light?: AuroraVfxProgFxType4LightRecord;
+  pltRenderContext?: AuroraVfxPltRenderContext;
   drawRecords: AuroraParticleDrawRecord[];
   diagnostics: AuroraVfxDiagnostic[];
   adapterBoundaries: {
@@ -202,10 +393,35 @@ export interface AuroraVfxRuntimeRenderContract {
 export interface BuildAuroraVfxRenderContractInput {
   runtimeState: AuroraEmitterRuntimeState;
   sourceEmitter?: AuroraMdlEmitterNode;
+  materialState?: AuroraVfxMaterialSourceState;
   dependencyGraph?: AuroraVfxDependencyGraph;
   phaseSchedule?: AuroraVfxPhaseSchedule;
   progFxRows?: AuroraProgFxSourceRow[];
   collapseChunkToTextureLane?: boolean;
+}
+
+export interface AuroraVfxMaterialSourceState {
+  source: "aurora-mtr";
+  materialRef?: string;
+  renderHint?: string;
+  customShaderVS?: string;
+  customShaderFS?: string;
+  customShaderGS?: string;
+  customShaderProgram?: AuroraShaderProgramSourceBundle;
+  parameters?: AuroraMaterialShaderParameter[];
+  transparency?: boolean;
+  twoSided?: boolean;
+  sampleFramebuffer?: number;
+  volumetric?: boolean;
+  bumpmaptexture?: string;
+  bumpyshinytexture?: string;
+  envmaptexture?: string;
+  bumpreplacementtexture?: string;
+  textureSlots?: Array<{
+    slot: number;
+    role: "diffuse" | "normal" | "specular" | "roughness" | "height" | "emissive" | "unknown";
+    reference: string;
+  }>;
 }
 
 export interface AuroraVfxProgFxType4LightRecord {
@@ -279,7 +495,9 @@ export interface AuroraVfxRenderOrderComparison {
   leftRenderOrder: number;
   rightRenderOrder: number;
   valueRelation: "left_lower" | "left_higher" | "equal";
-  drawDirection: "diagnostic_pending";
+  drawDirection: "lower_renderorder_first_when_primary_keys_tie";
+  comparisonScope: "depth_and_referenced_object_keys_tie";
+  source: "aurora-draw-item-comparator";
   diagnostics: AuroraVfxDiagnostic[];
 }
 
@@ -315,21 +533,34 @@ export function buildAuroraVfxRuntimeRenderContract(
   input: BuildAuroraVfxRenderContractInput
 ): AuroraVfxRuntimeRenderContract {
   const runtimeState = input.runtimeState;
-  const activeParticles = runtimeState.particles.filter((particle) =>
-    runtimeState.activeParticleIds.includes(particle.particleId)
+  const particlesById = new Map(
+    runtimeState.particles.map((particle) => [particle.particleId, particle] as const)
   );
+  const activeParticles = runtimeState.activeParticleIds.flatMap((particleId) => {
+    const particle = particlesById.get(particleId);
+    return particle ? [particle] : [];
+  });
   const renderMode = resolveRenderMode(input.sourceEmitter);
   const blendMode = resolveBlendMode(input.sourceEmitter);
   const renderOrder = resolveRenderOrder(runtimeState, input.sourceEmitter);
-  const renderState = buildRenderState(blendMode, runtimeState, input.sourceEmitter);
+  const renderState = buildRenderState(
+    blendMode,
+    runtimeState,
+    input.sourceEmitter,
+    input.materialState
+  );
   const isChunkLane = isChunkParticleLane(input);
   const progFxType4Light = resolveProgFxType4LightRecord(input);
+  const pltRenderContext = resolvePltRenderContext(input);
   const diagnostics: AuroraVfxDiagnostic[] = [
     ...runtimeState.diagnostics,
     ...runtimeState.lastTickDiagnostics,
     ...buildDrawRouteDiagnostics(),
-    ...buildRenderStateDiagnostics(renderState, blendMode),
-    ...buildProgFxType4Diagnostics(progFxType4Light)
+    ...buildRenderStateDiagnostics(renderState, blendMode, input.materialState),
+    ...buildMaterialStateBindingDiagnostics(input.materialState),
+    ...buildMaterialSourceBoundaryDiagnostics(runtimeState, input.sourceEmitter),
+    ...buildProgFxType4Diagnostics(progFxType4Light),
+    ...buildPltRenderContextDiagnostics(pltRenderContext)
   ];
 
   if (isChunkLane) {
@@ -338,6 +569,11 @@ export function buildAuroraVfxRuntimeRenderContract(
         "VFX_CHUNK_MODEL_RESOURCE_CLASS_REQUIRED",
         "warn",
         "Chunk particles require the chunk-model lane and are not canonical textured six-vertex quads."
+      ),
+      renderDiagnostic(
+        "VFX_CHUNK_MODEL_IMPACT_ANIMATION_START_CONFIRMED",
+        "info",
+        "Aurora initializes every live Chunk model by starting animation 'impact' once at particle activation with playback rate 1.0."
       )
     );
     if (input.collapseChunkToTextureLane === true) {
@@ -364,7 +600,7 @@ export function buildAuroraVfxRuntimeRenderContract(
         buildParticleDrawRecord({
           particle,
           particleIndex: index,
-          linkedNextParticleId: linked ? activeParticles[index + 1]?.particleId : undefined,
+          linkedNextParticle: linked ? activeParticles[index + 1] : undefined,
           runtimeState,
           renderMode,
           blendMode,
@@ -373,6 +609,19 @@ export function buildAuroraVfxRuntimeRenderContract(
         })
       );
   const chunkName = input.sourceEmitter?.chunkName;
+  const chunkResolvedResource = resolveChunkModelResolvedResource(
+    input.dependencyGraph,
+    chunkName
+  );
+  if (isChunkLane && chunkResolvedResource) {
+    diagnostics.push(
+      renderDiagnostic(
+        "VFX_CHUNK_MODEL_RESOURCE_RESOLVED",
+        "info",
+        "Chunk particle lane preserved the resolved chunk-model dependency candidate for model-lane rendering."
+      )
+    );
+  }
 
   return {
     version: "aurora-vfx-runtime-render-contract/v1",
@@ -397,17 +646,58 @@ export function buildAuroraVfxRuntimeRenderContract(
           chunkLane: {
             lane: "chunk_model",
             ...(chunkName ? { chunkName } : {}),
+            modelAnimation: {
+              animationName: "impact",
+              playbackRate: 1,
+              startPolicy: "once_on_particle_activation",
+              rawArguments: {
+                argumentAfterRate: 1,
+                finalArgument: 0
+              },
+              source: "nwtoolset-1.5.0.5-chunk-particle-init-disassembly",
+              binarySha256:
+                "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
+            },
             activeParticleCount: activeParticles.length,
+            particleInstances: activeParticles.map((particle) => ({
+              particleId: particle.particleId,
+              position: { ...particle.position },
+              rotationRadians: particle.rotationRadians,
+              ...(particle.rotationAxis ? { rotationAxis: { ...particle.rotationAxis } } : {}),
+              ...(particle.particleOrientation
+                ? {
+                    particleOrientation: {
+                      axis: [...particle.particleOrientation.axis],
+                      angleRadians: particle.particleOrientation.angleRadians
+                    }
+                  }
+                : {}),
+              landed: particle.landed,
+              ...(particle.contactNormal ? { contactNormal: { ...particle.contactNormal } } : {}),
+              scale: { ...particle.size },
+              ageSeconds: particle.ageSeconds,
+              lifetimeSeconds: particle.lifetimeSeconds,
+              ...(particle.chunkModelRuntimeRef
+                ? {
+                    modelInstanceRef: particle.chunkModelRuntimeRef.modelInstanceRef,
+                    modelRuntimeStatus: particle.chunkModelRuntimeRef.status
+                  }
+                : {})
+            })),
             texturedQuadCanonical: false,
-            collapseAttempted: input.collapseChunkToTextureLane === true
+            collapseAttempted: input.collapseChunkToTextureLane === true,
+            resourceResolveStatus: chunkResolvedResource ? "resolved" : "unresolved",
+            ...(chunkResolvedResource ? { resolvedResource: chunkResolvedResource } : {})
           }
         }
       : {}),
     renderMode,
     blendMode,
+    ...(input.materialState ? { materialState: { ...input.materialState } } : {}),
     renderState,
     renderOrder,
     ...(progFxType4Light ? { progFxType4Light } : {}),
+    ...(pltRenderContext ? { pltRenderContext } : {}),
     drawRecords,
     diagnostics: mergeDiagnostics([
       ...diagnostics,
@@ -439,12 +729,14 @@ export function compareAuroraVfxRenderOrder(
     leftRenderOrder: left.renderOrder.value,
     rightRenderOrder: right.renderOrder.value,
     valueRelation: relation,
-    drawDirection: "diagnostic_pending",
+    drawDirection: "lower_renderorder_first_when_primary_keys_tie",
+    comparisonScope: "depth_and_referenced_object_keys_tie",
+    source: "aurora-draw-item-comparator",
     diagnostics: [
       renderDiagnostic(
-        "VFX_RENDERORDER_ADAPTER_DIRECTION_PROVENANCE_REQUIRED",
-        "warn",
-        "Renderorder values are preserved for draw-queue comparison, but adapter direction still requires selected profile/retail capture evidence."
+        "VFX_RENDERORDER_CONTEXTUAL_TIE_BREAK_CONFIRMED",
+        "info",
+        "Aurora compares lower signed renderorder values first only after the draw-item depth and referenced-object keys tie."
       )
     ]
   };
@@ -546,6 +838,97 @@ function resolveProgFxType4LightRecord(
     };
   }
   return undefined;
+}
+
+function resolvePltRenderContext(
+  input: BuildAuroraVfxRenderContractInput
+): AuroraVfxPltRenderContext | undefined {
+  const emitter = input.sourceEmitter;
+  if (!emitter) {
+    return undefined;
+  }
+  const ownerSegment = `/emitter:${emitter.nodeName}/`;
+  const textureEdge = input.dependencyGraph?.edges.find(
+    (edge) =>
+      edge.edgeType === "texture" &&
+      (edge.ownerPath.includes(ownerSegment) ||
+        edge.requestedRef.toLowerCase() === emitter.texture?.toLowerCase())
+  );
+  const requestedTextureRef =
+    textureEdge?.requestedRef ?? emitter.textureRaw ?? emitter.texture ?? "";
+  const selectedResourceKey = textureEdge?.selectedCandidate?.resourceKey;
+  if (
+    !/\.plt$/iu.test(requestedTextureRef) &&
+    !(selectedResourceKey && /\.plt$/iu.test(selectedResourceKey))
+  ) {
+    return undefined;
+  }
+
+  const effectInstance = input.phaseSchedule?.effectInstance;
+  const targetContext = effectInstance?.targetPltContext;
+  const paletteRowsByLayer = normalizePltPaletteRows(targetContext?.paletteRowsByLayer);
+  const profile = targetContext?.profile.trim();
+  const provenance = targetContext?.provenance.trim();
+  const ready = Boolean(
+    effectInstance?.targetRef &&
+      profile &&
+      provenance &&
+      Object.keys(paletteRowsByLayer).length > 0
+  );
+  return {
+    status: ready ? "ready" : "missing_target_context",
+    requestedTextureRef,
+    ...(selectedResourceKey ? { selectedResourceKey } : {}),
+    ...(effectInstance?.targetRef ? { targetRef: effectInstance.targetRef } : {}),
+    ...(Object.keys(paletteRowsByLayer).length > 0 ? { paletteRowsByLayer } : {}),
+    ...(profile ? { profile } : {}),
+    ...(provenance ? { provenance } : {}),
+    shaderLane: {
+      vertexShader: "vs_pltgen",
+      fragmentShader: "fs_pltgen",
+      schemeUniformPattern: "PLTscheme[%d]",
+      schemeUniformCount: 15
+    },
+    proofStatus: "source-backed-contract-retail-visual-unverified"
+  };
+}
+
+function normalizePltPaletteRows(
+  rows: Record<string, number> | undefined
+): Record<string, number> {
+  if (!rows) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(rows)
+      .filter(([layer, row]) => /^\d+$/u.test(layer) && Number.isFinite(row) && row >= 0)
+      .map(([layer, row]) => [String(Number.parseInt(layer, 10)), Math.trunc(row)])
+      .sort(([left], [right]) => Number(left) - Number(right))
+  );
+}
+
+function buildPltRenderContextDiagnostics(
+  context: AuroraVfxPltRenderContext | undefined
+): AuroraVfxDiagnostic[] {
+  if (!context) {
+    return [];
+  }
+  if (context.status === "ready") {
+    return [
+      renderDiagnostic(
+        "VFX_PLT_TARGET_CONTEXT_PRESERVED",
+        "info",
+        "PLT rendering preserved the effect target, palette rows, EE profile, and the separate vs_pltgen/fs_pltgen lane; retail framebuffer parity remains unverified."
+      )
+    ];
+  }
+  return [
+    renderDiagnostic(
+      "VFX_PLT_TARGET_CONTEXT_REQUIRED",
+      "warn",
+      "The selected particle texture is PLT, but target-object palette rows/profile/provenance are incomplete. Aurora Web must not substitute default or guessed layer colors."
+    )
+  ];
 }
 
 function resolveProgFxType4Color(symbolicColor: string): { r: number; g: number; b: number } {
@@ -667,10 +1050,58 @@ function resolveProgFxType4ShadowPolicyStatus(
   return PROGFX_TYPE4_NON_ITEM_SHADOW_POLICY_STATUS;
 }
 
+function resolveChunkModelResolvedResource(
+  dependencyGraph: AuroraVfxDependencyGraph | undefined,
+  chunkName: string | undefined
+): AuroraChunkModelResolvedResource | undefined {
+  if (!dependencyGraph || !chunkName) {
+    return undefined;
+  }
+  const normalizedChunkName = normalizeChunkModelResourceRef(chunkName);
+  const edge = dependencyGraph.edges.find(
+    (entry) =>
+      entry.edgeType === "chunk_model" &&
+      normalizeChunkModelResourceRef(entry.requestedRef) === normalizedChunkName &&
+      entry.selectedCandidate
+  );
+  if (!edge?.selectedCandidate) {
+    return undefined;
+  }
+  return toChunkModelResolvedResource(edge.requestedRef, edge.selectedCandidate);
+}
+
+function toChunkModelResolvedResource(
+  requestedRef: string,
+  candidate: AuroraVfxDependencyCandidate
+): AuroraChunkModelResolvedResource {
+  return {
+    requestedRef,
+    resourceKey: candidate.resourceKey,
+    sourceLayer: candidate.sourceLayer,
+    ...(candidate.sourcePath ? { sourcePath: candidate.sourcePath } : {}),
+    ...(candidate.hakName ? { hakName: candidate.hakName } : {}),
+    ...(candidate.sourceHash ? { sourceHash: candidate.sourceHash } : {}),
+    ...(candidate.resourceHash ? { resourceHash: candidate.resourceHash } : {}),
+    ...(candidate.candidateId ? { candidateId: candidate.candidateId } : {}),
+    ...(typeof candidate.precedenceRank === "number"
+      ? { precedenceRank: candidate.precedenceRank }
+      : {}),
+    resolutionSource: "dependency-graph-selected-candidate"
+  };
+}
+
+function normalizeChunkModelResourceRef(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/gu, "/")
+    .replace(/\.(mdl|mdb|glb|gltf)$/iu, "")
+    .toLowerCase();
+}
+
 function buildParticleDrawRecord(input: {
   particle: AuroraParticleRuntimeRecord;
   particleIndex: number;
-  linkedNextParticleId?: number;
+  linkedNextParticle?: AuroraParticleRuntimeRecord;
   runtimeState: AuroraEmitterRuntimeState;
   renderMode: AuroraParticleRenderModeRecord;
   blendMode: AuroraParticleBlendModeRecord;
@@ -678,7 +1109,7 @@ function buildParticleDrawRecord(input: {
   renderOrder: AuroraParticleRenderOrderRecord;
 }): AuroraParticleDrawRecord {
   const atlas = buildParticleAtlasUv(input.runtimeState, input.particle);
-  const lane = input.linkedNextParticleId !== undefined ? "linked_textured_quad" : "textured_quad";
+  const lane = input.linkedNextParticle ? "linked_textured_quad" : "textured_quad";
   return {
     recordKind: "aurora-particle-draw-record",
     drawRecordId: `${input.runtimeState.emitterNodeName}:particle:${input.particle.particleId}`,
@@ -686,8 +1117,13 @@ function buildParticleDrawRecord(input: {
     lane,
     particleId: input.particle.particleId,
     particleIndex: input.particleIndex,
-    ...(input.linkedNextParticleId !== undefined
-      ? { linkedNextParticleId: input.linkedNextParticleId }
+    ageSeconds: input.particle.ageSeconds,
+    lifetimeSeconds: input.particle.lifetimeSeconds,
+    ...(input.linkedNextParticle
+      ? {
+          linkedNextParticleId: input.linkedNextParticle.particleId,
+          linkedNextPosition: { ...input.linkedNextParticle.position }
+        }
       : {}),
     verticesPerParticle: TEXTURED_QUAD_VERTICES_PER_PARTICLE,
     vertexCount: TEXTURED_QUAD_VERTICES_PER_PARTICLE,
@@ -696,8 +1132,30 @@ function buildParticleDrawRecord(input: {
     blendMode: input.blendMode,
     renderState: input.renderState,
     renderOrder: input.renderOrder,
+    ...(input.runtimeState.source.transform?.orientation
+      ? { emitterOrientation: { ...input.runtimeState.source.transform.orientation } }
+      : {}),
+    ...(input.particle.particleOrientation
+      ? { particleOrientation: { ...input.particle.particleOrientation } }
+      : {}),
     position: { ...input.particle.position },
+    ...(input.particle.previousPosition
+      ? { previousPosition: { ...input.particle.previousPosition } }
+      : {}),
     velocity: { ...input.particle.velocity },
+    ...(input.particle.direction ? { direction: { ...input.particle.direction } } : {}),
+    landed: input.particle.landed,
+    ...(input.particle.contactNormal
+      ? { contactNormal: { ...input.particle.contactNormal } }
+      : {}),
+    splat: input.runtimeState.source.sourceState?.splat === true,
+    ...(input.particle.inheritedVelocityMagnitude !== undefined
+      ? { inheritedVelocityMagnitude: input.particle.inheritedVelocityMagnitude }
+      : {}),
+    ...(input.particle.inheritedVelocityDirection
+      ? { inheritedVelocityDirection: { ...input.particle.inheritedVelocityDirection } }
+      : {}),
+    inheritPart: input.runtimeState.source.simulation?.inheritPart === true,
     rotationRadians: input.particle.rotationRadians,
     color: { ...input.particle.color },
     alpha: input.particle.alpha,
@@ -776,7 +1234,10 @@ function buildParticleAtlasUv(
     );
   }
 
-  const frameIndex = positiveModulo(integerFrameIndex, frameCapacity);
+  // Aurora feeds the particle frame slot directly into row-major atlas math.
+  // Out-of-range rows therefore remain out of range for the texture sampler;
+  // wrapping them to another valid cell changes source-authored playback.
+  const frameIndex = integerFrameIndex;
   const singleCell = frameCapacity === 1;
   const column = singleCell ? 0 : frameIndex % xGrid;
   const row = singleCell ? 0 : Math.floor(frameIndex / xGrid);
@@ -825,6 +1286,8 @@ function resolveRenderMode(
   const source = rawToken ? "mdl-emitter-render-token" : "missing-token";
   const mode = (() => {
     switch (normalized) {
+      case "normal":
+        return "normal";
       case "billboard_to_world_z":
       case "billboardtoworldz":
         return "billboard_to_world_z";
@@ -863,7 +1326,16 @@ function resolveBlendMode(
       enum: "normal",
       ...(rawToken ? { rawToken } : {}),
       modeNumber: 0,
-      exactGlBlendFactors: "diagnostic_pending",
+      exactGlBlendFactors: {
+        status: "confirmed",
+        sourceFactor: "GL_SRC_ALPHA",
+        sourceFactorGlEnum: 0x0302,
+        destinationFactor: "GL_ONE_MINUS_SRC_ALPHA",
+        destinationFactorGlEnum: 0x0303,
+        blendTableIndices: [0, 1],
+        source: "nwtoolset-1.5.0.5-disassembly",
+        binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
+      },
       source: rawToken ? "mdl-emitter-blend-token" : "missing-token"
     };
   }
@@ -877,7 +1349,10 @@ function resolveBlendMode(
       enum: "punch_through",
       rawToken,
       modeNumber: 1,
-      exactGlBlendFactors: "diagnostic_pending",
+      exactGlBlendFactors: {
+        status: "not_invoked_punch_through_lane",
+        source: "aurora-particle-render-branch"
+      },
       source: "mdl-emitter-blend-token"
     };
   }
@@ -885,7 +1360,16 @@ function resolveBlendMode(
     enum: "mode_2",
     rawToken,
     modeNumber: 2,
-    exactGlBlendFactors: "diagnostic_pending",
+    exactGlBlendFactors: {
+      status: "confirmed",
+      sourceFactor: "GL_SRC_ALPHA",
+      sourceFactorGlEnum: 0x0302,
+      destinationFactor: "GL_ONE",
+      destinationFactorGlEnum: 0x0001,
+      blendTableIndices: [0, 2],
+      source: "nwtoolset-1.5.0.5-disassembly",
+      binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
+    },
     source: "mdl-emitter-blend-token"
   };
 }
@@ -893,19 +1377,17 @@ function resolveBlendMode(
 function buildRenderState(
   blendMode: AuroraParticleBlendModeRecord,
   runtimeState: AuroraEmitterRuntimeState,
-  emitter: AuroraMdlEmitterNode | undefined
+  emitter: AuroraMdlEmitterNode | undefined,
+  materialState: AuroraVfxMaterialSourceState | undefined
 ): AuroraParticleRenderStateLane {
   const isPunchThrough = blendMode.enum === "punch_through";
-  const sourceTransparency =
-    runtimeState.source.sourceState?.transparency ??
-    emitter?.sourceState?.transparency;
+  const sourceTransparency = materialState?.transparency;
   const sourceOpaque = sourceTransparency === false && !isPunchThrough;
   const twoSidedTexture =
     runtimeState.source.sourceState?.twoSidedTexture ??
     emitter?.sourceState?.twoSidedTexture ??
     false;
-  const volumetric =
-    (runtimeState.source.sourceState?.volumetric ?? emitter?.sourceState?.volumetric) === true;
+  const volumetric = materialState?.volumetric === true;
   return {
     blendMode,
     depthWriteLane: isPunchThrough
@@ -921,33 +1403,37 @@ function buildRenderState(
     shaderVariantLane: isPunchThrough
       ? "punch_through_particle_shader_variant"
       : "non_punch_particle_shader_variant",
+    alphaDiscardLane: isPunchThrough
+      ? "punch_through_runtime_uniform_0_2"
+      : "non_punch_discard_compiled_out_variant",
+    alphaDiscardValue: isPunchThrough ? 0.2 : null,
+    alphaDiscardValueSource: isPunchThrough
+      ? "nwtoolset-1.5.0.5-disassembly"
+      : "not_applicable_compiled_out_variant",
     twoSidedTextureLane: twoSidedTexture
       ? "two_sided_texture_cull_disabled"
       : "default_cull_lane",
     sourceTransparencyLane: sourceOpaque
       ? "source_transparency_false_opaque_depth_write_lane"
       : "source_transparency_true_or_missing_blend_lane",
-    twoSidedMaterialLane: buildTwoSidedMaterialLane(runtimeState, emitter, volumetric),
-    framebufferLane: buildFramebufferRenderLane(runtimeState, emitter)
+    twoSidedMaterialLane: buildTwoSidedMaterialLane(materialState, volumetric),
+    framebufferLane: buildFramebufferRenderLane(materialState)
   };
 }
 
 function buildTwoSidedMaterialLane(
-  runtimeState: AuroraEmitterRuntimeState,
-  emitter: AuroraMdlEmitterNode | undefined,
+  materialState: AuroraVfxMaterialSourceState | undefined,
   volumetric: boolean
 ): AuroraParticleTwoSidedMaterialLane {
-  const twoSidedMaterial =
-    (runtimeState.source.sourceState?.twoSidedMaterial ??
-      emitter?.sourceState?.twoSidedMaterial) === true;
+  const twoSidedMaterial = materialState?.twoSided === true;
   if (twoSidedMaterial && !volumetric) {
     return {
       twoSidedMaterial,
       volumetric,
       renderWrapperArgument: 1,
       lane: "two_sided_material_non_volumetric_runtime_arg1",
-      source: "mdl-material-twosided-runtime-branch",
-      exactGlState: "diagnostic_pending"
+      source: "mtr-material-twosided-runtime-branch",
+      exactGlState: buildTwoSidedMaterialGlState(1)
     };
   }
   if (twoSidedMaterial && volumetric) {
@@ -956,8 +1442,8 @@ function buildTwoSidedMaterialLane(
       volumetric,
       renderWrapperArgument: 0,
       lane: "two_sided_material_volumetric_runtime_arg0",
-      source: "mdl-material-twosided-runtime-branch",
-      exactGlState: "diagnostic_pending"
+      source: "mtr-material-twosided-runtime-branch",
+      exactGlState: buildTwoSidedMaterialGlState(0)
     };
   }
   return {
@@ -965,29 +1451,37 @@ function buildTwoSidedMaterialLane(
     volumetric,
     renderWrapperArgument: 0,
     lane: "default_material_sidedness_runtime_arg0",
-    source: "mdl-material-twosided-runtime-branch",
-    exactGlState: "diagnostic_pending"
+    source: "mtr-material-twosided-runtime-branch",
+    exactGlState: buildTwoSidedMaterialGlState(0)
+  };
+}
+
+function buildTwoSidedMaterialGlState(
+  renderWrapperArgument: 0 | 1
+): AuroraParticleTwoSidedMaterialLane["exactGlState"] {
+  return {
+    state3CullFace: renderWrapperArgument === 1 ? "disabled" : "enabled",
+    retainedCullFaceMode: "GL_BACK",
+    frontFaceWinding: "not_modified_by_render_wrapper",
+    particleEmitterOverride: "twosidedtex_live_read_after_render_wrapper",
+    queueExitRestore: "state3_enabled_gl_back",
+    source: "nwtoolset-1.5.0.5-scene-queue-cull-disassembly",
+    binarySha256: "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
   };
 }
 
 function buildFramebufferRenderLane(
-  runtimeState: AuroraEmitterRuntimeState,
-  emitter: AuroraMdlEmitterNode | undefined
+  materialState: AuroraVfxMaterialSourceState | undefined
 ): AuroraParticleFramebufferRenderLane {
-  const rawSampleFramebuffer =
-    runtimeState.source.sourceState?.sampleFramebuffer ??
-    emitter?.sourceState?.sampleFramebuffer;
-  const sampleFramebuffer = sanitizeSampleFramebuffer(rawSampleFramebuffer);
-  const volumetric =
-    (runtimeState.source.sourceState?.volumetric ?? emitter?.sourceState?.volumetric) === true;
+  const sampleFramebuffer = sanitizeSampleFramebuffer(materialState?.sampleFramebuffer);
+  const volumetric = materialState?.volumetric === true;
   if (sampleFramebuffer === 2) {
     return {
       sampleFramebuffer,
       volumetric,
       runtimeLane: 6,
       lane: "sample_framebuffer_mode_2_runtime_lane_6",
-      source: "mdl-emitter-sample_framebuffer-volumetric",
-      exactGlState: "diagnostic_pending"
+      ...buildConfirmedFramebufferPassState(6)
     };
   }
   if (sampleFramebuffer === 1) {
@@ -996,8 +1490,7 @@ function buildFramebufferRenderLane(
       volumetric,
       runtimeLane: 5,
       lane: "sample_framebuffer_mode_1_runtime_lane_5",
-      source: "mdl-emitter-sample_framebuffer-volumetric",
-      exactGlState: "diagnostic_pending"
+      ...buildConfirmedFramebufferPassState(5)
     };
   }
   if (volumetric) {
@@ -1006,8 +1499,7 @@ function buildFramebufferRenderLane(
       volumetric,
       runtimeLane: 5,
       lane: "volumetric_runtime_lane_5",
-      source: "mdl-emitter-sample_framebuffer-volumetric",
-      exactGlState: "diagnostic_pending"
+      ...buildConfirmedFramebufferPassState(5)
     };
   }
   return {
@@ -1015,8 +1507,30 @@ function buildFramebufferRenderLane(
     volumetric,
     runtimeLane: null,
     lane: "default_framebuffer_runtime_lane",
-    source: "mdl-emitter-sample_framebuffer-volumetric",
-    exactGlState: "diagnostic_pending"
+    source: "nwtoolset-1.5.0.5-mtr-framebuffer-pass-disassembly",
+    exactGlState: "not_applicable_default_lane",
+    captureScope: "not_applicable",
+    captureSource: "not_applicable",
+    captureDestinationSlot: null,
+    attachmentBindingMask: null,
+    colorTextureUnit: null,
+    depthTextureUnit: null,
+    binarySha256: null
+  };
+}
+
+function buildConfirmedFramebufferPassState(runtimeLane: 5 | 6) {
+  return {
+    source: "nwtoolset-1.5.0.5-mtr-framebuffer-pass-disassembly" as const,
+    exactGlState: "confirmed_active_framebuffer_copy_and_texture_units_11_12" as const,
+    captureScope: "mainscene_only" as const,
+    captureSource: "active_framebuffer_slot" as const,
+    captureDestinationSlot: runtimeLane === 5 ? (1 as const) : (6 as const),
+    attachmentBindingMask: 3 as const,
+    colorTextureUnit: 11 as const,
+    depthTextureUnit: 12 as const,
+    binarySha256:
+      "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24" as const
   };
 }
 
@@ -1044,15 +1558,14 @@ function resolveRenderOrder(
     source: typeof rawValue === "number" && Number.isFinite(rawValue)
       ? "mdl-emitter-renderorder"
       : "default",
-    directionStatus: "value_preserved_direction_profile_pending"
+    directionStatus: "lower_value_first_contextual_tie_break_confirmed"
   };
 }
 
 function isChunkParticleLane(input: BuildAuroraVfxRenderContractInput): boolean {
   return (
     input.runtimeState.family === "Chunk" ||
-    Boolean(input.sourceEmitter?.chunkName) ||
-    input.dependencyGraph?.edges.some((edge) => edge.edgeType === "chunk_model") === true
+    Boolean(input.sourceEmitter?.chunkName)
   );
 }
 
@@ -1062,8 +1575,13 @@ function buildDrawRoute(): AuroraParticleDrawRoute {
     indexed: false,
     drawModeArgument: DRAW_MODE_ARGUMENT,
     drawModeArgumentSource: "aurora-draw-wrapper-mode-arg3",
-    enumTableCaptured: false,
-    triangleListInferenceProof: "diagnostic_pending"
+    enumTableCaptured: true,
+    glPrimitiveMode: "GL_TRIANGLES",
+    glPrimitiveModeEnum: 0x0004,
+    triangleListInferenceProof: "confirmed_draw_wrapper_table_index_3_gl_triangles",
+    primitiveModeSource: "nwtoolset-1.5.0.5-disassembly",
+    binarySha256:
+      "4C156DE898817518E8A97F5D989592894D3C8F48B71D27E2A8B89500CD230F24"
   };
 }
 
@@ -1075,28 +1593,30 @@ function buildDrawRouteDiagnostics(): AuroraVfxDiagnostic[] {
       "Textured particle draw records use non-indexed draw-array provenance."
     ),
     renderDiagnostic(
-      "VFX_PARTICLE_DRAW_MODE_ARG3_ENUM_TABLE_CAPTURE_REQUIRED",
-      "warn",
-      "Draw wrapper mode argument 3 is preserved, but the enum table still needs capture before naming exact GL mode."
-    ),
-    renderDiagnostic(
-      "VFX_PARTICLE_DRAW_TRIANGLE_INFERENCE_NOT_ENUM_PROOF",
-      "warn",
-      "Six-vertex textured quad layout is not treated as proof of the draw-wrapper enum table."
+      "VFX_PARTICLE_DRAW_GL_TRIANGLES_CONFIRMED",
+      "info",
+      "Toolset draw-wrapper table index 3 resolves to GL_TRIANGLES (0x0004); particles use non-indexed glDrawArrays from vertex zero."
     )
   ];
 }
 
 function buildRenderStateDiagnostics(
   renderState: AuroraParticleRenderStateLane,
-  blendMode: AuroraParticleBlendModeRecord
+  blendMode: AuroraParticleBlendModeRecord,
+  materialState: AuroraVfxMaterialSourceState | undefined
 ): AuroraVfxDiagnostic[] {
   const diagnostics = [
-    renderDiagnostic(
-      "VFX_BLEND_FUNC_FACTORS_CAPTURE_REQUIRED",
-      "warn",
-      "Aurora blend bucket is preserved, but exact GL blend factors require retail/capture proof."
-    )
+    blendMode.exactGlBlendFactors.status === "confirmed"
+      ? renderDiagnostic(
+          "VFX_BLEND_FUNC_FACTORS_CONFIRMED_NWTOOLSET_DISASSEMBLY",
+          "info",
+          `Aurora blend bucket ${blendMode.modeNumber} uses ${blendMode.exactGlBlendFactors.sourceFactor}/${blendMode.exactGlBlendFactors.destinationFactor} from the recovered nwtoolset.exe blend table.`
+        )
+      : renderDiagnostic(
+          "VFX_PUNCH_THROUGH_BLEND_FUNC_NOT_INVOKED",
+          "info",
+          "Aurora Punch-Through uses its separate cutout/depth-write branch without invoking the non-punch blend-function wrapper."
+        )
   ];
   if (renderState.depthWriteLane === "punch_through_depth_write_enabled") {
     diagnostics.push(
@@ -1123,6 +1643,15 @@ function buildRenderStateDiagnostics(
       )
     );
   }
+  if (renderState.alphaDiscardLane === "punch_through_runtime_uniform_0_2") {
+    diagnostics.push(
+      renderDiagnostic(
+        "VFX_PUNCH_THROUGH_RUNTIME_ALPHA_DISCARD_CONFIRMED",
+        "info",
+        "Retail Punch-Through selects the alpha-discard shader variant and uploads fAlphaDiscardValue=0.2 from renderer state 1."
+      )
+    );
+  }
   if (renderState.twoSidedTextureLane === "two_sided_texture_cull_disabled") {
     diagnostics.push(
       renderDiagnostic(
@@ -1137,7 +1666,7 @@ function buildRenderStateDiagnostics(
       renderDiagnostic(
         "VFX_TWOSIDED_MATERIAL_RUNTIME_ARG1_REQUIRED",
         "info",
-        "twosided material flag is preserved as Aurora render wrapper argument 1 when volumetric is false."
+        "Aurora render wrapper argument 1 disables state 3 (GL_CULL_FACE); a textured emitter can then override it from twosidedtex during its draw."
       )
     );
   } else if (renderState.twoSidedMaterialLane.lane === "two_sided_material_volumetric_runtime_arg0") {
@@ -1145,7 +1674,7 @@ function buildRenderStateDiagnostics(
       renderDiagnostic(
         "VFX_TWOSIDED_MATERIAL_VOLUMETRIC_ARG0_REQUIRED",
         "info",
-        "Aurora checks twosided, but volumetric true keeps the render wrapper argument on 0."
+        "Aurora checks twosided, but volumetric true keeps render wrapper argument 0 on the state-3-enabled GL_BACK queue lane."
       )
     );
   }
@@ -1177,9 +1706,48 @@ function buildRenderStateDiagnostics(
   if (renderState.framebufferLane.runtimeLane !== null) {
     diagnostics.push(
       renderDiagnostic(
-        "VFX_SAMPLE_FRAMEBUFFER_RENDER_LANE_CAPTURE_REQUIRED",
+        "VFX_SAMPLE_FRAMEBUFFER_RENDER_PASS_CONFIRMED",
+        "info",
+        `Aurora mainscene copies the active framebuffer into slot ${renderState.framebufferLane.captureDestinationSlot}, binds color/depth attachments on texture units 11/12, then renders runtime lane ${renderState.framebufferLane.runtimeLane}.`
+      )
+    );
+  }
+  if (
+    materialState?.customShaderVS ||
+    materialState?.customShaderFS ||
+    materialState?.customShaderGS
+  ) {
+    if (materialState.customShaderProgram?.status === "complete") {
+      diagnostics.push(
+        renderDiagnostic(
+          "VFX_MTR_CUSTOM_SHADER_SOURCE_GRAPH_READY",
+          "info",
+          `MTR custom shader source graph is complete with ${materialState.customShaderProgram.sources.length} reachable SHD resources.`
+        )
+      );
+    } else if (materialState.customShaderProgram?.status === "incomplete") {
+      diagnostics.push(
+        renderDiagnostic(
+          "VFX_MTR_CUSTOM_SHADER_SOURCE_GRAPH_INCOMPLETE",
+          "warn",
+          `MTR custom shader source graph is missing: ${materialState.customShaderProgram.unresolvedRefs.join(", ")}.`
+        )
+      );
+    }
+    diagnostics.push(
+      renderDiagnostic(
+        "VFX_MTR_CUSTOM_SHADER_PROGRAM_EXECUTION_REQUIRED",
         "warn",
-        "Aurora framebuffer runtime lane is preserved, but exact visible framebuffer/volumetric GL state still requires retail capture."
+        "MTR custom shader resrefs are preserved, but canonical execution requires the resolved retail shader sources and include graph."
+      )
+    );
+  }
+  if (materialState?.parameters?.length) {
+    diagnostics.push(
+      renderDiagnostic(
+        "VFX_MTR_PARAMETER_PAYLOAD_PRESERVED",
+        "info",
+        `MTR material preserves ${materialState.parameters.length} authored custom shader parameter record(s) in source order.`
       )
     );
   }
@@ -1187,12 +1755,76 @@ function buildRenderStateDiagnostics(
     diagnostics.push(
       renderDiagnostic(
         "VFX_PARTICLE_BLEND_MODE_2_RAW_PRESERVED",
-        "warn",
-        "Blend mode 2 raw token is preserved without naming exact Lighten/additive factors."
+        "info",
+        "Blend bucket 2 uses confirmed GL_SRC_ALPHA/GL_ONE factors while preserving the raw source token; unknown bucket-2 literals are not renamed to Lighten."
       )
     );
   }
   return diagnostics;
+}
+
+function buildMaterialSourceBoundaryDiagnostics(
+  runtimeState: AuroraEmitterRuntimeState,
+  emitter: AuroraMdlEmitterNode | undefined
+): AuroraVfxDiagnostic[] {
+  const materialOnlyEmitterKeys = [
+    "renderHintRaw",
+    "customShaderVS",
+    "customShaderFS",
+    "customShaderGS",
+    "transparency",
+    "twoSidedMaterial",
+    "sampleFramebuffer",
+    "volumetric"
+  ] as const;
+  const sourceStates = [runtimeState.source.sourceState, emitter?.sourceState];
+  const presentKeys = materialOnlyEmitterKeys.filter((key) =>
+    sourceStates.some((state) => state?.[key] !== undefined)
+  );
+  if (presentKeys.length === 0) {
+    return [];
+  }
+  return [
+    renderDiagnostic(
+      "VFX_MTR_FIELDS_ON_EMITTER_SOURCE_IGNORED",
+      "warn",
+      `Material-only fields on node emitter are preserved but ignored by canonical render state: ${presentKeys.join(
+        ", "
+      )}. Resolve an Aurora MTR materialState before applying them.`
+    )
+  ];
+}
+
+function buildMaterialStateBindingDiagnostics(
+  materialState: AuroraVfxMaterialSourceState | undefined
+): AuroraVfxDiagnostic[] {
+  if (!materialState) {
+    return [];
+  }
+  const textureReferences = [
+    materialState.bumpmaptexture,
+    materialState.bumpyshinytexture,
+    materialState.envmaptexture,
+    materialState.bumpreplacementtexture
+  ].filter((reference): reference is string => Boolean(reference));
+  return [
+    renderDiagnostic(
+      "VFX_MTR_MATERIAL_STATE_BOUND",
+      "info",
+      `Resolved Aurora MTR material state is bound to this render contract${
+        materialState.materialRef ? ` from '${materialState.materialRef}'` : ""
+      }.`
+    ),
+    ...(textureReferences.length > 0
+      ? [
+          renderDiagnostic(
+            "VFX_MTR_REPLACEMENT_TEXTURE_REFERENCES_PRESERVED",
+            "info",
+            `Resolved Aurora MTR material preserves ${textureReferences.length} named replacement texture reference(s).`
+          )
+        ]
+      : [])
+  ];
 }
 
 function renderDiagnostic(
@@ -1225,8 +1857,4 @@ function sanitizePositiveInteger(value: number | undefined, fallback: number): n
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.trunc(value)
     : fallback;
-}
-
-function positiveModulo(value: number, modulo: number): number {
-  return ((value % modulo) + modulo) % modulo;
 }

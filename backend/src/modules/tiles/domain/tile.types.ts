@@ -28,6 +28,7 @@ export interface TileMaterialTextureAssetContract {
   extension: string;
   contentType: string;
   sizeBytes: number;
+  contentSha256: string;
   source: "module" | "hak" | "vanilla";
   sourcePath: string;
   deliveryPath: string;
@@ -39,6 +40,7 @@ export interface TileRenderAssetContract {
   sourceAssetStatus: "ready" | "blocked";
   mdlSourceStatus: "ready" | "blocked";
   mdlSourceObjectKey?: string;
+  mdlSourceContentSha256?: string;
   glbGeometryStatus: "ready" | "blocked_tile_process_contract_missing_glb_geometry";
   textureDeliveryStatus:
     | "texture_material_contract_ready"
@@ -59,10 +61,12 @@ export interface TileRenderAssetContract {
     contentType: "model/gltf-binary" | "model/gltf+json";
     sizeBytes: number;
     etag?: string;
+    contentSha256?: string;
     deliveryPath: string;
     deliveryUrl: string;
   };
   materialTextureAssets?: TileMaterialTextureAssetContract[];
+  requiredMaterialTextureReferences?: string[];
   expectedDerivedModelObjectKey?: string;
   blockers: string[];
 }

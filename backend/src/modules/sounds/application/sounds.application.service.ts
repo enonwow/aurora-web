@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { executeInFlight } from "../../../common/async/in-flight.helpers";
 import {
@@ -17,6 +17,10 @@ import {
   type RuntimeSettingsRepositoryPort
 } from "../../runtime-settings/application/ports/runtime-settings-repository.port";
 import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
 import {
   SOUND_PROCESSING_CACHE,
   type SoundProcessingCachePort
@@ -84,7 +88,9 @@ export class SoundsApplicationService {
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository?: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
-    private readonly moduleBlobStorage?: ModuleBlobStoragePort
+    private readonly moduleBlobStorage?: ModuleBlobStoragePort,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
   ) {}
 
   listSounds(query: SoundListQuery) {
@@ -479,7 +485,9 @@ export class SoundsApplicationService {
     }
 
     const settings = await this.runtimeSettingsRepository.get();
-    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+    return this.committedSnapshotReader
+      ? (await this.committedSnapshotReader.capture()).getModuleObject(key)
+      : this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
   }
 
   private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {

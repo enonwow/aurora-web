@@ -448,7 +448,11 @@ function parseAuroraAsciiMdl(source: string): ParsedModel {
     throw new Error("Binary Aurora MDL/MDB is not supported by the ASCII MDL converter.");
   }
 
-  const lines = source.split(/\r?\n/u);
+  // Some legacy HAK MDLs use DOS SUB (0x1a) as an in-stream record separator
+  // instead of a newline. Treating it as ordinary whitespace joins a table
+  // header to its first numeric row and makes the following header look like
+  // malformed geometry (for example, `faces 10`).
+  const lines = source.replace(/\x1a/gu, "\n").split(/\r?\n/u);
   const modelName = findModelName(lines);
   const supermodel = findModelSupermodel(lines, modelName);
   const animationScale = findModelAnimationScale(lines);
@@ -2519,6 +2523,16 @@ function parseFaceRow(row: string[]): ParsedFace {
   };
 }
 
+const AURORA_TEXTURE_REFERENCE_ALIASES = new Map<string, string>([
+  ["atj01_black", "atj01_black00"],
+  ["atj01_fence02", "tfa01_fence02"],
+  ["atj01_crvn02rf", "ttr01_crvn02rf"],
+  ["ttr01_circus3", "atj19_circus3"],
+  ["atj01_grassrim02", "atj51_grassrim02"],
+  ["tbf01_black", "ttf01_black"],
+  ["w_metal_tex", "w_metal_lok"]
+]);
+
 function normalizeTextureToken(value: string): string | undefined {
   const normalized = value.trim().replace(/^['"]+|['"]+$/gu, "");
   if (!normalized || /^(null|none)$/iu.test(normalized)) {
@@ -2528,7 +2542,8 @@ function normalizeTextureToken(value: string): string | undefined {
   const fileName = withoutQuery.replace(/\\/gu, "/").split("/").pop() ?? withoutQuery;
   const extensionIndex = fileName.lastIndexOf(".");
   const basename = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
-  return sanitizeName(basename.toLowerCase());
+  const reference = sanitizeName(basename.toLowerCase());
+  return AURORA_TEXTURE_REFERENCE_ALIASES.get(reference) ?? reference;
 }
 
 function collectTextureReferences(model: ParsedModel): string[] {
@@ -3232,7 +3247,6 @@ function buildGlb(model: ParsedModel, geometry: GeometryBuffers): Buffer {
     buffers: [{ byteLength: binary.length }],
     bufferViews,
     accessors,
-    extensionsUsed: ["KHR_materials_unlit"],
     extras: {
       aurora: auroraModelExtras
     }
@@ -3288,14 +3302,13 @@ function buildAuroraMaterial(
   const specMax = Math.max(...material.specular.map(clamp01));
   const roughnessFactor = Math.max(0.4, 1 - Math.min(material.shininess / 128, 0.4));
   const metallicFactor = Math.min(specMax * 0.5, 0.3);
-  const hasAuthoredMaterial = material.sourceKeys.length > 0;
   const alphaMode =
     alpha < 0.99 ? "BLEND" : material.transparencyHint > 0 ? "MASK" : undefined;
   return {
     name: textureReference
       ? `Aurora material ${textureReference}`
       : "Aurora default material",
-    doubleSided: true,
+    doubleSided: false,
     pbrMetallicRoughness: {
       baseColorFactor: [diffuse[0], diffuse[1], diffuse[2], alpha],
       metallicFactor,
@@ -3304,7 +3317,6 @@ function buildAuroraMaterial(
     ...(material.selfIllumColor ? { emissiveFactor: material.selfIllumColor.map(clamp01) } : {}),
     ...(alphaMode ? { alphaMode } : {}),
     ...(alphaMode === "MASK" ? { alphaCutoff: 0.1 } : {}),
-    ...(hasAuthoredMaterial ? {} : { extensions: { KHR_materials_unlit: {} } }),
     extras: {
       aurora: {
         sourceModel: model.modelName,
@@ -3445,7 +3457,12 @@ function parseIntegerToken(value: string | undefined, label: string): number {
 }
 
 function parseNumber(value: string | undefined): number {
-  const parsed = Number(value);
+  // Aurora ASCII MDLs in shipped/custom HAKs can contain a damaged trailing
+  // suffix after an otherwise valid float (for example `2>4000001`). The
+  // retail-style numeric readers consume the valid prefix, just as the
+  // integer readers above already do. Preserve that compatibility while
+  // still rejecting tokens that do not begin with a finite number.
+  const parsed = Number.parseFloat(value ?? "");
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid ASCII MDL number: ${value ?? ""}`);
   }

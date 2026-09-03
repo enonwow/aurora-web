@@ -290,6 +290,15 @@ function addEmitterEdges(
   addEdge: (edge: AddEdgeInput) => void
 ): void {
   const emitterOwnerPath = emitter.ownerPath ?? `${sourceIdentity.ownerPath}/emitter:${emitter.nodeName}`;
+  const hasNullTextureToken = [emitter.texture, emitter.texture0].some(
+    (value) => value !== undefined && isAuroraVfxNoTextureToken(value)
+  );
+  const hasTextureResourceRef = [emitter.texture, emitter.texture0].some(
+    (value) =>
+      typeof value === "string" &&
+      value.trim().length > 0 &&
+      !isAuroraVfxNoTextureToken(value)
+  );
   addEdge({
     edgeType: "emitter_node",
     ownerPath: emitterOwnerPath,
@@ -301,7 +310,20 @@ function addEmitterEdges(
         "VFX_EMITTER_NODE_SOURCE_FACT_PRESERVED",
         "info",
         "Emitter node is preserved as source data; it does not prove particle runtime by itself."
-      )
+      ),
+      ...(hasNullTextureToken
+        ? [
+            dependencyDiagnostic(
+              emitter.chunkName
+                ? "VFX_CHUNKNAME_TEXTURE_NULL_STATE_SEPARATE"
+                : "VFX_TEXTURE_NULL_NO_CHUNK_NO_TEXTURED_DRAW",
+              "info",
+              emitter.chunkName
+                ? "Aurora texture NULL remains a no-texture source token while non-empty chunkName independently selects the chunk-model lane."
+                : "Aurora texture NULL remains an explicit no-texture source state and does not create a texture or TXI dependency."
+            )
+          ]
+        : [])
     ],
     ...edgeSourceIdentity(sourceIdentity)
   });
@@ -358,7 +380,7 @@ function addEmitterEdges(
       requestedRef: emitter.chunkName,
       preloadIntent: "runtime_required",
       diagnostics: [
-        ...(emitter.texture || emitter.texture0
+        ...(hasTextureResourceRef
           ? [
               dependencyDiagnostic(
                 "VFX_CHUNKNAME_OVERRIDES_TEXTURE",
@@ -381,7 +403,7 @@ function addTextureLane(
   sourceIdentity: SourceIdentity,
   addEdge: (edge: AddEdgeInput) => void
 ): void {
-  if (!requestedRef) {
+  if (!requestedRef || isAuroraVfxNoTextureToken(requestedRef)) {
     return;
   }
   const diagnostics: AuroraVfxDiagnostic[] = [];
@@ -431,6 +453,10 @@ interface SourceIdentity {
   sourceHash?: string;
 }
 
+export function isAuroraVfxNoTextureToken(value: string): boolean {
+  return value.trim().toLowerCase() === "null";
+}
+
 function edgeSourceIdentity(sourceIdentity: SourceIdentity): Omit<SourceIdentity, "ownerPath"> {
   return {
     ...(sourceIdentity.sourceTable ? { sourceTable: sourceIdentity.sourceTable } : {}),
@@ -470,8 +496,23 @@ function buildDependencyEdge(
   resourceTraces: AuroraVfxDependencyResolverTrace[]
 ): AuroraVfxDependencyEdge {
   const trace = findResolverTrace(edge, resourceTraces);
-  const diagnostics = [...(edge.diagnostics ?? []), ...(trace?.diagnostics ?? [])];
   const selectedCandidate = trace?.selectedCandidate;
+  const diagnostics = [
+    ...(edge.diagnostics ?? []),
+    ...(trace?.diagnostics ?? []),
+    ...(edge.edgeType === "texture" &&
+    selectedCandidate?.resourceKey &&
+    /\.plt$/iu.test(selectedCandidate.resourceKey) &&
+    !/\.plt$/iu.test(edge.requestedRef)
+      ? [
+          dependencyDiagnostic(
+            "VFX_PLT_PROFILE_GATED",
+            "warn",
+            "The selected texture candidate is PLT. Target-object layer colors and the EE PLT generation profile are required before canonical rendering."
+          )
+        ]
+      : [])
+  ];
   const resolveStatus = resolveEdgeStatus(edge, selectedCandidate);
   if (resolveStatus === "unresolved") {
     diagnostics.push(buildMissingResourceDiagnostic(edge));

@@ -1,4 +1,6 @@
 import type { SupportedGffField } from "./aurora-gff-uti-writer";
+import { parseAuroraVariableTargetEntries } from "../../../../../common/aurora/variable-table/aurora-variable-table";
+import { attachRawGffFieldDataPayload } from "./aurora-gff-raw-field-payload";
 
 interface GffHeader {
   fileType: string;
@@ -293,7 +295,11 @@ export interface ParsedTemplateBlueprint {
   markDown?: number;
   blackMarket?: boolean;
   bmMarkDown?: number;
+  identifyPrice?: number;
+  maxBuyPrice?: number;
+  storeGold?: number;
   onOpenStore?: string;
+  onStoreClosed?: string;
   storeId?: number;
   storeListEntries?: ParsedStoreListBucketEntry[];
   storeListCount?: number;
@@ -704,7 +710,7 @@ function readCExoString(
     return undefined;
   }
 
-  return sanitizeUtf8(bytes.subarray(valueOffset, valueOffset + length).toString("utf-8"));
+  return bytes.subarray(valueOffset, valueOffset + length).toString("utf-8");
 }
 
 function readResRef(
@@ -850,7 +856,11 @@ function mapFieldsToTemplateBlueprint(
   const markDown = readNumberField(fields, ["markdown"]);
   const blackMarket = readBooleanField(fields, ["blackmarket"]);
   const bmMarkDown = readNumberField(fields, ["bm_markdown", "bmmarkdown"]);
+  const identifyPrice = readNumberField(fields, ["identifyprice"]);
+  const maxBuyPrice = readNumberField(fields, ["maxbuyprice"]);
+  const storeGold = readNumberField(fields, ["storegold"]);
   const onOpenStore = readStringField(fields, ["onopenstore"]);
+  const onStoreClosed = readStringField(fields, ["onstoreclosed"]);
   const storeId = readNumberField(fields, ["id", "storeid"]);
   const plot = readBooleanField(fields, ["plot"]);
   const active = readBooleanField(fields, ["active"]);
@@ -941,7 +951,9 @@ function mapFieldsToTemplateBlueprint(
   const bodyPartLShoul = readNumberField(fields, ["bodypart_lshoul", "armorpart_lshoul"]);
   const bodyPartRHand = readNumberField(fields, ["bodypart_rhand", "armorpart_rhand"]);
   const bodyPartLHand = readNumberField(fields, ["bodypart_lhand", "armorpart_lhand"]);
-  const bodyPartRobe = readNumberField(fields, ["bodypart_robe", "armorpart_robe"]);
+  const bodyPartRobe = header.fileType === "UTC "
+    ? undefined
+    : readNumberField(fields, ["bodypart_robe", "armorpart_robe"]);
   const colorSkin = readNumberField(fields, ["color_skin"]);
   const colorHair = readNumberField(fields, ["color_hair"]);
   const colorTattoo1 = readNumberField(fields, ["color_tattoo1"]);
@@ -1021,6 +1033,7 @@ function mapFieldsToTemplateBlueprint(
       .filter((value): value is string => Boolean(value && value.length > 0)),
     ...Object.values(scripts),
     onOpenStore,
+    onStoreClosed,
     templateResRef,
     tag
   ].filter((value): value is string => Boolean(value && value.length > 0)));
@@ -1060,7 +1073,11 @@ function mapFieldsToTemplateBlueprint(
     markDown: Number.isFinite(markDown ?? Number.NaN) ? markDown : undefined,
     blackMarket,
     bmMarkDown: Number.isFinite(bmMarkDown ?? Number.NaN) ? bmMarkDown : undefined,
+    identifyPrice: Number.isFinite(identifyPrice ?? Number.NaN) ? identifyPrice : undefined,
+    maxBuyPrice: Number.isFinite(maxBuyPrice ?? Number.NaN) ? maxBuyPrice : undefined,
+    storeGold: Number.isFinite(storeGold ?? Number.NaN) ? storeGold : undefined,
     onOpenStore,
+    onStoreClosed,
     storeId: Number.isFinite(storeId ?? Number.NaN) ? storeId : undefined,
     plot,
     active,
@@ -1151,7 +1168,7 @@ function mapFieldsToTemplateBlueprint(
     bodyPartLShoul: Number.isFinite(bodyPartLShoul ?? Number.NaN) ? bodyPartLShoul : undefined,
     bodyPartRHand: Number.isFinite(bodyPartRHand ?? Number.NaN) ? bodyPartRHand : undefined,
     bodyPartLHand: Number.isFinite(bodyPartLHand ?? Number.NaN) ? bodyPartLHand : undefined,
-    bodyPartRobe: Number.isFinite(bodyPartRobe ?? Number.NaN) ? bodyPartRobe : undefined,
+    ...(Number.isFinite(bodyPartRobe ?? Number.NaN) ? { bodyPartRobe } : {}),
     colorSkin: Number.isFinite(colorSkin ?? Number.NaN) ? colorSkin : undefined,
     colorHair: Number.isFinite(colorHair ?? Number.NaN) ? colorHair : undefined,
     colorTattoo1: Number.isFinite(colorTattoo1 ?? Number.NaN) ? colorTattoo1 : undefined,
@@ -1831,7 +1848,10 @@ function parseRawGffField(
   }
   if (typeId === FIELD_TYPE.CEXOSTRING) {
     const value = readRawCExoString(bytes, header, dataOrOffset);
-    return value === undefined ? null : { label, type: "cexostring", value };
+    const payload = readRawLengthPrefixedFieldDataPayload(bytes, header, dataOrOffset);
+    return value === undefined || !payload
+      ? null
+      : attachRawGffFieldDataPayload({ label, type: "cexostring" as const, value }, payload);
   }
   if (typeId === FIELD_TYPE.RESREF) {
     const value = readRawResRef(bytes, header, dataOrOffset);
@@ -1839,7 +1859,10 @@ function parseRawGffField(
   }
   if (typeId === FIELD_TYPE.CEXOLOCSTRING) {
     const value = readRawCExoLocString(bytes, header, dataOrOffset);
-    return value === undefined ? null : { label, type: "cexolocstring", value };
+    const payload = readRawLengthPrefixedFieldDataPayload(bytes, header, dataOrOffset);
+    return value === undefined || !payload
+      ? null
+      : attachRawGffFieldDataPayload({ label, type: "cexolocstring" as const, value }, payload);
   }
   if (typeId === FIELD_TYPE.DWORD64 || typeId === FIELD_TYPE.INT64 || typeId === FIELD_TYPE.DOUBLE) {
     const offset = resolveRawFieldDataOffset(header, dataOrOffset, 8);
@@ -1927,6 +1950,18 @@ function readRawCExoString(
   const length = bytes.readUInt32LE(offset);
   const valueOffset = resolveRawFieldDataOffset(header, dataOrOffset + 4, length);
   return valueOffset === undefined ? undefined : bytes.subarray(valueOffset, valueOffset + length).toString("utf-8");
+}
+
+function readRawLengthPrefixedFieldDataPayload(
+  bytes: Buffer,
+  header: GffHeader,
+  dataOrOffset: number,
+): Buffer | undefined {
+  const offset = resolveRawFieldDataOffset(header, dataOrOffset, 4);
+  if (offset === undefined) return undefined;
+  const length = bytes.readUInt32LE(offset);
+  const end = resolveRawFieldDataOffset(header, dataOrOffset, 4 + length);
+  return end === undefined ? undefined : Buffer.from(bytes.subarray(offset, offset + 4 + length));
 }
 
 function readRawResRef(
@@ -2126,10 +2161,10 @@ function readCreatureVariableListEntries(
     | { name: string; type: "string"; value: string }
   > = [];
   for (const entry of list.entries) {
-    const name = readStringField(entry, ["name"]);
+    const name = entry.get("name");
     const type = readNumberField(entry, ["type"]);
     const rawValue = entry.get("value");
-    if (!name) {
+    if (typeof name !== "string") {
       continue;
     }
     if (type === 1 && typeof rawValue === "number" && Number.isFinite(rawValue)) {
@@ -2144,7 +2179,11 @@ function readCreatureVariableListEntries(
       entries.push({ name, type: "string", value: rawValue });
     }
   }
-  return entries;
+  try {
+    return parseAuroraVariableTargetEntries(entries).map((entry) => ({ ...entry }));
+  } catch {
+    return [];
+  }
 }
 
 function readScriptFields(fields: ParsedGffFieldMap): Record<string, string> {

@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from "@nestjs/
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import type { FastifyReply } from "fastify";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
+import { AppException } from "../../../../../common/http/app-exception";
 import {
   applyBinaryPayloadHeaders,
   setInlineContentDisposition
@@ -62,14 +63,20 @@ export class AreaEditingController extends ProcessingHttpBaseController {
   @Post("persist/new-area")
   @HttpCode(201)
   @Roles("builder", "dm", "admin")
+  @Permissions("scene.edit")
   @ApiOperation({ summary: "Persist a validated new ARE/GIT/GIC resource triplet in the module snapshot." })
+  @ApiResponse({ status: 422, description: "The generated Area candidate does not match an admitted native profile." })
   @ApiResponse({ status: 409, description: "An Area resource already exists for this ResRef." })
   @ApiResponse({ status: 501, description: "The configured snapshot storage is read-only." })
   async persistNewArea(@Req() request: AppRequest, @Body() body: Record<string, unknown>) {
-    return this.success(
-      request,
-      await this.service.persistNewArea(parseAreaEditingExportDraft(body))
-    );
+    void request;
+    void body;
+    throw new AppException({
+      status: 410,
+      code: "AREA_CREATE_LEGACY_ROUTE_DISABLED",
+      message:
+        "Legacy sequential Area persistence is disabled. Use POST /api/v1/modules/{moduleId}/areas with Idempotency-Key and If-Match.",
+    });
   }
 
   @Post("export/area.are")

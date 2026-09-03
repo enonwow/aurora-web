@@ -21,11 +21,17 @@ import { RuntimeSettingsBootstrapService } from "./application/runtime-settings-
 import {
   RUNTIME_SETTINGS_REPOSITORY
 } from "./application/ports/runtime-settings-repository.port";
+import { AuthModule } from "../auth/auth.module";
+import { RuntimeCacheRebuildApplicationService } from "./application/runtime-cache-rebuild.application.service";
+import { RuntimePathBrowserApplicationService } from "./application/runtime-path-browser.application.service";
 
 @Module({
+  imports: [AuthModule],
   controllers: [RuntimeSettingsController],
   providers: [
     RuntimeSettingsApplicationService,
+    RuntimeCacheRebuildApplicationService,
+    RuntimePathBrowserApplicationService,
     RuntimeSettingsBootstrapService,
     FileRuntimeSettingsRepository,
     NwnErfPackedModuleExtractorService,
@@ -59,7 +65,8 @@ import {
     RUNTIME_SETTINGS_REPOSITORY,
     MODULE_BLOB_STORAGE,
     DERIVED_ASSET_GENERATOR,
-    RuntimeSettingsApplicationService
+    RuntimeSettingsApplicationService,
+    RuntimeCacheRebuildApplicationService
   ]
 })
 export class RuntimeSettingsModule {}

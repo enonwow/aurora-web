@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -13,6 +14,7 @@ import { createBlobS3Client } from "../../../../../common/blob/s3-processing-cac
 import type {
   ModuleBlobSourceDeltaSummary,
   ModuleBlobSyncSource,
+  ModuleBlobImmutablePutResult,
   ModuleBlobObjectSummary,
   ModuleBlobObjectPayload,
   ModuleBlobSnapshotSummary,
@@ -80,6 +82,7 @@ export class S3ModuleBlobStorageService
     files: PackedModuleFile[],
     options?: {
       forceFull?: boolean;
+      baselineSettings?: BlobStorageSettings;
     }
   ): Promise<ModuleBlobSyncResult> {
     const normalizedPrefix = normalizePrefix(settings.modulePrefix);
@@ -103,6 +106,22 @@ export class S3ModuleBlobStorageService
     );
     const previousModuleHash = previousManifest?.moduleHash;
     const forceFull = options?.forceFull === true;
+    const baselineSettings =
+      options?.baselineSettings &&
+      canReuseBaseline(settings, options.baselineSettings)
+        ? options.baselineSettings
+        : undefined;
+    const baselinePrefix = baselineSettings
+      ? normalizePrefix(baselineSettings.modulePrefix)
+      : "";
+    const baselineManifest =
+      !forceFull && baselineSettings && baselinePrefix !== normalizedPrefix
+        ? await readManifest(
+            client,
+            baselineSettings.bucket,
+            buildManifestKey(baselinePrefix)
+          )
+        : null;
 
     if (
       !forceFull &&
@@ -130,6 +149,7 @@ export class S3ModuleBlobStorageService
     const deletedKeys: string[] = [];
     const deletedSizeByKey = new Map<string, number>();
     const changedDigests: FileDigest[] = [];
+    const copiedDigests: Array<{ digest: FileDigest; sourceKey: string }> = [];
     let unchangedFiles = 0;
     const sourceDelta = createEmptySourceDelta();
 
@@ -142,9 +162,9 @@ export class S3ModuleBlobStorageService
           deletedSizeByKey.set(key, entry.size);
         }
       }
-    } else if (previousManifest) {
+    } else {
       for (const digest of digests) {
-        const previousEntry = previousManifest.files[digest.key];
+        const previousEntry = previousManifest?.files[digest.key];
         if (
           previousEntry &&
           previousEntry.sha256 === digest.sha256 &&
@@ -154,22 +174,41 @@ export class S3ModuleBlobStorageService
           addUnchangedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
           continue;
         }
+        const relativeName = digest.key.slice(normalizedPrefix.length);
+        const baselineKey = `${baselinePrefix}${relativeName}`;
+        const baselineEntry = baselineManifest?.files[baselineKey];
+        if (
+          baselineSettings &&
+          baselineEntry &&
+          baselineEntry.sha256 === digest.sha256 &&
+          baselineEntry.size === digest.size
+        ) {
+          copiedDigests.push({ digest, sourceKey: baselineKey });
+          unchangedFiles += 1;
+          addUnchangedMetric(sourceDelta, digest.key, digest.size, normalizedPrefix);
+          continue;
+        }
         changedDigests.push(digest);
       }
 
-      for (const [key, entry] of Object.entries(previousManifest.files)) {
+      for (const [key, entry] of Object.entries(previousManifest?.files ?? {})) {
         if (!currentKeySet.has(key)) {
           deletedKeys.push(key);
           deletedSizeByKey.set(key, entry.size);
         }
       }
-    } else {
-      changedDigests.push(...digests);
-      const existing = await listPrefixObjects(client, settings.bucket, normalizedPrefix);
-      for (const entry of existing) {
-        if (!currentKeySet.has(entry.key)) {
-          deletedKeys.push(entry.key);
-          deletedSizeByKey.set(entry.key, entry.size);
+
+      if (!previousManifest) {
+        const existing = await listPrefixObjects(
+          client,
+          settings.bucket,
+          normalizedPrefix
+        );
+        for (const entry of existing) {
+          if (!currentKeySet.has(entry.key)) {
+            deletedKeys.push(entry.key);
+            deletedSizeByKey.set(entry.key, entry.size);
+          }
         }
       }
     }
@@ -196,6 +235,33 @@ export class S3ModuleBlobStorageService
       );
     }
 
+    for (
+      let index = 0;
+      index < copiedDigests.length;
+      index += DEFAULT_UPLOAD_CONCURRENCY
+    ) {
+      const batch = copiedDigests.slice(
+        index,
+        index + DEFAULT_UPLOAD_CONCURRENCY
+      );
+      await Promise.all(
+        batch.map(({ digest, sourceKey }) =>
+          client.send(
+            new CopyObjectCommand({
+              Bucket: settings.bucket,
+              Key: digest.key,
+              CopySource: encodeCopySource(
+                baselineSettings!.bucket,
+                sourceKey
+              ),
+              ContentType: inferContentType(digest.key),
+              MetadataDirective: "REPLACE"
+            })
+          )
+        )
+      );
+    }
+
     if (deletedKeys.length > 0) {
       await deleteObjectKeys(client, settings.bucket, deletedKeys);
     }
@@ -209,14 +275,21 @@ export class S3ModuleBlobStorageService
     );
     manifest.sourceDelta = sourceDelta;
     const shouldPersistManifest =
-      !previousManifest || forceFull || changedDigests.length > 0 || deletedKeys.length > 0;
+      !previousManifest ||
+      forceFull ||
+      changedDigests.length > 0 ||
+      copiedDigests.length > 0 ||
+      deletedKeys.length > 0;
 
     if (shouldPersistManifest) {
       await writeManifest(client, settings.bucket, manifestKey, manifest);
     }
 
     const status: "noop" | "updated" =
-      changedDigests.length === 0 && deletedKeys.length === 0 && previousManifest
+      changedDigests.length === 0 &&
+      copiedDigests.length === 0 &&
+      deletedKeys.length === 0 &&
+      previousManifest
         ? "noop"
         : "updated";
     return {
@@ -281,6 +354,7 @@ export class S3ModuleBlobStorageService
         bucket: settings.bucket,
         prefix: normalizedPrefix,
         moduleHash: manifest?.moduleHash,
+        manifestFileCount: manifest?.fileCount,
         totalFiles: objects.length,
         totalBytes,
         objects,
@@ -367,6 +441,71 @@ export class S3ModuleBlobStorageService
     };
   }
 
+  async putImmutableModuleObject(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile,
+    expectedSha256: string
+  ): Promise<ModuleBlobImmutablePutResult> {
+    const normalizedPrefix = normalizePrefix(settings.modulePrefix);
+    if (!normalizedPrefix) {
+      throw new Error(
+        "blobStorage.modulePrefix cannot be empty when writing immutable module objects."
+      );
+    }
+    const key = `${normalizedPrefix}${normalizeFileName(file.fileName)}`;
+    const bytes = Buffer.from(file.bytes);
+    const actualSha256 = hashBytes(bytes);
+    if (actualSha256 !== expectedSha256) {
+      throw immutableBlobError(
+        "MODULE_BLOB_IMMUTABLE_HASH_MISMATCH",
+        "Immutable object bytes do not match the declared SHA-256."
+      );
+    }
+    const client = this.resolveClient(settings);
+    await ensureBucketExists(client, settings.bucket);
+    try {
+      const response = await client.send(
+        new PutObjectCommand({
+          Bucket: settings.bucket,
+          Key: key,
+          Body: bytes,
+          IfNoneMatch: "*"
+        })
+      );
+      return {
+        key,
+        size: bytes.length,
+        etag: response.ETag?.replace(/"/gu, ""),
+        status: "created",
+        sha256: actualSha256
+      };
+    } catch (error) {
+      if (!isPreconditionFailedError(error)) {
+        throw error;
+      }
+    }
+
+    const retained = await this.getModuleObject(settings, key);
+    if (
+      !retained ||
+      retained.size !== bytes.length ||
+      hashBytes(retained.bytes) !== actualSha256
+    ) {
+      throw immutableBlobError(
+        "MODULE_BLOB_IMMUTABLE_CONFLICT",
+        "Immutable object key is already bound to different bytes."
+      );
+    }
+    return {
+      key,
+      size: retained.size,
+      etag: retained.etag,
+      lastModified: retained.lastModified,
+      status: "already_exists",
+      sha256: actualSha256
+    };
+  }
+
   async deleteModuleObject(settings: BlobStorageSettings, key: string): Promise<boolean> {
     const normalizedKey = normalizeObjectKey(key);
     if (!normalizedKey) {
@@ -394,6 +533,7 @@ export class S3ModuleBlobStorageService
 
     return this.client;
   }
+
 }
 
 function createEmptySourceDelta(): ModuleBlobSourceDeltaSummary {
@@ -663,6 +803,23 @@ function normalizeFileName(value: string): string {
   return value.replace(/^[/\\]+/u, "").replace(/\\/gu, "/");
 }
 
+function canReuseBaseline(
+  target: BlobStorageSettings,
+  baseline: BlobStorageSettings
+): boolean {
+  return (
+    target.endpoint === baseline.endpoint &&
+    target.region === baseline.region &&
+    target.accessKeyId === baseline.accessKeyId &&
+    target.secretAccessKey === baseline.secretAccessKey &&
+    target.forcePathStyle === baseline.forcePathStyle
+  );
+}
+
+function encodeCopySource(bucket: string, key: string): string {
+  return encodeURIComponent(`${bucket}/${normalizeObjectKey(key)}`);
+}
+
 function buildManifestKey(prefix: string): string {
   const encoded = Buffer.from(prefix, "utf-8")
     .toString("base64")
@@ -869,6 +1026,18 @@ function isMissingObjectError(error: unknown): boolean {
   }
   const withName = error as { name?: string; $metadata?: { httpStatusCode?: number } };
   return withName.name === "NoSuchKey" || withName.$metadata?.httpStatusCode === 404;
+}
+
+function isPreconditionFailedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const typed = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return typed.name === "PreconditionFailed" || typed.$metadata?.httpStatusCode === 412;
+}
+
+function immutableBlobError(code: string, message: string): Error {
+  return new Error(`${code}: ${message}`);
 }
 
 function inferContentType(fileName: string): string {

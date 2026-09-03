@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { AppConfigService } from "../../../common/config/app-config.service";
 import { AppException } from "../../../common/http/app-exception";
@@ -21,19 +27,24 @@ import type {
   ProcessingQueueMetrics,
   ProcessingJobSummary
 } from "../domain/processing-job.types";
+import { SystemMaintenanceApplicationService } from "../../system-maintenance/application/system-maintenance.application.service";
 
 @Injectable()
-export class ProcessingJobsApplicationService implements OnModuleInit {
+export class ProcessingJobsApplicationService
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(ProcessingJobsApplicationService.name);
   private readonly queue: string[] = [];
   private readonly queued = new Set<string>();
   private processing = false;
+  private unsubscribeMaintenance: (() => void) | null = null;
 
   constructor(
     private readonly catalogService: CatalogApplicationService,
     private readonly areasService: AreasApplicationService,
     private readonly vfxService: VfxApplicationService,
     private readonly config: AppConfigService,
+    private readonly maintenance: SystemMaintenanceApplicationService,
     @Inject(PROCESSING_JOBS_REPOSITORY)
     private readonly repository: ProcessingJobsRepositoryPort,
     @Inject(PROCESSING_JOBS_PUBLISHER)
@@ -41,6 +52,11 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    this.unsubscribeMaintenance = this.maintenance.onStateChanged((record) => {
+      if (record.state === "idle" || record.state === "preflight") {
+        this.scheduleDrain();
+      }
+    });
     const recoverable = await this.repository.listRecoverable(1000);
     for (const job of recoverable) {
       this.enqueueLocal(job.jobId);
@@ -48,10 +64,16 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
     this.scheduleDrain();
   }
 
+  onModuleDestroy(): void {
+    this.unsubscribeMaintenance?.();
+    this.unsubscribeMaintenance = null;
+  }
+
   async enqueueJob(
     command: ProcessingJobCreateCommand,
     triggeredBy: string
   ): Promise<ProcessingJobSummary> {
+    await this.maintenance.assertProcessingAvailable();
     if (command.idempotencyKey) {
       const existing = await this.repository.findByIdempotencyKey(command.idempotencyKey);
       if (existing) {
@@ -304,7 +326,7 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
     if (!this.config.processingJobsInlineEnabled) {
       return;
     }
-    if (this.processing) {
+    if (this.processing || !this.maintenance.isWorkspaceAvailableCached()) {
       return;
     }
     void this.drainQueue();
@@ -340,11 +362,33 @@ export class ProcessingJobsApplicationService implements OnModuleInit {
           continue;
         }
 
+        try {
+          await this.maintenance.assertProcessingAvailable();
+        } catch (error) {
+          if (
+            error instanceof AppException &&
+            (error.code === "MAINTENANCE_REBUILDING" ||
+              error.code === "MAINTENANCE_REBUILD_FAILED")
+          ) {
+            this.enqueueLocal(job.jobId);
+            return;
+          }
+          throw error;
+        }
+
+        if (!this.maintenance.isWorkspaceAvailableCached()) {
+          this.enqueueLocal(job.jobId);
+          return;
+        }
+
         await this.executeSingle(job);
       }
     } finally {
       this.processing = false;
-      if (this.queue.length > 0) {
+      if (
+        this.queue.length > 0 &&
+        this.maintenance.isWorkspaceAvailableCached()
+      ) {
         this.scheduleDrain();
       }
     }

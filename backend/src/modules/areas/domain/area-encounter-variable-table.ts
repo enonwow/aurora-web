@@ -1,0 +1,20 @@
+export {
+  MAX_AURORA_VARIABLE_ENTRIES as MAX_AREA_ENCOUNTER_VARIABLE_ENTRIES,
+  MAX_AURORA_VARIABLE_NAME_CODE_UNITS as MAX_AREA_ENCOUNTER_VARIABLE_NAME_CODE_UNITS,
+  MAX_AURORA_VARIABLE_STRING_CODE_UNITS as MAX_AREA_ENCOUNTER_VARIABLE_STRING_CODE_UNITS,
+  MAX_AURORA_VARIABLE_TEXT_CODE_UNITS as MAX_AREA_ENCOUNTER_VARIABLE_TEXT_CODE_UNITS,
+  AuroraVariableTableValidationError as AreaEncounterVariableTableValidationError,
+  auroraVariableEntriesEqual as areaEncounterVariableEntriesEqual,
+  auroraVariableSourceEntriesEqual as areaEncounterVariableSourceEntriesEqual,
+  parseAuroraVariableMutation as parseAreaEncounterVariableMutation,
+  parseAuroraVariableProvenance as parseAreaEncounterVariableProvenance,
+  parseAuroraVariableSourceEntries as parseAreaEncounterVariableSourceEntries,
+  parseAuroraVariableTargetEntries as parseAreaEncounterVariableTargetEntries,
+} from "./aurora-variable-table";
+
+export type {
+  AuroraVariableMutation as ExistingAreaEncounterVariableMutation,
+  AuroraVariableProvenance as AreaEncounterVariableProvenance,
+  AuroraVariableSourceEntry as AreaEncounterVariableSourceEntry,
+  AuroraVariableTargetEntry as AreaEncounterVariableTargetEntry,
+} from "./aurora-variable-table";

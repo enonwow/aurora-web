@@ -2,7 +2,8 @@ import type {
   ParsedItemPropertyListEntry,
   ParsedTemplateBlueprint
 } from "./aurora-gff-template-parser";
-import { SCRIPT_FIELD_LABELS } from "./aurora-gff-template-parser";
+import { readRawGffFieldDataPayload } from "./aurora-gff-raw-field-payload";
+import { buildAuroraVariableTableField } from "./aurora-gff-variable-table-writer";
 
 type SerializableItemBlueprint = Pick<
   ParsedTemplateBlueprint,
@@ -23,8 +24,6 @@ type SerializableItemBlueprint = Pick<
   | "modelPart3"
   | "cost"
   | "addCost"
-  | "costTable"
-  | "costValue"
   | "charges"
   | "stackSize"
   | "identified"
@@ -55,7 +54,9 @@ type SerializableItemBlueprint = Pick<
   | "cloth2Color"
   | "metal1Color"
   | "metal2Color"
-  | "scripts"
+  | "variableListEntries"
+  | "inventoryItemListEntries"
+  | "equipItemListEntries"
 > & {
   itemPropertyListEntries?: ParsedItemPropertyListEntry[];
   sourceStructTypeId?: number;
@@ -153,7 +154,7 @@ function buildSharedItemBlueprintFields(input: Partial<SerializableItemBlueprint
   const fields: SupportedGffField[] = [];
 
   pushResRef(fields, "TemplateResRef", input.templateResRef);
-  pushLocString(fields, "LocName", input.localizedName, input.localizedNameStrRef);
+  pushLocString(fields, "LocalizedName", input.localizedName, input.localizedNameStrRef);
   pushLocString(fields, "Description", input.description, input.descriptionStrRef);
   pushLocString(
     fields,
@@ -166,15 +167,13 @@ function buildSharedItemBlueprintFields(input: Partial<SerializableItemBlueprint
   pushCExoString(fields, "Tag", input.tag);
   pushByte(fields, "Plot", booleanToByte(input.plot));
 
-  pushDword(fields, "BaseItem", input.baseItem);
+  pushInt(fields, "BaseItem", input.baseItem);
   pushByte(fields, "ModelPart1", input.modelPart1);
   pushByte(fields, "ModelPart2", input.modelPart2);
   pushByte(fields, "ModelPart3", input.modelPart3);
   pushDword(fields, "Cost", input.cost);
   pushDword(fields, "AddCost", input.addCost);
-  pushDword(fields, "CostTable", input.costTable);
-  pushDword(fields, "CostValue", input.costValue);
-  pushDword(fields, "Charges", input.charges);
+  pushByte(fields, "Charges", input.charges);
   pushWord(fields, "StackSize", input.stackSize);
   pushByte(fields, "Identified", booleanToByte(input.identified));
   pushByte(fields, "Stolen", booleanToByte(input.stolen));
@@ -213,31 +212,76 @@ function buildSharedItemBlueprintFields(input: Partial<SerializableItemBlueprint
   if (propertyEntries.length > 0) {
     fields.push({ label: "PropertiesList", type: "list", value: propertyEntries });
   }
-  pushScriptFields(fields, input.scripts);
-
+  const variableTable = buildAuroraVariableTableField(input.variableListEntries);
+  if (variableTable) {
+    fields.push(variableTable);
+  }
+  pushItemBlueprintReferenceLists(fields, input);
   return fields;
 }
 
-function pushScriptFields(fields: SupportedGffField[], scripts: Record<string, string> | undefined): void {
-  if (!scripts) {
-    return;
-  }
-  const scriptLabels = new Set(SCRIPT_FIELD_LABELS.filter((label) => label.length <= LABEL_ENTRY_SIZE));
-  for (const [key, value] of Object.entries(scripts)) {
-    const normalizedKey = normalizeScriptFieldLabel(key);
-    if (!scriptLabels.has(normalizedKey as (typeof SCRIPT_FIELD_LABELS)[number])) {
-      continue;
-    }
-    pushResRef(fields, normalizedKey, value);
-  }
-}
+const ITEM_BLUEPRINT_EQUIPMENT_SLOT_MASKS = new Set<number>([
+  0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80, 0x100,
+  0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000,
+  0x10000, 0x20000,
+]);
 
-function normalizeScriptFieldLabel(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "oninventorydisturbed") {
-    return "oninvdisturbed";
+function pushItemBlueprintReferenceLists(
+  fields: SupportedGffField[],
+  input: Partial<SerializableItemBlueprint>,
+): void {
+  const inventory = input.inventoryItemListEntries ?? [];
+  const equipment = input.equipItemListEntries ?? [];
+  if (inventory.length + equipment.length > 1024 || inventory.length > 1024 ||
+    equipment.length > 18) {
+    throw new Error("item_blueprint_inventory:reference_budget");
   }
-  return normalized;
+  if (inventory.length > 0) {
+    fields.push({
+      label: "ItemList",
+      type: "list",
+      value: inventory.map((entry, index) => {
+        if (Object.keys(entry).some((key) => !["resRef", "x", "y"].includes(key)) ||
+          typeof entry.resRef !== "string" || !/^[a-z0-9_]{1,16}$/u.test(entry.resRef) ||
+          entry.resRef === input.templateResRef || !Number.isSafeInteger(entry.x) ||
+          Number(entry.x) < 0 || Number(entry.x) > 0xffff ||
+          !Number.isSafeInteger(entry.y) || Number(entry.y) < 0 || Number(entry.y) > 0xffff) {
+          throw new Error(`item_blueprint_inventory:index=${index}:invalid`);
+        }
+        return {
+          typeId: index,
+          fields: [
+            { label: "InventoryRes", type: "resref" as const, value: entry.resRef },
+            { label: "Repos_PosX", type: "word" as const, value: Number(entry.x) },
+            { label: "Repos_Posy", type: "word" as const, value: Number(entry.y) },
+          ],
+        };
+      }),
+    });
+  }
+  if (equipment.length > 0) {
+    let previousMask = 0;
+    fields.push({
+      label: "Equip_ItemList",
+      type: "list",
+      value: equipment.map((entry, index) => {
+        if (Object.keys(entry).some((key) => !["resRef", "slotMask"].includes(key)) ||
+          typeof entry.resRef !== "string" || !/^[a-z0-9_]{1,16}$/u.test(entry.resRef) ||
+          entry.resRef === input.templateResRef || !Number.isSafeInteger(entry.slotMask) ||
+          !ITEM_BLUEPRINT_EQUIPMENT_SLOT_MASKS.has(Number(entry.slotMask)) ||
+          Number(entry.slotMask) <= previousMask) {
+          throw new Error(`item_blueprint_equipment:index=${index}:invalid`);
+        }
+        previousMask = Number(entry.slotMask);
+        return {
+          typeId: previousMask,
+          fields: [
+            { label: "EquippedRes", type: "resref" as const, value: entry.resRef },
+          ],
+        };
+      }),
+    });
+  }
 }
 
 function buildItemPropertyFields(entry: ParsedItemPropertyListEntry): {
@@ -427,7 +471,9 @@ export function buildGffBuffer(
       return pushFieldEntry({
         typeId: FIELD_TYPE.CEXOSTRING,
         labelIndex,
-        dataOrOffset: pushFieldData(encodeCExoString(field.value))
+        dataOrOffset: pushFieldData(
+          readRawGffFieldDataPayload(field) ?? encodeCExoString(field.value),
+        )
       });
     }
 
@@ -451,7 +497,9 @@ export function buildGffBuffer(
       return pushFieldEntry({
         typeId: FIELD_TYPE.CEXOLOCSTRING,
         labelIndex,
-        dataOrOffset: pushFieldData(encodeCExoLocString(field.value))
+        dataOrOffset: pushFieldData(
+          readRawGffFieldDataPayload(field) ?? encodeCExoLocString(field.value),
+        )
       });
     }
 
@@ -570,6 +618,12 @@ function pushWord(fields: SupportedGffField[], label: string, value: unknown): v
 function pushDword(fields: SupportedGffField[], label: string, value: unknown): void {
   if (isFiniteNumber(value)) {
     fields.push({ label, type: "dword", value });
+  }
+}
+
+function pushInt(fields: SupportedGffField[], label: string, value: unknown): void {
+  if (isFiniteNumber(value)) {
+    fields.push({ label, type: "int", value });
   }
 }
 

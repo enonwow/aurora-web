@@ -32,7 +32,7 @@ export class MemoryProcessingCacheStore<TValue> {
     };
     this.entries.delete(key);
     this.entries.set(key, updated);
-    return toPublicEntry(updated);
+    return toPublicEntry(updated, true);
   }
 
   async set(key: string, value: TValue): Promise<ProcessingCacheEntryLike<TValue>> {
@@ -45,13 +45,14 @@ export class MemoryProcessingCacheStore<TValue> {
       expiresAtMs: now + this.ttlMs
     };
 
-    if (!isOverMaxEntrySize(value, this.maxEntryBytes)) {
+    const retained = !isOverMaxEntrySize(value, this.maxEntryBytes);
+    if (retained) {
       this.entries.delete(key);
       this.entries.set(key, entry);
       this.evictOverflowEntries();
     }
 
-    return toPublicEntry(entry);
+    return toPublicEntry(entry, retained);
   }
 
   private evictOverflowEntries(): void {
@@ -65,12 +66,16 @@ export class MemoryProcessingCacheStore<TValue> {
   }
 }
 
-function toPublicEntry<TValue>(entry: MemoryEntry<TValue>): ProcessingCacheEntryLike<TValue> {
+function toPublicEntry<TValue>(
+  entry: MemoryEntry<TValue>,
+  retained: boolean
+): ProcessingCacheEntryLike<TValue> {
   return {
     key: entry.key,
     value: entry.value,
     storedAt: entry.storedAt,
-    hits: entry.hits
+    hits: entry.hits,
+    retained
   };
 }
 

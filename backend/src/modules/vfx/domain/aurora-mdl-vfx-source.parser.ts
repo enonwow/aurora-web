@@ -36,6 +36,9 @@ export interface AuroraMdlOrientation {
 export interface AuroraMdlOrientationKeyframe {
   time: number;
   value: AuroraMdlOrientation;
+  interpolation?: "bezier";
+  bezierIncomingTangent?: [number, number, number, number];
+  bezierOutgoingTangent?: [number, number, number, number];
 }
 
 export interface AuroraMdlTransform {
@@ -45,6 +48,26 @@ export interface AuroraMdlTransform {
   orientationTimeline?: AuroraMdlOrientationKeyframe[];
   scale?: number;
   scaleTimeline?: AuroraMdlNumberKeyframe[];
+}
+
+export interface AuroraMdlTransformAnimation {
+  animationName: string;
+  lengthSeconds?: number;
+  transitionSeconds?: number;
+  transform: AuroraMdlTransform;
+}
+
+/** Material controllers owned by a rendered MDL mesh, kept separate from particle alpha. */
+export interface AuroraMdlMeshMaterialState {
+  alpha?: number;
+  alphaTimeline?: AuroraMdlNumberKeyframe[];
+}
+
+export interface AuroraMdlMeshMaterialAnimation {
+  animationName: string;
+  lengthSeconds?: number;
+  transitionSeconds?: number;
+  state: AuroraMdlMeshMaterialState;
 }
 
 export interface AuroraMdlControllerRow {
@@ -59,16 +82,25 @@ export interface AuroraMdlControllerRow {
 export interface AuroraMdlNumberKeyframe {
   time: number;
   value: number;
+  interpolation?: "bezier";
+  bezierIncomingTangent?: number;
+  bezierOutgoingTangent?: number;
 }
 
 export interface AuroraMdlColorKeyframe {
   time: number;
   value: [number, number, number];
+  interpolation?: "bezier";
+  bezierIncomingTangent?: [number, number, number];
+  bezierOutgoingTangent?: [number, number, number];
 }
 
 export interface AuroraMdlVector3Keyframe {
   time: number;
   value: [number, number, number];
+  interpolation?: "bezier";
+  bezierIncomingTangent?: [number, number, number];
+  bezierOutgoingTangent?: [number, number, number];
 }
 
 export type AuroraMdlEmitterSimulationTimelineKey =
@@ -264,6 +296,41 @@ export interface AuroraMdlShadowBlobNode {
   proofStatus: "source-only-no-owning-shadow-policy-callsite";
 }
 
+export type AuroraMdlStaticGeometryNodeKind =
+  | "trimesh"
+  | "animmesh"
+  | "danglymesh"
+  | "skin"
+  | "binary-mesh";
+
+/**
+ * A source-MDL geometry node. The converted GLB supplies its vertex data;
+ * this record preserves the Aurora tree evidence that the static model must
+ * be composed with sibling emitter and light nodes.
+ */
+export interface AuroraMdlStaticGeometryNode {
+  nodeKind: "static-geometry";
+  sourceNodeKind: AuroraMdlStaticGeometryNodeKind;
+  nodeName: string;
+  parentNodeName?: string;
+  transform?: AuroraMdlTransform;
+  animationTracks?: AuroraMdlTransformAnimation[];
+  meshMaterialState?: AuroraMdlMeshMaterialState;
+  meshMaterialAnimationTracks?: AuroraMdlMeshMaterialAnimation[];
+  provenance: AuroraMdlNodeProvenance;
+}
+
+/** A non-rendering MDL tree node that owns local transform state for its children. */
+export interface AuroraMdlTransformNode {
+  nodeKind: "transform";
+  sourceNodeKind: string;
+  nodeName: string;
+  parentNodeName?: string;
+  transform?: AuroraMdlTransform;
+  animationTracks?: AuroraMdlTransformAnimation[];
+  provenance: AuroraMdlNodeProvenance;
+}
+
 export interface AuroraMdlPropagationEvent {
   token:
     | "propagatecolorshift"
@@ -286,6 +353,7 @@ export interface AuroraMdlEmitterNode {
   sourceModelFileName?: string;
   sourceModelHash?: string;
   texture?: string;
+  textureRaw?: string;
   chunkName?: string;
   emitterType?: string;
   emitterTypeRaw?: string;
@@ -353,6 +421,30 @@ export interface AuroraMdlLightNode {
   animations?: AuroraMdlLightAnimation[];
 }
 
+/**
+ * Ordered source-MDL hierarchy shared by pure VFX and placeable hosts. Node
+ * payloads retain their specialized fields above; this graph owns the common
+ * tree identity and parent relationship.
+ */
+export type AuroraMdlModelGraphNode =
+  | AuroraMdlTransformNode
+  | AuroraMdlStaticGeometryNode
+  | AuroraMdlEmitterNode
+  | AuroraMdlLightNode
+  | AuroraMdlReferenceNode
+  | AuroraMdlShadowBlobNode;
+
+export interface AuroraMdlModelGraph {
+  version: "aurora-mdl-model-graph/v1";
+  sourceFormat: AuroraMdlVfxSourceFormat;
+  sourceModelObjectKey?: string;
+  sourceModelFileName?: string;
+  sourceModelHash: string;
+  nodes: AuroraMdlModelGraphNode[];
+  animationEvents: AuroraMdlAnimationEvent[];
+  propagationEvents: AuroraMdlPropagationEvent[];
+}
+
 export interface AuroraMdlVfxSourceParseResult {
   source: AuroraMdlVfxSourceFormat;
   sourceFormat: AuroraMdlVfxSourceFormat;
@@ -360,10 +452,14 @@ export interface AuroraMdlVfxSourceParseResult {
   sourceModelFileName?: string;
   sourceModelHash: string;
   emitters: AuroraMdlEmitterNode[];
+  animationEvents: AuroraMdlAnimationEvent[];
   lights: AuroraMdlLightNode[];
+  transformNodes: AuroraMdlTransformNode[];
+  staticGeometryNodes: AuroraMdlStaticGeometryNode[];
   referenceNodes: AuroraMdlReferenceNode[];
   shadowBlobNodes: AuroraMdlShadowBlobNode[];
   propagationEvents: AuroraMdlPropagationEvent[];
+  modelGraph: AuroraMdlModelGraph;
   diagnostics: AuroraMdlVfxDiagnostic[];
 }
 
@@ -465,6 +561,7 @@ const AURORA_BINARY_NODE_FLAG_MESH = 0x0020;
 const AURORA_BINARY_CONTROLLER_RECORD_SIZE = 12;
 const AURORA_BINARY_CONTROLLER_POSITION = 8;
 const AURORA_BINARY_CONTROLLER_ORIENTATION = 20;
+const AURORA_BINARY_CONTROLLER_MESH_ALPHA = 128;
 const AURORA_BINARY_CONTROLLER_LIGHT_COLOR = 76;
 const AURORA_BINARY_CONTROLLER_LIGHT_RADIUS = 88;
 const AURORA_BINARY_CONTROLLER_LIGHT_SHADOW_RADIUS = 96;
@@ -498,9 +595,10 @@ const AURORA_BINARY_CONTROLLER_EMITTER_VELOCITY = 192;
 const AURORA_BINARY_CONTROLLER_EMITTER_SIZE_X = 196;
 const AURORA_BINARY_CONTROLLER_EMITTER_SIZE_Y = 200;
 const AURORA_BINARY_CONTROLLER_EMITTER_BLUR_LENGTH = 204;
-// Aurora Toolset decompilation: the `lightningScale` MDL token maps to animation
-// controller id 0xD8 (216), alongside fps=0x80, particleRot=0xA0, xsize=0xC4,
-// ysize=0xC8. See docs/aurora-reverse/VFX_Lightning_P2P_GapAnalysis_2026-06-17.md.
+// Aurora Toolset decompilation maps the Lightning runtime fields at offsets
+// 0xD0/0xD4/0xD8 to delay, radius, and scale animation controllers.
+const AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_DELAY = 208;
+const AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_RADIUS = 212;
 const AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_SCALE = 216;
 const AURORA_BINARY_CONTROLLER_EMITTER_DETONATE = 228;
 const AURORA_BINARY_CONTROLLER_EMITTER_ALPHA_MID = 468;
@@ -552,11 +650,23 @@ const AURORA_BINARY_EMITTER_FLAG_INHERIT_PART = 0x400;
 const AURORA_BINARY_ANIMATION_NAME_OFFSET = 8;
 const AURORA_BINARY_ANIMATION_NAME_LENGTH = 64;
 const AURORA_BINARY_ANIMATION_ROOT_NODE_OFFSET = 72;
+const AURORA_BINARY_ANIMATION_LENGTH_OFFSET = 0x70;
+const AURORA_BINARY_ANIMATION_TRANSITION_OFFSET = 0x74;
+const AURORA_BINARY_ANIMATION_EVENTS_OFFSET = 0xb8;
+const AURORA_BINARY_ANIMATION_EVENT_STRIDE = 0x24;
+const AURORA_BINARY_ANIMATION_EVENT_NAME_OFFSET = 0x4;
+const AURORA_BINARY_ANIMATION_EVENT_NAME_LENGTH = 0x20;
 const AURORA_ASCII_LIGHT_NODE_KINDS = new Set([
   "light",
   "sourcelight",
   "placeablelight",
   "fx_light"
+]);
+const AURORA_ASCII_STATIC_GEOMETRY_NODE_KINDS = new Set<AuroraMdlStaticGeometryNodeKind>([
+  "trimesh",
+  "animmesh",
+  "danglymesh",
+  "skin"
 ]);
 const AURORA_ASCII_MODEL_PROPAGATION_TOKENS = new Set([
   "propagatecolorshift",
@@ -574,6 +684,9 @@ interface AuroraBinaryControllerValue {
   type: number;
   rows: number;
   columns: number;
+  timeValuePoolOffset: number;
+  componentValuePoolOffset: number;
+  keyTimes: number[];
   values: number[];
   keyframes: number[][];
 }
@@ -616,7 +729,14 @@ export function parseAuroraMdlVfxSource(
       ...(options.sourceModelObjectKey ? { sourceModelObjectKey: options.sourceModelObjectKey } : {}),
       ...(options.sourceModelFileName ? { sourceModelFileName: options.sourceModelFileName } : {}),
       sourceModelHash,
-      ...parsed
+      ...parsed,
+      modelGraph: buildAuroraMdlModelGraph({
+        sourceFormat,
+        sourceModelObjectKey: options.sourceModelObjectKey,
+        sourceModelFileName: options.sourceModelFileName,
+        sourceModelHash,
+        ...parsed
+      })
     };
   }
 
@@ -627,7 +747,52 @@ export function parseAuroraMdlVfxSource(
     ...(options.sourceModelObjectKey ? { sourceModelObjectKey: options.sourceModelObjectKey } : {}),
     ...(options.sourceModelFileName ? { sourceModelFileName: options.sourceModelFileName } : {}),
     sourceModelHash,
-    ...parsed
+    ...parsed,
+    modelGraph: buildAuroraMdlModelGraph({
+      sourceFormat,
+      sourceModelObjectKey: options.sourceModelObjectKey,
+      sourceModelFileName: options.sourceModelFileName,
+      sourceModelHash,
+      ...parsed
+    })
+  };
+}
+
+function buildAuroraMdlModelGraph(input: {
+  sourceFormat: AuroraMdlVfxSourceFormat;
+  sourceModelObjectKey?: string;
+  sourceModelFileName?: string;
+  sourceModelHash: string;
+  emitters: AuroraMdlEmitterNode[];
+  animationEvents: AuroraMdlAnimationEvent[];
+  lights: AuroraMdlLightNode[];
+  transformNodes: AuroraMdlTransformNode[];
+  staticGeometryNodes: AuroraMdlStaticGeometryNode[];
+  referenceNodes: AuroraMdlReferenceNode[];
+  shadowBlobNodes: AuroraMdlShadowBlobNode[];
+  propagationEvents: AuroraMdlPropagationEvent[];
+}): AuroraMdlModelGraph {
+  const nodes: AuroraMdlModelGraphNode[] = [
+    ...input.transformNodes,
+    ...input.staticGeometryNodes,
+    ...input.emitters,
+    ...input.lights,
+    ...input.referenceNodes,
+    ...input.shadowBlobNodes
+  ].sort((left, right) => {
+    const leftOrder = left.provenance.sourceLineNumber ?? left.provenance.sourceNodeOffset ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.provenance.sourceLineNumber ?? right.provenance.sourceNodeOffset ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder || left.nodeName.localeCompare(right.nodeName);
+  });
+  return {
+    version: "aurora-mdl-model-graph/v1",
+    sourceFormat: input.sourceFormat,
+    ...(input.sourceModelObjectKey ? { sourceModelObjectKey: input.sourceModelObjectKey } : {}),
+    ...(input.sourceModelFileName ? { sourceModelFileName: input.sourceModelFileName } : {}),
+    sourceModelHash: input.sourceModelHash,
+    nodes,
+    animationEvents: [...input.animationEvents],
+    propagationEvents: [...input.propagationEvents]
   };
 }
 
@@ -651,7 +816,10 @@ function parseAuroraAsciiMdlVfxSource(
 ): Pick<
   AuroraMdlVfxSourceParseResult,
   | "emitters"
+  | "animationEvents"
   | "lights"
+  | "transformNodes"
+  | "staticGeometryNodes"
   | "referenceNodes"
   | "shadowBlobNodes"
   | "propagationEvents"
@@ -659,11 +827,21 @@ function parseAuroraAsciiMdlVfxSource(
 > {
   const emitters: MutableEmitter[] = [];
   const lights: AuroraMdlLightNode[] = [];
+  const transformNodes: AuroraMdlTransformNode[] = [];
+  const staticGeometryNodes: AuroraMdlStaticGeometryNode[] = [];
   const referenceNodes: AuroraMdlReferenceNode[] = [];
   const shadowBlobNodes: AuroraMdlShadowBlobNode[] = [];
   const propagationEvents: AuroraMdlPropagationEvent[] = [];
   const diagnostics: AuroraMdlVfxDiagnostic[] = [];
   const lightAnimationTracks: Array<{ nodeName: string; animation: AuroraMdlLightAnimation }> = [];
+  const transformAnimationTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlTransformAnimation;
+  }> = [];
+  const meshMaterialAnimationTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlMeshMaterialAnimation;
+  }> = [];
   const animationEvents: AuroraMdlAnimationEvent[] = [];
   const lines = bytes.toString("latin1").split(/\r?\n/u);
   const nodeStack: Array<
@@ -671,7 +849,18 @@ function parseAuroraAsciiMdlVfxSource(
     | { kind: "light"; light: MutableLight }
     | { kind: "reference"; reference: AuroraMdlReferenceNode }
     | { kind: "shadowblob"; shadowBlob: AuroraMdlShadowBlobNode }
-    | { kind: "other"; nodeName?: string }
+    | { kind: "static-geometry"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | {
+        kind: "static-geometry-animation";
+        staticGeometry: AuroraMdlStaticGeometryNode;
+        animation: { animationName: string; lengthSeconds?: number; transitionSeconds?: number };
+      }
+    | { kind: "transform"; transformNode: AuroraMdlTransformNode }
+    | {
+        kind: "transform-animation";
+        transformNode: AuroraMdlTransformNode;
+        animation: { animationName: string; lengthSeconds?: number; transitionSeconds?: number };
+      }
   > = [];
   let currentAnimation:
     | {
@@ -760,6 +949,26 @@ function parseAuroraAsciiMdlVfxSource(
         });
         continue;
       }
+      if (isAuroraAsciiStaticGeometryNodeKind(nodeKind)) {
+        const geometryNode = createStaticGeometryNode({
+          nodeName: nodeName ?? `static_geometry_${staticGeometryNodes.length + 1}`,
+          sourceNodeKind: nodeKind,
+          parentNodeName: resolveNearestOpenNodeName(nodeStack),
+          sourceLineNumber,
+          sourceProvenance
+        });
+        if (currentAnimation) {
+          nodeStack.push({
+            kind: "static-geometry-animation",
+            staticGeometry: geometryNode,
+            animation: currentAnimation
+          });
+        } else {
+          staticGeometryNodes.push(geometryNode);
+          nodeStack.push({ kind: "static-geometry", staticGeometry: geometryNode });
+        }
+        continue;
+      }
       if (nodeKind === "reference") {
         nodeStack.push({
           kind: "reference",
@@ -784,7 +993,19 @@ function parseAuroraAsciiMdlVfxSource(
         });
         continue;
       }
-      nodeStack.push({ kind: "other", nodeName });
+      const transformNode = createTransformNode({
+        nodeName: nodeName ?? `transform_${transformNodes.length + 1}`,
+        sourceNodeKind: nodeKind ?? "unknown",
+        parentNodeName: resolveNearestOpenNodeName(nodeStack),
+        sourceLineNumber,
+        sourceProvenance
+      });
+      if (currentAnimation) {
+        nodeStack.push({ kind: "transform-animation", transformNode, animation: currentAnimation });
+      } else {
+        transformNodes.push(transformNode);
+        nodeStack.push({ kind: "transform", transformNode });
+      }
       continue;
     }
 
@@ -806,6 +1027,35 @@ function parseAuroraAsciiMdlVfxSource(
         referenceNodes.push(finalizeReferenceNode(currentNode.reference));
       } else if (currentNode?.kind === "shadowblob") {
         shadowBlobNodes.push(finalizeShadowBlobNode(currentNode.shadowBlob));
+      } else if (currentNode?.kind === "transform-animation") {
+        const animation = buildAuroraTransformAnimationTrack(
+          currentNode.transformNode.transform,
+          currentNode.animation
+        );
+        if (animation) {
+          transformAnimationTracks.push({ nodeName: currentNode.transformNode.nodeName, animation });
+        }
+      } else if (currentNode?.kind === "static-geometry-animation") {
+        const transformAnimation = buildAuroraTransformAnimationTrack(
+          currentNode.staticGeometry.transform,
+          currentNode.animation
+        );
+        if (transformAnimation) {
+          transformAnimationTracks.push({
+            nodeName: currentNode.staticGeometry.nodeName,
+            animation: transformAnimation
+          });
+        }
+        const materialAnimation = buildAuroraMeshMaterialAnimationTrack(
+          currentNode.staticGeometry.meshMaterialState,
+          currentNode.animation
+        );
+        if (materialAnimation) {
+          meshMaterialAnimationTracks.push({
+            nodeName: currentNode.staticGeometry.nodeName,
+            animation: materialAnimation
+          });
+        }
       }
       continue;
     }
@@ -813,6 +1063,18 @@ function parseAuroraAsciiMdlVfxSource(
     const currentNode = nodeStack[nodeStack.length - 1];
     if (!currentNode) {
       continue;
+    }
+
+    if (
+      key === "orientationbezierkey" &&
+      !diagnostics.some((entry) => entry.code === "VFX_MDL_ORIENTATION_BEZIER_AURORA_NOOP")
+    ) {
+      diagnostics.push({
+        code: "VFX_MDL_ORIENTATION_BEZIER_AURORA_NOOP",
+        severity: "info",
+        message:
+          "Aurora ASCII orientationbezierkey is preserved as source evidence but does not drive orientation: its ten-float row parser classifies the controller as three-component while the orientation evaluator accepts only four-component controllers."
+      });
     }
 
     if (isAuroraAsciiModelPropagationToken(key)) {
@@ -826,6 +1088,32 @@ function parseAuroraAsciiMdlVfxSource(
           sourceProvenance
         })
       );
+      continue;
+    }
+
+    if (
+      currentNode.kind === "static-geometry" ||
+      currentNode.kind === "static-geometry-animation"
+    ) {
+      const parse = applyAsciiStaticGeometryField(
+        currentNode.staticGeometry,
+        key,
+        rawValue,
+        lines,
+        lineIndex
+      );
+      lineIndex = parse.endLineIndex;
+      continue;
+    }
+    if (currentNode.kind === "transform" || currentNode.kind === "transform-animation") {
+      const parse = applyAsciiTransformNodeField(
+        currentNode.transformNode,
+        key,
+        rawValue,
+        lines,
+        lineIndex
+      );
+      lineIndex = parse.endLineIndex;
       continue;
     }
 
@@ -872,6 +1160,35 @@ function parseAuroraAsciiMdlVfxSource(
       referenceNodes.push(finalizeReferenceNode(currentNode.reference));
     } else if (currentNode?.kind === "shadowblob") {
       shadowBlobNodes.push(finalizeShadowBlobNode(currentNode.shadowBlob));
+    } else if (currentNode?.kind === "transform-animation") {
+      const animation = buildAuroraTransformAnimationTrack(
+        currentNode.transformNode.transform,
+        currentNode.animation
+      );
+      if (animation) {
+        transformAnimationTracks.push({ nodeName: currentNode.transformNode.nodeName, animation });
+      }
+    } else if (currentNode?.kind === "static-geometry-animation") {
+      const transformAnimation = buildAuroraTransformAnimationTrack(
+        currentNode.staticGeometry.transform,
+        currentNode.animation
+      );
+      if (transformAnimation) {
+        transformAnimationTracks.push({
+          nodeName: currentNode.staticGeometry.nodeName,
+          animation: transformAnimation
+        });
+      }
+      const materialAnimation = buildAuroraMeshMaterialAnimationTrack(
+        currentNode.staticGeometry.meshMaterialState,
+        currentNode.animation
+      );
+      if (materialAnimation) {
+        meshMaterialAnimationTracks.push({
+          nodeName: currentNode.staticGeometry.nodeName,
+          animation: materialAnimation
+        });
+      }
     }
   }
 
@@ -893,11 +1210,14 @@ function parseAuroraAsciiMdlVfxSource(
   }
 
   return {
-    emitters: attachEventsToEmitters(
-      attachReferenceNodesToEmitters(emitters, referenceNodes),
-      animationEvents
-    ),
+    emitters: attachReferenceNodesToEmitters(emitters, referenceNodes),
+    animationEvents: sanitizeAnimationEvents(animationEvents) ?? [],
     lights: attachLightAnimations(lights, lightAnimationTracks),
+    transformNodes: attachTransformAnimations(transformNodes, transformAnimationTracks),
+    staticGeometryNodes: attachMeshMaterialAnimations(
+      attachTransformAnimations(staticGeometryNodes, transformAnimationTracks),
+      meshMaterialAnimationTracks
+    ),
     referenceNodes,
     shadowBlobNodes,
     propagationEvents,
@@ -911,7 +1231,10 @@ function parseAuroraBinaryMdlVfxSource(
 ): Pick<
   AuroraMdlVfxSourceParseResult,
   | "emitters"
+  | "animationEvents"
   | "lights"
+  | "transformNodes"
+  | "staticGeometryNodes"
   | "referenceNodes"
   | "shadowBlobNodes"
   | "propagationEvents"
@@ -921,7 +1244,10 @@ function parseAuroraBinaryMdlVfxSource(
   if (rootNodeOffset === null) {
     return {
       emitters: [],
+      animationEvents: [],
       lights: [],
+      transformNodes: [],
+      staticGeometryNodes: [],
       referenceNodes: [],
       shadowBlobNodes: [],
       propagationEvents: [],
@@ -930,14 +1256,38 @@ function parseAuroraBinaryMdlVfxSource(
   }
   const emitters = collectAuroraBinaryEmitterNodesFromRoot(bytes, rootNodeOffset, sourceProvenance);
   const lights = collectAuroraBinaryLightNodesFromRoot(bytes, rootNodeOffset, sourceProvenance);
+  const transformNodes = collectAuroraBinaryTransformNodesFromRoot(
+    bytes,
+    rootNodeOffset,
+    sourceProvenance
+  );
+  const staticGeometryNodes = collectAuroraBinaryStaticGeometryNodesFromRoot(
+    bytes,
+    rootNodeOffset,
+    sourceProvenance
+  );
   const animationPasses = collectAuroraBinaryAnimationEmitterPasses(bytes, sourceProvenance);
+  const animationEvents = collectAuroraBinaryAnimationEvents(bytes);
   const lightAnimationTracks = collectAuroraBinaryAnimationLightTracks(bytes, sourceProvenance);
+  const modelNodeAnimationTracks = collectAuroraBinaryAnimationModelNodeTracks(bytes);
   const emittersWithAnimations = attachBinaryAnimationPassesToEmitters(emitters, animationPasses);
   const lightsWithAnimations = attachLightAnimations(lights, lightAnimationTracks);
   const referenceNodes = emittersWithAnimations.flatMap((emitter) => emitter.referenceNodes ?? []);
   return {
     emitters: emittersWithAnimations,
+    animationEvents: sanitizeAnimationEvents(animationEvents) ?? [],
     lights: lightsWithAnimations,
+    transformNodes: attachTransformAnimations(
+      transformNodes,
+      modelNodeAnimationTracks.transformTracks
+    ),
+    staticGeometryNodes: attachMeshMaterialAnimations(
+      attachTransformAnimations(
+        staticGeometryNodes,
+        modelNodeAnimationTracks.transformTracks
+      ),
+      modelNodeAnimationTracks.meshMaterialTracks
+    ),
     referenceNodes,
     shadowBlobNodes: [],
     propagationEvents: [],
@@ -957,7 +1307,12 @@ function applyAsciiEmitterField(
     : "key";
   const colorTimelineKey = toAuroraEmitterSimulationColorTimelineKey(key);
   if (colorTimelineKey) {
-    const timelineParse = readAuroraAsciiColorTimeline(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiColorTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      rowKind === "bezier-key"
+    );
     if (timelineParse.frames.length > 0) {
       setEmitterSimulationValue(emitter, colorTimelineKey, timelineParse.frames[0]?.value);
       setEmitterSimulationColorTimelineValue(emitter, colorTimelineKey, timelineParse.frames);
@@ -981,7 +1336,12 @@ function applyAsciiEmitterField(
 
   const simulationTimelineKey = toAuroraEmitterSimulationTimelineKey(key);
   if (simulationTimelineKey) {
-    const timelineParse = readAuroraAsciiNumberTimeline(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      rowKind === "bezier-key"
+    );
     if (timelineParse.frames.length > 0) {
       setEmitterSimulationValue(emitter, simulationTimelineKey, timelineParse.frames[0]?.value);
       setEmitterSimulationTimelineValue(emitter, simulationTimelineKey, timelineParse.frames);
@@ -1018,7 +1378,11 @@ function applyAsciiEmitterField(
     return { endLineIndex: lineIndex };
   }
   if (key === "texture" || key === "bitmap") {
+    const textureRaw = normalizeAuroraMdlValue(rawValue);
     const texture = normalizeModelTextureReference(rawValue);
+    if (textureRaw && textureRaw !== "****") {
+      emitter.textureRaw = textureRaw;
+    }
     if (texture) {
       emitter.texture = texture;
     }
@@ -1040,7 +1404,12 @@ function applyAsciiEmitterField(
     return { endLineIndex: lineIndex };
   }
   if (key === "positionkey" || key === "positionbezierkey") {
-    const timelineParse = readAuroraAsciiVector3Timeline(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiVector3Timeline(
+      lines,
+      lineIndex,
+      rawValue,
+      rowKind === "bezier-key"
+    );
     if (timelineParse.frames.length > 0) {
       const firstPosition = timelineParse.frames[0]?.value;
       setEmitterTransformValue(emitter, "positionTimeline", timelineParse.frames);
@@ -1070,7 +1439,25 @@ function applyAsciiEmitterField(
     return { endLineIndex: lineIndex };
   }
   if (key === "orientationkey" || key === "orientationbezierkey") {
-    const timelineParse = readAuroraAsciiOrientationTimeline(lines, lineIndex, rawValue);
+    const bezier = rowKind === "bezier-key";
+    const timelineParse = readAuroraAsciiOrientationTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      bezier
+    );
+    if (bezier && timelineParse.rows.length > 0) {
+      emitter.bezierKeyRows.push(
+        ...timelineParse.rows.map((values) => ({
+          property: "orientation",
+          rawToken: key,
+          rowKind,
+          values,
+          sourceLineNumber: lineIndex + 1
+        }))
+      );
+      return { endLineIndex: timelineParse.endLineIndex };
+    }
     if (timelineParse.frames.length > 0) {
       const firstOrientation = timelineParse.frames[0]?.value;
       setEmitterTransformValue(emitter, "orientationTimeline", timelineParse.frames);
@@ -1100,7 +1487,12 @@ function applyAsciiEmitterField(
     return { endLineIndex: lineIndex };
   }
   if (key === "scalekey" || key === "scalebezierkey") {
-    const timelineParse = readAuroraAsciiNumberTimeline(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      rowKind === "bezier-key"
+    );
     if (timelineParse.frames.length > 0) {
       const firstScale = timelineParse.frames[0]?.value;
       setEmitterTransformValue(emitter, "scaleTimeline", timelineParse.frames);
@@ -1239,8 +1631,13 @@ function applyAsciiLightField(
     setLightTransformValue(light, "scale", readAuroraNumberValue(rawValue));
     return { endLineIndex: lineIndex };
   }
-  if (key === "positionkey") {
-    const timelineParse = readAuroraAsciiVector3KeyframesUntilEndList(lines, lineIndex, rawValue);
+  if (key === "positionkey" || key === "positionbezierkey") {
+    const timelineParse = readAuroraAsciiVector3KeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.positionTimeline = timelineParse.frames;
       return { endLineIndex: timelineParse.endLineIndex };
@@ -1248,7 +1645,12 @@ function applyAsciiLightField(
     return { endLineIndex: lineIndex };
   }
   if (key === "colorkey" || key === "colorbezierkey") {
-    const timelineParse = readAuroraAsciiColorKeyframesUntilEndList(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiColorKeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.colorTimeline = timelineParse.frames;
       light.color = timelineParse.frames[0]?.value ?? light.color;
@@ -1257,7 +1659,12 @@ function applyAsciiLightField(
     return { endLineIndex: lineIndex };
   }
   if (key === "radiuskey" || key === "radiusbezierkey") {
-    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.radiusTimeline = timelineParse.frames;
       light.radius = timelineParse.frames[0]?.value ?? light.radius;
@@ -1266,7 +1673,12 @@ function applyAsciiLightField(
     return { endLineIndex: lineIndex };
   }
   if (key === "shadowradiuskey" || key === "shadowradiusbezierkey") {
-    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.shadowRadiusTimeline = timelineParse.frames;
       light.shadowRadius = timelineParse.frames[0]?.value ?? light.shadowRadius;
@@ -1275,7 +1687,12 @@ function applyAsciiLightField(
     return { endLineIndex: lineIndex };
   }
   if (key === "verticaldisplacementkey" || key === "verticaldisplacementbezierkey") {
-    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.verticalDisplacementTimeline = timelineParse.frames;
       light.verticalDisplacement =
@@ -1285,7 +1702,12 @@ function applyAsciiLightField(
     return { endLineIndex: lineIndex };
   }
   if (key === "multiplierkey" || key === "multiplierbezierkey") {
-    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(lines, lineIndex, rawValue);
+    const timelineParse = readAuroraAsciiNumberKeyframesUntilEndList(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
     if (timelineParse.frames.length > 0) {
       light.multiplierTimeline = timelineParse.frames;
       light.multiplier = timelineParse.frames[0]?.value ?? light.multiplier;
@@ -1467,6 +1889,109 @@ function collectAuroraBinaryLightNodesFromRoot(
   ).map((light) => finalizeLightNode(light));
 }
 
+function collectAuroraBinaryTransformNodesFromRoot(
+  bytes: Buffer,
+  rootNodeOffset: number,
+  sourceProvenance: AuroraMdlVfxSourceProvenance
+): AuroraMdlTransformNode[] {
+  const transformNodes: AuroraMdlTransformNode[] = [];
+  const visitedOffsets = new Set<number>();
+  const specialFlags =
+    AURORA_BINARY_NODE_FLAG_LIGHT |
+    AURORA_BINARY_NODE_FLAG_EMITTER |
+    AURORA_BINARY_NODE_FLAG_MESH;
+  const walkNode = (nodeOffset: number, depth: number, parentNodeName?: string): void => {
+    if (depth > 256 || visitedOffsets.has(nodeOffset)) {
+      return;
+    }
+    visitedOffsets.add(nodeOffset);
+
+    const absOffset = AURORA_BINARY_MODEL_BASE + nodeOffset;
+    if (absOffset < AURORA_BINARY_MODEL_BASE || absOffset + AURORA_BINARY_NODE_HEADER_SIZE > bytes.length) {
+      return;
+    }
+    const flags = readAuroraBinaryUInt32(bytes, absOffset + AURORA_BINARY_NODE_FLAGS_OFFSET);
+    if (flags === null) {
+      return;
+    }
+    const nodeName =
+      normalizeAuroraMdlValue(
+        readAuroraBinaryCString(bytes, absOffset + AURORA_BINARY_NODE_NAME_OFFSET, 32)
+      ) ?? `node_${nodeOffset}`;
+    if ((flags & specialFlags) === 0) {
+      transformNodes.push(
+        createTransformNode({
+          nodeName,
+          sourceNodeKind: "binary-node",
+          parentNodeName,
+          sourceNodeOffset: nodeOffset,
+          sourceProvenance,
+          transform: readAuroraBinaryTransform(bytes, absOffset)
+        })
+      );
+    }
+    for (const childOffset of readAuroraBinaryNodeChildren(bytes, absOffset)) {
+      if (childOffset !== nodeOffset) {
+        walkNode(childOffset, depth + 1, nodeName);
+      }
+    }
+  };
+
+  walkNode(rootNodeOffset, 0);
+  return transformNodes;
+}
+
+function collectAuroraBinaryStaticGeometryNodesFromRoot(
+  bytes: Buffer,
+  rootNodeOffset: number,
+  sourceProvenance: AuroraMdlVfxSourceProvenance
+): AuroraMdlStaticGeometryNode[] {
+  const staticGeometryNodes: AuroraMdlStaticGeometryNode[] = [];
+  const visitedOffsets = new Set<number>();
+  const walkNode = (nodeOffset: number, depth: number, parentNodeName?: string): void => {
+    if (depth > 256 || visitedOffsets.has(nodeOffset)) {
+      return;
+    }
+    visitedOffsets.add(nodeOffset);
+
+    const absOffset = AURORA_BINARY_MODEL_BASE + nodeOffset;
+    if (absOffset < AURORA_BINARY_MODEL_BASE || absOffset + AURORA_BINARY_NODE_HEADER_SIZE > bytes.length) {
+      return;
+    }
+
+    const flags = readAuroraBinaryUInt32(bytes, absOffset + AURORA_BINARY_NODE_FLAGS_OFFSET);
+    if (flags === null) {
+      return;
+    }
+    const nodeName =
+      normalizeAuroraMdlValue(
+        readAuroraBinaryCString(bytes, absOffset + AURORA_BINARY_NODE_NAME_OFFSET, 32)
+      ) ?? `node_${nodeOffset}`;
+    if ((flags & AURORA_BINARY_NODE_FLAG_MESH) !== 0) {
+      staticGeometryNodes.push(
+        createStaticGeometryNode({
+          nodeName,
+          sourceNodeKind: "binary-mesh",
+          parentNodeName,
+          sourceNodeOffset: nodeOffset,
+          sourceProvenance,
+          transform: readAuroraBinaryTransform(bytes, absOffset),
+          meshMaterialState: readAuroraBinaryMeshMaterialState(bytes, absOffset)
+        })
+      );
+    }
+
+    for (const childOffset of readAuroraBinaryNodeChildren(bytes, absOffset)) {
+      if (childOffset !== nodeOffset) {
+        walkNode(childOffset, depth + 1, nodeName);
+      }
+    }
+  };
+
+  walkNode(rootNodeOffset, 0);
+  return staticGeometryNodes;
+}
+
 function collectAuroraBinaryMutableLightNodesFromRoot(
   bytes: Buffer,
   rootNodeOffset: number,
@@ -1529,9 +2054,10 @@ function readAuroraBinaryEmitterNode(
     sourceNodeOffset: nodeAbsOffset - AURORA_BINARY_MODEL_BASE,
     sourceProvenance
   });
-  const texture = normalizeModelTextureReference(
+  const textureRaw = normalizeAuroraMdlValue(
     readAuroraBinaryCString(bytes, nodeAbsOffset + AURORA_BINARY_EMITTER_TEXTURE_OFFSET, 64)
   );
+  const texture = normalizeModelTextureReference(textureRaw);
   const chunkName = normalizeAuroraModelResourceReference(
     readAuroraBinaryCString(
       bytes,
@@ -1550,6 +2076,9 @@ function readAuroraBinaryEmitterNode(
   );
   if (texture) {
     emitter.texture = texture;
+  }
+  if (textureRaw && textureRaw !== "****") {
+    emitter.textureRaw = textureRaw;
   }
   if (chunkName) {
     emitter.chunkName = chunkName;
@@ -1795,10 +2324,16 @@ function collectAuroraBinaryAnimationEmitterPasses(
       continue;
     }
     const lengthSeconds = sanitizeAuroraBinaryAnimationSeconds(
-      readAuroraBinaryFloat32(bytes, animationAbsOffset)
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_LENGTH_OFFSET
+      )
     );
     const transitionSeconds = sanitizeAuroraBinaryAnimationSeconds(
-      readAuroraBinaryFloat32(bytes, animationAbsOffset + 4)
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_TRANSITION_OFFSET
+      )
     );
     const rootNodeOffset = readAuroraBinaryUInt32(
       bytes,
@@ -1811,7 +2346,11 @@ function collectAuroraBinaryAnimationEmitterPasses(
       implicitTimelineDurationSeconds: lengthSeconds
     });
     animationEmitters.forEach((emitter) => {
-      if (!emitter.simulation && !emitter.transform) {
+      const simulation = buildAuroraBinaryAnimationSimulationOverride(emitter);
+      const directRows = emitter.directRows.filter(
+        (row) => row.binaryControllerType !== undefined
+      );
+      if (!simulation && !emitter.transform) {
         return;
       }
       passes.push({
@@ -1821,9 +2360,9 @@ function collectAuroraBinaryAnimationEmitterPasses(
           ...(lengthSeconds !== undefined ? { lengthSeconds } : {}),
           ...(transitionSeconds !== undefined ? { transitionSeconds } : {}),
           emitterState: {
-            ...(emitter.simulation ? { simulation: emitter.simulation } : {}),
+            ...(simulation ? { simulation } : {}),
             ...(emitter.transform ? { transform: emitter.transform } : {}),
-            ...(emitter.directRows.length > 0 ? { directRows: emitter.directRows } : {}),
+            ...(directRows.length > 0 ? { directRows } : {}),
             ...(emitter.keyRows.length > 0 ? { keyRows: emitter.keyRows } : {}),
             ...(emitter.bezierKeyRows.length > 0 ? { bezierKeyRows: emitter.bezierKeyRows } : {})
           }
@@ -1832,6 +2371,89 @@ function collectAuroraBinaryAnimationEmitterPasses(
     });
   }
   return passes;
+}
+
+function buildAuroraBinaryAnimationSimulationOverride(
+  emitter: MutableEmitter
+): AuroraMdlEmitterSimulation | undefined {
+  const source = emitter.simulation;
+  if (!source) {
+    return undefined;
+  }
+  const override: Record<string, unknown> = {};
+  emitter.directRows.forEach((row) => {
+    if (
+      row.binaryControllerType !== undefined &&
+      Object.prototype.hasOwnProperty.call(source, row.property)
+    ) {
+      override[row.property] = (source as unknown as Record<string, unknown>)[row.property];
+    }
+  });
+  if (source.timeline) {
+    override.timeline = source.timeline;
+  }
+  if (source.colorTimeline) {
+    override.colorTimeline = source.colorTimeline;
+  }
+  return Object.keys(override).length > 0
+    ? (override as unknown as AuroraMdlEmitterSimulation)
+    : undefined;
+}
+
+function collectAuroraBinaryAnimationEvents(bytes: Buffer): AuroraMdlAnimationEvent[] {
+  const animations = readAuroraBinaryArrayHeader(
+    bytes,
+    AURORA_BINARY_MODEL_BASE + AURORA_BINARY_MODEL_ANIMATIONS_OFFSET
+  );
+  if (!animations || animations.count < 1) {
+    return [];
+  }
+
+  const events: AuroraMdlAnimationEvent[] = [];
+  for (let animationIndex = 0; animationIndex < animations.count; animationIndex += 1) {
+    const animationOffset = readAuroraBinaryUInt32(
+      bytes,
+      AURORA_BINARY_MODEL_BASE + animations.offset + animationIndex * 4
+    );
+    if (animationOffset === null) {
+      continue;
+    }
+    const animationAbsOffset = AURORA_BINARY_MODEL_BASE + animationOffset;
+    const animationName = normalizeAuroraMdlValue(
+      readAuroraBinaryCString(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_NAME_OFFSET,
+        AURORA_BINARY_ANIMATION_NAME_LENGTH
+      )
+    );
+    const eventArray = readAuroraBinaryArrayHeader(
+      bytes,
+      animationAbsOffset + AURORA_BINARY_ANIMATION_EVENTS_OFFSET
+    );
+    if (!animationName || !eventArray) {
+      continue;
+    }
+
+    for (let eventIndex = 0; eventIndex < eventArray.count; eventIndex += 1) {
+      const eventAbsOffset =
+        AURORA_BINARY_MODEL_BASE +
+        eventArray.offset +
+        eventIndex * AURORA_BINARY_ANIMATION_EVENT_STRIDE;
+      const event = buildAuroraAnimationEvent({
+        time: readAuroraBinaryFloat32(bytes, eventAbsOffset) ?? undefined,
+        type: readAuroraBinaryCString(
+          bytes,
+          eventAbsOffset + AURORA_BINARY_ANIMATION_EVENT_NAME_OFFSET,
+          AURORA_BINARY_ANIMATION_EVENT_NAME_LENGTH
+        ),
+        animationName
+      });
+      if (event) {
+        events.push(event);
+      }
+    }
+  }
+  return sanitizeAnimationEvents(events) ?? [];
 }
 
 function collectAuroraBinaryAnimationLightTracks(
@@ -1873,10 +2495,16 @@ function collectAuroraBinaryAnimationLightTracks(
       continue;
     }
     const lengthSeconds = sanitizeAuroraBinaryAnimationSeconds(
-      readAuroraBinaryFloat32(bytes, animationAbsOffset)
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_LENGTH_OFFSET
+      )
     );
     const transitionSeconds = sanitizeAuroraBinaryAnimationSeconds(
-      readAuroraBinaryFloat32(bytes, animationAbsOffset + 4)
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_TRANSITION_OFFSET
+      )
     );
     const rootNodeOffset = readAuroraBinaryUInt32(
       bytes,
@@ -1910,6 +2538,144 @@ function collectAuroraBinaryAnimationLightTracks(
     });
   }
   return tracks;
+}
+
+function collectAuroraBinaryAnimationModelNodeTracks(
+  bytes: Buffer
+): {
+  transformTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlTransformAnimation;
+  }>;
+  meshMaterialTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlMeshMaterialAnimation;
+  }>;
+} {
+  const animations = readAuroraBinaryArrayHeader(
+    bytes,
+    AURORA_BINARY_MODEL_BASE + AURORA_BINARY_MODEL_ANIMATIONS_OFFSET
+  );
+  const transformTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlTransformAnimation;
+  }> = [];
+  const meshMaterialTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlMeshMaterialAnimation;
+  }> = [];
+  if (!animations || animations.count < 1) {
+    return { transformTracks, meshMaterialTracks };
+  }
+
+  for (let index = 0; index < animations.count; index += 1) {
+    const animationOffset = readAuroraBinaryUInt32(
+      bytes,
+      AURORA_BINARY_MODEL_BASE + animations.offset + index * 4
+    );
+    if (animationOffset === null) {
+      continue;
+    }
+    const animationAbsOffset = AURORA_BINARY_MODEL_BASE + animationOffset;
+    if (
+      animationAbsOffset < AURORA_BINARY_MODEL_BASE ||
+      animationAbsOffset + AURORA_BINARY_ANIMATION_ROOT_NODE_OFFSET + 4 > bytes.length
+    ) {
+      continue;
+    }
+    const animationName = normalizeAuroraMdlValue(
+      readAuroraBinaryCString(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_NAME_OFFSET,
+        AURORA_BINARY_ANIMATION_NAME_LENGTH
+      )
+    );
+    if (!animationName) {
+      continue;
+    }
+    const lengthSeconds = sanitizeAuroraBinaryAnimationSeconds(
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_LENGTH_OFFSET
+      )
+    );
+    const transitionSeconds = sanitizeAuroraBinaryAnimationSeconds(
+      readAuroraBinaryFloat32(
+        bytes,
+        animationAbsOffset + AURORA_BINARY_ANIMATION_TRANSITION_OFFSET
+      )
+    );
+    const rootNodeOffset = readAuroraBinaryUInt32(
+      bytes,
+      animationAbsOffset + AURORA_BINARY_ANIMATION_ROOT_NODE_OFFSET
+    );
+    if (rootNodeOffset === null) {
+      continue;
+    }
+    const animation = {
+      animationName,
+      ...(lengthSeconds !== undefined ? { lengthSeconds } : {}),
+      ...(transitionSeconds !== undefined ? { transitionSeconds } : {})
+    };
+    const visitedOffsets = new Set<number>();
+    const walkNode = (nodeOffset: number, depth: number): void => {
+      if (depth > 256 || visitedOffsets.has(nodeOffset)) {
+        return;
+      }
+      visitedOffsets.add(nodeOffset);
+      const nodeAbsOffset = AURORA_BINARY_MODEL_BASE + nodeOffset;
+      if (
+        nodeAbsOffset < AURORA_BINARY_MODEL_BASE ||
+        nodeAbsOffset + AURORA_BINARY_NODE_HEADER_SIZE > bytes.length
+      ) {
+        return;
+      }
+      const flags = readAuroraBinaryUInt32(
+        bytes,
+        nodeAbsOffset + AURORA_BINARY_NODE_FLAGS_OFFSET
+      );
+      if (flags === null) {
+        return;
+      }
+      const nodeName = normalizeAuroraMdlValue(
+        readAuroraBinaryCString(
+          bytes,
+          nodeAbsOffset + AURORA_BINARY_NODE_NAME_OFFSET,
+          32
+        )
+      );
+      if (nodeName) {
+        const transform = readAuroraBinaryTransform(
+          bytes,
+          nodeAbsOffset,
+          lengthSeconds
+        );
+        const transformAnimation = buildAuroraTransformAnimationTrack(
+          transform,
+          animation
+        );
+        if (transformAnimation) {
+          transformTracks.push({ nodeName, animation: transformAnimation });
+        }
+        if ((flags & AURORA_BINARY_NODE_FLAG_MESH) !== 0) {
+          const materialAnimation = buildAuroraMeshMaterialAnimationTrack(
+            readAuroraBinaryMeshMaterialState(bytes, nodeAbsOffset, lengthSeconds),
+            animation
+          );
+          if (materialAnimation) {
+            meshMaterialTracks.push({ nodeName, animation: materialAnimation });
+          }
+        }
+      }
+      readAuroraBinaryNodeChildren(bytes, nodeAbsOffset).forEach((childOffset) => {
+        if (childOffset !== nodeOffset) {
+          walkNode(childOffset, depth + 1);
+        }
+      });
+    };
+    walkNode(rootNodeOffset, 0);
+  }
+  return { transformTracks, meshMaterialTracks };
 }
 
 function attachBinaryAnimationPassesToEmitters(
@@ -2066,6 +2832,12 @@ function readAuroraBinaryEmitterSimulation(
       case AURORA_BINARY_CONTROLLER_EMITTER_DETONATE:
         assignNumber("detonate");
         break;
+      case AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_DELAY:
+        assignNumber("lightningDelay");
+        break;
+      case AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_RADIUS:
+        assignNumber("lightningRadius");
+        break;
       case AURORA_BINARY_CONTROLLER_EMITTER_LIGHTNING_SCALE:
         assignNumber("lightningScale");
         break;
@@ -2144,7 +2916,7 @@ function readAuroraBinaryEmitterSimulation(
           [timelineKey]: timeline
         };
         emitter.keyRows.push(
-          ...controller.keyframes.map((row) =>
+          ...toAuroraBinaryControllerSourceRows(controller).map((row) =>
             binaryControllerRow(timelineKey, timelineKey, row, controller.type, "key")
           )
         );
@@ -2181,34 +2953,71 @@ function applyBinaryColorController(
       [colorKey]: colorTimeline
     };
     emitter.keyRows.push(
-      ...controller.keyframes.map((row) =>
+      ...toAuroraBinaryControllerSourceRows(controller).map((row) =>
         binaryControllerRow(colorKey, colorKey, row, controller.type, "key")
       )
     );
   }
 }
 
-function readAuroraBinaryTransform(bytes: Buffer, nodeAbsOffset: number): AuroraMdlTransform | undefined {
+function readAuroraBinaryTransform(
+  bytes: Buffer,
+  nodeAbsOffset: number,
+  implicitTimelineDurationSeconds?: number
+): AuroraMdlTransform | undefined {
   const transformDraft: AuroraMdlTransform = {};
   collectAuroraBinaryControllerValues(bytes, nodeAbsOffset).forEach((controller) => {
-    if (controller.type === AURORA_BINARY_CONTROLLER_POSITION && controller.values.length >= 3) {
-      transformDraft.position = [
-        controller.values[0]!,
-        controller.values[1]!,
-        controller.values[2]!
-      ];
+    if (controller.type === AURORA_BINARY_CONTROLLER_POSITION) {
+      const position = resolveAuroraBinaryControllerVector3Value(controller);
+      if (position) {
+        transformDraft.position = position;
+      }
+      const positionTimeline = buildAuroraBinaryControllerVector3Timeline(controller, {
+        implicitDurationSeconds: implicitTimelineDurationSeconds
+      });
+      if (positionTimeline) {
+        transformDraft.positionTimeline = positionTimeline;
+      }
       return;
     }
-    if (controller.type === AURORA_BINARY_CONTROLLER_ORIENTATION && controller.values.length >= 4) {
-      transformDraft.orientation = buildAuroraQuaternionOrientation([
-        controller.values[0]!,
-        controller.values[1]!,
-        controller.values[2]!,
-        controller.values[3]!
-      ]);
+    if (controller.type === AURORA_BINARY_CONTROLLER_ORIENTATION) {
+      const orientation = resolveAuroraBinaryControllerOrientationValue(controller);
+      if (orientation) {
+        transformDraft.orientation = orientation;
+      }
+      const orientationTimeline = buildAuroraBinaryControllerOrientationTimeline(
+        controller,
+        { implicitDurationSeconds: implicitTimelineDurationSeconds }
+      );
+      if (orientationTimeline) {
+        transformDraft.orientationTimeline = orientationTimeline;
+      }
     }
   });
   return buildTransform(transformDraft);
+}
+
+function readAuroraBinaryMeshMaterialState(
+  bytes: Buffer,
+  nodeAbsOffset: number,
+  implicitTimelineDurationSeconds?: number
+): AuroraMdlMeshMaterialState | undefined {
+  const controller = collectAuroraBinaryControllerValues(bytes, nodeAbsOffset).find(
+    (entry) => entry.type === AURORA_BINARY_CONTROLLER_MESH_ALPHA
+  );
+  if (!controller) {
+    return undefined;
+  }
+  const alpha = sanitizeFiniteNumber(resolveAuroraBinaryControllerScalarValue(controller));
+  const alphaTimeline = buildAuroraBinaryControllerNumberTimeline(controller, {
+    implicitDurationSeconds: implicitTimelineDurationSeconds
+  });
+  return alpha !== undefined || alphaTimeline
+    ? {
+        ...(alpha !== undefined ? { alpha } : {}),
+        ...(alphaTimeline ? { alphaTimeline } : {})
+      }
+    : undefined;
 }
 
 function readAuroraBinaryEmitterReferenceNodes(
@@ -2277,9 +3086,34 @@ function collectAuroraBinaryControllerValues(
     }
     const type = readAuroraBinaryUInt32(bytes, keyAbsOffset);
     const rows = readAuroraBinaryUInt16(bytes, keyAbsOffset + 4);
+    const timeValuePoolOffset = readAuroraBinaryUInt16(bytes, keyAbsOffset + 6);
     const dataOffset = readAuroraBinaryUInt16(bytes, keyAbsOffset + 8);
     const columns = readAuroraBinaryUInt8(bytes, keyAbsOffset + 10);
-    if (type === null || rows === null || dataOffset === null || columns === null || rows < 1 || columns < 1) {
+    if (
+      type === null ||
+      rows === null ||
+      timeValuePoolOffset === null ||
+      dataOffset === null ||
+      columns === null ||
+      rows < 1 ||
+      columns < 1 ||
+      timeValuePoolOffset + rows > controllerData.count ||
+      dataOffset + rows * columns > controllerData.count
+    ) {
+      continue;
+    }
+    const keyTimes: number[] = [];
+    for (let row = 0; row < rows; row += 1) {
+      const time = readAuroraBinaryFloat32(
+        bytes,
+        AURORA_BINARY_MODEL_BASE + controllerData.offset + (timeValuePoolOffset + row) * 4
+      );
+      if (time === null) {
+        break;
+      }
+      keyTimes.push(time);
+    }
+    if (keyTimes.length !== rows) {
       continue;
     }
     const totalValues = rows * columns;
@@ -2301,7 +3135,16 @@ function collectAuroraBinaryControllerValues(
     for (let row = 0; row < rows; row += 1) {
       keyframes.push(values.slice(row * columns, row * columns + columns));
     }
-    controllers.push({ type, rows, columns, values, keyframes });
+    controllers.push({
+      type,
+      rows,
+      columns,
+      timeValuePoolOffset,
+      componentValuePoolOffset: dataOffset,
+      keyTimes,
+      values,
+      keyframes
+    });
   }
   return controllers;
 }
@@ -2418,9 +3261,6 @@ function readAuroraBinaryArrayHeader(
 function resolveAuroraBinaryControllerScalarValue(
   controller: AuroraBinaryControllerValue
 ): number | undefined {
-  if (controller.rows > 1 && controller.columns >= 2) {
-    return controller.keyframes[0]?.[1];
-  }
   return controller.values[0];
 }
 
@@ -2428,9 +3268,12 @@ function buildAuroraBinaryControllerNumberTimeline(
   controller: AuroraBinaryControllerValue,
   options: { nonNegativeValue?: boolean; implicitDurationSeconds?: number } = {}
 ): AuroraMdlNumberKeyframe[] | undefined {
-  if (controller.rows >= 2 && controller.columns >= 2) {
+  if (controller.rows >= 2 && controller.columns >= 1 && controller.keyTimes.length === controller.rows) {
     return sanitizeNumberKeyframes(
-      controller.keyframes.map((row) => ({ time: row[0], value: row[1] })),
+      controller.keyframes.map((row, index) => ({
+        time: controller.keyTimes[index],
+        value: row[0]
+      })),
       options
     );
   }
@@ -2452,11 +3295,14 @@ function buildAuroraBinaryControllerVector3Timeline(
   controller: AuroraBinaryControllerValue,
   options: { implicitDurationSeconds?: number } = {}
 ): AuroraMdlVector3Keyframe[] | undefined {
-  if (controller.rows >= 2 && controller.columns >= 4) {
+  if (controller.rows >= 2 && controller.columns >= 3 && controller.keyTimes.length === controller.rows) {
     return sanitizeVector3Keyframes(
       controller.keyframes
-        .filter((row) => row.length >= 4)
-        .map((row) => ({ time: row[0]!, value: [row[1]!, row[2]!, row[3]!] }))
+        .filter((row) => row.length >= 3)
+        .map((row, index) => ({
+          time: controller.keyTimes[index]!,
+          value: [row[0]!, row[1]!, row[2]!]
+        }))
     );
   }
 
@@ -2472,15 +3318,51 @@ function buildAuroraBinaryControllerVector3Timeline(
   );
 }
 
+function buildAuroraBinaryControllerOrientationTimeline(
+  controller: AuroraBinaryControllerValue,
+  options: { implicitDurationSeconds?: number } = {}
+): AuroraMdlOrientationKeyframe[] | undefined {
+  const duration = sanitizeNonNegativeNumber(options.implicitDurationSeconds);
+  if (controller.rows < 2 || controller.columns < 4) {
+    return undefined;
+  }
+  const keyTimes = controller.keyTimes.length === controller.rows
+    ? controller.keyTimes
+    : duration !== undefined
+      ? controller.keyframes.map((_, index) =>
+          controller.rows === 1 ? 0 : (duration * index) / (controller.rows - 1)
+        )
+      : undefined;
+  if (!keyTimes) {
+    return undefined;
+  }
+  return sanitizeOrientationKeyframes(
+    controller.keyframes
+      .filter((row) => row.length >= 4)
+      .map((row, index) => ({
+        time: keyTimes[index],
+        value: buildAuroraQuaternionOrientation([
+          row[0]!,
+          row[1]!,
+          row[2]!,
+          row[3]!
+        ])
+      }))
+  );
+}
+
 function buildAuroraBinaryControllerColorTimeline(
   controller: AuroraBinaryControllerValue,
   options: { implicitDurationSeconds?: number } = {}
 ): AuroraMdlColorKeyframe[] | undefined {
-  if (controller.rows >= 2 && controller.columns >= 4) {
+  if (controller.rows >= 2 && controller.columns >= 3 && controller.keyTimes.length === controller.rows) {
     return sanitizeColorKeyframes(
       controller.keyframes
-        .filter((row) => row.length >= 4)
-        .map((row) => ({ time: row[0]!, value: [row[1]!, row[2]!, row[3]!] }))
+        .filter((row) => row.length >= 3)
+        .map((row, index) => ({
+          time: controller.keyTimes[index]!,
+          value: [row[0]!, row[1]!, row[2]!]
+        }))
     );
   }
 
@@ -2503,11 +3385,10 @@ function resolveAuroraBinaryControllerColorValue(
   if (!row) {
     return undefined;
   }
-  const offset = controller.rows > 1 && controller.columns >= 4 ? 1 : 0;
-  if (row.length < offset + 3) {
+  if (row.length < 3) {
     return undefined;
   }
-  return sanitizeColor([row[offset]!, row[offset + 1]!, row[offset + 2]!]);
+  return sanitizeColor([row[0]!, row[1]!, row[2]!]);
 }
 
 function resolveAuroraBinaryControllerVector3Value(
@@ -2517,11 +3398,28 @@ function resolveAuroraBinaryControllerVector3Value(
   if (!row) {
     return undefined;
   }
-  const offset = controller.rows > 1 && controller.columns >= 4 ? 1 : 0;
-  if (row.length < offset + 3) {
+  if (row.length < 3) {
     return undefined;
   }
-  return sanitizeVector3([row[offset]!, row[offset + 1]!, row[offset + 2]!]);
+  return sanitizeVector3([row[0]!, row[1]!, row[2]!]);
+}
+
+function resolveAuroraBinaryControllerOrientationValue(
+  controller: AuroraBinaryControllerValue
+): AuroraMdlOrientation | undefined {
+  const row = controller.keyframes[0] ?? controller.values;
+  return row && row.length >= 4
+    ? buildAuroraQuaternionOrientation([row[0]!, row[1]!, row[2]!, row[3]!])
+    : undefined;
+}
+
+function toAuroraBinaryControllerSourceRows(
+  controller: AuroraBinaryControllerValue
+): number[][] {
+  return controller.keyframes.map((values, index) => [
+    controller.keyTimes[index] ?? 0,
+    ...values
+  ]);
 }
 
 function resolveAuroraBinaryEmitterSimulationTimelineKey(
@@ -2669,8 +3567,263 @@ function createLightNode(input: {
   };
 }
 
+function createStaticGeometryNode(input: {
+  nodeName: string;
+  sourceNodeKind: AuroraMdlStaticGeometryNodeKind;
+  parentNodeName?: string;
+  transform?: AuroraMdlTransform;
+  sourceLineNumber?: number;
+  sourceNodeOffset?: number;
+  sourceProvenance: AuroraMdlVfxSourceProvenance;
+  meshMaterialState?: AuroraMdlMeshMaterialState;
+}): AuroraMdlStaticGeometryNode {
+  return {
+    nodeKind: "static-geometry",
+    sourceNodeKind: input.sourceNodeKind,
+    nodeName: input.nodeName,
+    ...(input.parentNodeName ? { parentNodeName: input.parentNodeName } : {}),
+    ...(input.transform ? { transform: input.transform } : {}),
+    ...(input.meshMaterialState ? { meshMaterialState: input.meshMaterialState } : {}),
+    provenance: {
+      ...input.sourceProvenance,
+      ...(input.parentNodeName ? { parentNodeName: input.parentNodeName } : {}),
+      ...(input.sourceLineNumber ? { sourceLineNumber: input.sourceLineNumber } : {}),
+      ...(input.sourceNodeOffset !== undefined ? { sourceNodeOffset: input.sourceNodeOffset } : {})
+    }
+  };
+}
+
+function applyAsciiStaticGeometryField(
+  geometryNode: AuroraMdlStaticGeometryNode,
+  key: string,
+  rawValue: string,
+  lines: string[],
+  lineIndex: number
+): { endLineIndex: number } {
+  if (key === "parent") {
+    const parentNodeName = normalizeAuroraMdlValue(rawValue);
+    if (parentNodeName) {
+      geometryNode.parentNodeName = parentNodeName;
+      geometryNode.provenance.parentNodeName = parentNodeName;
+    }
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "position") {
+    setStaticGeometryTransformValue(geometryNode, "position", readAuroraVector3Value(rawValue));
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "positionkey" || key === "positionbezierkey") {
+    const timelineParse = readAuroraAsciiVector3Timeline(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
+    if (timelineParse.frames.length > 0) {
+      setStaticGeometryTransformValue(
+        geometryNode,
+        "positionTimeline",
+        timelineParse.frames
+      );
+      setStaticGeometryTransformValue(
+        geometryNode,
+        "position",
+        timelineParse.frames[0]?.value
+      );
+    }
+    return { endLineIndex: timelineParse.endLineIndex };
+  }
+  if (key === "orientation") {
+    setStaticGeometryTransformValue(
+      geometryNode,
+      "orientation",
+      readAuroraOrientationValue(rawValue)
+    );
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "orientationkey" || key === "orientationbezierkey") {
+    const bezier = key.endsWith("bezierkey");
+    const timelineParse = readAuroraAsciiOrientationTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      bezier
+    );
+    if (!bezier && timelineParse.frames.length > 0) {
+      setStaticGeometryTransformValue(
+        geometryNode,
+        "orientationTimeline",
+        timelineParse.frames
+      );
+      setStaticGeometryTransformValue(
+        geometryNode,
+        "orientation",
+        timelineParse.frames[0]?.value
+      );
+    }
+    return { endLineIndex: timelineParse.endLineIndex };
+  }
+  if (key === "scale") {
+    setStaticGeometryTransformValue(geometryNode, "scale", readAuroraNumberValue(rawValue));
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "scalekey" || key === "scalebezierkey") {
+    const timelineParse = readAuroraAsciiNumberTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
+    if (timelineParse.frames.length > 0) {
+      setStaticGeometryTransformValue(geometryNode, "scaleTimeline", timelineParse.frames);
+      setStaticGeometryTransformValue(geometryNode, "scale", timelineParse.frames[0]?.value);
+    }
+    return { endLineIndex: timelineParse.endLineIndex };
+  }
+  if (key === "alpha") {
+    setStaticGeometryMeshMaterialValue(geometryNode, "alpha", readAuroraNumberValue(rawValue));
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "alphakey" || key === "alphabezierkey") {
+    const timelineParse = readAuroraAsciiNumberTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
+    if (timelineParse.frames.length > 0) {
+      setStaticGeometryMeshMaterialValue(
+        geometryNode,
+        "alphaTimeline",
+        timelineParse.frames
+      );
+      setStaticGeometryMeshMaterialValue(
+        geometryNode,
+        "alpha",
+        timelineParse.frames[0]?.value
+      );
+    }
+    return { endLineIndex: timelineParse.endLineIndex };
+  }
+  return { endLineIndex: lineIndex };
+}
+
+function createTransformNode(input: {
+  nodeName: string;
+  sourceNodeKind: string;
+  parentNodeName?: string;
+  sourceLineNumber?: number;
+  sourceNodeOffset?: number;
+  sourceProvenance: AuroraMdlVfxSourceProvenance;
+  transform?: AuroraMdlTransform;
+}): AuroraMdlTransformNode {
+  return {
+    nodeKind: "transform",
+    sourceNodeKind: input.sourceNodeKind,
+    nodeName: input.nodeName,
+    ...(input.parentNodeName ? { parentNodeName: input.parentNodeName } : {}),
+    ...(input.transform ? { transform: input.transform } : {}),
+    provenance: {
+      ...input.sourceProvenance,
+      ...(input.parentNodeName ? { parentNodeName: input.parentNodeName } : {}),
+      ...(input.sourceLineNumber ? { sourceLineNumber: input.sourceLineNumber } : {}),
+      ...(input.sourceNodeOffset !== undefined ? { sourceNodeOffset: input.sourceNodeOffset } : {})
+    }
+  };
+}
+
+function applyAsciiTransformNodeField(
+  transformNode: AuroraMdlTransformNode,
+  key: string,
+  rawValue: string,
+  lines: string[],
+  lineIndex: number
+): { endLineIndex: number } {
+  if (key === "parent") {
+    const parentNodeName = normalizeAuroraMdlValue(rawValue);
+    if (parentNodeName) {
+      transformNode.parentNodeName = parentNodeName;
+      transformNode.provenance.parentNodeName = parentNodeName;
+    }
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "position") {
+    setTransformNodeTransformValue(transformNode, "position", readAuroraVector3Value(rawValue));
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "positionkey" || key === "positionbezierkey") {
+    const timelineParse = readAuroraAsciiVector3Timeline(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
+    if (timelineParse.frames.length > 0) {
+      setTransformNodeTransformValue(transformNode, "positionTimeline", timelineParse.frames);
+      setTransformNodeTransformValue(transformNode, "position", timelineParse.frames[0]?.value);
+      return { endLineIndex: timelineParse.endLineIndex };
+    }
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "orientation") {
+    setTransformNodeTransformValue(
+      transformNode,
+      "orientation",
+      readAuroraOrientationValue(rawValue)
+    );
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "orientationkey" || key === "orientationbezierkey") {
+    const bezier = key.endsWith("bezierkey");
+    const timelineParse = readAuroraAsciiOrientationTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      bezier
+    );
+    if (bezier) {
+      return { endLineIndex: timelineParse.endLineIndex };
+    }
+    if (timelineParse.frames.length > 0) {
+      setTransformNodeTransformValue(transformNode, "orientationTimeline", timelineParse.frames);
+      setTransformNodeTransformValue(transformNode, "orientation", timelineParse.frames[0]?.value);
+      return { endLineIndex: timelineParse.endLineIndex };
+    }
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "scale") {
+    setTransformNodeTransformValue(transformNode, "scale", readAuroraNumberValue(rawValue));
+    return { endLineIndex: lineIndex };
+  }
+  if (key === "scalekey" || key === "scalebezierkey") {
+    const timelineParse = readAuroraAsciiNumberTimeline(
+      lines,
+      lineIndex,
+      rawValue,
+      key.endsWith("bezierkey")
+    );
+    if (timelineParse.frames.length > 0) {
+      setTransformNodeTransformValue(transformNode, "scaleTimeline", timelineParse.frames);
+      setTransformNodeTransformValue(transformNode, "scale", timelineParse.frames[0]?.value);
+      return { endLineIndex: timelineParse.endLineIndex };
+    }
+  }
+  return { endLineIndex: lineIndex };
+}
+
 function isAuroraAsciiLightNodeKind(nodeKind: string | undefined): nodeKind is string {
   return typeof nodeKind === "string" && AURORA_ASCII_LIGHT_NODE_KINDS.has(nodeKind);
+}
+
+function isAuroraAsciiStaticGeometryNodeKind(
+  nodeKind: string | undefined
+): nodeKind is Exclude<AuroraMdlStaticGeometryNodeKind, "binary-mesh"> {
+  return (
+    typeof nodeKind === "string" &&
+    AURORA_ASCII_STATIC_GEOMETRY_NODE_KINDS.has(
+      nodeKind as Exclude<AuroraMdlStaticGeometryNodeKind, "binary-mesh">
+    )
+  );
 }
 
 function isAuroraAsciiModelPropagationToken(
@@ -2685,7 +3838,10 @@ function resolveOpenNodeStackEntryName(
     | { kind: "light"; light: MutableLight }
     | { kind: "reference"; reference: AuroraMdlReferenceNode }
     | { kind: "shadowblob"; shadowBlob: AuroraMdlShadowBlobNode }
-    | { kind: "other"; nodeName?: string }
+    | { kind: "static-geometry"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "static-geometry-animation"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "transform"; transformNode: AuroraMdlTransformNode }
+    | { kind: "transform-animation"; transformNode: AuroraMdlTransformNode }
 ): string | undefined {
   if (node.kind === "emitter") {
     return node.emitter.nodeName;
@@ -2699,7 +3855,9 @@ function resolveOpenNodeStackEntryName(
   if (node.kind === "shadowblob") {
     return node.shadowBlob.nodeName;
   }
-  return node.nodeName;
+  return node.kind === "static-geometry" || node.kind === "static-geometry-animation"
+    ? node.staticGeometry.nodeName
+    : node.transformNode.nodeName;
 }
 
 function createPropagationEvent(input: {
@@ -2841,6 +3999,80 @@ function buildAuroraLightAnimationTrack(input: MutableLight): AuroraMdlLightAnim
   };
 }
 
+function buildAuroraTransformAnimationTrack(
+  transform: AuroraMdlTransform | undefined,
+  animation: { animationName: string; lengthSeconds?: number; transitionSeconds?: number }
+): AuroraMdlTransformAnimation | undefined {
+  if (!transform) return undefined;
+  return {
+    animationName: animation.animationName,
+    ...(animation.lengthSeconds !== undefined ? { lengthSeconds: animation.lengthSeconds } : {}),
+    ...(animation.transitionSeconds !== undefined
+      ? { transitionSeconds: animation.transitionSeconds }
+      : {}),
+    transform
+  };
+}
+
+function buildAuroraMeshMaterialAnimationTrack(
+  state: AuroraMdlMeshMaterialState | undefined,
+  animation: { animationName: string; lengthSeconds?: number; transitionSeconds?: number }
+): AuroraMdlMeshMaterialAnimation | undefined {
+  if (!state) return undefined;
+  return {
+    animationName: animation.animationName,
+    ...(animation.lengthSeconds !== undefined ? { lengthSeconds: animation.lengthSeconds } : {}),
+    ...(animation.transitionSeconds !== undefined
+      ? { transitionSeconds: animation.transitionSeconds }
+      : {}),
+    state
+  };
+}
+
+function attachTransformAnimations<
+  TNode extends AuroraMdlTransformNode | AuroraMdlStaticGeometryNode
+>(
+  transformNodes: TNode[],
+  animationTracks: Array<{ nodeName: string; animation: AuroraMdlTransformAnimation }>
+): TNode[] {
+  if (animationTracks.length === 0) return transformNodes;
+  const tracksByNodeName = new Map<string, AuroraMdlTransformAnimation[]>();
+  animationTracks.forEach((track) => {
+    const key = normalizeNodeLookupName(track.nodeName);
+    if (!key) return;
+    tracksByNodeName.set(key, [...(tracksByNodeName.get(key) ?? []), track.animation]);
+  });
+  return transformNodes.map((node) => {
+    const tracks = tracksByNodeName.get(normalizeNodeLookupName(node.nodeName) ?? "");
+    return tracks?.length ? { ...node, animationTracks: tracks } : node;
+  });
+}
+
+function attachMeshMaterialAnimations(
+  geometryNodes: AuroraMdlStaticGeometryNode[],
+  animationTracks: Array<{
+    nodeName: string;
+    animation: AuroraMdlMeshMaterialAnimation;
+  }>
+): AuroraMdlStaticGeometryNode[] {
+  if (animationTracks.length === 0) return geometryNodes;
+  const tracksByNodeName = new Map<string, AuroraMdlMeshMaterialAnimation[]>();
+  animationTracks.forEach((track) => {
+    const key = normalizeNodeLookupName(track.nodeName);
+    if (!key) return;
+    tracksByNodeName.set(key, [
+      ...(tracksByNodeName.get(key) ?? []),
+      track.animation
+    ]);
+  });
+  return geometryNodes.map((node) => {
+    const tracks = tracksByNodeName.get(normalizeNodeLookupName(node.nodeName) ?? "");
+    return tracks?.length
+      ? { ...node, meshMaterialAnimationTracks: tracks }
+      : node;
+  });
+}
+
 function attachLightAnimations(
   lights: AuroraMdlLightNode[],
   animationTracks: Array<{ nodeName: string; animation: AuroraMdlLightAnimation }>
@@ -2895,41 +4127,6 @@ function attachReferenceNodesToEmitters(
       ...(target.provenance.childNodeNames ?? []),
       referenceNode.nodeName
     ];
-  });
-  return emitters;
-}
-
-function attachEventsToEmitters(
-  emitters: AuroraMdlEmitterNode[],
-  events: AuroraMdlAnimationEvent[]
-): AuroraMdlEmitterNode[] {
-  if (events.length === 0 || emitters.length === 0) {
-    return emitters;
-  }
-  emitters.forEach((emitter) => {
-    emitter.events = sanitizeAnimationEvents([...(emitter.events ?? []), ...events]);
-    const eventsByAnimation = new Map<string, AuroraMdlAnimationEvent[]>();
-    emitter.events?.forEach((event) => {
-      if (!event.animationName) {
-        return;
-      }
-      eventsByAnimation.set(event.animationName, [
-        ...(eventsByAnimation.get(event.animationName) ?? []),
-        event
-      ]);
-    });
-    if (eventsByAnimation.size > 0) {
-      const existingPasses = emitter.animationPasses ?? [];
-      const passNames = new Set(existingPasses.map((pass) => pass.animationName));
-      const eventPasses = [...eventsByAnimation.entries()]
-        .filter(([animationName]) => !passNames.has(animationName))
-        .map(([animationName, passEvents]): AuroraAnimationEvaluationPass => ({
-          animationName,
-          events: passEvents
-        }));
-      emitter.animationPasses = [...existingPasses, ...eventPasses];
-      emitter.animations = toEmitterAnimations(emitter.animationPasses);
-    }
   });
   return emitters;
 }
@@ -3125,7 +4322,7 @@ function setEmitterSourceStateValue(
 function buildEmitterSourceState(input: AuroraMdlEmitterSourceState): AuroraMdlEmitterSourceState | undefined {
   const renderOrder =
     typeof input.renderOrder === "number" && Number.isFinite(input.renderOrder)
-      ? Math.trunc(input.renderOrder)
+      ? normalizeAuroraSignedInt16(input.renderOrder)
       : undefined;
   const renderHintRaw =
     typeof input.renderHintRaw === "string" && input.renderHintRaw.trim()
@@ -3167,6 +4364,11 @@ function buildEmitterSourceState(input: AuroraMdlEmitterSourceState): AuroraMdlE
     ...(rotateTexture !== undefined ? { rotateTexture } : {})
   };
   return Object.keys(state).length > 0 ? state : undefined;
+}
+
+function normalizeAuroraSignedInt16(value: number): number {
+  const unsigned = Math.trunc(value) & 0xffff;
+  return unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
 }
 
 function setEmitterTransformValue(
@@ -3265,6 +4467,74 @@ function setShadowBlobTransformValue(
   }
 }
 
+function setStaticGeometryTransformValue(
+  geometryNode: AuroraMdlStaticGeometryNode,
+  key: keyof AuroraMdlTransform,
+  value:
+    | [number, number, number]
+    | AuroraMdlOrientation
+    | number
+    | AuroraMdlNumberKeyframe[]
+    | AuroraMdlVector3Keyframe[]
+    | AuroraMdlOrientationKeyframe[]
+    | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const transform = buildTransform({
+    ...geometryNode.transform,
+    [key]: value
+  });
+  if (transform) {
+    geometryNode.transform = transform;
+  }
+}
+
+function setStaticGeometryMeshMaterialValue(
+  geometryNode: AuroraMdlStaticGeometryNode,
+  key: keyof AuroraMdlMeshMaterialState,
+  value: number | AuroraMdlNumberKeyframe[] | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const state: AuroraMdlMeshMaterialState = {
+    ...geometryNode.meshMaterialState,
+    [key]: value
+  };
+  const alpha = sanitizeFiniteNumber(state.alpha);
+  const alphaTimeline = sanitizeNumberKeyframes(state.alphaTimeline);
+  geometryNode.meshMaterialState = {
+    ...(alpha !== undefined ? { alpha } : {}),
+    ...(alphaTimeline ? { alphaTimeline } : {})
+  };
+}
+
+function setTransformNodeTransformValue(
+  transformNode: AuroraMdlTransformNode,
+  key: keyof AuroraMdlTransform,
+  value:
+    | [number, number, number]
+    | AuroraMdlOrientation
+    | number
+    | AuroraMdlNumberKeyframe[]
+    | AuroraMdlVector3Keyframe[]
+    | AuroraMdlOrientationKeyframe[]
+    | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const transform = buildTransform({
+    ...transformNode.transform,
+    [key]: value
+  });
+  if (transform) {
+    transformNode.transform = transform;
+  }
+}
+
 function buildTransform(input: AuroraMdlTransform): AuroraMdlTransform | undefined {
   const position = sanitizeVector3(input.position);
   const positionTimeline = sanitizeVector3Keyframes(input.positionTimeline);
@@ -3341,15 +4611,34 @@ function buildEmitterAtlas(input: Partial<AuroraMdlEmitterAtlas>): AuroraMdlEmit
 function readAuroraAsciiNumberTimeline(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlNumberKeyframe[]; rows: number[][]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 2);
+  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, bezier ? 4 : 2);
   return {
     frames: parsed.rows
       .map((row): AuroraMdlNumberKeyframe | null => {
         const time = sanitizeNonNegativeNumber(row[0]);
         const value = sanitizeFiniteNumber(row[1]);
-        return time !== undefined && value !== undefined ? { time, value } : null;
+        const incomingTangent = sanitizeFiniteNumber(row[2]);
+        const outgoingTangent = sanitizeFiniteNumber(row[3]);
+        return time !== undefined && value !== undefined
+          ? {
+              time,
+              value,
+              ...(bezier
+                ? {
+                    interpolation: "bezier" as const,
+                    ...(incomingTangent !== undefined
+                      ? { bezierIncomingTangent: incomingTangent }
+                      : {}),
+                    ...(outgoingTangent !== undefined
+                      ? { bezierOutgoingTangent: outgoingTangent }
+                      : {})
+                  }
+                : {})
+            }
+          : null;
       })
       .filter((frame): frame is AuroraMdlNumberKeyframe => frame !== null),
     rows: parsed.rows,
@@ -3360,15 +4649,34 @@ function readAuroraAsciiNumberTimeline(
 function readAuroraAsciiColorTimeline(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlColorKeyframe[]; rows: number[][]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 4);
+  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, bezier ? 10 : 4);
   return {
     frames: parsed.rows
       .map((row): AuroraMdlColorKeyframe | null => {
         const time = sanitizeNonNegativeNumber(row[0]);
         const color = sanitizeColor([row[1], row[2], row[3]]);
-        return time !== undefined && color ? { time, value: color } : null;
+        const incomingTangent = bezier
+          ? sanitizeVector3([row[4], row[5], row[6]])
+          : undefined;
+        const outgoingTangent = bezier
+          ? sanitizeVector3([row[7], row[8], row[9]])
+          : undefined;
+        return time !== undefined && color
+          ? {
+              time,
+              value: color,
+              ...(bezier
+                ? {
+                    interpolation: "bezier" as const,
+                    ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+                    ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+                  }
+                : {})
+            }
+          : null;
       })
       .filter((frame): frame is AuroraMdlColorKeyframe => frame !== null),
     rows: parsed.rows,
@@ -3379,15 +4687,34 @@ function readAuroraAsciiColorTimeline(
 function readAuroraAsciiVector3Timeline(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlVector3Keyframe[]; rows: number[][]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 4);
+  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, bezier ? 10 : 4);
   return {
     frames: parsed.rows
       .map((row): AuroraMdlVector3Keyframe | null => {
         const time = sanitizeNonNegativeNumber(row[0]);
         const vector = sanitizeVector3([row[1], row[2], row[3]]);
-        return time !== undefined && vector ? { time, value: vector } : null;
+        const incomingTangent = bezier
+          ? sanitizeVector3([row[4], row[5], row[6]])
+          : undefined;
+        const outgoingTangent = bezier
+          ? sanitizeVector3([row[7], row[8], row[9]])
+          : undefined;
+        return time !== undefined && vector
+          ? {
+              time,
+              value: vector,
+              ...(bezier
+                ? {
+                    interpolation: "bezier" as const,
+                    ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+                    ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+                  }
+                : {})
+            }
+          : null;
       })
       .filter((frame): frame is AuroraMdlVector3Keyframe => frame !== null),
     rows: parsed.rows,
@@ -3398,9 +4725,16 @@ function readAuroraAsciiVector3Timeline(
 function readAuroraAsciiOrientationTimeline(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlOrientationKeyframe[]; rows: number[][]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 5);
+  // FUN_00a57120 scans at most ten floats. A 13-column orientation Bezier row is
+  // therefore stored as time plus nine values and classified as a 3-component
+  // controller by FUN_00a58220; FUN_00a19728 only evaluates type 4 orientation.
+  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, bezier ? 10 : 5);
+  if (bezier) {
+    return { frames: [], rows: parsed.rows, endLineIndex: parsed.endLineIndex };
+  }
   return {
     frames: parsed.rows
       .map((row): AuroraMdlOrientationKeyframe | null => {
@@ -3409,7 +4743,25 @@ function readAuroraAsciiOrientationTimeline(
           axis: [row[1], row[2], row[3]],
           angleRadians: row[4]
         });
-        return time !== undefined && orientation ? { time, value: orientation } : null;
+        const incomingTangent = bezier
+          ? sanitizeFiniteTuple4([row[5], row[6], row[7], row[8]])
+          : undefined;
+        const outgoingTangent = bezier
+          ? sanitizeFiniteTuple4([row[9], row[10], row[11], row[12]])
+          : undefined;
+        return time !== undefined && orientation
+          ? {
+              time,
+              value: orientation,
+              ...(bezier
+                ? {
+                    interpolation: "bezier" as const,
+                    ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+                    ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+                  }
+                : {})
+            }
+          : null;
       })
       .filter((frame): frame is AuroraMdlOrientationKeyframe => frame !== null),
     rows: parsed.rows,
@@ -3596,55 +4948,31 @@ function readAuroraAsciiVector3ListUntilEndList(
 function readAuroraAsciiNumberKeyframesUntilEndList(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlNumberKeyframe[]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 2);
-  return {
-    frames: parsed.rows
-      .map((row): AuroraMdlNumberKeyframe | null => {
-        const time = sanitizeNonNegativeNumber(row[0]);
-        const value = sanitizeFiniteNumber(row[1]);
-        return time !== undefined && value !== undefined ? { time, value } : null;
-      })
-      .filter((frame): frame is AuroraMdlNumberKeyframe => frame !== null),
-    endLineIndex: parsed.endLineIndex
-  };
+  const parsed = readAuroraAsciiNumberTimeline(lines, keyLineIndex, rawValue, bezier);
+  return { frames: parsed.frames, endLineIndex: parsed.endLineIndex };
 }
 
 function readAuroraAsciiColorKeyframesUntilEndList(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlColorKeyframe[]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 4);
-  return {
-    frames: parsed.rows
-      .map((row): AuroraMdlColorKeyframe | null => {
-        const time = sanitizeNonNegativeNumber(row[0]);
-        const color = sanitizeColor([row[1], row[2], row[3]]);
-        return time !== undefined && color ? { time, value: color } : null;
-      })
-      .filter((frame): frame is AuroraMdlColorKeyframe => frame !== null),
-    endLineIndex: parsed.endLineIndex
-  };
+  const parsed = readAuroraAsciiColorTimeline(lines, keyLineIndex, rawValue, bezier);
+  return { frames: parsed.frames, endLineIndex: parsed.endLineIndex };
 }
 
 function readAuroraAsciiVector3KeyframesUntilEndList(
   lines: string[],
   keyLineIndex: number,
-  rawValue: string
+  rawValue: string,
+  bezier = false
 ): { frames: AuroraMdlVector3Keyframe[]; endLineIndex: number } {
-  const parsed = readAuroraAsciiKeyframeRows(lines, keyLineIndex, rawValue, 4);
-  return {
-    frames: parsed.rows
-      .map((row): AuroraMdlVector3Keyframe | null => {
-        const time = sanitizeNonNegativeNumber(row[0]);
-        const vector = sanitizeVector3([row[1], row[2], row[3]]);
-        return time !== undefined && vector ? { time, value: vector } : null;
-      })
-      .filter((frame): frame is AuroraMdlVector3Keyframe => frame !== null),
-    endLineIndex: parsed.endLineIndex
-  };
+  const parsed = readAuroraAsciiVector3Timeline(lines, keyLineIndex, rawValue, bezier);
+  return { frames: parsed.frames, endLineIndex: parsed.endLineIndex };
 }
 
 function appendNumberRows(rows: number[][], values: number[], rowWidth: number, start = 0): void {
@@ -4081,7 +5409,10 @@ function resolveNearestOpenEmitterName(
     | { kind: "light"; light: MutableLight }
     | { kind: "reference"; reference: AuroraMdlReferenceNode }
     | { kind: "shadowblob"; shadowBlob: AuroraMdlShadowBlobNode }
-    | { kind: "other"; nodeName?: string }
+    | { kind: "static-geometry"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "static-geometry-animation"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "transform"; transformNode: AuroraMdlTransformNode }
+    | { kind: "transform-animation"; transformNode: AuroraMdlTransformNode }
   >
 ): string | undefined {
   for (let index = nodeStack.length - 1; index >= 0; index -= 1) {
@@ -4099,7 +5430,10 @@ function resolveNearestOpenNodeName(
     | { kind: "light"; light: MutableLight }
     | { kind: "reference"; reference: AuroraMdlReferenceNode }
     | { kind: "shadowblob"; shadowBlob: AuroraMdlShadowBlobNode }
-    | { kind: "other"; nodeName?: string }
+    | { kind: "static-geometry"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "static-geometry-animation"; staticGeometry: AuroraMdlStaticGeometryNode }
+    | { kind: "transform"; transformNode: AuroraMdlTransformNode }
+    | { kind: "transform-animation"; transformNode: AuroraMdlTransformNode }
   >
 ): string | undefined {
   for (let index = nodeStack.length - 1; index >= 0; index -= 1) {
@@ -4116,8 +5450,11 @@ function resolveNearestOpenNodeName(
     if (node?.kind === "shadowblob") {
       return node.shadowBlob.nodeName;
     }
-    if (node?.kind === "other") {
-      return node.nodeName;
+    if (node?.kind === "static-geometry" || node?.kind === "static-geometry-animation") {
+      return node.staticGeometry.nodeName;
+    }
+    if (node?.kind === "transform" || node?.kind === "transform-animation") {
+      return node.transformNode.nodeName;
     }
   }
   return undefined;
@@ -4181,6 +5518,18 @@ function sanitizeVector3(value: unknown): [number, number, number] | undefined {
   return [x, y, z];
 }
 
+function sanitizeFiniteTuple4(
+  value: unknown
+): [number, number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length < 4) {
+    return undefined;
+  }
+  const [x, y, z, w] = value;
+  return [x, y, z, w].every((entry) => typeof entry === "number" && Number.isFinite(entry))
+    ? [x as number, y as number, z as number, w as number]
+    : undefined;
+}
+
 function sanitizeAuroraSampleFramebufferValue(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -4237,7 +5586,13 @@ function sanitizeNumberKeyframes(
       if (typeof entry !== "object" || entry === null) {
         return null;
       }
-      const candidate = entry as { time?: unknown; value?: unknown };
+      const candidate = entry as {
+        time?: unknown;
+        value?: unknown;
+        interpolation?: unknown;
+        bezierIncomingTangent?: unknown;
+        bezierOutgoingTangent?: unknown;
+      };
       if (
         typeof candidate.time !== "number" ||
         typeof candidate.value !== "number" ||
@@ -4248,7 +5603,23 @@ function sanitizeNumberKeyframes(
       ) {
         return null;
       }
-      return { time: candidate.time, value: candidate.value };
+      const incomingTangent = sanitizeFiniteNumber(candidate.bezierIncomingTangent);
+      const outgoingTangent = sanitizeFiniteNumber(candidate.bezierOutgoingTangent);
+      return {
+        time: candidate.time,
+        value: candidate.value,
+        ...(candidate.interpolation === "bezier"
+          ? {
+              interpolation: "bezier" as const,
+              ...(incomingTangent !== undefined
+                ? { bezierIncomingTangent: incomingTangent }
+                : {}),
+              ...(outgoingTangent !== undefined
+                ? { bezierOutgoingTangent: outgoingTangent }
+                : {})
+            }
+          : {})
+      };
     })
     .filter((frame): frame is AuroraMdlNumberKeyframe => frame !== null)
     .sort((left, right) => left.time - right.time);
@@ -4260,7 +5631,7 @@ function uniqueNumberKeyframes(frames: AuroraMdlNumberKeyframe[]): AuroraMdlNumb
   frames.forEach((frame) => {
     const previous = uniqueFrames[uniqueFrames.length - 1];
     if (previous && previous.time === frame.time) {
-      previous.value = frame.value;
+      Object.assign(previous, frame);
       return;
     }
     uniqueFrames.push({ ...frame });
@@ -4277,7 +5648,13 @@ function sanitizeVector3Keyframes(value: unknown): AuroraMdlVector3Keyframe[] | 
       if (typeof entry !== "object" || entry === null) {
         return null;
       }
-      const candidate = entry as { time?: unknown; value?: unknown };
+      const candidate = entry as {
+        time?: unknown;
+        value?: unknown;
+        interpolation?: unknown;
+        bezierIncomingTangent?: unknown;
+        bezierOutgoingTangent?: unknown;
+      };
       const vector = sanitizeVector3(candidate.value);
       if (
         typeof candidate.time !== "number" ||
@@ -4287,7 +5664,19 @@ function sanitizeVector3Keyframes(value: unknown): AuroraMdlVector3Keyframe[] | 
       ) {
         return null;
       }
-      return { time: candidate.time, value: vector };
+      const incomingTangent = sanitizeVector3(candidate.bezierIncomingTangent);
+      const outgoingTangent = sanitizeVector3(candidate.bezierOutgoingTangent);
+      return {
+        time: candidate.time,
+        value: vector,
+        ...(candidate.interpolation === "bezier"
+          ? {
+              interpolation: "bezier" as const,
+              ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+              ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+            }
+          : {})
+      };
     })
     .filter((frame): frame is AuroraMdlVector3Keyframe => frame !== null)
     .sort((left, right) => left.time - right.time);
@@ -4295,10 +5684,19 @@ function sanitizeVector3Keyframes(value: unknown): AuroraMdlVector3Keyframe[] | 
   frames.forEach((frame) => {
     const previous = uniqueFrames[uniqueFrames.length - 1];
     if (previous && previous.time === frame.time) {
-      previous.value = frame.value;
+      Object.assign(previous, frame);
       return;
     }
-    uniqueFrames.push({ time: frame.time, value: [...frame.value] });
+    uniqueFrames.push({
+      ...frame,
+      value: [...frame.value],
+      ...(frame.bezierIncomingTangent
+        ? { bezierIncomingTangent: [...frame.bezierIncomingTangent] }
+        : {}),
+      ...(frame.bezierOutgoingTangent
+        ? { bezierOutgoingTangent: [...frame.bezierOutgoingTangent] }
+        : {})
+    });
   });
   return uniqueFrames.length > 1 ? uniqueFrames : undefined;
 }
@@ -4312,7 +5710,13 @@ function sanitizeOrientationKeyframes(value: unknown): AuroraMdlOrientationKeyfr
       if (typeof entry !== "object" || entry === null) {
         return null;
       }
-      const candidate = entry as { time?: unknown; value?: unknown };
+      const candidate = entry as {
+        time?: unknown;
+        value?: unknown;
+        interpolation?: unknown;
+        bezierIncomingTangent?: unknown;
+        bezierOutgoingTangent?: unknown;
+      };
       const orientation = sanitizeOrientation(candidate.value);
       if (
         typeof candidate.time !== "number" ||
@@ -4322,7 +5726,19 @@ function sanitizeOrientationKeyframes(value: unknown): AuroraMdlOrientationKeyfr
       ) {
         return null;
       }
-      return { time: candidate.time, value: orientation };
+      const incomingTangent = sanitizeFiniteTuple4(candidate.bezierIncomingTangent);
+      const outgoingTangent = sanitizeFiniteTuple4(candidate.bezierOutgoingTangent);
+      return {
+        time: candidate.time,
+        value: orientation,
+        ...(candidate.interpolation === "bezier"
+          ? {
+              interpolation: "bezier" as const,
+              ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+              ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+            }
+          : {})
+      };
     })
     .filter((frame): frame is AuroraMdlOrientationKeyframe => frame !== null)
     .sort((left, right) => left.time - right.time);
@@ -4330,7 +5746,7 @@ function sanitizeOrientationKeyframes(value: unknown): AuroraMdlOrientationKeyfr
   frames.forEach((frame) => {
     const previous = uniqueFrames[uniqueFrames.length - 1];
     if (previous && previous.time === frame.time) {
-      previous.value = frame.value;
+      Object.assign(previous, frame);
       return;
     }
     uniqueFrames.push({
@@ -4338,7 +5754,14 @@ function sanitizeOrientationKeyframes(value: unknown): AuroraMdlOrientationKeyfr
       value: {
         axis: [frame.value.axis[0], frame.value.axis[1], frame.value.axis[2]],
         angleRadians: frame.value.angleRadians
-      }
+      },
+      ...(frame.interpolation ? { interpolation: frame.interpolation } : {}),
+      ...(frame.bezierIncomingTangent
+        ? { bezierIncomingTangent: [...frame.bezierIncomingTangent] }
+        : {}),
+      ...(frame.bezierOutgoingTangent
+        ? { bezierOutgoingTangent: [...frame.bezierOutgoingTangent] }
+        : {})
     });
   });
   return uniqueFrames.length > 1 ? uniqueFrames : undefined;
@@ -4353,7 +5776,13 @@ function sanitizeColorKeyframes(value: unknown): AuroraMdlColorKeyframe[] | unde
       if (typeof entry !== "object" || entry === null) {
         return null;
       }
-      const candidate = entry as { time?: unknown; value?: unknown };
+      const candidate = entry as {
+        time?: unknown;
+        value?: unknown;
+        interpolation?: unknown;
+        bezierIncomingTangent?: unknown;
+        bezierOutgoingTangent?: unknown;
+      };
       const color = sanitizeColor(candidate.value);
       if (
         typeof candidate.time !== "number" ||
@@ -4363,7 +5792,19 @@ function sanitizeColorKeyframes(value: unknown): AuroraMdlColorKeyframe[] | unde
       ) {
         return null;
       }
-      return { time: candidate.time, value: color };
+      const incomingTangent = sanitizeVector3(candidate.bezierIncomingTangent);
+      const outgoingTangent = sanitizeVector3(candidate.bezierOutgoingTangent);
+      return {
+        time: candidate.time,
+        value: color,
+        ...(candidate.interpolation === "bezier"
+          ? {
+              interpolation: "bezier" as const,
+              ...(incomingTangent ? { bezierIncomingTangent: incomingTangent } : {}),
+              ...(outgoingTangent ? { bezierOutgoingTangent: outgoingTangent } : {})
+            }
+          : {})
+      };
     })
     .filter((frame): frame is AuroraMdlColorKeyframe => frame !== null)
     .sort((left, right) => left.time - right.time);
@@ -4371,10 +5812,19 @@ function sanitizeColorKeyframes(value: unknown): AuroraMdlColorKeyframe[] | unde
   frames.forEach((frame) => {
     const previous = uniqueFrames[uniqueFrames.length - 1];
     if (previous && previous.time === frame.time) {
-      previous.value = frame.value;
+      Object.assign(previous, frame);
       return;
     }
-    uniqueFrames.push({ time: frame.time, value: [...frame.value] });
+    uniqueFrames.push({
+      ...frame,
+      value: [...frame.value],
+      ...(frame.bezierIncomingTangent
+        ? { bezierIncomingTangent: [...frame.bezierIncomingTangent] }
+        : {}),
+      ...(frame.bezierOutgoingTangent
+        ? { bezierOutgoingTangent: [...frame.bezierOutgoingTangent] }
+        : {})
+    });
   });
   return uniqueFrames.length > 1 ? uniqueFrames : undefined;
 }

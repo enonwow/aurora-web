@@ -5,13 +5,16 @@ import { AppModule } from "./app.module";
 import { AppConfigService } from "./common/config/app-config.service";
 import { setupCors } from "./common/http/cors";
 import { setupSwagger } from "./common/openapi/swagger";
+import { registerAreaEventScriptHttpBodyLimit } from "./modules/areas/adapters/inbound/http/area-event-script-body-limit";
 
 async function bootstrap() {
+  const adapter = new FastifyAdapter({
+    logger: true,
+  });
+  registerAreaEventScriptHttpBodyLimit(adapter.getInstance());
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({
-      logger: true
-    })
+    adapter,
   );
 
   app.setGlobalPrefix("api/v1");
@@ -19,7 +22,7 @@ async function bootstrap() {
   const config = app.get(AppConfigService);
   setupCors(app, config);
   setupSwagger(app, config);
-  await app.listen(config.port, "0.0.0.0");
+  await app.listen(config.port, config.bindHost);
 }
 
 void bootstrap();

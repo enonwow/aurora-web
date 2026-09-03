@@ -12,7 +12,8 @@ import {
   type SessionRecord,
   type UserRecord
 } from "../domain/auth.types";
-import { ROLE_PERMISSIONS } from "../domain/auth.policy";
+import { ROLE_PERMISSIONS, type Permission } from "../domain/auth.policy";
+import { SystemMaintenanceApplicationService } from "../../system-maintenance/application/system-maintenance.application.service";
 
 interface CreateUserCommand {
   username: string;
@@ -26,7 +27,8 @@ export class AuthApplicationService implements OnModuleInit {
   constructor(
     @Inject(AUTH_REPOSITORY)
     private readonly authRepository: AuthRepositoryPort,
-    private readonly config: AppConfigService
+    private readonly config: AppConfigService,
+    private readonly maintenance: SystemMaintenanceApplicationService
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -52,6 +54,8 @@ export class AuthApplicationService implements OnModuleInit {
         message: "Invalid username or password."
       });
     }
+
+    await this.maintenance.assertCanAuthenticate(user.role);
 
     const issuedAt = new Date();
     const expiresAt = new Date(
@@ -150,6 +154,15 @@ export class AuthApplicationService implements OnModuleInit {
 
   async logout(sessionToken: string): Promise<void> {
     await this.authRepository.deleteSession(sessionToken);
+  }
+
+  async actorHasPermission(actorId: string, permission: Permission): Promise<boolean> {
+    const user = await this.authRepository.findUserById(actorId);
+    return Boolean(user && (ROLE_PERMISSIONS[user.role] ?? []).includes(permission));
+  }
+
+  async revokeAllSessions(): Promise<number> {
+    return this.authRepository.deleteAllSessions();
   }
 
   private async seedUsers(): Promise<void> {

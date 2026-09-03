@@ -14,11 +14,13 @@ import { HealthModule } from "./health/health.module";
 import { TilesModule } from "./modules/tiles/tiles.module";
 import { SoundsModule } from "./modules/sounds/sounds.module";
 import { VfxModule } from "./modules/vfx/vfx.module";
+import { SystemMaintenanceModule } from "./modules/system-maintenance/system-maintenance.module";
 
 @Module({
   imports: [
     AppConfigModule,
     DatabaseModule,
+    SystemMaintenanceModule,
     AuthModule,
     CatalogModule,
     TilesModule,

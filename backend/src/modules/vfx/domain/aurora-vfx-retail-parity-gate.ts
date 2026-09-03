@@ -89,6 +89,28 @@ export interface AuroraVfxRetailComparisonEvidence {
   comparedAt?: string | null;
 }
 
+export type AuroraVfxDiagnosticEvidenceKind =
+  | "retail-nwn-single-trigger-oracle"
+  | "aurora-web-single-playback"
+  | "aurora-web-source-axis-diagnostic";
+
+export interface AuroraVfxDiagnosticEvidenceRef {
+  kind: AuroraVfxDiagnosticEvidenceKind;
+  path: string;
+  sha256: string;
+  recordedAt: string;
+  status: string;
+  notParityReason: string;
+}
+
+export interface AuroraVfxImplementationRevision {
+  revisionId: string;
+  recordedAt: string;
+  sourceAuditRefs: string[];
+  changedPaths: string[];
+  verificationRefs: string[];
+}
+
 export interface AuroraVfxRetailParityFixture {
   fixtureId: string;
   requiredCase: AuroraVfxRetailRequiredCase;
@@ -104,6 +126,12 @@ export interface AuroraVfxRetailParityFixture {
   renderContractSnapshot: AuroraVfxRetailParityEvidenceRef;
   captureReference: AuroraVfxRetailCaptureReference;
   comparison: AuroraVfxRetailComparisonEvidence;
+  /**
+   * Saved NWN/Web proof artifacts that remain diagnostic until every retail
+   * canonical evidence lane is complete. They never satisfy canonical gates.
+   */
+  diagnosticEvidenceRefs?: AuroraVfxDiagnosticEvidenceRef[];
+  implementationRevision?: AuroraVfxImplementationRevision;
   expectedDiagnostics: string[];
   notCanonicalReason: string | null;
   notes: string[];
@@ -140,6 +168,8 @@ export interface AuroraVfxRetailParityFixtureGateResult {
     hasCaptureReference: boolean;
     hasComparison: boolean;
   };
+  diagnosticEvidenceRefCount: number;
+  hasImplementationRevision: boolean;
   missingEvidence: AuroraVfxRetailParityEvidenceKey[];
   nextActions: string[];
   canonicalAllowed: boolean;
@@ -199,6 +229,12 @@ const REQUIRED_CASES: readonly AuroraVfxRetailRequiredCase[] = [
 ] as const;
 
 const FIXTURE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/iu;
+const DIAGNOSTIC_EVIDENCE_KINDS: readonly AuroraVfxDiagnosticEvidenceKind[] = [
+  "retail-nwn-single-trigger-oracle",
+  "aurora-web-single-playback",
+  "aurora-web-source-axis-diagnostic"
+] as const;
 
 export function isAuroraVfxRetailParityStatus(
   value: unknown
@@ -478,6 +514,51 @@ export function validateAuroraVfxRetailParityFixture(
     ));
   }
 
+  const diagnosticEvidenceRefs = fixture.diagnosticEvidenceRefs;
+  if (diagnosticEvidenceRefs !== undefined && !Array.isArray(diagnosticEvidenceRefs)) {
+    diagnostics.push(fixtureDiagnostic(
+      fixture,
+      "VFX_DIAGNOSTIC_EVIDENCE_REFS_INVALID",
+      "error",
+      "Diagnostic evidence references must be an array when present."
+    ));
+  }
+  if (Array.isArray(diagnosticEvidenceRefs)) {
+    for (const [index, evidenceRef] of diagnosticEvidenceRefs.entries()) {
+      if (!isAuroraVfxDiagnosticEvidenceRef(evidenceRef)) {
+        diagnostics.push(fixtureDiagnostic(
+          fixture,
+          "VFX_DIAGNOSTIC_EVIDENCE_REF_INVALID",
+          "error",
+          `Diagnostic evidence reference at index ${index} must include a supported kind, path, SHA-256, recordedAt, status, and non-parity reason.`
+        ));
+      }
+    }
+  }
+
+  if (
+    Array.isArray(diagnosticEvidenceRefs) &&
+    diagnosticEvidenceRefs.length > 0 &&
+    !isAuroraVfxImplementationRevision(fixture.implementationRevision)
+  ) {
+    diagnostics.push(fixtureDiagnostic(
+      fixture,
+      "VFX_DIAGNOSTIC_IMPLEMENTATION_REVISION_REQUIRED",
+      "error",
+      "Diagnostic NWN/Web evidence must name the implementation revision and its source-audit and verification references."
+    ));
+  } else if (
+    fixture.implementationRevision !== undefined &&
+    !isAuroraVfxImplementationRevision(fixture.implementationRevision)
+  ) {
+    diagnostics.push(fixtureDiagnostic(
+      fixture,
+      "VFX_DIAGNOSTIC_IMPLEMENTATION_REVISION_INVALID",
+      "error",
+      "Implementation revision must include a revision id, recordedAt, and non-empty source-audit, changed-path, and verification references."
+    ));
+  }
+
   addMissingEvidenceDiagnostics(fixture, evidence, diagnostics);
 
   if (
@@ -522,11 +603,58 @@ export function validateAuroraVfxRetailParityFixture(
     status: fixture.status,
     behaviorClaim: fixture.behaviorClaim,
     evidence,
+    diagnosticEvidenceRefCount: Array.isArray(diagnosticEvidenceRefs)
+      ? diagnosticEvidenceRefs.length
+      : 0,
+    hasImplementationRevision: isAuroraVfxImplementationRevision(
+      fixture.implementationRevision
+    ),
     missingEvidence,
     nextActions: buildNextActions(fixture, missingEvidence),
     canonicalAllowed,
     diagnostics
   };
+}
+
+function isAuroraVfxDiagnosticEvidenceRef(
+  value: unknown
+): value is AuroraVfxDiagnosticEvidenceRef {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.kind === "string" &&
+    DIAGNOSTIC_EVIDENCE_KINDS.includes(value.kind as AuroraVfxDiagnosticEvidenceKind) &&
+    isNonEmptyString(value.path) &&
+    typeof value.sha256 === "string" &&
+    SHA256_PATTERN.test(value.sha256) &&
+    isNonEmptyString(value.recordedAt) &&
+    isNonEmptyString(value.status) &&
+    isNonEmptyString(value.notParityReason)
+  );
+}
+
+function isAuroraVfxImplementationRevision(
+  value: unknown
+): value is AuroraVfxImplementationRevision {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  return (
+    isNonEmptyString(value.revisionId) &&
+    isNonEmptyString(value.recordedAt) &&
+    isNonEmptyStringArray(value.sourceAuditRefs) &&
+    isNonEmptyStringArray(value.changedPaths) &&
+    isNonEmptyStringArray(value.verificationRefs)
+  );
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
 }
 
 export function canAuroraVfxFixtureBeCanonical(

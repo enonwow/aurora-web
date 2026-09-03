@@ -21,12 +21,28 @@ export class AppConfigService {
     return this.env.PORT;
   }
 
+  get bindHost() {
+    return this.env.AURORA_BIND_HOST.trim();
+  }
+
   get databaseUrl() {
     return this.env.DATABASE_URL;
   }
 
   get contractVersion() {
     return this.env.CONTRACT_VERSION;
+  }
+
+  get runtimeBuildCommit() {
+    return this.env.RUNTIME_BUILD_COMMIT.trim() || null;
+  }
+
+  get runtimeBuildImageDigest() {
+    return this.env.RUNTIME_BUILD_IMAGE_DIGEST.trim() || null;
+  }
+
+  get runtimeBuildBuiltAt() {
+    return this.env.RUNTIME_BUILD_BUILT_AT.trim() || null;
   }
 
   get corsAllowedOrigins() {
@@ -172,9 +188,57 @@ export class AppConfigService {
     return this.env.AURORA_DERIVED_ASSET_OUTPUT_EXTENSION;
   }
 
+  get areaCertificationReportPath() {
+    return this.env.AURORA_AREA_CERTIFICATION_REPORT_PATH.trim();
+  }
+
   get itemGeneratorSourceDirs() {
     return this.env.AURORA_ITEM_GENERATOR_SOURCE_DIRS.split(/[;,]/u)
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
+  }
+
+  get nwnScriptCompilerConfigured() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_PATH.length > 0;
+  }
+
+  get nwnScriptCompilerPath() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_PATH;
+  }
+
+  get nwnScriptCompilerSha256() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_SHA256;
+  }
+
+  get nwnScriptCompilerVersionMarker() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER;
+  }
+
+  get nwnScriptLanguageSpecPath() {
+    return this.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH;
+  }
+
+  get nwnScriptLanguageSpecSha256() {
+    return this.env.AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256;
+  }
+
+  get nwnScriptRuntimeLibraryDirectories() {
+    return Array.from(new Set(
+      this.env.AURORA_NWNSCRIPT_RUNTIME_LIBRARY_DIRS.split(";")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ));
+  }
+
+  get nwnScriptCompilerTimeoutMs() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_TIMEOUT_MS;
+  }
+
+  get nwnScriptCompilerOutputBytes() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_OUTPUT_BYTES;
+  }
+
+  get nwnScriptCompilerArtifactBytes() {
+    return this.env.AURORA_NWNSCRIPT_COMPILER_ARTIFACT_BYTES;
   }
 }

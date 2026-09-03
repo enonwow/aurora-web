@@ -1,11 +1,20 @@
 import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  stat,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import type {
   ModuleBlobObjectPayload,
   ModuleBlobObjectSummary,
+  ModuleBlobImmutablePutResult,
   ModuleBlobSnapshotSummary,
   ModuleBlobStoragePort,
   ModuleBlobSyncResult
@@ -19,21 +28,67 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
 
   async replaceModuleSnapshot(
     settings: BlobStorageSettings,
-    files: PackedModuleFile[]
+    files: PackedModuleFile[],
+    options?: {
+      forceFull?: boolean;
+      baselineSettings?: BlobStorageSettings;
+    }
   ): Promise<ModuleBlobSyncResult> {
     const prefix = normalizePrefix(settings.modulePrefix);
     const root = this.resolveRoot();
     const written: ModuleBlobObjectSummary[] = [];
+    const targetManifest = await readManifest(root, prefix);
+    const baselinePrefix = options?.baselineSettings
+      ? normalizePrefix(options.baselineSettings.modulePrefix)
+      : "";
+    const baselineManifest =
+      baselinePrefix && baselinePrefix !== prefix
+        ? await readManifest(root, baselinePrefix)
+        : null;
+    let uploadedFiles = 0;
+    let uploadedBytes = 0;
+    let unchangedFiles = 0;
 
     for (const file of files) {
-      const key = `${prefix}${normalizeFileName(file.fileName)}`;
+      const relativeName = normalizeFileName(file.fileName);
+      const key = `${prefix}${relativeName}`;
       const path = safeJoinObjectKey(root, key);
+      const bytes = Buffer.from(file.bytes);
+      const sha256 = sha256Hex(bytes);
+      const targetEntry = targetManifest?.files?.[key];
+      const baselineKey = `${baselinePrefix}${relativeName}`;
+      const baselineEntry = baselineManifest?.files?.[baselineKey];
       await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, Buffer.from(file.bytes));
+      if (
+        options?.forceFull !== true &&
+        targetEntry?.sha256 === sha256 &&
+        targetEntry.size === bytes.length &&
+        (await statSafe(path))?.isFile()
+      ) {
+        unchangedFiles += 1;
+      } else if (
+        options?.forceFull !== true &&
+        baselineEntry?.sha256 === sha256 &&
+        baselineEntry.size === bytes.length
+      ) {
+        const baselinePath = safeJoinObjectKey(root, baselineKey);
+        if ((await statSafe(baselinePath))?.isFile()) {
+          await copyFile(baselinePath, path);
+          unchangedFiles += 1;
+        } else {
+          await writeFile(path, bytes);
+          uploadedFiles += 1;
+          uploadedBytes += bytes.length;
+        }
+      } else {
+        await writeFile(path, bytes);
+        uploadedFiles += 1;
+        uploadedBytes += bytes.length;
+      }
       written.push({
         key,
-        size: file.bytes.length,
-        etag: sha256Hex(file.bytes),
+        size: bytes.length,
+        etag: sha256,
         lastModified: new Date().toISOString()
       });
     }
@@ -44,12 +99,15 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
       bucket: settings.bucket,
       prefix,
       moduleHash: hashObjectSummaries(written),
-      status: "updated",
-      uploadedFiles: written.length,
-      uploadedBytes: written.reduce((sum, object) => sum + object.size, 0),
+      status:
+        uploadedFiles === 0 && unchangedFiles === written.length && targetManifest
+          ? "noop"
+          : "updated",
+      uploadedFiles,
+      uploadedBytes,
       deletedFiles: 0,
       deletedBytes: 0,
-      unchangedFiles: 0,
+      unchangedFiles,
       totalFiles: written.length
     };
   }
@@ -76,6 +134,7 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
       bucket: settings.bucket,
       prefix,
       moduleHash: manifest?.moduleHash ?? hashObjectSummaries(objects),
+      manifestFileCount: manifest?.fileCount,
       totalFiles: objects.length,
       totalBytes: objects.reduce((sum, object) => sum + object.size, 0),
       objects: page,
@@ -130,6 +189,58 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
     };
   }
 
+  async putImmutableModuleObject(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile,
+    expectedSha256: string
+  ): Promise<ModuleBlobImmutablePutResult> {
+    const prefix = normalizePrefix(settings.modulePrefix);
+    const key = `${prefix}${normalizeFileName(file.fileName)}`;
+    const root = this.resolveRoot();
+    const path = safeJoinObjectKey(root, key);
+    const bytes = Buffer.from(file.bytes);
+    const actualSha256 = sha256Hex(bytes);
+    if (actualSha256 !== expectedSha256) {
+      throw immutableBlobError(
+        "MODULE_BLOB_IMMUTABLE_HASH_MISMATCH",
+        "Immutable object bytes do not match the declared SHA-256."
+      );
+    }
+    await mkdir(dirname(path), { recursive: true });
+    try {
+      await writeFile(path, bytes, { flag: "wx" });
+      return {
+        key,
+        size: bytes.length,
+        etag: actualSha256,
+        lastModified: new Date().toISOString(),
+        status: "created",
+        sha256: actualSha256
+      };
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+    }
+
+    const retained = await readFile(path);
+    if (retained.length !== bytes.length || sha256Hex(retained) !== actualSha256) {
+      throw immutableBlobError(
+        "MODULE_BLOB_IMMUTABLE_CONFLICT",
+        "Immutable object key is already bound to different bytes."
+      );
+    }
+    const retainedStat = await stat(path);
+    return {
+      key,
+      size: retained.length,
+      etag: actualSha256,
+      lastModified: retainedStat.mtime.toISOString(),
+      status: "already_exists",
+      sha256: actualSha256
+    };
+  }
+
   async deleteModuleObject(_settings: BlobStorageSettings, key: string): Promise<boolean> {
     const normalizedKey = normalizeObjectKey(key);
     if (!normalizedKey) {
@@ -181,6 +292,7 @@ export class LocalModuleBlobStorageService implements ModuleBlobStoragePort {
 
 interface LocalBlobMirrorManifest {
   moduleHash?: string;
+  fileCount?: number;
   files?: Record<string, { sha256?: string; size?: number }>;
 }
 
@@ -324,4 +436,16 @@ function inferContentType(fileName: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as NodeJS.ErrnoException).code === "EEXIST"
+  );
+}
+
+function immutableBlobError(code: string, message: string): Error {
+  return new Error(`${code}: ${message}`);
 }

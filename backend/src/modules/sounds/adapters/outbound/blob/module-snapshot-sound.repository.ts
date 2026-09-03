@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from "@nestjs/common";
 import type { ModuleBlobObjectSummary } from "../../../../runtime-settings/application/ports/module-blob-storage.port";
 import {
   MODULE_BLOB_STORAGE,
@@ -25,6 +25,11 @@ import type {
   SoundReverseMapping,
   SoundSourceLayer
 } from "../../../domain/sound.types";
+import { SystemMaintenanceApplicationService } from "../../../../system-maintenance/application/system-maintenance.application.service";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
 
 interface IndexedSound {
   record: SoundRecord;
@@ -88,16 +93,34 @@ const AREA_BINDING = {
 };
 
 @Injectable()
-export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
+export class ModuleSnapshotSoundRepository
+  implements SoundRepositoryPort, OnModuleDestroy
+{
   private readonly logger = new Logger(ModuleSnapshotSoundRepository.name);
   private snapshotIndex: SnapshotIndex | null = null;
+  private readonly unsubscribeMaintenance: (() => void) | null;
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
-    private readonly moduleBlobStorage: ModuleBlobStoragePort
-  ) {}
+    private readonly moduleBlobStorage: ModuleBlobStoragePort,
+    @Optional()
+    maintenance?: SystemMaintenanceApplicationService,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
+  ) {
+    this.unsubscribeMaintenance =
+      maintenance?.onStateChanged((record) => {
+        if (record.state === "idle") {
+          this.snapshotIndex = null;
+        }
+      }) ?? null;
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribeMaintenance?.();
+  }
 
   async list(query: SoundListQuery): Promise<SoundListResult> {
     const index = await this.getSnapshotIndex();
@@ -287,16 +310,21 @@ export class ModuleSnapshotSoundRepository implements SoundRepositoryPort {
   private async listAllModuleSnapshotObjects(
     settings: BlobStorageSettings
   ): Promise<ModuleBlobSnapshotSummary> {
+    const captured = this.committedSnapshotReader
+      ? await this.committedSnapshotReader.capture()
+      : null;
     const objects: ModuleBlobObjectSummary[] = [];
     let continuationToken: string | undefined;
     let moduleHash: string | undefined;
     let prefix = normalizePrefixForLookup(settings.modulePrefix);
 
     do {
-      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 50_000,
-        continuationToken
-      });
+      const page = captured
+        ? await captured.listModuleSnapshot({ limit: 50_000, continuationToken })
+        : await this.moduleBlobStorage.listModuleSnapshot(settings, {
+            limit: 50_000,
+            continuationToken
+          });
 
       moduleHash = moduleHash ?? page.moduleHash;
       prefix = page.prefix;

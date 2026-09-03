@@ -22,11 +22,17 @@ import {
 } from "../../runtime-settings/application/ports/runtime-settings-repository.port";
 import {
   RuntimeSettingsApplicationService,
+  waitForStoredModuleObjectBytes,
+  type VanillaTileModelSourceSyncEnvelope,
   type TextureDeliveryContract
 } from "../../runtime-settings/application/runtime-settings.application.service";
 import { inspectAuroraMdlSource } from "../../runtime-settings/adapters/outbound/derived/aurora-mdl-ascii-to-glb.converter";
 import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
 import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../runtime-settings/domain/derived-asset-versions";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
 import {
   TILE_PROCESSING_CACHE,
   type TileProcessingCachePort
@@ -113,15 +119,40 @@ export interface TileModelBlobEnvelope {
 const TILE_REPOSITORY_SNAPSHOT_REFRESH_DEBOUNCE_MS = 2_000;
 const TILE_CATALOG_ID_PREFIX = "tile_";
 const TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY = "areas-tile-process-auto-sync";
-const TILE_PROCESS_BATCH_CONCURRENCY = 12;
+const TILE_NUMBERED_MTR_DIFFUSE_FAMILY_POLICY =
+  "tile-mtr-numbered-exact-diffuse-family/v1";
+// Tile source restoration can open HAK archives and launch the MDL -> GLB
+// converter.  Treat it as a native-resource critical section: callers that
+// submit a batch must not amplify that work into a dozen concurrent processes.
+const TILE_PROCESS_BATCH_CONCURRENCY = 1;
+
+interface TileMaterialTextureResolution {
+  assets: TileMaterialTextureAssetContract[];
+  missingTextureReferences: string[];
+  requiresMaterialTextureBindings: boolean;
+  sourceModelContentSha256?: string;
+  renderModelInspection?: {
+    objectKey: string;
+    sizeBytes: number;
+    etag?: string;
+    contentSha256: string;
+    materialTextureReferences: string[];
+  };
+}
 const GLB_MAGIC = 0x46546c67;
 const GLB_JSON_CHUNK_TYPE = 0x4e4f534a;
-const TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT = 5.25;
 
 @Injectable()
 export class TilesApplicationService {
   private readonly inFlightTileProcessing = new Map<string, Promise<TileProcessingEnvelope>>();
   private readonly inFlightTileMaterialSourceSync = new Map<string, Promise<void>>();
+  // A SET can legitimately refer to a model that is absent from the active
+  // module/HAK chain. Remember that negative source lookup per settings
+  // revision so retrying a visible palette/group tile does not rescan every
+  // HAK on each render batch. The current settings revision is checked before
+  // reuse, so a configuration/HAK change permits a fresh discovery attempt.
+  private unavailableTileModelSourceSettingsRevision: number | null = null;
+  private readonly unavailableTileModelResRefs = new Set<string>();
   private tileRepositorySnapshotRefreshedAtMs = 0;
 
   constructor(
@@ -138,7 +169,9 @@ export class TilesApplicationService {
     private readonly runtimeSettingsApplication?: RuntimeSettingsApplicationService,
     @Optional()
     @Inject(DERIVED_ASSET_GENERATOR)
-    private readonly derivedAssetGenerator?: DerivedAssetGeneratorPort
+    private readonly derivedAssetGenerator?: DerivedAssetGeneratorPort,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
   ) {}
 
   listTiles(query: TileListQuery) {
@@ -504,6 +537,20 @@ export class TilesApplicationService {
         message: `Tile model blob object was not found: ${modelAsset.objectKey}.`
       });
     }
+    if (modelAsset.contentSha256) {
+      const deliveredSha256 = createHash("sha256")
+        .update(payload.bytes)
+        .digest("hex");
+      if (deliveredSha256 !== modelAsset.contentSha256) {
+        throw new AppException({
+          status: 409,
+          code: "TILE_MODEL_CONTENT_MISMATCH",
+          message:
+            `Tile model changed after its render contract was created: ${modelAsset.objectKey}. ` +
+            `Expected SHA-256 ${modelAsset.contentSha256}, received ${deliveredSha256}.`
+        });
+      }
+    }
 
     return {
       cacheKey,
@@ -619,10 +666,15 @@ export class TilesApplicationService {
       return;
     }
 
-    await this.runtimeSettingsApplication.syncVanillaTileModelSources(
+    if (await this.isKnownUnavailableTileModelSource(modelResRef)) {
+      return;
+    }
+
+    const sync = await this.runtimeSettingsApplication.syncVanillaTileModelSources(
       TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY,
       [modelResRef]
     );
+    this.rememberUnavailableTileModelSources(sync);
     await this.repository.refreshSnapshot?.();
     this.tileRepositorySnapshotRefreshedAtMs = Date.now();
   }
@@ -635,10 +687,11 @@ export class TilesApplicationService {
     if (modelResRefs.length === 0) {
       return;
     }
-    await this.runtimeSettingsApplication.syncVanillaTileModelSources(
+    const sync = await this.runtimeSettingsApplication.syncVanillaTileModelSources(
       TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY,
       modelResRefs
     );
+    this.rememberUnavailableTileModelSources(sync);
     await this.repository.refreshSnapshot?.();
     this.tileRepositorySnapshotRefreshedAtMs = Date.now();
   }
@@ -647,7 +700,7 @@ export class TilesApplicationService {
     const modelResRefs: string[] = [];
     for (const tileId of tileIds) {
       const modelResRef = parseTileModelResRefFromCatalogId(tileId);
-      if (!modelResRef) {
+      if (!modelResRef || (await this.isKnownUnavailableTileModelSource(modelResRef))) {
         continue;
       }
       const tile = await this.repository.findById(tileId);
@@ -657,6 +710,41 @@ export class TilesApplicationService {
       modelResRefs.push(modelResRef);
     }
     return modelResRefs;
+  }
+
+  private async isKnownUnavailableTileModelSource(modelResRef: string): Promise<boolean> {
+    const normalized = modelResRef.trim().toLowerCase();
+    if (!this.unavailableTileModelResRefs.has(normalized)) {
+      return false;
+    }
+    if (!this.runtimeSettingsRepository) {
+      return true;
+    }
+    const settings = await this.runtimeSettingsRepository.get();
+    if (settings.revision !== this.unavailableTileModelSourceSettingsRevision) {
+      this.unavailableTileModelResRefs.clear();
+      this.unavailableTileModelSourceSettingsRevision = settings.revision;
+      return false;
+    }
+    return true;
+  }
+
+  private rememberUnavailableTileModelSources(
+    sync: VanillaTileModelSourceSyncEnvelope
+  ): void {
+    if (!Number.isInteger(sync.settingsRevision)) {
+      return;
+    }
+    if (this.unavailableTileModelSourceSettingsRevision !== sync.settingsRevision) {
+      this.unavailableTileModelResRefs.clear();
+      this.unavailableTileModelSourceSettingsRevision = sync.settingsRevision;
+    }
+    for (const modelResRef of sync.missingModelResRefs) {
+      const normalized = modelResRef.trim().toLowerCase();
+      if (normalized) {
+        this.unavailableTileModelResRefs.add(normalized);
+      }
+    }
   }
 
   private async resolveBenchmarkCandidates(tileIds?: string[]): Promise<TileRecord[]> {
@@ -727,9 +815,20 @@ export class TilesApplicationService {
     cacheKey: string
   ): Promise<TileRenderAssetContract> {
     const sourceAsset = buildTileSourceAssetContract(tile);
-    const materialTextureAssets = await this.resolveTileMaterialTextureAssets(tile, sourceAsset);
     const renderReadyTile = await this.ensureCurrentTileRenderModelAsset(tile, sourceAsset);
-    return buildTileRenderAssetContract(renderReadyTile, cacheKey, materialTextureAssets);
+    const materialTextureResolution = await this.resolveTileMaterialTextureAssets(
+      renderReadyTile,
+      sourceAsset
+    );
+    return buildTileRenderAssetContract(
+      renderReadyTile,
+      cacheKey,
+      materialTextureResolution.assets,
+      materialTextureResolution.missingTextureReferences,
+      materialTextureResolution.requiresMaterialTextureBindings,
+      materialTextureResolution.renderModelInspection,
+      materialTextureResolution.sourceModelContentSha256
+    );
   }
 
   private async ensureCurrentTileRenderModelAsset(
@@ -751,6 +850,9 @@ export class TilesApplicationService {
     if (!tile.renderModelObjectKey) {
       return false;
     }
+    if (!isVersionedTileDerivedModelObjectKeyCurrent(tile.renderModelObjectKey)) {
+      return false;
+    }
     const extension = tile.renderModelExtension ?? extractObjectKeyExtension(tile.renderModelObjectKey);
     if (extension !== "glb" && extension !== "gltf") {
       return false;
@@ -762,10 +864,12 @@ export class TilesApplicationService {
     }
 
     const modelJson = parseTileDerivedModelJsonPayload(extension, payload.bytes);
+    // Multi-cell feature/group tiles may legitimately extend well beyond the
+    // nominal 10 m cell (for example tdc01_t15_01 reaches x=-11.5 m). Converter
+    // currency must therefore be versioned, never inferred from model bounds.
     return (
       resolveTileDerivedModelConverterVersion(modelJson) ===
-        AURORA_MDL_TO_GLB_CONVERTER_VERSION &&
-      isTileDerivedModelFootprintCurrent(modelJson)
+      AURORA_MDL_TO_GLB_CONVERTER_VERSION
     );
   }
 
@@ -782,10 +886,12 @@ export class TilesApplicationService {
     }
 
     const settings = await this.runtimeSettingsRepository.get();
-    const sourcePayload = await this.moduleBlobStorage.getModuleObject(
-      settings.blobStorage,
-      sourceAsset.objectKey
-    );
+    const sourcePayload = this.committedSnapshotReader
+      ? await (await this.committedSnapshotReader.capture()).getModuleObject(sourceAsset.objectKey)
+      : await this.moduleBlobStorage.getModuleObject(
+          settings.blobStorage,
+          sourceAsset.objectKey
+        );
     if (!sourcePayload || sourcePayload.bytes.length === 0) {
       return null;
     }
@@ -810,6 +916,12 @@ export class TilesApplicationService {
       settings.blobStorage,
       derivedModel
     );
+    await waitForStoredModuleObjectBytes(
+      this.moduleBlobStorage,
+      settings.blobStorage,
+      stored.key,
+      derivedModel.bytes
+    );
     const extension = extractObjectKeyExtension(stored.key);
     if (extension !== "glb" && extension !== "gltf") {
       return null;
@@ -826,35 +938,102 @@ export class TilesApplicationService {
 
   private async resolveTileMaterialTextureAssets(
     tile: TileRecord,
-    sourceAsset: TileSourceAssetContract
-  ): Promise<TileMaterialTextureAssetContract[]> {
+    sourceAsset: TileSourceAssetContract,
+    allowSourceSync = true
+  ): Promise<TileMaterialTextureResolution> {
     if (
       sourceAsset.role !== "mdl_source" ||
       !sourceAsset.objectKey ||
       !this.runtimeSettingsApplication
     ) {
-      return [];
+      return {
+        assets: [],
+        missingTextureReferences: [],
+        requiresMaterialTextureBindings: true
+      };
     }
 
     const sourcePayload = await this.readModuleBlobObject(sourceAsset.objectKey);
     if (!sourcePayload) {
-      return [];
+      return {
+        assets: [],
+        missingTextureReferences: [],
+        requiresMaterialTextureBindings: true
+      };
+    }
+    const sourceModelContentSha256 = createHash("sha256")
+      .update(sourcePayload.bytes)
+      .digest("hex");
+
+    // The MDL-wide list also contains emitter/VFX bitmaps. Keep those sources
+    // eligible for targeted sync, but only GLB material/primitive-scoped
+    // references are mandatory for mesh material-binding readiness.
+    const textureReferences = new Set(
+      collectTileRenderTextureReferences(tile, sourcePayload.bytes)
+    );
+    const requiredMaterialTextureReferences = new Set<string>();
+    let renderModelInspection: TileMaterialTextureResolution["renderModelInspection"];
+    if (tile.renderModelObjectKey && tile.renderModelExtension) {
+      const renderModelPayload = await this.readModuleBlobObject(tile.renderModelObjectKey);
+      const renderModelJson = renderModelPayload
+        ? parseTileDerivedModelJsonPayload(
+            tile.renderModelExtension,
+            renderModelPayload.bytes
+          )
+        : null;
+      const derivedModelTextureReferences =
+        collectTileDerivedModelTextureReferences(renderModelJson);
+      derivedModelTextureReferences.forEach((reference) => {
+        requiredMaterialTextureReferences.add(reference);
+        textureReferences.add(reference);
+      });
+      if (renderModelPayload) {
+        renderModelInspection = {
+          objectKey: tile.renderModelObjectKey,
+          sizeBytes: renderModelPayload.bytes.length,
+          ...(renderModelPayload.etag ? { etag: renderModelPayload.etag } : {}),
+          contentSha256: createHash("sha256")
+            .update(renderModelPayload.bytes)
+            .digest("hex"),
+          materialTextureReferences: derivedModelTextureReferences
+        };
+      }
+    }
+    const resolvedTextureReferences = [...textureReferences].sort((left, right) =>
+      left.localeCompare(right)
+    );
+    if (resolvedTextureReferences.length === 0) {
+      return {
+        assets: [],
+        missingTextureReferences: [],
+        requiresMaterialTextureBindings: false,
+        sourceModelContentSha256,
+        ...(renderModelInspection ? { renderModelInspection } : {})
+      };
     }
 
-    const textureReferences = collectTileRenderTextureReferences(tile, sourcePayload.bytes);
-    if (textureReferences.length === 0) {
-      return [];
-    }
-
-    let assets = await this.resolveTileMaterialTextureContracts(textureReferences);
-    const missingTextureReferences = textureReferences.filter(
+    let assets = await this.resolveTileMaterialTextureContracts(resolvedTextureReferences);
+    const missingTextureReferencesBeforeSync = resolvedTextureReferences.filter(
       (reference) => !assets.some((asset) => asset.reference === reference)
     );
-    if (missingTextureReferences.length > 0) {
-      await this.syncTileMaterialTextureSources(tile);
-      assets = await this.resolveTileMaterialTextureContracts(textureReferences);
+    if (allowSourceSync && missingTextureReferencesBeforeSync.length > 0) {
+      await this.syncTileMaterialTextureSources(tile, missingTextureReferencesBeforeSync);
+      // A targeted texture-source sync also regenerates the derived GLB under
+      // the same versioned object key. Re-read the model and rebuild its full
+      // material closure before emitting readiness; otherwise the contract can
+      // describe the pre-sync bytes while delivery serves the post-sync bytes.
+      return this.resolveTileMaterialTextureAssets(tile, sourceAsset, false);
     }
-    return assets;
+    const missingTextureReferences = [...requiredMaterialTextureReferences]
+      .filter((reference) => !assets.some((asset) => asset.reference === reference))
+      .sort((left, right) => left.localeCompare(right));
+    return {
+      assets,
+      missingTextureReferences,
+      requiresMaterialTextureBindings: requiredMaterialTextureReferences.size > 0,
+      sourceModelContentSha256,
+      ...(renderModelInspection ? { renderModelInspection } : {})
+    };
   }
 
   private async resolveTileMaterialTextureContracts(
@@ -872,28 +1051,78 @@ export class TilesApplicationService {
         offset: 0
       });
       const selected = selectPreferredTileTextureContract(contracts.assets);
-      if (!selected) {
+      if (selected) {
+        assets.push(buildTileMaterialTextureAssetContract(reference, selected));
         continue;
       }
-      assets.push({
-        reference,
-        textureId: selected.textureId,
-        resref: selected.resref,
-        objectKey: selected.objectKey,
-        extension: selected.extension,
-        contentType: selected.contentType,
-        sizeBytes: selected.sizeBytes,
-        source: selected.source,
-        sourcePath: selected.sourcePath,
-        deliveryPath: appendTextureDeliveryFormat(selected.deliveryPath, selected),
-        deliveryUrl: appendTextureDeliveryFormat(selected.deliveryUrl, selected),
-        s3Url: selected.s3Url
-      });
+
+      const materialSource = contracts.assets.find((asset) => asset.extension === "mtr");
+      if (materialSource) {
+        assets.push(
+          ...(await this.resolveTileMtrTextureContracts(reference, materialSource))
+        );
+        continue;
+      }
+
+      const sourceProvenDiffuseReference =
+        resolveSourceProvenNumberedMtrDiffuseReference(reference);
+      if (!sourceProvenDiffuseReference) {
+        continue;
+      }
+      const diffuseContracts =
+        await this.runtimeSettingsApplication.getTextureDeliveryContracts({
+          resref: sourceProvenDiffuseReference,
+          limit: 8,
+          offset: 0
+        });
+      const selectedDiffuse = selectPreferredTileTextureContract(
+        diffuseContracts.assets
+      );
+      if (selectedDiffuse) {
+        // `reference` remains the authored GLB material resref while `resref`
+        // identifies the exact source raster. This is observable provenance,
+        // not an implicit adjacent-number or generic fallback.
+        assets.push(buildTileMaterialTextureAssetContract(reference, selectedDiffuse));
+      }
     }
     return assets;
   }
 
-  private async syncTileMaterialTextureSources(tile: TileRecord): Promise<void> {
+  private async resolveTileMtrTextureContracts(
+    materialReference: string,
+    materialSource: TextureDeliveryContract
+  ): Promise<TileMaterialTextureAssetContract[]> {
+    const payload = await this.readModuleBlobObject(materialSource.objectKey);
+    if (!payload) {
+      return [];
+    }
+    const slotReferences = collectTileMtrTextureSlotReferences(payload.bytes);
+    const assets: TileMaterialTextureAssetContract[] = [];
+    for (const slotReference of slotReferences) {
+      const contracts = await this.runtimeSettingsApplication?.getTextureDeliveryContracts({
+        resref: slotReference.reference,
+        limit: 8,
+        offset: 0
+      });
+      const selected = selectPreferredTileTextureContract(contracts?.assets ?? []);
+      if (!selected) {
+        continue;
+      }
+      // The source MDL/GLB material still names the MTR. Bind texture0 back to
+      // that authored material reference so the frontend replaces the neutral
+      // GLTF parse placeholder with the real diffuse texture. Preserve the
+      // remaining named slot references for normal/roughness-aware consumers.
+      const bindingReference =
+        slotReference.slot === 0 ? materialReference : slotReference.reference;
+      assets.push(buildTileMaterialTextureAssetContract(bindingReference, selected));
+    }
+    return assets;
+  }
+
+  private async syncTileMaterialTextureSources(
+    tile: TileRecord,
+    missingTextureReferences: string[]
+  ): Promise<void> {
     const runtimeSettingsApplication = this.runtimeSettingsApplication;
     if (!runtimeSettingsApplication) {
       return;
@@ -901,12 +1130,13 @@ export class TilesApplicationService {
 
     await executeInFlight(
       this.inFlightTileMaterialSourceSync,
-      tile.resref,
+      `${tile.resref}|${missingTextureReferences.join(",")}`,
       async (): Promise<void> => {
         try {
           await runtimeSettingsApplication.syncVanillaTileModelSources(
             TILE_AUTO_SOURCE_SYNC_TRIGGERED_BY,
-            [tile.resref]
+            [tile.resref],
+            expandTileMaterialTextureSourceSyncReferences(missingTextureReferences)
           );
           await this.repository.refreshSnapshot?.();
           this.tileRepositorySnapshotRefreshedAtMs = Date.now();
@@ -927,7 +1157,9 @@ export class TilesApplicationService {
     }
 
     const settings = await this.runtimeSettingsRepository.get();
-    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+    return this.committedSnapshotReader
+      ? (await this.committedSnapshotReader.capture()).getModuleObject(key)
+      : this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
   }
 
   private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
@@ -1025,6 +1257,32 @@ function dedupeText(values: string[]): string[] {
   return deduped;
 }
 
+function resolveSourceProvenNumberedMtrDiffuseReference(
+  materialReference: string
+): string | null {
+  const normalized = materialReference.trim().toLowerCase();
+  const match = normalized.match(/^mtr_nkey_(\d{4})$/u);
+  if (!match?.[1]) {
+    return null;
+  }
+  return `tex_core_${match[1]}_d`;
+}
+
+function expandTileMaterialTextureSourceSyncReferences(
+  references: string[]
+): string[] {
+  const expanded: string[] = [];
+  for (const reference of references) {
+    expanded.push(reference);
+    const sourceProvenDiffuseReference =
+      resolveSourceProvenNumberedMtrDiffuseReference(reference);
+    if (sourceProvenDiffuseReference) {
+      expanded.push(sourceProvenDiffuseReference);
+    }
+  }
+  return dedupeText(expanded);
+}
+
 function getExceptionCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null) {
     return null;
@@ -1113,10 +1371,26 @@ function buildTileSourceAssetContract(tile: TileRecord): TileSourceAssetContract
 function buildTileRenderAssetContract(
   tile: TileRecord,
   cacheKey: string,
-  materialTextureAssets: TileMaterialTextureAssetContract[] = []
+  materialTextureAssets: TileMaterialTextureAssetContract[] = [],
+  missingTextureReferences: string[] = [],
+  requiresMaterialTextureBindings = true,
+  renderModelInspection?: TileMaterialTextureResolution["renderModelInspection"],
+  sourceModelContentSha256?: string
 ): TileRenderAssetContract {
   const sourceAsset = buildTileSourceAssetContract(tile);
-  const modelAsset = buildTileRenderModelAssetContract(tile, cacheKey);
+  const declaredModelAsset = buildTileRenderModelAssetContract(tile, cacheKey);
+  const modelAsset =
+    declaredModelAsset &&
+    renderModelInspection?.objectKey === declaredModelAsset.objectKey
+      ? {
+          ...declaredModelAsset,
+          sizeBytes: renderModelInspection.sizeBytes,
+          ...(renderModelInspection.etag
+            ? { etag: renderModelInspection.etag }
+            : {}),
+          contentSha256: renderModelInspection.contentSha256
+        }
+      : declaredModelAsset;
   const textureDeliveryStatus = resolveTileTextureDeliveryStatus(
     tile,
     sourceAsset,
@@ -1124,7 +1398,9 @@ function buildTileRenderAssetContract(
   );
   const materialBindingStatus = resolveTileMaterialBindingStatus(
     sourceAsset,
-    materialTextureAssets
+    materialTextureAssets,
+    missingTextureReferences,
+    requiresMaterialTextureBindings
   );
   const sourceAssetBlocker = resolveTileSourceAssetBlocker(sourceAsset);
   const blockers: string[] = [];
@@ -1146,6 +1422,11 @@ function buildTileRenderAssetContract(
   if (materialBindingStatus !== "ready") {
     blockers.push(materialBindingStatus);
   }
+  if (missingTextureReferences.length > 0) {
+    blockers.push(
+      `blocked_tile_material_texture_references_missing:${missingTextureReferences.join(",")}`
+    );
+  }
   if (!modelAsset) {
     blockers.push("blocked_tile_model_geometry_loader_missing");
   }
@@ -1154,6 +1435,8 @@ function buildTileRenderAssetContract(
     sourceAssetStatus: sourceAsset.objectKey ? "ready" : "blocked",
     mdlSourceStatus: sourceAsset.role === "mdl_source" ? "ready" : "blocked",
     mdlSourceObjectKey: sourceAsset.role === "mdl_source" ? sourceAsset.objectKey : undefined,
+    mdlSourceContentSha256:
+      sourceAsset.role === "mdl_source" ? sourceModelContentSha256 : undefined,
     glbGeometryStatus: modelAsset
       ? "ready"
       : "blocked_tile_process_contract_missing_glb_geometry",
@@ -1163,6 +1446,11 @@ function buildTileRenderAssetContract(
     modelDeliveryStatus: modelAsset ? "ready" : "blocked_tile_model_glb_missing",
     modelAsset,
     materialTextureAssets: materialTextureAssets.length > 0 ? materialTextureAssets : undefined,
+    requiredMaterialTextureReferences:
+      renderModelInspection &&
+      renderModelInspection.materialTextureReferences.length > 0
+        ? renderModelInspection.materialTextureReferences
+        : undefined,
     expectedDerivedModelObjectKey: modelAsset
       ? undefined
       : buildExpectedTileDerivedModelObjectKey(tile),
@@ -1198,10 +1486,18 @@ function resolveTileTextureDeliveryStatus(
 
 function resolveTileMaterialBindingStatus(
   sourceAsset: TileSourceAssetContract,
-  materialTextureAssets: TileMaterialTextureAssetContract[]
+  materialTextureAssets: TileMaterialTextureAssetContract[],
+  missingTextureReferences: string[] = [],
+  requiresMaterialTextureBindings = true
 ): TileRenderAssetContract["materialBindingStatus"] {
   if (sourceAsset.role === "derived_model_asset") {
     return "blocked_tile_material_binding_derived_model_only";
+  }
+  if (missingTextureReferences.length > 0) {
+    return "blocked_tile_process_contract_missing_material_bindings";
+  }
+  if (!requiresMaterialTextureBindings) {
+    return "ready";
   }
   return materialTextureAssets.length > 0
     ? "ready"
@@ -1357,6 +1653,91 @@ function normalizeTileTextureReference(value: string | undefined): string | null
   return normalized;
 }
 
+function collectTileDerivedModelTextureReferences(modelJson: unknown): string[] {
+  const references = new Set<string>();
+  const absorbReference = (value: unknown): void => {
+    if (typeof value !== "string") {
+      return;
+    }
+    const normalized = normalizeTileTextureReference(value);
+    if (normalized) {
+      references.add(normalized);
+    }
+  };
+  const absorbMaterialAuroraExtras = (value: unknown): void => {
+    const extras = asRecord(value);
+    const aurora = asRecord(extras?.["aurora"]);
+    absorbReference(aurora?.["textureReference"]);
+    // `textureReferences` on the root/material is converter-wide provenance
+    // and includes emitter/VFX bitmaps. It is intentionally not a material
+    // dependency list. Scoped `textureReference` and `textureSlots` are.
+    const textureSlots = aurora?.["textureSlots"];
+    if (Array.isArray(textureSlots)) {
+      textureSlots.forEach((slotValue) => {
+        const slot = asRecord(slotValue);
+        absorbReference(slot?.["reference"]);
+      });
+    }
+  };
+
+  const root = asRecord(modelJson);
+  const materials = Array.isArray(root?.["materials"]) ? root["materials"] : [];
+  materials.forEach((materialValue) => {
+    const material = asRecord(materialValue);
+    absorbMaterialAuroraExtras(material?.["extras"]);
+  });
+  const meshes = Array.isArray(root?.["meshes"]) ? root["meshes"] : [];
+  meshes.forEach((meshValue) => {
+    const mesh = asRecord(meshValue);
+    const primitives = Array.isArray(mesh?.["primitives"]) ? mesh["primitives"] : [];
+    primitives.forEach((primitiveValue) => {
+      const primitive = asRecord(primitiveValue);
+      absorbMaterialAuroraExtras(primitive?.["extras"]);
+    });
+  });
+  return [...references].sort((left, right) => left.localeCompare(right));
+}
+
+interface TileMtrTextureSlotReference {
+  slot: number;
+  reference: string;
+}
+
+function collectTileMtrTextureSlotReferences(
+  bytes: Buffer
+): TileMtrTextureSlotReference[] {
+  const referencesBySlot = new Map<number, string>();
+  const lines = bytes.toString("utf-8").split(/\r?\n/u);
+  for (const line of lines) {
+    const source = line
+      .replace(/\/\/.*$/u, "")
+      .replace(/;.*$/u, "")
+      .trim();
+    if (!source) {
+      continue;
+    }
+    const tokens = source.split(/\s+/u);
+    const key = tokens[0]?.toLowerCase() ?? "";
+    const slotMatch = key.match(/^texture(\d+)$/u);
+    const slot =
+      slotMatch?.[1] !== undefined
+        ? Number.parseInt(slotMatch[1], 10)
+        : key === "bitmap"
+          ? 0
+          : null;
+    if (slot === null || !Number.isInteger(slot) || slot < 0) {
+      continue;
+    }
+    const reference = normalizeTileTextureReference(tokens.slice(1).join(" "));
+    if (reference && !referencesBySlot.has(slot)) {
+      referencesBySlot.set(slot, reference);
+    }
+  }
+  return [...referencesBySlot.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([slot, reference]) => ({ slot, reference }));
+}
+
 function selectPreferredTileTextureContract(
   contracts: TextureDeliveryContract[]
 ): TextureDeliveryContract | null {
@@ -1364,9 +1745,30 @@ function selectPreferredTileTextureContract(
     contracts.find((asset) => asset.extension === "dds") ??
     contracts.find((asset) => asset.extension === "tga") ??
     contracts.find((asset) => asset.extension === "bmp") ??
-    contracts[0] ??
+    contracts.find((asset) => asset.extension === "plt") ??
     null
   );
+}
+
+function buildTileMaterialTextureAssetContract(
+  reference: string,
+  asset: TextureDeliveryContract
+): TileMaterialTextureAssetContract {
+  return {
+    reference,
+    textureId: asset.textureId,
+    resref: asset.resref,
+    objectKey: asset.objectKey,
+    extension: asset.extension,
+    contentType: asset.contentType,
+    sizeBytes: asset.sizeBytes,
+    contentSha256: asset.contentSha256,
+    source: asset.source,
+    sourcePath: asset.sourcePath,
+    deliveryPath: appendTextureDeliveryFormat(asset.deliveryPath, asset),
+    deliveryUrl: appendTextureDeliveryFormat(asset.deliveryUrl, asset),
+    s3Url: asset.s3Url
+  };
 }
 
 function appendTextureDeliveryFormat(
@@ -1404,12 +1806,32 @@ function buildTileRenderModelAssetContract(
 
 function buildExpectedTileDerivedModelObjectKey(tile: TileRecord): string {
   const sourceKey = tile.sourceAssetObjectKey?.replace(/\\/gu, "/") ?? "";
-  const prefix = sourceKey.includes("__aurora/derived/models/")
-    ? sourceKey.slice(0, sourceKey.indexOf("__aurora/derived/models/"))
+  // Derived models belong to the module-level Aurora namespace, never below
+  // the HAK source directory that supplied the MDL.
+  const auroraNamespaceIndex = sourceKey.indexOf("__aurora/");
+  const prefix = auroraNamespaceIndex >= 0
+    ? sourceKey.slice(0, auroraNamespaceIndex)
     : sourceKey.includes("/")
       ? sourceKey.slice(0, sourceKey.lastIndexOf("/") + 1)
       : "";
   return `${prefix}__aurora/derived/models/${tile.resref.toLowerCase()}.glb`;
+}
+
+function isVersionedTileDerivedModelObjectKeyCurrent(objectKey: string): boolean {
+  const normalized = objectKey.replace(/\\/gu, "/").trim().toLowerCase();
+  const versionedPath = normalized.match(
+    /__aurora\/derived\/models\/(aurora-mdl-to-glb_[^/]+)\//u
+  );
+  if (!versionedPath) {
+    // Preserve compatibility with legacy unversioned objects; their embedded
+    // GLB converterVersion remains the authority.
+    return true;
+  }
+  const currentVersionSegment = AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+    /[^a-zA-Z0-9._-]+/gu,
+    "_"
+  ).toLowerCase();
+  return versionedPath[1] === currentVersionSegment;
 }
 
 function selectGeneratedTileDerivedModelFile(
@@ -1493,87 +1915,6 @@ function resolveTileDerivedModelConverterVersion(modelJson: unknown): string | n
   return null;
 }
 
-function isTileDerivedModelFootprintCurrent(modelJson: unknown): boolean {
-  const bounds = resolveTileDerivedModelPositionBounds(modelJson);
-  if (!bounds) {
-    return false;
-  }
-
-  return (
-    bounds.minX >= -TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
-    bounds.maxX <= TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
-    bounds.minZ >= -TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT &&
-    bounds.maxZ <= TILE_MODEL_FOOTPRINT_HALF_EXTENT_LIMIT
-  );
-}
-
-type TileDerivedModelPositionBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
-
-function resolveTileDerivedModelPositionBounds(
-  modelJson: unknown
-): TileDerivedModelPositionBounds | null {
-  const root = asRecord(modelJson);
-  const accessors = Array.isArray(root?.["accessors"]) ? root["accessors"] : null;
-  const meshes = Array.isArray(root?.["meshes"]) ? root["meshes"] : null;
-  if (!accessors || !meshes) {
-    return null;
-  }
-
-  let bounds: TileDerivedModelPositionBounds | null = null;
-  for (const meshValue of meshes) {
-    const mesh = asRecord(meshValue);
-    const primitives = Array.isArray(mesh?.["primitives"]) ? mesh["primitives"] : [];
-    for (const primitiveValue of primitives) {
-      const primitive = asRecord(primitiveValue);
-      const attributes = asRecord(primitive?.["attributes"]);
-      const positionAccessorIndex = attributes?.["POSITION"];
-      if (typeof positionAccessorIndex !== "number") {
-        continue;
-      }
-
-      const accessor = asRecord(accessors[positionAccessorIndex]);
-      const min = readNumericTuple(accessor?.["min"]);
-      const max = readNumericTuple(accessor?.["max"]);
-      if (!min || !max || min.length < 3 || max.length < 3) {
-        continue;
-      }
-
-      const nextBounds: TileDerivedModelPositionBounds = {
-        minX: min[0]!,
-        maxX: max[0]!,
-        minZ: min[2]!,
-        maxZ: max[2]!
-      };
-      bounds = mergeTileDerivedModelPositionBounds(bounds, nextBounds);
-    }
-  }
-
-  return bounds;
-}
-
-function mergeTileDerivedModelPositionBounds(
-  current: TileDerivedModelPositionBounds | null,
-  next: TileDerivedModelPositionBounds
-): TileDerivedModelPositionBounds {
-  if (!current) {
-    return next;
-  }
-  return {
-    minX: Math.min(current.minX, next.minX),
-    maxX: Math.max(current.maxX, next.maxX),
-    minZ: Math.min(current.minZ, next.minZ),
-    maxZ: Math.max(current.maxZ, next.maxZ)
-  };
-}
-
-function readNumericTuple(value: unknown): number[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const numeric = value.map((item) => Number(item));
-  return numeric.every((item) => Number.isFinite(item)) ? numeric : null;
-}
-
 function resolveTileSourceAssetRole(
   extension: string,
   sourceAssetObjectKeyPresent: boolean,
@@ -1628,7 +1969,13 @@ export const __tilesApplicationServiceInternals = {
   buildBlobObjectHttpUrl,
   shouldRefreshTileModelSourceForRenderReadiness,
   collectTileMdlTextureReferences,
+  collectTileDerivedModelTextureReferences,
+  collectTileMtrTextureSlotReferences,
+  resolveSourceProvenNumberedMtrDiffuseReference,
+  expandTileMaterialTextureSourceSyncReferences,
   buildTileSourceAssetContract,
   buildTileRenderAssetContract,
-  buildExpectedTileDerivedModelObjectKey
+  buildExpectedTileDerivedModelObjectKey,
+  isVersionedTileDerivedModelObjectKeyCurrent,
+  TILE_NUMBERED_MTR_DIFFUSE_FAMILY_POLICY
 } as const;

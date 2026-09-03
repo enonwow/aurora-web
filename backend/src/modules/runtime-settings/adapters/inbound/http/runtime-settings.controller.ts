@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Query, Req, Res } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiParam,
@@ -21,7 +21,10 @@ import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { RuntimeSettingsApplicationService } from "../../../application/runtime-settings.application.service";
 import {
   parseModuleCacheRebuildQuery,
+  parseCacheRebuildRequest,
   parseModuleCacheSummaryQuery,
+  parseRuntimePathBrowserQuery,
+  parseRuntimePathOnboardingRequest,
   parseReplaceRuntimeSettingsRequest,
   parseTextureDeliveryQuery,
   parseTextureIdParam,
@@ -31,6 +34,9 @@ import {
   TEXTURE_INDEX_QUERY_DEFAULT_LIMIT,
   TEXTURE_INDEX_QUERY_DEFAULT_OFFSET
 } from "./runtime-settings.schemas";
+import { RuntimeCacheRebuildApplicationService } from "../../../application/runtime-cache-rebuild.application.service";
+import { RuntimePathBrowserApplicationService } from "../../../application/runtime-path-browser.application.service";
+import { MaintenanceAllowed } from "../../../../system-maintenance/adapters/inbound/http/maintenance-allowed.decorator";
 
 @Controller("settings/runtime")
 @ApiTags("runtime-settings")
@@ -39,9 +45,183 @@ import {
 export class RuntimeSettingsController extends ProcessingHttpBaseController {
   constructor(
     private readonly settingsService: RuntimeSettingsApplicationService,
+    private readonly cacheRebuildService: RuntimeCacheRebuildApplicationService,
+    private readonly pathBrowserService: RuntimePathBrowserApplicationService,
     config: AppConfigService
   ) {
     super(config);
+  }
+
+  @Get("readiness")
+  @Roles(...ALL_ROLES)
+  @ApiOperation({
+    summary:
+      "Return the runtime path readiness required to enter the workspace without exposing configured paths."
+  })
+  @ApiResponse({ status: 200, description: "Runtime path readiness." })
+  async getRuntimePathReadiness(@Req() request: AppRequest) {
+    const readiness = await this.settingsService.getRuntimePathReadiness();
+    const canConfigure = request.auth!.permissions.includes("admin.config.write");
+    return this.success(request, {
+      ready: readiness.ready,
+      issues: canConfigure
+        ? readiness.issues
+        : readiness.issues.map((issue) => ({
+            field: issue.field,
+            code: issue.code,
+            message: "A server runtime path requires administrator configuration."
+          })),
+      canConfigure,
+      environment: canConfigure
+        ? readiness.environment
+        : { mode: readiness.environment.mode },
+      ...(canConfigure
+        ? { values: readiness.values }
+        : {})
+    });
+  }
+
+  @Get("path-browser")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Browse backend-visible server directories without exposing file contents or Docker-internal paths."
+  })
+  @ApiQuery({
+    name: "scope",
+    required: true,
+    enum: [
+      "nwn-user",
+      "nwn-install",
+      "module-decompiled",
+      "module-packed",
+      "hak-directory",
+      "aurora-reference",
+      "item-generator"
+    ]
+  })
+  @ApiQuery({
+    name: "path",
+    required: false,
+    type: String,
+    description: "Real server-host path to open. Empty selects the configured root."
+  })
+  @ApiResponse({ status: 200, description: "Browsable roots and directory entries." })
+  async browseRuntimePath(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.success(
+      request,
+      await this.pathBrowserService.browse(parseRuntimePathBrowserQuery(query))
+    );
+  }
+
+  @Post("onboarding/validate")
+  @Permissions("admin.config.write")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Validate runtime path onboarding without saving it." })
+  @ApiResponse({ status: 200, description: "Runtime path validation result." })
+  async validateRuntimePathOnboarding(@Req() request: AppRequest, @Body() body: unknown) {
+    const parsed = parseRuntimePathOnboardingRequest(body);
+    return this.success(
+      request,
+      await this.settingsService.validateRuntimePathOnboarding(parsed)
+    );
+  }
+
+  @Put("onboarding")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary: "Validate and atomically save runtime paths used by the existing runtime settings."
+  })
+  @ApiResponse({ status: 200, description: "Runtime paths were validated and saved." })
+  @ApiResponse({ status: 422, description: "Runtime paths are unavailable or invalid." })
+  async saveRuntimePathOnboarding(
+    @Req() request: AppRequest,
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: FastifyReply
+  ) {
+    const parsed = parseRuntimePathOnboardingRequest(body);
+    if (!parsed.confirmGlobalLogout) {
+      parseCacheRebuildRequest({ confirmGlobalLogout: false });
+    }
+    const result = await this.cacheRebuildService.startForPathOnboarding(
+      parsed,
+      request.auth!.user.username,
+      idempotencyKey
+    );
+    response.status(result.outcome === "ACCEPTED" ? 202 : 200);
+    return this.success(request, result);
+  }
+
+  @Post("cache-rebuilds")
+  @Permissions("admin.config.write")
+  @ApiOperation({
+    summary:
+      "Run deterministic preflight and start a generation-based runtime cache rebuild when needed."
+  })
+  @ApiResponse({ status: 200, description: "No source changes were detected." })
+  @ApiResponse({ status: 202, description: "Runtime cache rebuild was accepted." })
+  async startCacheRebuild(
+    @Req() request: AppRequest,
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: FastifyReply
+  ) {
+    parseCacheRebuildRequest(body);
+    const result = await this.cacheRebuildService.startCurrent(
+      request.auth!.user.username,
+      idempotencyKey
+    );
+    response.status(result.outcome === "ACCEPTED" ? 202 : 200);
+    return this.success(request, result);
+  }
+
+  @Get("cache-rebuilds/:operationId")
+  @Permissions("admin.config.write")
+  @MaintenanceAllowed()
+  @ApiOperation({ summary: "Get detailed runtime cache rebuild status." })
+  async getCacheRebuild(
+    @Req() request: AppRequest,
+    @Param("operationId") operationId: string
+  ) {
+    return this.success(
+      request,
+      await this.cacheRebuildService.getOperation(operationId)
+    );
+  }
+
+  @Post("cache-rebuilds/:operationId/retry")
+  @Permissions("admin.config.write")
+  @MaintenanceAllowed()
+  @ApiOperation({ summary: "Retry a failed runtime cache rebuild." })
+  async retryCacheRebuild(
+    @Req() request: AppRequest,
+    @Param("operationId") operationId: string
+  ) {
+    return this.success(
+      request,
+      await this.cacheRebuildService.retry(
+        operationId,
+        request.auth!.user.username
+      )
+    );
+  }
+
+  @Post("cache-rebuilds/:operationId/rollback")
+  @Permissions("admin.config.write")
+  @MaintenanceAllowed()
+  @ApiOperation({ summary: "Roll back a failed rebuild to the prior validated settings." })
+  async rollbackCacheRebuild(
+    @Req() request: AppRequest,
+    @Param("operationId") operationId: string
+  ) {
+    return this.success(
+      request,
+      await this.cacheRebuildService.rollback(operationId)
+    );
   }
 
   @Get()
@@ -229,23 +409,30 @@ export class RuntimeSettingsController extends ProcessingHttpBaseController {
   @Permissions("admin.config.write")
   @ApiOperation({
     summary:
-      "Sync module cache in blob storage from configured module source (decompiled path preferred, otherwise packed module). Default mode is incremental by per-file hash; use forceFull=true for full rebuild."
+      "Compatibility alias for the safe, generation-based runtime cache rebuild."
   })
   @ApiResponse({
     status: 200,
     description:
-      "Module cache sync completed. Response includes per-source sync delta (module, hak, vanilla, index) in sourceDelta."
+      "No input change was detected."
   })
+  @ApiResponse({ status: 202, description: "Generation rebuild was accepted." })
   @ApiResponse({ status: 422, description: "Validation or source configuration failed." })
   async rebuildModuleCache(
     @Req() request: AppRequest,
-    @Query() query: Record<string, unknown>
+    @Query() query: Record<string, unknown>,
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: FastifyReply
   ) {
-    return this.handleParsedQuery(request, query, parseModuleCacheRebuildQuery, (parsed) =>
-      this.settingsService.rebuildModuleBlobCache(request.auth!.user.username, {
-        forceFull: parsed.forceFull
-      })
+    parseModuleCacheRebuildQuery(query);
+    parseCacheRebuildRequest(body);
+    const result = await this.cacheRebuildService.startCurrent(
+      request.auth!.user.username,
+      idempotencyKey
     );
+    response.status(result.outcome === "ACCEPTED" ? 202 : 200);
+    return this.success(request, result);
   }
 
   @Post("module-cache/sources/vanilla/tilesets/sync")
@@ -361,10 +548,24 @@ export class RuntimeSettingsController extends ProcessingHttpBaseController {
   @ApiResponse({ status: 422, description: "Validation failed." })
   async replaceRuntimeSettings(
     @Req() request: AppRequest,
-    @Body() body: Record<string, unknown>
+    @Body() body: Record<string, unknown>,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: FastifyReply
   ) {
-    return this.handleParsedBody(request, body, parseReplaceRuntimeSettingsRequest, (parsed) =>
-      this.settingsService.replaceRuntimeSettings(parsed, request.auth!.user.username)
+    parseCacheRebuildRequest({
+      confirmGlobalLogout: body.confirmGlobalLogout
+    });
+    const {
+      confirmGlobalLogout: _confirmGlobalLogout,
+      ...settingsBody
+    } = body;
+    const parsed = parseReplaceRuntimeSettingsRequest(settingsBody);
+    const result = await this.cacheRebuildService.startForRuntimeSettings(
+      parsed,
+      request.auth!.user.username,
+      idempotencyKey
     );
+    response.status(result.outcome === "ACCEPTED" ? 202 : 200);
+    return this.success(request, result);
   }
 }

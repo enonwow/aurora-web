@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from "@nestjs/common";
 import type {
   ModuleBlobObjectSummary,
   ModuleBlobSnapshotSummary,
@@ -9,6 +9,7 @@ import { MODULE_BLOB_STORAGE } from "../../../../runtime-settings/application/po
 import type { RuntimeSettingsRepositoryPort } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
 import { RUNTIME_SETTINGS_REPOSITORY } from "../../../../runtime-settings/application/ports/runtime-settings-repository.port";
 import type { BlobStorageSettings } from "../../../../runtime-settings/domain/runtime-settings.types";
+import { AURORA_MDL_TO_GLB_CONVERTER_VERSION } from "../../../../runtime-settings/domain/derived-asset-versions";
 import type { TileRepositoryPort } from "../../../application/ports/tile-repository.port";
 import { buildTileProcessCacheKey } from "../../../domain/tile-processing.builders";
 import type {
@@ -20,6 +21,11 @@ import type {
   TileWalkmeshKind
 } from "../../../domain/tile.types";
 import { StaticTileRepository } from "../memory/static-tile.repository";
+import { SystemMaintenanceApplicationService } from "../../../../system-maintenance/application/system-maintenance.application.service";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
 
 interface IndexedTile {
   record: TileRecord;
@@ -60,20 +66,43 @@ interface DerivedTileModelCandidate {
 const CANDIDATE_EXTENSIONS = new Set(["set", "itp", "mdl", "wok"]);
 const DERIVED_MODEL_EXTENSIONS = new Set(["glb", "gltf"]);
 const SNAPSHOT_INDEX_CACHE_TTL_MS = 10 * 60_000;
+const CURRENT_DERIVED_MODEL_VERSION_SEGMENT =
+  AURORA_MDL_TO_GLB_CONVERTER_VERSION.replace(
+    /[^a-zA-Z0-9._-]+/gu,
+    "_"
+  ).toLowerCase();
 
 @Injectable()
-export class ModuleSnapshotTileRepository implements TileRepositoryPort {
+export class ModuleSnapshotTileRepository
+  implements TileRepositoryPort, OnModuleDestroy
+{
   private readonly logger = new Logger(ModuleSnapshotTileRepository.name);
   private readonly fallback = new StaticTileRepository();
   private snapshotIndex: SnapshotIndex | null = null;
   private snapshotIndexPromise: Promise<SnapshotIndex | null> | null = null;
+  private readonly unsubscribeMaintenance: (() => void) | null;
 
   constructor(
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
     private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
     @Inject(MODULE_BLOB_STORAGE)
-    private readonly moduleBlobStorage: ModuleBlobStoragePort
-  ) {}
+    private readonly moduleBlobStorage: ModuleBlobStoragePort,
+    @Optional()
+    maintenance?: SystemMaintenanceApplicationService,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
+  ) {
+    this.unsubscribeMaintenance =
+      maintenance?.onStateChanged((record) => {
+        if (record.state === "idle") {
+          this.refreshSnapshot();
+        }
+      }) ?? null;
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribeMaintenance?.();
+  }
 
   async list(query: TileListQuery): Promise<TileListResult> {
     const index = await this.getSnapshotIndex();
@@ -237,16 +266,21 @@ export class ModuleSnapshotTileRepository implements TileRepositoryPort {
   private async listAllModuleSnapshotObjects(
     settings: BlobStorageSettings
   ): Promise<ModuleBlobSnapshotSummary> {
+    const captured = this.committedSnapshotReader
+      ? await this.committedSnapshotReader.capture()
+      : null;
     const objects: ModuleBlobObjectSummary[] = [];
     let continuationToken: string | undefined;
     let moduleHash: string | undefined;
     let prefix = normalizePrefixForLookup(settings.modulePrefix);
 
     do {
-      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 50_000,
-        continuationToken
-      });
+      const page = captured
+        ? await captured.listModuleSnapshot({ limit: 50_000, continuationToken })
+        : await this.moduleBlobStorage.listModuleSnapshot(settings, {
+            limit: 50_000,
+            continuationToken
+          });
       moduleHash = moduleHash ?? page.moduleHash;
       prefix = page.prefix;
       objects.push(...page.objects);
@@ -289,7 +323,7 @@ function buildTilesFromSnapshot(objects: ModuleBlobObjectSummary[]): TileCandida
         sourceEtag: object.etag,
         updatedAt: object.lastModified ?? new Date().toISOString()
       };
-      if (!current || derivedModelScore(next) > derivedModelScore(current)) {
+      if (!current || shouldPreferDerivedModel(next, current)) {
         derivedModelByResref.set(basename, next);
       }
       continue;
@@ -412,6 +446,29 @@ function derivedModelScore(candidate: DerivedTileModelCandidate): number {
   return extensionRank + candidate.sourceSize;
 }
 
+function shouldPreferDerivedModel(
+  candidate: DerivedTileModelCandidate,
+  current: DerivedTileModelCandidate
+): boolean {
+  const candidateIsCurrent = isCurrentVersionedDerivedModel(candidate.sourceKey);
+  const currentIsCurrent = isCurrentVersionedDerivedModel(current.sourceKey);
+  if (candidateIsCurrent !== currentIsCurrent) {
+    return candidateIsCurrent;
+  }
+  const scoreDelta = derivedModelScore(candidate) - derivedModelScore(current);
+  if (scoreDelta !== 0) {
+    return scoreDelta > 0;
+  }
+  return candidate.updatedAt > current.updatedAt;
+}
+
+function isCurrentVersionedDerivedModel(sourceKey: string): boolean {
+  const normalized = sourceKey.replace(/\\/gu, "/").toLowerCase();
+  return normalized.includes(
+    `/__aurora/derived/models/${CURRENT_DERIVED_MODEL_VERSION_SEGMENT}/`
+  );
+}
+
 function pickBenchmarkIds(records: TileCandidate[]): Set<string> {
   const sorted = records.slice().sort((left, right) => right.sourceSize - left.sourceSize);
   const count = sorted.length === 0 ? 0 : Math.min(10, Math.max(1, Math.ceil(sorted.length * 0.2)));
@@ -426,7 +483,12 @@ function looksLikeTileResref(resref: string, sourceKey: string): boolean {
   if (normalizedKey.includes("/tile/") || normalizedKey.includes("/tiles/")) {
     return true;
   }
-  if (/^[a-z][a-z0-9]{2,12}_[a-z]\d{2}_\d{2}[a-z]?$/u.test(resref)) {
+  // CEP and legacy tilesets also use one-letter transition/pit suffixes
+  // (for example `atj01_a02_p1` and `atj01_a01_t3`). Those models arrive
+  // through the same verified tile-source sync as the conventional `_01`
+  // variants, so excluding them here makes the catalog claim a synced model
+  // does not exist.
+  if (/^[a-z][a-z0-9]{2,12}_[a-z]\d{2}_(?:\d{2}[a-z]?|[a-z]\d{1,2})$/u.test(resref)) {
     return true;
   }
   return /^t[a-z0-9_]+$/u.test(resref);

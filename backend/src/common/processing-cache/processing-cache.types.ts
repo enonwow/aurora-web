@@ -3,6 +3,7 @@ export interface ProcessingCacheEntryLike<TValue> {
   value: TValue;
   storedAt: string;
   hits: number;
+  retained?: boolean;
 }
 
 export interface ProcessingCacheBackend<

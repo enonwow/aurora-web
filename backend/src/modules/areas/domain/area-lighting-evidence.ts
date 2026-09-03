@@ -455,9 +455,11 @@ const RETAIL_MDL_LIGHT_PREVIEW_SCORE_FORMULA =
 const DIAGNOSTIC_CROSS_LANE_PRIORITY_SOURCE =
   "diagnostic fallback: exact FUN_00a41850 score requires runtime camera/object manager state and recovered lane insertion order";
 const TILE_SOURCE_LIGHT_PROXY_SOURCE =
-  "C:/Projects/New Folder/export/decompiled_all.c:453567-453602 creates fx_flame01 at sourcelight1/sourcelight2 tile source-light nodes";
+  "C:/Projects/New Folder/export/decompiled_all.c:453500-453602 FUN_007125ec queries tile source-slot count through model vcall +0x74 and creates fx_flame01 for sourcelight1/sourcelight2 only when count > 0/>1 respectively";
 const TILE_MAIN_LIGHT_STATIC_COLOR_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:453281 loads lightcolor.2da for tile runtime; 453323-453528 resolves RGB channels for Tile_MainLight1/Tile_MainLight2 through FUN_00af3980; no FUN_00a546cc fx/AuroraLight carrier is created for main lights in this path";
+const TILE_MAIN_LIGHT_NATIVE_NODE_SOURCE =
+  "C:/Projects/New Folder/export/decompiled_all.c:453281-453610 FUN_007125ec resolves Tile_MainLight1/2 RGB and nwtoolset.exe 0x007130ab..0x007130ca passes both lanes plus tile transform to the tile model instance; exact source-precedence tile MDL ml1/ml2 nodes own position, radius, multiplier, priority, and flags";
 const TILE_SOURCE_LIGHT_RADIUS_SOURCE =
   "C:/Projects/New Folder/export/decompiled_all.c:453567-453602 creates fx_flame01 at sourcelight1/sourcelight2 tile source-light nodes; nwn_base.key fx_flame01.mdl AuroraLight01 radius 0x58 = 7, shadowradius 0x60 = 15, verticaldisplacement 0x64 = 2; C:/Projects/New Folder/export/decompiled_all.c:866543-866563 proves linear max(0,1-distance/radius) active-light falloff";
 const PLACEABLE_TWO_DA_LIGHT_RADIUS_SOURCE =
@@ -978,10 +980,35 @@ function buildAreaLightingAuditCoverage(
     (sum, tile) => sum + countRenderableTileSourceLightColors(tile),
     0
   );
+  const tileSourceLightResolvedNodeReferences = input.tileLights.reduce(
+    (sum, tile) => sum + countTileSourceLightNodeStatus(tile, "source-node-resolved"),
+    0
+  );
+  const tileSourceLightAbsentNodeReferences = input.tileLights.reduce(
+    (sum, tile) =>
+      sum + countTileSourceLightNodeStatus(tile, "source-node-absent-by-aurora-slot-count"),
+    0
+  );
+  const tileSourceLightUnresolvedNodeReferences = Math.max(
+    0,
+    tileSourceLightRenderableReferences -
+      tileSourceLightResolvedNodeReferences -
+      tileSourceLightAbsentNodeReferences
+  );
   const tileMainLightRenderableReferences = input.tileLights.reduce(
     (sum, tile) => sum + countRenderableTileMainLightColors(tile),
     0
   );
+  const tileMainLightResolvedNodeReferences = input.tileLights.reduce(
+    (sum, tile) => sum + countTileMainLightResolvedNodes(tile),
+    0
+  );
+  const tileMainLightUnresolvedNodeReferences = Math.max(
+    0,
+    tileMainLightRenderableReferences - tileMainLightResolvedNodeReferences
+  );
+  const tileLightUnresolvedNodeReferences =
+    tileSourceLightUnresolvedNodeReferences + tileMainLightUnresolvedNodeReferences;
   const tileLightBlackColorReferences = Math.max(
     0,
     tileLightColorReferences - tileLightRenderableColorReferences
@@ -1040,36 +1067,43 @@ function buildAreaLightingAuditCoverage(
       status:
         tileLightRenderableColorReferences === 0
           ? "not-observed"
-          : tileSourceLightRenderableReferences > 0
-          ? "preview-only"
-          : "source-backed",
+          : tileLightUnresolvedNodeReferences > 0
+            ? "blocked"
+            : "source-backed",
       evidence:
         tileLightRenderableColorReferences > 0
-          ? tileSourceLightRenderableReferences > 0
-            ? "Runtime anchors source lights at tile center until loaded MDL sourcelight node transforms are available; main lights are static lightcolor.2da tile lanes without point-light positions."
-            : "Main tile lights are static lightcolor.2da tile lanes and do not create point-light positions."
+          ? `${tileMainLightResolvedNodeReferences} main-light references bind exact source-MDL ml1/ml2 nodes; ${tileSourceLightResolvedNodeReferences} source-light references bind exact source-MDL sl1/sl2 slots; ${tileSourceLightAbsentNodeReferences} non-zero source references are intentionally omitted because Aurora reports no corresponding tile source slot; ${tileLightUnresolvedNodeReferences} renderable references still lack a source-node contract.`
           : "No renderable tile light colors found in scanned areas.",
       proof:
-        tileSourceLightRenderableReferences > 0
-          ? "frontend workspaceTerrainMesh TERRAIN_TILE_LIGHT_POSITION_SOURCE plus syncTerrainTileSourceLightNodePositionsFromLoadedModel."
-          : TILE_MAIN_LIGHT_STATIC_COLOR_SOURCE,
-      ...(tileSourceLightRenderableReferences > 0
+        `${TILE_MAIN_LIGHT_NATIVE_NODE_SOURCE}; ${TILE_SOURCE_LIGHT_PROXY_SOURCE}; frontend workspaceTerrainMesh consumes typed source-precedence MDL nativeNode/sourceNode contracts without a tile-center or GLB-node fallback.`,
+      ...(tileLightUnresolvedNodeReferences > 0
         ? {
             blocker:
-              "Unloaded source-light model fallback remains tile-center preview until sourcelight1/sourcelight2 nodes are available from the loaded tile MDL."
+              `${tileLightUnresolvedNodeReferences} renderable tile light references lack an exact source-precedence MDL node contract.`
           }
         : {})
     },
     {
       key: "area-tile-source-light-proxy",
       label: "ARE tile source-light proxy nodes",
-      status: tileSourceLightRenderableReferences > 0 ? "source-backed" : "not-observed",
+      status:
+        tileSourceLightRenderableReferences === 0
+          ? "not-observed"
+          : tileSourceLightUnresolvedNodeReferences > 0
+            ? "blocked"
+            : "source-backed",
       evidence:
         tileSourceLightRenderableReferences > 0
-          ? `${tileSourceLightRenderableReferences} renderable ARE source-light references can use loaded MDL sourcelight1/sourcelight2 node transforms.`
+          ? `${tileSourceLightResolvedNodeReferences} ARE source-light references bind exact tile MDL slots; ${tileSourceLightAbsentNodeReferences} are source-backed absent by Aurora slot count; ${tileSourceLightUnresolvedNodeReferences} lack a slot contract.`
           : "No renderable ARE sourceLight1/sourceLight2 references found in scanned areas.",
       proof:
-        `${TILE_SOURCE_LIGHT_PROXY_SOURCE}; frontend workspaceTerrainMesh syncTerrainTileSourceLightNodePositionsFromLoadedModel.`
+        `${TILE_SOURCE_LIGHT_PROXY_SOURCE}; frontend workspaceTerrainMesh renders only typed source-node-resolved contracts.`,
+      ...(tileSourceLightUnresolvedNodeReferences > 0
+        ? {
+            blocker:
+              `${tileSourceLightUnresolvedNodeReferences} renderable source-light references lack an exact tile source-slot contract.`
+          }
+        : {})
     },
     {
       key: "area-tile-light-radius-falloff",
@@ -1077,15 +1111,21 @@ function buildAreaLightingAuditCoverage(
       status:
         tileLightRenderableColorReferences === 0
           ? "not-observed"
-          : "source-backed",
+          : tileLightUnresolvedNodeReferences > 0
+            ? "blocked"
+            : "source-backed",
       evidence:
         tileLightRenderableColorReferences > 0
-          ? `${tileMainLightRenderableReferences} renderable main-light references use recovered static lightcolor.2da tile lane with no point radius/falloff; ${tileSourceLightRenderableReferences} renderable source-light references use recovered fx_flame01/AuroraLight01 radius/falloff.`
+          ? `${tileMainLightResolvedNodeReferences} main-light references use exact native MDL radius/multiplier and ${tileSourceLightResolvedNodeReferences} source-light references use recovered fx_flame01/AuroraLight01 radius/falloff; ${tileSourceLightAbsentNodeReferences} source references create no Aurora carrier by slot count; ${tileLightUnresolvedNodeReferences} references remain unresolved.`
           : "No renderable tile light colors found in scanned areas.",
       proof:
-        tileSourceLightRenderableReferences > 0
-          ? `${TILE_MAIN_LIGHT_STATIC_COLOR_SOURCE}; ${TILE_SOURCE_LIGHT_RADIUS_SOURCE}`
-          : TILE_MAIN_LIGHT_STATIC_COLOR_SOURCE
+        `${TILE_MAIN_LIGHT_STATIC_COLOR_SOURCE}; ${TILE_MAIN_LIGHT_NATIVE_NODE_SOURCE}; ${TILE_SOURCE_LIGHT_RADIUS_SOURCE}`,
+      ...(tileLightUnresolvedNodeReferences > 0
+        ? {
+            blocker:
+              `${tileLightUnresolvedNodeReferences} renderable tile light references lack an exact radius-bearing source node.`
+          }
+        : {})
     },
     {
       key: "area-global-lighting-fields",
@@ -1889,6 +1929,39 @@ function countRenderableTileSourceLightColors(tile: AreaTileLightingEvidence): n
       : 0) +
     (isActiveTileLightReference(tile.sourceLight2) &&
     isTileLightColorActive(tile.sourceLight2Color)
+      ? 1
+      : 0)
+  );
+}
+
+function countTileSourceLightNodeStatus(
+  tile: AreaTileLightingEvidence,
+  status: "source-node-resolved" | "source-node-absent-by-aurora-slot-count"
+): number {
+  return (
+    (isActiveTileLightReference(tile.sourceLight1) &&
+    isTileLightColorActive(tile.sourceLight1Color) &&
+    tile.sourceLight1Color?.sourceNode?.status === status
+      ? 1
+      : 0) +
+    (isActiveTileLightReference(tile.sourceLight2) &&
+    isTileLightColorActive(tile.sourceLight2Color) &&
+    tile.sourceLight2Color?.sourceNode?.status === status
+      ? 1
+      : 0)
+  );
+}
+
+function countTileMainLightResolvedNodes(tile: AreaTileLightingEvidence): number {
+  return (
+    (isActiveTileLightReference(tile.mainLight1) &&
+    isTileLightColorActive(tile.mainLight1Color) &&
+    tile.mainLight1Color?.nativeNode?.status === "main-native-node-resolved"
+      ? 1
+      : 0) +
+    (isActiveTileLightReference(tile.mainLight2) &&
+    isTileLightColorActive(tile.mainLight2Color) &&
+    tile.mainLight2Color?.nativeNode?.status === "main-native-node-resolved"
       ? 1
       : 0)
   );

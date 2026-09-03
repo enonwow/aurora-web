@@ -16,7 +16,7 @@ export interface AuroraTilesetDefinitionDiagnostic {
   code: string;
   message: string;
   section: string;
-  severity: "warning" | "error";
+  severity: "info" | "warning" | "error";
 }
 
 export interface AuroraTilesetTerrainType {
@@ -53,7 +53,21 @@ export interface AuroraTilesetTileDefinition {
   animLoop1?: number;
   animLoop2?: number;
   animLoop3?: number;
+  /** Native `[TILEnDOORm]` hook records in their exact SET order. */
+  doorHooks?: readonly AuroraTilesetDoorHookDefinition[];
+  /** Every SET palette group that can legitimately use this tile. */
+  groupIds?: readonly string[];
+  /** Legacy primary membership retained for existing state/hydration consumers. */
   groupId?: string;
+}
+
+export interface AuroraTilesetDoorHookDefinition {
+  index: number;
+  type: number;
+  x: number;
+  y: number;
+  z: number;
+  orientationDegrees: number;
 }
 
 export interface AuroraTilesetGroupDefinition {
@@ -61,7 +75,11 @@ export interface AuroraTilesetGroupDefinition {
   name: string;
   rows: number;
   columns: number;
-  tileIds: readonly number[];
+  /**
+   * Aurora SET groups may contain `TileN=-1` holes.  The indexed layout is
+   * significant, so retain the hole instead of rejecting the complete group.
+   */
+  tileIds: readonly (number | null)[];
 }
 
 export interface AuroraTilesetDefaults {
@@ -76,6 +94,12 @@ export interface AuroraTilesetDefaults {
 export interface AuroraTilesetEditingDefinition {
   schemaVersion: 1;
   tilesetResRef: string;
+  /** `[GENERAL].Name`, retained as a fallback when the talk-table label is unavailable. */
+  name?: string;
+  /** `[GENERAL].UnlocalizedName`, used by Aurora when `DisplayName` is not assigned. */
+  unlocalizedName?: string;
+  /** `[GENERAL].DisplayName`; Aurora resolves this StrRef for the New Area picker. */
+  displayNameStrRef?: number;
   fingerprint: string;
   defaults: AuroraTilesetDefaults;
   terrainTypes: readonly AuroraTilesetTerrainType[];
@@ -84,6 +108,18 @@ export interface AuroraTilesetEditingDefinition {
   tiles: readonly AuroraTilesetTileDefinition[];
   groups: readonly AuroraTilesetGroupDefinition[];
   diagnostics: readonly AuroraTilesetDefinitionDiagnostic[];
+}
+
+/**
+ * The metadata Aurora displays in the New Area tileset picker.  Keep this
+ * deliberately separate from the complete editing definition: the picker
+ * must not have to parse every TILE/GROUP section before it can become
+ * interactive.
+ */
+export interface AuroraTilesetPresentation {
+  name?: string;
+  unlocalizedName?: string;
+  displayNameStrRef?: number;
 }
 
 interface IniSection {
@@ -117,6 +153,7 @@ export function parseAuroraTilesetEditingDefinition(
   return {
     schemaVersion: 1,
     tilesetResRef: normalizeResRef(tilesetResRef),
+    ...parseIdentity(sections.get("general")),
     fingerprint: createHash("sha256").update(bytes).digest("hex"),
     defaults: parseDefaults(sections.get("general")),
     terrainTypes: parseNamedTypes(sections, "terrain", "TERRAIN TYPES", diagnostics),
@@ -125,6 +162,24 @@ export function parseAuroraTilesetEditingDefinition(
     tiles: tiles.sort((left, right) => left.tileId - right.tileId),
     groups: groups.sort((left, right) => left.id.localeCompare(right.id)),
     diagnostics
+  };
+}
+
+/** Parse only [GENERAL] identity fields needed by Aurora's tileset picker. */
+export function parseAuroraTilesetPresentation(bytes: Buffer): AuroraTilesetPresentation {
+  const general = parseIniSections(bytes).get("general");
+  return parseIdentity(general);
+}
+
+function parseIdentity(section: IniSection | undefined): AuroraTilesetPresentation {
+  if (!section) return {};
+  const name = section.values.get("name")?.trim();
+  const unlocalizedName = section.values.get("unlocalizedname")?.trim();
+  const displayNameStrRef = parseInteger(section.values.get("displayname"));
+  return {
+    ...(name ? { name } : {}),
+    ...(unlocalizedName ? { unlocalizedName } : {}),
+    ...(displayNameStrRef === undefined || displayNameStrRef < 0 ? {} : { displayNameStrRef })
   };
 }
 
@@ -174,7 +229,12 @@ function parseNamedTypes(
   countSection: string,
   diagnostics: AuroraTilesetDefinitionDiagnostic[]
 ): AuroraTilesetTerrainType[] {
-  const count = parseCount(sections.get(normalizeKey(countSection)), countSection, diagnostics);
+  const count = parseCount(
+    sections.get(normalizeKey(countSection)),
+    countSection,
+    diagnostics,
+    sections.size,
+  );
   if (count === undefined) {
     return [];
   }
@@ -194,7 +254,12 @@ function parseTransitionRules(
   sections: ReadonlyMap<string, IniSection>,
   diagnostics: AuroraTilesetDefinitionDiagnostic[]
 ): AuroraTilesetTransitionRule[] {
-  const count = parseCount(sections.get("primaryrules"), "PRIMARY RULES", diagnostics);
+  const count = parseCount(
+    sections.get("primaryrules"),
+    "PRIMARY RULES",
+    diagnostics,
+    sections.size,
+  );
   if (count === undefined) {
     return [];
   }
@@ -239,7 +304,7 @@ function parseTiles(
   sections: ReadonlyMap<string, IniSection>,
   diagnostics: AuroraTilesetDefinitionDiagnostic[]
 ): AuroraTilesetTileDefinition[] {
-  const count = parseCount(sections.get("tiles"), "TILES", diagnostics);
+  const count = parseCount(sections.get("tiles"), "TILES", diagnostics, sections.size);
   if (count === undefined) {
     return [];
   }
@@ -264,7 +329,9 @@ function parseTiles(
           code: "INVALID_TILE_HEIGHT",
           message: "Tile corner height must be an integer.",
           section: name,
-          severity: "warning"
+          // Aurora reuses palette members across groups. Preserve this
+          // provenance, but do not report valid source data as an error.
+          severity: "info"
         });
       } else if (height !== undefined) {
         cornerHeights[corner] = height;
@@ -276,8 +343,9 @@ function parseTiles(
         crossers[edge] = crosser;
       }
     }
-    const orientation = parseOrientation(section.values.get("orientation"));
-    if (section.values.has("orientation") && orientation === undefined) {
+    const orientationValue = section.values.get("orientation");
+    const orientation = parseOrientation(orientationValue);
+    if (normalizeToken(orientationValue) && orientation === undefined) {
       diagnostics.push({
         code: "INVALID_TILE_ORIENTATION",
         message: "Tile orientation must be a multiple of 90 degrees.",
@@ -287,6 +355,7 @@ function parseTiles(
     }
     const visibilityOrientation = parseOrientation(section.values.get("visibilityorientation"));
     const doorVisibilityOrientation = parseOrientation(section.values.get("doorvisibilityorientation"));
+    const doorHooks = parseDoorHooks(sections, tileId, section, diagnostics);
     output.push({
       tileId,
       ...optionalResRef("modelResRef", section.values.get("model")),
@@ -306,10 +375,56 @@ function parseTiles(
       ...optionalInteger("sourceLight2", section.values.get("sourcelight2")),
       ...optionalInteger("animLoop1", section.values.get("animloop1")),
       ...optionalInteger("animLoop2", section.values.get("animloop2")),
-      ...optionalInteger("animLoop3", section.values.get("animloop3"))
+      ...optionalInteger("animLoop3", section.values.get("animloop3")),
+      ...(doorHooks.length === 0 ? {} : { doorHooks })
     });
   }
   return output;
+}
+
+function parseDoorHooks(
+  sections: ReadonlyMap<string, IniSection>,
+  tileId: number,
+  tileSection: IniSection,
+  diagnostics: AuroraTilesetDefinitionDiagnostic[],
+): AuroraTilesetDoorHookDefinition[] {
+  const rawCount = tileSection.values.get("doors");
+  if (rawCount === undefined) return [];
+  const count = parseInteger(rawCount);
+  if (count === undefined || count < 0 || count > sections.size) {
+    diagnostics.push({
+      code: "INVALID_DOOR_HOOK_COUNT",
+      message: "Tile Doors must be a non-negative integer within the physical SET section budget.",
+      section: `TILE${tileId}`,
+      severity: "warning",
+    });
+    return [];
+  }
+  const hooks: AuroraTilesetDoorHookDefinition[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const name = `TILE${tileId}DOOR${index}`;
+    const section = sections.get(normalizeKey(name));
+    const type = parseInteger(section?.values.get("type"));
+    const x = parseFiniteNumber(section?.values.get("x"));
+    const y = parseFiniteNumber(section?.values.get("y"));
+    const z = parseFiniteNumber(section?.values.get("z"));
+    const orientationDegrees = parseFiniteNumber(section?.values.get("orientation"));
+    if (
+      !section || type === undefined || type < 0 ||
+      x === undefined || y === undefined || z === undefined ||
+      orientationDegrees === undefined
+    ) {
+      diagnostics.push({
+        code: "INVALID_DOOR_HOOK",
+        message: "Door hook requires non-negative Type and finite X, Y, Z, and Orientation fields.",
+        section: name,
+        severity: "warning",
+      });
+      continue;
+    }
+    hooks.push({ index, type, x, y, z, orientationDegrees });
+  }
+  return hooks;
 }
 
 function parseGroups(
@@ -317,12 +432,12 @@ function parseGroups(
   tiles: AuroraTilesetTileDefinition[],
   diagnostics: AuroraTilesetDefinitionDiagnostic[]
 ): AuroraTilesetGroupDefinition[] {
-  const count = parseCount(sections.get("groups"), "GROUPS", diagnostics);
+  const count = parseCount(sections.get("groups"), "GROUPS", diagnostics, sections.size);
   if (count === undefined) {
     return [];
   }
   const knownTileIds = new Set(tiles.map((tile) => tile.tileId));
-  const groupByTile = new Map<number, string>();
+  const groupIdsByTile = new Map<number, string[]>();
   const output: AuroraTilesetGroupDefinition[] = [];
   for (let index = 0; index < count; index += 1) {
     const name = `GROUP${index}`;
@@ -332,7 +447,14 @@ function parseGroups(
     }
     const rows = parseInteger(section.values.get("rows"));
     const columns = parseInteger(section.values.get("columns"));
-    if (rows === undefined || columns === undefined || rows < 1 || columns < 1) {
+    if (
+      rows === undefined ||
+      columns === undefined ||
+      rows < 1 ||
+      columns < 1 ||
+      rows > Number.MAX_SAFE_INTEGER / columns ||
+      rows * columns > section.values.size
+    ) {
       diagnostics.push({
         code: "INVALID_GROUP_DIMENSIONS",
         message: "Group Rows and Columns must be positive integers.",
@@ -342,7 +464,7 @@ function parseGroups(
       continue;
     }
     const id = `group${index}`;
-    const members: number[] = [];
+    const members: Array<number | null> = [];
     let complete = true;
     for (let memberIndex = 0; memberIndex < rows * columns; memberIndex += 1) {
       const tileId = parseInteger(section.values.get(`tile${memberIndex}`));
@@ -354,6 +476,11 @@ function parseGroups(
           severity: "error"
         });
         complete = false;
+      } else if (tileId === -1) {
+        // Aurora uses -1 for an intentionally empty cell in a rectangular
+        // group footprint (for example tcm02 BridgePark).  It is not a tile
+        // reference and must not make the surrounding group unusable.
+        members.push(null);
       } else if (!knownTileIds.has(tileId)) {
         diagnostics.push({
           code: "GROUP_MEMBER_UNKNOWN_TILE",
@@ -362,14 +489,18 @@ function parseGroups(
           severity: "error"
         });
         complete = false;
-      } else if (groupByTile.has(tileId)) {
+      } else if (groupIdsByTile.has(tileId)) {
         diagnostics.push({
           code: "TILE_IN_MULTIPLE_GROUPS",
-          message: `Tile${tileId} already belongs to ${groupByTile.get(tileId)}.`,
+          message: `Tile${tileId} is reused by ${groupIdsByTile.get(tileId)?.join(", ")} and ${id}.`,
           section: name,
-          severity: "error"
+          // GROUPn is an Aurora Toolset palette layout, not a runtime tile
+          // ownership constraint. Aurora's loader resolves TILEn.Model and
+          // does not consume GROUPn, so sharing a member across palettes is
+          // valid source data (as in CEP atj02) rather than a warning.
+          severity: "info"
         });
-        complete = false;
+        members.push(tileId);
       } else {
         members.push(tileId);
       }
@@ -378,7 +509,11 @@ function parseGroups(
       continue;
     }
     for (const tileId of members) {
-      groupByTile.set(tileId, id);
+      if (tileId !== null) {
+        const groupIds = groupIdsByTile.get(tileId) ?? [];
+        groupIds.push(id);
+        groupIdsByTile.set(tileId, groupIds);
+      }
     }
     output.push({
       id,
@@ -389,9 +524,10 @@ function parseGroups(
     });
   }
   for (const tile of tiles) {
-    const groupId = groupByTile.get(tile.tileId);
-    if (groupId) {
-      tile.groupId = groupId;
+    const groupIds = groupIdsByTile.get(tile.tileId);
+    if (groupIds?.length) {
+      tile.groupIds = groupIds;
+      tile.groupId = groupIds[0];
     }
   }
   return output;
@@ -400,16 +536,17 @@ function parseGroups(
 function parseCount(
   section: IniSection | undefined,
   sectionName: string,
-  diagnostics: AuroraTilesetDefinitionDiagnostic[]
+  diagnostics: AuroraTilesetDefinitionDiagnostic[],
+  physicalSectionBudget: number,
 ): number | undefined {
   if (!section) {
     return undefined;
   }
   const count = parseInteger(section.values.get("count"));
-  if (count === undefined || count < 0) {
+  if (count === undefined || count < 0 || count > physicalSectionBudget) {
     diagnostics.push({
       code: "INVALID_COUNT",
-      message: "Count must be a non-negative integer.",
+      message: "Count must be a non-negative integer within the physical SET section budget.",
       section: sectionName,
       severity: "warning"
     });
@@ -438,8 +575,17 @@ function parseBoolean(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
+function parseFiniteNumber(value: string | undefined): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/u.test(normalized)) {
+    return undefined;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function parseOrientation(value: string | undefined): 0 | 1 | 2 | 3 | undefined {
-  const degrees = Number.parseFloat(value ?? "");
+  const degrees = Number.parseFloat(normalizeToken(value) ?? "");
   if (!Number.isFinite(degrees) || Math.abs(degrees % 90) > 1e-6) {
     return undefined;
   }
@@ -472,12 +618,12 @@ function optionalInteger<TKey extends string>(
 }
 
 function normalizeToken(value: string | undefined): string | undefined {
-  const normalized = value?.trim().toLowerCase();
+  const normalized = stripQuotes(value ?? "").trim().toLowerCase();
   return normalized || undefined;
 }
 
 function normalizeResRef(value: string): string {
-  return value.trim().replace(/^"|"$/gu, "").toLowerCase().slice(0, 16);
+  return stripQuotes(value).trim().toLowerCase().slice(0, 16);
 }
 
 function normalizeKey(value: string): string {

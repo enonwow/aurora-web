@@ -252,6 +252,7 @@ const ROLE_BY_EXTENSION: Record<string, PlaceableAssetRole> = {
   webp: "texture",
   txi: "material",
   mtr: "material",
+  shd: "material",
   vis: "vfx",
   pfx: "vfx"
 };
@@ -705,6 +706,9 @@ export function inferContentTypeForExtension(extension: string): string {
   if (extension === "webp") {
     return "image/webp";
   }
+  if (extension === "mtr" || extension === "shd" || extension === "txi") {
+    return "text/plain";
+  }
   return "application/octet-stream";
 }
 
@@ -1136,11 +1140,35 @@ export function applyCreatureRuntimeAppearanceOverride(
     colors: { ...runtime.colors },
     partModelCandidates: [...runtime.partModelCandidates]
   };
+  const phenotype = normalizeCreaturePhenotypeOverrideNumber(override.phenotype);
+  if (phenotype !== undefined) {
+    next.identity.phenotype = phenotype;
+    next.identity.phenotypeLabel = undefined;
+    next.identity.phenotypeLabelSource2daRow = undefined;
+    next.identity.phenotypeLabelSourceKey = undefined;
+    didChange = true;
+  }
   const appearanceProfile = buildCreatureRenderAppearanceProfile(next);
   const modelPrefix =
     appearanceProfile?.modelType?.trim().toUpperCase() === "P"
       ? buildCreatureRuntimeBodyPartModelPrefix(next, appearanceProfile)
       : undefined;
+
+  if (phenotype !== undefined && modelPrefix) {
+    next.partModelCandidates = buildCreatureRuntimePartModelCandidates(
+      { ...next, partModelCandidates: [] },
+      appearanceProfile
+    );
+    const retainedHead = normalizeCreatureAppearanceOverrideNumber(
+      next.appearance.appearanceHead
+    );
+    if (retainedHead !== undefined) {
+      next.partModelCandidates = upsertCreatureRuntimePartModelCandidate(
+        next.partModelCandidates,
+        buildCreatureRuntimeHeadModelCandidate(next, modelPrefix, retainedHead)
+      );
+    }
+  }
 
   const appearanceHead = normalizeCreatureAppearanceOverrideNumber(
     override.appearanceHead
@@ -1220,6 +1248,14 @@ function normalizeCreatureAppearanceOverrideNumber(
     return undefined;
   }
   return Math.max(0, Math.trunc(value));
+}
+
+function normalizeCreaturePhenotypeOverrideNumber(value: number | undefined): number | undefined {
+  if (!Number.isInteger(value ?? Number.NaN) || value === undefined || value < 0 ||
+    value > 0xff || value === 1) {
+    return undefined;
+  }
+  return value;
 }
 
 function buildCreatureRuntimeHeadModelCandidate(

@@ -38,14 +38,23 @@ export class VfxController extends ProcessingHttpBaseController {
   @ApiBody({
     schema: {
       type: "object",
-      required: ["sourceTableText"],
       properties: {
-        packageKind: { type: "string", enum: ["source_parse", "runtime_package"] },
-        sourceTableText: { type: "string" },
+        packageKind: { type: "string", enum: ["source_parse", "runtime_package", "model_graph_runtime"] },
+        sourceTableText: { type: "string", description: "Required except for model_graph_runtime." },
         progFxTableText: { type: "string" },
         sourceObjectKey: { type: "string" },
         sourceLayer: { type: "string", enum: ["module", "hak", "vanilla", "external_fixture"] },
         sourceRowId: { type: "number" },
+        sourceEmitter: { type: "object", additionalProperties: true },
+        sourceEmitters: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        },
+        sourceAnimationEvents: {
+          type: "array",
+          description: "Model animation-header events; these are not emitter-node events.",
+          items: { type: "object", additionalProperties: false }
+        },
         bypassCache: { type: "boolean", default: false },
         includeBenchmarkMetadata: { type: "boolean", default: false }
       }

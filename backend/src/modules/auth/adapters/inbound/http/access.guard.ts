@@ -11,15 +11,26 @@ import { ROLES_KEY } from "./roles.decorator";
 import type { UserRole } from "../../../domain/auth.types";
 import type { AppRequest } from "../../../../../common/http/request.types";
 import { AppException } from "../../../../../common/http/app-exception";
+import { SystemMaintenanceApplicationService } from "../../../../system-maintenance/application/system-maintenance.application.service";
+import { MAINTENANCE_ALLOWED_KEY } from "../../../../system-maintenance/adapters/inbound/http/maintenance-allowed.decorator";
 
 @Injectable()
 export class AccessGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly authService: AuthApplicationService
+    private readonly authService: AuthApplicationService,
+    private readonly maintenance: SystemMaintenanceApplicationService
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const maintenanceAllowed = this.reflector.getAllAndOverride<boolean>(
+      MAINTENANCE_ALLOWED_KEY,
+      [context.getHandler(), context.getClass()]
+    );
+    if (!maintenanceAllowed) {
+      await this.maintenance.assertRequestAllowed();
+    }
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass()

@@ -3,13 +3,26 @@ import { resolve } from "node:path";
 const HOST_LOCAL_MOUNT_MAPPINGS = [
   {
     mount: "/host/nwn-docs",
-    envName: "AURORA_HOST_NWN_DOCS_ROOT",
+    envNames: ["AURORA_HOST_NWN_DOCS_ROOT", "NWN_USER_DIR_HOST"],
+    defaultRoot: "C:/Users/enonw/Documents/Neverwinter Nights"
+  },
+  {
+    mount: "/host/nwn-user",
+    envNames: ["NWN_USER_DIR_HOST", "AURORA_HOST_NWN_DOCS_ROOT"],
     defaultRoot: "C:/Users/enonw/Documents/Neverwinter Nights"
   },
   {
     mount: "/host/nwn-game",
-    envName: "AURORA_HOST_NWN_GAME_ROOT",
+    envNames: ["NWN_INSTALL_DIR_HOST", "AURORA_HOST_NWN_GAME_ROOT"],
     defaultRoot: "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights"
+  },
+  {
+    mount: "/host/aurora-reference",
+    envNames: [
+      "AURORA_REFERENCE_DIR_HOST",
+      "AURORA_HOST_AURORA_REFERENCE_ROOT"
+    ],
+    defaultRoot: "C:/Projects/New Folder"
   }
 ] as const;
 
@@ -30,7 +43,9 @@ export function resolveHostLocalMountedPath(pathValue: string): string | null {
     return null;
   }
 
-  const configuredRoot = process.env[match.envName]?.trim();
+  const configuredRoot = match.envNames
+    .map((envName) => process.env[envName]?.trim())
+    .find((value) => Boolean(value));
   const localRoot = configuredRoot || match.defaultRoot;
   const suffix = normalized.slice(match.mount.length).replace(/^\/+/u, "");
   return suffix ? resolve(localRoot, ...suffix.split("/")) : resolve(localRoot);

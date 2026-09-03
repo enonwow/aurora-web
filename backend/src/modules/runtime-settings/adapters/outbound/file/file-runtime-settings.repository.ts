@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import {
@@ -18,25 +19,40 @@ import type {
 @Injectable()
 export class FileRuntimeSettingsRepository implements RuntimeSettingsRepositoryPort {
   private cached: RuntimeSettingsRecord | null = null;
+  private cachedMtimeMs = -1;
 
   constructor(private readonly config: AppConfigService) {}
 
   async get(): Promise<RuntimeSettingsRecord> {
-    if (this.cached) {
+    const path = this.resolveSettingsFilePath();
+    const metadata = await stat(path).catch(() => null);
+    if (this.cached && metadata?.mtimeMs === this.cachedMtimeMs) {
       return structuredClone(this.cached);
     }
 
-    const path = this.resolveSettingsFilePath();
     const loaded = await this.readOrCreate(path);
     this.cached = loaded;
+    this.cachedMtimeMs = (await stat(path)).mtimeMs;
     return structuredClone(loaded);
   }
 
   async save(settings: RuntimeSettingsRecord): Promise<void> {
     const path = this.resolveSettingsFilePath();
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(settings, null, 2)}\n`, "utf-8");
+    const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify(settings, null, 2)}\n`,
+        "utf-8"
+      );
+      await rename(temporaryPath, path);
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
     this.cached = structuredClone(settings);
+    this.cachedMtimeMs = (await stat(path)).mtimeMs;
   }
 
   private resolveSettingsFilePath(): string {

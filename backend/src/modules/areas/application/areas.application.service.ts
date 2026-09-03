@@ -18,6 +18,10 @@ import {
 } from "../../runtime-settings/application/ports/runtime-settings-repository.port";
 import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
 import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
+import {
   AREA_PROCESSING_CACHE,
   type AreaProcessingCachePort
 } from "./ports/area-processing-cache.port";
@@ -48,6 +52,7 @@ import {
   buildAreaThumbnailPayload,
   withAreaPreviewImageUrl
 } from "../domain/area-thumbnail";
+import { buildAreaCapabilityCatalog } from "../domain/area-capability-catalog";
 import { serializeAreaItemPlacementsToGitGff } from "../adapters/outbound/blob/aurora-gff-area-item-writer";
 import {
   serializeAreaToAreGff,
@@ -149,8 +154,14 @@ export class AreasApplicationService {
     @Inject(MODULE_BLOB_STORAGE)
     private readonly moduleBlobStorage?: ModuleBlobStoragePort,
     @Optional()
-    private readonly catalogService?: CatalogApplicationService
+    private readonly catalogService?: CatalogApplicationService,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
   ) {}
+
+  getAreaCapabilities() {
+    return buildAreaCapabilityCatalog();
+  }
 
   listAreas(query: AreaListQuery) {
     const cacheKey = buildAreaListCacheKey(query);
@@ -207,6 +218,84 @@ export class AreasApplicationService {
       width: area.width,
       height: area.height,
       tags: area.tags,
+      ...(area.comments !== undefined ? { comments: area.comments } : {}),
+      ...(area.eventScripts !== undefined
+        ? { eventScripts: { ...area.eventScripts } }
+        : {}),
+      ...(area.basicIdentity !== undefined
+        ? {
+            basicIdentity: {
+              ...area.basicIdentity,
+              ...(area.basicIdentity.nameEntries
+                ? { nameEntries: area.basicIdentity.nameEntries.map((entry) => ({ ...entry })) }
+                : {}),
+            },
+          }
+        : {}),
+      ...(area.advancedFlags !== undefined
+        ? {
+            advancedFlags: {
+              ...area.advancedFlags,
+              ...(area.advancedFlags.terrainType
+                ? { terrainType: { ...area.advancedFlags.terrainType } }
+                : {}),
+            },
+          }
+        : {}),
+      ...(area.visualEnvironment
+        ? {
+            visualEnvironment: {
+              ...area.visualEnvironment,
+              sun: { ...area.visualEnvironment.sun },
+              moon: { ...area.visualEnvironment.moon },
+            },
+          }
+        : {}),
+      ...(area.visualEnvironmentScalarControls
+        ? {
+            visualEnvironmentScalarControls: {
+              ...area.visualEnvironmentScalarControls,
+            },
+          }
+        : {}),
+      ...(area.visualEnvironmentCatalogSelection
+        ? {
+            visualEnvironmentCatalogSelection: {
+              ...area.visualEnvironmentCatalogSelection,
+            },
+          }
+        : {}),
+      ...(area.moduleStartLocation
+        ? { moduleStartLocation: { ...area.moduleStartLocation } }
+        : {}),
+      ...(area.moduleStartLocationTargets
+        ? { moduleStartLocationTargets: [...area.moduleStartLocationTargets] }
+        : {}),
+      ...(area.audioEnvironment
+        ? { audioEnvironment: { ...area.audioEnvironment } }
+        : {}),
+      ...(area.variables
+        ? { variables: cloneAreaVariables(area.variables) }
+        : {}),
+      ...(area.audioEnvironmentCatalogs
+        ? { audioEnvironmentCatalogs: cloneAudioEnvironmentCatalogs(area.audioEnvironmentCatalogs) }
+        : {}),
+      ...(area.visualEnvironmentCatalogs
+        ? {
+            visualEnvironmentCatalogs: cloneVisualEnvironmentCatalogs(
+              area.visualEnvironmentCatalogs,
+            ),
+          }
+        : {}),
+      ...(area.loadingScreenCatalog
+        ? { loadingScreenCatalog: cloneLoadingScreenCatalog(area.loadingScreenCatalog) }
+        : {}),
+      ...(area.encounterDifficultyCatalog
+        ? {
+            encounterDifficultyCatalog:
+              cloneEncounterDifficultyCatalog(area.encounterDifficultyCatalog),
+          }
+        : {}),
       benchmark: area.benchmark,
       previewImageUrl: withAreaPreviewImageUrl(area).previewImageUrl,
       textureAtlas: {
@@ -220,8 +309,29 @@ export class AreasApplicationService {
       },
       tileSet: area.tileSet,
       tiles: area.tiles,
+      ...(area.auroraVfxCollision ? { auroraVfxCollision: area.auroraVfxCollision } : {}),
+      ...(area.auroraWorldTimer ? { auroraWorldTimer: area.auroraWorldTimer } : {}),
       ...(area.lighting ? { lighting: area.lighting } : {}),
+      ...(area.placeableTrapTypeCatalog
+        ? { placeableTrapTypeCatalog: area.placeableTrapTypeCatalog }
+        : {}),
+      ...(area.placeableBodyBagCatalog
+        ? { placeableBodyBagCatalog: area.placeableBodyBagCatalog }
+        : {}),
+      ...(area.placeablePortraitCatalog
+        ? { placeablePortraitCatalog: area.placeablePortraitCatalog }
+        : {}),
+      ...(area.creaturePortraitCatalog
+        ? { creaturePortraitCatalog: area.creaturePortraitCatalog }
+        : {}),
+      ...(area.itemBaseItemCatalog
+        ? { itemBaseItemCatalog: area.itemBaseItemCatalog }
+        : {}),
+      ...(area.placeableFactionCatalog
+        ? { placeableFactionCatalog: area.placeableFactionCatalog }
+        : {}),
       soundscape: area.soundscape,
+      ...(area.sourceResources ? { sourceResources: area.sourceResources } : {}),
       composition: counts,
       objects: area.objects,
       updatedAt: area.updatedAt
@@ -229,7 +339,7 @@ export class AreasApplicationService {
   }
 
   async getAreaPreview(areaId: string) {
-    const area = await this.repository.findById(areaId);
+    const area = await this.findLightweightAreaById(areaId);
     if (!area) {
       throw new AppException({
         status: 404,
@@ -255,6 +365,28 @@ export class AreasApplicationService {
     };
   }
 
+  /**
+   * The topology editor only needs the ARE's tileset identity and freshness
+   * marker.  Do not route it through getArea(): that response includes every
+   * placed object and can make opening the tile tools wait behind a very large
+   * JSON serialization for otherwise small Areas.
+   */
+  async getAreaTopologyMetadata(areaId: string) {
+    const area = await this.findLightweightAreaById(areaId);
+    if (!area) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_NOT_FOUND",
+        message: "Area was not found."
+      });
+    }
+    return {
+      areaId: area.areaId,
+      tileSet: area.tileSet,
+      updatedAt: area.updatedAt
+    };
+  }
+
   async getAreaLightingEvidence() {
     const areas = await this.loadAllAreasForLightingEvidence();
     const catalogLightSources = await this.loadCatalogLightSourcesForLightingEvidence();
@@ -264,7 +396,7 @@ export class AreasApplicationService {
   }
 
   async getAreaThumbnail(areaId: string) {
-    const area = await this.resolveAreaRecord(areaId);
+    const area = await this.resolveLightweightAreaRecord(areaId);
     const precomputed = this.repository.getPrecomputedAreaProcessing?.(area.areaId);
     return buildAreaThumbnailPayload(
       area,
@@ -332,7 +464,7 @@ export class AreasApplicationService {
     while (true) {
       const page = await this.repository.list({ limit, offset });
       for (const item of page.items) {
-        const area = await this.repository.findById(item.areaId);
+        const area = await this.findLightweightAreaById(item.areaId);
         if (area) {
           areas.push(area);
         }
@@ -534,6 +666,53 @@ export class AreasApplicationService {
         width: area.width,
         height: area.height,
         tags: area.tags,
+        ...(area.comments !== undefined ? { comments: area.comments } : {}),
+        ...(area.eventScripts !== undefined
+          ? { eventScripts: { ...area.eventScripts } }
+          : {}),
+        ...(area.basicIdentity !== undefined
+          ? {
+              basicIdentity: {
+                ...area.basicIdentity,
+                ...(area.basicIdentity.nameEntries
+                  ? { nameEntries: area.basicIdentity.nameEntries.map((entry) => ({ ...entry })) }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(area.advancedFlags !== undefined
+          ? {
+              advancedFlags: {
+                ...area.advancedFlags,
+                ...(area.advancedFlags.terrainType
+                  ? { terrainType: { ...area.advancedFlags.terrainType } }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(area.visualEnvironment
+          ? {
+              visualEnvironment: {
+                ...area.visualEnvironment,
+                sun: { ...area.visualEnvironment.sun },
+                moon: { ...area.visualEnvironment.moon },
+              },
+            }
+          : {}),
+        ...(area.visualEnvironmentScalarControls
+          ? {
+              visualEnvironmentScalarControls: {
+                ...area.visualEnvironmentScalarControls,
+              },
+            }
+          : {}),
+        ...(area.visualEnvironmentCatalogSelection
+          ? {
+              visualEnvironmentCatalogSelection: {
+                ...area.visualEnvironmentCatalogSelection,
+              },
+            }
+          : {}),
         benchmark: area.benchmark,
         previewImageUrl: withAreaPreviewImageUrl(area).previewImageUrl,
         textureAtlas: {
@@ -547,8 +726,62 @@ export class AreasApplicationService {
         },
         tileSet: area.tileSet,
         tiles: area.tiles,
+        ...(area.auroraVfxCollision
+          ? { auroraVfxCollision: area.auroraVfxCollision }
+          : {}),
+        ...(area.auroraWorldTimer ? { auroraWorldTimer: area.auroraWorldTimer } : {}),
+        ...(area.moduleStartLocation
+          ? { moduleStartLocation: { ...area.moduleStartLocation } }
+          : {}),
+        ...(area.moduleStartLocationTargets
+          ? { moduleStartLocationTargets: [...area.moduleStartLocationTargets] }
+          : {}),
+        ...(area.audioEnvironment
+          ? { audioEnvironment: { ...area.audioEnvironment } }
+          : {}),
+        ...(area.variables
+          ? { variables: cloneAreaVariables(area.variables) }
+          : {}),
+        ...(area.audioEnvironmentCatalogs
+          ? { audioEnvironmentCatalogs: cloneAudioEnvironmentCatalogs(area.audioEnvironmentCatalogs) }
+          : {}),
+        ...(area.visualEnvironmentCatalogs
+          ? {
+              visualEnvironmentCatalogs: cloneVisualEnvironmentCatalogs(
+                area.visualEnvironmentCatalogs,
+              ),
+            }
+          : {}),
+        ...(area.loadingScreenCatalog
+          ? { loadingScreenCatalog: cloneLoadingScreenCatalog(area.loadingScreenCatalog) }
+          : {}),
+        ...(area.encounterDifficultyCatalog
+          ? {
+              encounterDifficultyCatalog:
+                cloneEncounterDifficultyCatalog(area.encounterDifficultyCatalog),
+            }
+          : {}),
         ...(area.lighting ? { lighting: area.lighting } : {}),
+        ...(area.placeableTrapTypeCatalog
+          ? { placeableTrapTypeCatalog: area.placeableTrapTypeCatalog }
+          : {}),
+        ...(area.placeableBodyBagCatalog
+          ? { placeableBodyBagCatalog: area.placeableBodyBagCatalog }
+          : {}),
+        ...(area.placeablePortraitCatalog
+          ? { placeablePortraitCatalog: area.placeablePortraitCatalog }
+          : {}),
+        ...(area.creaturePortraitCatalog
+          ? { creaturePortraitCatalog: area.creaturePortraitCatalog }
+          : {}),
+        ...(area.itemBaseItemCatalog
+          ? { itemBaseItemCatalog: area.itemBaseItemCatalog }
+          : {}),
+        ...(area.placeableFactionCatalog
+          ? { placeableFactionCatalog: area.placeableFactionCatalog }
+          : {}),
         soundscape: area.soundscape,
+        ...(area.sourceResources ? { sourceResources: area.sourceResources } : {}),
         composition,
         objects: area.objects,
         updatedAt: area.updatedAt,
@@ -739,7 +972,9 @@ export class AreasApplicationService {
     }
 
     const settings = await this.runtimeSettingsRepository.get();
-    return this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+    return this.committedSnapshotReader
+      ? (await this.committedSnapshotReader.capture()).getModuleObject(key)
+      : this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
   }
 
   private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
@@ -776,6 +1011,94 @@ export class AreasApplicationService {
     return area;
   }
 
+  private findLightweightAreaById(areaId: string): Promise<AreaRecord | null> {
+    return this.repository.findLightweightById?.(areaId) ?? this.repository.findById(areaId);
+  }
+
+  private async resolveLightweightAreaRecord(areaId: string): Promise<AreaRecord> {
+    const area = await this.findLightweightAreaById(areaId);
+    if (!area) {
+      throw new AppException({
+        status: 404,
+        code: "AREA_NOT_FOUND",
+        message: "Area was not found."
+      });
+    }
+    return area;
+  }
+
+}
+
+function cloneAudioEnvironmentCatalogs(
+  catalogs: NonNullable<AreaRecord["audioEnvironmentCatalogs"]>,
+): NonNullable<AreaRecord["audioEnvironmentCatalogs"]> {
+  const clone = (catalog: typeof catalogs.ambientSound) => ({
+    descriptor: { ...catalog.descriptor },
+    rows: catalog.rows.map((row) => ({ ...row })),
+  });
+  return {
+    schemaVersion: catalogs.schemaVersion,
+    ambientSound: clone(catalogs.ambientSound),
+    ambientMusic: clone(catalogs.ambientMusic),
+    environmentalAudio: clone(catalogs.environmentalAudio),
+  };
+}
+
+function cloneVisualEnvironmentCatalogs(
+  catalogs: NonNullable<AreaRecord["visualEnvironmentCatalogs"]>,
+): NonNullable<AreaRecord["visualEnvironmentCatalogs"]> {
+  return {
+    schemaVersion: catalogs.schemaVersion,
+    lightingSchemes: {
+      descriptor: { ...catalogs.lightingSchemes.descriptor },
+      rows: catalogs.lightingSchemes.rows.map((row) => ({
+        ...row,
+        visualEnvironment: {
+          ...row.visualEnvironment,
+          sun: { ...row.visualEnvironment.sun },
+          moon: { ...row.visualEnvironment.moon },
+        },
+        visualEnvironmentScalarControls: {
+          ...row.visualEnvironmentScalarControls,
+        },
+      })),
+    },
+    skyBoxes: {
+      descriptor: { ...catalogs.skyBoxes.descriptor },
+      rows: catalogs.skyBoxes.rows.map((row) => ({ ...row })),
+    },
+  };
+}
+
+function cloneAreaVariables(
+  variables: NonNullable<AreaRecord["variables"]>,
+): NonNullable<AreaRecord["variables"]> {
+  return {
+    expectedEntries: variables.expectedEntries.map((entry) => ({ ...entry })),
+  };
+}
+
+function cloneLoadingScreenCatalog(
+  catalog: NonNullable<AreaRecord["loadingScreenCatalog"]>,
+): NonNullable<AreaRecord["loadingScreenCatalog"]> {
+  return {
+    schemaVersion: catalog.schemaVersion,
+    descriptor: { ...catalog.descriptor },
+    rows: catalog.rows.map((row) => ({
+      ...row,
+      ...(row.imageAsset ? { imageAsset: { ...row.imageAsset } } : {}),
+    })),
+  };
+}
+
+function cloneEncounterDifficultyCatalog(
+  catalog: NonNullable<AreaRecord["encounterDifficultyCatalog"]>,
+): NonNullable<AreaRecord["encounterDifficultyCatalog"]> {
+  return {
+    schemaVersion: catalog.schemaVersion,
+    descriptor: { ...catalog.descriptor },
+    rows: catalog.rows.map((row) => ({ ...row })),
+  };
 }
 
 function buildAreaListCacheKey(query: AreaListQuery): string {

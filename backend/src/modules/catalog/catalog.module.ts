@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
+import { ModuleSnapshotsModule } from "../module-snapshots/module-snapshots.module";
+import { VfxModule } from "../vfx/vfx.module";
 import { CatalogApplicationService } from "./application/catalog.application.service";
 import {
   PLACEABLE_PROCESSING_CACHE
@@ -13,6 +15,7 @@ import { EncountersController } from "./adapters/inbound/http/encounters.control
 import { ItemsController } from "./adapters/inbound/http/items.controller";
 import { PlaceablesController } from "./adapters/inbound/http/placeables.controller";
 import { StoresController } from "./adapters/inbound/http/stores.controller";
+import { WaypointsController } from "./adapters/inbound/http/waypoints.controller";
 import { ModuleSnapshotTemplateCatalogRepository } from "./adapters/outbound/blob/module-snapshot-template-catalog.repository";
 import { S3PlaceableProcessingCacheRepository } from "./adapters/outbound/blob/s3-placeable-processing-cache.repository";
 import { LayeredPlaceableProcessingCacheRepository } from "./adapters/outbound/layered/layered-placeable-processing-cache.repository";
@@ -20,13 +23,14 @@ import { MemoryPlaceableProcessingCacheRepository } from "./adapters/outbound/me
 import { StaticTemplateCatalogRepository } from "./adapters/outbound/memory/static-template-catalog.repository";
 
 @Module({
-  imports: [RuntimeSettingsModule],
+  imports: [RuntimeSettingsModule, ModuleSnapshotsModule, VfxModule],
   controllers: [
     PlaceablesController,
     CreaturesController,
     ItemsController,
     EncountersController,
-    StoresController
+    StoresController,
+    WaypointsController
   ],
   providers: [
     CatalogApplicationService,

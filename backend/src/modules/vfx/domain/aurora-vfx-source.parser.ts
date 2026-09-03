@@ -9,6 +9,10 @@ import {
   type AuroraTwoDaSourceLayer,
   type AuroraTwoDaTable as SharedAuroraTwoDaTable
 } from "../../../common/aurora/two-da/aurora-two-da-table";
+import {
+  buildAuroraAoeVisualFootprintContract,
+  type AuroraAoeVisualFootprintContract
+} from "./aurora-vfx-aoe-visual-runtime";
 
 export { BLANK_CELL, parseAuroraTwoDaTable };
 export type AuroraVfxDiagnosticSeverity = SharedAuroraTwoDaDiagnosticSeverity;
@@ -89,11 +93,38 @@ export interface AuroraProgFxSourceRow extends AuroraVfxSourceRowBase<"progfx.2d
   type?: number;
   typeRaw?: string;
   type4Light?: AuroraProgFxType4LightSource;
+  type7Beam?: AuroraProgFxType7BeamSource;
+  type10Projectile?: AuroraProgFxType10ProjectileSource;
   params: Array<{
     column: string;
     raw: string;
     value?: string;
   }>;
+}
+
+export interface AuroraProgFxType7BeamSource {
+  proofStatus: "retail-client-disassembly-backed-progfx-type7-beam-owner";
+  modelRaw?: string;
+  modelRef?: string;
+  animationRaw?: string;
+  animation?: string;
+  parameterSource: "CNWCVisualEffectOnObject::LoadBeam Param1 model; ApplyBeam Param2 animation";
+}
+
+export interface AuroraProgFxType10ProjectileSource {
+  proofStatus: "retail-client-disassembly-backed-progfx-type10-projectile-owner";
+  modelRaw?: string;
+  modelRef?: string;
+  projectileRowRaw?: string;
+  projectileRow?: number;
+  orientationModeRaw?: string;
+  orientationMode?: number;
+  pathStyleRaw?: string;
+  pathStyle?: number;
+  timingProfileRaw?: string;
+  timingProfile?: string;
+  parameterSource:
+    "nwmain.exe 0x14096a9a0: Param1 model, Param2 projectile row, Param3 orientation mode, Param4 path style, Param5 timing profile";
 }
 
 export interface AuroraProgFxType4LightSource {
@@ -357,6 +388,7 @@ export interface AuroraAoeSourceRow extends AuroraVfxSourceRowBase<"vfx_persiste
   radiusRaw?: string;
   widthRaw?: string;
   lengthRaw?: string;
+  orientWithGroundRaw?: string;
   visualFxRaw?: string;
   durationVfxRaw?: string;
   eventScripts: {
@@ -365,7 +397,90 @@ export interface AuroraAoeSourceRow extends AuroraVfxSourceRowBase<"vfx_persiste
     heartbeatRaw?: string;
   };
   modelFootprintRefs: Record<string, string>;
+  modelFootprintSchedule: AuroraAoeModelFootprintSource[];
   soundFootprintRefs: Record<string, string>;
+}
+
+export interface AuroraAoeModelFootprintSource {
+  slot: 1 | 2 | 3;
+  modelRefRaw?: string;
+  lowQualityModelRefRaw?: string;
+  activeCountRaw?: string;
+  activeCount?: number;
+  durationMillisecondsRaw?: string;
+  durationMilliseconds?: number;
+  edgeWeightRaw?: string;
+  edgeWeight?: number;
+}
+
+export type AuroraAoeApplicationMode = "static_location" | "mobile_object";
+export type AuroraAoeLifecycleState =
+  | "created"
+  | "active"
+  | "removed"
+  | "expired"
+  | "dispelled"
+  | "destroyed_invalid_anchor";
+
+export interface AuroraAoeEffectInstance {
+  constructorKind: "EffectAreaOfEffect";
+  sourceRowId: number;
+  applicationMode: AuroraAoeApplicationMode;
+  durationType: "temporary" | "permanent";
+  durationSeconds?: number;
+  creatorRef?: string;
+  effectCreatorRef?: string;
+  anchorLocation?: AuroraVfxVector3;
+  followedObjectRef?: string;
+  orientationRadians?: number;
+  spellId?: number;
+  casterLevel?: number;
+  lifecycleState?: AuroraAoeLifecycleState;
+}
+
+export interface AuroraAoeShapeFootprint {
+  shape: "circle" | "rectangle";
+  sourceToken: string;
+  radius?: number;
+  width?: number;
+  length?: number;
+  orientationRadians?: number;
+  proofStatus: "selected-profile-source-backed";
+}
+
+export interface AuroraAoeRuntimeObject {
+  version: "aurora-aoe-runtime-object/v1";
+  sourceTable: "vfx_persistent.2da";
+  sourceRowId: number;
+  sourceLabel: string;
+  tag: string;
+  sourceProfile: string;
+  sourceLayer?: AuroraTwoDaSourceLayer;
+  sourceHash?: string;
+  effectInstance: AuroraAoeEffectInstance;
+  shapeFootprint: AuroraAoeShapeFootprint;
+  eventScripts: Array<{
+    event: "on_enter" | "on_exit" | "heartbeat";
+    resourceClass: "script";
+    ref: string;
+    source: "table_default";
+  }>;
+  durationVfxRaw?: string;
+  visualFxRaw?: string;
+  modelFootprintSchedule: AuroraAoeModelFootprintSource[];
+  visualFootprint?: AuroraAoeVisualFootprintContract;
+  soundFootprintRefs: Record<string, string>;
+  lifecycleState: AuroraAoeLifecycleState;
+  diagnostics: AuroraVfxDiagnostic[];
+}
+
+export interface AuroraAoeRuntimeObjectBuildOptions {
+  visualSeed?: number;
+}
+
+export interface AuroraAoeRuntimeObjectBuildResult {
+  runtimeObject?: AuroraAoeRuntimeObject;
+  diagnostics: AuroraVfxDiagnostic[];
 }
 
 export interface AuroraItemPropertyVisualSourceRow
@@ -435,6 +550,12 @@ export interface AuroraVfxGetEffectObservation {
   diagnostics?: AuroraVfxDiagnostic[];
 }
 
+export interface AuroraVfxTargetPltContext {
+  paletteRowsByLayer: Record<string, number>;
+  profile: string;
+  provenance: string;
+}
+
 export interface AuroraVfxEffectInstance {
   constructorKind: AuroraVfxEffectConstructorKind;
   sourceRowId: number;
@@ -444,6 +565,7 @@ export interface AuroraVfxEffectInstance {
   missFlag?: boolean;
   eeTransform?: AuroraVfxEeTransformTuple;
   targetRef?: string;
+  targetPltContext?: AuroraVfxTargetPltContext;
   effectorRef?: string;
   creatorRef?: string;
   bodyNode?: string;
@@ -518,6 +640,8 @@ const AOE_MODEL_FOOTPRINT_COLUMNS = [
   "MODELMIN03"
 ];
 
+const AOE_MODEL_FOOTPRINT_SLOTS = [1, 2, 3] as const;
+
 const AOE_SOUND_FOOTPRINT_COLUMNS = [
   "SoundImpact",
   "SoundDuration",
@@ -570,6 +694,78 @@ function parseIntCell(value: string | undefined): number | undefined {
     return undefined;
   }
   return parsed;
+}
+
+function buildAoeModelFootprintSchedule(row: AuroraTwoDaRow): {
+  schedule: AuroraAoeModelFootprintSource[];
+  diagnostics: AuroraVfxDiagnostic[];
+} {
+  const diagnostics: AuroraVfxDiagnostic[] = [];
+  const schedule = AOE_MODEL_FOOTPRINT_SLOTS.flatMap((slot) => {
+    const suffix = String(slot).padStart(2, "0");
+    const modelRefRaw = getNonBlankRaw(row, `MODEL${suffix}`);
+    const lowQualityModelRefRaw = getNonBlankRaw(row, `MODELMIN${suffix}`);
+    const activeCountRaw = getNonBlankRaw(row, `NUMACT${suffix}`);
+    const durationMillisecondsRaw = getNonBlankRaw(row, `DURATION${suffix}`);
+    const edgeWeightRaw = getNonBlankRaw(row, `EDGEWGHT${suffix}`);
+    const activeCount = parseIntCell(activeCountRaw);
+    const durationMilliseconds = parseNumberCell(durationMillisecondsRaw);
+    const edgeWeight = parseNumberCell(edgeWeightRaw);
+
+    if (activeCountRaw && (activeCount === undefined || activeCount < 0)) {
+      diagnostics.push(
+        diagnostic(
+          "VFX_AOE_MODEL_ACTIVE_COUNT_INVALID",
+          "warn",
+          `vfx_persistent.2da NUMACT${suffix} must be a non-negative integer before AOE footprint scheduling.`
+        )
+      );
+    }
+    if (durationMillisecondsRaw && (durationMilliseconds === undefined || durationMilliseconds < 0)) {
+      diagnostics.push(
+        diagnostic(
+          "VFX_AOE_MODEL_DURATION_INVALID",
+          "warn",
+          `vfx_persistent.2da DURATION${suffix} must be a non-negative millisecond value before AOE footprint scheduling.`
+        )
+      );
+    }
+    if (edgeWeightRaw && (edgeWeight === undefined || edgeWeight < 0 || edgeWeight > 1)) {
+      diagnostics.push(
+        diagnostic(
+          "VFX_AOE_MODEL_EDGE_WEIGHT_INVALID",
+          "warn",
+          `vfx_persistent.2da EDGEWGHT${suffix} must be in the selected-profile range 0..1.`
+        )
+      );
+    }
+
+    if (
+      !modelRefRaw &&
+      !lowQualityModelRefRaw &&
+      !activeCountRaw &&
+      !durationMillisecondsRaw &&
+      !edgeWeightRaw
+    ) {
+      return [];
+    }
+    return [{
+      slot,
+      ...(modelRefRaw ? { modelRefRaw } : {}),
+      ...(lowQualityModelRefRaw ? { lowQualityModelRefRaw } : {}),
+      ...(activeCountRaw ? { activeCountRaw } : {}),
+      ...(activeCount !== undefined && activeCount >= 0 ? { activeCount } : {}),
+      ...(durationMillisecondsRaw ? { durationMillisecondsRaw } : {}),
+      ...(durationMilliseconds !== undefined && durationMilliseconds >= 0
+        ? { durationMilliseconds }
+        : {}),
+      ...(edgeWeightRaw ? { edgeWeightRaw } : {}),
+      ...(edgeWeight !== undefined && edgeWeight >= 0 && edgeWeight <= 1
+        ? { edgeWeight }
+        : {})
+    }];
+  });
+  return { schedule, diagnostics };
 }
 
 function getRaw(row: AuroraTwoDaRow, column: string): string | undefined {
@@ -953,11 +1149,77 @@ export function parseAuroraProgFxTwoDa(
       type,
       typeRaw: isBlankCell(typeRaw) ? undefined : typeRaw,
       ...(type === 4 ? { type4Light: buildProgFxType4LightSource(row) } : {}),
+      ...(type === 7 ? { type7Beam: buildProgFxType7BeamSource(row) } : {}),
+      ...(type === 10 ? { type10Projectile: buildProgFxType10ProjectileSource(row) } : {}),
       params
     };
   });
 
   return { table, rows, diagnostics };
+}
+
+function buildProgFxType7BeamSource(row: AuroraTwoDaRow): AuroraProgFxType7BeamSource {
+  const modelRaw = getRaw(row, "Param1");
+  const animationRaw = getRaw(row, "Param2");
+  return {
+    proofStatus: "retail-client-disassembly-backed-progfx-type7-beam-owner",
+    ...(isBlankCell(modelRaw)
+      ? {}
+      : { modelRaw, modelRef: getValue(row, "Param1") ?? modelRaw }),
+    ...(isBlankCell(animationRaw)
+      ? {}
+      : { animationRaw, animation: getValue(row, "Param2") ?? animationRaw }),
+    parameterSource:
+      "CNWCVisualEffectOnObject::LoadBeam Param1 model; ApplyBeam Param2 animation"
+  };
+}
+
+function buildProgFxType10ProjectileSource(
+  row: AuroraTwoDaRow
+): AuroraProgFxType10ProjectileSource {
+  const modelRaw = getRaw(row, "Param1");
+  const projectileRowRaw = getRaw(row, "Param2");
+  const orientationModeRaw = getRaw(row, "Param3");
+  const pathStyleRaw = getRaw(row, "Param4");
+  const timingProfileRaw = getRaw(row, "Param5");
+  return {
+    proofStatus: "retail-client-disassembly-backed-progfx-type10-projectile-owner",
+    ...(isBlankCell(modelRaw)
+      ? {}
+      : { modelRaw, modelRef: getValue(row, "Param1") ?? modelRaw }),
+    ...(isBlankCell(projectileRowRaw)
+      ? {}
+      : {
+          projectileRowRaw,
+          ...(parseIntCell(projectileRowRaw) !== undefined
+            ? { projectileRow: parseIntCell(projectileRowRaw) }
+            : {})
+        }),
+    ...(isBlankCell(orientationModeRaw)
+      ? {}
+      : {
+          orientationModeRaw,
+          ...(parseIntCell(orientationModeRaw) !== undefined
+            ? { orientationMode: parseIntCell(orientationModeRaw) }
+            : {})
+        }),
+    ...(isBlankCell(pathStyleRaw)
+      ? {}
+      : {
+          pathStyleRaw,
+          ...(parseIntCell(pathStyleRaw) !== undefined
+            ? { pathStyle: parseIntCell(pathStyleRaw) }
+            : {})
+        }),
+    ...(isBlankCell(timingProfileRaw)
+      ? {}
+      : {
+          timingProfileRaw,
+          timingProfile: getValue(row, "Param5") ?? timingProfileRaw
+        }),
+    parameterSource:
+      "nwmain.exe 0x14096a9a0: Param1 model, Param2 projectile row, Param3 orientation mode, Param4 path style, Param5 timing profile"
+  };
 }
 
 export function summarizeAuroraProgFxType4Rows(
@@ -1476,12 +1738,14 @@ export function parseAuroraAoeTwoDa(
   ];
 
   const rows = table.rows.map((row): AuroraAoeSourceRow => {
+    const modelFootprint = buildAoeModelFootprintSchedule(row);
     const rowDiagnostics = [
       diagnostic(
         "VFX_AOE_ROW_NOT_VISUALEFFECTS_ROW",
         "warn",
         "vfx_persistent.2da rows are AOE footprint/source facts, not visualeffects.2da rows."
-      )
+      ),
+      ...modelFootprint.diagnostics
     ];
     return {
       ...sourceRowBase("vfx_persistent.2da", profile, row, getLabel(row, ["LABEL", "Label"]), rowDiagnostics),
@@ -1489,6 +1753,7 @@ export function parseAuroraAoeTwoDa(
       radiusRaw: getNonBlankRawFromAny(row, ["RADIUS", "Radius"]),
       widthRaw: getNonBlankRawFromAny(row, ["WIDTH", "Width"]),
       lengthRaw: getNonBlankRawFromAny(row, ["LENGTH", "Length"]),
+      orientWithGroundRaw: getNonBlankRawFromAny(row, ["OrientWithGround", "ORIENTWITHGROUND"]),
       visualFxRaw: getNonBlankRawFromAny(row, ["VisualFX", "VISUALFX"]),
       durationVfxRaw: getNonBlankRawFromAny(row, ["DurationVFX", "DURATIONVFX"]),
       eventScripts: {
@@ -1497,11 +1762,237 @@ export function parseAuroraAoeTwoDa(
         heartbeatRaw: getNonBlankRawFromAny(row, ["HEARTBEAT", "Heartbeat"])
       },
       modelFootprintRefs: nonBlankCellsByColumn(row, AOE_MODEL_FOOTPRINT_COLUMNS),
+      modelFootprintSchedule: modelFootprint.schedule,
       soundFootprintRefs: nonBlankCellsByColumn(row, AOE_SOUND_FOOTPRINT_COLUMNS)
     };
   });
 
   return { table, rows, diagnostics };
+}
+
+export function buildAuroraAoeRuntimeObject(
+  sourceRow: AuroraAoeSourceRow | undefined,
+  effectInstance: AuroraAoeEffectInstance | undefined,
+  options: AuroraAoeRuntimeObjectBuildOptions = {}
+): AuroraAoeRuntimeObjectBuildResult {
+  const diagnostics: AuroraVfxDiagnostic[] = [];
+  if (!sourceRow) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_RUNTIME_OBJECT_REQUIRED",
+        "error",
+        "An Aurora AOE runtime object requires a selected vfx_persistent.2da source row."
+      )
+    );
+  }
+  if (!effectInstance) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_EFFECT_INSTANCE_REQUIRED",
+        "error",
+        "An Aurora AOE runtime object requires an EffectAreaOfEffect instance."
+      )
+    );
+  }
+  if (!sourceRow || !effectInstance) {
+    return { diagnostics };
+  }
+  if (effectInstance.sourceRowId !== sourceRow.rowId) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_EFFECT_INSTANCE_ROW_MISMATCH",
+        "error",
+        "EffectAreaOfEffect source row does not match the selected vfx_persistent.2da row."
+      )
+    );
+  }
+  if (
+    (effectInstance.applicationMode === "static_location" && !effectInstance.anchorLocation) ||
+    (effectInstance.applicationMode === "mobile_object" && !effectInstance.followedObjectRef)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_STATIC_MOBILE_CONTEXT_REQUIRED",
+        "error",
+        "Static AOE instances require an anchor location and mobile AOE instances require a followed object."
+      )
+    );
+  }
+  if (
+    effectInstance.durationType === "temporary" &&
+    !(
+      typeof effectInstance.durationSeconds === "number" &&
+      Number.isFinite(effectInstance.durationSeconds) &&
+      effectInstance.durationSeconds > 0
+    )
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_TEMPORARY_DURATION_REQUIRED",
+        "error",
+        "Temporary AOE instances require a positive requested duration."
+      )
+    );
+  }
+  if (!effectInstance.creatorRef && !effectInstance.effectCreatorRef) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_CREATOR_PROVENANCE_REQUIRED",
+        "warn",
+        "AOE creator/effect-creator provenance is unavailable; exact runtime ownership remains incomplete."
+      )
+    );
+  }
+
+  const shapeFootprint = buildAuroraAoeShapeFootprint(sourceRow, effectInstance, diagnostics);
+  if (!shapeFootprint) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_SHAPE_FOOTPRINT_REQUIRED",
+        "error",
+        "Canonical AOE runtime admission requires a valid circular or rectangular shape footprint."
+      )
+    );
+  }
+  const visualSchedule = sourceRow.modelFootprintSchedule.flatMap((entry) =>
+    entry.modelRefRaw &&
+    typeof entry.activeCount === "number" &&
+    typeof entry.durationMilliseconds === "number" &&
+    typeof entry.edgeWeight === "number"
+      ? [{
+          slot: entry.slot,
+          modelRef: entry.modelRefRaw,
+          ...(entry.lowQualityModelRefRaw
+            ? { lowQualityModelRef: entry.lowQualityModelRefRaw }
+            : {}),
+          activeCount: entry.activeCount,
+          durationMilliseconds: entry.durationMilliseconds,
+          edgeWeight: entry.edgeWeight
+        }]
+      : []
+  );
+  const visualFootprint =
+    shapeFootprint &&
+    visualSchedule.length === sourceRow.modelFootprintSchedule.length &&
+    visualSchedule.length > 0
+      ? buildAuroraAoeVisualFootprintContract({
+          sourceRowId: sourceRow.rowId,
+          sourceLabel: sourceRow.label,
+          shape: shapeFootprint.shape === "circle"
+            ? { shape: "circle", radius: shapeFootprint.radius! }
+            : {
+                shape: "rectangle",
+                width: shapeFootprint.width!,
+                length: shapeFootprint.length!
+              },
+          orientWithGround: parseBooleanIntCell(sourceRow.orientWithGroundRaw) ?? false,
+          seed: options.visualSeed ?? sourceRow.rowId,
+          schedule: visualSchedule
+        })
+      : undefined;
+  if (visualFootprint) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_VISUAL_RUNTIME_PRIMARY_AUDIT_APPLIED",
+        "info",
+        "AOE shape, owner counts, initial cadence, edge thresholds, phase lifecycle, and placement use the primary Aurora client/server audit documented by vfx-persistent-aoe-runtime-audit-2026-07-19.md."
+      )
+    );
+  }
+  if (Object.keys(sourceRow.soundFootprintRefs).length > 0) {
+    diagnostics.push(
+      diagnostic(
+        "VFX_AOE_SOUND_SCHEDULING_EXTERNAL",
+        "warn",
+        "AOE sound scheduling remains selected-profile/retail evidence."
+      )
+    );
+  }
+  if (!shapeFootprint || diagnostics.some((entry) => entry.severity === "error")) {
+    return { diagnostics };
+  }
+
+  const eventScripts = [
+    ["on_enter", sourceRow.eventScripts.onEnterRaw],
+    ["on_exit", sourceRow.eventScripts.onExitRaw],
+    ["heartbeat", sourceRow.eventScripts.heartbeatRaw]
+  ].flatMap(([event, ref]) => ref
+    ? [{
+        event: event as "on_enter" | "on_exit" | "heartbeat",
+        resourceClass: "script" as const,
+        ref,
+        source: "table_default" as const
+      }]
+    : []);
+  const runtimeObject: AuroraAoeRuntimeObject = {
+    version: "aurora-aoe-runtime-object/v1",
+    sourceTable: "vfx_persistent.2da",
+    sourceRowId: sourceRow.rowId,
+    sourceLabel: sourceRow.label,
+    tag: sourceRow.label,
+    sourceProfile: sourceRow.profile,
+    ...(sourceRow.sourceLayer ? { sourceLayer: sourceRow.sourceLayer } : {}),
+    ...(sourceRow.sourceHash ? { sourceHash: sourceRow.sourceHash } : {}),
+    effectInstance,
+    shapeFootprint,
+    eventScripts,
+    ...(sourceRow.durationVfxRaw ? { durationVfxRaw: sourceRow.durationVfxRaw } : {}),
+    ...(sourceRow.visualFxRaw ? { visualFxRaw: sourceRow.visualFxRaw } : {}),
+    modelFootprintSchedule: sourceRow.modelFootprintSchedule,
+    ...(visualFootprint ? { visualFootprint } : {}),
+    soundFootprintRefs: sourceRow.soundFootprintRefs,
+    lifecycleState: effectInstance.lifecycleState ?? "created",
+    diagnostics
+  };
+  return { runtimeObject, diagnostics };
+}
+
+function buildAuroraAoeShapeFootprint(
+  sourceRow: AuroraAoeSourceRow,
+  effectInstance: AuroraAoeEffectInstance,
+  diagnostics: AuroraVfxDiagnostic[]
+): AuroraAoeShapeFootprint | undefined {
+  const shapeToken = sourceRow.shapeRaw?.trim().toUpperCase();
+  if (shapeToken === "C") {
+    const radius = parseNumberCell(sourceRow.radiusRaw);
+    return typeof radius === "number" && radius > 0
+      ? {
+          shape: "circle",
+          sourceToken: sourceRow.shapeRaw!,
+          radius,
+          proofStatus: "selected-profile-source-backed"
+        }
+      : undefined;
+  }
+  if (shapeToken === "R") {
+    const width = parseNumberCell(sourceRow.widthRaw);
+    const length = parseNumberCell(sourceRow.lengthRaw);
+    const orientationRadians = effectInstance.orientationRadians;
+    if (!(typeof orientationRadians === "number" && Number.isFinite(orientationRadians))) {
+      diagnostics.push(
+        diagnostic(
+          "VFX_AOE_RECTANGLE_ORIENTATION_REQUIRED",
+          "error",
+          "Rectangular AOE footprint admission requires application orientation context."
+        )
+      );
+    }
+    return (
+      typeof width === "number" && width > 0 &&
+      typeof length === "number" && length > 0 &&
+      typeof orientationRadians === "number" && Number.isFinite(orientationRadians)
+    )
+      ? {
+          shape: "rectangle",
+          sourceToken: sourceRow.shapeRaw!,
+          width,
+          length,
+          orientationRadians,
+          proofStatus: "selected-profile-source-backed"
+        }
+      : undefined;
+  }
+  return undefined;
 }
 
 export function parseAuroraItemPropertyVisualFxTwoDa(

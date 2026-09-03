@@ -105,4 +105,30 @@ export class MySqlAuthRepository implements AuthRepositoryPort {
   async deleteSession(token: string): Promise<void> {
     await this.databaseService.db.delete(sessionsTable).where(eq(sessionsTable.token, token));
   }
+
+  async findUserById(id: string): Promise<UserRecord | null> {
+    const rows = await this.databaseService.db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1);
+
+    if (!rows[0]) {
+      return null;
+    }
+
+    return {
+      id: rows[0].id,
+      username: rows[0].username,
+      passwordHash: rows[0].passwordHash,
+      displayName: rows[0].displayName,
+      role: rows[0].role as UserRecord["role"],
+      createdAt: rows[0].createdAt
+    };
+  }
+
+  async deleteAllSessions(): Promise<number> {
+    const result = await this.databaseService.db.delete(sessionsTable);
+    return Number(result[0]?.affectedRows ?? 0);
+  }
 }

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  parseAuroraVariableTargetEntries,
+  type AuroraVariableTargetEntry,
+} from "../../../../../common/aurora/variable-table/aurora-variable-table";
 import { AppException } from "../../../../../common/http/app-exception";
 
 const creaturePartIdSchema = z.coerce.number().int().min(0).max(65535);
@@ -74,6 +78,10 @@ const armorBodyPartsSchema = z
 const creatureAppearanceOverrideSchema = z
   .object({
     appearanceType: creatureAppearanceTypeSchema.optional(),
+    phenotype: z.coerce.number().int().min(0).max(0xff).refine(
+      (value) => value !== 1,
+      "Phenotype row 1 is not round-trippable"
+    ).optional(),
     appearanceHead: creaturePartIdSchema.optional(),
     wingsNew: creaturePartIdSchema.optional(),
     tailNew: creaturePartIdSchema.optional(),
@@ -223,6 +231,37 @@ const embeddedItemBlueprintSchema = z.object({
   scripts: itemScriptSlotsSchema.optional()
 });
 
+const itemVariableListSchema = z.array(z.unknown()).transform((value, context) => {
+  try {
+    return parseAuroraVariableTargetEntries(value).map((entry) => ({ ...entry })) as AuroraVariableTargetEntry[];
+  } catch (error) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : "variables:invalid",
+    });
+    return z.NEVER;
+  }
+});
+
+const itemBlueprintNestedResrefSchema = z.string().regex(/^[a-z0-9_]{1,16}$/u);
+const itemBlueprintInventoryEntrySchema = z.object({
+  resRef: itemBlueprintNestedResrefSchema,
+  x: z.number().int().min(0).max(0xffff),
+  y: z.number().int().min(0).max(0xffff),
+}).strict();
+const itemBlueprintEquipmentSlotMasks = new Set<number>([
+  0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80, 0x100,
+  0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000, 0x8000,
+  0x10000, 0x20000,
+]);
+const itemBlueprintEquipmentEntrySchema = z.object({
+  resRef: itemBlueprintNestedResrefSchema,
+  slotMask: z.number().int().refine(
+    (value) => itemBlueprintEquipmentSlotMasks.has(value),
+    "slotMask must be one admitted one-hot Aurora equipment slot.",
+  ),
+}).strict();
+
 const itemBlueprintCreatePayloadSchema = z.object({
   templateResRef: resrefSchema,
   name: z.string().trim().min(1).max(128),
@@ -246,8 +285,6 @@ const itemBlueprintCreatePayloadSchema = z.object({
   modelPart3: creaturePartIdSchema.optional(),
   cost: z.coerce.number().int().min(0).max(0x7fffffff).optional(),
   addCost: z.coerce.number().int().min(0).max(0x7fffffff).optional(),
-  costTable: z.coerce.number().int().min(0).max(0x7fffffff).optional(),
-  costValue: z.coerce.number().int().min(0).max(0x7fffffff).optional(),
   charges: z.coerce.number().int().min(0).max(0x7fffffff).optional(),
   stackSize: z.coerce.number().int().min(1).max(65535).optional(),
   identified: z.coerce.boolean().optional(),
@@ -280,8 +317,47 @@ const itemBlueprintCreatePayloadSchema = z.object({
     })
     .optional(),
   propertyList: z.array(itemPropertyEntrySchema).max(255).optional(),
-  scripts: itemScriptSlotsSchema.optional(),
+  variableListEntries: itemVariableListSchema.optional(),
+  inventoryItemListEntries: z.array(itemBlueprintInventoryEntrySchema).max(1024).optional(),
+  equipItemListEntries: z.array(itemBlueprintEquipmentEntrySchema).max(18).optional(),
   overwrite: z.coerce.boolean().default(false)
+}).strict().superRefine((value, context) => {
+  const inventory = value.inventoryItemListEntries ?? [];
+  const equipment = value.equipItemListEntries ?? [];
+  if (inventory.length + equipment.length > 1024) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["inventoryItemListEntries"],
+      message: "Combined ItemList and Equip_ItemList references must not exceed 1024.",
+    });
+  }
+  inventory.forEach((entry, index) => {
+    if (entry.resRef === value.templateResRef) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inventoryItemListEntries", index, "resRef"],
+        message: "Item blueprint cannot contain itself.",
+      });
+    }
+  });
+  let previousMask = 0;
+  equipment.forEach((entry, index) => {
+    if (entry.resRef === value.templateResRef) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["equipItemListEntries", index, "resRef"],
+        message: "Item blueprint cannot equip itself.",
+      });
+    }
+    if (entry.slotMask <= previousMask) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["equipItemListEntries", index, "slotMask"],
+        message: "Equipment slots must be unique and in ascending native order.",
+      });
+    }
+    previousMask = entry.slotMask;
+  });
 });
 
 const creatureSpellEntrySchema = z.object({
@@ -401,7 +477,7 @@ const creatureBlueprintFieldsSchema = z.object({
   bodyPartLShoul: creaturePartIdSchema.optional(),
   bodyPartRHand: creaturePartIdSchema.optional(),
   bodyPartLHand: creaturePartIdSchema.optional(),
-  bodyPartRobe: creaturePartIdSchema.optional(),
+  bodyPartRobe: z.never().optional(),
   colorSkin: creatureColorIdSchema.optional(),
   colorHair: creatureColorIdSchema.optional(),
   colorTattoo1: creatureColorIdSchema.optional(),
@@ -518,12 +594,16 @@ const storeBlueprintCreatePayloadSchema = z.object({
     .regex(/^[A-Za-z0-9_]+$/u, "tag may contain only letters, numbers and underscores.")
     .optional(),
   comments: z.string().max(4000).optional(),
-  markUp: z.coerce.number().int().min(0).max(0xffffffff).optional(),
-  markDown: z.coerce.number().int().min(0).max(0xffffffff).optional(),
+  markUp: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
+  markDown: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
   blackMarket: z.coerce.boolean().optional(),
-  bmMarkDown: z.coerce.number().int().min(0).max(0xffffffff).optional(),
+  bmMarkDown: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
+  identifyPrice: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
+  maxBuyPrice: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
+  storeGold: z.coerce.number().int().min(-0x8000_0000).max(0x7fff_ffff).optional(),
   onOpenStore: resrefSchema.optional(),
-  storeId: z.coerce.number().int().min(0).max(0xffffffff).optional(),
+  onStoreClosed: resrefSchema.optional(),
+  storeId: z.coerce.number().int().min(0).max(0xff).optional(),
   storeListEntries: z.array(storeBucketEntrySchema).max(5).optional(),
   willNotBuyBaseItems: z.array(z.coerce.number().int().min(0).max(65535)).max(65535).optional(),
   willOnlyBuyBaseItems: z.array(z.coerce.number().int().min(0).max(65535)).max(65535).optional(),

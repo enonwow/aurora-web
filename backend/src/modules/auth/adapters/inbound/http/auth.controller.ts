@@ -24,6 +24,7 @@ import { LoginRequestDto } from "./dto/login.request.dto";
 import { Permissions } from "./permissions.decorator";
 import { Public } from "./public.decorator";
 import { Roles } from "./roles.decorator";
+import { MaintenanceAllowed } from "../../../../system-maintenance/adapters/inbound/http/maintenance-allowed.decorator";
 
 @Controller("auth")
 @ApiTags("auth")
@@ -35,6 +36,7 @@ export class AuthController {
 
   @Post("login")
   @Public()
+  @MaintenanceAllowed()
   @HttpCode(200)
   @ApiOperation({ summary: "Authenticate user and create session." })
   @ApiBody({ type: LoginRequestDto })
@@ -81,6 +83,7 @@ export class AuthController {
 
   @Get("me")
   @Roles(...ALL_ROLES)
+  @MaintenanceAllowed()
   @ApiBearerAuth("bearer")
   @ApiOperation({ summary: "Get current authenticated user context." })
   @ApiResponse({ status: 200, description: "Current user context." })

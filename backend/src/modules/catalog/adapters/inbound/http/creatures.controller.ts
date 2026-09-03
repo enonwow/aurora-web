@@ -26,6 +26,20 @@ import { Roles } from "../../../../auth/adapters/inbound/http/roles.decorator";
 import { ALL_ROLES } from "../../../../auth/domain/auth.types";
 import { TemplateCatalogBaseController } from "./template-catalog.base-controller";
 import {
+  parseCreatureAppearanceRowsQuery,
+  parseCreatureGenderRowsQuery,
+  parseCreatureAppendageRowsQuery,
+  parseCreaturePerceptionRangeRowsQuery,
+  parseCreatureSoundSetRowsQuery,
+  parseCreatureStartingPackageRowsQuery,
+  parseCreatureClassRowsQuery,
+  parseCreatureSkillRowsQuery,
+  parseCreatureFeatRowsQuery,
+  parseCreatureSpecialAbilityRowsQuery,
+  parseCreatureWalkRateRowsQuery,
+  parseCreaturePhenotypeRowsQuery,
+} from "./catalog.schemas";
+import {
   parseCreatureBlueprintCreatePayload,
   parseCreatureBlueprintRenamePayload,
   parseCreatureBlueprintResRef,
@@ -58,6 +72,275 @@ export class CreaturesController extends TemplateCatalogBaseController {
   @ApiResponse({ status: 422, description: "Validation failed." })
   async list(@Req() request: AppRequest, @Query() query: Record<string, unknown>) {
     return this.handleList(request, query);
+  }
+
+  @Get("appearances")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted appearance.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature Appearance row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listAppearanceRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.handleParsedQuery(request, query, parseCreatureAppearanceRowsQuery, (parsed) =>
+      this.service.listCreatureAppearanceRows(parsed)
+    );
+  }
+
+  @Get("genders")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted gender.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature Gender row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listGenderRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.handleParsedQuery(request, query, parseCreatureGenderRowsQuery, (parsed) =>
+      this.service.listCreatureGenderRows(parsed)
+    );
+  }
+
+  @Get("appendages")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted wing/tail rows." })
+  @ApiQuery({ name: "kind", required: true, enum: ["wings", "tail"] })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature appendage row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listAppendageRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(request, query, parseCreatureAppendageRowsQuery, (parsed) =>
+      this.service.listCreatureAppendageRows(parsed)
+    );
+  }
+
+  @Get("perception-ranges")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted ranges.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature PerceptionRange row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listPerceptionRangeRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreaturePerceptionRangeRowsQuery,
+      (parsed) => this.service.listCreaturePerceptionRangeRows(parsed),
+    );
+  }
+
+  @Get("walk-rates")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted creaturespeed.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature WalkRate row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listWalkRateRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureWalkRateRowsQuery,
+      (parsed) => this.service.listCreatureWalkRateRows(parsed),
+    );
+  }
+
+  @Get("sound-sets")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted soundset.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature SoundSetFile row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listSoundSetRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureSoundSetRowsQuery,
+      (parsed) => this.service.listCreatureSoundSetRows(parsed),
+    );
+  }
+
+  @Get("starting-packages")
+  @ApiOperation({ summary: "List a digest- and ClassList-bound page of Toolset-admitted packages.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "classIds", required: true, description: "Comma-separated canonical ClassList.Class Int values." })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature StartingPackage row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listStartingPackageRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureStartingPackageRowsQuery,
+      (parsed) => this.service.listCreatureStartingPackageRows(parsed),
+    );
+  }
+
+  @Get("classes")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-admitted classes.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature Class row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listClassRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureClassRowsQuery,
+      (parsed) => this.service.listCreatureClassRows(parsed),
+    );
+  }
+
+  @Get("skills")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-visible skills.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature SkillList row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listSkillRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureSkillRowsQuery,
+      (parsed) => this.service.listCreatureSkillRows(parsed),
+    );
+  }
+
+  @Get("feats")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-visible feat.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature FeatList row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listFeatRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureFeatRowsQuery,
+      (parsed) => this.service.listCreatureFeatRows(parsed),
+    );
+  }
+
+  @Get("special-abilities")
+  @ApiOperation({ summary: "List a digest-bound page of Toolset-selectable spells.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature SpecAbilityList row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Requested table digest is stale." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listSpecialAbilityRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.handleParsedQuery(
+      request,
+      query,
+      parseCreatureSpecialAbilityRowsQuery,
+      (parsed) => this.service.listCreatureSpecialAbilityRows(parsed),
+    );
+  }
+
+  @Get("phenotypes")
+  @ApiOperation({ summary: "List a digest- and appearance-bound page of Toolset-admitted phenotype.2da rows." })
+  @ApiQuery({ name: "tableSha256", required: true })
+  @ApiQuery({ name: "appearanceTableSha256", required: true })
+  @ApiQuery({ name: "appearanceRowCount", required: true })
+  @ApiQuery({ name: "appearanceType", required: true })
+  @ApiQuery({ name: "rowIndex", required: false })
+  @ApiQuery({ name: "query", required: false })
+  @ApiQuery({ name: "limit", required: false })
+  @ApiQuery({ name: "offset", required: false })
+  @ApiResponse({ status: 200, description: "Creature Phenotype row page." })
+  @ApiResponse({ status: 404, description: "Authoritative table unavailable." })
+  @ApiResponse({ status: 409, description: "Table identity is stale or appearance is unsupported." })
+  @ApiResponse({ status: 422, description: "Validation failed." })
+  async listPhenotypeRows(
+    @Req() request: AppRequest,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.handleParsedQuery(request, query, parseCreaturePhenotypeRowsQuery, (parsed) =>
+      this.service.listCreaturePhenotypeRows(parsed)
+    );
   }
 
   @Get("resources")

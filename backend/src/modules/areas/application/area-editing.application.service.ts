@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { readFile } from "node:fs/promises";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { AppException } from "../../../common/http/app-exception";
 import {
   MODULE_BLOB_STORAGE,
@@ -10,9 +11,16 @@ import {
   RUNTIME_SETTINGS_REPOSITORY,
   type RuntimeSettingsRepositoryPort
 } from "../../runtime-settings/application/ports/runtime-settings-repository.port";
-import type { BlobStorageSettings } from "../../runtime-settings/domain/runtime-settings.types";
+import type {
+  BlobStorageSettings,
+  RuntimePathSettings,
+  RuntimeSettingsRecord
+} from "../../runtime-settings/domain/runtime-settings.types";
+import { extractModuleIfoHakList } from "../../runtime-settings/application/runtime-settings.application.service";
 import {
   parseAuroraTilesetEditingDefinition,
+  parseAuroraTilesetPresentation,
+  type AuroraTilesetPresentation,
   type AuroraTilesetEditingDefinition
 } from "../adapters/outbound/blob/aurora-set-tileset-parser";
 import {
@@ -20,17 +28,43 @@ import {
   validateAreaEditingSourceProvenance,
   type SerializableAreaEditingDraft
 } from "../adapters/outbound/blob/aurora-gff-area-editing-writer";
+import {
+  serializeEmptyAreaGic,
+  serializeEmptyAreaGit
+} from "../adapters/outbound/blob/aurora-gff-area-companion-writer";
+import {
+  validateAreaCreationResourceSet,
+  type AreaCreationResourceSet,
+  type AreaCreationResourceSetValidationResult
+} from "../adapters/outbound/blob/aurora-area-creation-resource-set-validator";
 import { parseRawGffDocument } from "../../catalog/adapters/outbound/blob/aurora-gff-template-parser";
-import { buildGffBuffer } from "../../catalog/adapters/outbound/blob/aurora-gff-uti-writer";
 import type { AreaEditingExportDraftRequest } from "../adapters/inbound/http/area-editing.schemas";
 import { AreasApplicationService } from "./areas.application.service";
 import {
   moduleIfoContainsArea,
   patchModuleIfoAreaList
 } from "../adapters/outbound/blob/aurora-gff-module-ifo-area-writer";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CapturedCommittedModuleSnapshot,
+  type CommittedModuleSnapshotReaderPort,
+} from "../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
+import {
+  TEMPLATE_CATALOG_REPOSITORY,
+  type TemplateCatalogRepositoryPort,
+} from "../../catalog/application/ports/template-catalog-repository.port";
+import {
+  AreaVisualEnvironmentCatalogSelectionMutationError,
+  resolveAreaVisualEnvironmentCatalogSelectionMutation,
+  type ExistingAreaVisualEnvironmentCatalogSelectionMutation,
+  type ResolvedAreaVisualEnvironmentCatalogSelectionMutation,
+} from "../domain/area-visual-environment-catalog-selection-mutation";
 
 export interface AreaTilesetEditingSummary {
   tilesetResRef: string;
+  /** Aurora Toolset picker label resolved from SET [GENERAL].DisplayName / dialog.tlk. */
+  displayName: string;
+  displayNameStrRef?: number;
   sourceKey: string;
   sourceSize: number;
   updatedAt?: string;
@@ -38,7 +72,7 @@ export interface AreaTilesetEditingSummary {
 }
 
 export interface AreaEditingSourceEnvelope {
-  area: Awaited<ReturnType<AreasApplicationService["getArea"]>>;
+  areaId: string;
   areaFingerprint: string;
   tileset: AuroraTilesetEditingDefinition;
 }
@@ -50,6 +84,7 @@ export interface AreaEditingAreExportEnvelope {
   bytes: Buffer;
   tileCount: number;
   tilesetFingerprint: string;
+  visualEnvironmentCatalogSelection?: ResolvedAreaVisualEnvironmentCatalogSelectionMutation;
 }
 
 export interface AreaEditingVerificationIssue {
@@ -109,34 +144,72 @@ interface SnapshotObjectCacheEntry {
 export class AreaEditingApplicationService {
   private snapshotObjectCache?: SnapshotObjectCacheEntry;
   private readonly snapshotObjectLoads = new Map<string, Promise<ModuleBlobObjectSummary[]>>();
+  private capturedSnapshot: CapturedCommittedModuleSnapshot | null = null;
 
   constructor(
     private readonly areas: AreasApplicationService,
     @Inject(MODULE_BLOB_STORAGE)
     private readonly moduleBlobStorage: ModuleBlobStoragePort,
     @Inject(RUNTIME_SETTINGS_REPOSITORY)
-    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort
+    private readonly runtimeSettingsRepository: RuntimeSettingsRepositoryPort,
+    @Optional() @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedSnapshotReader?: CommittedModuleSnapshotReaderPort,
+    @Optional() @Inject(TEMPLATE_CATALOG_REPOSITORY)
+    private readonly templateCatalogRepository?: TemplateCatalogRepositoryPort,
   ) {}
+
+  invalidateSnapshotCache(): void {
+    this.snapshotObjectCache = undefined;
+    this.snapshotObjectLoads.clear();
+    this.capturedSnapshot = null;
+  }
 
   async listTilesets(): Promise<AreaTilesetEditingSummary[]> {
     const settings = await this.runtimeSettingsRepository.get();
     const objects = await this.listAllSnapshotObjects(settings.blobStorage);
-    const selectedByResRef = new Map<string, ModuleBlobObjectSummary>();
+    const hakSourcePriority = await this.resolveTilesetHakSourcePriority(settings, objects);
+    const sourcesByResRef = new Map<string, ModuleBlobObjectSummary[]>();
     for (const object of objects
       .filter((candidate) => candidate.key.toLowerCase().endsWith(".set"))
-      .sort(compareTilesetSources)) {
+      .sort((left, right) => compareTilesetSources(left, right, hakSourcePriority))) {
       const tilesetResRef = toResRef(object.key);
-      if (tilesetResRef && !selectedByResRef.has(tilesetResRef)) {
-        selectedByResRef.set(tilesetResRef, object);
+      if (tilesetResRef) {
+        const sources = sourcesByResRef.get(tilesetResRef) ?? [];
+        sources.push(object);
+        sourcesByResRef.set(tilesetResRef, sources);
       }
     }
-    return Array.from(selectedByResRef, ([tilesetResRef, object]) => ({
-      tilesetResRef,
+    const parsed = await mapWithConcurrency(
+      Array.from(sourcesByResRef),
+      8,
+      async ([tilesetResRef, sources]) => {
+        // `sources` is ordered using Aurora's resource-resolution semantics.
+        // Only its first SET is effective; lower-priority HAK duplicates are
+        // neither presented nor loaded by Aurora.
+        const object = sources[0]!;
+        const payload = await this.readSnapshotObject(settings.blobStorage, object.key);
+        const definition = payload ? parseAuroraTilesetPresentation(payload.bytes) : undefined;
+        return { tilesetResRef, object, definitions: [definition] };
+      }
+    );
+    const talkTableNames = await readAuroraTalkTableStrings(
+      settings.paths,
+      parsed
+        .flatMap(({ definitions }) => definitions.map((definition) => definition?.displayNameStrRef))
+        .filter((strRef): strRef is number => isAuroraTalkTableStrRef(strRef))
+    );
+    return parsed.map(({ tilesetResRef, object, definitions }) => {
+      const label = resolveAuroraTilesetDisplayName(definitions, talkTableNames, tilesetResRef);
+      return {
+        tilesetResRef,
+        displayName: label.value,
+        ...(label.displayNameStrRef === undefined ? {} : { displayNameStrRef: label.displayNameStrRef }),
       sourceKey: object.key,
       sourceSize: object.size,
       ...(object.lastModified ? { updatedAt: object.lastModified } : {}),
       ...(object.etag ? { etag: object.etag } : {})
-    }))
+      };
+    })
       .sort((left, right) =>
         left.tilesetResRef.localeCompare(right.tilesetResRef) || left.sourceKey.localeCompare(right.sourceKey)
       );
@@ -146,9 +219,10 @@ export class AreaEditingApplicationService {
     const normalizedResRef = normalizeResRef(tilesetResRef);
     const settings = await this.runtimeSettingsRepository.get();
     const objects = await this.listAllSnapshotObjects(settings.blobStorage);
+    const hakSourcePriority = await this.resolveTilesetHakSourcePriority(settings, objects);
     const source = objects
       .filter((object) => toResourceResRef(object.key, ".set") === normalizedResRef)
-      .sort(compareTilesetSources)[0];
+      .sort((left, right) => compareTilesetSources(left, right, hakSourcePriority))[0];
     if (!source) {
       throw new AppException({
         status: 404,
@@ -156,7 +230,7 @@ export class AreaEditingApplicationService {
         message: `Tileset definition "${normalizedResRef}" was not found in the module snapshot.`
       });
     }
-    const payload = await this.moduleBlobStorage.getModuleObject(settings.blobStorage, source.key);
+    const payload = await this.readSnapshotObject(settings.blobStorage, source.key);
     if (!payload) {
       throw new AppException({
         status: 404,
@@ -168,7 +242,7 @@ export class AreaEditingApplicationService {
   }
 
   async getAreaEditingSource(areaId: string): Promise<AreaEditingSourceEnvelope> {
-    const area = await this.areas.getArea(areaId);
+    const area = await this.areas.getAreaTopologyMetadata(areaId);
     if (!area.tileSet) {
       throw new AppException({
         status: 422,
@@ -180,10 +254,10 @@ export class AreaEditingApplicationService {
     const settings = await this.runtimeSettingsRepository.get();
     const source = await this.findSnapshotResource(settings.blobStorage, areaId.replace(/^area_/u, ""), ".are");
     const payload = source
-      ? await this.moduleBlobStorage.getModuleObject(settings.blobStorage, source.key)
+      ? await this.readSnapshotObject(settings.blobStorage, source.key)
       : null;
     return {
-      area,
+      areaId: area.areaId,
       areaFingerprint: payload
         ? createHash("sha256").update(payload.bytes).digest("hex")
         : createHash("sha256").update(stableJson(area)).digest("hex"),
@@ -201,12 +275,27 @@ export class AreaEditingApplicationService {
       });
     }
     validateDraft(draft, tileset);
+    const visualEnvironmentCatalogSelection =
+      await this.resolveVisualEnvironmentCatalogSelection(
+        draft.visualEnvironmentCatalogSelection,
+      );
     const serializable: SerializableAreaEditingDraft = {
       areaResRef: draft.areaResRef,
       name: draft.name,
       width: draft.width,
       height: draft.height,
       tilesetResRef: draft.tilesetResRef,
+      ...(draft.comments ? { comments: draft.comments } : {}),
+      ...(draft.eventScripts ? { eventScripts: draft.eventScripts } : {}),
+      ...(draft.basicIdentity ? { basicIdentity: draft.basicIdentity } : {}),
+      ...(draft.advancedFlags ? { advancedFlags: draft.advancedFlags } : {}),
+      ...(draft.visualEnvironment ? { visualEnvironment: draft.visualEnvironment } : {}),
+      ...(draft.visualEnvironmentScalarControls
+        ? { visualEnvironmentScalarControls: draft.visualEnvironmentScalarControls }
+        : {}),
+      ...(visualEnvironmentCatalogSelection
+        ? { visualEnvironmentCatalogSelection }
+        : {}),
       tiles: draft.tiles
     };
     const settings = await this.runtimeSettingsRepository.get();
@@ -229,7 +318,7 @@ export class AreaEditingApplicationService {
       });
     }
     const payload = source
-      ? await this.moduleBlobStorage.getModuleObject(settings.blobStorage, source.key)
+      ? await this.readSnapshotObject(settings.blobStorage, source.key)
       : null;
     if (draft.areaFingerprint && !payload) {
       throw new AppException({
@@ -277,13 +366,91 @@ export class AreaEditingApplicationService {
       size: bytes.length,
       bytes,
       tileCount: draft.tiles.length,
-      tilesetFingerprint: tileset.fingerprint
+      tilesetFingerprint: tileset.fingerprint,
+      ...(visualEnvironmentCatalogSelection
+        ? { visualEnvironmentCatalogSelection }
+        : {}),
     };
+  }
+
+  private async resolveVisualEnvironmentCatalogSelection(
+    mutation: ExistingAreaVisualEnvironmentCatalogSelectionMutation | undefined,
+  ): Promise<ResolvedAreaVisualEnvironmentCatalogSelectionMutation | undefined> {
+    if (!mutation) return undefined;
+    const resolver = this.templateCatalogRepository
+      ?.resolveEffectiveAreaVisualEnvironmentCatalogs;
+    if (!resolver) {
+      throw new AppException({
+        status: 422,
+        code: "AREA_VISUAL_ENVIRONMENT_CATALOG_UNAVAILABLE",
+        message: "Effective Area visual-environment catalogs are unavailable.",
+      });
+    }
+    let catalogs;
+    try {
+      catalogs = await resolver.call(this.templateCatalogRepository);
+    } catch {
+      throw new AppException({
+        status: 422,
+        code: "AREA_VISUAL_ENVIRONMENT_CATALOG_UNAVAILABLE",
+        message: "Effective Area visual-environment catalogs could not be resolved.",
+      });
+    }
+    if (!catalogs) {
+      throw new AppException({
+        status: 422,
+        code: "AREA_VISUAL_ENVIRONMENT_CATALOG_UNAVAILABLE",
+        message: "Effective Area visual-environment catalogs are unavailable.",
+      });
+    }
+    try {
+      return resolveAreaVisualEnvironmentCatalogSelectionMutation(
+        mutation,
+        catalogs,
+      );
+    } catch (error) {
+      if (error instanceof AreaVisualEnvironmentCatalogSelectionMutationError) {
+        const stale = error.code === "catalog_identity_mismatch";
+        throw new AppException({
+          status: stale ? 409 : 422,
+          code: stale
+            ? "AREA_VISUAL_ENVIRONMENT_CATALOG_STALE"
+            : "AREA_VISUAL_ENVIRONMENT_CATALOG_SELECTION_INVALID",
+          message: stale
+            ? "Effective Area visual-environment catalogs changed. Reload the Area before saving."
+            : "Area visual-environment catalog selection is invalid.",
+          details: [{
+            path: "visualEnvironmentCatalogSelection",
+            reason: error.code,
+          }],
+        });
+      }
+      throw error;
+    }
   }
 
   async verifyArea(draft: AreaEditingExportDraftRequest): Promise<AreaEditingVerificationEnvelope> {
     const tileset = await this.getTilesetDefinition(draft.tilesetResRef);
     const issues = analyzeDraft(draft, tileset);
+    if (draft.visualEnvironmentCatalogSelection) {
+      try {
+        await this.resolveVisualEnvironmentCatalogSelection(
+          draft.visualEnvironmentCatalogSelection,
+        );
+      } catch (error) {
+        if (!(error instanceof AppException)) throw error;
+        const response = error.getResponse();
+        const message = typeof response === "object" && response !== null
+          && "message" in response && typeof response.message === "string"
+          ? response.message
+          : "Area visual-environment catalog selection could not be verified.";
+        issues.unshift({
+          severity: "error",
+          code: error.code,
+          message,
+        });
+      }
+    }
     if (tileset.fingerprint !== draft.tilesetFingerprint.toLowerCase()) {
       issues.unshift({
         severity: "error",
@@ -293,7 +460,7 @@ export class AreaEditingApplicationService {
     }
     const tileById = new Map(tileset.tiles.map((tile) => [tile.tileId, tile]));
     const groupTileIds = new Set(
-      tileset.tiles.filter((tile) => tile.groupId).map((tile) => tile.tileId)
+      tileset.tiles.filter(tileHasGroupMembership).map((tile) => tile.tileId)
     );
     const heights = draft.tiles.map((tile) => tile.height);
     return {
@@ -343,6 +510,31 @@ export class AreaEditingApplicationService {
     }
 
     const exported = await this.exportAre(draft);
+    const gitBytes = serializeEmptyAreaGit();
+    const gicBytes = serializeEmptyAreaGic();
+    const files = [
+      { extension: "are" as const, resourceType: 2012, bytes: exported.bytes },
+      { extension: "git" as const, resourceType: 2023, bytes: gitBytes },
+      { extension: "gic" as const, resourceType: 2046, bytes: gicBytes }
+    ];
+    const profileValidation = this.validateNewAreaResourceSet({
+      are: exported.bytes,
+      git: gitBytes,
+      gic: gicBytes
+    });
+    if (!profileValidation.valid) {
+      throw new AppException({
+        status: 422,
+        code: "AREA_CREATE_CANDIDATE_INVALID",
+        message: "Generated Area resources do not match the admitted native creation profile.",
+        details: profileValidation.diagnostics
+          .filter((diagnostic) => diagnostic.severity === "ERROR")
+          .map((diagnostic) => ({
+            path: diagnostic.path,
+            reason: `${diagnostic.code}: ${diagnostic.message}`
+          }))
+      });
+    }
     const settings = await this.runtimeSettingsRepository.get();
     const objects = await this.listAllSnapshotObjects(settings.blobStorage);
     const collisions = ([".are", ".git", ".gic"] as const).filter((extension) =>
@@ -366,7 +558,7 @@ export class AreaEditingApplicationService {
         message: "The editable module snapshot does not contain a root module.ifo resource."
       });
     }
-    const moduleIfoPayload = await this.moduleBlobStorage.getModuleObject(
+    const moduleIfoPayload = await this.readSnapshotObject(
       settings.blobStorage,
       moduleIfoSource.key
     );
@@ -406,11 +598,6 @@ export class AreaEditingApplicationService {
       });
     }
 
-    const files = [
-      { extension: "are" as const, resourceType: 2012, bytes: exported.bytes },
-      { extension: "git" as const, resourceType: 2023, bytes: serializeEmptyAreaGit() },
-      { extension: "gic" as const, resourceType: 2046, bytes: serializeEmptyAreaGic() }
-    ];
     const stored: AreaEditingPersistenceEnvelope["resources"] = [];
     let storedModuleIfo: ModuleBlobObjectSummary | undefined;
     let moduleIfoWriteAttempted = false;
@@ -436,7 +623,7 @@ export class AreaEditingApplicationService {
       }
       const verificationFailures: string[] = [];
       try {
-        const persistedModuleIfo = await this.moduleBlobStorage.getModuleObject(
+        const persistedModuleIfo = await this.readSnapshotObject(
           settings.blobStorage,
           moduleIfoSource.key
         );
@@ -466,7 +653,7 @@ export class AreaEditingApplicationService {
             );
             continue;
           }
-          const persisted = await this.moduleBlobStorage.getModuleObject(
+          const persisted = await this.readSnapshotObject(
             settings.blobStorage,
             resource.key
           );
@@ -500,7 +687,7 @@ export class AreaEditingApplicationService {
         );
         try {
           const deleted = await this.moduleBlobStorage.deleteModuleObject!(settings.blobStorage, key);
-          const remaining = await this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+          const remaining = await this.readSnapshotObject(settings.blobStorage, key);
           if (remaining) {
             rollbackFailures.push(`delete ${key}: resource still exists after rollback.`);
           } else if (!deleted && stored.some((resource) => resource.key === key)) {
@@ -519,7 +706,7 @@ export class AreaEditingApplicationService {
             resourceType: 2014,
             bytes: moduleIfoPayload.bytes
           });
-          const restored = await this.moduleBlobStorage.getModuleObject(
+          const restored = await this.readSnapshotObject(
             settings.blobStorage,
             moduleIfoSource.key
           );
@@ -560,6 +747,12 @@ export class AreaEditingApplicationService {
     };
   }
 
+  private validateNewAreaResourceSet(
+    resources: AreaCreationResourceSet
+  ): AreaCreationResourceSetValidationResult {
+    return validateAreaCreationResourceSet(resources);
+  }
+
   private async listAllSnapshotObjects(
     settings: BlobStorageSettings
   ): Promise<ModuleBlobObjectSummary[]> {
@@ -596,17 +789,33 @@ export class AreaEditingApplicationService {
   private async loadAllSnapshotObjects(
     settings: BlobStorageSettings
   ): Promise<ModuleBlobObjectSummary[]> {
+    const captured = this.committedSnapshotReader
+      ? await this.committedSnapshotReader.capture()
+      : null;
+    if (captured) {
+      this.capturedSnapshot = captured;
+    }
     const objects: ModuleBlobObjectSummary[] = [];
     let continuationToken: string | undefined;
     do {
-      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 50_000,
-        continuationToken
-      });
+      const page = captured
+        ? await captured.listModuleSnapshot({ limit: 50_000, continuationToken })
+        : await this.moduleBlobStorage.listModuleSnapshot(settings, {
+            limit: 50_000,
+            continuationToken
+          });
       objects.push(...page.objects);
       continuationToken = page.truncated ? page.continuationToken : undefined;
     } while (continuationToken);
     return objects;
+  }
+
+  private async readSnapshotObject(settings: BlobStorageSettings, key: string) {
+    if (this.committedSnapshotReader) {
+      this.capturedSnapshot ??= await this.committedSnapshotReader.capture();
+      return this.capturedSnapshot.getModuleObject(key);
+    }
+    return this.moduleBlobStorage.getModuleObject(settings, key);
   }
 
   private async findSnapshotResource(
@@ -619,6 +828,40 @@ export class AreaEditingApplicationService {
     return objects
       .filter((object) => toResourceResRef(object.key, extension) === normalizedResRef)
       .sort((left, right) => left.key.localeCompare(right.key))[0];
+  }
+
+  /**
+   * Aurora resolves a resource name against Mod_HakList in reverse list order:
+   * the later HAK is the override.  A lexical HAK directory sort picked
+   * cep3_tiles/tni01.set before q_tilesets/tni01.set here, even though this
+   * module's actual City Interior Area uses Tile_ID 607 from q_tilesets.
+   */
+  private async resolveTilesetHakSourcePriority(
+    settings: RuntimeSettingsRecord,
+    objects: readonly ModuleBlobObjectSummary[]
+  ): Promise<ReadonlyMap<string, number>> {
+    const sourceSettings = settings.sources?.tile;
+    // Older persisted settings and narrow unit fixtures predate per-asset
+    // source policies. Preserve the previous deterministic fallback there.
+    if (!sourceSettings) {
+      return new Map();
+    }
+    if (!sourceSettings.includeHaks) {
+      return new Map();
+    }
+    const inlinePriority = sourceSettings.hakPriorityList;
+    if (inlinePriority.length > 0) {
+      return buildAuroraHakSourcePriority(inlinePriority);
+    }
+    const moduleIfo = findWritableModuleIfo(objects);
+    if (moduleIfo) {
+      const payload = await this.readSnapshotObject(settings.blobStorage, moduleIfo.key);
+      const hakList = payload ? extractModuleIfoHakList(payload.bytes) : [];
+      if (hakList.length > 0) {
+        return buildAuroraHakSourcePriority(hakList);
+      }
+    }
+    return buildAuroraHakSourcePriority(settings.hakProfiles[sourceSettings.hakProfileId] ?? []);
   }
 }
 
@@ -633,11 +876,6 @@ function validateDraft(
   const validTileIds = new Set(tileset.tiles.map((tile) => tile.tileId));
   const cells = new Set<string>();
   const sourceCells = new Set<string>();
-  const groupIdByTileId = new Map(
-    tileset.tiles
-      .filter((tile) => tile.groupId)
-      .map((tile) => [tile.tileId, tile.groupId as string])
-  );
   for (const tile of draft.tiles) {
     if (tile.row >= draft.height || tile.col >= draft.width) {
       throw invalidTopology(`Tile (${tile.row},${tile.col}) falls outside the declared Area dimensions.`);
@@ -662,7 +900,7 @@ function validateDraft(
     }
   }
   for (const group of tileset.groups) {
-    validateGroupInstances(draft, tileset, group, groupIdByTileId);
+    validateGroupInstances(draft, tileset, group);
   }
 }
 
@@ -670,11 +908,15 @@ function analyzeDraft(
   draft: AreaEditingExportDraftRequest,
   tileset: AuroraTilesetEditingDefinition
 ): AreaEditingVerificationIssue[] {
-  const issues: AreaEditingVerificationIssue[] = tileset.diagnostics.map((diagnostic) => ({
-    severity: diagnostic.severity,
-    code: `SET_${diagnostic.code}`,
-    message: `${diagnostic.section}: ${diagnostic.message}`
-  }));
+  const issues: AreaEditingVerificationIssue[] = tileset.diagnostics.flatMap((diagnostic) =>
+    diagnostic.severity === "info"
+      ? []
+      : [{
+          severity: diagnostic.severity,
+          code: `SET_${diagnostic.code}`,
+          message: `${diagnostic.section}: ${diagnostic.message}`
+        }]
+  );
   const expectedCount = draft.width * draft.height;
   if (draft.tiles.length !== expectedCount) {
     issues.push({
@@ -754,12 +996,9 @@ function analyzeDraft(
     }
   }
 
-  const groupIdByTileId = new Map(
-    tileset.tiles.filter((tile) => tile.groupId).map((tile) => [tile.tileId, tile.groupId as string])
-  );
   for (const group of tileset.groups) {
     try {
-      validateGroupInstances(draft, tileset, group, groupIdByTileId);
+      validateGroupInstances(draft, tileset, group);
     } catch (error) {
       issues.push({
         severity: "error",
@@ -771,36 +1010,6 @@ function analyzeDraft(
   return issues;
 }
 
-function serializeEmptyAreaGit(): Buffer {
-  const labels = [
-    "Placeable List",
-    "Door List",
-    "Creature List",
-    "Encounter List",
-    "ItemList",
-    "SoundList",
-    "StoreList",
-    "TriggerList",
-    "WaypointList"
-  ];
-  return buildGffBuffer(
-    [
-      ...labels.map((label) => ({ label, type: "list" as const, value: [] })),
-      {
-        label: "AreaProperties",
-        type: "struct" as const,
-        value: { typeId: 0, fields: [] }
-      }
-    ],
-    "GIT ",
-    0xffffffff
-  );
-}
-
-function serializeEmptyAreaGic(): Buffer {
-  return buildGffBuffer([], "GIC ", 0xffffffff);
-}
-
 /**
  * Aurora does not serialize a group-instance field in an ARE.  Membership is
  * reconstructed from the SET's ordered group members, their cell positions,
@@ -810,40 +1019,45 @@ function serializeEmptyAreaGic(): Buffer {
 function validateGroupInstances(
   draft: AreaEditingExportDraftRequest,
   tileset: AuroraTilesetEditingDefinition,
-  group: AuroraTilesetEditingDefinition["groups"][number],
-  groupIdByTileId: ReadonlyMap<number, string>
+  group: AuroraTilesetEditingDefinition["groups"][number]
 ): void {
-  const groupTiles = draft.tiles.filter((tile) => groupIdByTileId.get(tile.tileId) === group.id);
+  const tilesetTileById = new Map(tileset.tiles.map((tile) => [tile.tileId, tile]));
+  const groupTiles = draft.tiles.filter((tile) =>
+    tileBelongsToGroup(tilesetTileById.get(tile.tileId), group.id)
+  );
   if (groupTiles.length === 0) {
     return;
   }
-  if (groupTiles.length % group.tileIds.length !== 0) {
+  const memberCount = group.tileIds.filter((tileId): tileId is number => tileId !== null).length;
+  if (memberCount === 0 || groupTiles.length % memberCount !== 0) {
     throw invalidTopology(`Tiles from ${group.name} do not form complete group instances.`);
   }
 
   const tileByCell = new Map(draft.tiles.map((tile) => [`${tile.row}:${tile.col}`, tile]));
-  const tilesetTileById = new Map(tileset.tiles.map((tile) => [tile.tileId, tile]));
   const matchedCells = new Set<string>();
 
   for (let row = 0; row < draft.height; row += 1) {
     for (let col = 0; col < draft.width; col += 1) {
       for (const orientation of [0, 1, 2, 3] as const) {
-        const cells = group.tileIds.map((_tileId, index) => {
+        const cells = group.tileIds.flatMap((tileId, index) => {
+          if (tileId === null) {
+            return [];
+          }
           const sourceRow = Math.floor(index / group.columns);
           const sourceCol = index % group.columns;
           const rotated = rotateGroupCell(sourceRow, sourceCol, group.columns, group.rows, orientation);
-          return { row: row + rotated.row, col: col + rotated.col };
+          return [{ row: row + rotated.row, col: col + rotated.col, tileId }];
         });
         if (cells.some((cell) => cell.row < 0 || cell.col < 0 || cell.row >= draft.height || cell.col >= draft.width)) {
           continue;
         }
-        const matches = cells.every((cell, index) => {
-          const expectedTileId = group.tileIds[index];
+        const matches = cells.every((cell) => {
+          const expectedTileId = cell.tileId;
           const expectedTile = tilesetTileById.get(expectedTileId);
           const actualTile = tileByCell.get(`${cell.row}:${cell.col}`);
           return (
             actualTile?.tileId === expectedTileId &&
-            groupIdByTileId.get(actualTile.tileId) === group.id &&
+            tileBelongsToGroup(tilesetTileById.get(actualTile.tileId), group.id) &&
             actualTile.orientation === normalizeOrientation((expectedTile?.orientation ?? 0) + orientation)
           );
         });
@@ -857,6 +1071,19 @@ function validateGroupInstances(
   if (groupTiles.some((tile) => !matchedCells.has(`${tile.row}:${tile.col}`))) {
     throw invalidTopology(`Tiles from ${group.name} do not form complete positioned group instances.`);
   }
+}
+
+function tileHasGroupMembership(
+  tile: { groupId?: string; groupIds?: readonly string[] } | undefined
+): boolean {
+  return Boolean(tile?.groupId || tile?.groupIds?.length);
+}
+
+function tileBelongsToGroup(
+  tile: { groupId?: string; groupIds?: readonly string[] } | undefined,
+  groupId: string
+): boolean {
+  return tile?.groupId === groupId || tile?.groupIds?.includes(groupId) === true;
 }
 
 function rotateGroupCell(
@@ -886,9 +1113,12 @@ function toResRef(key: string): string {
 
 function compareTilesetSources(
   left: ModuleBlobObjectSummary,
-  right: ModuleBlobObjectSummary
+  right: ModuleBlobObjectSummary,
+  hakSourcePriority: ReadonlyMap<string, number> = new Map()
 ): number {
-  const priorityDelta = resolveTilesetSourcePriority(left.key) - resolveTilesetSourcePriority(right.key);
+  const priorityDelta =
+    resolveTilesetSourcePriority(left.key, hakSourcePriority) -
+    resolveTilesetSourcePriority(right.key, hakSourcePriority);
   if (priorityDelta !== 0) {
     return priorityDelta;
   }
@@ -896,12 +1126,87 @@ function compareTilesetSources(
   return depthDelta || left.key.localeCompare(right.key);
 }
 
-function resolveTilesetSourcePriority(key: string): number {
+/**
+ * The Area Wizard enumerates all resource-layer variants of a SET. A module
+ * override can omit presentation metadata, so resolve its picker label from
+ * the first layer that supplies Aurora's localized or unlocalized label while
+ * retaining the normal highest-priority source for the actual SET definition.
+ */
+function resolveAuroraTilesetDisplayName(
+  definitions: ReadonlyArray<AuroraTilesetPresentation | undefined>,
+  talkTableNames: ReadonlyMap<number, string>,
+  fallback: string
+): { value: string; displayNameStrRef?: number } {
+  for (const definition of definitions) {
+    const strRef = definition?.displayNameStrRef;
+    const localized = strRef === undefined ? undefined : talkTableNames.get(strRef);
+    if (localized) {
+      return { value: localized, displayNameStrRef: strRef };
+    }
+  }
+  for (const definition of definitions) {
+    if (definition?.unlocalizedName) {
+      return { value: definition.unlocalizedName };
+    }
+  }
+  for (const definition of definitions) {
+    if (definition?.name) {
+      return { value: definition.name };
+    }
+  }
+  return { value: fallback };
+}
+
+async function mapWithConcurrency<T, R>(
+  entries: readonly T[],
+  concurrency: number,
+  mapper: (entry: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(entries.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(concurrency, 1), entries.length) }, async () => {
+    while (nextIndex < entries.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(entries[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function resolveTilesetSourcePriority(key: string, hakSourcePriority: ReadonlyMap<string, number>): number {
   const normalized = key.replace(/\\/gu, "/").toLowerCase();
   if (!normalized.includes("/__aurora/sources/")) return 0;
-  if (normalized.includes("/__aurora/sources/hak/")) return 1;
-  if (normalized.includes("/__aurora/sources/vanilla/")) return 2;
-  return 3;
+  const hakName = extractHakSourceName(key);
+  if (hakName) {
+    return hakSourcePriority.get(hakName) ?? 10_000;
+  }
+  if (normalized.includes("/__aurora/sources/vanilla/")) return 20_000;
+  return 30_000;
+}
+
+function buildAuroraHakSourcePriority(hakList: readonly string[]): ReadonlyMap<string, number> {
+  const priority = new Map<string, number>();
+  let nextPriority = 100;
+  for (let index = hakList.length - 1; index >= 0; index -= 1) {
+    const hakName = normalizeHakSourceName(hakList[index] ?? "");
+    if (hakName && !priority.has(hakName)) {
+      priority.set(hakName, nextPriority);
+      nextPriority += 1;
+    }
+  }
+  return priority;
+}
+
+function extractHakSourceName(key: string): string | undefined {
+  const match = /\/__aurora\/sources\/hak\/([^/]+)\//iu.exec(key.replace(/\\/gu, "/"));
+  return match?.[1] ? normalizeHakSourceName(match[1]) : undefined;
+}
+
+function normalizeHakSourceName(value: string): string {
+  const fileName = value.replace(/\\/gu, "/").split("/").pop()?.trim().toLowerCase() ?? "";
+  return fileName.endsWith(".hak") ? fileName.slice(0, -4) : fileName;
 }
 
 function toResourceResRef(key: string, extension: string): string {
@@ -951,6 +1256,75 @@ function normalizeResRef(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_]/gu, "").slice(0, 16);
 }
 
+const AURORA_CUSTOM_TLK_STRREF_BASE = 0x01000000;
+const AURORA_TLK_HEADER_SIZE = 20;
+const AURORA_TLK_ENTRY_SIZE = 40;
+
+/**
+ * Aurora's New Area dialog resolves SET [GENERAL].DisplayName through the
+ * configured base/custom talk tables. Keep the fallback to [GENERAL].Name so
+ * custom content remains usable when its custom TLK is not installed.
+ */
+async function readAuroraTalkTableStrings(
+  paths: RuntimePathSettings | undefined,
+  strRefs: readonly number[]
+): Promise<Map<number, string>> {
+  const unique = Array.from(new Set(strRefs.filter(isAuroraTalkTableStrRef)));
+  const base = unique
+    .filter((strRef) => strRef < AURORA_CUSTOM_TLK_STRREF_BASE)
+    .map((strRef) => ({ strRef, index: strRef }));
+  const custom = unique
+    .filter((strRef) => strRef >= AURORA_CUSTOM_TLK_STRREF_BASE)
+    .map((strRef) => ({ strRef, index: strRef - AURORA_CUSTOM_TLK_STRREF_BASE }));
+  const [baseNames, customNames] = await Promise.all([
+    readAuroraTalkTableFile(paths?.tlkBasePath, base),
+    readAuroraTalkTableFile(paths?.tlkCustomPath, custom)
+  ]);
+  return new Map([...baseNames, ...customNames]);
+}
+
+async function readAuroraTalkTableFile(
+  filePath: string | undefined,
+  requests: ReadonlyArray<{ strRef: number; index: number }>
+): Promise<Map<number, string>> {
+  const resolved = new Map<number, string>();
+  const path = filePath?.trim();
+  if (!path || requests.length === 0) return resolved;
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(path);
+  } catch {
+    return resolved;
+  }
+  if (!isAuroraTalkTableRangeReadable(bytes, 0, AURORA_TLK_HEADER_SIZE)) return resolved;
+  if (bytes.subarray(0, 8).toString("ascii") !== "TLK V3.0") return resolved;
+  const stringCount = bytes.readUInt32LE(12);
+  const stringDataOffset = bytes.readUInt32LE(16);
+  for (const request of requests) {
+    if (request.index < 0 || request.index >= stringCount) continue;
+    const entryOffset = AURORA_TLK_HEADER_SIZE + request.index * AURORA_TLK_ENTRY_SIZE;
+    if (!isAuroraTalkTableRangeReadable(bytes, entryOffset, AURORA_TLK_ENTRY_SIZE)) continue;
+    const textOffset = bytes.readUInt32LE(entryOffset + 28);
+    const textSize = bytes.readUInt32LE(entryOffset + 32);
+    const textStart = stringDataOffset + textOffset;
+    if (!isAuroraTalkTableRangeReadable(bytes, textStart, textSize)) continue;
+    const text = bytes.subarray(textStart, textStart + textSize).toString("latin1").replace(/\0/gu, "").trim();
+    if (text) resolved.set(request.strRef, text);
+  }
+  return resolved;
+}
+
+function isAuroraTalkTableStrRef(value: number | undefined): value is number {
+  if (typeof value !== "number") return false;
+  return Number.isInteger(value) && value >= 0 && value !== 0xffffffff;
+}
+
+function isAuroraTalkTableRangeReadable(bytes: Buffer, offset: number, length: number): boolean {
+  return Number.isInteger(offset) && Number.isInteger(length) && offset >= 0 && length >= 0
+    ? offset + length <= bytes.length
+    : false;
+}
+
 function stableJson(value: unknown): string {
   return JSON.stringify(value, (_key, entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
@@ -976,6 +1350,7 @@ export const __areaEditingApplicationServiceInternals = {
   serializeEmptyAreaGit,
   serializeEmptyAreaGic,
   compareTilesetSources,
+  buildAuroraHakSourcePriority,
   resolveTilesetSourcePriority,
   findWritableModuleIfo,
   relativeSnapshotFileName,

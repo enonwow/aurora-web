@@ -98,7 +98,6 @@ export interface SerializableCreatureBlueprint extends SerializableCreatureInven
   bodyPartLShoul?: number;
   bodyPartRHand?: number;
   bodyPartLHand?: number;
-  bodyPartRobe?: number;
   colorSkin?: number;
   colorHair?: number;
   colorTattoo1?: number;
@@ -247,7 +246,7 @@ function buildCreatureBlueprintFields(
   pushByte(fields, "Appearance_Head", input.appearanceHead);
   pushCreatureAppearanceFields(fields, input);
 
-  pushByte(fields, "WalkRate", input.walkRate);
+  pushInt(fields, "WalkRate", input.walkRate);
   pushWord(fields, "FactionID", input.factionId);
   pushFloat(fields, "ChallengeRating", input.challengeRating);
   pushInt(fields, "CRAdjust", input.crAdjust);
@@ -288,6 +287,15 @@ function buildCreatureBlueprintFields(
   pushCreatureListFields(fields, input);
   pushCreatureVariableList(fields, input.variableListEntries);
 
+  fields.push(...buildCreatureInventoryListFields(input));
+
+  return fields;
+}
+
+export function buildCreatureInventoryListFields(
+  input: SerializableCreatureInventoryBlueprint
+): SupportedGffField[] {
+  const fields: SupportedGffField[] = [];
   const inventoryEntries = (input.inventoryItemListEntries ?? [])
     .map(buildInventoryItemFields)
     .filter((entry) => entry.fields.length > 0);
@@ -301,7 +309,6 @@ function buildCreatureBlueprintFields(
   if (equippedEntries.length > 0) {
     fields.push({ label: "Equip_ItemList", type: "list", value: equippedEntries });
   }
-
   return fields;
 }
 
@@ -327,7 +334,6 @@ function pushCreatureAppearanceFields(
   pushByte(fields, "BodyPart_LShoul", input.bodyPartLShoul);
   pushByte(fields, "BodyPart_RHand", input.bodyPartRHand);
   pushByte(fields, "BodyPart_LHand", input.bodyPartLHand);
-  pushByte(fields, "BodyPart_Robe", input.bodyPartRobe);
   pushByte(fields, "Color_Skin", input.colorSkin);
   pushByte(fields, "Color_Hair", input.colorHair);
   pushByte(fields, "Color_Tattoo1", input.colorTattoo1);
@@ -338,8 +344,8 @@ function pushCreatureAppearanceFields(
   pushByte(fields, "Cloth2Color", input.cloth2Color);
   pushByte(fields, "Metal1Color", input.metal1Color);
   pushByte(fields, "Metal2Color", input.metal2Color);
-  pushByte(fields, "Wings_New", input.wingsNew);
-  pushByte(fields, "Tail_New", input.tailNew);
+  pushDword(fields, "Wings_New", input.wingsNew);
+  pushDword(fields, "Tail_New", input.tailNew);
 }
 
 function pushCreatureScriptFields(

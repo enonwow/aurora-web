@@ -3,6 +3,11 @@ import {
   runtimeSettingsPayloadSchema,
   type RuntimeSettingsPayloadDto
 } from "../../../domain/runtime-settings.schema";
+import type { RuntimePathOnboardingInput } from "../../../application/runtime-settings.application.service";
+import {
+  RUNTIME_PATH_BROWSER_SCOPES,
+  type RuntimePathBrowserQuery
+} from "../../../application/runtime-path-browser.application.service";
 import { z } from "zod";
 
 export const TEXTURE_INDEX_QUERY_DEFAULT_LIMIT = 100;
@@ -94,6 +99,85 @@ const placeableModelSourceSyncBodySchema = z
     appearanceTypes: normalizeAppearanceTypes(input.appearanceTypes),
     modelResRefs: normalizeModelResRefs(input.modelResRefs)
   }));
+
+const runtimePathOnboardingSchema = z.object({
+  nwnUserDir: z.string().trim().min(1),
+  nwnInstallDir: z.string().trim().min(1),
+  auroraReferenceDir: z.string().trim().default(""),
+  hakDirectories: z.array(z.string().trim().min(1)).default([]),
+  itemGeneratorSourceDirectories: z.array(z.string().trim().min(1)).default([]),
+  moduleDecompiledPath: z.string().trim().default(""),
+  modulePackedPath: z.string().trim().default(""),
+  tlkCustomPath: z.string().trim().optional(),
+  confirmGlobalLogout: z.boolean().default(false)
+});
+
+const runtimePathBrowserQuerySchema = z.object({
+  scope: z.enum(RUNTIME_PATH_BROWSER_SCOPES),
+  path: z.string().trim().default("")
+});
+
+const cacheRebuildRequestSchema = z.object({
+  confirmGlobalLogout: z.literal(true)
+});
+
+export function parseRuntimePathOnboardingRequest(
+  input: unknown
+): RuntimePathOnboardingInput & { confirmGlobalLogout: boolean } {
+  const parsed = runtimePathOnboardingSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Runtime path onboarding validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseRuntimePathBrowserQuery(
+  input: unknown
+): RuntimePathBrowserQuery {
+  const parsed = runtimePathBrowserQuerySchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  throw new AppException({
+    status: 422,
+    code: "VALIDATION_FAILED",
+    message: "Runtime path browser query validation failed.",
+    details: parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      reason: issue.message
+    }))
+  });
+}
+
+export function parseCacheRebuildRequest(input: unknown): {
+  confirmGlobalLogout: true;
+} {
+  const parsed = cacheRebuildRequestSchema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new AppException({
+    status: 422,
+    code: "CACHE_REBUILD_CONFIRMATION_REQUIRED",
+    message: "Confirm global logout before starting a runtime cache rebuild.",
+    details: [
+      {
+        path: "confirmGlobalLogout",
+        reason: "Set confirmGlobalLogout to true."
+      }
+    ]
+  });
+}
 
 export function parseReplaceRuntimeSettingsRequest(
   input: unknown

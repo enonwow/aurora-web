@@ -8,6 +8,13 @@ export function buildDefaultRuntimeSettings(
     updatedAt: nowIso,
     updatedBy: "system.bootstrap",
     paths: {
+      nwnUserDir: "C:/Users/enonw/Documents/Neverwinter Nights",
+      nwnInstallDir: "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights",
+      auroraReferenceDir: "C:/Projects/New Folder",
+      hakDirectories: ["C:/Users/enonw/Documents/Neverwinter Nights/hak"],
+      itemGeneratorSourceDirectories: [
+        "C:/Projects/New Folder/item-retail-extract/utg"
+      ],
       vanillaDataPath: "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/data",
       hakDirectoryPath: "C:/Users/enonw/Documents/Neverwinter Nights/hak",
       moduleDecompiledPath: "C:/Users/enonw/Documents/Neverwinter Nights/LC-Decompiled/temp0",
@@ -37,7 +44,10 @@ export function buildDefaultRuntimeSettings(
         "cep3_core0.hak",
         "nwic_placeables.hak"
       ],
-      lc_tiles: ["medieval.hak", "+sic11.hak"],
+      // CEP tilesets (for example atj02 -> atj01_*) resolve their MDL assets
+      // from this archive. Keep it in the default profile so a new local
+      // runtime has the same source layer as the Area tileset catalog.
+      lc_tiles: ["medieval.hak", "+sic11.hak", "cep3_tiles.hak"],
       lc_audio: ["lc_music.hak", "lc_sounds.hak", "npc_sounds.hak"],
       lc_vfx: ["lc_2da.hak", "lc_vfx.hak", "cep3_vfx.hak"],
       lc_items: [

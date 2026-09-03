@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AppConfigService } from "../../common/config/app-config.service";
 import { RuntimeSettingsModule } from "../runtime-settings/runtime-settings.module";
+import { ModuleSnapshotsModule } from "../module-snapshots/module-snapshots.module";
 import { TilesController } from "./adapters/inbound/http/tiles.controller";
 import { ModuleSnapshotTileRepository } from "./adapters/outbound/blob/module-snapshot-tile.repository";
 import { S3TileProcessingCacheRepository } from "./adapters/outbound/blob/s3-tile-processing-cache.repository";
@@ -12,7 +13,7 @@ import { TILE_PROCESSING_CACHE } from "./application/ports/tile-processing-cache
 import { TILE_REPOSITORY } from "./application/ports/tile-repository.port";
 
 @Module({
-  imports: [RuntimeSettingsModule],
+  imports: [RuntimeSettingsModule, ModuleSnapshotsModule],
   controllers: [TilesController],
   providers: [
     TilesApplicationService,

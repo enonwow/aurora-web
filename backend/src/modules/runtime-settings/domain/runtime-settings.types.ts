@@ -1,6 +1,28 @@
 export type TelemetryDebugMode = "off" | "basic" | "full";
 
+export interface RuntimeHostPathSettings {
+  nwnUserDir: string;
+  nwnInstallDir: string;
+  auroraReferenceDir: string;
+  hakDirectories: string[];
+  itemGeneratorSourceDirectories: string[];
+  moduleDecompiledPath: string;
+  modulePackedPath: string;
+  tlkCustomPath?: string;
+}
+
 export interface RuntimePathSettings {
+  /**
+   * Environment roots selected during the runtime-path onboarding flow.
+   * The legacy explicit paths below remain the effective paths used by the
+   * resource readers, which keeps existing settings files and fallbacks valid.
+   */
+  hostPaths?: RuntimeHostPathSettings;
+  nwnUserDir?: string;
+  nwnInstallDir?: string;
+  auroraReferenceDir?: string;
+  hakDirectories?: string[];
+  itemGeneratorSourceDirectories?: string[];
   vanillaDataPath: string;
   hakDirectoryPath: string;
   moduleDecompiledPath: string;

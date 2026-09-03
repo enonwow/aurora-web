@@ -12,6 +12,11 @@ import {
   buildAreaItemPlacementFields,
   type SerializableAreaItemPlacement
 } from "./aurora-gff-area-item-writer";
+import {
+  buildCreatureInventoryListFields,
+  type SerializableCreatureEquippedItemEntry,
+  type SerializableCreatureInventoryItemEntry
+} from "../../../../catalog/adapters/outbound/blob/aurora-gff-utc-writer";
 
 const ARE_FILE_TYPE = "ARE ";
 const GIT_FILE_TYPE = "GIT ";
@@ -43,7 +48,9 @@ export function serializeAreaToGitGff(area: AreaRecord): Buffer {
         fields:
           object.kind === "item"
             ? buildItemPlacementFields(object)
-            : buildGenericPlacementFields(object)
+            : object.kind === "creature"
+              ? buildCreaturePlacementFields(object)
+              : buildGenericPlacementFields(object)
       }))
   }));
 
@@ -107,6 +114,44 @@ function buildItemPlacementFields(object: AreaObjectPlacement): SupportedGffFiel
     itemMetadata: object.itemMetadata
   };
   return buildAreaItemPlacementFields(item);
+}
+
+function buildCreaturePlacementFields(object: AreaObjectPlacement): SupportedGffField[] {
+  const fields = buildGenericPlacementFields(object);
+  fields.push(
+    ...buildCreatureInventoryListFields({
+      inventoryItemListEntries: readCreatureItemEntries<SerializableCreatureInventoryItemEntry>(
+        object,
+        "inventoryItemListEntries"
+      ),
+      equipItemListEntries: readCreatureItemEntries<SerializableCreatureEquippedItemEntry>(
+        object,
+        "equipItemListEntries"
+      )
+    })
+  );
+  return fields;
+}
+
+function readCreatureItemEntries<T>(object: AreaObjectPlacement, key: string): T[] | undefined {
+  const serialized = object.creatureMetadata?.[key];
+  if (typeof serialized !== "string" || serialized.trim().length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(serialized);
+    return Array.isArray(parsed)
+      ? (parsed.filter(
+          (entry) =>
+            entry !== null &&
+            typeof entry === "object" &&
+            typeof (entry as { resRef?: unknown }).resRef === "string" &&
+            (entry as { resRef: string }).resRef.trim().length > 0
+        ) as T[])
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildTileFields(tile: AreaTileInstance): SupportedGffField[] {

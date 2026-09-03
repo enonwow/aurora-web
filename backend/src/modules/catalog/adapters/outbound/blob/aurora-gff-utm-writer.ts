@@ -30,7 +30,11 @@ export interface SerializableStoreBlueprint {
   markDown?: number;
   blackMarket?: boolean;
   bmMarkDown?: number;
+  identifyPrice?: number;
+  maxBuyPrice?: number;
+  storeGold?: number;
   onOpenStore?: string;
+  onStoreClosed?: string;
   storeId?: number;
   storeListEntries?: SerializableStoreListBucket[];
   willNotBuyBaseItems?: number[];
@@ -41,6 +45,7 @@ export interface SerializableStoreBlueprint {
 const UTM_FILE_TYPE = "UTM ";
 const ROOT_STRUCT_TYPE_ID = 0xffffffff;
 const STORE_BUCKET_COUNT = 5;
+const STORE_BUCKET_TYPE_IDS = Object.freeze([0, 4, 2, 3, 1] as const);
 const STORE_ITEM_STRUCT_TYPE_ID = 0;
 const STORE_RESTRICTED_BASE_ITEM_STRUCT_TYPE_ID = 0;
 
@@ -58,32 +63,38 @@ function buildStoreBlueprintFields(input: SerializableStoreBlueprint): Supported
   pushResRef(fields, "ResRef", input.resRef);
   pushLocString(fields, "LocName", input.localizedName, input.localizedNameStrRef);
   pushCExoString(fields, "Tag", input.tag);
-  pushCExoString(fields, "Comment", input.comments);
-  pushDword(fields, "MarkUp", input.markUp);
-  pushDword(fields, "MarkDown", input.markDown);
-  pushByte(fields, "BlackMarket", booleanToByte(input.blackMarket));
-  pushDword(fields, "BM_MarkDown", input.bmMarkDown);
-  pushResRef(fields, "OnOpenStore", input.onOpenStore);
-  pushDword(fields, "ID", input.storeId);
+  pushInt(fields, "MarkUp", input.markUp ?? 0);
+  pushInt(fields, "MarkDown", input.markDown ?? 0);
+  pushByte(fields, "BlackMarket", booleanToByte(input.blackMarket ?? false));
+  pushInt(fields, "BM_MarkDown", input.bmMarkDown ?? 0);
+  pushInt(fields, "IdentifyPrice", input.identifyPrice ?? 100);
+  pushInt(fields, "MaxBuyPrice", input.maxBuyPrice ?? -1);
+  pushInt(fields, "StoreGold", input.storeGold ?? -1);
+  pushResRef(fields, "OnOpenStore", input.onOpenStore ?? "", true);
+  pushResRef(fields, "OnStoreClosed", input.onStoreClosed ?? "", true);
+
+  fields.push({
+    label: "WillNotBuy",
+    type: "list",
+    value: buildRestrictedBaseItemEntries(input.willNotBuyBaseItems)
+  });
+  fields.push({
+    label: "WillOnlyBuy",
+    type: "list",
+    value: buildRestrictedBaseItemEntries(input.willOnlyBuyBaseItems)
+  });
 
   fields.push({
     label: "StoreList",
     type: "list",
     value: normalizeStoreBuckets(input.storeListEntries).map((bucket, index) => ({
-      typeId: normalizeUInt32(bucket.bucketTypeId ?? index),
+      typeId: normalizeUInt32(bucket.bucketTypeId ?? STORE_BUCKET_TYPE_IDS[index]!),
       fields: buildStoreBucketFields(bucket)
     }))
   });
 
-  const willNotBuy = buildRestrictedBaseItemEntries(input.willNotBuyBaseItems);
-  if (willNotBuy.length > 0) {
-    fields.push({ label: "WillNotBuy", type: "list", value: willNotBuy });
-  }
-
-  const willOnlyBuy = buildRestrictedBaseItemEntries(input.willOnlyBuyBaseItems);
-  if (willOnlyBuy.length > 0) {
-    fields.push({ label: "WillOnlyBuy", type: "list", value: willOnlyBuy });
-  }
+  pushByte(fields, "ID", input.storeId ?? 0xff);
+  pushCExoString(fields, "Comment", input.comments ?? "", true);
 
   return fields;
 }
@@ -147,17 +158,33 @@ function pushDword(fields: SupportedGffField[], label: string, value: unknown): 
   }
 }
 
-function pushCExoString(fields: SupportedGffField[], label: string, value: unknown): void {
-  const normalized = normalizeString(value);
-  if (normalized) {
-    fields.push({ label, type: "cexostring", value: normalized });
+function pushInt(fields: SupportedGffField[], label: string, value: unknown): void {
+  if (isFiniteNumber(value)) {
+    fields.push({ label, type: "int", value: normalizeInt32(value) });
   }
 }
 
-function pushResRef(fields: SupportedGffField[], label: string, value: unknown): void {
+function pushCExoString(
+  fields: SupportedGffField[],
+  label: string,
+  value: unknown,
+  retainEmpty = false
+): void {
+  const normalized = normalizeString(value);
+  if (normalized !== undefined || retainEmpty) {
+    fields.push({ label, type: "cexostring", value: normalized ?? "" });
+  }
+}
+
+function pushResRef(
+  fields: SupportedGffField[],
+  label: string,
+  value: unknown,
+  retainEmpty = false
+): void {
   const normalized = normalizeResRef(value);
-  if (normalized) {
-    fields.push({ label, type: "resref", value: normalized });
+  if (normalized !== undefined || retainEmpty) {
+    fields.push({ label, type: "resref", value: normalized ?? "" });
   }
 }
 
@@ -191,6 +218,14 @@ function isFiniteNumber(value: unknown): value is number {
 
 function normalizeUInt32(value: number): number {
   return Math.max(0, Math.min(0xffffffff, Math.trunc(value))) >>> 0;
+}
+
+function normalizeInt32(value: number): number {
+  const normalized = Math.trunc(value);
+  if (!Number.isSafeInteger(normalized) || normalized < -0x8000_0000 || normalized > 0x7fff_ffff) {
+    throw new RangeError("Expected a signed 32-bit Store value.");
+  }
+  return normalized;
 }
 
 function normalizeString(value: unknown): string | undefined {

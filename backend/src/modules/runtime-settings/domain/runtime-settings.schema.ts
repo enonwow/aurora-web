@@ -4,9 +4,27 @@ const nonEmptyPathSchema = z.string().trim().min(1);
 const optionalPathSchema = z.string().trim();
 const optionalConfigValueSchema = z.string().trim();
 const hakPriorityListSchema = z.array(z.string().trim().min(1)).default([]);
+const pathListSchema = z.array(z.string().trim().min(1)).default([]);
+
+const runtimeHostPathSettingsSchema = z.object({
+  nwnUserDir: optionalPathSchema.default(""),
+  nwnInstallDir: optionalPathSchema.default(""),
+  auroraReferenceDir: optionalPathSchema.default(""),
+  hakDirectories: pathListSchema,
+  itemGeneratorSourceDirectories: pathListSchema,
+  moduleDecompiledPath: optionalPathSchema.default(""),
+  modulePackedPath: optionalPathSchema.default(""),
+  tlkCustomPath: optionalPathSchema.optional()
+});
 
 const runtimePathSettingsSchema = z
   .object({
+    hostPaths: runtimeHostPathSettingsSchema.optional(),
+    nwnUserDir: optionalPathSchema.default(""),
+    nwnInstallDir: optionalPathSchema.default(""),
+    auroraReferenceDir: optionalPathSchema.default(""),
+    hakDirectories: pathListSchema,
+    itemGeneratorSourceDirectories: pathListSchema,
     vanillaDataPath: nonEmptyPathSchema,
     hakDirectoryPath: nonEmptyPathSchema,
     moduleDecompiledPath: optionalPathSchema,

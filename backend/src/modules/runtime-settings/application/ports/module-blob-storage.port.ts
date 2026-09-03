@@ -45,6 +45,7 @@ export interface ModuleBlobSnapshotSummary {
   bucket: string;
   prefix: string;
   moduleHash?: string;
+  manifestFileCount?: number;
   totalFiles: number;
   totalBytes: number;
   objects: ModuleBlobObjectSummary[];
@@ -61,12 +62,18 @@ export interface ModuleBlobObjectPayload {
   bytes: Buffer;
 }
 
+export interface ModuleBlobImmutablePutResult extends ModuleBlobObjectSummary {
+  status: "created" | "already_exists";
+  sha256: string;
+}
+
 export interface ModuleBlobStoragePort {
   replaceModuleSnapshot(
     settings: BlobStorageSettings,
     files: PackedModuleFile[],
     options?: {
       forceFull?: boolean;
+      baselineSettings?: BlobStorageSettings;
     }
   ): Promise<ModuleBlobSyncResult>;
 
@@ -88,5 +95,19 @@ export interface ModuleBlobStoragePort {
     file: PackedModuleFile
   ): Promise<ModuleBlobObjectSummary>;
 
+  putImmutableModuleObject?(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile,
+    expectedSha256: string
+  ): Promise<ModuleBlobImmutablePutResult>;
+
   deleteModuleObject?(settings: BlobStorageSettings, key: string): Promise<boolean>;
+}
+
+export interface ImmutableModuleBlobStoragePort extends ModuleBlobStoragePort {
+  putImmutableModuleObject(
+    settings: BlobStorageSettings,
+    file: PackedModuleFile,
+    expectedSha256: string
+  ): Promise<ModuleBlobImmutablePutResult>;
 }

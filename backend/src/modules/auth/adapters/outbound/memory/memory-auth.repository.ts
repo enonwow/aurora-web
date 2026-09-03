@@ -26,6 +26,10 @@ export class MemoryAuthRepository implements AuthRepositoryPort {
     return this.usersByUsername.get(username) ?? null;
   }
 
+  async findUserById(id: string): Promise<UserRecord | null> {
+    return this.usersById.get(id) ?? null;
+  }
+
   async createSession(session: SessionRecord): Promise<void> {
     this.sessionsByToken.set(session.token, session);
   }
@@ -44,5 +48,11 @@ export class MemoryAuthRepository implements AuthRepositoryPort {
 
   async deleteSession(token: string): Promise<void> {
     this.sessionsByToken.delete(token);
+  }
+
+  async deleteAllSessions(): Promise<number> {
+    const deleted = this.sessionsByToken.size;
+    this.sessionsByToken.clear();
+    return deleted;
   }
 }

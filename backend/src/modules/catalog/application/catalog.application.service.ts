@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute, resolve } from "node:path";
 import { executeInFlight } from "../../../common/async/in-flight.helpers";
@@ -11,6 +12,7 @@ import {
 } from "../../../common/aurora/two-da/aurora-two-da-table";
 import {
   PLACEABLE_PROCESSING_CACHE,
+  type ProcessingCacheEntry,
   type PlaceableProcessingCachePort,
   type PlaceableProcessingResult
 } from "./ports/placeable-processing-cache.port";
@@ -34,6 +36,11 @@ import type {
   RuntimePathSettings,
   RuntimeSettingsRecord
 } from "../../runtime-settings/domain/runtime-settings.types";
+import {
+  COMMITTED_MODULE_SNAPSHOT_READER,
+  type CapturedCommittedModuleSnapshot,
+  type CommittedModuleSnapshotReaderPort
+} from "../../module-snapshots/application/ports/committed-module-snapshot-reader.port";
 import type {
   BenchmarkDurationSummary,
   PlaceableAssetEntry,
@@ -139,6 +146,7 @@ import {
   serializeItemBlueprintToUtiGff,
   type SerializableEmbeddedItemBlueprint
 } from "../adapters/outbound/blob/aurora-gff-uti-writer";
+import type { AuroraVariableTargetEntry } from "../../../common/aurora/variable-table/aurora-variable-table";
 import { serializeStoreBlueprintToUtmGff } from "../adapters/outbound/blob/aurora-gff-utm-writer";
 import {
   serializePlaceableBlueprintToUtpGff,
@@ -152,6 +160,77 @@ import {
   parseAuroraMdlVfxSource,
   type AuroraMdlVfxParseOptions
 } from "../../vfx/domain/aurora-mdl-vfx-source.parser";
+import { VfxApplicationService } from "../../vfx/application/vfx.application.service";
+import type { VfxProcessCommand } from "../../vfx/application/vfx-processing.types";
+import { placeableVfxRuntimePackaging } from "./catalog-vfx-runtime-packaging";
+import {
+  buildAuroraShaderProgramSourceBundle,
+  extractAuroraShaderIncludeRefs,
+  type AuroraShaderSourceRecord
+} from "../../vfx/domain/aurora-shader-source-graph";
+
+export const selectCanonicalRuntimeSourceEmitters =
+  placeableVfxRuntimePackaging.selectRuntimeSourceEmitters;
+
+export function compactPlaceableRenderPackageForViewportBatch(
+  renderPackage: PlaceableRenderPackage | undefined,
+  cacheKey: string
+): PlaceableRenderPackage | undefined {
+  if (!renderPackage || !isRecord(renderPackage.auroraVfxPayload)) {
+    return renderPackage;
+  }
+  const contracts = renderPackage.auroraVfxPayload.contracts;
+  if (!isRecord(contracts) || !Array.isArray(contracts.runtimeEmitters)) {
+    return renderPackage;
+  }
+  if (contracts.runtimeEmitters.length === 0) {
+    return renderPackage;
+  }
+
+  // Runtime particle snapshots can contain tens of megabytes per model.  They
+  // are retained in the processing cache for single-object VFX inspection;
+  // the Area batch needs the render contract, model, material and compact
+  // emitter metadata, not every precomputed simulation frame.
+  return {
+    ...renderPackage,
+    auroraVfxPayload: {
+      ...renderPackage.auroraVfxPayload,
+      contracts: {
+        ...contracts,
+        runtimeEmitters: [],
+        runtimeEmittersDeferred: true,
+        runtimeEmittersHydration: {
+          version: "aurora-vfx-runtime-emitter-hydration/v1",
+          status: "deferred",
+          source: "placeable-processing-cache",
+          cacheKey,
+          expectedEmitterCount: contracts.runtimeEmitters.length,
+          hydrationPath: `/api/v1/catalog/placeables/cache/${encodeURIComponent(cacheKey)}`
+        }
+      }
+    }
+  };
+}
+
+export function compactPlaceableProcessingResultForCacheAdmission(
+  value: PlaceableProcessingResult,
+  cacheKey: string
+): PlaceableProcessingResult {
+  const renderPackage = compactPlaceableRenderPackageForViewportBatch(
+    value.renderPackage,
+    cacheKey
+  );
+  return renderPackage === value.renderPackage
+    ? value
+    : {
+        ...value,
+        renderPackage
+      };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export interface ProcessingCacheDescriptor {
   key: string;
@@ -236,6 +315,19 @@ export interface ItemBlueprintCreatePropertyEntry {
   chanceAppear?: number;
 }
 
+export type ItemBlueprintCreateVariableEntry = AuroraVariableTargetEntry;
+
+export interface ItemBlueprintCreateInventoryEntry {
+  resRef: string;
+  x: number;
+  y: number;
+}
+
+export interface ItemBlueprintCreateEquipmentEntry {
+  resRef: string;
+  slotMask: number;
+}
+
 export interface ItemBlueprintCreateCommand {
   templateResRef: string;
   name: string;
@@ -253,8 +345,6 @@ export interface ItemBlueprintCreateCommand {
   modelPart3?: number;
   cost?: number;
   addCost?: number;
-  costTable?: number;
-  costValue?: number;
   charges?: number;
   stackSize?: number;
   identified?: boolean;
@@ -265,7 +355,9 @@ export interface ItemBlueprintCreateCommand {
   armorParts?: Partial<Record<ArmorBodyPartSlot, number>>;
   materialColors?: Partial<Record<ItemMaterialColorSlot, number>>;
   propertyList?: ItemBlueprintCreatePropertyEntry[];
-  scripts?: Record<string, string>;
+  variableListEntries?: ItemBlueprintCreateVariableEntry[];
+  inventoryItemListEntries?: ItemBlueprintCreateInventoryEntry[];
+  equipItemListEntries?: ItemBlueprintCreateEquipmentEntry[];
   overwrite: boolean;
 }
 
@@ -339,7 +431,11 @@ export interface StoreBlueprintCreateCommand {
   markDown?: number;
   blackMarket?: boolean;
   bmMarkDown?: number;
+  identifyPrice?: number;
+  maxBuyPrice?: number;
+  storeGold?: number;
   onOpenStore?: string;
+  onStoreClosed?: string;
   storeId?: number;
   storeListEntries?: StoreBlueprintBucketEntry[];
   willNotBuyBaseItems?: number[];
@@ -706,6 +802,8 @@ const ITEM_CLOAK_HIDE_METADATA_KEYS = [
 const ITEM_CLOAK_MODEL_TYPE = "cloak";
 const ITEM_CLOAK_BASE_ITEM = 80;
 const ITEM_CLOAK_DEFAULT_MODEL_ROW = 1;
+const ITEM_BLUEPRINT_REFERENCE_RESREF_PATTERN = /^[a-z0-9_]{1,16}$/u;
+const MAX_ITEM_BLUEPRINT_REFERENCE_BYTES = 1024 * 1024;
 const ITEM_ARMOR_PREVIEW_MODEL_PREFIX_PATTERN = /^p[fm][a-z][0-9]_$/u;
 const ITEM_VISUAL_OVERRIDE_MATERIAL_COLOR_METADATA_KEYS = [
   ["leather1", "leather1Color"],
@@ -927,8 +1025,6 @@ function buildSerializableItemBlueprintFromCreateCommand(
   setOptionalParsedBlueprintValue(blueprint, "modelPart3", command.modelPart3);
   setOptionalParsedBlueprintValue(blueprint, "cost", command.cost);
   setOptionalParsedBlueprintValue(blueprint, "addCost", command.addCost);
-  setOptionalParsedBlueprintValue(blueprint, "costTable", command.costTable);
-  setOptionalParsedBlueprintValue(blueprint, "costValue", command.costValue);
   setOptionalParsedBlueprintValue(blueprint, "charges", command.charges);
   setOptionalParsedBlueprintValue(blueprint, "stackSize", command.stackSize);
   setOptionalParsedBlueprintValue(
@@ -978,36 +1074,24 @@ function buildSerializableItemBlueprintFromCreateCommand(
   if (propertyEntries.length > 0) {
     blueprint.itemPropertyListEntries = propertyEntries;
   }
-  const scripts = normalizeItemBlueprintScripts(command.scripts);
-  if (Object.keys(scripts).length > 0) {
-    blueprint.scripts = scripts;
+  if (command.variableListEntries && command.variableListEntries.length > 0) {
+    blueprint.variableListEntries = command.variableListEntries.map((entry) => ({ ...entry }));
+  }
+  if (command.inventoryItemListEntries && command.inventoryItemListEntries.length > 0) {
+    blueprint.inventoryItemListEntries = command.inventoryItemListEntries.map((entry) => ({
+      resRef: entry.resRef,
+      x: entry.x,
+      y: entry.y,
+    }));
+  }
+  if (command.equipItemListEntries && command.equipItemListEntries.length > 0) {
+    blueprint.equipItemListEntries = command.equipItemListEntries.map((entry) => ({
+      resRef: entry.resRef,
+      slotMask: entry.slotMask,
+    }));
   }
 
   return blueprint;
-}
-
-function normalizeItemBlueprintScripts(scripts: Record<string, string> | undefined): Record<string, string> {
-  if (!scripts) {
-    return {};
-  }
-  const normalized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(scripts)) {
-    const normalizedKey = normalizeItemBlueprintScriptLabel(key);
-    const normalizedValue = value.trim();
-    if (!normalizedKey || !normalizedValue) {
-      continue;
-    }
-    normalized[normalizedKey] = normalizedValue;
-  }
-  return normalized;
-}
-
-function normalizeItemBlueprintScriptLabel(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "oninventorydisturbed") {
-    return "oninvdisturbed";
-  }
-  return normalized;
 }
 
 function applyItemBlueprintPreviewMetadataFromCreateCommand(
@@ -1055,8 +1139,12 @@ function buildSerializableStoreBlueprintFromCreateCommand(
     markDown: command.markDown ?? 100,
     blackMarket: command.blackMarket ?? false,
     bmMarkDown: command.bmMarkDown ?? 100,
+    identifyPrice: command.identifyPrice ?? 100,
+    maxBuyPrice: command.maxBuyPrice ?? -1,
+    storeGold: command.storeGold ?? -1,
     onOpenStore: command.onOpenStore,
-    storeId: command.storeId ?? 0,
+    onStoreClosed: command.onStoreClosed,
+    storeId: command.storeId ?? 0xff,
     storeListEntries: command.storeListEntries,
     willNotBuyBaseItems: command.willNotBuyBaseItems,
     willOnlyBuyBaseItems: command.willOnlyBuyBaseItems,
@@ -1213,6 +1301,14 @@ const ON_DEMAND_MATERIAL_RESOURCE_CANDIDATES: OnDemandResourceCandidate[] = [
     extension: "txi",
     resourceType: NWN_KEY_BIF_RESOURCE_TYPES.TXI,
     vanillaDirectory: "textures"
+  }
+];
+
+const ON_DEMAND_SHADER_RESOURCE_CANDIDATES: OnDemandResourceCandidate[] = [
+  {
+    extension: "shd",
+    resourceType: NWN_KEY_BIF_RESOURCE_TYPES.SHD,
+    vanillaDirectory: "shaders"
   }
 ];
 
@@ -1494,6 +1590,12 @@ const PLACEABLE_MANIFEST_VALIDATION_TTL_MS = 30_000;
 const DEFAULT_TEMPLATE_LOOKUP_CACHE_MAX_ENTRIES = 2_500;
 const DEFAULT_MANIFEST_VALIDATION_CACHE_MAX_ENTRIES = 5_000;
 const DEFAULT_TEMPLATE_LIST_CACHE_MAX_ENTRIES = 256;
+const PLACEABLE_SOURCE_MDL_VFX_SOURCE_TABLE = [
+  "2DA V2.0",
+  "",
+  "Label Type_FD ProgFX_Impact SoundImpact Imp_Impact_Node",
+  "0 PLACEABLE_SOURCE_MDL F 0 **** ****"
+].join("\n");
 const MODULE_BLOB_OBJECT_CACHE_TTL_MS = 10 * 60_000;
 const MODULE_BLOB_OBJECT_CACHE_MAX_BYTES = 512 * 1024 * 1024;
 const MODULE_BLOB_OBJECT_CACHE_MAX_ENTRY_BYTES = 32 * 1024 * 1024;
@@ -1605,6 +1707,7 @@ export class CatalogApplicationService {
   private readonly placeableBatchProcessWaitQueue: Array<() => void> = [];
   private moduleBlobObjectCacheBytes = 0;
   private placeableBatchProcessActiveCount = 0;
+  private committedModuleSnapshotPromise: Promise<CapturedCommittedModuleSnapshot> | null = null;
   private readonly templateLookupCacheMaxEntries: number;
   private readonly manifestValidationCacheMaxEntries: number;
 
@@ -1620,7 +1723,13 @@ export class CatalogApplicationService {
     private readonly moduleBlobStorage?: ModuleBlobStoragePort,
     @Optional()
     @Inject(DERIVED_ASSET_GENERATOR)
-    private readonly derivedAssetGenerator?: DerivedAssetGeneratorPort
+    private readonly derivedAssetGenerator?: DerivedAssetGeneratorPort,
+    @Optional()
+    @Inject(VfxApplicationService)
+    private readonly vfxService?: VfxApplicationService,
+    @Optional()
+    @Inject(COMMITTED_MODULE_SNAPSHOT_READER)
+    private readonly committedModuleSnapshotReader?: CommittedModuleSnapshotReaderPort
   ) {
     const configuredBase =
       this.appConfig?.processingCacheL1CatalogMaxEntries ??
@@ -1646,6 +1755,713 @@ export class CatalogApplicationService {
 
   listPlaceables(query: TemplateListQuery) {
     return this.listTemplatesByKind("placeable", query);
+  }
+
+  private async storePlaceableProcessingResult(
+    cacheKey: string,
+    value: PlaceableProcessingResult
+  ): Promise<{
+    entry: ProcessingCacheEntry<PlaceableProcessingResult>;
+    admissionMode: "full" | "vfx-frames-deferred";
+  }> {
+    const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, value);
+    if (stored.retained !== false) {
+      return { entry: stored, admissionMode: "full" };
+    }
+
+    const compact = compactPlaceableProcessingResultForCacheAdmission(value, cacheKey);
+    const compactStored = await this.placeableCache.set<PlaceableProcessingResult>(
+      cacheKey,
+      compact
+    );
+    if (compactStored.retained === false) {
+      throw new AppException({
+        status: 503,
+        code: "PLACEABLE_CACHE_ADMISSION_FAILED",
+        message: "Placeable processing result could not be retained in cache.",
+        details: [
+          {
+            path: "placeableCache",
+            reason:
+              compact === value
+                ? "full_entry_rejected_without_compactable_vfx_frames"
+                : "compact_entry_rejected"
+          }
+        ]
+      });
+    }
+
+    return { entry: compactStored, admissionMode: "vfx-frames-deferred" };
+  }
+
+  async listPlaceableAppearanceRows(input: {
+    tableSha256: string;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const result = await this.repository.listEffectivePlaceablesTwoDaRows?.({
+      ...(input.query ? { query: input.query } : {}),
+      limit: input.limit,
+      offset: input.offset,
+    });
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "PLACEABLE_APPEARANCE_TABLE_NOT_FOUND",
+        message: "The authoritative placeables.2da row catalog is unavailable.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "PLACEABLE_APPEARANCE_TABLE_STALE",
+        message: "The requested placeables.2da digest is no longer authoritative.",
+        details: [{
+          path: "tableSha256",
+          reason: `Expected ${input.tableSha256}; authoritative digest is ${result.descriptor.sha256}.`,
+        }],
+      });
+    }
+    return {
+      resourceName: "placeables.2da" as const,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
+  async listWaypointAppearanceRows(input: {
+    tableSha256: string;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const result = await this.repository.listEffectiveWaypointTwoDaRows?.({
+      ...(input.query ? { query: input.query } : {}),
+      limit: input.limit,
+      offset: input.offset,
+    });
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "WAYPOINT_APPEARANCE_TABLE_NOT_FOUND",
+        message: "The authoritative waypoint.2da row catalog is unavailable.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "WAYPOINT_APPEARANCE_TABLE_STALE",
+        message: "The requested waypoint.2da digest is no longer authoritative.",
+        details: [{
+          path: "tableSha256",
+          reason: `Expected ${input.tableSha256}; authoritative digest is ${result.descriptor.sha256}.`,
+        }],
+      });
+    }
+    return {
+      resourceName: "waypoint.2da" as const,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
+  async listCreatureAppearanceRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const exactResult = input.rowIndex === undefined
+      ? undefined
+      : await this.repository.resolveEffectiveCreatureAppearanceTwoDaRow?.(input.rowIndex);
+    const result = input.rowIndex === undefined
+      ? await this.repository.listEffectiveCreatureAppearanceTwoDaRows?.({
+          ...(input.query ? { query: input.query } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        })
+      : exactResult
+        ? {
+            descriptor: exactResult.descriptor,
+            items: exactResult.row ? [exactResult.row] : [],
+            total: exactResult.row ? 1 : 0,
+            limit: input.limit,
+            offset: input.offset,
+          }
+        : null;
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_APPEARANCE_TABLE_NOT_FOUND",
+        message: "The authoritative appearance.2da row catalog is unavailable.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_APPEARANCE_TABLE_STALE",
+        message: "The requested appearance.2da digest is no longer authoritative.",
+      });
+    }
+    return {
+      resourceName: "appearance.2da" as const,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
+  async listCreatureGenderRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const exactResult = input.rowIndex === undefined
+      ? undefined
+      : await this.repository.resolveEffectiveCreatureGenderTwoDaRow?.(input.rowIndex);
+    const result = input.rowIndex === undefined
+      ? await this.repository.listEffectiveCreatureGenderTwoDaRows?.({
+          ...(input.query ? { query: input.query } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        })
+      : exactResult
+        ? {
+            descriptor: exactResult.descriptor,
+            items: exactResult.row ? [exactResult.row] : [],
+            total: exactResult.row ? 1 : 0,
+            limit: input.limit,
+            offset: input.offset,
+          }
+        : null;
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_GENDER_TABLE_NOT_FOUND",
+        message: "The authoritative gender.2da row catalog is unavailable.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_GENDER_TABLE_STALE",
+        message: "The requested gender.2da digest is no longer authoritative.",
+      });
+    }
+    return {
+      resourceName: "gender.2da" as const,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
+  async listCreatureAppendageRows(input: {
+    kind: "wings" | "tail";
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const resourceName = input.kind === "wings" ? "wingmodel.2da" : "tailmodel.2da";
+    const exactResult = input.rowIndex === undefined
+      ? undefined
+      : await this.repository.resolveEffectiveCreatureAppendageTwoDaRow?.(
+          resourceName,
+          input.rowIndex,
+        );
+    const result = input.rowIndex === undefined
+      ? await this.repository.listEffectiveCreatureAppendageTwoDaRows?.(
+          resourceName,
+          {
+            ...(input.query ? { query: input.query } : {}),
+            limit: input.limit,
+            offset: input.offset,
+          },
+        )
+      : exactResult
+        ? {
+            descriptor: exactResult.descriptor,
+            items: exactResult.row ? [exactResult.row] : [],
+            total: exactResult.row ? 1 : 0,
+            limit: input.limit,
+            offset: input.offset,
+          }
+        : null;
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_APPENDAGE_TABLE_NOT_FOUND",
+        message: `The authoritative ${resourceName} row catalog is unavailable.`,
+      });
+    }
+    if (result.descriptor.resourceName !== resourceName) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_APPENDAGE_TABLE_MISMATCH",
+        message: "The resolved Creature appendage table has the wrong member identity.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_APPENDAGE_TABLE_STALE",
+        message: `The requested ${resourceName} digest is no longer authoritative.`,
+      });
+    }
+    return {
+      resourceName,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
+  async listCreaturePerceptionRangeRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreaturePerceptionRangesTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_PERCEPTION_RANGE_TABLE_NOT_FOUND",
+        message: "The authoritative ranges.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_PERCEPTION_RANGE_TABLE_STALE",
+        message: "The requested ranges.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) =>
+      input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef)]
+            .some((value) => value.toLowerCase().includes(query)),
+    );
+    return {
+      resourceName: "ranges.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureWalkRateRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureWalkRatesTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_WALK_RATE_TABLE_NOT_FOUND",
+        message: "The authoritative creaturespeed.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_WALK_RATE_TABLE_STALE",
+        message: "The requested creaturespeed.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) =>
+      input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef), row.twoDaName]
+            .some((value) => value.toLowerCase().includes(query)),
+    );
+    return {
+      resourceName: "creaturespeed.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureSoundSetRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureSoundSetsTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_SOUND_SET_TABLE_NOT_FOUND",
+        message: "The authoritative soundset.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_SOUND_SET_TABLE_STALE",
+        message: "The requested soundset.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) =>
+      input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef), row.resRef]
+            .some((value) => value.toLowerCase().includes(query)),
+    );
+    return {
+      resourceName: "soundset.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureStartingPackageRows(input: {
+    tableSha256: string;
+    classIds: number[];
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureStartingPackagesTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_STARTING_PACKAGE_TABLE_NOT_FOUND",
+        message: "The authoritative packages.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_STARTING_PACKAGE_TABLE_STALE",
+        message: "The requested packages.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) =>
+      input.classIds.includes(row.classId) &&
+      (input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef), String(row.classId)]
+            .some((value) => value.toLowerCase().includes(query))),
+    );
+    return {
+      resourceName: "packages.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      classIds: [...input.classIds],
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureClassRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureClassesTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_CLASSES_TABLE_NOT_FOUND",
+        message: "The authoritative classes.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_CLASSES_TABLE_STALE",
+        message: "The requested classes.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) => input.rowIndex !== undefined
+      ? row.rowIndex === input.rowIndex
+      : [row.displayName, String(row.rowIndex), String(row.nameStrRef)]
+          .some((value) => value.toLowerCase().includes(query)));
+    return {
+      resourceName: "classes.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureSkillRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureSkillsTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_SKILLS_TABLE_NOT_FOUND",
+        message: "The authoritative skills.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_SKILLS_TABLE_STALE",
+        message: "The requested skills.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) => row.displaySource === "strref" &&
+      (input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef)]
+            .some((value) => value.toLowerCase().includes(query))));
+    return {
+      resourceName: "skills.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({
+        rowIndex: row.rowIndex,
+        nameStrRef: row.nameStrRef,
+        displayName: row.displayName,
+      })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureFeatRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureFeatsTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_FEATS_TABLE_NOT_FOUND",
+        message: "The authoritative feat.2da row catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_FEATS_TABLE_STALE",
+        message: "The requested feat.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) => row.displaySource === "strref" &&
+      (input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.featNameStrRef)]
+            .some((value) => value.toLowerCase().includes(query))));
+    return {
+      resourceName: "feat.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({
+        rowIndex: row.rowIndex,
+        featNameStrRef: row.featNameStrRef,
+        ...(row.descriptionStrRef === undefined
+          ? {}
+          : { descriptionStrRef: row.descriptionStrRef }),
+        toolsCategory: row.toolsCategory,
+        displayName: row.displayName,
+      })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreatureSpecialAbilityRows(input: {
+    tableSha256: string;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const table = await this.repository.resolveEffectiveCreatureSpecialAbilitiesTwoDaTable?.();
+    if (!table) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_SPECIAL_ABILITIES_TABLE_NOT_FOUND",
+        message: "The authoritative spells.2da special-ability catalog is unavailable.",
+      });
+    }
+    if (table.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_SPECIAL_ABILITIES_TABLE_STALE",
+        message: "The requested spells.2da digest is no longer authoritative.",
+      });
+    }
+    const query = input.query?.toLowerCase() ?? "";
+    const filtered = table.rows.filter((row) => row.displaySource === "strref" &&
+      (input.rowIndex !== undefined
+        ? row.rowIndex === input.rowIndex
+        : [row.displayName, String(row.rowIndex), String(row.nameStrRef)]
+            .some((value) => value.toLowerCase().includes(query))));
+    return {
+      resourceName: "spells.2da" as const,
+      sha256: table.descriptor.sha256,
+      rowCount: table.descriptor.rowCount,
+      items: filtered.slice(input.offset, input.offset + input.limit).map((row) => ({
+        rowIndex: row.rowIndex,
+        nameStrRef: row.nameStrRef,
+        ...(row.spellDescStrRef === undefined
+          ? {}
+          : { spellDescStrRef: row.spellDescStrRef }),
+        userType: row.userType,
+        displayName: row.displayName,
+      })),
+      total: filtered.length,
+      limit: input.limit,
+      offset: input.offset,
+    };
+  }
+
+  async listCreaturePhenotypeRows(input: {
+    tableSha256: string;
+    appearanceTableSha256: string;
+    appearanceRowCount: number;
+    appearanceType: number;
+    rowIndex?: number;
+    query?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const [appearanceDescriptor, appearanceProfile] = await Promise.all([
+      this.repository.resolveEffectiveCreatureAppearanceTwoDaDescriptor?.(),
+      this.repository.resolveCreatureAppearanceProfile?.(input.appearanceType),
+    ]);
+    if (!appearanceDescriptor) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_PHENOTYPE_APPEARANCE_TABLE_NOT_FOUND",
+        message: "The authoritative appearance.2da source is unavailable.",
+      });
+    }
+    if (
+      appearanceDescriptor.sha256 !== input.appearanceTableSha256 ||
+      appearanceDescriptor.rowCount !== input.appearanceRowCount
+    ) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_PHENOTYPE_APPEARANCE_TABLE_STALE",
+        message: "The retained appearance.2da identity is no longer authoritative.",
+      });
+    }
+    if (
+      !appearanceProfile ||
+      appearanceProfile.appearanceType !== input.appearanceType ||
+      appearanceProfile.appearanceSource2daRow !== input.appearanceType ||
+      appearanceProfile.appearanceSourceKey !== appearanceDescriptor.sourceObjectKey ||
+      appearanceProfile.modelType !== "P"
+    ) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_PHENOTYPE_APPEARANCE_UNSUPPORTED",
+        message: "Creature Phenotype is editable only for the exact current MODELTYPE=P appearance row.",
+      });
+    }
+    const exactResult = input.rowIndex === undefined
+      ? undefined
+      : await this.repository.resolveEffectiveCreaturePhenotypeTwoDaRow?.(input.rowIndex);
+    const result = input.rowIndex === undefined
+      ? await this.repository.listEffectiveCreaturePhenotypeTwoDaRows?.({
+          ...(input.query ? { query: input.query } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        })
+      : exactResult
+        ? {
+            descriptor: exactResult.descriptor,
+            items: exactResult.row ? [exactResult.row] : [],
+            total: exactResult.row ? 1 : 0,
+            limit: input.limit,
+            offset: input.offset,
+          }
+        : null;
+    if (!result) {
+      throw new AppException({
+        status: 404,
+        code: "CREATURE_PHENOTYPE_TABLE_NOT_FOUND",
+        message: "The authoritative phenotype.2da row catalog is unavailable.",
+      });
+    }
+    if (result.descriptor.sha256 !== input.tableSha256) {
+      throw new AppException({
+        status: 409,
+        code: "CREATURE_PHENOTYPE_TABLE_STALE",
+        message: "The requested phenotype.2da digest is no longer authoritative.",
+      });
+    }
+    return {
+      resourceName: "phenotype.2da" as const,
+      sha256: result.descriptor.sha256,
+      rowCount: result.descriptor.rowCount,
+      items: result.items.map((row) => ({ ...row })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
   }
 
   listTemplateKind<TKind extends TemplateProcessingKind>(
@@ -1699,6 +2515,10 @@ export class CatalogApplicationService {
 
   listStores(query: TemplateListQuery) {
     return this.listTemplatesByKind("store", query);
+  }
+
+  listWaypoints(query: TemplateListQuery) {
+    return this.listTemplatesByKind("waypoint", query);
   }
 
   private listTemplatesByKind(
@@ -1779,6 +2599,10 @@ export class CatalogApplicationService {
 
   async getStorePreview(templateId: string) {
     return this.getPreviewByKind("store", templateId);
+  }
+
+  async getWaypointPreview(templateId: string) {
+    return this.getPreviewByKind("waypoint", templateId);
   }
 
   async processPlaceable(
@@ -1923,7 +2747,7 @@ export class CatalogApplicationService {
             classification,
             hydrated
           );
-          const stored = await this.placeableCache.set<PlaceableProcessingResult>(
+          const { entry: stored } = await this.storePlaceableProcessingResult(
             cacheKey,
             rebound
           );
@@ -1998,14 +2822,16 @@ export class CatalogApplicationService {
         processedAt: new Date().toISOString()
       };
 
-      const stored = await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, processed);
+      const { entry: stored, admissionMode } =
+        await this.storePlaceableProcessingResult(cacheKey, processed);
       this.rememberManifestValidation(cacheKey, processed.assetManifest.moduleHash);
       this.logPlaceablePipelineStep("processPlaceable.cacheStore", missStartedAtMs, {
         cacheKey,
         templateId: template.templateId,
         resref: template.resref,
         subtype: classification.normalizedSubtype,
-        storedHits: stored.hits
+        storedHits: stored.hits,
+        cacheAdmissionMode: admissionMode
       });
       return {
         cache: {
@@ -2342,6 +3168,51 @@ export class CatalogApplicationService {
         ...(lookup.sourceKey ? { source2daSourceKey: lookup.sourceKey } : {}),
         ...(lookup.requestedRowId !== undefined ? { lookupRequestedAppearanceType: lookup.requestedRowId } : {}),
         ...(lookup.resolutionPath ? { lookupResolutionPath: lookup.resolutionPath } : {}),
+        ...(lookup.source2daLightColorRaw !== undefined
+          ? { source2daLightColorRaw: lookup.source2daLightColorRaw }
+          : {}),
+        ...(lookup.source2daLightColorRow !== undefined
+          ? { source2daLightColorRow: lookup.source2daLightColorRow }
+          : {}),
+        ...(lookup.source2daLightColorLabel !== undefined
+          ? { source2daLightColorLabel: lookup.source2daLightColorLabel }
+          : {}),
+        ...(lookup.source2daLightColorSourceKey !== undefined
+          ? { source2daLightColorSourceKey: lookup.source2daLightColorSourceKey }
+          : {}),
+        ...(lookup.source2daLightRed !== undefined
+          ? { source2daLightRed: lookup.source2daLightRed }
+          : {}),
+        ...(lookup.source2daLightGreen !== undefined
+          ? { source2daLightGreen: lookup.source2daLightGreen }
+          : {}),
+        ...(lookup.source2daLightBlue !== undefined
+          ? { source2daLightBlue: lookup.source2daLightBlue }
+          : {}),
+        ...(lookup.source2daToolsetRed !== undefined
+          ? { source2daToolsetRed: lookup.source2daToolsetRed }
+          : {}),
+        ...(lookup.source2daToolsetGreen !== undefined
+          ? { source2daToolsetGreen: lookup.source2daToolsetGreen }
+          : {}),
+        ...(lookup.source2daToolsetBlue !== undefined
+          ? { source2daToolsetBlue: lookup.source2daToolsetBlue }
+          : {}),
+        ...(lookup.source2daLightOffsetX !== undefined
+          ? { source2daLightOffsetX: lookup.source2daLightOffsetX }
+          : {}),
+        ...(lookup.source2daLightOffsetY !== undefined
+          ? { source2daLightOffsetY: lookup.source2daLightOffsetY }
+          : {}),
+        ...(lookup.source2daLightOffsetZ !== undefined
+          ? { source2daLightOffsetZ: lookup.source2daLightOffsetZ }
+          : {}),
+        ...(lookup.source2daShadowSize !== undefined
+          ? { source2daShadowSize: lookup.source2daShadowSize }
+          : {}),
+        ...(lookup.source2daStatic !== undefined
+          ? { source2daStatic: lookup.source2daStatic }
+          : {}),
         modelResRef: lookup.modelResRef,
         lookupModelResRef: lookup.modelResRef,
         lookupTemplateResRef: template.resref,
@@ -2587,14 +3458,26 @@ export class CatalogApplicationService {
     const envelope = {
       items: processedBatch.items.map((item) => {
         const cacheKey = item.cache.key;
+        const renderPackage = compactPlaceableRenderPackageForViewportBatch(
+          item.placeable.renderPackage,
+          cacheKey
+        );
         return {
           templateId: item.placeable.templateId,
           cacheKey,
           cacheHit: item.cache.hit,
           storedAt: item.cache.storedAt,
           hits: item.cache.hits,
-          placeable: item.placeable,
-          renderPackage: item.placeable.renderPackage,
+          // The full processed value remains in cache for an explicit single
+          // object/VFX inspection.  Sending simulation frames for every
+          // visible Area object makes a normal 44-item room request hundreds
+          // of megabytes and prevents the browser from ever binding the
+          // otherwise-ready model payloads.
+          placeable: {
+            ...item.placeable,
+            ...(renderPackage ? { renderPackage } : {})
+          },
+          renderPackage,
           assetContracts: assetContractsByCacheKey.get(cacheKey) ?? {
             cacheKey,
             assets: []
@@ -3017,6 +3900,8 @@ export class CatalogApplicationService {
       }
     }
 
+    await this.validateItemBlueprintReferenceClosure(command, resref);
+
     const stored = await this.moduleBlobStorage.putModuleObject(settings.blobStorage, {
       fileName,
       resourceType: NWN_KEY_BIF_RESOURCE_TYPES.UTI,
@@ -3059,6 +3944,205 @@ export class CatalogApplicationService {
       },
       ...result
     };
+  }
+
+  private async validateItemBlueprintReferenceClosure(
+    command: ItemBlueprintCreateCommand,
+    targetResref: string
+  ): Promise<void> {
+    const inventory = command.inventoryItemListEntries ?? [];
+    const equipment = command.equipItemListEntries ?? [];
+    const referencePaths = new Map<string, string>();
+    inventory.forEach((entry, index) => {
+      if (!referencePaths.has(entry.resRef)) {
+        referencePaths.set(entry.resRef, `inventoryItemListEntries.${index}.resRef`);
+      }
+    });
+    equipment.forEach((entry, index) => {
+      if (!referencePaths.has(entry.resRef)) {
+        referencePaths.set(entry.resRef, `equipItemListEntries.${index}.resRef`);
+      }
+    });
+    if (referencePaths.size === 0) {
+      return;
+    }
+
+    const startedAtMs = Date.now();
+    const logValidation = (outcome: "accepted" | "rejected", reason: string): void => {
+      this.logger.log(
+        JSON.stringify({
+          event: "itemBlueprintNestedReferenceValidation",
+          contractVersion: "item-blueprint-nested-inventory/v1",
+          stage: "pre-publication",
+          outcome,
+          reason,
+          inventoryReferenceCount: inventory.length,
+          equipmentReferenceCount: equipment.length,
+          uniqueReferenceCount: referencePaths.size,
+          durationMs: Math.round(Date.now() - startedAtMs)
+        })
+      );
+    };
+    const reject = (options: {
+      status: number;
+      code: string;
+      message: string;
+      path: string;
+      reason: string;
+      retryable?: boolean;
+    }): never => {
+      logValidation("rejected", options.code);
+      throw new AppException({
+        status: options.status,
+        code: options.code,
+        message: options.message,
+        details: [{ path: options.path, reason: options.reason }],
+        retryable: options.retryable
+      });
+    };
+
+    const resolveEffective = this.repository.resolveEffectiveTemplateBlueprint?.bind(
+      this.repository
+    );
+    if (!resolveEffective) {
+      return reject({
+        status: 503,
+        code: "ITEM_BLUEPRINT_REFERENCE_CATALOG_UNAVAILABLE",
+        message: "Effective item blueprint reference resolution is unavailable.",
+        path: "inventoryItemListEntries",
+        reason: "The effective UTI resolver is not configured.",
+        retryable: true
+      });
+    }
+
+    try {
+      for (const [referenceResref, path] of referencePaths) {
+        const record = await this.repository.findByKindAndResref("item", referenceResref);
+        if (
+          !record ||
+          record.kind !== "item" ||
+          record.resref !== referenceResref ||
+          !ITEM_BLUEPRINT_REFERENCE_RESREF_PATTERN.test(record.resref) ||
+          typeof record.templateId !== "string" ||
+          record.templateId.length < 1
+        ) {
+          return reject({
+            status: 422,
+            code: "ITEM_BLUEPRINT_REFERENCE_INVALID",
+            message: "A nested item reference is not an exact current UTI catalog entry.",
+            path,
+            reason: "The referenced ResRef is missing or its immutable catalog identity is invalid."
+          });
+        }
+        const metadata = record.metadata;
+        const sourceObjectKey = metadata.sourceObjectKey;
+        const sourceSha256 = metadata.sourceSha256;
+        const sourceSizeBytes = metadata.sourceSizeBytes;
+        if (
+          typeof sourceObjectKey !== "string" ||
+          sourceObjectKey.length < 1 ||
+          sourceObjectKey.length > 2048 ||
+          sourceObjectKey.includes("\0") ||
+          typeof sourceSha256 !== "string" ||
+          !/^[a-f0-9]{64}$/u.test(sourceSha256) ||
+          typeof sourceSizeBytes !== "number" ||
+          !Number.isSafeInteger(sourceSizeBytes) ||
+          sourceSizeBytes < 1 ||
+          sourceSizeBytes > MAX_ITEM_BLUEPRINT_REFERENCE_BYTES ||
+          metadata.sourceExtension !== "uti" ||
+          metadata.sourceFileType !== "UTI " ||
+          metadata.sourceFileVersion !== "V3.2" ||
+          metadata.sourceStructTypeId !== 0xffffffff
+        ) {
+          return reject({
+            status: 422,
+            code: "ITEM_BLUEPRINT_REFERENCE_INVALID",
+            message: "A nested item reference is not an exact current UTI catalog entry.",
+            path,
+            reason: "The referenced ResRef is missing or its immutable catalog identity is invalid."
+          });
+        }
+
+        const resolved = await resolveEffective({
+          kind: "item",
+          templateId: record.templateId,
+          sourceObjectKey,
+          expectedSha256: sourceSha256
+        });
+        const parsed = resolved ? parseTemplateBlueprintFromGff(resolved.bytes) : null;
+        if (
+          !resolved ||
+          resolved.kind !== "item" ||
+          resolved.templateId !== record.templateId ||
+          resolved.resref !== referenceResref ||
+          resolved.sourceObjectKey !== sourceObjectKey ||
+          resolved.sha256 !== sourceSha256 ||
+          !Buffer.isBuffer(resolved.bytes) ||
+          resolved.bytes.length !== sourceSizeBytes ||
+          resolved.bytes.length < 1 ||
+          resolved.bytes.length > MAX_ITEM_BLUEPRINT_REFERENCE_BYTES ||
+          createHash("sha256").update(resolved.bytes).digest("hex") !== sourceSha256 ||
+          !parsed ||
+          parsed.sourceFileType !== "UTI " ||
+          parsed.sourceFileVersion !== "V3.2" ||
+          parsed.sourceStructTypeId !== 0xffffffff ||
+          parsed.templateResRef !== referenceResref
+        ) {
+          return reject({
+            status: 422,
+            code: "ITEM_BLUEPRINT_REFERENCE_INVALID",
+            message: "A nested item reference could not be resolved to its exact current UTI bytes.",
+            path,
+            reason: "The referenced effective UTI is missing, stale, malformed, or identity-mismatched."
+          });
+        }
+
+        const exactResolved = resolved;
+        for (const dependency of exactResolved.dependencies ?? []) {
+          if (
+            !ITEM_BLUEPRINT_REFERENCE_RESREF_PATTERN.test(dependency.templateResRef) ||
+            dependency.resourceType !== NWN_KEY_BIF_RESOURCE_TYPES.UTI ||
+            typeof dependency.sha256 !== "string" ||
+            !/^[a-f0-9]{64}$/u.test(dependency.sha256) ||
+            !Buffer.isBuffer(dependency.bytes) ||
+            dependency.bytes.length < 1 ||
+            dependency.bytes.length > MAX_ITEM_BLUEPRINT_REFERENCE_BYTES ||
+            createHash("sha256").update(dependency.bytes).digest("hex") !== dependency.sha256
+          ) {
+            reject({
+              status: 422,
+              code: "ITEM_BLUEPRINT_REFERENCE_INVALID",
+              message: "A nested item reference has an invalid effective dependency closure.",
+              path,
+              reason: "The referenced UTI dependency closure is malformed or identity-mismatched."
+            });
+          }
+          if (dependency.templateResRef === targetResref) {
+            reject({
+              status: 409,
+              code: "ITEM_BLUEPRINT_REFERENCE_CYCLE",
+              message: "The nested item references would create a UTI dependency cycle.",
+              path,
+              reason: "A referenced effective UTI closure already contains the blueprint being written."
+            });
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof AppException) {
+        throw error;
+      }
+      reject({
+        status: 503,
+        code: "ITEM_BLUEPRINT_REFERENCE_CATALOG_UNAVAILABLE",
+        message: "Effective item blueprint reference resolution failed.",
+        path: "inventoryItemListEntries",
+        reason: "The effective UTI catalog could not be read.",
+        retryable: true
+      });
+    }
+
+    logValidation("accepted", "expanded");
   }
 
   async updateItemBlueprint(
@@ -3174,6 +4258,8 @@ export class CatalogApplicationService {
       resref,
       stored,
       blueprint,
+      sourceSha256: createHash("sha256").update(bytes).digest("hex"),
+      sourceSizeBytes: bytes.length,
       requestedName: command.name
     });
     this.cacheTemplateLookup(template);
@@ -3536,9 +4622,9 @@ export class CatalogApplicationService {
         object.key.trim().toLowerCase().endsWith(".utg")
       );
       for (const object of utgObjects) {
-        const payload = await this.moduleBlobStorage.getModuleObject(
-          settings.blobStorage,
-          object.key
+        const payload = await this.readModuleBlobObject(
+          object.key,
+          settings.blobStorage
         );
         if (!payload) {
           continue;
@@ -3800,6 +4886,8 @@ export class CatalogApplicationService {
     resref: string;
     stored: ModuleBlobObjectSummary;
     blueprint: ParsedTemplateBlueprint;
+    sourceSha256: string;
+    sourceSizeBytes: number;
     requestedName: string;
   }): TemplateRecord {
     const metadata: TemplateRecord["metadata"] = {
@@ -3810,7 +4898,8 @@ export class CatalogApplicationService {
       localizedName:
         input.blueprint.localizedName ?? input.blueprint.displayName ?? input.requestedName,
       sourceObjectKey: input.stored.key,
-      sourceSizeBytes: input.stored.size,
+      sourceSizeBytes: input.sourceSizeBytes,
+      sourceSha256: input.sourceSha256,
       sourceExtension: "utm",
       sourceGeneratedBy: "aurora-web-store-wizard",
       createdByStoreWizard: true
@@ -3822,7 +4911,11 @@ export class CatalogApplicationService {
     setOptionalStoreMetadata(metadata, "markDown", input.blueprint.markDown);
     setOptionalStoreMetadata(metadata, "blackMarket", input.blueprint.blackMarket);
     setOptionalStoreMetadata(metadata, "bmMarkDown", input.blueprint.bmMarkDown);
+    setOptionalStoreMetadata(metadata, "identifyPrice", input.blueprint.identifyPrice);
+    setOptionalStoreMetadata(metadata, "maxBuyPrice", input.blueprint.maxBuyPrice);
+    setOptionalStoreMetadata(metadata, "storeGold", input.blueprint.storeGold);
     setOptionalStoreMetadata(metadata, "onOpenStore", input.blueprint.onOpenStore);
+    setOptionalStoreMetadata(metadata, "onStoreClosed", input.blueprint.onStoreClosed);
     setOptionalStoreMetadata(metadata, "storeId", input.blueprint.storeId);
     setOptionalStoreMetadata(metadata, "storeListCount", input.blueprint.storeListCount);
     setOptionalStoreMetadata(metadata, "storeItemListTotal", input.blueprint.storeItemListTotal);
@@ -3923,8 +5016,9 @@ export class CatalogApplicationService {
     };
   }
 
-  private invalidateTemplateSnapshotCaches(): void {
+  invalidateTemplateSnapshotCaches(): void {
     this.repository.invalidateSnapshotIndex?.();
+    this.committedModuleSnapshotPromise = null;
     this.moduleSnapshotIndexCache = null;
     this.moduleSnapshotIndexFailureCache = null;
     this.inFlightModuleSnapshotIndex.clear();
@@ -4639,6 +5733,27 @@ export class CatalogApplicationService {
     metadata: TemplateRecord["metadata"],
     override: TemplateProcessQuery["creatureAppearanceOverride"] | undefined
   ): Promise<TemplateRecord["metadata"]> {
+    const overridePhenotype =
+      override &&
+      Number.isInteger(override.phenotype ?? Number.NaN) &&
+      override.phenotype !== undefined &&
+      override.phenotype >= 0 &&
+      override.phenotype <= 0xff &&
+      override.phenotype !== 1
+        ? override.phenotype
+        : undefined;
+    const applyPhenotype = (
+      source: TemplateRecord["metadata"]
+    ): TemplateRecord["metadata"] => {
+      if (overridePhenotype === undefined) {
+        return source;
+      }
+      const next: TemplateRecord["metadata"] = { ...source, phenotype: overridePhenotype };
+      delete next.phenotypeLabel;
+      delete next.phenotypeLabelSource2daRow;
+      delete next.phenotypeLabelSourceKey;
+      return next;
+    };
     const overrideAppearanceType =
       override &&
       Number.isInteger(override.appearanceType ?? Number.NaN) &&
@@ -4652,16 +5767,16 @@ export class CatalogApplicationService {
         : undefined;
     const rawAppearanceType = overrideAppearanceType ?? metadataAppearanceType;
     if (!Number.isInteger(rawAppearanceType ?? Number.NaN) || rawAppearanceType === undefined) {
-      return metadata;
+      return applyPhenotype(metadata);
     }
     const appearanceType = Math.max(0, Math.trunc(rawAppearanceType));
     const appearanceProfile =
       (await this.repository.resolveCreatureAppearanceProfile?.(appearanceType)) ?? null;
     if (!appearanceProfile) {
-      return {
+      return applyPhenotype({
         ...metadata,
         appearanceId: appearanceType
-      };
+      });
     }
     const nextMetadata: TemplateRecord["metadata"] = {
       ...metadata,
@@ -4685,7 +5800,7 @@ export class CatalogApplicationService {
         nextMetadata[key] = value;
       }
     });
-    return nextMetadata;
+    return applyPhenotype(nextMetadata);
   }
 
   private async hydrateCreatureRuntimeItemTemplates(
@@ -5988,7 +7103,7 @@ export class CatalogApplicationService {
       return null;
     }
     const key = `${normalizePrefixForLookup(settings.blobStorage.modulePrefix)}${resref}.itp`;
-    const payload = await this.moduleBlobStorage.getModuleObject(settings.blobStorage, key);
+    const payload = await this.readModuleBlobObject(key, settings.blobStorage);
     if (!payload) {
       return null;
     }
@@ -6030,7 +7145,16 @@ export class CatalogApplicationService {
 
   private async readLocalItemGeneratorSupportSources(): Promise<ItemGeneratorSupportSource[]> {
     const sources: ItemGeneratorSupportSource[] = [];
-    const configuredDirs = this.appConfig?.itemGeneratorSourceDirs ?? [];
+    const runtimeSettings = this.runtimeSettingsRepository
+      ? await this.runtimeSettingsRepository.get().catch(() => null)
+      : null;
+    const runtimeConfiguredDirs = runtimeSettings?.paths.itemGeneratorSourceDirectories ?? [];
+    // Keep the environment/default list as a fallback for existing deployments.
+    // A saved onboarding value takes precedence and is visible in runtime-settings.
+    const configuredDirs =
+      runtimeConfiguredDirs.length > 0
+        ? runtimeConfiguredDirs
+        : this.appConfig?.itemGeneratorSourceDirs ?? [];
     const sourceDirs = Array.from(
       new Set(
         [...configuredDirs, ...DEFAULT_ITEM_GENERATOR_SOURCE_DIRS]
@@ -6549,10 +7673,27 @@ export class CatalogApplicationService {
     baseItemMetadata: ItemMetadataPrimitiveRecord | undefined,
     itemPropertyDefinitionLookup: ReadonlyMap<number, OnDemandItemPropertyDefinitionMetadata>
   ): Record<string, string | number | boolean> {
+    const inventoryItemListEntries = (blueprint.inventoryItemListEntries ?? []).flatMap(
+      (entry) =>
+        typeof entry.resRef === "string" &&
+        ITEM_BLUEPRINT_REFERENCE_RESREF_PATTERN.test(entry.resRef) &&
+        Number.isInteger(entry.x) &&
+        Number.isInteger(entry.y)
+          ? [{ resRef: entry.resRef, x: entry.x as number, y: entry.y as number }]
+          : []
+    );
+    const equipItemListEntries = (blueprint.equipItemListEntries ?? []).flatMap((entry) =>
+      typeof entry.resRef === "string" &&
+      ITEM_BLUEPRINT_REFERENCE_RESREF_PATTERN.test(entry.resRef) &&
+      Number.isInteger(entry.slotMask)
+        ? [{ resRef: entry.resRef, slotMask: entry.slotMask as number }]
+        : []
+    );
     const metadata: Record<string, string | number | boolean> = {
       sourceObjectKey: found.fileName,
       sourceSizeBytes: found.bytes.length,
-      sourceExtension: found.extension
+      sourceExtension: found.extension,
+      sourceSha256: createHash("sha256").update(found.bytes).digest("hex")
     };
     const optionalValues: Record<string, string | number | boolean | undefined> = {
       sourceFileType: blueprint.sourceFileType,
@@ -6613,7 +7754,12 @@ export class CatalogApplicationService {
       itemArmorPreviewGender: blueprint.itemArmorPreviewGender,
       itemArmorPreviewPhenotype: blueprint.itemArmorPreviewPhenotype,
       itemArmorPreviewRaceModel: blueprint.itemArmorPreviewRaceModel,
-      itemPropertyListCount: blueprint.itemPropertyListCount
+      itemPropertyListCount: blueprint.itemPropertyListCount,
+      variableListCount: blueprint.variableListEntries?.length,
+      inventoryItemListCount:
+        inventoryItemListEntries.length > 0 ? inventoryItemListEntries.length : undefined,
+      equipItemListCount:
+        equipItemListEntries.length > 0 ? equipItemListEntries.length : undefined
     };
     Object.entries(baseItemMetadata ?? {}).forEach(([key, value]) => {
       metadata[key] = value;
@@ -6629,6 +7775,17 @@ export class CatalogApplicationService {
     );
     if (itemPropertyListEntries.length > 0) {
       metadata.itemPropertyListEntries = JSON.stringify(itemPropertyListEntries);
+    }
+    if (blueprint.variableListEntries && blueprint.variableListEntries.length > 0) {
+      metadata.variableListEntries = JSON.stringify(
+        blueprint.variableListEntries.map((entry) => ({ ...entry }))
+      );
+    }
+    if (inventoryItemListEntries.length > 0) {
+      metadata.inventoryItemListEntries = JSON.stringify(inventoryItemListEntries);
+    }
+    if (equipItemListEntries.length > 0) {
+      metadata.equipItemListEntries = JSON.stringify(equipItemListEntries);
     }
     for (const [label, scriptResref] of Object.entries(blueprint.scripts ?? {})) {
       if (scriptResref) {
@@ -7572,7 +8729,7 @@ export class CatalogApplicationService {
         assetManifest: buildEmptyPlaceableAssetManifest(),
         renderPackage: buildAreaInstanceMissingModelRenderPackage(withProjection.metadata)
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       return refreshed;
     }
 
@@ -7596,7 +8753,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7623,7 +8780,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7666,7 +8823,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7692,7 +8849,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7718,7 +8875,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7745,7 +8902,7 @@ export class CatalogApplicationService {
           { inspectSourceModels }
         )
       };
-      await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
       this.rememberManifestValidation(cacheKey, manifest.moduleHash);
       return refreshed;
     }
@@ -7781,8 +8938,8 @@ export class CatalogApplicationService {
         { inspectSourceModels }
       )
     };
-    await this.placeableCache.set<PlaceableProcessingResult>(cacheKey, refreshed);
-    this.rememberManifestValidation(cacheKey, manifest.moduleHash);
+      await this.storePlaceableProcessingResult(cacheKey, refreshed);
+      this.rememberManifestValidation(cacheKey, manifest.moduleHash);
     return refreshed;
   }
 
@@ -7979,16 +9136,22 @@ export class CatalogApplicationService {
       textureStatePackage,
       subtype
     );
-    const emitterRenderPackage = await this.decorateRenderPackageWithAuroraEmitter(
+    const modelGraphRenderPackage = await this.decorateRenderPackageWithAuroraModelGraph(
       assetManifest,
       materialRenderPackage,
+      { parseSourceModels: inspectSourceModels }
+    );
+    const lightRenderPackage = await this.decorateRenderPackageWithAuroraLight(
+      assetManifest,
+      modelGraphRenderPackage,
       subtype,
       { parseSourceModels: inspectSourceModels }
     );
-    return this.decorateRenderPackageWithAuroraLight(
+    return this.decorateRenderPackageWithAuroraEmitter(
       assetManifest,
-      emitterRenderPackage,
-      subtype
+      lightRenderPackage,
+      subtype,
+      { parseSourceModels: inspectSourceModels }
     );
   }
 
@@ -8062,16 +9225,22 @@ export class CatalogApplicationService {
       textureStatePackage,
       value.placeableSubtype
     );
-    const emitterRenderPackage = await this.decorateRenderPackageWithAuroraEmitter(
+    const modelGraphRenderPackage = await this.decorateRenderPackageWithAuroraModelGraph(
       value.assetManifest,
       materialRenderPackage,
+      { parseSourceModels: inspectSourceModels }
+    );
+    const lightRenderPackage = await this.decorateRenderPackageWithAuroraLight(
+      value.assetManifest,
+      modelGraphRenderPackage,
       value.placeableSubtype,
       { parseSourceModels: inspectSourceModels }
     );
-    const renderPackage = await this.decorateRenderPackageWithAuroraLight(
+    const renderPackage = await this.decorateRenderPackageWithAuroraEmitter(
       value.assetManifest,
-      emitterRenderPackage,
-      value.placeableSubtype
+      lightRenderPackage,
+      value.placeableSubtype,
+      { parseSourceModels: inspectSourceModels }
     );
     return {
       ...value,
@@ -8195,6 +9364,7 @@ export class CatalogApplicationService {
     const materials: NonNullable<PlaceableRenderPackage["auroraMaterial"]>["materials"] =
       [];
     const diagnostics: PlaceableRenderPackage["diagnostics"] = [];
+    const shaderSources = await this.collectAuroraShaderSourceRecords(assets);
     for (const asset of materialAssets) {
       let payload: ModuleBlobObjectPayload | null = null;
       try {
@@ -8215,6 +9385,27 @@ export class CatalogApplicationService {
       if (!state) {
         continue;
       }
+      if (state.customShaderVS || state.customShaderFS || state.customShaderGS) {
+        state.customShaderProgram = buildAuroraShaderProgramSourceBundle({
+          stageRoots: {
+            ...(state.customShaderVS ? { vertex: state.customShaderVS } : {}),
+            ...(state.customShaderFS ? { fragment: state.customShaderFS } : {}),
+            ...(state.customShaderGS ? { geometry: state.customShaderGS } : {})
+          },
+          sources: shaderSources
+        });
+        diagnostics.push({
+          code:
+            state.customShaderProgram.status === "complete"
+              ? "VFX_AURORA_MTR_CUSTOM_SHADER_SOURCE_GRAPH_READY"
+              : "VFX_AURORA_MTR_CUSTOM_SHADER_SOURCE_GRAPH_INCOMPLETE",
+          severity: "warn",
+          message:
+            state.customShaderProgram.status === "complete"
+              ? `Material ${asset.fileName} has a complete custom shader source/include graph; browser program binding and visual parity are still separate gates.`
+              : `Material ${asset.fileName} is missing shader resources: ${state.customShaderProgram.unresolvedRefs.join(", ")}.`
+        });
+      }
       materials.push({
         source: "aurora-mtr",
         materialAssetId: asset.assetId,
@@ -8233,6 +9424,29 @@ export class CatalogApplicationService {
       materials,
       diagnostics
     };
+  }
+
+  private async collectAuroraShaderSourceRecords(
+    assets: PlaceableAssetEntry[]
+  ): Promise<AuroraShaderSourceRecord[]> {
+    const records: AuroraShaderSourceRecord[] = [];
+    for (const asset of assets.filter(
+      (entry) => entry.role === "material" && entry.extension === "shd"
+    )) {
+      const payload = await this.readModuleBlobObject(asset.objectKey);
+      if (!payload || payload.bytes.length === 0) {
+        continue;
+      }
+      const source = payload.bytes.toString("utf8");
+      records.push({
+        resref: extractBasename(asset.fileName),
+        source,
+        includeRefs: extractAuroraShaderIncludeRefs(source),
+        sourceAssetId: asset.assetId,
+        sourceObjectKey: asset.objectKey
+      });
+    }
+    return records;
   }
 
   private async decorateRenderPackageWithMissingTextureDiagnostics(
@@ -8305,25 +9519,28 @@ export class CatalogApplicationService {
         renderPackage.auroraEmitter
       );
 
-      return promoteAuroraEmitterRenderPackage({
-        ...renderPackage,
-        assetRefs: {
-          ...renderPackage.assetRefs,
-          ...(chunkBindingResult.chunkModelAssetIds.length > 0
-            ? {
-                chunkModelAssetIds: chunkBindingResult.chunkModelAssetIds
-              }
-            : {})
-        },
-        diagnostics: mergeRenderPackageDiagnostics(
-          renderPackage.diagnostics,
-          buildAuroraEmitterRenderPackageDiagnostics(
-            isVfxPlaceable,
-            chunkBindingResult.diagnostics
-          )
-        ),
-        auroraEmitter: chunkBindingResult.auroraEmitter
-      });
+      return this.attachAuroraVfxPayloadToEmitterRenderPackage(
+        assetManifest,
+        {
+          ...renderPackage,
+          assetRefs: {
+            ...renderPackage.assetRefs,
+            ...(chunkBindingResult.chunkModelAssetIds.length > 0
+              ? {
+                  chunkModelAssetIds: chunkBindingResult.chunkModelAssetIds
+                }
+              : {})
+          },
+          diagnostics: mergeRenderPackageDiagnostics(
+            renderPackage.diagnostics,
+            buildAuroraEmitterRenderPackageDiagnostics(
+              isVfxPlaceable,
+              chunkBindingResult.diagnostics
+            )
+          ),
+          auroraEmitter: chunkBindingResult.auroraEmitter
+        }
+      );
     }
 
     if (options.parseSourceModels === false) {
@@ -8354,25 +9571,142 @@ export class CatalogApplicationService {
       auroraEmitter
     );
 
-    return promoteAuroraEmitterRenderPackage({
-      ...renderPackage,
-      assetRefs: {
-        ...renderPackage.assetRefs,
-        ...(chunkBindingResult.chunkModelAssetIds.length > 0
+    return this.attachAuroraVfxPayloadToEmitterRenderPackage(
+      assetManifest,
+      {
+        ...renderPackage,
+        assetRefs: {
+          ...renderPackage.assetRefs,
+          ...(chunkBindingResult.chunkModelAssetIds.length > 0
+            ? {
+                chunkModelAssetIds: chunkBindingResult.chunkModelAssetIds
+              }
+            : {})
+        },
+        diagnostics: mergeRenderPackageDiagnostics(
+          renderPackage.diagnostics,
+          buildAuroraEmitterRenderPackageDiagnostics(
+            isVfxPlaceable,
+            chunkBindingResult.diagnostics
+          )
+        ),
+        auroraEmitter: chunkBindingResult.auroraEmitter
+      }
+    );
+  }
+
+  private async attachAuroraVfxPayloadToEmitterRenderPackage(
+    assetManifest: PlaceableAssetManifest,
+    renderPackage: PlaceableRenderPackage
+  ): Promise<PlaceableRenderPackage> {
+    const promoted = promoteAuroraEmitterRenderPackage(renderPackage);
+    const emitters = promoted.auroraEmitter?.emitters ?? [];
+    if (!this.vfxService || emitters.length === 0) {
+      return promoted;
+    }
+    const runtimeSourceEmitters =
+      placeableVfxRuntimePackaging.selectRuntimeSourceEmitters(emitters);
+    const canonicalPromoted =
+      runtimeSourceEmitters.length === emitters.length
+        ? promoted
+        : {
+            ...promoted,
+            diagnostics: mergeRenderPackageDiagnostics(promoted.diagnostics, [
+              {
+                code: "VFX_AURORA_MDL_ANIMATION_SHELLS_EXCLUDED_FROM_RUNTIME",
+                severity: "info" as const,
+                message:
+                  `Excluded ${emitters.length - runtimeSourceEmitters.length} animation-only duplicate emitter records; canonical runtime keeps ${runtimeSourceEmitters.length} unique source emitter nodes with particle assets.`
+              }
+            ]),
+            auroraEmitter: promoted.auroraEmitter
+              ? {
+                  ...promoted.auroraEmitter,
+                  emitters: runtimeSourceEmitters
+                }
+              : undefined
+          };
+
+    try {
+      const sourceEmitterMaterials = placeableVfxRuntimePackaging.buildEmitterMaterials(
+        canonicalPromoted,
+        runtimeSourceEmitters
+      );
+      const runtimeReplayCommand: VfxProcessCommand = {
+        packageKind: "model_graph_runtime",
+        sourceObjectKey: runtimeSourceEmitters[0]?.sourceModelObjectKey,
+        sourceLayer: "module",
+        sourceProfile: "catalog-placeable-source-mdl",
+        sourceEmitters: runtimeSourceEmitters.map(
+          placeableVfxRuntimePackaging.toMdlEmitterNode
+        ),
+        ...(sourceEmitterMaterials.length > 0 ? { sourceEmitterMaterials } : {}),
+        ...(canonicalPromoted.auroraModelGraph?.nodes
           ? {
-              chunkModelAssetIds: chunkBindingResult.chunkModelAssetIds
+              sourceModelGraph: {
+                nodes: canonicalPromoted.auroraModelGraph.nodes,
+                ...(canonicalPromoted.auroraModelGraph.animationEvents?.length
+                  ? {
+                      animationEvents: canonicalPromoted.auroraModelGraph.animationEvents.map(
+                        (event) => ({
+                          time: event.time,
+                          type: event.type,
+                          ...(event.animationName ? { animationName: event.animationName } : {})
+                        })
+                      )
+                    }
+                  : {})
+              }
             }
-        : {})
-      },
-      diagnostics: mergeRenderPackageDiagnostics(
-        renderPackage.diagnostics,
-        buildAuroraEmitterRenderPackageDiagnostics(
-          isVfxPlaceable,
-          chunkBindingResult.diagnostics
+          : {}),
+        sourceCandidates: placeableVfxRuntimePackaging.buildSourceCandidates(
+          assetManifest,
+          canonicalPromoted.auroraEmitter
+        ),
+        resourceTraces: placeableVfxRuntimePackaging.buildResourceTraces(
+          assetManifest,
+          canonicalPromoted.auroraEmitter
+        ),
+        runtime: {
+          dtSeconds: 0.125,
+          simulationStepSeconds: 1 / 60,
+          tickCount: 80,
+          executionParticleBudget: 4096,
+          seed: 211
+        },
+        bypassCache: true,
+        includeBenchmarkMetadata: false
+      };
+      const envelope = await this.vfxService.processVfxPackage(runtimeReplayCommand);
+      return {
+        ...canonicalPromoted,
+        diagnostics: mergeRenderPackageDiagnostics(canonicalPromoted.diagnostics, [
+          {
+            code: "VFX_AURORA_MDL_EMITTER_BACKEND_RUNTIME_PAYLOAD_READY",
+            severity: "warn",
+            message:
+              "Source MDL emitter payload was packaged through the backend Aurora VFX runtime/render-contract path for canonical renderer convergence; retail comparison proof is still pending."
+          }
+        ]),
+        auroraVfxPayload: placeableVfxRuntimePackaging.buildPayload(
+          envelope.vfx,
+          runtimeReplayCommand,
+          canonicalPromoted.auroraLight
         )
-      ),
-      auroraEmitter: chunkBindingResult.auroraEmitter
-    });
+      };
+    } catch (error) {
+      return {
+        ...promoted,
+        diagnostics: mergeRenderPackageDiagnostics(promoted.diagnostics, [
+          {
+            code: "VFX_AURORA_MDL_EMITTER_BACKEND_RUNTIME_PAYLOAD_FAILED",
+            severity: "warn",
+            message:
+              `Source MDL emitter backend runtime packaging failed; placeable preview fallback remains active. ${formatUnexpectedError(error)}`
+          }
+        ])
+      };
+    }
   }
 
   private async collectAuroraEmitterPayloadFromSourceModels(
@@ -8406,8 +9740,7 @@ export class CatalogApplicationService {
 
       const parsed = collectAuroraSourceModelEmitters(payload.bytes, {
         sourceModelObjectKey: asset.objectKey,
-        sourceModelFileName: asset.fileName,
-        sourceModelHash: asset.etag
+        sourceModelFileName: asset.fileName
       });
       for (const emitter of parsed.emitters) {
         emitters.push({
@@ -8415,6 +9748,7 @@ export class CatalogApplicationService {
           sourceModelAssetId: asset.assetId,
           sourceModelFileName: asset.fileName,
           sourceModelObjectKey: asset.objectKey,
+          sourceModelHash: parsed.sourceModelHash,
           nodeName: emitter.nodeName,
           texture: emitter.texture,
           chunkName: emitter.chunkName,
@@ -8427,6 +9761,10 @@ export class CatalogApplicationService {
           referenceNodes: emitter.referenceNodes,
           events: emitter.events,
           animations: emitter.animations,
+          animationPasses: emitter.animationPasses,
+          directRows: emitter.directRows,
+          keyRows: emitter.keyRows,
+          bezierKeyRows: emitter.bezierKeyRows,
           sourceState: emitter.sourceState
         });
       }
@@ -8446,28 +9784,18 @@ export class CatalogApplicationService {
   private async decorateRenderPackageWithAuroraLight(
     assetManifest: PlaceableAssetManifest,
     renderPackage: PlaceableRenderPackage,
-    subtype?: PlaceableSubtype
+    subtype?: PlaceableSubtype,
+    options: { parseSourceModels?: boolean } = {}
   ): Promise<PlaceableRenderPackage> {
-    if (subtype !== "vfx" && subtype !== "light_source") {
-      return renderPackage;
-    }
     if (renderPackage.auroraLight) {
       return promoteAuroraLightRenderPackage(renderPackage);
     }
-    const hasEmitterPayload =
-      renderPackage.auroraEmitter?.emitters.some((emitter) =>
-        Boolean(
-          emitter.renderMode ||
-            emitter.emitterType ||
-            emitter.texture ||
-            emitter.chunkName ||
-            emitter.simulation
-        )
-      ) === true;
-    if (hasEmitterPayload) {
+    if (options.parseSourceModels === false) {
       return renderPackage;
     }
-
+    // Emitters and lights are siblings in the same Aurora MDL tree. Legacy
+    // cache entries can therefore carry an emitter payload while still being
+    // incomplete; do not let the emitter suppress a source-light upgrade.
     const auroraLight = await this.collectAuroraLightPayloadFromSourceModels(
       assetManifest.assets
     );
@@ -8505,6 +9833,31 @@ export class CatalogApplicationService {
     });
   }
 
+  private async decorateRenderPackageWithAuroraModelGraph(
+    assetManifest: PlaceableAssetManifest,
+    renderPackage: PlaceableRenderPackage,
+    options: { parseSourceModels?: boolean } = {}
+  ): Promise<PlaceableRenderPackage> {
+    if (
+      renderPackage.auroraModelGraph ||
+      options.parseSourceModels === false
+    ) {
+      return renderPackage;
+    }
+
+    const auroraModelGraph = await this.collectAuroraModelGraphPayloadFromSourceModels(
+      assetManifest.assets
+    );
+    if (!auroraModelGraph) {
+      return renderPackage;
+    }
+
+    return {
+      ...renderPackage,
+      auroraModelGraph
+    };
+  }
+
   private async collectAuroraLightPayloadFromSourceModels(
     assets: PlaceableAssetEntry[]
   ): Promise<PlaceableRenderPackage["auroraLight"] | undefined> {
@@ -8536,8 +9889,7 @@ export class CatalogApplicationService {
 
       const parsed = collectAuroraSourceModelLights(payload.bytes, {
         sourceModelObjectKey: asset.objectKey,
-        sourceModelFileName: asset.fileName,
-        sourceModelHash: asset.etag
+        sourceModelFileName: asset.fileName
       });
       for (const light of parsed.lights) {
         lights.push({
@@ -8545,6 +9897,7 @@ export class CatalogApplicationService {
           sourceModelAssetId: asset.assetId,
           sourceModelFileName: asset.fileName,
           sourceModelObjectKey: asset.objectKey,
+          sourceModelHash: parsed.sourceModelHash,
           nodeName: light.nodeName,
           ...(light.sourceNodeKind ? { sourceNodeKind: light.sourceNodeKind } : {}),
           ...(light.parentNodeName ? { parentNodeName: light.parentNodeName } : {}),
@@ -8612,6 +9965,133 @@ export class CatalogApplicationService {
       lights,
       diagnostics
     };
+  }
+
+  private async collectAuroraModelGraphPayloadFromSourceModels(
+    assets: PlaceableAssetEntry[]
+  ): Promise<PlaceableRenderPackage["auroraModelGraph"] | undefined> {
+    const sourceModelAssets = selectAuroraEmitterSourceModelAssets(
+      assets.filter(isAuroraSourceModelAssetEntry)
+    );
+    if (sourceModelAssets.length === 0) {
+      return undefined;
+    }
+
+    const staticGeometryNodes: NonNullable<
+      PlaceableRenderPackage["auroraModelGraph"]
+    >["staticGeometryNodes"] = [];
+    const nodes: NonNullable<PlaceableRenderPackage["auroraModelGraph"]>["nodes"] = [];
+    const animationEvents: NonNullable<
+      NonNullable<PlaceableRenderPackage["auroraModelGraph"]>["animationEvents"]
+    > = [];
+    const propagationEvents: NonNullable<
+      PlaceableRenderPackage["auroraModelGraph"]
+    >["propagationEvents"] = [];
+    const diagnostics: PlaceableRenderPackage["diagnostics"] = [];
+
+    for (const asset of sourceModelAssets) {
+      let payload: ModuleBlobObjectPayload | null = null;
+      try {
+        payload = await this.readModuleBlobObject(asset.objectKey);
+      } catch {
+        payload = null;
+      }
+      if (!payload || payload.bytes.length === 0) {
+        diagnostics.push({
+          code: "VFX_AURORA_MDL_SOURCE_UNREADABLE",
+          severity: "warn",
+          message: `Source model ${asset.fileName} could not be read for model-tree parsing.`
+        });
+        continue;
+      }
+
+      const parsed = parseAuroraMdlVfxSource(payload.bytes, {
+        sourceModelObjectKey: asset.objectKey,
+        sourceModelFileName: asset.fileName
+      });
+      parsed.staticGeometryNodes.forEach((node) => {
+        staticGeometryNodes.push({
+          source: parsed.source,
+          sourceModelAssetId: asset.assetId,
+          sourceModelFileName: asset.fileName,
+          sourceModelObjectKey: asset.objectKey,
+          sourceModelHash: parsed.sourceModelHash,
+          nodeName: node.nodeName,
+          sourceNodeKind: node.sourceNodeKind,
+          ...(node.parentNodeName ? { parentNodeName: node.parentNodeName } : {}),
+          ...(node.transform ? { transform: node.transform } : {}),
+          ...(node.animationTracks ? { animationTracks: node.animationTracks } : {}),
+          ...(node.meshMaterialState ? { meshMaterialState: node.meshMaterialState } : {}),
+          ...(node.meshMaterialAnimationTracks
+            ? { meshMaterialAnimationTracks: node.meshMaterialAnimationTracks }
+            : {})
+        });
+      });
+      parsed.modelGraph.nodes.forEach((node) => {
+        const sourceNodeKind = "sourceNodeKind" in node ? node.sourceNodeKind : undefined;
+        nodes.push({
+          source: parsed.source,
+          sourceModelAssetId: asset.assetId,
+          sourceModelFileName: asset.fileName,
+          sourceModelObjectKey: asset.objectKey,
+          sourceModelHash: parsed.sourceModelHash,
+          nodeKind: node.nodeKind,
+          nodeName: node.nodeName,
+          ...(node.parentNodeName ? { parentNodeName: node.parentNodeName } : {}),
+          ...(sourceNodeKind ? { sourceNodeKind } : {}),
+          ...("transform" in node && node.transform ? { transform: node.transform } : {}),
+          ...("animationTracks" in node && node.animationTracks
+            ? { animationTracks: node.animationTracks }
+            : {}),
+          ...("meshMaterialState" in node && node.meshMaterialState
+            ? { meshMaterialState: node.meshMaterialState }
+            : {}),
+          ...("meshMaterialAnimationTracks" in node && node.meshMaterialAnimationTracks
+            ? { meshMaterialAnimationTracks: node.meshMaterialAnimationTracks }
+            : {})
+        });
+      });
+      parsed.animationEvents.forEach((event) => {
+        animationEvents.push({
+          source: parsed.source,
+          sourceModelAssetId: asset.assetId,
+          sourceModelFileName: asset.fileName,
+          sourceModelObjectKey: asset.objectKey,
+          sourceModelHash: parsed.sourceModelHash,
+          time: event.time,
+          type: event.type,
+          ...(event.animationName ? { animationName: event.animationName } : {})
+        });
+      });
+      parsed.modelGraph.propagationEvents.forEach((event) => {
+        propagationEvents.push({
+          token: event.token,
+          ...(event.sourceNodeName ? { sourceNodeName: event.sourceNodeName } : {}),
+          ...(event.sourceNodeKind ? { sourceNodeKind: event.sourceNodeKind } : {}),
+          proofStatus: event.proofStatus
+        });
+      });
+    }
+
+    if (nodes.length === 0) {
+      return undefined;
+    }
+
+    return {
+      source: "source-mdl",
+      staticGeometryNodes,
+      nodes,
+      ...(animationEvents.length > 0 ? { animationEvents } : {}),
+      propagationEvents,
+      diagnostics
+    };
+  }
+
+  private async hasAuroraSourceMdlStaticGeometry(
+    assets: PlaceableAssetEntry[]
+  ): Promise<boolean> {
+    const modelGraph = await this.collectAuroraModelGraphPayloadFromSourceModels(assets);
+    return (modelGraph?.staticGeometryNodes.length ?? 0) > 0;
   }
 
   private async collectCreatureSourceMdlInspectionFromSourceModels(
@@ -8858,17 +10338,39 @@ export class CatalogApplicationService {
     logManifestStage("onDemandModels", {
       assetCount: assetsWithOnDemandModels.length
     });
+    // Aurora hosts trimesh, emitter and light children under one MDL tree. A
+    // VFX placeable may therefore need a derived static model, but an
+    // emitter-only MDL must not gain an arbitrary proxy model merely because
+    // it is routed through the VFX host.
+    const vfxHasSourceMdlStaticGeometry =
+      input.subtype === "vfx" &&
+      (await this.hasAuroraSourceMdlStaticGeometry(assetsWithOnDemandModels));
+    const vfxStaticGeometryModelBasenames = new Set(
+      vfxHasSourceMdlStaticGeometry
+        ? selectSourceModelAssetsForDerived(input, assetsWithOnDemandModels)
+            .map((asset) => extractBasename(asset.fileName))
+            .filter(Boolean)
+        : []
+    );
+    const assetsEligibleForDerivedModels =
+      vfxHasSourceMdlStaticGeometry
+        ? dedupePlaceableAssets([
+            ...assetsWithOnDemandModels,
+            ...collectedAssets.filter(isDerivedModelAssetEntry)
+          ])
+        : assetsWithOnDemandModels;
     const assetsWithDerived =
-      input.subtype === "vfx"
-        ? assetsWithOnDemandModels
-        : await this.ensureDerivedPlaceableModelAssets(
+      input.subtype !== "vfx" || vfxHasSourceMdlStaticGeometry
+        ? await this.ensureDerivedPlaceableModelAssets(
             input,
-            assetsWithOnDemandModels,
+            assetsEligibleForDerivedModels,
             input.processingOptions
-          );
+          )
+        : assetsWithOnDemandModels;
     logManifestStage("derivedModels", {
       assetCount: assetsWithDerived.length,
-      derivedModelCount: assetsWithDerived.filter(isDerivedModelAssetEntry).length
+      derivedModelCount: assetsWithDerived.filter(isDerivedModelAssetEntry).length,
+      vfxHasSourceMdlStaticGeometry
     });
     const assetsWithCreatureSupermodels =
       input.subtype === "vfx"
@@ -8981,13 +10483,28 @@ export class CatalogApplicationService {
       onDemandTextureLookupEnabled:
         input.processingOptions?.allowOnDemandTextureLookup !== false
     });
+    const assetsWithOnDemandShaders =
+      input.processingOptions?.allowOnDemandTextureLookup === false
+        ? assetsWithOnDemandMaterials
+        : await this.ensureOnDemandPlaceableShaderAssets(
+            assetsWithOnDemandMaterials,
+            sourceAssetKind
+          );
+    logManifestStage("onDemandShaders", {
+      assetCount: assetsWithOnDemandShaders.length,
+      shaderAssetCount: assetsWithOnDemandShaders.filter(
+        (asset) => asset.role === "material" && asset.extension === "shd"
+      ).length,
+      onDemandShaderLookupEnabled:
+        input.processingOptions?.allowOnDemandTextureLookup !== false
+    });
     const materialTextureReferences =
-      await this.collectTextureReferencesFromMaterialAssets(assetsWithOnDemandMaterials);
+      await this.collectTextureReferencesFromMaterialAssets(assetsWithOnDemandShaders);
     logManifestStage("materialTextureReferences", {
       referenceCount: materialTextureReferences.length
     });
     const materialBasenames = new Set(
-      assetsWithOnDemandMaterials
+      assetsWithOnDemandShaders
         .filter((asset) => asset.role === "material" && asset.extension === "mtr")
         .map((asset) => extractBasename(asset.fileName))
     );
@@ -9007,9 +10524,9 @@ export class CatalogApplicationService {
                 modelTextureReferences: textureReferences.join("|")
               }
             }),
-            ...assetsWithOnDemandMaterials
+            ...assetsWithOnDemandShaders
           ])
-        : assetsWithOnDemandMaterials;
+        : assetsWithOnDemandShaders;
     logManifestStage("snapshotTextures", {
       textureReferenceCount: textureReferences.length,
       assetCount: assetsWithSnapshotTextures.length
@@ -9058,10 +10575,14 @@ export class CatalogApplicationService {
     });
     uniqueAssets = await this.preferCurrentDerivedPlaceableModelAssets(uniqueAssets);
     if (input.subtype === "vfx") {
-      const chunkModelBasenames = new Set(sourceModelChunkReferences.map(extractBasename));
+      const retainedDerivedModelBasenames = new Set([
+        ...sourceModelChunkReferences.map(extractBasename),
+        ...vfxStaticGeometryModelBasenames
+      ]);
       uniqueAssets = uniqueAssets.filter(
         (asset) =>
-          !isDerivedModelAssetEntry(asset) || chunkModelBasenames.has(extractBasename(asset.fileName))
+          !isDerivedModelAssetEntry(asset) ||
+          retainedDerivedModelBasenames.has(extractBasename(asset.fileName))
       );
     }
     this.logPlaceablePipelineStep("buildPlaceableAssetManifest.complete", manifestStartedAtMs, {
@@ -9607,6 +11128,83 @@ export class CatalogApplicationService {
       : assets;
   }
 
+  private async ensureOnDemandPlaceableShaderAssets(
+    assets: PlaceableAssetEntry[],
+    sourceAssetKind: PlaceableManifestSourceAssetKind = "placeable"
+  ): Promise<PlaceableAssetEntry[]> {
+    if (!this.runtimeSettingsRepository || !this.moduleBlobStorage?.putModuleObject) {
+      return assets;
+    }
+
+    const settings = await this.runtimeSettingsRepository.get();
+    const attemptedRefs = new Set<string>();
+    let resolvedAssets = assets;
+    for (let depth = 0; depth < 32; depth += 1) {
+      const requestedRefs = await this.collectAuroraShaderResourceReferences(resolvedAssets);
+      const existingRefs = new Set(
+        resolvedAssets
+          .filter((asset) => asset.role === "material" && asset.extension === "shd")
+          .map((asset) => extractBasename(asset.fileName))
+      );
+      const missingRefs = requestedRefs.filter(
+        (resref) => !existingRefs.has(resref) && !attemptedRefs.has(resref)
+      );
+      if (missingRefs.length === 0) {
+        break;
+      }
+
+      const onDemandAssets: PlaceableAssetEntry[] = [];
+      for (const resref of missingRefs) {
+        attemptedRefs.add(resref);
+        const found = await resolvePlaceableSourceResource(
+          settings,
+          resref,
+          ON_DEMAND_SHADER_RESOURCE_CANDIDATES,
+          sourceAssetKind
+        );
+        if (!found) {
+          continue;
+        }
+        const stored = await this.storeOnDemandPlaceableAsset(settings, found);
+        if (stored) {
+          onDemandAssets.push(stored);
+        }
+      }
+      if (onDemandAssets.length === 0) {
+        break;
+      }
+      resolvedAssets = dedupePlaceableAssets([...resolvedAssets, ...onDemandAssets]);
+    }
+    return resolvedAssets;
+  }
+
+  private async collectAuroraShaderResourceReferences(
+    assets: PlaceableAssetEntry[]
+  ): Promise<string[]> {
+    const references = new Set<string>();
+    const sourceAssets = assets.filter(
+      (asset) =>
+        asset.role === "material" && (asset.extension === "mtr" || asset.extension === "shd")
+    );
+    for (const asset of sourceAssets) {
+      const payload = await this.readModuleBlobObject(asset.objectKey);
+      if (!payload || payload.bytes.length === 0) {
+        continue;
+      }
+      if (asset.extension === "shd") {
+        extractAuroraShaderIncludeRefs(payload.bytes.toString("utf8")).forEach((resref) =>
+          references.add(resref)
+        );
+        continue;
+      }
+      const state = collectAuroraMaterialState(payload.bytes);
+      [state?.customShaderVS, state?.customShaderFS, state?.customShaderGS]
+        .filter((resref): resref is string => Boolean(resref))
+        .forEach((resref) => references.add(extractBasename(resref)));
+    }
+    return [...references].filter(Boolean).sort((left, right) => left.localeCompare(right));
+  }
+
   private async ensureOnDemandPlaceableChunkModelAssets(
     chunkModelReferences: string[],
     assets: PlaceableAssetEntry[],
@@ -10076,6 +11674,9 @@ export class CatalogApplicationService {
   }
 
   private async probeCurrentModuleHash(): Promise<string | undefined> {
+    if (this.committedModuleSnapshotReader) {
+      return (await this.captureCommittedModuleSnapshot())?.revision;
+    }
     if (!this.runtimeSettingsRepository || !this.moduleBlobStorage) {
       return undefined;
     }
@@ -10305,12 +11906,15 @@ export class CatalogApplicationService {
     let continuationToken: string | undefined;
     let moduleHash: string | undefined;
     let prefix = normalizePrefixForLookup(settings.modulePrefix);
+    const committed = await this.captureCommittedModuleSnapshot();
 
     do {
-      const page = await this.moduleBlobStorage.listModuleSnapshot(settings, {
-        limit: 50_000,
-        continuationToken
-      });
+      const page = committed
+        ? await committed.listModuleSnapshot({ limit: 50_000, continuationToken })
+        : await this.moduleBlobStorage.listModuleSnapshot(settings, {
+            limit: 50_000,
+            continuationToken
+          });
 
       moduleHash = moduleHash ?? page.moduleHash;
       prefix = page.prefix;
@@ -10347,7 +11951,11 @@ export class CatalogApplicationService {
       return null;
     }
 
-    const cacheKey = buildModuleBlobObjectCacheKey(settings, key);
+    const committed = await this.captureCommittedModuleSnapshot();
+    const cacheKey = [
+      committed?.revision ?? "mutable",
+      buildModuleBlobObjectCacheKey(settings, key)
+    ].join("|");
     const cached = this.getCachedModuleBlobObject(cacheKey);
     if (cached) {
       return cached;
@@ -10359,12 +11967,27 @@ export class CatalogApplicationService {
         return inFlightCached;
       }
 
-      const payload = await this.moduleBlobStorage!.getModuleObject(settings, key);
+      const payload = committed
+        ? await committed.getModuleObject(key)
+        : await this.moduleBlobStorage!.getModuleObject(settings, key);
       if (payload) {
         this.setCachedModuleBlobObject(cacheKey, payload);
       }
       return payload;
     });
+  }
+
+  private captureCommittedModuleSnapshot(): Promise<CapturedCommittedModuleSnapshot> | null {
+    if (!this.committedModuleSnapshotReader) {
+      return null;
+    }
+    this.committedModuleSnapshotPromise ??= this.committedModuleSnapshotReader
+      .capture()
+      .catch((error) => {
+        this.committedModuleSnapshotPromise = null;
+        throw error;
+      });
+    return this.committedModuleSnapshotPromise;
   }
 
   private async getBlobStorageSettings(): Promise<BlobStorageSettings | null> {
@@ -10964,7 +12587,7 @@ function inferOnDemandAssetRole(extension: string): PlaceableAssetRole {
   if (normalized === "bmp" || normalized === "dds" || normalized === "tga" || normalized === "plt") {
     return "texture";
   }
-  if (normalized === "mtr" || normalized === "txi") {
+  if (normalized === "mtr" || normalized === "shd" || normalized === "txi") {
     return "material";
   }
   return "unknown";
@@ -12674,6 +14297,7 @@ function buildCreatureAppearanceOverrideCacheFingerprint(
   }
 
   const entries: Array<[string, number | string]> = [];
+  addCreatureAppearanceOverrideFingerprintEntry(entries, "phenotype", override.phenotype);
   addCreatureAppearanceOverrideFingerprintEntry(
     entries,
     "appearanceType",
@@ -13342,6 +14966,32 @@ function collectAuroraMaterialState(
       }
       continue;
     }
+    if (
+      key === "bumpmaptexture" ||
+      key === "bumpyshinytexture" ||
+      key === "envmaptexture" ||
+      key === "bumpreplacementtexture"
+    ) {
+      const reference = normalizeModelTextureReference(rawValue);
+      if (reference) {
+        state[key] = reference;
+      }
+      continue;
+    }
+    if (key === "sample_framebuffer") {
+      const sampleFramebuffer = readAuroraIntegerValue(rawValue);
+      if (sampleFramebuffer !== undefined) {
+        state.sampleFramebuffer = sampleFramebuffer;
+      }
+      continue;
+    }
+    if (key === "volumetric") {
+      const volumetric = readAuroraBooleanValue(rawValue);
+      if (volumetric !== undefined) {
+        state.volumetric = volumetric;
+      }
+      continue;
+    }
     if (key === "renderhint" || key === "render_hint") {
       const renderHint = normalizeAuroraEmitterValue(rawValue);
       if (renderHint) {
@@ -13386,15 +15036,32 @@ function applyAuroraMaterialParameter(
   if (tokens.length < 3) {
     return;
   }
-  const parameterName = tokens[1]?.trim().toLowerCase();
-  const parsedValue = Number.parseFloat(tokens[2] ?? "");
-  if (!parameterName || !Number.isFinite(parsedValue)) {
+  const kind = tokens[0]?.trim().toLowerCase();
+  const parameterName = tokens[1]?.trim();
+  if ((kind !== "float" && kind !== "int") || !parameterName) {
     return;
   }
-  if (parameterName === "roughness") {
-    state.roughness = parsedValue;
-  } else if (parameterName === "specularity") {
-    state.specularity = parsedValue;
+  const parsedValues = tokens
+    .slice(2, kind === "float" ? 6 : 3)
+    .map((value) => kind === "int" ? Number.parseInt(value, 10) : Number.parseFloat(value));
+  if (
+    parsedValues.length === 0 ||
+    parsedValues.length > 4 ||
+    parsedValues.some((value) => !Number.isFinite(value)) ||
+    (kind === "int" && (!Number.isInteger(parsedValues[0]) || parsedValues.length !== 1))
+  ) {
+    return;
+  }
+  const arity = parsedValues.length as 1 | 2 | 3 | 4;
+  state.parameters = [
+    ...(state.parameters ?? []),
+    { name: parameterName, kind, values: parsedValues, arity }
+  ];
+  const normalizedName = parameterName.toLowerCase();
+  if (kind === "float" && normalizedName === "roughness") {
+    state.roughness = parsedValues[0];
+  } else if (kind === "float" && normalizedName === "specularity") {
+    state.specularity = parsedValues[0];
   }
 }
 
@@ -13424,8 +15091,15 @@ function hasAuroraMaterialState(
     state.customShaderVS !== undefined ||
     state.customShaderFS !== undefined ||
     state.customShaderGS !== undefined ||
+    Boolean(state.parameters && state.parameters.length > 0) ||
+    state.sampleFramebuffer !== undefined ||
+    state.volumetric !== undefined ||
     state.roughness !== undefined ||
     state.specularity !== undefined ||
+    state.bumpmaptexture !== undefined ||
+    state.bumpyshinytexture !== undefined ||
+    state.envmaptexture !== undefined ||
+    state.bumpreplacementtexture !== undefined ||
     Boolean(state.textureSlots && state.textureSlots.length > 0)
   );
 }
@@ -13513,6 +15187,15 @@ interface ParsedAuroraMdlEmitterAnimationEvent {
   time: number;
   type: string;
   animationName?: string;
+}
+
+interface ParsedAuroraMdlEmitterControllerRow {
+  property: string;
+  rawToken: string;
+  rowKind: "direct" | "key" | "bezier-key";
+  values: number[];
+  sourceLineNumber?: number;
+  binaryControllerType?: number;
 }
 
 const AURORA_EMITTER_SIMULATION_TIMELINE_KEYS = [
@@ -13706,6 +15389,10 @@ interface ParsedAuroraMdlEmitter {
   referenceNodes?: ParsedAuroraMdlReferenceNode[];
   events?: ParsedAuroraMdlEmitterAnimationEvent[];
   animations?: ParsedAuroraMdlEmitterAnimation[];
+  animationPasses?: ParsedAuroraMdlEmitterAnimationPass[];
+  directRows?: ParsedAuroraMdlEmitterControllerRow[];
+  keyRows?: ParsedAuroraMdlEmitterControllerRow[];
+  bezierKeyRows?: ParsedAuroraMdlEmitterControllerRow[];
   sourceState?: {
     renderOrder?: number;
     renderHintRaw?: string;
@@ -13733,6 +15420,20 @@ interface ParsedAuroraMdlEmitterAnimation {
   transform?: ParsedAuroraMdlEmitter["transform"];
 }
 
+interface ParsedAuroraMdlEmitterAnimationPass {
+  animationName: string;
+  lengthSeconds?: number;
+  transitionSeconds?: number;
+  emitterState?: {
+    simulation?: ParsedAuroraMdlEmitter["simulation"];
+    transform?: ParsedAuroraMdlEmitter["transform"];
+    directRows?: ParsedAuroraMdlEmitterControllerRow[];
+    keyRows?: ParsedAuroraMdlEmitterControllerRow[];
+    bezierKeyRows?: ParsedAuroraMdlEmitterControllerRow[];
+  };
+  events?: ParsedAuroraMdlEmitterAnimationEvent[];
+}
+
 interface ParsedAuroraMdlReferenceNode {
   nodeName: string;
   parentNodeName?: string;
@@ -13751,6 +15452,7 @@ interface ParsedAuroraMdlReferenceNode {
 
 interface ParsedAuroraMdlEmitters {
   source: PlaceableRenderPackageAuroraEmitterSource;
+  sourceModelHash: string;
   emitters: ParsedAuroraMdlEmitter[];
 }
 
@@ -13809,6 +15511,7 @@ interface ParsedAuroraMdlLight {
 
 interface ParsedAuroraMdlLights {
   source: PlaceableRenderPackageAuroraLightSource;
+  sourceModelHash: string;
   lights: ParsedAuroraMdlLight[];
 }
 
@@ -13986,6 +15689,7 @@ function collectAuroraSourceModelEmitters(
   const parsed = parseAuroraMdlVfxSource(bytes, options);
   return {
     source: parsed.source,
+    sourceModelHash: parsed.sourceModelHash,
     emitters: parsed.emitters
   };
 }
@@ -13997,6 +15701,7 @@ function collectAuroraSourceModelLights(
   const parsed = parseAuroraMdlVfxSource(bytes, options);
   return {
     source: parsed.source,
+    sourceModelHash: parsed.sourceModelHash,
     lights: parsed.lights
   };
 }

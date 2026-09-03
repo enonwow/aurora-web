@@ -37,6 +37,15 @@ export class AreasController extends ProcessingHttpBaseController {
     super(config);
   }
 
+  @Get("capabilities")
+  @ApiOperation({ summary: "Get the deterministic Area capability catalog." })
+  @ApiResponse({ status: 200, description: "area-capabilities.v1 catalog." })
+  @ApiResponse({ status: 401, description: "Missing or invalid session." })
+  @ApiResponse({ status: 403, description: "Forbidden for role/permission." })
+  async capabilities(@Req() request: AppRequest) {
+    return this.success(request, this.service.getAreaCapabilities());
+  }
+
   @Get()
   @ApiOperation({ summary: "List areas available for benchmark and editing." })
   @ApiQuery({ name: "query", required: false })

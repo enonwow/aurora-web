@@ -28,9 +28,19 @@ function booleanEnvSchema(defaultValue: boolean) {
   return z.preprocess(parseBooleanValue, z.boolean()).default(defaultValue);
 }
 
+const optionalSha256EnvSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.toLowerCase())
+  .refine((value) => value === "" || /^[a-f0-9]{64}$/u.test(value), {
+    message: "Expected an empty value or a lowercase-normalized SHA-256.",
+  })
+  .default("");
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
+  AURORA_BIND_HOST: z.string().min(1).default("0.0.0.0"),
   DATABASE_URL: z
     .string()
     .min(1)
@@ -40,10 +50,17 @@ export const envSchema = z.object({
     .min(1)
     .default("http://localhost:5173,http://127.0.0.1:5173"),
   CONTRACT_VERSION: z.string().min(1).default("1.0.0"),
+  RUNTIME_BUILD_COMMIT: z.string().default(""),
+  RUNTIME_BUILD_IMAGE_DIGEST: z.string().default(""),
+  RUNTIME_BUILD_BUILT_AT: z.string().datetime().or(z.literal("")).default(""),
   SWAGGER_ENABLED: booleanEnvSchema(true),
   SWAGGER_PATH: z.string().min(1).default("docs"),
   SWAGGER_JSON_PATH: z.string().min(1).default("docs-json"),
   AUTH_REPOSITORY_DRIVER: z.enum(["mysql", "memory"]).default("mysql"),
+  AURORA_RUNTIME_PATH_MODE: z.enum(["host", "docker"]).default("host"),
+  NWN_USER_DIR_HOST: z.string().default(""),
+  NWN_INSTALL_DIR_HOST: z.string().default(""),
+  AURORA_REFERENCE_DIR_HOST: z.string().default(""),
   AURORA_HOST_LOCAL_RUNTIME: booleanEnvSchema(false),
   AURORA_LOCAL_BLOB_MIRROR: z.string().default("../.codex-tmp/module-blob-mirror"),
   REDIS_URL: z.string().min(1).default("redis://redis:6379"),
@@ -97,7 +114,53 @@ export const envSchema = z.object({
     .default(30_000),
   AURORA_DERIVED_ASSET_MAX_MODELS: z.coerce.number().int().positive().default(200),
   AURORA_DERIVED_ASSET_OUTPUT_EXTENSION: z.enum(["glb", "gltf"]).default("glb"),
-  AURORA_ITEM_GENERATOR_SOURCE_DIRS: z.string().default("")
+  AURORA_AREA_CERTIFICATION_REPORT_PATH: z.string().max(4096).default(""),
+  AURORA_ITEM_GENERATOR_SOURCE_DIRS: z.string().default(""),
+  AURORA_NWNSCRIPT_COMPILER_PATH: z.string().trim().max(4096).default(""),
+  AURORA_NWNSCRIPT_COMPILER_SHA256: optionalSha256EnvSchema,
+  AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER: z.string().trim().max(256).default(""),
+  AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH: z.string().trim().max(4096).default(""),
+  AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256: optionalSha256EnvSchema,
+  AURORA_NWNSCRIPT_RUNTIME_LIBRARY_DIRS: z.string().max(32768).default(""),
+  AURORA_NWNSCRIPT_COMPILER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(30_000)
+    .default(10_000),
+  AURORA_NWNSCRIPT_COMPILER_OUTPUT_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(64 * 1024)
+    .default(64 * 1024),
+  AURORA_NWNSCRIPT_COMPILER_ARTIFACT_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(4 * 1024 * 1024)
+    .default(4 * 1024 * 1024),
+}).superRefine((value, context) => {
+  const required = [
+    value.AURORA_NWNSCRIPT_COMPILER_PATH,
+    value.AURORA_NWNSCRIPT_COMPILER_SHA256,
+    value.AURORA_NWNSCRIPT_COMPILER_VERSION_MARKER,
+    value.AURORA_NWNSCRIPT_LANGUAGE_SPEC_PATH,
+    value.AURORA_NWNSCRIPT_LANGUAGE_SPEC_SHA256,
+  ];
+  const configuredCount = required.filter((entry) => entry.length > 0).length;
+  const hasRuntimeDirectories = value.AURORA_NWNSCRIPT_RUNTIME_LIBRARY_DIRS.trim().length > 0;
+  if (
+    (configuredCount > 0 && configuredCount !== required.length) ||
+    (configuredCount === 0 && hasRuntimeDirectories)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AURORA_NWNSCRIPT_COMPILER_PATH"],
+      message:
+        "NWScript compiler path, hashes, version marker, and language specification must all be configured together.",
+    });
+  }
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

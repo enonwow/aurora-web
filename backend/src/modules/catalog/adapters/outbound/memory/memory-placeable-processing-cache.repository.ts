@@ -1,10 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { AppConfigService } from "../../../../../common/config/app-config.service";
 import { MemoryProcessingCacheStore } from "../../../../../common/processing-cache/memory-processing-cache.store";
 import type {
   PlaceableProcessingCachePort,
   ProcessingCacheEntry
 } from "../../../application/ports/placeable-processing-cache.port";
+import { SystemMaintenanceApplicationService } from "../../../../system-maintenance/application/system-maintenance.application.service";
 
 const MEMORY_INFRASTRUCTURE_MAX_ENTRY_BYTES = 32 * 1024 * 1024;
 
@@ -14,7 +15,11 @@ export class MemoryPlaceableProcessingCacheRepository
 {
   private readonly store: MemoryProcessingCacheStore<unknown>;
 
-  constructor(config: AppConfigService) {
+  constructor(
+    config: AppConfigService,
+    @Optional()
+    private readonly maintenance?: SystemMaintenanceApplicationService
+  ) {
     const maxEntryBytes = config.useMemoryInfrastructure
       ? Math.max(
           config.processingCacheL1CatalogMaxEntryBytes,
@@ -29,16 +34,20 @@ export class MemoryPlaceableProcessingCacheRepository
   }
 
   async get<TValue = unknown>(key: string): Promise<ProcessingCacheEntry<TValue> | null> {
-    const entry = await this.store.get(key);
-    return entry as ProcessingCacheEntry<TValue> | null;
+    const entry = await this.store.get(this.internalKey(key));
+    return entry ? ({ ...entry, key } as ProcessingCacheEntry<TValue>) : null;
   }
 
   async set<TValue = unknown>(
     key: string,
     value: TValue
   ): Promise<ProcessingCacheEntry<TValue>> {
-    const entry = await this.store.set(key, value);
-    return entry as ProcessingCacheEntry<TValue>;
+    const entry = await this.store.set(this.internalKey(key), value);
+    return { ...entry, key } as ProcessingCacheEntry<TValue>;
+  }
+
+  private internalKey(key: string): string {
+    return `${this.maintenance?.getCurrentCacheNamespace() ?? "legacy"}:${key}`;
   }
 }
 
