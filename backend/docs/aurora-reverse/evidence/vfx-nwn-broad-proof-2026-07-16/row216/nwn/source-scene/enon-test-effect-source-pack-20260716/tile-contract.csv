@@ -1,0 +1,5 @@
+index,row,col,tileId,areModelResRef,setModelResRef,resolvedModelResRef,modelResRefSource,imageMap2D,sourceTileOrientation,sourceAuroraYawDegreesCcw,currentWebMirrorOrientation,currentWebMirrorYawDegrees,tilesetOrientation,tilesetYawDegreesCcw,height,pathNode,visibilityNode,visibilityOrientation,doorVisibilityNode,doorVisibilityOrientation,topEdge,rightEdge,bottomEdge,leftEdge,topLeftHeight,topRightHeight,bottomLeftHeight,bottomRightHeight,mainLight1,mainLight2,sourceLight1,sourceLight2,animLoop1,animLoop2,animLoop3,contractLane
+0,0,0,107,,tin01_h01_02,tin01_h01_02,set-tile-section,miin01_h01,2,180,2,180,0,0,0,h,,,,,,,,,0,0,0,0,4,0,3,3,1,1,1,are-tile-list-plus-set-tile-section
+1,0,1,147,,tin01_h01_03,tin01_h01_03,set-tile-section,miin01_h01,3,270,1,90,0,0,0,h,,,,,,,,,0,0,0,0,4,14,0,0,1,1,1,are-tile-list-plus-set-tile-section
+2,1,0,364,,tpad_364,tpad_364,set-tile-section,mztall_black,1,90,3,270,0,0,0,a,,,,,,,,,0,0,0,0,0,13,3,3,1,1,1,are-tile-list-plus-set-tile-section
+3,1,1,364,,tpad_364,tpad_364,set-tile-section,mztall_black,0,0,0,0,0,0,0,a,,,,,,,,,0,0,0,0,4,13,3,3,1,1,1,are-tile-list-plus-set-tile-section

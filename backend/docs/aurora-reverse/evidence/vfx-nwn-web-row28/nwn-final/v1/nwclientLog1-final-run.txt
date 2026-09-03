@@ -1,0 +1,27 @@
+
+--------------------------------------
+Messages for: Wed Aug 19 14:53:44 2026
+--------------------------------------
+[Wed Aug 19 14:53:47] ---- Server Options ----
+[Wed Aug 19 14:53:47] Max Players: 6
+[Wed Aug 19 14:53:47] Char Levels: (1-40)
+[Wed Aug 19 14:53:47] Player Password: NO
+[Wed Aug 19 14:53:47] DM Login Enabled: YES
+[Wed Aug 19 14:53:47] Server Admin Login Enabled: YES
+[Wed Aug 19 14:53:47] Post Game To Internet: YES
+[Wed Aug 19 14:53:47] Game Type: Action
+[Wed Aug 19 14:53:47] Difficulty: 1
+[Wed Aug 19 14:53:47] PVP Setting: PARTY
+[Wed Aug 19 14:53:47] Vault: LOCAL
+[Wed Aug 19 14:53:47] Only One Party: YES
+[Wed Aug 19 14:53:47] Enforce Legal Characters: NO
+[Wed Aug 19 14:53:47] Item Level Restrictions: NO
+[Wed Aug 19 14:53:47] Player pausing: ENABLED
+[Wed Aug 19 14:53:47] Auto Reload When Empty: On
+[Wed Aug 19 14:53:47] Auto Save: Enabled
+[Wed Aug 19 14:53:47] Saving Characters in Saved Game
+[Wed Aug 19 14:53:47] ---- End Server Options ----
+[Wed Aug 19 14:53:47] Enon [] () Joined as Server Admin
+[Wed Aug 19 14:53:47] Enon () Joined as Player 1
+[Wed Aug 19 14:53:47] Loading Module: codex_vfx_row28
+[Wed Aug 19 14:54:09] AURORA_VFX_PROOF_TRIGGER fixture=vfx-nwn-web-row28 row=28 count=1 run=20260818T164640Z

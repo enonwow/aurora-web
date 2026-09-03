@@ -1,0 +1,149 @@
+newmodel vim_explacid
+setsupermodel vim_explacid NULL
+classification effect
+setanimationscale 1
+beginmodelgeom vim_explacid
+node dummy vim_explacid
+  parent NULL
+endnode
+node emitter emit_acid_shroud
+  parent vim_explacid
+  position 0 0 0
+  orientation 0 0 0 0
+  renderorder 8
+  spawntype 0
+  update Fountain
+  render Billboard_to_World_Z
+  blend Lighten
+  texture fxpa_flare
+  xgrid 1
+  ygrid 1
+  fps 1
+  frameStart 0
+  frameEnd 0
+  random 0
+  birthrate 34
+  lifeExp 0.82
+  velocity 0.23
+  randvel 0.18
+  spread 6.283185
+  particleRot 0.42
+  mass 0
+  colorStart 0.76 1.00 0.34
+  colorMid 0.24 0.86 0.12
+  colorEnd 0.03 0.11 0.03
+  alphaStart 0.70
+  alphaMid 0.38
+  alphaEnd 0
+  sizeStart 0.055
+  sizeMid 0.22
+  sizeEnd 0.43
+endnode
+node emitter emit_acid_flash
+  parent vim_explacid
+  position 0 0 0
+  orientation 0 0 0 0
+  renderorder 10
+  spawntype 0
+  update Single
+  render Billboard_to_World_Z
+  blend Lighten
+  texture fxpa_flare
+  xgrid 1
+  ygrid 1
+  fps 1
+  frameStart 0
+  frameEnd 0
+  random 0
+  loop 0
+  birthrate 1
+  lifeExp 0.46
+  velocity 0
+  randvel 0
+  spread 0
+  particleRot 0
+  mass 0
+  colorStart 0.90 1.00 0.48
+  colorMid 0.36 1.00 0.18
+  colorEnd 0.04 0.16 0.04
+  alphaStart 0.88
+  alphaMid 0.54
+  alphaEnd 0
+  sizeStart 0.20
+  sizeMid 0.52
+  sizeEnd 0.86
+endnode
+node emitter emit_acid_motes
+  parent vim_explacid
+  position 0 0 0
+  orientation 0 0 0 0
+  renderorder 9
+  spawntype 0
+  update Explosion
+  render Billboard_to_World_Z
+  blend Lighten
+  texture fxpa_flare
+  xgrid 1
+  ygrid 1
+  fps 1
+  frameStart 0
+  frameEnd 0
+  random 0
+  detonate 0.04
+  blastRadius 0.46
+  blastLength 0.20
+  birthrate 18
+  lifeExp 0.48
+  velocity 0.52
+  randvel 0.20
+  spread 6.283185
+  particleRot 1.1
+  mass 0
+  colorStart 0.86 1.00 0.28
+  colorMid 0.42 0.92 0.16
+  colorEnd 0.04 0.11 0.03
+  alphaStart 0.72
+  alphaMid 0.42
+  alphaEnd 0
+  sizeStart 0.028
+  sizeMid 0.070
+  sizeEnd 0.130
+endnode
+node emitter emit_acid_soot
+  parent vim_explacid
+  position 0 0 0
+  orientation 0 0 0 0
+  renderorder 4
+  spawntype 0
+  update Explosion
+  render Billboard_to_World_Z
+  blend Lighten
+  texture fxpa_flare
+  xgrid 1
+  ygrid 1
+  fps 1
+  frameStart 0
+  frameEnd 0
+  random 0
+  detonate 0.08
+  blastRadius 0.38
+  blastLength 0.08
+  birthrate 16
+  lifeExp 0.92
+  velocity 0.20
+  randvel 0.09
+  spread 6.283185
+  particleRot 0.18
+  mass 0
+  colorStart 0.31 0.24 0.12
+  colorMid 0.18 0.25 0.09
+  colorEnd 0.04 0.04 0.03
+  alphaStart 0.30
+  alphaMid 0.28
+  alphaEnd 0
+  sizeStart 0.10
+  sizeMid 0.24
+  sizeEnd 0.40
+endnode
+endmodelgeom vim_explacid
+donemodel vim_explacid

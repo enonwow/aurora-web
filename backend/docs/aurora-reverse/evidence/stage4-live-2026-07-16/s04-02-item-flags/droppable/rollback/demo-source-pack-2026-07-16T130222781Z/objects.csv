@@ -1,0 +1,19 @@
+index,listIndex,kind,listKey,objectSourceId,templateResRef,tag,localizedName,x,y,z,bearingDegrees,bearingRadians,isStatic,appearanceType,genericType,hasVisualTransform,vtScaleX,vtScaleY,vtScaleZ,vtRotateX,vtRotateY,vtRotateZ,vtTranslateX,vtTranslateY,vtTranslateZ,contractLane
+0,0,placeable,placeables,demo:placeable:0,plc_flrlever1,FloorLever1,,38.24,20.76,0,0,0,false,22,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+1,1,placeable,placeables,demo:placeable:1,plc_flrlever1,FloorLever1,,22.0748,21.1849,0,0,0,false,22,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+2,2,placeable,placeables,demo:placeable:2,plc_watertrough,WaterTrough,,27.44,29.76,0,0,0,true,104,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+3,0,door,doors,demo:door:0,nw_door_ttr_01,BARN_DOOR,,34,42.2,0.1,0,0,,0,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+4,0,creature,creatures,demo:creature:0,nw_hen_gal_11,NW_HEN_GAL,,31.4421,12.1028,0,270,4.712389,,3,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+5,1,creature,creatures,demo:creature:1,nw_hen_gal_11,NW_HEN_GAL,,43.6032,14.9972,0,270,4.712389,,3,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+6,2,creature,creatures,demo:creature:2,nw_hen_gal_11,NW_HEN_GAL,,56.3106,19.1616,0,270,4.712389,,3,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+7,3,creature,creatures,demo:creature:3,nw_dwarfmerc001,NW_DWARFMERC001,,60.9686,54.5207,0,270,4.712389,,249,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+8,4,creature,creatures,demo:creature:4,nw_dwarfmerc001,NW_DWARFMERC001,,60.97,27.18,0,270,4.712389,,249,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+9,5,creature,creatures,demo:creature:5,nw_dwarfmerc001,NW_DWARFMERC001,,53.23,52.46,0,270,4.712389,,249,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+10,0,encounter,encounters,demo:encounter:0,x2_gnoll001,X2_GNOLL001,,22.412,45.197,0,0,0,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+11,0,item,items,demo:item:0,nw_cloth022,NW_CLOTH022,Commoner's Outfit,58.3894,49.8782,0,270,4.712389,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+12,1,item,items,demo:item:1,nw_cloth022,NW_CLOTH022,,53.2285,27.1841,0.01,270,4.712389,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+13,2,item,items,demo:item:2,nw_cloth022,NW_CLOTH022,,48.0728,51.4257,0,270,4.712389,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+14,0,sound,sounds,demo:sound:0,animalcriesday,AnimalCriesDay,,37.7566,49.3605,1.51,0,0,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+15,0,store,stores,demo:store:0,x2_merc_dye,x2_merc_dye,,42.9145,50.394,0,270,4.712389,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+16,0,trigger,triggers,demo:trigger:0,newgeneric,GenericTrigger,,35.476,44.9111,0,0,0,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
+17,0,waypoint,waypoints,demo:waypoint:0,nw_waypoint001,CODEX_WAYPOINT_REDO2,,33.1162,47.7472,3.5019,270,4.712389,,,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform

@@ -1,0 +1,2 @@
+index,listIndex,kind,listKey,objectSourceId,templateResRef,tag,localizedName,x,y,z,bearingDegrees,bearingRadians,isStatic,appearanceType,genericType,hasVisualTransform,vtScaleX,vtScaleY,vtScaleZ,vtRotateX,vtRotateY,vtRotateZ,vtTranslateX,vtTranslateY,vtTranslateZ,contractLane
+0,0,creature,creatures,enon_test_effect:creature:0,nw_innkeeper,effect_test,,9.5,6.8,0,90,1.570796,,233,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform

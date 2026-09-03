@@ -1,0 +1,34 @@
+# area002 source proof pack
+
+Generated: 2026-07-16T20:58:44.425Z
+
+Module path: `C:\Users\enonw\Documents\Neverwinter Nights\modules\s05t0716.mod`
+
+## Verdict
+
+Tiles and GIT objects use separate rotation contracts. Tile orientation comes from ARE Tile_List and is a discrete 0..3 tile/grid value. Placeable bearing comes from GIT orientation/bearing fields. VisualTransform is a separate visual-only payload and must not be merged into tile orientation or GIT placement.
+
+## Counts
+
+- Tiles: 4
+- Tileset SET status: present
+- SET referenced tile models resolved: 4/4
+- SET referenced ImageMap2D rows: 4
+- Objects: 0
+- Placeables: 0
+- VisualTransform placeables: 0
+- GIC status: present
+- module.ifo status: present
+
+## Files
+
+- rawAreSummary: `raw.are.summary.json`
+- rawGitSummary: `raw.git.summary.json`
+- rawGicStatus: `raw.gic.status.json`
+- moduleIfoAreaEntry: `module-ifo-area-entry.json`
+- tilesetSetSummary: `tileset.set.summary.json`
+- tilesCsv: `tiles.csv`
+- tileContractCsv: `tile-contract.csv`
+- objectsCsv: `objects.csv`
+- transformContract: `transform-contract.json`
+- verdict: `verdict.md`

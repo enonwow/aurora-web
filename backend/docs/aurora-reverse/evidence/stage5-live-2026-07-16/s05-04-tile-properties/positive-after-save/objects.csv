@@ -1,0 +1,2 @@
+index,listIndex,kind,listKey,objectSourceId,templateResRef,tag,localizedName,x,y,z,bearingDegrees,bearingRadians,isStatic,appearanceType,genericType,hasVisualTransform,vtScaleX,vtScaleY,vtScaleZ,vtRotateX,vtRotateY,vtRotateZ,vtTranslateX,vtTranslateY,vtTranslateZ,contractLane
+0,0,placeable,placeables,area001:placeable:0,plc_flrlever1,FloorLever1,,38.6001,34.6204,5,0,0,false,22,,false,,,,,,,,,,git-object-placement-plus-optional-visual-transform
