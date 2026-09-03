@@ -100,7 +100,7 @@ Poza zakresem:
 
 | ID | Stage | Scenariusz | Impact | Kontrole | Testy bezpieczenstwa |
 |---|---|---|---|---|---|
-| E-01 | API runtime settings | Uzytkownik z nizsza rola eskaluje uprawnienia do path write. | Przejecie kontroli nad zrodlem danych i host FS read scope. | Split permissions (`admin.config.write` + `admin.runtime_paths.write`), hard role checks, mutation tests dla guard/policy. | `SEC-E-01`: matrix role->permission dla PUT runtime; `SEC-E-02`: mutation test ubija oslabione guardy. |
+| E-01 | API runtime settings | Uzytkownik z nizsza rola eskaluje uprawnienia do path write. | Przejecie kontroli nad zrodlem danych i host FS read scope. | Split permissions (`admin.config.write` + `admin.runtime_paths.write`), hard role checks, skupione negatywne testy guard/policy. | `SEC-E-01`: matrix role->permission dla PUT runtime; `SEC-E-02`: test negatywny wykrywa oslabione guardy. |
 | E-02 | apply/API write boundary | Obejscie revision gate (`expectedRevision`) lub apply bez wymaganych permissions. | Nieautoryzowany write i stale overwrite. | `expectedRevision` required on mutating apply, `PIPELINE_APPLY_REVISION_CONFLICT`, per-type permissions (`asset.place`, `dm.spawn_creature`). | `SEC-E-03`: brak `expectedRevision` -> reject; `SEC-E-04`: stale revision -> `409`; `SEC-E-05`: rola read-only nie moze apply. |
 | E-03 | filesystem boundary | Lokalny attacker podmienia symlink po walidacji (TOCTOU) i eskaluje read scope. | Odczyt plikow poza allowlist, potencjalny credential leak. | TOCTOU guard (re-verify after open), `path_security_toctou_detected`, host ACL least privilege. | `SEC-E-06`: symlink swap podczas open -> fail + telemetry event; `SEC-E-07`: process account nie ma read poza root allowlist. |
 
@@ -144,7 +144,6 @@ cd backend
 npm run build
 npm run test:unit
 npm run test:e2e
-npm run test:mutation
 ```
 3. `P2` (release/hardening sign-off):
 ```bash
@@ -152,8 +151,10 @@ cd backend
 npm run build
 npm run test:unit
 npm run test:e2e
-npm run test:mutation
 ```
+
+Mutation testing jest opcjonalne, nie należy do bram P0/P1/P2 i wymaga
+wyraźnego żądania użytkownika.
 
 Wymaganie R65:
 1. Zmiany dotykajace kontroli security z sekcji 4 automatycznie klasyfikowac co najmniej do `P1`.

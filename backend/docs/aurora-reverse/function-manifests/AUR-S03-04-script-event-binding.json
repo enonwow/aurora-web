@@ -1,0 +1,39 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S03-04",
+  "function": "Script event bindings",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "creature",
+    "templateResRef": "nw_dwarfmerc001",
+    "tag": "NW_DWARFMERC001"
+  },
+  "nativeAction": {
+    "name": "native Scripts event binding, packed NCS save, Test Module heartbeat proof, and native rollback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "runtimeProof": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-script-runtime-validator.json",
+    "acceptanceSummaryPath": "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-script-runtime-summary.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-heartbeat-bound-unsaved.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-runtime-heartbeat-verified.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-script-final-rollback-unsaved.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-final-rollback.raw.git.summary.json",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-script-runtime-summary.json",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-14/s03-script-runtime-validator.json"
+  ],
+  "blocker": null
+}

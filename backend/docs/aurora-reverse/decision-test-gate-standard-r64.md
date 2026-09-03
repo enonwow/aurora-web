@@ -1,13 +1,25 @@
 # Decision Closure C2: Backend Verify Gate Standard (R64)
 
-## Finalna decyzja
+## Aktualizacja polityki 2026-08-19 (obowiązująca)
+
+Mutation testing nie należy już do P0, P1, P2, pre-merge ani Definition of
+Done. Jest opcjonalne i wolno je uruchomić tylko na wyraźne żądanie użytkownika
+w bieżącym zadaniu. Wtedy wymagane jest `AURORA_MUTATION_TESTS=1`; repozytoryjny
+wrapper wymusza jeden job z concurrency `1`. Obowiązujące bramy opierają się na
+buildzie oraz odpowiednich testach unit, integration/e2e i regression.
+
+Wszystkie dalsze wymagania `test:mutation` w tym dokumencie są historycznym
+zapisem decyzji R64 i zostały wycofane.
+
+## Historyczna decyzja (wycofana 2026-08-19)
 Wprowadzamy 3-poziomowy standard verify gate backendu (P0/P1/P2), ktory laczy RULES i P0_COMMANDS bez sprzecznosci:
 
 1. `P0` to **minimalny, obowiazkowy gate kazdego PR**: `build + unit + e2e`.
 2. `P1` to **gate ryzyka zmian**: `P0 + mutation` tylko dla zmian logic/auth/guard/policy.
 3. `P2` to **gate wydaniowy/hardening**: `P0 + mutation` zawsze (niezaleznie od zakresu zmian).
 
-Ta decyzja zamyka konflikt: `test:mutation` nie jest czescia minimalnego P0, ale pozostaje obowiazkowe tam, gdzie RULES wymagaja podwyzszonej pewnosci.
+Historycznie ta decyzja uznawała `test:mutation` za obowiązkowe w części bram.
+To wymaganie zostało wycofane przez aktualizację polityki z 2026-08-19.
 
 ## Rozstrzygniecie konfliktow RULES vs P0_COMMANDS
 
@@ -55,11 +67,10 @@ cd backend
 npm run build
 npm run test:unit
 npm run test:e2e
-npm run test:mutation
 ```
 
 Wynik:
-1. `PASS` tylko gdy 4/4 kroki sa zielone.
+1. `PASS` tylko gdy 3/3 kroki oraz właściwe skupione testy ryzyka sa zielone.
 2. `FAIL` gdy dowolny krok nie przejdzie.
 
 ### P2 (obowiazkowe dla release/hardening)
@@ -76,19 +87,20 @@ cd backend
 npm run build
 npm run test:unit
 npm run test:e2e
-npm run test:mutation
 ```
 
 Wynik:
-1. `PASS` tylko gdy 4/4 kroki sa zielone.
+1. `PASS` tylko gdy 3/3 kroki oraz właściwe testy hardening sa zielone.
 2. `FAIL` gdy dowolny krok nie przejdzie.
 
 ## Uzasadnienie
 
 1. `build` w P0 eliminuje klase bledow, ktore same testy moga pominac (np. problemy kompilacji/typowania).
 2. `unit + e2e` w P0 utrzymuje szybki, ale sensowny minimalny gate PR.
-3. Mutation jest kosztowne czasowo, wiec nie moze byc wymagane dla kazdej drobnej zmiany (zgodnie z P0_COMMANDS), ale musi byc obowiazkowe dla zmian ryzykownych (zgodnie z RULES).
-4. P2 daje jednoznaczny tryb "maksymalnej pewnosci" przed wydaniem bez oslabiania codziennego flow PR.
+3. Mutation testing jest kosztowne czasowo i pamięciowo, dlatego jest
+   opcjonalne, wymaga wyraźnego żądania użytkownika i nie blokuje P0/P1/P2.
+4. P2 daje jednoznaczny tryb podwyższonej pewnosci przez właściwe testy
+   hardening przed wydaniem bez oslabiania codziennego flow PR.
 
 ## Definition of Done dla C2
 

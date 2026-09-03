@@ -38,6 +38,10 @@ Reject or hold:
 1. Review `local-aurora-symbol-index.md` and `local-aurora-skill-reference-gap-analysis.md` only as `local-reverse-lead`.
 2. Use `aurora-live-operator-execution-packet.md` and `tools/prepare_aurora_live_session.py` to prepare the disposable module, capture folders, dated record path, and evidence manifest path; use `tools/init_aurora_live_record.py` and `tools/init_aurora_live_evidence_manifest.py` only as lower-level fallbacks.
 3. Run `local-aurora-small-location-live-operator-checklist.md` on that disposable module.
+3a. For iterative local Aurora Web UI debugging, use `$playwright-interactive`
+    when its persistent-browser prerequisites are available. Reuse one session
+    across renderer changes, but retain the guarded capture and manifest steps
+    below: interactive inspection is not accepted runtime proof by itself.
 4. Copy `knowledge-inbox/templates/aurora-toolset-live-record-template.json` to a dated record path.
 5. Fill every atom row with status, evidence label, observations, artifacts, blockers, and `promotion_ready`.
 6. Fill the initialized evidence manifest for returned screenshots, logs, saved module notes, and external evidence bundles.

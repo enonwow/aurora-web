@@ -1,0 +1,131 @@
+{
+  "schema": "aurora-area-tile-placeholder-decompilation-profile/v1",
+  "profileId": "area-tile-placeholder-lineage-v2-pass5-2026-09-01",
+  "generatedAt": "2026-09-01T20:25:00.000Z",
+  "binary": {
+    "path": "C:/Program Files (x86)/Steam/steamapps/common/Neverwinter Nights/bin/win32/nwtoolset.exe",
+    "bytes": 12201984,
+    "sha256": "4c156de898817518e8a97f5d989592894d3c8f48b71d27e2a8b89500cd230f24"
+  },
+  "projectSnapshot": {
+    "path": "C:/Projects/New Folder/Aurora_2026_05_24.gar",
+    "bytes": 110344348,
+    "sha256": "b21f5bc50eed79bf93c5198f3aeacc96acb7e94672c210d7eef19ad77ae1758d"
+  },
+  "toolchain": {
+    "release": "Ghidra 12.1.3",
+    "archive": {
+      "path": ".codex-tmp/toolchains/ghidra_12.1.3_PUBLIC_20260817.zip",
+      "bytes": 569445154,
+      "sha256": "93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd54"
+    },
+    "headlessPath": ".codex-tmp/toolchains/ghidra_12.1.3_PUBLIC/support/analyzeHeadless.bat",
+    "maxHeapMiB": 1536,
+    "maxCpu": 1
+  },
+  "exporter": {
+    "path": "backend/scripts/ghidra/ExportAuroraDecompilationLineageV2.java",
+    "bytes": 32320,
+    "sha256": "9dc3373df576ba911ac856f61f3169bf316b01b562bf04f55b6156e80a331786"
+  },
+  "sourceGapManifest": {
+    "path": "backend/docs/aurora-reverse/evidence/area-tile-source-gap-audit-2026-09-01/manifest.json",
+    "bytes": 8333,
+    "sha256": "172557c60792e5ea3217f61caffe0b1c7cb1e22b7fa3affc5521a23018cf1f38"
+  },
+  "legacyDiscovery": [
+    {
+      "path": "C:/Projects/New Folder/export/decompiled_all.c",
+      "bytes": 30366020,
+      "sha256": "36bb8b1031afe2abf23f0e18180a5ad649401d9ea5e078e5170a31a96167c572",
+      "authority": "discovery_only"
+    },
+    {
+      "path": "C:/Projects/New Folder/export/functions.tsv",
+      "bytes": 1928975,
+      "sha256": "394096fe106e5767ee6eceb31c8b085091359060351b1d10195e96f666bc69fe",
+      "authority": "discovery_only"
+    },
+    {
+      "path": "C:/Projects/New Folder/export/strings.tsv",
+      "bytes": 2691636,
+      "sha256": "864ae0139451d5333307cb2bbccce725bbd2d2c6056ac2d5f80f9b5ea50f190f",
+      "authority": "discovery_only"
+    }
+  ],
+  "targets": {
+    "addresses": [
+      "0x005a2570",
+      "0x005a511c",
+      "0x005a7fc8",
+      "0x005a9f30",
+      "0x005ddc4c",
+      "0x005e28c0",
+      "0x005e2c64",
+      "0x005e33e8",
+      "0x005e37c0",
+      "0x005e38e4",
+      "0x005e3938",
+      "0x005e3a74",
+      "0x005e3d44",
+      "0x005e3df4",
+      "0x005e742c"
+    ],
+    "timeoutSeconds": 30
+  },
+  "analysis": {
+    "projectName": "Aurora",
+    "programName": "nwtoolset.exe",
+    "projectId": "aurora-nwtoolset-current-2026-05-24",
+    "relocationPolicy": "loader-default-recorded",
+    "mode": "existing-analysis-read-only"
+  },
+  "execution": {
+    "runner": {
+      "path": "backend/scripts/run-area-tile-placeholder-decompilation-pass.mjs",
+      "bytes": 13773,
+      "sha256": "1471027c7336fdfcf0190651dbbdd2b92ab58bbce7d0bd617bb2b2c35a6009fc"
+    },
+    "runnerLibrary": {
+      "path": "backend/scripts/lib/area-tile-placeholder-decompilation-run.mjs",
+      "bytes": 14586,
+      "sha256": "3ae6d822f0f55edfb2957ca90ef2b511e3e52e9e44daf8d3baffb43d1cf5e736"
+    },
+    "profileValidatorLibrary": {
+      "path": "backend/scripts/lib/area-tile-placeholder-decompilation-profile.mjs",
+      "bytes": 8570,
+      "sha256": "e9b5f4115a75fcf5144bac84c75c582401c53308701f0d83beca5b1b0685f0b8"
+    },
+    "projectRestoreScript": {
+      "path": "backend/scripts/ghidra/RestoreGhidraProjectArchive.ps1",
+      "bytes": 5903,
+      "sha256": "63332b7d3c79a2ed3b88378d1f23aadcf3613ac2d0f2baa1b6362f0d5302fca3"
+    },
+    "lineageProducer": {
+      "path": "backend/scripts/create-aurora-decompilation-lineage-v2-packet.mjs",
+      "bytes": 6147,
+      "sha256": "a4a9a10efeb21b5d81d63fb6a767c66cc1795933cd06a69eb1c3cc4be8653cb6"
+    },
+    "lineageValidator": {
+      "path": "backend/scripts/validate-aurora-decompilation-lineage-v2.mjs",
+      "bytes": 20786,
+      "sha256": "09033fd111f498f973697f441f2d582a9ad3b91269e7b8de61a6b6595d81e403"
+    },
+    "lineageLibrary": {
+      "path": "backend/scripts/lib/aurora-decompilation-lineage-v2.mjs",
+      "bytes": 10005,
+      "sha256": "97273c48417e35e27ee898c2682143cddc144f5f13c9b4989f917390f421e0a0"
+    }
+  },
+  "resourceGate": {
+    "minimumFreePhysicalBytes": 8589934592,
+    "minimumFreeVirtualBytes": 6442450944
+  },
+  "outputRoot": ".codex-tmp/area-tile-placeholder-lineage-v2/pass5",
+  "acceptance": {
+    "lineageV2ValidatorRequired": true,
+    "selectedFunctionsMustDecompile": true,
+    "semanticVerdictMustCiteFunctions": true,
+    "runtimeBehaviorChangesAllowed": false
+  }
+}

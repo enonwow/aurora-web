@@ -1,0 +1,19 @@
+{
+  "schema": "aurora-tile-add-connect-runtime-build-profile/v1",
+  "profileId": "area-tiles-99-source-bound-v8-20260821",
+  "createdAt": "2026-08-21T19:46:22.143Z",
+  "frontend": {
+    "commit": "worktree-sha256-b1e87a720f9d6ce877f5653b229074a15e22e7838e2ab1e7c6ce9da335f9149e",
+    "imageDigest": "sha256:b1e87a720f9d6ce877f5653b229074a15e22e7838e2ab1e7c6ce9da335f9149e",
+    "builtAt": "2026-08-21T19:46:22.143Z",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "backend": {
+    "commit": "worktree-sha256-b1e87a720f9d6ce877f5653b229074a15e22e7838e2ab1e7c6ce9da335f9149e",
+    "imageDigest": "sha256:b1e87a720f9d6ce877f5653b229074a15e22e7838e2ab1e7c6ce9da335f9149e",
+    "builtAt": "2026-08-21T19:46:22.143Z",
+    "baseUrl": "http://127.0.0.1:3000",
+    "contractVersion": "1.0.0",
+    "vfxRuntimeRevision": "vfx-placeable-canonical-host-light-source-v2-emitter-shell-filter"
+  }
+}

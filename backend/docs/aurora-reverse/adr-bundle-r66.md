@@ -133,14 +133,14 @@ Kontekst:
 - R65 security threat model wymaga, by zmiany security-sensitive byly co najmniej P1.
 
 Decyzja:
-- Standard gate: `P0=build+unit+e2e`, `P1=P0+mutation` dla zmian logic/auth/guard/policy, `P2=P1` dla release/hardening.
+- Standard gate (zaktualizowany 2026-08-19): `P0=build+unit+e2e`, `P1=P0+focused risk tests` dla zmian logic/auth/guard/policy, `P2=P1+release/hardening sign-off`. Mutation testing jest opcjonalne i wymaga wyraźnego żądania użytkownika.
 - Komendy dokumentujemy i wykonujemy jako `npm ...` (bez `npm.cmd`).
 - Security controls z threat modelu kwalifikujemy minimum do P1, hardening release do P2.
 
 Konsekwencje:
 - Plus: jasny i egzekwowalny standard quality/security bez nadmiernego kosztu kazdego PR.
 - Plus: zgodnosc cross-platform i mniejsza przypadkowosc uruchomien.
-- Minus: mutation runtime kosztuje czasowo przy czestych zmianach w guard/policy.
+- Mutation runtime jest kosztowny czasowo i pamięciowo, dlatego nie należy do obowiązkowych bram.
 
 Otwarte punkty:
 - Trzeba zautomatyzowac klasyfikacje PR do P0/P1/P2 (manual jest podatny na blad).

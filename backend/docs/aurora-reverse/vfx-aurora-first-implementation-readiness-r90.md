@@ -1,18 +1,36 @@
 # VFX Aurora First Implementation Readiness r90
 
+> **Supersession notice (2026-08-17):** This file is a historical readiness
+> and implementation log. Statements below that describe the VFX runtime as
+> `NOT_STARTED`, preview-only, or absent reflect the dated checkpoint in their
+> section and are not the current repository status. The current code has a
+> source-backed backend/runtime/render-contract path and a shared client
+> renderer, while retail parity remains blocked. Current status is recorded in
+> `vfx-and-aurora-decompilation-audit-2026-08-17.md` and
+> `vfx-renderer-eligibility-retail-parity-contract-v1-2026-08-17.md`.
+>
+> **External GPL quarantine:** Every xoreos observation, local xoreos source
+> path, function-table reference, and mutable xoreos URL retained in the
+> historical body is quarantined and is not an admitted research record. It
+> must not support implementation, tests, naming authority, or Aurora runtime
+> claims. Re-admission requires the complete immutable record defined in
+> `xoreos-gpl-legacy-reference-quarantine-2026-08-17.md` and the canonical
+> project policy. No xoreos material is used by the 2026-08-17 remediation.
+
 Date: 2026-06-02
-Scope: knowledge base for future VFX implementation in `aurora-web`.
+Scope: historical readiness and implementation log for VFX in `aurora-web`.
 Policy: Aurora first. POC is diagnostic inspiration only; no POC code transfer.
 
 ## Status
 
-This is a research/readiness note, not an implementation.
+The opening section is a historical research/readiness checkpoint, not the
+current implementation status.
 
 Current repository state:
 1. Backend already has `placeableSubtype = "vfx"` and render contract `frontendType = "vfx"`, `rendererPreset = "vfx-emitter"`, `isVfx = true`.
 2. Frontend scene contract has a preserve-only `vfxPayload` placeholder.
 3. Frontend Three presentation currently has a VFX scaffold/preview, but it is not canonical Aurora runtime behavior.
-4. VFX runtime remains `NOT_STARTED` in the Aurora-first implementation matrix.
+4. Historical checkpoint: VFX runtime was `NOT_STARTED` in the implementation matrix at this date; this statement is superseded by the 2026-08-17 notice above.
 
 Relevant repo evidence:
 1. `backend/src/modules/catalog/application/catalog-processing.helpers.ts:516-533`
@@ -1072,6 +1090,8 @@ This section narrows `node emitter render`. It is separate from VFX beam rows/pr
    - Modes `3` (`Linked`) and `6` (`Motion_Blur`) build two camera-derived axis families, then use two endpoints rather than a single quad center.
    - Mode `5` (`Aligned_to_Particle_Dir`) reads each particle's orientation quaternion-like slots at `particle + 0x2c..0x38` and converts them into the quad basis.
    - Mode `4` (`Aligned_to_World_Z`) bypasses the usual cross-product-derived secondary axis and uses the already prepared world-axis vector for the Y/height axis.
+   - The exact source-axis reconstruction is now recorded in `vfx-render-mode-geometry-audit-2026-07-18.md`: mode `1` uses emitter-local Aurora `X/Y` around local `Z`; mode `2` uses fixed Aurora `X/Y`; mode `5` uses particle-local `X/Z`; mode `4` signs global `Z` from the camera-up hemisphere.
+   - Source-derived modes `1`, `2`, and `5` reverse mapped winding after `C=(x,z,y)`. Camera-derived modes do not receive a second blanket reflection.
    - Landed/splat particles use the per-particle contact normal at `particle + 0x44..0x4c` plus the particle orientation block rather than the normal free-flying billboard basis.
    - Implementation consequence: the renderer needs an `AuroraParticleBasis` result with at least `centerA`, `centerB`, `widthAxis`, `heightAxis`, `colorA`, `colorB`, `uvRect`, `mode`, `landed`, and provenance. A generic Sprite or InstancedMesh abstraction is too weak unless it first receives this Aurora basis.
    - Three.js `Sprite`/`SpriteMaterial` is a browser billboard adapter whose own contract is camera-facing planes. It can preview mode `0` only after Aurora basis calculation; it cannot decide `Billboard_to_Local_Z`, `Billboard_to_World_Z`, `Aligned_to_World_Z`, `Aligned_to_Particle_Dir`, `Linked`, `Motion_Blur`, landed/splat basis, endpoint colors, or vertex order.
@@ -1085,10 +1105,10 @@ This section narrows `node emitter render`. It is separate from VFX beam rows/pr
 
 4.2. Endpoint behavior separates quads, linked chains, and motion blur.
    - For ordinary textured particle modes, both endpoint centers are initialized to the same current particle position, so the six vertices form one quad around one center.
-   - In `Motion_Blur`, endpoint A is the previous-position slot (`particle + 0x5c/0x60/0x64`) and endpoint B is the current position. The travel vector is projected onto the prepared camera axes, normalized, then used to build a stretched pair of width/height axes.
+   - In `Motion_Blur`, endpoint A is the previous-position slot (`particle + 0x5c/0x60/0x64`) and endpoint B is the current position. The travel vector is projected onto the prepared camera axes, and both projections are scaled by the reciprocal length of the complete 3D segment. Aurora does not normalize only the 2D camera-plane projection.
    - In `Linked`, endpoint A is the current particle and endpoint B is the next active particle. This is why draw count is `activeParticleCount - 1`.
    - Both stretched modes double the X size and halve the Y size before writing vertices, matching the author-facing descriptions that `Linked` stretches chain particles and `Motion_Blur` stretches along travel.
-   - `Motion_Blur` also scales the packed alpha for one endpoint by a clamp-like factor derived from travel/size, producing two color packets (`colorA` and `colorB`) for the six vertices.
+   - `Motion_Blur` also scales the packed alpha for the previous endpoint by `min(evaluatedSizeX / full3dSegmentLength, 1)`, producing two color packets (`colorA` and `colorB`) for the six vertices.
    - Implementation consequence: `Linked` and `Motion_Blur` must be implemented as endpoint-pair geometry, not as material motion blur, not as a postprocess smear, and not as a sprite scale-only shortcut.
    - `C:\Projects\New Folder\export\decompiled_all.c:856320-856417`
    - `C:\Projects\New Folder\export\decompiled_all.c:856418-856494`
@@ -1992,7 +2012,7 @@ This section records the next level down from parser preservation: how the runti
    - Local PoC binary parser comparison: `C:\Projects\nwn-last-city\Areas Generator 3d\Web Model Viewer\Common\mdl_parser.py:167-169`
    - Local PoC binary parser comparison: `C:\Projects\nwn-last-city\Areas Generator 3d\Web Model Viewer\Common\mdl_parser.py:619-621`
    - Local PoC external-flag note: `C:\Projects\nwn-last-city\Areas Generator 3d\Documentation\VFX_Diagnosis.md:344`
-   - External comparison source searched for unresolved flag names: https://github.com/xoreos/xoreos/blob/master/src/graphics/aurora/model_nwn.cpp
+   - Legacy external comparison source for unresolved flag names: quarantined; the mutable URL was removed and the observation is not admitted evidence.
    - Local source: `C:\Projects\aurora-web\.codex-tmp\neverblender_40-010\neverblender\nvb_node.py:1080-1083`
    - Local source: `C:\Projects\aurora-web\.codex-tmp\neverblender_40-010\neverblender\nvb_node.py:1130-1134`
    - Local source: `C:\Projects\aurora-web\.codex-tmp\neverblender_40-010\neverblender\nvb_props.py:621-627`
@@ -2111,7 +2131,7 @@ This section records the next level down from parser preservation: how the runti
 3.1.1. Particle collision needs a typed query/result contract.
    - Canonical collision support should introduce `AuroraParticleCollisionQuery` and `AuroraParticleCollisionResult` before any browser physics adapter. A query is created only when the parsed source `bounce` bit is set, the runtime particle has current and predicted positions, the runtime emitter has evaluated `bounce_co`, and the selected scene/area collision service is available.
    - Minimum query fields: source model/emitter/node identity, source flag word at `+0x144`, runtime emitter identity, per-emitter query-helper identity and init arguments, particle identity, particle lane `texture | chunk`, current position, predicted/test endpoint after velocity/wind/P2P/mass pre-step, velocity before collision, frame delta, evaluated `bounce_co`, chunk model pointer/list entry when present, size-start/evaluated-size extent candidate when the chunk lane uses it, area/scene collision profile, requested collision classes, optional `AuroraParticleCollisionSurfaceContext`, reset trace, and diagnostics.
-   - Minimum result fields: status `noHit | hit | unsupported | previewOnly`, hit position, contact normal plus normal slot provenance `query +0x54/+0x58/+0x5c`, contact distance/segment parameter when available, collision-owner provenance, optional surface context provenance, reflected velocity, post-nudge position, chunk post-hit extent nudge when present, settled flag decision, landed flag write intent, and diagnostics.
+   - Minimum result fields: status `noHit | hit | unsupported | previewOnly`, hit position when the service records one, contact normal plus normal slot provenance `query +0x54/+0x58/+0x5c`, contact distance/segment parameter when available, collision-owner provenance, optional surface context provenance, reflected velocity, post-nudge position with its base-position provenance, chunk post-hit extent nudge when present, settled flag decision, landed flag write intent, and diagnostics. The mapped particle path starts the response from predicted position; a contact hit position is retained as query evidence and must not replace that base position.
    - `AuroraParticleCollisionSurfaceContext` is optional and evidence-graded. If present, it should record mesh kind `WOK | PWK | DWK | MDL_AABB | staticMesh | placeable | door | unknown`, tile/placeable/door identity, triangle id, surface material row, known `surfacemat.2da` columns (`Walk`, `WalkCheck`, `Sound`, `IsWater` when available), source file/provenance, and the mapped collision profile. It must not decide canonical `bounce` inclusion until the Aurora collision service branch proves that policy.
    - The local math after a hit is strong evidence; the identity of the collision service and the exact walkmesh/static-object inclusion policy are still profile-gated. Therefore a Three.js raycast or Blender collision bake can be a preview adapter only, never proof that the canonical collision service is mapped.
    - `surfacemat.2da` `Walk`/`WalkCheck`, PoC `walkable_surface_ids`, frontend `walkSurfacePolicy`, walk-spawn hits, and camera collision can annotate or preview a hit candidate, but promoting them to canonical VFX collision emits `VFX_PARTICLE_COLLISION_SURFACEMAT_NOT_SERVICE_PROOF`, `VFX_PARTICLE_COLLISION_WALKCHECK_NOT_BOUNCE_FILTER`, or `VFX_POC_WALK_SURFACE_NOT_VFX_COLLISION`.
@@ -8806,8 +8826,10 @@ External/manual validation to add once a retail client test harness is available
    - one PLT visual effect applied to an object with known layer colours
 
 Golden commands remain:
-1. Backend: `npm.cmd run test:unit`, `npm.cmd run test:e2e`, mutation when logic changes.
-2. Frontend: `npm.cmd run test:unit`, `npm.cmd run test:regression`, mutation when scene/layout logic changes.
+1. Backend: `npm.cmd run test:unit`, `npm.cmd run test:e2e`, plus focused tests for changed logic.
+2. Frontend: `npm.cmd run test:unit`, `npm.cmd run test:regression`, plus focused tests for changed scene/layout logic.
+
+Mutation testing is optional and may run only after an explicit user request.
 
 ## Immediate Next Best PR
 

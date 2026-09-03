@@ -16,16 +16,35 @@ Do not invoke the opener, Area opener, queue runner, capture script, or close sc
 One session owns at most:
 
 - one `nwtoolset.exe` process start;
-- one module-load owner: `mru`, `explicit_open`, `recovery`, or `external`;
+- one module-load owner: `mru`, `explicit_open`,
+  `verified_temp0_recovery`, `recovery`, or `external`;
 - one module reaching ready state;
 - one currently selected Area;
 - one capture per Area resref.
 
-Once a module-load owner exists, `File > Open` is permanently forbidden for that process. A final module title is not required: any `TdlgProgress`, module title, `Loading Inventory List`, `Loading GIT Files`, or recovery prompt proves that Toolset already owns a load.
+Once a module-load owner exists, `File > Open` is permanently forbidden for that process. A final module title is not required: a semantically module-bound `TdlgProgress`, module title, `Loading Inventory List`, `Loading GIT Files`, or recovery prompt proves that Toolset already owns a load. The startup-only `Loading Custom Palettes...` progress shown after a verified Welcome choice is not a module-load owner and must not suppress the expected `Open` dialog. The same exception applies to an otherwise blank `TdlgProgress` only while the runner has just recorded that exact owned Welcome transition and has not submitted a module-list selection; record it as anonymous post-Welcome startup work. Any other progress remains a module-load signal.
 
 `MRU0` is selection context, not proof that loading started. The manager no longer adds a fixed 15-second startup pause. It continuously checks welcome, progress, modal, and module-frame state. A load signal claims owner `mru`/`external`; that ownership is sticky even if the progress dialog later disappears. Explicit selection is allowed only from an unowned welcome/Open state and only for an exact module-list text match.
 
-Recovery prompts are a hard blocker for unattended oracle capture. Historical manual recovery remains useful evidence, but automation must not click Yes/No and then attempt another module open.
+An unresolved or unknown recovery prompt blocks the current oracle capture, but
+it does not default the whole task to waiting for the user. For the exact known
+prompt stating that `No` destroys the backup, the operator selects the
+non-destructive `Yes` action through the freshly resolved modal control,
+re-enumerates all windows, and verifies the recovered module identity before
+any save or proof. `No` is autonomous only when the run manifest pre-authorizes
+`recoveryPolicy=discard_backup` for an owned disposable proof module with an
+intact approved on-disk hash. Recovery must never be followed by another module
+open in the same process. Ask the user only for unknown text, conflicting
+identity, or potentially destructive unidentified user data.
+
+For cold model-proof preparation, the known prompt may be classified as
+`verified_temp0_recovery` only when the public binary-bootstrap route has
+proved and immediately revalidated a complete one-to-one byte identity between
+the profile-pinned installed MOD resources and the exact `modules\temp0` file
+set, with no missing, extra, non-file, duplicate-mapped, or reparse entries.
+That path sends exactly one targeted non-destructive `Yes`/`Tak` action, records
+the ownership, and requires the exact clean frame. It does not archive or
+modify the cache, edit INI/MRU state, use global input, or open another module.
 
 ## Commands
 
@@ -53,7 +72,12 @@ and releases the stale legacy guard. A live session must be closed normally.
 npm run areas:toolset-session -- preflight
 ```
 
-Required before `open`. It verifies the exact filename and pinned SHA-256 of the approved module, the current 169-Area queue, zero Toolset/NWN processes, no unsafe `temp0` recovery state, and dry opener behavior without starting Toolset.
+Required before `open`. It verifies the exact filename and pinned SHA-256 of the
+approved module, the current 169-Area queue, zero Toolset/NWN processes, and dry
+opener behavior without starting Toolset. A `temp0` state is safe only when it
+is absent or when the model-proof binary-bootstrap route issues an exact
+resource-bound `aurora-toolset-verified-temp0-recovery-admission/v1`; every
+other cache state is rejected without mutation.
 
 ### Open once
 
@@ -116,7 +140,13 @@ Posts targeted close messages, verifies zero remaining Toolset processes, and re
 npm run areas:toolset-session -- all
 ```
 
-This is the normal end-to-end command: `preflight -> open -> run-queue -> close`. Any blocker stops the chain and performs targeted close when a process may exist. It never retries or reopens the module.
+`all` is not authorized for ordinary live work until it requires and persists
+the same explicit close authorization as `close`. Do not use it as a shortcut:
+its historical close phase conflicts with the operating standard's
+leave-session-open rule. Run the individually authorized public phases instead:
+`preflight -> open -> run-queue`; use `close` only after an explicit user
+authorization. A blocker preserves the responsive process and never implies
+targeted close, retry, or reopen.
 
 For a small validation slice before the full queue:
 
@@ -137,7 +167,11 @@ Default directory:
 
 ## Blocker policy
 
-Stop immediately and close only the owned Toolset process on recovery, Access Violation, unexpected module, multiple processes, missing load owner, stale progress timeout, invalid capture, or Area mismatch.
+Stop the current lane immediately on recovery, Access Violation, unexpected
+module, multiple processes, missing load owner, stale progress timeout, invalid
+capture, or Area mismatch. Resolve a known recovery prompt through the recovery
+policy above. Preserve a responsive process; closing it requires the explicit
+close authorization defined by the operating standard.
 
 Never retry inside the same run. Never use global cursor or keyboard input. Never save or modify the module.
 

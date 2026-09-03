@@ -1,0 +1,34 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-05",
+  "function": "Scale/rotation/translation placeable",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "placeable",
+    "templateResRef": "plc_flrlever1",
+    "tag": "FloorLever1"
+  },
+  "nativeAction": {
+    "name": "exact Area-tree Adjust Location (ID 3), full eleven-field transform and native save/readback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "sessionClean": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-05-transform-validator.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-05-transform-summary.json",
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-05-transform-validator.json",
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/README.md"
+  ],
+  "blocker": null
+}

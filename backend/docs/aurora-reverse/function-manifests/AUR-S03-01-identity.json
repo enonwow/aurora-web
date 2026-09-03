@@ -1,0 +1,39 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S03-01",
+  "function": "NPC name, tag and template resref",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "creature",
+    "templateResRef": "nw_dwarfmerc001",
+    "tag": "NW_DWARFMERC001"
+  },
+  "nativeAction": {
+    "name": "native First Name and Tag mutation with template-resref readback and rollback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true,
+    "templateResRefReadOnly": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-validator.json",
+    "acceptanceSummaryPath": "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-summary.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-baseline-ui.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-changed-ui.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-changed.raw.git.summary.json",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-rollback-ui.png",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-rollback.raw.git.summary.json",
+    "backend/docs/aurora-reverse/evidence/npc-stage3-live-2026-07-15/s03-identity-summary.json"
+  ],
+  "blocker": null
+}

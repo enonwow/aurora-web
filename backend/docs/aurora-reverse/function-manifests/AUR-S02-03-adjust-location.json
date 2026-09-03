@@ -1,0 +1,37 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-03",
+  "function": "Adjust Location X/Y/Z",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "creature",
+    "templateResRef": "nw_dwarfmerc001",
+    "tag": "NW_DWARFMERC001"
+  },
+  "nativeAction": {
+    "name": "native Adjust Location dialog, exact X/Y/Z mutation, Save and native Undo rollback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/validator-result.json",
+    "acceptanceSummaryPath": "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/summary.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/06-adjust-location-open.png",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/08-adjust-location-applied.png",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/14-rollback-final.png",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/summary.json",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/validator-result.json"
+  ],
+  "blocker": null
+}

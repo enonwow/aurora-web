@@ -1,0 +1,36 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-01",
+  "function": "Object selection",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "creature",
+    "templateResRef": "nw_dwarfmerc001",
+    "tag": "NW_DWARFMERC001"
+  },
+  "nativeAction": {
+    "name": "native Select Objects toolbar mode and selected Creature Properties readback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/validator-result.json",
+    "acceptanceSummaryPath": "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/summary.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/04-object-selection-npc.png",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/05-selected-npc-properties.png",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/summary.json",
+    "backend/docs/aurora-reverse/evidence/object-selection-adjust-location-live-standard-2026-07-14/validator-result.json"
+  ],
+  "blocker": null
+}

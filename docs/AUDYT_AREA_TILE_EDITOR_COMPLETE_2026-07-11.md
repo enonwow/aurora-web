@@ -119,6 +119,23 @@ as Aurora behavior without new evidence.
 They may remain explicit web extensions, but must not be used to claim Toolset
 parity.
 
+### Web-extension selection contract — 2026-08-20
+
+The existing `Shift+drag` marquee is the deterministic rectangle-selection
+implementation. It selects intersecting Area cells in row-major order and
+uses the configured replace/add/subtract/intersect policy; it is a web editor
+interaction and not an Aurora Toolset parity claim.
+
+Connected terrain selection is also a web editor interaction. In Inspect mode,
+a primary-button double click selects the exact four-neighbour component whose
+tiles have the anchor tile's exact `SceneTile.terrain` value. Diagonal-only
+contact does not connect regions. The result is deterministic, retains the
+clicked tile as the selection anchor, clears object selection, emits bounded
+selection telemetry, and never creates a scene-history entry. Missing or
+ambiguous anchors, duplicate tile IDs/cells, invalid coordinates, or an
+over-budget tile set fail closed to no selection. This contract must not be
+used as native flood-fill evidence.
+
 ## Completion gate
 
 The tile-editor goal is complete only when every confirmed operation above is

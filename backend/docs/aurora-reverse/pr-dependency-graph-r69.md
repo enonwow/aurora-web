@@ -62,7 +62,7 @@ Pliki newralgiczne do ochrony przed konfliktem:
 1. Brak poprawnej walidacji/canonicalizacji path i fail-fast na bootstrap/PUT runtime settings.
 2. Brak egzekucji permission split `admin.runtime_paths.write`.
 3. Brak lub fail testow security/runtime settings.
-4. Brak przejscia P1 dla security scope: `npm run test:mutation`.
+4. Brak skupionych negatywnych testow security/auth/policy dla zmienionego scope.
 
 ### PR-2 blockers
 1. Niedeterministyczny winner resolvera (tie-break niestabilny).
@@ -74,7 +74,7 @@ Pliki newralgiczne do ochrony przed konfliktem:
 1. Niespojna maszyna stanow jobs (`status/phase`) albo konflikty atomowych przejsc.
 2. Bledna idempotencja (duplikacje jobow, brak poprawnego conflict handling).
 3. Problemy startup po podpieciu `ProcessingModule` albo regresja `app.module.ts`.
-4. Brak przejscia P1 dla lifecycle/idempotency: `npm run test:mutation`.
+4. Brak skupionych testow lifecycle/idempotency/guards dla zmienionego scope.
 
 ## 5. Kolejnosc operacyjna rebase
 

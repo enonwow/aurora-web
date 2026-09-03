@@ -50,9 +50,9 @@ Jednoznaczna korekta:
 - Dowod B: `code-skeleton-runtime-settings-r68.md:246` -> P0 = `npm run build` + runtime-settings unit subset.
 
 Jednoznaczna korekta:
-1. W `code-skeleton-runtime-settings-r68.md` podmienic sekcje 6.6 na literalny standard r64:
+1. Historyczna rekomendacja (wycofana 2026-08-19): w `code-skeleton-runtime-settings-r68.md` podmienic sekcje 6.6 na literalny standard r64:
    - P0: `npm run build`, `npm run test:unit`, `npm run test:e2e`
-   - P1/P2: P0 + `npm run test:mutation`
+   - P1/P2: P0 + `npm run test:mutation` (nieobowiązujące; mutation testing jest obecnie opcjonalne i wymaga wyraźnego żądania użytkownika)
 2. "unit subset" oznaczyc jako etap lokalny TDD pre-gate, nie jako gate P0.
 
 ## 3) Rozjazdy implementacyjne (r66/r68 vs aktualny kod skeleton)

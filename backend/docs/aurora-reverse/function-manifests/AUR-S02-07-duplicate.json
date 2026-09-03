@@ -1,0 +1,18 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-07",
+  "function": "Duplicate",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": { "kind": "placeable", "templateResRef": "plc_watertrough", "tag": "Water Trough" },
+  "nativeAction": { "name": "native semantic Duplicate workflow: Edit/Copy 59, Edit/Paste 61, viewport commit, Save, Undo 56", "globalInputUsed": false },
+  "acceptance": { "visibleAuroraProof": true, "afterSaveReadback": true, "isolatedDelta": true, "exactRollback": true, "sessionClean": true },
+  "validator": { "path": "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-07-duplicate-validator.json", "acceptedFunctionsField": "acceptedFunctions" },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-07-duplicate-validator.json",
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/README.md",
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/actions.json"
+  ],
+  "blocker": null
+}

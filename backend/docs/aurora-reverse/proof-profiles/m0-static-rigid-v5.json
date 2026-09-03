@@ -1,0 +1,63 @@
+{
+  "version": "aurora-proof-profile/v1",
+  "id": "m0-static-rigid-v5",
+  "purpose": "Exact existing-module Toolset proof and user-provided NWN runtime-capture ingestion for Meshy M0 v5.",
+  "module": {
+    "policy": "existing_exact",
+    "resref": "m2a_m0_proof",
+    "area": "m2a_m0proof_area",
+    "path": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\modules\\m2a_m0_proof.mod",
+    "sha256": "d63b9b71c421ee07ad678619be92b3f624febfecdcd4b09ebd9fdcaa2e13c753"
+  },
+  "orderedHakList": [
+    {
+      "resref": "znd_tortoise",
+      "path": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\znd_tortoise.hak",
+      "sha256": "3f85946f1e86e20b4d9c6fae311f214587da4009080b64376711f630b0327021",
+      "resources": { "appearance": "c_tortoise0" }
+    },
+    {
+      "resref": "m2a_m0_proof",
+      "path": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\hak\\m2a_m0_proof.hak",
+      "sha256": "7211c1a016c2b36320f7ce2a399d2833b8f2d7901d2896261d01a93161600200",
+      "resources": { "model": "m2a_m0p01", "texture": "m2a_m0t01", "appearanceRow": 15109 }
+    }
+  ],
+  "fixtures": [
+    { "id": "tortoise", "resref": "m2a_m0_tort", "appearanceRow": 15108, "appearance": "M2A_CTRL_TORTOISE", "model": "c_tortoise0", "position": [12, 10] },
+    { "id": "meshy-m0", "resref": "m2a_m0p01", "appearanceRow": 15109, "appearance": "M2A_M0_MESHY_RIGID", "model": "m2a_m0p01", "texture": "m2a_m0t01", "position": [16, 10] }
+  ],
+  "toolsetCapture": {
+    "targetClass": "TScrollBox",
+    "artifact": "viewport.png",
+    "result": "viewport.json",
+    "queue": "backend/docs/aurora-reverse/proof-profiles/m0-static-rigid-v5-toolset-queue.json",
+    "packetValidator": "backend/scripts/validate-aurora-m0-toolset-packet.mjs"
+  },
+  "toolsetArea": {
+    "resref": "m2a_m0proof_area",
+    "nativeTreeDisplayName": "Meshy2Aurora M0 static runtime proof area"
+  },
+  "geometryRequirements": {
+    "gateVersion": "aurora-m0-native-geometry-gate/v1",
+    "validator": "backend/scripts/validate-aurora-m0-geometry-gate.mjs",
+    "entryPoint": { "area": "m2a_m0proof_area", "position": [5, 5] },
+    "fixtures": [
+      { "id": "tortoise", "position": [12, 10] },
+      { "id": "meshy-m0", "position": [16, 10] }
+    ],
+    "currentReadiness": {
+      "status": "area_geometry_invalid",
+      "nativeSave": { "areaWasSaved": false, "invalidLocationsDialog": true, "inaccessibleObjectsDialog": true, "statusText": "Area was NOT saved!!" },
+      "entryPoint": { "accessibleSurface": "unproven" },
+      "fixtures": [
+        { "id": "tortoise", "accessibleSurface": false },
+        { "id": "meshy-m0", "accessibleSurface": false }
+      ],
+      "reason": "Native Toolset reported two creatures in invalid locations and Inaccessable Objects for this exact pre-save module identity."
+    }
+  },
+  "artifacts": { "destination": "caller_required", "manifest": "m0-proof-manifest.json" },
+  "validator": "backend/scripts/validate-aurora-m0-proof-profile.mjs",
+  "runtimeIngestion": "backend/scripts/validate-aurora-runtime-capture-ingestion.mjs"
+}

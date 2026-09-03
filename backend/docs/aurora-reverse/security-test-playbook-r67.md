@@ -84,9 +84,12 @@ Kazdy test zawiera:
 1. `P0`:
    1. smoke security dla auth/idempotency (`R67-SEC-PERM-01`, `R67-SEC-PERM-04`) + podstawowe unit.
 2. `P1`:
-   1. komplet A0 + A1 dla path/authz/permission/STRIDE + mutation tests guardow.
+   1. komplet A0 + A1 dla path/authz/permission/STRIDE, w tym skupione negatywne testy guardow i policy.
 3. `P2`:
    1. komplet P1 + testy chaos/host/operacyjne (`R67-SEC-STRIDE-D-03`, `R67-SEC-STRIDE-E-02`, `R67-SEC-HOST-*`) oraz sign-off release.
+
+Mutation testing pozostaje opcjonalnym eksperymentem poza P0/P1/P2 i wymaga
+wyraźnego żądania użytkownika w bieżącym zadaniu.
 
 ## 7. Kryteria akceptacji R67
 

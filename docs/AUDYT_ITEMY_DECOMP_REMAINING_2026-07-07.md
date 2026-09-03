@@ -134,6 +134,25 @@ This objective is closed for the current available Aurora source set and current
   - Verification: `npm.cmd run test:unit -- aurora-gff-area-parser.spec.ts --runInBand` -> `1` suite, `12` tests passed.
   - Verification: `npm.cmd run items:decomp-remaining-gate` in `backend` -> `status=pass`, `failureCount=0`.
 
+## Retained ground-Item instance addendum — 2026-08-30
+
+The earlier supported-field placement closure did not itself authorize edits
+to native static `VisTransformList`. Primary Aurora ground-Item and common
+visual-transform reader/writer decompilation now closes a narrower exact
+retained-instance contract. Aurora Web admits physical absence or one
+canonical non-default base-scope static list, performs full immutable-ordinal
+CAS, and creates, replaces, or removes that list while preserving unrelated
+GIT fields and paired GIC bytes. Legacy `VisualTransform`, animation,
+multi-scope, malformed, aliased, default-present, and unsafe-range storage is
+explicitly preserve-only.
+
+The offline backend/frontend implementation and bounded tests are complete;
+authority, admitted native shape, test evidence, and remaining guarded browser
+plus Toolset/NWN gates are recorded in
+`backend/docs/aurora-reverse/area-existing-item-static-visual-transform-audit-v1-2026-08-30.md`.
+This addendum does not broaden the old item subsystem closure into a claim of
+full Area Item or live native certification.
+
 ### P0 - source or format blockers
 
 1. Real item generator parser/serializer/UI for `UTG`.

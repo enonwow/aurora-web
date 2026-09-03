@@ -7,7 +7,7 @@ Zakres: mapowanie odkryc reverse (`r78-r82`) na testy backendowe `unit/regressio
 
 1. `unit`: logika deterministyczna, walidacje kontraktow, state machine, policy.
 2. `regression`: e2e/integration kontrakty API i zachowania cross-module.
-3. `mutation`: krytyczne bramki decyzyjne (authz, walidacja, tie-break, status transitions).
+3. `mutation`: opcjonalny eksperyment dla krytycznych bramek decyzyjnych; nie jest gate ani kryterium ukończenia i wymaga wyraźnego żądania użytkownika.
 4. Priorytet gate:
 - `P0`: musi wejsc do stalego CI teraz.
 - `P1`: powinno wejsc po domknieciu biezacej iteracji.
@@ -51,4 +51,4 @@ Zakres: mapowanie odkryc reverse (`r78-r82`) na testy backendowe `unit/regressio
 
 1. Kazdy wpis `P0/P1/P2` ma przypisany co najmniej jeden test `unit`, jeden `regression`, oraz jeden cel `mutation`.
 2. Zadania `P2` pozostaja oznaczone jako `HOLD strict behavior` do czasu zamkniecia brakow `MH-01..MH-08`.
-3. Pipeline CI mapuje sie na: `npm run test:unit`, `npm run test:e2e`, `npm run test:mutation`.
+3. Pipeline CI mapuje sie na: `npm run test:unit`, `npm run test:e2e` oraz właściwe skupione testy. Kolumna `Mutation` pozostaje wyłącznie historycznym katalogiem kandydatów do opcjonalnych eksperymentów.

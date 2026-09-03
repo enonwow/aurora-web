@@ -1,0 +1,386 @@
+{
+  "version": "aurora-vfx-artifact-producer-registry/v1",
+  "artifacts": [
+    {
+      "artifactId": "vfx-retail-parity-fixture-manifest",
+      "schemaId": "aurora-vfx-retail-parity-manifest/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-retail-parity-fixtures.json",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-retail-parity-manifest/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-claim-registry",
+      "schemaId": "aurora-vfx-claim-registry/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-claim-registry.json",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-claim-registry/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-loop-state",
+      "schemaId": "aurora-vfx-loop-state/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-loop-state.json",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-loop-state/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-run-log",
+      "schemaId": "aurora-vfx-run-log-jsonl/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-run-log.jsonl",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": { "format": "jsonl" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-context-pack",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-context-pack.md",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-failed-assumptions",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-failed-assumptions.md",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-capture-setup-contract",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-retail-capture-setup.md",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-capture-handoff-contract",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/vfx-retail-capture-handoff.md",
+      "producer": { "kind": "tracked-repository-input" },
+      "inputs": [],
+      "sourceClass": "tracked-repository-input",
+      "freshness": { "mode": "content-hash" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-domain-coordinator-json",
+      "schemaId": "external-vfx-domain-coordinator-report/v1",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/vfx-domain-coordinator-latest.json",
+      "producer": {
+        "kind": "external-ingestion",
+        "resumeCondition": "Ingest the regular JSON report emitted by the authorized VFX domain coordinator for the active assignment; do not synthesize coordinator state."
+      },
+      "inputs": [],
+      "sourceClass": "external-orchestration-report",
+      "freshness": { "mode": "external-assignment-identity" },
+      "validation": { "format": "json" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-domain-coordinator-markdown",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/vfx-domain-coordinator-latest.md",
+      "producer": {
+        "kind": "external-ingestion",
+        "resumeCondition": "Ingest the Markdown companion emitted with the same authorized VFX coordinator assignment as the coordinator JSON report."
+      },
+      "inputs": ["vfx-domain-coordinator-json"],
+      "sourceClass": "external-orchestration-report",
+      "freshness": { "mode": "external-assignment-identity" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "ai-factory-director-json",
+      "schemaId": "external-ai-factory-director-report/v1",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/ai-factory-director-latest.json",
+      "producer": {
+        "kind": "external-ingestion",
+        "resumeCondition": "Ingest the regular JSON report emitted by the authorized AI factory director for the active VFX coordinator cycle; do not synthesize director state."
+      },
+      "inputs": [],
+      "sourceClass": "external-orchestration-report",
+      "freshness": { "mode": "external-assignment-identity" },
+      "validation": { "format": "json" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "ai-factory-director-markdown",
+      "schemaId": "unversioned-text/v1",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/ai-factory-director-latest.md",
+      "producer": {
+        "kind": "external-ingestion",
+        "resumeCondition": "Ingest the Markdown companion emitted with the same authorized AI factory director cycle as the director JSON report."
+      },
+      "inputs": ["ai-factory-director-json"],
+      "sourceClass": "external-orchestration-report",
+      "freshness": { "mode": "external-assignment-identity" },
+      "validation": { "format": "markdown" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-visual-audit-latest",
+      "schemaId": "aurora-vfx-visual-audit-latest/unversioned",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-latest.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/refresh-vfx-visual-audit.mjs --latestJson backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-latest.json --latestMd backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-latest.md --backlogJson backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-backlog.json"
+      },
+      "inputs": [
+        "vfx-domain-coordinator-json",
+        "vfx-claim-registry",
+        "vfx-loop-state",
+        "vfx-run-log"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": { "format": "json" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-visual-audit-backlog",
+      "schemaId": "aurora-vfx-visual-audit-backlog/unversioned",
+      "outputPath": "backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-backlog.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/refresh-vfx-visual-audit.mjs --latestJson backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-latest.json --latestMd backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-latest.md --backlogJson backend/docs/aurora-reverse/guard-reports/vfx-visual-audit-backlog.json"
+      },
+      "inputs": [
+        "vfx-domain-coordinator-json",
+        "vfx-claim-registry",
+        "vfx-loop-state",
+        "vfx-run-log"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": { "format": "json" },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-evidence-pack-dry-run",
+      "schemaId": "aurora-vfx-retail-evidence-pack-dry-run/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-evidence-pack-dry-run.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/check-vfx-retail-evidence-packs.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-evidence-pack-dry-run.json"
+      },
+      "inputs": ["vfx-retail-parity-fixture-manifest"],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-retail-evidence-pack-dry-run/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-blocker-packet",
+      "schemaId": "aurora-vfx-retail-blocker-packet/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-blocker-packet.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/create-vfx-retail-blocker-packet.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-blocker-packet.json --evidencePackReport backend/docs/aurora-reverse/artifacts/vfx-iteration-215/vfx-retail-evidence-pack-dry-run.json"
+      },
+      "inputs": [
+        "vfx-retail-evidence-pack-dry-run",
+        "vfx-domain-coordinator-json",
+        "vfx-visual-audit-backlog",
+        "vfx-visual-audit-latest",
+        "vfx-retail-parity-fixture-manifest",
+        "vfx-claim-registry"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-retail-blocker-packet/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-runtime-health-dependency-classification",
+      "schemaId": "aurora-vfx-runtime-health-dependency-classification/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-222/vfx-runtime-health-dependency-classification.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/check-vfx-runtime-health-dependency-classification.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-222/vfx-runtime-health-dependency-classification.json"
+      },
+      "inputs": [
+        "ai-factory-director-json",
+        "vfx-domain-coordinator-json",
+        "vfx-loop-state",
+        "vfx-claim-registry",
+        "vfx-run-log",
+        "vfx-context-pack",
+        "vfx-failed-assumptions",
+        "vfx-retail-parity-fixture-manifest",
+        "vfx-visual-audit-backlog"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-runtime-health-dependency-classification/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-worker-directive-completion-alignment-current",
+      "schemaId": "aurora-vfx-worker-directive-completion-alignment/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-223/vfx-worker-directive-completion-alignment-current.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/check-vfx-worker-directive-completion-alignment.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-223/vfx-worker-directive-completion-alignment-current.json"
+      },
+      "inputs": [
+        "vfx-domain-coordinator-json",
+        "vfx-loop-state",
+        "vfx-claim-registry",
+        "vfx-run-log",
+        "vfx-context-pack",
+        "vfx-failed-assumptions"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-worker-directive-completion-alignment/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-capture-setup-validation",
+      "schemaId": "aurora-vfx-retail-capture-setup-validation-packet/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-217/vfx-retail-capture-setup-validation-packet.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/check-vfx-retail-capture-setup-validation.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-217/vfx-retail-capture-setup-validation-packet.json --checklist backend/docs/aurora-reverse/artifacts/vfx-iteration-217/vfx-retail-capture-setup-checklist.md"
+      },
+      "inputs": [
+        "vfx-retail-parity-fixture-manifest",
+        "vfx-domain-coordinator-json",
+        "vfx-visual-audit-backlog",
+        "vfx-claim-registry",
+        "vfx-retail-capture-setup-contract",
+        "vfx-retail-capture-handoff-contract"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-retail-capture-setup-validation-packet/v1"
+      },
+      "retailEvidence": false
+    },
+    {
+      "artifactId": "vfx-retail-evidence-handoff-manifest",
+      "schemaId": "aurora-vfx-retail-evidence-handoff-manifest/v1",
+      "outputPath": "backend/docs/aurora-reverse/artifacts/vfx-iteration-218/vfx-retail-evidence-handoff-manifest.json",
+      "producer": {
+        "kind": "repository-command",
+        "command": "node backend/scripts/create-vfx-retail-evidence-handoff-manifest.mjs --out backend/docs/aurora-reverse/artifacts/vfx-iteration-218/vfx-retail-evidence-handoff-manifest.json --markdown backend/docs/aurora-reverse/artifacts/vfx-iteration-218/vfx-retail-evidence-handoff-manifest.md"
+      },
+      "inputs": [
+        "vfx-retail-capture-setup-validation",
+        "vfx-domain-coordinator-json",
+        "vfx-domain-coordinator-markdown"
+      ],
+      "sourceClass": "local-control-artifact",
+      "freshness": { "mode": "dependency-hash" },
+      "validation": {
+        "format": "json",
+        "versionField": "version",
+        "expectedVersion": "aurora-vfx-retail-evidence-handoff-manifest/v1"
+      },
+      "retailEvidence": false
+    }
+  ],
+  "gates": {
+    "vfx-retail-capture-setup-validation": [
+      "vfx-retail-parity-fixture-manifest",
+      "vfx-domain-coordinator-json",
+      "vfx-visual-audit-backlog",
+      "vfx-claim-registry",
+      "vfx-retail-capture-setup-contract",
+      "vfx-retail-capture-handoff-contract"
+    ],
+    "vfx-retail-blocker-packet-freshness": [
+      "vfx-retail-blocker-packet",
+      "vfx-retail-evidence-pack-dry-run",
+      "vfx-domain-coordinator-json",
+      "vfx-visual-audit-backlog",
+      "vfx-visual-audit-latest",
+      "vfx-claim-registry"
+    ],
+    "vfx-worker-directive-completion-alignment": [
+      "vfx-domain-coordinator-json",
+      "vfx-loop-state",
+      "vfx-claim-registry",
+      "vfx-run-log",
+      "vfx-context-pack",
+      "vfx-failed-assumptions"
+    ],
+    "vfx-runtime-health-retail-blocker-crosscheck": [
+      "ai-factory-director-json",
+      "ai-factory-director-markdown",
+      "vfx-domain-coordinator-json",
+      "vfx-domain-coordinator-markdown",
+      "vfx-loop-state",
+      "vfx-claim-registry",
+      "vfx-run-log",
+      "vfx-context-pack",
+      "vfx-failed-assumptions",
+      "vfx-visual-audit-latest",
+      "vfx-visual-audit-backlog",
+      "vfx-runtime-health-dependency-classification",
+      "vfx-worker-directive-completion-alignment-current",
+      "vfx-retail-blocker-packet",
+      "vfx-retail-capture-setup-validation",
+      "vfx-retail-evidence-handoff-manifest"
+    ]
+  }
+}

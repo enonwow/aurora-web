@@ -1,0 +1,11 @@
+{
+  "schema": "aurora-tile-add-connect-active-plan-binding/v1",
+  "updatedAt": "2026-09-02T17:59:02.330Z",
+  "planDirectory": "output/proof/tile-add-connect-matrix-v31-trigger-script-resrefs-bound-2026-09-02",
+  "planId": "ab91aa5c0692fe6810cef46326e00af006a4bf63c773459f3c641ad9beff5744",
+  "runtimeBuildProfile": {
+    "path": "backend/docs/aurora-reverse/proof-profiles/tile-add-connect-runtime-build-v31-trigger-script-resrefs-bound-2026-09-02.json",
+    "sha256": "e8d16c45a8c5456711b368780bee632282b96c83c2f3dab548abb3dc2cbd1e57",
+    "profileId": "tile-add-connect-runtime-v31-trigger-script-resrefs-bound-2026-09-02"
+  }
+}

@@ -244,8 +244,11 @@ repository get -> `PathSecurityService.validateForBootstrap` -> `decideRuntimeMo
 ## 6.6 Gate order po TDD
 
 1. P0: `npm run build` + runtime-settings unit subset.
-2. P1: pelne `npm run test:unit` + `npm run test:e2e` + `npm run test:mutation`.
+2. P1: pelne `npm run test:unit` + `npm run test:e2e` + skupione negatywne testy runtime-settings/security.
 3. P2: powtorka P1 na release cut i security sign-off.
+
+Mutation testing jest opcjonalne, poza P0/P1/P2, i wymaga wyraźnego żądania
+użytkownika.
 
 ## 7. Minimal rollout sequence
 

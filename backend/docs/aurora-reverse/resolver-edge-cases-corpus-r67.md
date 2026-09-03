@@ -1,5 +1,10 @@
 # Resolver Edge Cases Corpus R67 (Agent C5)
 
+> **External GPL quarantine (2026-08-17):** Historical xoreos paths and
+> observations in this document are not admitted evidence and must not support
+> implementation or runtime claims. See
+> `xoreos-gpl-legacy-reference-quarantine-2026-08-17.md`.
+
 Data: 2026-05-24  
 Status: Draft corpus do implementacji/testow resolvera zrodel (R65/R66 aligned)
 

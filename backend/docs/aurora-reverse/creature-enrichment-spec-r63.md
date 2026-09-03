@@ -1,5 +1,10 @@
 ﻿# Creature Enrichment Spec R63
 
+> **External GPL quarantine (2026-08-17):** Historical xoreos paths and
+> observations in this document are not admitted evidence and must not support
+> implementation or runtime claims. See
+> `xoreos-gpl-legacy-reference-quarantine-2026-08-17.md`.
+
 ## 1. Scope
 - Cel: mapping `UTC/2DA/TLK/HAK -> Creature Enrichment DTO + walidacje`.
 - Zrodla: tylko lokalne artefakty reverse z `C:\Projects\nwn-last-city\Aurora\reverse`.

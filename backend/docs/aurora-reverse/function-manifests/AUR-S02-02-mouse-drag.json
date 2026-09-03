@@ -1,0 +1,18 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-02",
+  "function": "Mouse drag object movement",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": { "kind": "sound", "templateResRef": "animalcriesday", "tag": "AnimalCriesDay" },
+  "nativeAction": { "name": "validated Area TScrollBox mouse drag", "globalInputUsed": false },
+  "acceptance": { "visibleAuroraProof": true, "afterSaveReadback": true, "isolatedDelta": true, "exactRollback": true, "sessionClean": true },
+  "validator": { "path": "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-02-drag-validator.json", "acceptedFunctionsField": "acceptedFunctions" },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-02-drag-summary.json",
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/s02-02-drag-validator.json",
+    "backend/docs/aurora-reverse/evidence/stage2-completion-live-2026-07-14/README.md"
+  ],
+  "blocker": null
+}

@@ -24,7 +24,24 @@ To jest backendowy odpowiednik ustawien z PoC:
 - `PUT /api/v1/settings/runtime`
   - tylko rola `admin`
   - dodatkowo permission: `admin.config.write`
-  - nadpisuje caly payload runtime i podbija `revision`
+  - przyjmuje caly payload jako konfiguracje kandydacka;
+  - wymaga `confirmGlobalLogout=true` i przechodzi przez ten sam preflight/generacje co onboarding;
+  - podbija `revision` dopiero w kandydacie i publikuje go tylko po `NO_CHANGES` albo poprawnym rebuildzie.
+
+Szczegoly pierwszej konfiguracji sciezek, statusow mountow Docker oraz endpointow
+onboardingowych opisuje [runtime-path-onboarding.md](./runtime-path-onboarding.md).
+Kontrakt wdrozonego globalnego odswiezenia danych po zmianie zrodel opisuje
+[runtime-cache-cold-rebuild.md](./runtime-cache-cold-rebuild.md).
+
+- `POST /api/v1/settings/runtime/cache-rebuilds`
+  - tylko `admin` z `admin.config.write`;
+  - wymaga `confirmGlobalLogout=true` oraz zalecanego `Idempotency-Key`;
+  - zwraca `NO_CHANGES` bez wylogowania albo `202` i buduje nowa generacje.
+- `GET /api/v1/system/maintenance`
+  - publiczny, bezpieczny status dla ekranu oczekiwania.
+- `GET /api/v1/settings/runtime/cache-rebuilds/:operationId`
+  - szczegolowy status, uczestnicy i audit dla administratora.
+- endpointy `retry` i `rollback` sa dostepne administratorowi w stanie `failed`.
 
 - `GET /api/v1/settings/runtime/haks/resolved`
   - tylko rola `admin`
@@ -43,11 +60,9 @@ To jest backendowy odpowiednik ustawien z PoC:
 - `POST /api/v1/settings/runtime/module-cache/rebuild`
   - tylko rola `admin`
   - dodatkowo permission: `admin.config.write`
-  - synchronizuje cache modulu w blob storage:
-    - z `moduleDecompiledPath` (priorytet),
-    - albo z `modulePackedPath` (gdy decompiled jest puste).
-  - domyslnie dziala inkrementalnie (`forceFull=false`) na podstawie hashy plikow.
-  - opcjonalnie `?forceFull=true` wymusza pelny rebuild.
+  - kompatybilny alias bezpiecznego orchestratora generacyjnego;
+  - wymaga jawnego potwierdzenia globalnego wylogowania;
+  - nie nadpisuje juz aktywnego prefiksu cache w trakcie pracy uzytkownikow.
 
 ## Uwaga operacyjna
 - API nie wystartuje, jezeli oba pola sa puste:

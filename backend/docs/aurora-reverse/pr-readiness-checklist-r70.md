@@ -8,7 +8,7 @@ Zakres: PR-1, PR-2, PR-3 zgodnie z `execution-plan-first-3-prs-r68.md` i `pr-dep
 - [ ] Zachowana kolejnosc merge: `PR-1 -> PR-2 -> PR-3`.
 - [ ] Brak rownoleglego merge do tych samych plikow.
 - [ ] Gate `P0` zaliczony: `npm run build`, `npm run test:unit`, `npm run test:e2e` (uruchamiane z `backend/`).
-- [ ] PR sklasyfikowany do `P1`, gdy dotyka logic/auth/guard/policy; wtedy wymagane tez `npm run test:mutation`.
+- [ ] Dla zmian logic/auth/guard/policy zaliczone są właściwe skupione testy unit/security/integration; mutation testing pozostaje opcjonalne i wymaga wyraźnego żądania użytkownika.
 
 ## PR-1: Runtime Settings Security Foundation
 
@@ -24,11 +24,11 @@ Zakres: PR-1, PR-2, PR-3 zgodnie z `execution-plan-first-3-prs-r68.md` i `pr-dep
 - [ ] Unit: `runtime-settings.schemas`, `runtime-settings.application.service`, `runtime-settings-bootstrap.service`, `runtime-settings-path-security.service`, `auth.policy`.
 - [ ] E2E: `runtime-settings.e2e-spec`, `runtime-settings.security.e2e-spec`.
 - [ ] Gate `P0` zaliczony.
-- [ ] Gate `P1` zaliczony (`npm run test:mutation`), bo scope security/auth/policy.
+- [ ] Skupione negatywne testy security/auth/policy zaliczone.
 
 ### Artifacts
 
-- [ ] Log/raport z `build`, `test:unit`, `test:e2e`, `test:mutation`.
+- [ ] Log/raport z `build`, `test:unit`, `test:e2e` i właściwych skupionych testów security.
 - [ ] Dowod fail-fast: przypadek niezgodnej konfiguracji blokuje bootstrap z kodem `RUNTIME_PATH_SECURITY_BOOTSTRAP_FAILED`.
 - [ ] Dowod autoryzacji: przypadek 403 bez `admin.runtime_paths.write` oraz pozytywny przypadek z uprawnieniem.
 - [ ] Dowod audytu: wpis `runtime_paths_changed` dla mutacji path-sensitive.
@@ -98,11 +98,11 @@ Zakres: PR-1, PR-2, PR-3 zgodnie z `execution-plan-first-3-prs-r68.md` i `pr-dep
 - [ ] Integration: `idempotency-store.integration`, `retry-exhausted.integration`.
 - [ ] E2E: `processing-api.e2e-spec`, `processing-jobs.e2e-spec`.
 - [ ] Gate `P0` zaliczony.
-- [ ] Gate `P1` zaliczony (`npm run test:mutation`) dla lifecycle/idempotency/guards.
+- [ ] Skupione testy lifecycle/idempotency/guards zaliczone.
 
 ### Artifacts
 
-- [ ] Log/raport z `build`, `test:unit`, `test:e2e`, `test:mutation`.
+- [ ] Log/raport z `build`, `test:unit`, `test:e2e` i właściwych skupionych testów lifecycle/idempotency/guards.
 - [ ] Dowody idempotencji: replay request nie tworzy duplikatow jobow.
 - [ ] Dowody state machine: poprawne przejscia atomowe i oczekiwane konflikty.
 - [ ] Dowody endpointow: przykladowe request/response dla enqueue/status/cancel/retry (z kodami `PIPELINE_*`).

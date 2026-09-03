@@ -1,0 +1,19 @@
+{
+  "schema": "aurora-tile-add-connect-runtime-build-profile/v1",
+  "profileId": "tile-add-connect-runtime-v24-creature-special-ability-list-bound-2026-09-02",
+  "createdAt": "2026-09-02T12:28:51.048Z",
+  "frontend": {
+    "commit": "worktree-sha256-d189a8d867e73e96b4ae21666081051b7958a745aea71ceccaf9d8b5075dd412",
+    "imageDigest": "sha256:d189a8d867e73e96b4ae21666081051b7958a745aea71ceccaf9d8b5075dd412",
+    "builtAt": "2026-09-02T12:28:51.048Z",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "backend": {
+    "commit": "worktree-sha256-d189a8d867e73e96b4ae21666081051b7958a745aea71ceccaf9d8b5075dd412",
+    "imageDigest": "sha256:d189a8d867e73e96b4ae21666081051b7958a745aea71ceccaf9d8b5075dd412",
+    "builtAt": "2026-09-02T12:28:51.048Z",
+    "baseUrl": "http://127.0.0.1:3000",
+    "contractVersion": "1.0.0",
+    "vfxRuntimeRevision": "vfx-recursive-chunk-shared-rng-instance-frames-v1"
+  }
+}

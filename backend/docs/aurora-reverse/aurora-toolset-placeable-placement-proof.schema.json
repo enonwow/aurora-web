@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aurora-toolset-placeable-placement-proof.schema.json",
+  "title": "Aurora Toolset placeable placement proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "verdict",
+    "session",
+    "module",
+    "area",
+    "palette",
+    "counts",
+    "artifacts",
+    "blockers"
+  ],
+  "properties": {
+    "version": {
+      "const": "aurora-toolset-placeable-placement-proof/v1"
+    },
+    "verdict": {
+      "enum": ["verified", "failed", "missing", "blocked"]
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processId",
+        "singleSession",
+        "responding",
+        "proofMonitor",
+        "globalCursorUsed",
+        "globalKeyboardUsed",
+        "globalMouseUsed",
+        "userConfigurationMutated",
+        "closedCleanly"
+      ],
+      "properties": {
+        "processId": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "singleSession": { "type": "boolean" },
+        "responding": { "type": "boolean" },
+        "proofMonitor": { "type": "string", "minLength": 1 },
+        "globalCursorUsed": { "type": "boolean" },
+        "globalKeyboardUsed": { "type": "boolean" },
+        "globalMouseUsed": { "type": "boolean" },
+        "userConfigurationMutated": { "type": "boolean" },
+        "closedCleanly": { "type": "boolean" }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourcePath",
+        "sourceSha256Before",
+        "workingPath",
+        "workingSha256Before"
+      ],
+      "properties": {
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "sourceSha256Before": { "$ref": "#/$defs/sha256" },
+        "sourceSha256After": { "$ref": "#/$defs/sha256" },
+        "workingPath": { "type": "string", "minLength": 1 },
+        "workingSha256Before": { "$ref": "#/$defs/sha256" },
+        "workingSha256After": { "$ref": "#/$defs/sha256" },
+        "savedSizeBytes": { "type": "integer", "minimum": 1 },
+        "saveConfirmed": { "type": "boolean" }
+      }
+    },
+    "area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resref", "name"],
+      "properties": {
+        "resref": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "path"],
+      "properties": {
+        "family": { "const": "Placeables" },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "selectedLeaf": { "type": "string", "minLength": 1 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before"],
+      "properties": {
+        "before": { "$ref": "#/$defs/countSet" },
+        "after": { "$ref": "#/$defs/countSet" },
+        "delta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["placeables", "total"],
+          "properties": {
+            "placeables": { "type": "integer" },
+            "total": { "type": "integer" }
+          }
+        },
+        "crossKindUnchanged": { "type": "boolean" }
+      }
+    },
+    "addedObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "templateResRef", "tag", "x", "y", "z"],
+      "properties": {
+        "kind": { "const": "placeable" },
+        "templateResRef": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "localizedName": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beforeFull": { "$ref": "#/$defs/nonEmptyPath" },
+        "paletteSelection": { "$ref": "#/$defs/nonEmptyPath" },
+        "afterPlacementFull": { "$ref": "#/$defs/nonEmptyPath" },
+        "afterSaveFull": { "$ref": "#/$defs/nonEmptyPath" },
+        "placeableCrop": { "$ref": "#/$defs/nonEmptyPath" },
+        "baselineManifest": { "$ref": "#/$defs/nonEmptyPath" },
+        "baselineObjects": { "$ref": "#/$defs/nonEmptyPath" },
+        "afterSaveManifest": { "$ref": "#/$defs/nonEmptyPath" },
+        "afterSaveObjects": { "$ref": "#/$defs/nonEmptyPath" },
+        "closeResult": { "$ref": "#/$defs/nonEmptyPath" }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "stage", "evidence", "nextSafeStep"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "stage": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 },
+          "nextSafeStep": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "verdict": { "const": "verified" } },
+        "required": ["verdict"]
+      },
+      "then": {
+        "required": ["addedObject"],
+        "properties": {
+          "session": {
+            "properties": {
+              "processId": { "type": "integer", "minimum": 1 },
+              "singleSession": { "const": true },
+              "responding": { "const": true },
+              "globalCursorUsed": { "const": false },
+              "globalKeyboardUsed": { "const": false },
+              "globalMouseUsed": { "const": false },
+              "userConfigurationMutated": { "const": false },
+              "closedCleanly": { "const": true }
+            }
+          },
+          "module": {
+            "required": [
+              "sourceSha256After",
+              "workingSha256After",
+              "savedSizeBytes",
+              "saveConfirmed"
+            ],
+            "properties": {
+              "saveConfirmed": { "const": true }
+            }
+          },
+          "palette": {
+            "required": ["selectedLeaf"]
+          },
+          "counts": {
+            "required": ["after", "delta", "crossKindUnchanged"],
+            "properties": {
+              "delta": {
+                "properties": {
+                  "placeables": { "const": 1 },
+                  "total": { "const": 1 }
+                }
+              },
+              "crossKindUnchanged": { "const": true }
+            }
+          },
+          "artifacts": {
+            "required": [
+              "beforeFull",
+              "paletteSelection",
+              "afterPlacementFull",
+              "afterSaveFull",
+              "placeableCrop",
+              "baselineManifest",
+              "baselineObjects",
+              "afterSaveManifest",
+              "afterSaveObjects",
+              "closeResult"
+            ]
+          },
+          "blockers": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "nonEmptyPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "countSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placeables",
+        "doors",
+        "creatures",
+        "encounters",
+        "items",
+        "sounds",
+        "stores",
+        "triggers",
+        "waypoints",
+        "total"
+      ],
+      "properties": {
+        "placeables": { "type": "integer", "minimum": 0 },
+        "doors": { "type": "integer", "minimum": 0 },
+        "creatures": { "type": "integer", "minimum": 0 },
+        "encounters": { "type": "integer", "minimum": 0 },
+        "items": { "type": "integer", "minimum": 0 },
+        "sounds": { "type": "integer", "minimum": 0 },
+        "stores": { "type": "integer", "minimum": 0 },
+        "triggers": { "type": "integer", "minimum": 0 },
+        "waypoints": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

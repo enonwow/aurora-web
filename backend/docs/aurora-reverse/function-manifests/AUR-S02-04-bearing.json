@@ -1,0 +1,34 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-04",
+  "function": "Bearing / rotation",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "creature",
+    "templateResRef": "nw_dwarfmerc001",
+    "tag": "NW_DWARFMERC001"
+  },
+  "nativeAction": {
+    "name": "TBearingPanel 45 degrees",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/bearing-undo-redo-live-standard-2026-07-14/validator-result.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/bearing-undo-redo-live-standard-2026-07-14/summary.json",
+    "backend/docs/aurora-reverse/evidence/bearing-undo-redo-live-standard-2026-07-14/29-bearing-panel-45.png",
+    "backend/docs/aurora-reverse/evidence/bearing-undo-redo-live-standard-2026-07-14/session-state.json"
+  ],
+  "blocker": null
+}

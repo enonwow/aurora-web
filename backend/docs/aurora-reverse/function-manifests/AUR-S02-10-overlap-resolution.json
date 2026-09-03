@@ -1,0 +1,38 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-10",
+  "function": "Overlap resolution",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "placeable",
+    "templateResRef": "plc_watertrough",
+    "tag": "Water Trough"
+  },
+  "nativeAction": {
+    "name": "two targeted Select Objects viewport clicks on an exact mixed-kind overlap, with native TreeView caret readback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/validator-result.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/summary.json",
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/03-overlap-selection-1.png",
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/04-overlap-selection-2.png",
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/after-overlap-save/manifest.json",
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/after-rollback-save/objects.csv",
+    "backend/docs/aurora-reverse/evidence/overlap-topmost-selection-live-2026-07-14/session-state.json"
+  ],
+  "blocker": null,
+  "scopeNote": "Verified scope is deterministic topmost-object selection at an exact mixed-kind overlap. The evidence intentionally does not claim a keyboard or repeated-click cycling route to an occluded object. Exact rollback means byte-identical parser-visible objects.csv; the Toolset repacked the enclosing .mod container."
+}

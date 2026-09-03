@@ -8,7 +8,7 @@ successful target by itself.
 ## Canonical workflow
 
 ```text
-preflight -> open -> run-queue -> observe -> read-tile-properties -> verify-viewport-target -> assemble-proof-packet -> close
+preflight -> open -> run-queue -> observe -> record-source-selection -> record-camera-calibration -> verify-viewport-target -> assemble-proof-packet -> close
 ```
 
 The last four steps are commands of `aurora-toolset-session.mjs`, not separate
@@ -58,8 +58,10 @@ in the session output directory, then records the result in `session-state.json`
 The implementation is `lib/aurora-toolset-viewport-target-standard.mjs`.
 
 `assemble-proof-packet` is the final offline gate. It requires the session
-ledger, viewport observation, target report, Tile Properties readback, and an
-explicit monitor-evidence JSON. It accepts only a verified direct tile identity,
+ledger, viewport observation, target report, and exact tile-selection proof.
+Monitor evidence is persisted inside the viewport observation by its capture
+step; an optional external monitor JSON can only supplement it. The packet
+accepts a verified direct identity or source-targeted selection transaction,
 full numeric `yawDegrees`, `pitchDegrees`, `zoomPixelsPerTile`, centring, and
 `\\.\DISPLAY1` marked non-primary. A missing item becomes a named blocker in
 the resulting packet; it is never silently omitted.
@@ -103,11 +105,19 @@ selected the specified source tile; its artifact explicitly states that Toolset
 did not expose an internal Tile_ID field. An outline without the other three
 links remains blocked.
 
+The executor is `select-aurora-toolset-source-tile-no-global-input.mjs`. Its
+`plan` command is offline. Its `execute` command is fail-closed behind both
+`--execute true` and `AURORA_TOOLSET_EXPLICIT_LIVE_SELECTION=1`; it also checks
+one process, the exact module and Area, unchanged viewport dimensions, and the
+non-primary physical `\\.\DISPLAY1` before the target-only click. No global
+cursor, keyboard, or mouse API is used.
+
 ## Full yaw calibration
 
 `derive-aurora-toolset-world-yaw.mjs` resolves full `0..360` yaw only from at
-least two samples whose selected tile identity is direct Toolset evidence and
-whose centres are measured in the matching viewport capture. The coordinate
+least two samples whose selected tile evidence is either direct Toolset identity
+or a verified source-targeted transaction, and whose centres are measured in
+the matching viewport capture. The coordinate
 system is explicit: `aurora-area-source-grid/v1`, where `0deg` means source
 Area `+X` projected screen-right and positive angles follow screen-clockwise
 coordinates. When both source axes are available they must agree within the
@@ -117,6 +127,11 @@ missing centres, non-axis-aligned source pairs, or inconsistent axes.
 This is a source-grid-calibrated world bearing, not an unsafe memory read or a
 claim about an undocumented internal Aurora field. The viewport evaluator and
 proof packet require this provenance before accepting `yawDegrees`.
+
+Record the accepted calibration with
+`areas:toolset-session -- record-camera-calibration --cameraCalibration <json>`.
+The session then supplies it automatically to `verify-viewport-target`; it is
+not a manually copied sidecar.
 
 ## Closed-loop camera correction
 

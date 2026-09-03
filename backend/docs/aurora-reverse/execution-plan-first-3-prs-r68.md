@@ -56,7 +56,7 @@ Powiazanie: ADR-66-02, Slice 1 (pakiety A/B/C), Slice 4 (SEC-01, SEC-02, SEC-05,
    - `npm run build`
    - `npm run test:unit`
    - `npm run test:e2e`
-   - `npm run test:mutation` (P1)
+   - skupione negatywne testy runtime-settings/security (P1)
 
 ### Rollback
 
@@ -160,7 +160,10 @@ Powiazanie: ADR-66-05, ADR-66-06, Slice 3, mapping R67: `A05-T1`, `A05-T2`, `A05
    - `npm run build`
    - `npm run test:unit`
    - `npm run test:e2e`
-   - `npm run test:mutation` (P1, bo lifecycle/guards/idempotency)
+   - skupione testy lifecycle/guards/idempotency (P1)
+
+Mutation testing nie jest bramą tych PR-ów. Pozostaje opcjonalne i wymaga
+wyraźnego żądania użytkownika.
 
 ### Rollback
 

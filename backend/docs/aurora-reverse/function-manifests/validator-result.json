@@ -1,0 +1,81 @@
+{
+  "ok": true,
+  "validator": "aurora-toolset-function-manifests/v1",
+  "manifestCount": 12,
+  "records": [
+    {
+      "functionId": "AUR-S05-03",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S03-08",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S03-01",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-01",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-02",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-03",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-04",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-05",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-06",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-07",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S02-10",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    },
+    {
+      "functionId": "AUR-S03-04",
+      "status": "verified",
+      "ok": true,
+      "failures": []
+    }
+  ],
+  "failures": [],
+  "checkedAt": "2026-09-01T19:14:11.055Z"
+}

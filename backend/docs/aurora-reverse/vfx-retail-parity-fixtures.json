@@ -58,6 +58,45 @@
         "notes": "Repo-side capture pack exists at backend/test/fixtures/vfx-retail/vfx-retail-dm-visualeffect-row-68-duration-0/, but retail visual capture is still missing; command/source row alone is not parity proof."
       },
       "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "diagnosticEvidenceRefs": [
+        {
+          "kind": "retail-nwn-single-trigger-oracle",
+          "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/validated-summary.json",
+          "sha256": "42AE77C741820520247C59A58AE7F35987E9DFD8A76024BEC0515924657814D3",
+          "recordedAt": "2026-07-14T13:25:07.895297+00:00",
+          "status": "valid-single-trigger-oracle",
+          "notParityReason": "This proves one scripted EffectVisualEffect(VFX_IMP_HEALING_M) NWN trigger and the captured lifecycle. The canonical fixture requires the exact dm_visualeffect 68 0 invocation, so this oracle cannot be relabeled as the DM capture and is not accompanied by the full source/parser/resolver/runtime/render packet for that exact invocation."
+        },
+        {
+          "kind": "aurora-web-single-playback",
+          "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/web/validated-summary-v22-creature-native-head-attachment-20260813.json",
+          "sha256": "7687FB462165BD05BE93081C16CF82B694DB83225C8CEA55AB6AA329CA313FC7",
+          "recordedAt": "2026-08-13T14:36:03.532353+00:00",
+          "status": "valid-single-playback-web-proof",
+          "notParityReason": "This proves one Aurora Web playback with the source-backed scene, exact BIC target, native creature head attachment, settled runtime, and clean post-roll. It remains diagnostic because the exact retail DM invocation packet is missing and the comparison records open camera, material, screen-space composition, and timing gaps."
+        }
+      ],
+      "implementationRevision": {
+        "revisionId": "row68-web-v22-creature-native-head-attachment-diagnostic-2026-08-13",
+        "recordedAt": "2026-08-13T14:36:11.224740+00:00",
+        "sourceAuditRefs": [
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/source-preparation.json",
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/fixture-manifest.json",
+          "backend/docs/aurora-reverse/vfx-object-attachment-orient-with-ground-audit-2026-08-13.md",
+          "backend/docs/aurora-reverse/vfx-proof-standard-2026-07-13.md"
+        ],
+        "changedPaths": [
+          "frontend/src/modules/vfx/dev/NwnVfxComparisonRunner.tsx",
+          "frontend/src/modules/layout/adapters/three/auroraVfxCanonicalRenderer.ts",
+          "backend/scripts/capture-vfx-nwn-web-row68-once.mjs",
+          "backend/scripts/create-vfx-row68-comparison.py"
+        ],
+        "verificationRefs": [
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/validated-summary.json",
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/web/validated-summary-v22-creature-native-head-attachment-20260813.json",
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn-vs-aurora-web-row68-comparison-v22-creature-native-head-attachment-20260813.json"
+        ]
+      },
       "expectedDiagnostics": [
         "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
         "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",
@@ -71,7 +110,8 @@
       "notCanonicalReason": "Repo-side fixture pack is prepared, but no retail build/profile, parser snapshot, resolver trace, runtime dump, render snapshot, visual capture, or comparison evidence is present.",
       "notes": [
         "VFX-P12-B prepared a fixture directory with required JSON files for dm_visualeffect 68 0 / VFX_IMP_HEALING_M.",
-        "Retail NWN client was not available in this context, so the fixture remains missing and diagnostic-only."
+        "A valid single-trigger NWN oracle and Web v22 comparison exist for scripted EffectVisualEffect(VFX_IMP_HEALING_M), but that constructor is not the exact dm_visualeffect 68 0 fixture input.",
+        "The 2026-08-17 takeover preflight kept this fixture missing and diagnostic-only instead of promoting evidence across the constructor boundary."
       ]
     },
     {
@@ -238,6 +278,53 @@
         "notes": "Repo-side capture pack and effect-fireball-script.nss harness exist at backend/test/fixtures/vfx-retail/vfx-retail-explosion-detonate-fireball/, but retail execution/capture is still missing. Retail capture must include effect start, detonate moment, explosion timing, particles-after-detonate observation, and pre/post detonate capture window."
       },
       "comparison": { "path": null, "hash": null, "result": null, "comparedAt": null },
+      "diagnosticEvidenceRefs": [
+        {
+          "kind": "retail-nwn-single-trigger-oracle",
+          "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row22/nwn/validated-summary.json",
+          "sha256": "ECBD98C7AE52CF639818A6835E8FBB8504FB985F31CB0CE3FEA3059A7A2B4AE7",
+          "recordedAt": "2026-07-14T14:16:24.965783+00:00",
+          "status": "valid-single-trigger-oracle",
+          "notParityReason": "This saves the one-trigger NWN oracle for reuse; the full retail render-state and comparison packet is incomplete."
+        },
+        {
+          "kind": "aurora-web-single-playback",
+          "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row22/web/web-row22-one-trigger-v3-summary.json",
+          "sha256": "CEFBEC1D0DD9E8866AC980CE2D2C675A72717A6F7BD2B606C6277125E4E2FB95",
+          "recordedAt": "2026-07-14T20:58:03.319Z",
+          "status": "historical-web-single-playback",
+          "notParityReason": "The historical Web recording predates the source-contract repairs and contains visible mismatches, so it is retained only as a failure baseline."
+        },
+        {
+          "kind": "aurora-web-source-axis-diagnostic",
+          "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row22/web/web-row22-one-trigger-v10b-world-z-top-view-diagnostic-0200ms.png",
+          "sha256": "9C8BFEEBC2663CCC8B51FE34940EE79F578A43F7A7C75516F8C71B781F519DD8",
+          "recordedAt": "2026-07-14T20:58:03.319Z",
+          "status": "source-axis-diagnostic",
+          "notParityReason": "The stable Aurora-Z-up diagnostic camera is not a recovered NWN camera, and Chunk collision plus material-shader parity remain open."
+        }
+      ],
+      "implementationRevision": {
+        "revisionId": "row22-source-contract-diagnostic-2026-07-14",
+        "recordedAt": "2026-07-14T20:58:03.319Z",
+        "sourceAuditRefs": [
+          "backend/docs/aurora-reverse/vfx-row22-visible-defects-decomp-audit-2026-07-14.md",
+          "backend/docs/aurora-reverse/vfx-coordinate-system-decomp-audit-2026-07-14.md",
+          "backend/docs/aurora-reverse/vfx-full-decomp-gap-audit-2026-07-14.md"
+        ],
+        "changedPaths": [
+          "backend/src/modules/vfx/application/vfx.application.service.ts",
+          "backend/src/modules/vfx/domain/aurora-vfx-runtime-state.ts",
+          "frontend/src/modules/layout/adapters/three/auroraVfxCanonicalRenderer.ts",
+          "frontend/src/modules/vfx/dev/NwnVfxComparisonRunner.tsx"
+        ],
+        "verificationRefs": [
+          "backend/test/unit/vfx.application.service.spec.ts",
+          "backend/test/unit/aurora-vfx-runtime-state.spec.ts",
+          "frontend/tests/unit/modules/layout/auroraVfxCanonicalRenderer.test.ts",
+          "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row22/nwn/validated-summary.json"
+        ]
+      },
       "expectedDiagnostics": [
         "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
         "VFX_RETAIL_PARSER_SNAPSHOT_REQUIRED",

@@ -1,0 +1,18 @@
+{
+  "version": "aurora-toolset-binary-module-bootstrap-profile/v1",
+  "id": "caller-owned-binary-module-example",
+  "module": {
+    "resref": "replace_me",
+    "path": "C:\\caller-owned\\replace_me.mod",
+    "sha256": "replace-with-64-lowercase-hex"
+  },
+  "area": { "resref": "replace_area", "width": 2, "height": 2 },
+  "entryPoint": { "area": "replace_area", "position": [10, 10, 0] },
+  "orderedHakList": [
+    { "resref": "replace_hak", "path": "C:\\caller-owned\\replace_hak.hak", "sha256": "replace-with-64-lowercase-hex" }
+  ],
+  "fixtures": [
+    { "id": "replace_fixture", "templateResRef": "replace_utc", "appearanceType": 15109, "position": [10, 10, 0] }
+  ],
+  "noLocalToolsetAdapter": true
+}

@@ -1,5 +1,10 @@
 ﻿# Unknowns Closure R65: `LinkedToFlags` + `LoadScreenID` (drzwi/trigger)
 
+> **External GPL quarantine (2026-08-17):** This document's xoreos-derived
+> closure is revoked. Its xoreos paths and observations are not admitted
+> evidence and must not support implementation or runtime claims. See
+> `xoreos-gpl-legacy-reference-quarantine-2026-08-17.md`.
+
 ## Zakres i poziom domkniecia
 - Zakres: runtime xoreos (`nwn`, `nwn2`, `kotorbase`) + corpus GIT/GIC z `C:\Projects\nwn-last-city\Aurora\reverse`.
 - Domkniecie dotyczy kontraktu backend dla adaptera Aurora-web opartego o ten runtime.

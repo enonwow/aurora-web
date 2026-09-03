@@ -26,7 +26,7 @@ Bezpieczny cykl pracy:
    argumentow.
 4. Codex moze wykonac read-only `PrintWindow`/enumeracje okien i porownanie
    screenshotu, jesli widok jest juz poprawnie zaladowany.
-5. Jesli pojawia sie recovery, progress/loading, szary wireframe viewport,
+5. Jesli pojawia sie nierozstrzygniete recovery, progress/loading, szary wireframe viewport,
    access violation albo brak teksturowanego widoku area, proof jest zatruty:
    zatrzymaj prace z Toolsetem i nazwij blocker.
 
@@ -54,7 +54,10 @@ starych notatkach z debugowania:
 - nie robic automatycznego `Stop-Process -Force` Toolsetu jako elementu proof
   loop;
 - nie restartowac pustego frame Toolsetu automatem;
-- nie wybierac `Tak` ani `Nie` w recovery automatem, zeby "zobaczyc co bedzie";
+- nie wybierac `Tak` ani `Nie` w recovery, zeby "zobaczyc co bedzie";
+  dla dokladnie znanego komunikatu stosowac deterministyczna polityke recovery:
+  domyslnie niedestrukcyjne `Tak`, a `Nie` tylko po zapisanej w manifeście
+  autoryzacji `recoveryPolicy=discard_backup`;
 - nie klikac toolbarow display/render na chybil trafil;
 - nie uznawac szarego/wireframe viewportu za Aurora oracle;
 - nie repakowac aktywnego modulu, gdy Toolset go trzyma;
@@ -63,8 +66,10 @@ starych notatkach z debugowania:
 - nie kontynuowac automatyzacji po access violation.
 
 Incydent z 2026-07-02 byl bledem procesu: probowalem ratowac zla sesje
-Toolsetu automatem. Poprawna reakcja to pauza, manualne zamkniecie bledu przez
-uzytkownika, czysty restart i dopiero potem nowy proof.
+Toolsetu niezweryfikowanymi akcjami. Poprawna reakcja to pauza live lane,
+odczyt dokladnego komunikatu i tozsamosci sesji, zastosowanie znanej polityki
+recovery oraz ponowny readback. Pytanie do uzytkownika jest wymagane tylko dla
+nieznanego albo destrukcyjnie niejednoznacznego stanu.
 
 ## Narzedzia pomocnicze
 
@@ -190,6 +195,18 @@ Toolset pokazuje recovery dialog i zadne `Tak`/`Nie` nie moze byc klikniete
 automatycznie. `cleanup-aurora-toolset-critical-stop.mjs` zachowuje teraz
 `temp0` domyslnie; przeniesienie wymaga `--archiveTemp0`.
 
+Korekta 2026-07-24 zastępuje wyłącznie powyższy ogólny zakaz dla dokładnie
+związanego proofu modelu. Samo istnienie `module.ifo` nadal nie wystarcza.
+Publiczna trasa binary-bootstrap może kliknąć niedestrukcyjne `Tak` dokładnie
+raz tylko po utworzeniu i bezpośredniej rewalidacji
+`aurora-toolset-verified-temp0-recovery-admission/v1`: zainstalowany MOD musi
+mieć przypięty hash źródła, każdy obsługiwany zasób ERF musi odpowiadać dokładnie
+jednemu zwykłemu plikowi `temp0` o identycznych bajtach, a katalog nie może
+zawierać braków, dodatków, reparse pointów ani wpisów niebędących plikami.
+Akcja jest kierowanym `BM_CLICK` na dokładnie znanym modalu, bez globalnego
+inputu, archiwizacji/kasowania `temp0`, zmian INI/MRU lub późniejszego
+`File > Open`. Każda niezgodność nadal zatrzymuje trasę.
+
 Ten tryb waliduje PNG i uruchamia porownanie konceptu bez startowania
 `nwtoolset.exe`, bez MRU staging i bez kolejnego `Open Module`.
 
@@ -246,10 +263,11 @@ Srodowisko potwierdzone 2026-07-02:
 
 2. Jezeli pojawi sie recovery confirmation:
 
-   - To jest blocker dla automatycznego proofu.
-   - Nie wybieraj `Tak` ani `Nie` automatem.
-   - Uzytkownik powinien recznie zdecydowac, czy odzyskuje backup, czy odrzuca
-     recovery i startuje czysto.
+   - Ta historyczna procedura ręczna jest zastąpiona przez korektę z
+     2026-07-24 wyłącznie dla dokładnego
+     `aurora-toolset-verified-temp0-recovery-admission/v1`.
+   - Bez tego admission recovery pozostaje blockerem automatycznego proofu i
+     nie wolno wybierać `Tak` ani `Nie` automatem.
    - Po recovery nie uznawaj sesji za proof-ready, dopoki nie ma normalnego,
      teksturowanego viewportu area i responsywnego Toolsetu.
 

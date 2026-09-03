@@ -54,6 +54,33 @@ For each context in `src/modules/<context>` use:
    - `WorkspaceLayout.tsx`
    - `WorkspaceCanvasViewport.tsx`
 5. Layout now centralizes scene/auth boundary typing via `layout/contracts.ts`, so components and layout application no longer reach directly into other contexts' internal files.
+6. Area editing source lookup, verification, ARE export, and browser download now cross explicit boundaries:
+   - `areas/ports/areaEditingPort.ts`
+   - `areas/application/areaEditingFacade.ts`
+   - `areas/composition/createBrowserAreaEditingFacade.ts`
+   - the browser composition root is created in `App.tsx` and injected through `WorkspaceLayout` and `AreasModePanel` into `AuroraAreaEditingPanel`.
+   - a static UI-boundary test rejects direct `areas/adapters/*` imports from layout components.
+7. Creature appearance palette loading and PLT swatch lookup now cross an explicit boundary:
+   - `creatures/ports/creatureAppearancePalettePort.ts`
+   - `creatures/application/creatureAppearancePaletteFacade.ts`
+   - `creatures/composition/createBrowserCreatureAppearancePaletteFacade.ts`
+   - the browser composition root is created in `App.tsx` and injected through `WorkspaceLayout` into `CreaturesModePanel`.
+   - the panel exposes a deterministic, diagnosed fallback-color state when the facade is absent and no longer imports the PLT adapter directly.
+8. Area placeable cache-miss recovery now consumes a narrow application contract:
+   - `layout/application/areaPlaceableRenderPayloadRevalidation.ts` owns `AreaPlaceableAssetCacheMiss` with only the readonly `cacheKey` and `assetKind` fields used by recovery.
+   - `WorkspaceLayout` no longer imports the renderer adapter's event-detail type.
+   - the adapter-emitted detail remains structurally compatible, while renderer ownership and behavior remain unchanged.
+9. The global component-to-facade migration is still incomplete. The following non-development UI files still import other adapters directly and must be migrated in later scoped slices:
+   - `layout/components/properties/ItemModelPreviewPane.tsx`
+   - `layout/components/SceneObjectThumbnail.tsx`
+   - `layout/components/WorkspaceCanvasViewport.tsx`
+10. Area tile-definition catalog filtering is application-owned:
+   - `areas/application/areaTileCatalogFilter.ts` derives deterministic search text, SET-backed categories, structural authoring capabilities, and `verified | failed | missing | excluded` certification state.
+   - missing certification rows remain `missing`; current-scene asset readiness is never promoted into certification.
+   - `AuroraAreaEditingPanel` browses tilesets only through the injected Area editing facade, validates the returned tileset identity, and keeps definitions from a foreign tileset read-only for the active Area.
+   - immutable certification delivery crosses `areas/ports/areaTileCertificationPort.ts`, its strict HTTP adapter, and the Area editing facade; the facade paginates one stable report identity and rejects drift, duplicates, and stalled pages.
+   - the panel keeps a successfully loaded definition visible when certification delivery fails, supplies an empty index for that exact tileset, and exposes a sanitized fail-closed diagnostic instead of promoting asset readiness.
+   - matched totals and certification counts are exposed as named DOM diagnostics; rendered matches are bounded to the first 100 entries until the user refines the filters.
 
 ## Delivery Rules for New Changes
 1. Every new UI flow should start with/update a facade in `application/`.

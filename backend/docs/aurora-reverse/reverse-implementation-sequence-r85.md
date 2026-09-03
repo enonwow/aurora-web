@@ -114,7 +114,8 @@ Cel: finalna sekwencja wdrozenia backendu oparta o pakiet reverse `r63-r85`, z j
 - Egzekwowac top-ryzyka R84 jako release blockers.
 
 **Wyjscia**
-- Raport gate `PASS/FAIL` z rozbiciem na unit/integration/e2e/mutation/differential.
+- Raport gate `PASS/FAIL` z rozbiciem na unit/integration/e2e/differential.
+  Opcjonalny wynik mutation można dołączyć tylko po wyraźnym żądaniu użytkownika.
 - Benchmark baseline + porownanie P50/P95/P99 z decyzja release.
 - Aktualizacja rejestru ryzyk (status mitigacji per release).
 

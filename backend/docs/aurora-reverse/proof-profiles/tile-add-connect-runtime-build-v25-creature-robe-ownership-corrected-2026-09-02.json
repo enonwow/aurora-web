@@ -1,0 +1,19 @@
+{
+  "schema": "aurora-tile-add-connect-runtime-build-profile/v1",
+  "profileId": "tile-add-connect-runtime-v25-creature-robe-ownership-corrected-2026-09-02",
+  "createdAt": "2026-09-02T13:03:29.094Z",
+  "frontend": {
+    "commit": "worktree-sha256-f53b0eed54c1ceae097b8917ca54a40bb8c35cb07b45b6bc8927e8b295436f37",
+    "imageDigest": "sha256:f53b0eed54c1ceae097b8917ca54a40bb8c35cb07b45b6bc8927e8b295436f37",
+    "builtAt": "2026-09-02T13:03:29.094Z",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "backend": {
+    "commit": "worktree-sha256-f53b0eed54c1ceae097b8917ca54a40bb8c35cb07b45b6bc8927e8b295436f37",
+    "imageDigest": "sha256:f53b0eed54c1ceae097b8917ca54a40bb8c35cb07b45b6bc8927e8b295436f37",
+    "builtAt": "2026-09-02T13:03:29.094Z",
+    "baseUrl": "http://127.0.0.1:3000",
+    "contractVersion": "1.0.0",
+    "vfxRuntimeRevision": "vfx-recursive-chunk-shared-rng-instance-frames-v1"
+  }
+}

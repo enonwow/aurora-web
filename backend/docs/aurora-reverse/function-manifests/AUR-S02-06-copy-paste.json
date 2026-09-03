@@ -1,0 +1,37 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S02-06",
+  "function": "Copy/Paste",
+  "status": "verified",
+  "profile": "npc-item-live",
+  "area": "demo",
+  "target": {
+    "kind": "placeable",
+    "templateResRef": "plc_watertrough",
+    "tag": "Water Trough"
+  },
+  "nativeAction": {
+    "name": "resource-validated Edit/Copy (59), Edit/Paste (61), targeted active-preview commit, Save, native Undo (56), Save",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "visibleAuroraProof": true,
+    "afterSaveReadback": true,
+    "isolatedDelta": true,
+    "exactRollback": true,
+    "cleanClose": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/validator-result.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/summary.json",
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/05-paste-committed.png",
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/after-paste-save/manifest.json",
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/after-undo-save/objects.csv",
+    "backend/docs/aurora-reverse/evidence/copy-paste-placeable-live-2026-07-14/session-state.json"
+  ],
+  "blocker": null,
+  "scopeNote": "Exact rollback means byte-identical parser-visible demo.git objects.csv. The enclosing .mod container was repacked by Aurora and is explicitly recorded as non-byte-identical."
+}

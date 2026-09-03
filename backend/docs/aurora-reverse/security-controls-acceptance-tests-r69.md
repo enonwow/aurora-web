@@ -19,8 +19,11 @@ Zdefiniowac wykonywalny zestaw acceptance testow dla security controls oraz jedn
 ## 3. Gate execution
 
 1. `P0`: `npm run build`, `npm run test:unit`, `npm run test:e2e`
-2. `P1`: `P0 + npm run test:mutation`
+2. `P1`: `P0` + skupione negatywne testy security/integration dla zmienionych kontroli
 3. `P2`: `P1 + release/hardening sign-off`
+
+Mutation testing jest opcjonalne, nie jest częścią żadnej z powyższych bram i
+może zostać uruchomione wyłącznie na wyraźne żądanie użytkownika.
 
 ## 4. Acceptance Tests
 

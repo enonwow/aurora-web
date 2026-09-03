@@ -1,0 +1,41 @@
+{
+  "version": "aurora-toolset-function-manifest/v1",
+  "functionId": "AUR-S05-03",
+  "function": "Area terrain Features and Groups placement",
+  "status": "verified",
+  "profile": "codex_npc_item_live_20260713",
+  "area": "area001",
+  "target": {
+    "kind": "area",
+    "templateResRef": "tcm02",
+    "tag": "Demo - snow"
+  },
+  "nativeAction": {
+    "name": "native terrain palette Feature and Group selection, viewport placement, Save, reopen, Undo, and Save rollback",
+    "globalInputUsed": false
+  },
+  "acceptance": {
+    "featurePlacementProven": true,
+    "exactGroupPaletteIdentity": true,
+    "exactContiguousFootprint": true,
+    "sourceFieldsStable": true,
+    "sourceIdentityStable": true,
+    "objectCountsStable": true,
+    "completeRollback": true,
+    "noGlobalInput": true,
+    "proofPacksExist": true
+  },
+  "validator": {
+    "path": "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-03-features-groups/validation.json",
+    "acceptedFunctionsField": "acceptedFunctions"
+  },
+  "artifacts": [
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-03-features-groups/validation.json",
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-03-features-groups/group-palette-readback.json",
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-03-features-groups/group-diff.json",
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-03-features-groups/group-rollback.json",
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-01-single-tile/area001-feature-1x1-action.json",
+    "backend/docs/aurora-reverse/evidence/stage5-live-2026-07-16/s05-01-single-tile/area001-feature-1x1-diff.json"
+  ],
+  "blocker": null
+}

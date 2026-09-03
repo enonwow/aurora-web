@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aurora-toolset-palette-placement-proof.schema.json",
+  "title": "Aurora Toolset palette placement proof",
+  "type": "object",
+  "required": [
+    "version",
+    "verdict",
+    "standardId",
+    "operation",
+    "session",
+    "module",
+    "area",
+    "palette",
+    "counts",
+    "addedObject",
+    "visualProof",
+    "artifacts",
+    "blockers"
+  ],
+  "properties": {
+    "version": { "const": "aurora-toolset-palette-placement-proof/v1" },
+    "verdict": { "enum": ["verified", "failed", "missing", "blocked"] },
+    "standardId": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "object",
+      "required": ["kind", "countKey"],
+      "properties": {
+        "kind": { "enum": ["creature", "door", "encounter", "item", "store", "placeable", "sound", "trigger", "waypoint"] },
+        "countKey": { "enum": ["creatures", "doors", "encounters", "items", "stores", "placeables", "sounds", "triggers", "waypoints"] }
+      }
+    },
+    "session": {
+      "type": "object",
+      "required": ["processId", "singleSession", "sequenceId", "sequenceStep", "sequenceStepCount", "respondingAtCapture", "proofMonitor", "globalCursorUsed", "globalKeyboardUsed", "globalMouseUsed", "userConfigurationMutated", "closedCleanly"],
+      "properties": {
+        "processId": { "type": "integer", "minimum": 1 },
+        "singleSession": { "const": true },
+        "sequenceId": { "type": "string", "minLength": 1 },
+        "sequenceStep": { "type": "integer", "minimum": 1 },
+        "sequenceStepCount": { "type": "integer", "minimum": 1 },
+        "respondingAtCapture": { "const": true },
+        "proofMonitor": { "type": "string", "minLength": 1 },
+        "globalCursorUsed": { "const": false },
+        "globalKeyboardUsed": { "const": false },
+        "globalMouseUsed": { "const": false },
+        "userConfigurationMutated": { "const": false },
+        "closedCleanly": { "const": true }
+      }
+    },
+    "module": {
+      "type": "object",
+      "required": ["sourcePath", "sourceSha256Before", "sourceSha256After", "workingPath", "workingSha256BeforeSession", "workingSha256AfterSession", "workingBytesBeforeStep", "workingBytesAfterStep", "hashScope", "saveConfirmed", "afterSaveTitleClean"],
+      "properties": {
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "sourceSha256Before": { "$ref": "#/$defs/sha256" },
+        "sourceSha256After": { "$ref": "#/$defs/sha256" },
+        "workingPath": { "type": "string", "minLength": 1 },
+        "workingSha256BeforeSession": { "$ref": "#/$defs/sha256" },
+        "workingSha256AfterSession": { "$ref": "#/$defs/sha256" },
+        "workingBytesBeforeStep": { "type": "integer", "minimum": 0 },
+        "workingBytesAfterStep": { "type": "integer", "minimum": 1 },
+        "hashScope": { "enum": ["single_step", "session_sequence"] },
+        "saveConfirmed": { "const": true },
+        "afterSaveTitleClean": { "const": true }
+      }
+    },
+    "area": {
+      "type": "object",
+      "required": ["resref", "name"],
+      "properties": {
+        "resref": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "required": ["family", "path", "selectedLeaf", "selectObjectsRestored"],
+      "properties": {
+        "family": { "type": "string", "minLength": 1 },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "selectedLeaf": { "type": "string", "minLength": 1 },
+        "selectObjectsRestored": { "const": true }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["before", "after", "delta", "crossKindUnchanged"],
+      "properties": {
+        "before": { "$ref": "#/$defs/countSet" },
+        "after": { "$ref": "#/$defs/countSet" },
+        "delta": { "type": "object" },
+        "crossKindUnchanged": { "const": true }
+      }
+    },
+    "addedObject": {
+      "type": "object",
+      "required": ["kind", "templateResRef", "tag", "x", "y", "z"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "templateResRef": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "localizedName": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "bearingDegrees": { "type": "number" },
+        "appearanceType": { "type": "integer" }
+      }
+    },
+    "visualProof": {
+      "type": "object",
+      "required": ["beforeViewportRendered", "afterPlacementViewportRendered", "selectedLeafVisible", "objectVisible"],
+      "properties": {
+        "beforeViewportRendered": { "const": true },
+        "afterPlacementViewportRendered": { "const": true },
+        "selectedLeafVisible": { "const": true },
+        "objectVisible": { "const": true }
+      }
+    },
+    "artifacts": { "type": "object" },
+    "blockers": { "type": "array", "maxItems": 0 }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "countSet": {
+      "type": "object",
+      "required": ["placeables", "doors", "creatures", "encounters", "items", "sounds", "stores", "triggers", "waypoints", "total"],
+      "properties": {
+        "placeables": { "type": "integer", "minimum": 0 },
+        "doors": { "type": "integer", "minimum": 0 },
+        "creatures": { "type": "integer", "minimum": 0 },
+        "encounters": { "type": "integer", "minimum": 0 },
+        "items": { "type": "integer", "minimum": 0 },
+        "sounds": { "type": "integer", "minimum": 0 },
+        "stores": { "type": "integer", "minimum": 0 },
+        "triggers": { "type": "integer", "minimum": 0 },
+        "waypoints": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

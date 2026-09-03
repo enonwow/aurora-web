@@ -149,8 +149,9 @@ Each slice = failing test first → implement → green → no regressions.
 
 3. **Slice C — P2P gravity/bezier path** integrator promotion, same method.
 
-4. **Slice D — verify:** backend unit/e2e + frontend vfx tests +
-   relevant stryker/parity-gate; list what to re-check visually in the running app.
+4. **Slice D — verify:** backend unit/e2e + frontend VFX tests + the relevant
+   parity gate; list what to re-check visually in the running app. Stryker is
+   optional and may run only after an explicit user request.
 
 ---
 

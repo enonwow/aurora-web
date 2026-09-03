@@ -1,0 +1,19 @@
+{
+  "schema": "aurora-tile-add-connect-runtime-build-profile/v1",
+  "profileId": "tile-add-connect-runtime-v17-placeable-matrix-classified-2026-09-02",
+  "createdAt": "2026-09-01T23:25:13.005Z",
+  "frontend": {
+    "commit": "worktree-sha256-a304d5b6764346127fc21d3aabed9426a4ab7a1fa5d7eb60c5bc5b221025f357",
+    "imageDigest": "sha256:a304d5b6764346127fc21d3aabed9426a4ab7a1fa5d7eb60c5bc5b221025f357",
+    "builtAt": "2026-09-01T23:25:13.005Z",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "backend": {
+    "commit": "worktree-sha256-a304d5b6764346127fc21d3aabed9426a4ab7a1fa5d7eb60c5bc5b221025f357",
+    "imageDigest": "sha256:a304d5b6764346127fc21d3aabed9426a4ab7a1fa5d7eb60c5bc5b221025f357",
+    "builtAt": "2026-09-01T23:25:13.005Z",
+    "baseUrl": "http://127.0.0.1:3000",
+    "contractVersion": "1.0.0",
+    "vfxRuntimeRevision": "vfx-recursive-chunk-shared-rng-instance-frames-v1"
+  }
+}

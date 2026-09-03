@@ -1,5 +1,10 @@
 ﻿# Minimal Runtime 2DA/TLK Set (R65)
 
+> **External GPL quarantine (2026-08-17):** Historical xoreos paths and
+> observations in this document are not admitted evidence and must not support
+> implementation or runtime claims. See
+> `xoreos-gpl-legacy-reference-quarantine-2026-08-17.md`.
+
 Data: 2026-05-24  
 Status: Draft (P0/P1 runtime baseline)  
 Zakres: minimalny zestaw 2DA/TLK wymagany do poprawnego processingu `placeable`, `creature`, `area` w backendzie, z deterministycznym fallback chain i walidacja brakow.

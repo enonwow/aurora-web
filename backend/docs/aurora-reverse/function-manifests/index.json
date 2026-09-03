@@ -1,0 +1,18 @@
+{
+  "version": "aurora-toolset-function-manifest-registry/v1",
+  "scope": "New or touched Aurora Toolset roadmap functions must have one manifest before status TAK.",
+  "manifests": [
+    "AUR-S05-03-features-groups.json",
+    "AUR-S03-08-appearance.json",
+    "AUR-S03-01-identity.json",
+    "AUR-S02-01-object-selection.json",
+    "AUR-S02-02-mouse-drag.json",
+    "AUR-S02-03-adjust-location.json",
+    "AUR-S02-04-bearing.json",
+    "AUR-S02-05-placeable-transform.json",
+    "AUR-S02-06-copy-paste.json",
+    "AUR-S02-07-duplicate.json",
+    "AUR-S02-10-overlap-resolution.json",
+    "AUR-S03-04-script-event-binding.json"
+  ]
+}

@@ -198,9 +198,12 @@ Gate wg r64/r65:
    - `npm run build`
    - `npm run test:unit`
    - `npm run test:e2e`
-   - `npm run test:mutation`
+   - skupione negatywne testy auth/guard/policy/security
 3. P2 (release/hardening sign-off):
    - ten sam zestaw co P1, obowiązkowo przed merge release.
+
+Mutation testing jest opcjonalne i nie należy do P0/P1/P2. Może zostać
+uruchomione wyłącznie na wyraźne żądanie użytkownika.
 
 Definition of Done:
 1. Wszystkie nowe przypadki security mają testy automatyczne (`SEC-PATH-*` min. zakres).

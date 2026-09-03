@@ -65,6 +65,6 @@ Definition of Done: backend generuje deterministyczny `datasetFingerprint`, wyma
 Test akceptacyjny: powtorzony run na tym samym corpus daje identyczny fingerprint; suite benchmarkowa waliduje komplet artefaktow i failuje przy przekroczeniu progow regresji.
 
 ## Brama zakonczenia Phase-0
-1. Zadania 1-12 maja zielone testy akceptacyjne w CI (`npm run test:unit`, `npm run test:e2e`, `npm run test:mutation` dla zakresu wdrozonego).
+1. Zadania 1-12 maja zielone testy akceptacyjne w CI (`npm run test:unit`, `npm run test:e2e` oraz właściwe skupione testy dla wdrożonego zakresu). Mutation testing jest opcjonalne i wymaga wyraźnego żądania użytkownika.
 2. Wszystkie obszary HOLD z R81/R85 pozostaja nieaktywne w publicznym API.
 3. Kazdy merge mapuje `decyzja -> dowod reverse -> test` (wymog R84/R85).

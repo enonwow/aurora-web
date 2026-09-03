@@ -1,0 +1,157 @@
+{
+  "version": "aurora-vfx-retail-proof-profile/v1",
+  "profileId": "vfx-row68-retail-dm-proof-blocked-2026-08-17",
+  "createdAt": "2026-08-17T00:00:00+02:00",
+  "status": "blocked_preflight",
+  "proofClassification": "diagnostic-only",
+  "launchDecision": "no_toolset_or_nwn_runtime_started",
+  "canonicalFixture": {
+    "manifest": "backend/docs/aurora-reverse/vfx-retail-parity-fixtures.json",
+    "fixtureId": "vfx-retail-dm-visualeffect-row-68-duration-0",
+    "requiredCase": "dm_visualeffect_row_duration",
+    "effectFamily": "visualeffects.2da object impact",
+    "sourceRowId": 68,
+    "sourceLabel": "VFX_IMP_HEALING_M",
+    "exactRuntimeInvocation": "dm_visualeffect 68 0",
+    "applicationMode": "object",
+    "durationType": "instant",
+    "durationSeconds": 0,
+    "lifecycle": "fire-and-forget"
+  },
+  "sourceIdentity": {
+    "table": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/sources/visualeffects.2da",
+      "sha256": "ACEFE76F7FB14E88916AE1ADE40DD5108B8A2F601EAADA82A67F751B4EB56EA2",
+      "profile": "nwn-ee-8193.34-selected-source",
+      "rowId": 68,
+      "label": "VFX_IMP_HEALING_M"
+    },
+    "model": {
+      "resref": "vim_heal04",
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/sources/vim_heal04.mdl",
+      "sha256": "6DC087CE635ED0DC697968E5411FF7FAABCF0B564BE539F5F470C57D451C3BE1"
+    }
+  },
+  "retailRuntimeIdentity": {
+    "client": "NWN:EE retail",
+    "executable": {
+      "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Neverwinter Nights\\bin\\win32\\nwmain.exe",
+      "sizeBytes": 21071872,
+      "sha256": "3B7CB1252E0EDB2CE22D7971F333AADE027039AE30A45B4BC64732C3E6BEC73A"
+    },
+    "buildId": null,
+    "buildProfile": null,
+    "captureMachine": null,
+    "buildEvidenceStatus": "missing",
+    "module": {
+      "path": "C:\\Users\\enonw\\Documents\\Neverwinter Nights\\modules\\tlc_vfx_catalog_lab_iter1.mod",
+      "sizeBytes": 85386016,
+      "sha256": "FDA307D129F0C0E17411FB5820C6C528EE66E3A079202BE5E8E38BE781CFF010",
+      "areaResref": "enon_test_effect",
+      "areSha256": "5DAD3C2B055056479F4CE7B2C8BC25A408208700B6901C1BF1986AC50368F585",
+      "gitSha256": "BD3637343C89BB7C719A260CD61D07F5774BE21A9B840107451ABE9C046DF8E6"
+    },
+    "orderedHakIdentity": {
+      "count": 59,
+      "moduleHakListSha256": "7D850C468E4872625A7EC46841BCFC35D51B37EC35595DB27E218CF3A2EF6E40",
+      "immutableProfileRef": "backend/docs/aurora-reverse/evidence/vfx-placeable-object-attachment-row50/profile-v2/proof-profile.json",
+      "immutableProfileSha256": "91BA44007A8F64A151C68AEC37D0F40E597C2EE4800C9E4D3F68480B4E1CB4C8",
+      "binding": "sourceModule.orderedHaks contains the ordered resrefs, absolute paths, byte sizes, and SHA-256 hashes for the same immutable module identity"
+    }
+  },
+  "requestedCaptureTarget": {
+    "ownerTarget": "retail-capture-target",
+    "position": null,
+    "orientation": null,
+    "camera": null,
+    "captureCadence": null,
+    "timingOrigin": null,
+    "artifactDestination": "backend/test/fixtures/vfx-retail/vfx-retail-dm-visualeffect-row-68-duration-0/",
+    "captureManifest": "backend/test/fixtures/vfx-retail/vfx-retail-dm-visualeffect-row-68-duration-0/capture.json",
+    "validator": "backend/scripts/check-vfx-retail-evidence-packs.mjs",
+    "status": "missing"
+  },
+  "savedDiagnosticOracle": {
+    "fixtureId": "vfx-nwn-web-row68",
+    "status": "valid-single-trigger-oracle",
+    "preflight": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/preflight.json",
+      "sha256": "B98D0BC01AA8A8D763F70DCCF3114F229AE26938D4CF4192EFD0EA321CB1AB90"
+    },
+    "validatedSummary": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/validated-summary.json",
+      "sha256": "42AE77C741820520247C59A58AE7F35987E9DFD8A76024BEC0515924657814D3"
+    },
+    "video": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/nwn-row68-one-trigger.mp4",
+      "sizeBytes": 2298417,
+      "sha256": "672B1D798C35DF688770683A42071BA6E4A79829D162F276D345246DC88EC01C"
+    },
+    "triggerLedger": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn/trigger-ledger-reconciled.json",
+      "sha256": "636B381181D95783AA84F539BCAA7BABC836C7CA343B0306DE8617D4C12840BF",
+      "intentionalTriggerCount": 1,
+      "observedTriggerLogCount": 1,
+      "validSingleTrigger": true
+    },
+    "actualRuntimeInvocation": "ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectVisualEffect(VFX_IMP_HEALING_M), first-pc)",
+    "canonicalInputMatch": false,
+    "reusePolicy": "Preserve and reuse for scripted EffectVisualEffect row-68 diagnostics; never relabel it as dm_visualeffect 68 0 evidence."
+  },
+  "latestWebDiagnostic": {
+    "validatedSummary": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/web/validated-summary-v22-creature-native-head-attachment-20260813.json",
+      "sha256": "7687FB462165BD05BE93081C16CF82B694DB83225C8CEA55AB6AA329CA313FC7"
+    },
+    "video": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/web/web-row68-one-trigger-v22-creature-native-head-attachment-20260813.mp4",
+      "sizeBytes": 226138,
+      "sha256": "19B4385CB564BF193428D84A60E9697B160B446B457DBE9351534590070A19FE"
+    },
+    "comparison": {
+      "path": "backend/docs/aurora-reverse/evidence/vfx-nwn-web-row68/nwn-vs-aurora-web-row68-comparison-v22-creature-native-head-attachment-20260813.json",
+      "sha256": "6C295CE8F4761C5E92778FFC7902C37FFE96C40FD60B53CB65AC94CD0D54B982",
+      "status": "valid-comparison-source-backed-scene-bic-target-calibrated-camera-open-pixel-and-timing-gaps"
+    },
+    "proofSafety": {
+      "singlePlayback": true,
+      "loopDisabled": true,
+      "runtimeObservabilityGatesPass": true,
+      "allEmittersEndWithZeroActiveParticles": true,
+      "postRollIsClean": true,
+      "nativeCreatureHeadAttachmentApplied": true
+    }
+  },
+  "blockers": [
+    {
+      "code": "VFX_RETAIL_EXACT_INVOCATION_CAPTURE_REQUIRED",
+      "proofPoint": "captureReference",
+      "reason": "The saved NWN oracle uses scripted EffectVisualEffect, while the canonical fixture requires the exact dm_visualeffect 68 0 invocation."
+    },
+    {
+      "code": "VFX_RETAIL_BUILD_PROFILE_REQUIRED",
+      "proofPoint": "retailBuild",
+      "reason": "The executable hash is known, but build id/profile and capture-machine metadata were not bound for an exact DM capture."
+    },
+    {
+      "code": "VFX_RETAIL_CAPTURE_CONTEXT_REQUIRED",
+      "proofPoint": "captureReference",
+      "reason": "The exact DM target position, orientation, camera matrix, cadence, and timing origin are not declared."
+    },
+    {
+      "code": "VFX_RETAIL_PIPELINE_PACKET_REQUIRED",
+      "proofPoint": "parserSnapshot,resolverTrace,runtimeTickDump,renderContractSnapshot",
+      "reason": "No deterministic parser/resolver/runtime/render evidence packet exists for the exact dm_visualeffect 68 0 fixture."
+    },
+    {
+      "code": "VFX_RETAIL_COMPARISON_GAPS_OPEN",
+      "proofPoint": "comparison",
+      "reason": "The latest row-68 diagnostic comparison records open camera, material/lighting, screen-space composition, and timing gaps and is based on the scripted oracle."
+    }
+  ],
+  "nextSafeAction": "Complete the exact DM capture/context packet through the approved guarded or user-provided retail evidence workflow, then generate the four deterministic Web pipeline snapshots and a fresh exact-fixture comparison. Until then the strict parity gate must remain NO-GO.",
+  "policyRefs": [
+    "backend/docs/aurora-reverse/vfx-proof-standard-2026-07-13.md",
+    "backend/docs/aurora-reverse/proof-capture-safety-contract-2026-07-10.md"
+  ]
+}

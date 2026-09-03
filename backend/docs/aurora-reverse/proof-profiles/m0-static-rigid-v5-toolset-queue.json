@@ -1,0 +1,10 @@
+{
+  "version": "aurora-m0-toolset-queue/v1",
+  "profileId": "m0-static-rigid-v5",
+  "items": [
+    {
+      "name": "Meshy2Aurora M0 static runtime proof area",
+      "resref": "m2a_m0proof_area"
+    }
+  ]
+}
