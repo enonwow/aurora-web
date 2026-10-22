@@ -26,6 +26,14 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const [command, ...argv] = process.argv.slice(2);
+// Saved-file inspection must never enter the native preflight/error handler,
+// including malformed or currently unsupported entry-surface commands.
+if (String(command ?? "").startsWith("geometry-entry-surface-") || command === "geometry-finalize" || command === "validate-geometry") {
+  const { runEntrySurfaceInspectCommand } = await import("./lib/aurora-binary-entry-surface-inspection.mjs");
+  const result = runEntrySurfaceInspectCommand(command, argv);
+  print(result);
+  process.exit(result.ok ? 0 : 2);
+}
 const options = parseArgs(argv);
 const profilePath = requiredPath(options.profile, "--profile");
 const outDir = requiredPath(options.outDir, "--outDir");
@@ -1486,7 +1494,9 @@ function observeGeometry(area) {
   if (!nativeSave.areaWasSaved || nativeSave.invalidLocationsDialog || nativeSave.inaccessibleObjectsDialog) fail("area_geometry_invalid", JSON.stringify(nativeSave));
 
   const postSaveProfile = JSON.parse(JSON.stringify(profile));
-  postSaveProfile.module.sha256 = sha256(profile.module.path);
+  const postSaveModuleBytes = readFileSync(profile.module.path);
+  postSaveProfile.module.sha256 = createHash("sha256").update(postSaveModuleBytes).digest("hex");
+  postSaveProfile.module.bytes = postSaveModuleBytes.length;
   const stagedProfilePath = resolve(outDir, "post-native-save-binary-bootstrap-profile.json");
   writeJson(stagedProfilePath, postSaveProfile);
   const postSaveStructural = atom("validate-aurora-toolset-binary-module-bootstrap.mjs", ["--mode", "preflight", "--profile", stagedProfilePath]);

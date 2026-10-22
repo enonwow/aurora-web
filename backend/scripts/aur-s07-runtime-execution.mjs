@@ -6,6 +6,8 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { selectFreshLogSlice } from "./lib/aurora-model-proof-120s-contract.mjs";
+import { validateGeometryArtifact } from "./lib/aurora-binary-entry-surface-workflow.mjs";
+import { assertRuntimeGeometryBinding } from "./lib/aur-s07-entry-geometry-binding.mjs";
 
 const SCRIPT_DIR = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const TEST_MODULE_ATOM = resolve(SCRIPT_DIR, "aurora-toolset-test-module-nonblocking.mjs");
@@ -163,6 +165,7 @@ function validateProfile(profile) {
     profile.geometryGate.sha256,
     "area_geometry_gate_hash_mismatch"
   );
+  assertRuntimeGeometryBinding(profile, validateGeometryArtifact(resolve(profile.geometryGate.artifact)));
   if (![USER_TEST_MODULE_MODE, CENTRAL_TEST_MODULE_MODE].includes(profile.launch?.mode) || profile.launch?.processName !== "nwmain") throw new Error("runtime_profile_launch_contract_invalid");
   if (profile.launch.mode === CENTRAL_TEST_MODULE_MODE && (!profile.module.path || !resolve(profile.module.path).toLowerCase().endsWith(".mod") || !existsSync(resolve(profile.module.path)))) throw new Error("runtime_profile_module_path_invalid");
   if (!Array.isArray(profile.fixtures) || profile.fixtures.length === 0 || !Array.isArray(profile.orderedHakList)) throw new Error("runtime_profile_fixture_or_hak_invalid");
